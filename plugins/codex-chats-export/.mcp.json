@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "codex-chats-export": {
+      "command": "bun",
+      "args": [
+        "run",
+        "./src/mcp-server.ts"
+      ],
+      "cwd": "."
+    }
+  }
+}

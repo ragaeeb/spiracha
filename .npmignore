@@ -1,0 +1,2 @@
+src/**/*.test.ts
+src/lib/codex-test-helpers.ts

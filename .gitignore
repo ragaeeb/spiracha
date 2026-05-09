@@ -1,0 +1,23 @@
+# Repo-root shared tooling only.
+# App workspaces live under `projects/<app>/` and may be separate nested git repos.
+
+/node_modules/
+/playwright-report/
+/.playwright-mcp/
+/test-results/
+/acceptance-report.json
+
+# Legacy app/output roots kept out of the repo-root worktree.
+/generated/
+
+# Frozen CLI snapshot for decoupled runs (see scripts/build-frozen.sh).
+/dist/
+
+# macOS
+.DS_Store
+
+# Local operator / LLM scratch.
+/.minimax
+/.codex-tmp
+/.claude
+/.tmp-playwright/

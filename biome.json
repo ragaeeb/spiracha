@@ -1,0 +1,130 @@
+{
+    "$schema": "https://biomejs.dev/schemas/latest/schema.json",
+    "assist": {
+        "actions": {
+            "source": {
+                "organizeImports": "on",
+                "useSortedKeys": {
+                    "level": "on",
+                    "options": {
+                        "sortOrder": "natural"
+                    }
+                }
+            }
+        }
+    },
+    "files": {
+        "ignoreUnknown": true,
+        "includes": [
+            "src/**",
+            "testing/**",
+            ".github/**",
+            "*.ts",
+            "*.mjs",
+            "*.js",
+            "*.json",
+            "*.md",
+            "*.json",
+            "!!**/node_modules",
+            "!!**/dist",
+            "!!coverage"
+        ]
+    },
+    "formatter": {
+        "enabled": true,
+        "indentStyle": "space",
+        "indentWidth": 4,
+        "lineWidth": 120
+    },
+    "javascript": {
+        "formatter": {
+            "arrowParentheses": "always",
+            "bracketSameLine": false,
+            "bracketSpacing": true,
+            "quoteStyle": "single",
+            "semicolons": "always",
+            "trailingCommas": "all"
+        }
+    },
+    "json": {
+        "formatter": {
+            "enabled": true
+        }
+    },
+    "linter": {
+        "enabled": true,
+        "rules": {
+            "complexity": {
+                "noExcessiveCognitiveComplexity": "warn",
+                "useArrowFunction": "warn"
+            },
+            "correctness": {
+                "noUnusedImports": {
+                    "fix": "safe",
+                    "level": "warn",
+                    "options": {}
+                }
+            },
+            "nursery": {
+                "noExcessiveLinesPerFile": {
+                    "level": "off",
+                    "options": {
+                        "maxLines": 600,
+                        "skipBlankLines": true
+                    }
+                },
+                "useSortedClasses": "on"
+            },
+            "recommended": true,
+            "style": {
+                "noInferrableTypes": "warn",
+                "noNonNullAssertion": "off",
+                "noRestrictedImports": {
+                    "level": "warn",
+                    "options": {
+                        "paths": {
+                            "node:fs": {
+                                "importNames": ["readFile", "readFileSync", "writeFile", "writeFileSync"],
+                                "message": "Use Bun.file(...).text() or Bun.file(...).json() for whole-file reads, and prefer Bun.write(...) for whole-file writes. Keep node:fs only for lower-level or non-Bun workflows."
+                            },
+                            "node:fs/promises": {
+                                "importNames": ["default", "readFile", "writeFile"],
+                                "message": "Use Bun.file(...).text() or Bun.file(...).json() for whole-file reads, and prefer Bun.write(...) for whole-file writes. Keep node:fs/promises for mkdir/rm, stats, copy/rename, locks, and other non-Bun workflows."
+                            }
+                        }
+                    }
+                },
+                "useBlockStatements": {
+                    "fix": "safe",
+                    "level": "warn",
+                    "options": {}
+                },
+                "useConsistentTypeDefinitions": {
+                    "fix": "safe",
+                    "level": "warn",
+                    "options": {
+                        "style": "type"
+                    }
+                },
+                "useImportType": {
+                    "fix": "safe",
+                    "level": "error",
+                    "options": {}
+                },
+                "useTemplate": "off"
+            },
+            "suspicious": {
+                "noAssignInExpressions": "off",
+                "noConsole": "off",
+                "noControlCharactersInRegex": "off",
+                "noExplicitAny": "off",
+                "noTemplateCurlyInString": "off"
+            }
+        }
+    },
+    "vcs": {
+        "clientKind": "git",
+        "enabled": true,
+        "useIgnoreFile": true
+    }
+}
