@@ -1,13 +1,13 @@
 import { Database } from 'bun:sqlite';
 import { access, lstat } from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import { stdin as input, stdout as output } from 'node:process';
 import { createInterface, type Interface } from 'node:readline/promises';
 import { checkbox } from '@inquirer/prompts';
 import { type ClaudeCliOptions, runClaudeExport } from './claude-exporter';
+import { resolveCodexThreadDbPath } from './codex-browser-db';
 import { type CodexCliOptions, runCodexExport } from './codex-exporter';
-import { DEFAULT_DB_PATH, DEFAULT_INPUT_DIR } from './codex-exporter-types';
+import { DEFAULT_INPUT_DIR } from './codex-exporter-types';
 import { type ExportFormat, expandHome, getPortablePathBasename } from './shared';
 
 type InteractiveTargetKind =
@@ -409,17 +409,7 @@ const listCodexProjects = (dbPath: string): string[] => {
 };
 
 const resolveInteractiveDbPath = (): string => {
-    const candidates = [DEFAULT_DB_PATH, path.join(os.homedir(), '.codex', 'sqlite', 'state_5.sqlite')];
-
-    for (const candidate of candidates) {
-        try {
-            const db = new Database(candidate, { readonly: true });
-            db.close();
-            return candidate;
-        } catch {}
-    }
-
-    throw new Error(`Unable to open Codex thread database. Tried: ${candidates.join(', ')}`);
+    return resolveCodexThreadDbPath();
 };
 
 const listThreadIdsForProjects = (dbPath: string, projectNames: string[]): string[] => {

@@ -2,8 +2,9 @@
 
 import { runExportChatsCli } from './export-chats';
 import { runExportClaudeCli } from './export-claude';
+import { runUiCli } from './ui-cli';
 
-type SpirachaCommandKind = 'codex' | 'claude' | 'help';
+type SpirachaCommandKind = 'codex' | 'claude' | 'help' | 'ui';
 
 type SpirachaInvocation = {
     kind: SpirachaCommandKind;
@@ -21,6 +22,10 @@ export const resolveSpirachaInvocation = (argv: string[]): SpirachaInvocation =>
         return { argv: rest, kind: 'codex' };
     }
 
+    if (firstArg === 'ui') {
+        return { argv: rest, kind: 'ui' };
+    }
+
     if (firstArg === '--help' || firstArg === '-h' || firstArg === 'help') {
         return { argv: [], kind: 'help' };
     }
@@ -36,10 +41,12 @@ export const getSpirachaHelpText = (): string => {
         '  spiracha',
         '  spiracha codex [Codex options]',
         '  spiracha claude [Claude options]',
+        '  spiracha ui [UI options]',
         '',
         'Commands:',
         '  codex   Export Codex chats (default when no subcommand is provided)',
         '  claude  Export a Claude transcript file or export directory',
+        '  ui      Launch the local browser UI for browsing Codex history',
         '',
         'Aliases:',
         '  codex-chats',
@@ -48,6 +55,7 @@ export const getSpirachaHelpText = (): string => {
         'For command-specific help:',
         '  spiracha codex --help',
         '  spiracha claude --help',
+        '  spiracha ui --help',
     ].join('\n');
 };
 
@@ -61,6 +69,11 @@ export const runSpirachaCli = async (argv = process.argv.slice(2)): Promise<void
 
     if (invocation.kind === 'claude') {
         await runExportClaudeCli(invocation.argv);
+        return;
+    }
+
+    if (invocation.kind === 'ui') {
+        await runUiCli(invocation.argv);
         return;
     }
 

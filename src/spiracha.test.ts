@@ -16,6 +16,13 @@ describe('spiracha dispatcher', () => {
         });
     });
 
+    it('should route the ui subcommand to the ui launcher', () => {
+        expect(resolveSpirachaInvocation(['ui', '--port', '43123', '--no-open'])).toEqual({
+            argv: ['--port', '43123', '--no-open'],
+            kind: 'ui',
+        });
+    });
+
     it('should default to Codex when no subcommand is provided', () => {
         expect(resolveSpirachaInvocation(['--project', 'summer'])).toEqual({
             argv: ['--project', 'summer'],
@@ -27,6 +34,7 @@ describe('spiracha dispatcher', () => {
         const helpText = getSpirachaHelpText();
         expect(helpText).toContain('spiracha claude [Claude options]');
         expect(helpText).toContain('spiracha codex [Codex options]');
+        expect(helpText).toContain('spiracha ui [UI options]');
         expect(resolveSpirachaInvocation(['--help'])).toEqual({
             argv: [],
             kind: 'help',

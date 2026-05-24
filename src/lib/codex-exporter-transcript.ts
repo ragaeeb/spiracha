@@ -1,4 +1,7 @@
+import { createReadStream } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import path from 'node:path';
+import { finished } from 'node:stream/promises';
 import { matchesFilters, toCodexRelativePath } from './codex-exporter-db';
 import type { CodexCliOptions, ExportTarget, MessageRecord, SessionMeta, ToolRecord } from './codex-exporter-types';
 import {
@@ -6,8 +9,11 @@ import {
     asString,
     cleanExtractedText,
     cleanInlineTitle,
+    createExportWriteStream,
     type ExportFormat,
+    finalizeExportWriteStream,
     formatInlineLiteral,
+    formatModelLabel,
     type JsonValue,
     type MetadataEntry,
     readJsonlObjects,
@@ -49,6 +55,61 @@ export const convertSessionFile = async (target: ExportTarget, options: CodexCli
     return parts.join('\n').trimEnd() + '\n';
 };
 
+type TranscriptTextTransform = (text: string) => string;
+
+export const writeSessionFileExport = async (
+    target: ExportTarget,
+    options: CodexCliOptions,
+    outputPath: string,
+    transform: TranscriptTextTransform = (text) => text,
+): Promise<boolean> => {
+    const transcriptOutputPath = `${outputPath}.transcript.tmp`;
+    const transcriptStream = await createExportWriteStream(transcriptOutputPath);
+    const state: CodexTranscriptState = {
+        sections: [],
+        sessionMeta: {},
+        startedTranscript: false,
+    };
+    let wroteSection = false;
+
+    try {
+        for await (const parsed of readJsonlObjects(target.sessionFile)) {
+            captureSessionMeta(parsed, state.sessionMeta);
+            const block = renderCodexTranscriptRecord(parsed, options, state);
+            if (!block) {
+                continue;
+            }
+
+            transcriptStream.write(transform(wroteSection ? `${getSectionSeparator(options)}${block}` : block));
+            wroteSection = true;
+        }
+    } catch (error) {
+        transcriptStream.destroy();
+        throw error;
+    }
+
+    await finalizeExportWriteStream(transcriptStream);
+
+    if (!matchesFilters(target.thread?.cwd ?? state.sessionMeta.cwd ?? null, options) || !wroteSection) {
+        await rm(transcriptOutputPath, { force: true });
+        return false;
+    }
+
+    const outputStream = await createExportWriteStream(outputPath);
+    const prefix = buildStreamExportPrefix(target, state.sessionMeta, options);
+    if (prefix) {
+        outputStream.write(transform(prefix));
+    }
+
+    const transcriptReadStream = createReadStream(transcriptOutputPath, { encoding: 'utf8' });
+    transcriptReadStream.pipe(outputStream, { end: false });
+    await finished(transcriptReadStream);
+    outputStream.write('\n');
+    await finalizeExportWriteStream(outputStream);
+    await rm(transcriptOutputPath, { force: true });
+    return true;
+};
+
 type CodexTranscriptState = {
     sessionMeta: SessionMeta;
     sections: string[];
@@ -69,46 +130,52 @@ const collectCodexTranscript = async (sessionFile: string, options: CodexCliOpti
     return state;
 };
 
+const getSectionSeparator = (options: CodexCliOptions) => {
+    return options.optimized ? '\n\n' : '\n';
+};
+
 const processCodexTranscriptRecord = (
     parsed: Record<string, JsonValue>,
     options: CodexCliOptions,
     state: CodexTranscriptState,
 ) => {
     captureSessionMeta(parsed, state.sessionMeta);
-
-    const message = extractMessageRecord(parsed);
-    if (message) {
-        processCodexMessageRecord(message, options, state);
-        return;
-    }
-
-    if (!options.includeTools) {
-        return;
-    }
-
-    const tool = extractToolRecord(parsed);
-    if (!tool) {
-        return;
-    }
-
-    const block = options.optimized
-        ? renderCompactToolBlock(tool, options.outputFormat)
-        : renderToolBlock(tool, options.outputFormat);
+    const block = renderCodexTranscriptRecord(parsed, options, state);
     if (block) {
         state.sections.push(block);
     }
 };
 
-const processCodexMessageRecord = (message: MessageRecord, options: CodexCliOptions, state: CodexTranscriptState) => {
-    if (options.optimized) {
-        processOptimizedCodexMessageRecord(message, options, state);
-        return;
+const renderCodexTranscriptRecord = (
+    parsed: Record<string, JsonValue>,
+    options: CodexCliOptions,
+    state: CodexTranscriptState,
+) => {
+    const message = extractMessageRecord(parsed);
+    if (message) {
+        return processCodexMessageRecord(message, options, state);
     }
 
-    const block = renderMessageBlock(message, options.outputFormat);
-    if (block) {
-        state.sections.push(block);
+    if (!options.includeTools) {
+        return '';
     }
+
+    const tool = extractToolRecord(parsed);
+    if (!tool) {
+        return '';
+    }
+
+    return options.optimized
+        ? renderCompactToolBlock(tool, options.outputFormat)
+        : renderToolBlock(tool, options.outputFormat);
+};
+
+const processCodexMessageRecord = (message: MessageRecord, options: CodexCliOptions, state: CodexTranscriptState) => {
+    if (options.optimized) {
+        return processOptimizedCodexMessageRecord(message, options, state);
+    }
+
+    return renderMessageBlock(message, options.outputFormat);
 };
 
 const processOptimizedCodexMessageRecord = (
@@ -117,25 +184,40 @@ const processOptimizedCodexMessageRecord = (
     state: CodexTranscriptState,
 ) => {
     if (message.role !== 'user' && message.role !== 'assistant') {
-        return;
+        return '';
     }
 
     const compact = compactMessageText(message, true);
     if (!compact) {
-        return;
+        return '';
     }
 
     if (!state.startedTranscript) {
         if (shouldSkipOptimizedPrelude(message.role, compact)) {
-            return;
+            return '';
         }
         state.startedTranscript = true;
     }
 
-    const rendered = renderCompactBlock(message, compact, options.outputFormat);
-    if (rendered) {
-        state.sections.push(rendered);
+    return renderCompactBlock(message, compact, options.outputFormat);
+};
+
+const buildStreamExportPrefix = (target: ExportTarget, sessionMeta: SessionMeta, options: CodexCliOptions) => {
+    if (options.optimized) {
+        return '';
     }
+
+    const title = getTitle(target, sessionMeta);
+    const metadata = buildMetadataEntries(target, sessionMeta, options);
+    const parts = [
+        renderDocumentTitle(title, options.outputFormat),
+        '',
+        renderMetadataBlock(metadata, options.outputFormat),
+    ]
+        .filter(Boolean)
+        .join('\n');
+
+    return `${parts}\n`;
 };
 
 export const compactMessageText = (message: MessageRecord, optimized: boolean): string => {
@@ -183,17 +265,18 @@ export const formatToolOutputSummary = (outputText: string, outputFormat: Export
 
 export const parseExecCommandArguments = (argumentsText?: string) => {
     if (!argumentsText) {
-        return { cmd: null as string | null, workdir: null as string | null };
+        return { argumentsParseFailed: false, cmd: null as string | null, workdir: null as string | null };
     }
 
     try {
         const parsed = JSON.parse(argumentsText) as Record<string, unknown>;
         return {
+            argumentsParseFailed: false,
             cmd: typeof parsed.cmd === 'string' ? parsed.cmd : null,
             workdir: typeof parsed.workdir === 'string' ? parsed.workdir : null,
         };
     } catch {
-        return { cmd: null as string | null, workdir: null as string | null };
+        return { argumentsParseFailed: true, cmd: null as string | null, workdir: null as string | null };
     }
 };
 
@@ -413,7 +496,7 @@ const normalizeMessage = (value: Record<string, JsonValue>): MessageRecord | nul
         return null;
     }
 
-    return { content, phase: phase ?? undefined, role };
+    return { content, model: asString(value.model), phase: phase ?? undefined, role };
 };
 
 const extractToolRecord = (parsed: Record<string, JsonValue>): ToolRecord | null => {
@@ -472,7 +555,7 @@ const renderMessageBlock = (message: MessageRecord, outputFormat: ExportFormat):
         return '';
     }
 
-    const title = message.role === 'user' ? 'User' : 'Assistant';
+    const title = message.role === 'user' ? 'User' : formatModelLabel(message.model);
     const body = message.phase ? `Phase: ${message.phase}\n\n${text}` : text;
 
     return renderSection(title, body, outputFormat);
@@ -489,7 +572,7 @@ const renderToolBlock = (tool: ToolRecord, outputFormat: ExportFormat): string =
 };
 
 const renderCompactBlock = (message: MessageRecord, text: string, outputFormat: ExportFormat): string => {
-    const prefix = message.role === 'user' ? 'U:' : 'A:';
+    const prefix = message.role === 'user' ? 'U:' : `${formatModelLabel(message.model)}:`;
     const lines = text.split('\n');
     const [firstLine, ...rest] = lines;
 
@@ -525,11 +608,12 @@ const stripPreviewBlock = (text: string): string => {
 
     const first = parts[0];
     const second = parts[1];
+    const isTranscriptHeading = (value: string) => /^##\s+.+$/i.test(value);
     const looksLikePreview =
         !/^([UA]):/i.test(first) &&
-        !/^##\s+(User|Assistant)\s*$/i.test(first) &&
+        !isTranscriptHeading(first) &&
         /^([UA]):/i.test(second) === false &&
-        /^##\s+(User|Assistant)\s*$/i.test(second);
+        isTranscriptHeading(second);
 
     if (!looksLikePreview) {
         return text.trim();
