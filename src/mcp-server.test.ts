@@ -45,6 +45,7 @@ describe('mcp server protocol', () => {
                 arguments: {
                     dbPath: fixture.dbPath,
                     deeplinks: [`codex://threads/${fixture.threadId}`],
+                    includeCommentary: true,
                     includeTools: true,
                     inputDir: fixture.inputDir,
                     outputDir: fixture.outputDir,

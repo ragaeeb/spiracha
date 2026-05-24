@@ -66,6 +66,7 @@ export const writeSessionFileExport = async (
     const transcriptOutputPath = `${outputPath}.transcript.tmp`;
     const transcriptStream = await createExportWriteStream(transcriptOutputPath);
     const state: CodexTranscriptState = {
+        assistantModel: target.thread?.model ?? null,
         sections: [],
         sessionMeta: {},
         startedTranscript: false,
@@ -111,6 +112,7 @@ export const writeSessionFileExport = async (
 };
 
 type CodexTranscriptState = {
+    assistantModel: string | null;
     sessionMeta: SessionMeta;
     sections: string[];
     startedTranscript: boolean;
@@ -118,6 +120,7 @@ type CodexTranscriptState = {
 
 const collectCodexTranscript = async (sessionFile: string, options: CodexCliOptions): Promise<CodexTranscriptState> => {
     const state: CodexTranscriptState = {
+        assistantModel: null,
         sections: [],
         sessionMeta: {},
         startedTranscript: false,
@@ -175,7 +178,7 @@ const processCodexMessageRecord = (message: MessageRecord, options: CodexCliOpti
         return processOptimizedCodexMessageRecord(message, options, state);
     }
 
-    return renderMessageBlock(message, options.outputFormat);
+    return renderMessageBlock(message, options.outputFormat, state.assistantModel, options.includeCommentary);
 };
 
 const processOptimizedCodexMessageRecord = (
@@ -184,6 +187,10 @@ const processOptimizedCodexMessageRecord = (
     state: CodexTranscriptState,
 ) => {
     if (message.role !== 'user' && message.role !== 'assistant') {
+        return '';
+    }
+
+    if (message.role === 'assistant' && message.phase === 'commentary' && !options.includeCommentary) {
         return '';
     }
 
@@ -199,7 +206,7 @@ const processOptimizedCodexMessageRecord = (
         state.startedTranscript = true;
     }
 
-    return renderCompactBlock(message, compact, options.outputFormat);
+    return renderCompactBlock(message, compact, options.outputFormat, state.assistantModel);
 };
 
 const buildStreamExportPrefix = (target: ExportTarget, sessionMeta: SessionMeta, options: CodexCliOptions) => {
@@ -480,7 +487,11 @@ const extractMessageRecord = (parsed: Record<string, JsonValue>): MessageRecord 
     }
 
     const payload = asObject(parsed.payload);
-    if (!payload || payload.type !== 'message') {
+    if (!payload) {
+        return null;
+    }
+
+    if (payload.type !== 'message' && payload.type !== 'agent_message' && payload.type !== 'user_message') {
         return null;
     }
 
@@ -488,8 +499,10 @@ const extractMessageRecord = (parsed: Record<string, JsonValue>): MessageRecord 
 };
 
 const normalizeMessage = (value: Record<string, JsonValue>): MessageRecord | null => {
-    const role = asString(value.role);
-    const content = value.content;
+    const type = asString(value.type);
+    const role =
+        asString(value.role) ?? (type === 'agent_message' ? 'assistant' : type === 'user_message' ? 'user' : null);
+    const content = value.content ?? asString(value.message);
     const phase = asString(value.phase);
 
     if (!role || content === undefined) {
@@ -545,8 +558,17 @@ const extractToolRecord = (parsed: Record<string, JsonValue>): ToolRecord | null
     return null;
 };
 
-const renderMessageBlock = (message: MessageRecord, outputFormat: ExportFormat): string => {
+const renderMessageBlock = (
+    message: MessageRecord,
+    outputFormat: ExportFormat,
+    assistantModel: string | null,
+    includeCommentary: boolean,
+): string => {
     if (message.role !== 'user' && message.role !== 'assistant') {
+        return '';
+    }
+
+    if (message.role === 'assistant' && message.phase === 'commentary' && !includeCommentary) {
         return '';
     }
 
@@ -555,7 +577,7 @@ const renderMessageBlock = (message: MessageRecord, outputFormat: ExportFormat):
         return '';
     }
 
-    const title = message.role === 'user' ? 'User' : formatModelLabel(message.model);
+    const title = message.role === 'user' ? 'User' : formatModelLabel(message.model ?? assistantModel);
     const body = message.phase ? `Phase: ${message.phase}\n\n${text}` : text;
 
     return renderSection(title, body, outputFormat);
@@ -571,8 +593,13 @@ const renderToolBlock = (tool: ToolRecord, outputFormat: ExportFormat): string =
     return summary ? renderSection('Tool Output', summary, outputFormat) : '';
 };
 
-const renderCompactBlock = (message: MessageRecord, text: string, outputFormat: ExportFormat): string => {
-    const prefix = message.role === 'user' ? 'U:' : `${formatModelLabel(message.model)}:`;
+const renderCompactBlock = (
+    message: MessageRecord,
+    text: string,
+    outputFormat: ExportFormat,
+    assistantModel: string | null,
+): string => {
+    const prefix = message.role === 'user' ? 'U:' : `${formatModelLabel(message.model ?? assistantModel)}:`;
     const lines = text.split('\n');
     const [firstLine, ...rest] = lines;
 

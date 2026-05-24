@@ -47,6 +47,7 @@ const analyticsSchema = z.object({
 
 const exportSchema = z.object({
     convertToProjectRoot: z.boolean(),
+    includeCommentary: z.boolean(),
     includeTools: z.boolean(),
     optimized: z.boolean(),
     outputFormat: z.enum(['md', 'txt']),
@@ -56,6 +57,7 @@ const exportSchema = z.object({
 
 const exportThreadsSchema = z.object({
     convertToProjectRoot: z.boolean(),
+    includeCommentary: z.boolean(),
     includeTools: z.boolean(),
     optimized: z.boolean(),
     outputFormat: z.enum(['md', 'txt']),
@@ -140,6 +142,7 @@ export const exportThreadFn = createServerFn({ method: 'POST' })
     .handler(async ({ data }) => {
         return renderCodexThreadDownload({
             dbPath: getDbPath(),
+            includeCommentary: data.includeCommentary,
             includeTools: data.includeTools,
             optimized: data.optimized,
             outputFormat: data.outputFormat,
@@ -156,6 +159,7 @@ export const exportThreadsFn = createServerFn({ method: 'POST' })
     .handler(async ({ data }) => {
         return renderCodexThreadsDownload({
             dbPath: getDbPath(),
+            includeCommentary: data.includeCommentary,
             includeTools: data.includeTools,
             optimized: data.optimized,
             outputFormat: data.outputFormat,

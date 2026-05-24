@@ -11,6 +11,7 @@ export const parseCodexCliArgs = (argv: string[]): CodexCliOptions => {
     let threadIds: string[] = [];
     let outputProvided = false;
     let optimized = false;
+    let includeCommentary = true;
     let includeTools = false;
     let outputFormat: ExportFormat = 'md';
     let flat = false;
@@ -20,6 +21,7 @@ export const parseCodexCliArgs = (argv: string[]): CodexCliOptions => {
             cwdFilter,
             dbPath,
             flat,
+            includeCommentary,
             includeTools,
             inputDir,
             optimized,
@@ -34,6 +36,7 @@ export const parseCodexCliArgs = (argv: string[]): CodexCliOptions => {
             cwdFilter,
             dbPath,
             flat,
+            includeCommentary,
             includeTools,
             inputDir,
             optimized,
@@ -54,6 +57,7 @@ export const parseCodexCliArgs = (argv: string[]): CodexCliOptions => {
         cwdFilter,
         dbPath,
         flat,
+        includeCommentary,
         includeTools,
         inputDir,
         optimized,
@@ -68,6 +72,7 @@ type CodexCliState = {
     cwdFilter: string | null;
     dbPath: string;
     flat: boolean;
+    includeCommentary: boolean;
     includeTools: boolean;
     inputDir: string;
     optimized: boolean;

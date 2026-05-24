@@ -90,7 +90,12 @@ function ProjectDetailPage() {
     });
 
     const exportThreadMutation = useMutation({
-        mutationFn: async (options: { includeTools: boolean; optimized: boolean; outputFormat: 'md' | 'txt' }) => {
+        mutationFn: async (options: {
+            includeCommentary: boolean;
+            includeTools: boolean;
+            optimized: boolean;
+            outputFormat: 'md' | 'txt';
+        }) => {
             if (!pendingExport) {
                 throw new Error('No thread selected for export');
             }

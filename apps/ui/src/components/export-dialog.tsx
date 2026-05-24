@@ -15,7 +15,12 @@ type ExportDialogProps = {
     open: boolean;
     pending?: boolean;
     title?: string;
-    onExport: (options: { includeTools: boolean; optimized: boolean; outputFormat: 'md' | 'txt' }) => void;
+    onExport: (options: {
+        includeCommentary: boolean;
+        includeTools: boolean;
+        optimized: boolean;
+        outputFormat: 'md' | 'txt';
+    }) => void;
     onOpenChange: (open: boolean) => void;
 };
 
@@ -28,6 +33,7 @@ export function ExportDialog({
 }: ExportDialogProps) {
     const [outputFormat, setOutputFormat] = useState<'md' | 'txt'>('md');
     const [optimized, setOptimized] = useState(false);
+    const [includeCommentary, setIncludeCommentary] = useState(false);
     const [includeTools, setIncludeTools] = useState(true);
 
     return (
@@ -71,6 +77,19 @@ export function ExportDialog({
 
                     <div className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--panel-secondary)] p-3">
                         <Checkbox
+                            checked={includeCommentary}
+                            onCheckedChange={(checked) => setIncludeCommentary(checked === true)}
+                        />
+                        <span className="space-y-1">
+                            <span className="block font-medium text-sm">Include commentary</span>
+                            <span className="block text-[var(--muted-foreground)] text-sm">
+                                Includes assistant commentary-phase updates in the exported transcript.
+                            </span>
+                        </span>
+                    </div>
+
+                    <div className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--panel-secondary)] p-3">
+                        <Checkbox
                             checked={includeTools}
                             onCheckedChange={(checked) => setIncludeTools(checked === true)}
                         />
@@ -90,7 +109,7 @@ export function ExportDialog({
                     <Button
                         className="rounded-full"
                         disabled={pending}
-                        onClick={() => onExport({ includeTools, optimized, outputFormat })}
+                        onClick={() => onExport({ includeCommentary, includeTools, optimized, outputFormat })}
                     >
                         {pending ? 'Exporting...' : 'Download export'}
                     </Button>

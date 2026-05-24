@@ -11,6 +11,7 @@ describe('ExportDialog', () => {
         fireEvent.click(screen.getByText('Download export'));
 
         expect(onExport).toHaveBeenCalledWith({
+            includeCommentary: false,
             includeTools: true,
             optimized: false,
             outputFormat: 'md',
@@ -26,11 +27,13 @@ describe('ExportDialog', () => {
 
         try {
             fireEvent.click(screen.getAllByRole('checkbox')[0]);
+            fireEvent.click(screen.getAllByRole('checkbox')[1]);
             fireEvent.click(screen.getByRole('combobox'));
             fireEvent.click(screen.getByText('Plain text (.txt)'));
             fireEvent.click(screen.getAllByRole('button', { name: 'Download export' })[0]!);
 
             expect(onExport).toHaveBeenCalledWith({
+                includeCommentary: true,
                 includeTools: true,
                 optimized: true,
                 outputFormat: 'txt',

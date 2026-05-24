@@ -10,6 +10,7 @@ import { buildUiExportDownloadUrl, ensureUiExportDir } from './ui-export-files';
 
 type RenderCodexThreadDownloadInput = {
     dbPath: string;
+    includeCommentary: boolean;
     includeTools: boolean;
     largeExportThresholdBytes?: number;
     optimized: boolean;
@@ -88,6 +89,7 @@ const toDownloadOptions = (input: RenderCodexThreadDownloadInput): CodexCliOptio
         cwdFilter: null,
         dbPath: input.dbPath,
         flat: false,
+        includeCommentary: input.includeCommentary,
         includeTools: input.includeTools,
         inputDir: '',
         optimized: input.optimized,

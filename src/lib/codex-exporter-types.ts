@@ -10,6 +10,7 @@ export type CodexCliOptions = {
     projectFilter: string | null;
     threadIds: string[];
     optimized: boolean;
+    includeCommentary: boolean;
     includeTools: boolean;
     outputFormat: ExportFormat;
     flat: boolean;

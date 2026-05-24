@@ -309,6 +309,7 @@ const promptForCommonCodexOptions = async (
 ): Promise<CodexCliOptions> => {
     const outputFormat = await promptForOutputFormat(rl);
     const optimized = await promptYesNo(rl, 'Use optimized output? [y/N]: ', false);
+    const includeCommentary = await promptYesNo(rl, 'Include commentary messages? [y/N]: ', false);
     const includeTools = await promptYesNo(rl, 'Include tool logs? [y/N]: ', false);
     const flat = await promptYesNo(rl, 'Write to a flat output folder? [y/N]: ', false);
     const outputDir = await promptOptionalPath(rl, 'Optional output directory (leave blank for default):\n> ');
@@ -317,6 +318,7 @@ const promptForCommonCodexOptions = async (
         cwdFilter: target.cwdFilter,
         dbPath,
         flat,
+        includeCommentary,
         includeTools,
         inputDir: DEFAULT_INPUT_DIR,
         optimized,

@@ -75,6 +75,7 @@ describe('codex exporter transcript helpers', () => {
                 cwdFilter: null,
                 dbPath: fixture.dbPath,
                 flat: false,
+                includeCommentary: true,
                 includeTools: false,
                 inputDir: fixture.inputDir,
                 optimized: false,

@@ -59,6 +59,7 @@ server.registerTool(
             cwdFilter,
             dbPath: expandHome(args.dbPath ?? DEFAULT_DB_PATH),
             flat: args.flat ?? false,
+            includeCommentary: true,
             includeTools: args.includeTools ?? false,
             inputDir: expandHome(args.inputDir ?? DEFAULT_INPUT_DIR),
             optimized: args.optimized ?? false,

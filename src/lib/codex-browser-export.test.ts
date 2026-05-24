@@ -27,6 +27,7 @@ describe('renderCodexThreadDownload', () => {
 
         const download = await renderCodexThreadDownload({
             dbPath: fixture.dbPath,
+            includeCommentary: true,
             includeTools: true,
             optimized: false,
             outputFormat: 'md',
@@ -51,6 +52,7 @@ describe('renderCodexThreadDownload', () => {
 
         const download = await renderCodexThreadDownload({
             dbPath: fixture.dbPath,
+            includeCommentary: true,
             includeTools: true,
             optimized: false,
             outputFormat: 'md',
@@ -70,6 +72,29 @@ describe('renderCodexThreadDownload', () => {
         expect(download.content).toContain('~/workspace/other-project/docs/notes.md');
     });
 
+    it('should omit commentary-phase assistant messages when export commentary is disabled', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-export-commentary-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+
+        const download = await renderCodexThreadDownload({
+            dbPath: fixture.dbPath,
+            includeCommentary: false,
+            includeTools: true,
+            optimized: false,
+            outputFormat: 'md',
+            threadId: fixture.threads[0]!.threadId,
+        });
+
+        expect(download.mode).toBe('download');
+        if (download.mode !== 'download') {
+            throw new Error('expected inline download mode');
+        }
+        expect(download.content).not.toContain('Reviewing the repo guidance first.');
+        expect(download.content).toContain('## GPT 5.4');
+        expect(download.content).not.toContain('## Assistant');
+    });
+
     it('should zip oversized exports and return a downloadable url instead of inline transcript content', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-export-large-test-'));
         tempPaths.push(tempRoot);
@@ -77,6 +102,7 @@ describe('renderCodexThreadDownload', () => {
 
         const download = await renderCodexThreadDownload({
             dbPath: fixture.dbPath,
+            includeCommentary: true,
             includeTools: true,
             largeExportThresholdBytes: 1,
             optimized: false,
@@ -103,6 +129,7 @@ describe('renderCodexThreadDownload', () => {
 
         const download = await renderCodexThreadDownload({
             dbPath: fixture.dbPath,
+            includeCommentary: true,
             includeTools: true,
             largeExportThresholdBytes: 1,
             optimized: false,
@@ -124,6 +151,7 @@ describe('renderCodexThreadDownload', () => {
 
         const download = await renderCodexThreadsDownload({
             dbPath: fixture.dbPath,
+            includeCommentary: true,
             includeTools: true,
             optimized: false,
             outputFormat: 'md',
@@ -148,6 +176,7 @@ describe('renderCodexThreadDownload', () => {
 
         const firstDownload = await renderCodexThreadsDownload({
             dbPath: fixture.dbPath,
+            includeCommentary: true,
             includeTools: true,
             optimized: false,
             outputFormat: 'md',
@@ -156,6 +185,7 @@ describe('renderCodexThreadDownload', () => {
         });
         const secondDownload = await renderCodexThreadsDownload({
             dbPath: fixture.dbPath,
+            includeCommentary: true,
             includeTools: true,
             optimized: false,
             outputFormat: 'md',
