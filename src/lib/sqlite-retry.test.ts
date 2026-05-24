@@ -46,4 +46,39 @@ describe('sqlite retry helpers', () => {
         ).toThrow('bad sql');
         expect(attempts).toBe(1);
     });
+
+    it('should stop retrying after the configured retry budget is exhausted', () => {
+        let attempts = 0;
+
+        expect(() =>
+            runWithSqliteRetry({
+                action: () => {
+                    attempts += 1;
+                    throw new Error('database is locked');
+                },
+                delaysMs: [1],
+                sleep: () => {},
+            }),
+        ).toThrow('database is locked');
+        expect(attempts).toBe(2);
+    });
+
+    it('should tolerate zero-delay retries with the default synchronous sleeper', () => {
+        let attempts = 0;
+
+        const result = runWithSqliteRetry({
+            action: () => {
+                attempts += 1;
+                if (attempts === 1) {
+                    throw new Error('unable to open database file');
+                }
+
+                return 'ok';
+            },
+            delaysMs: [0],
+        });
+
+        expect(result).toBe('ok');
+        expect(attempts).toBe(2);
+    });
 });

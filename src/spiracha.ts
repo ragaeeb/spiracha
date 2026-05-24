@@ -1,9 +1,5 @@
 #!/usr/bin/env bun
 
-import { runExportChatsCli } from './export-chats';
-import { runExportClaudeCli } from './export-claude';
-import { runUiCli } from './ui-cli';
-
 type SpirachaCommandKind = 'codex' | 'claude' | 'help' | 'ui';
 
 type SpirachaInvocation = {
@@ -68,15 +64,18 @@ export const runSpirachaCli = async (argv = process.argv.slice(2)): Promise<void
     }
 
     if (invocation.kind === 'claude') {
+        const { runExportClaudeCli } = await import('./export-claude');
         await runExportClaudeCli(invocation.argv);
         return;
     }
 
     if (invocation.kind === 'ui') {
+        const { runUiCli } = await import('./ui-cli');
         await runUiCli(invocation.argv);
         return;
     }
 
+    const { runExportChatsCli } = await import('./export-chats');
     await runExportChatsCli(invocation.argv);
 };
 

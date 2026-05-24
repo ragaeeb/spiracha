@@ -26,7 +26,7 @@ export const convertSessionFile = async (target: ExportTarget, options: CodexCli
     let transcriptState: CodexTranscriptState;
 
     try {
-        transcriptState = await collectCodexTranscript(target.sessionFile, options);
+        transcriptState = await collectCodexTranscript(target.sessionFile, options, target.thread?.model ?? null);
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         throw new Error(`Failed to read Codex transcript ${target.sessionFile}: ${message}`);
@@ -118,9 +118,13 @@ type CodexTranscriptState = {
     startedTranscript: boolean;
 };
 
-const collectCodexTranscript = async (sessionFile: string, options: CodexCliOptions): Promise<CodexTranscriptState> => {
+const collectCodexTranscript = async (
+    sessionFile: string,
+    options: CodexCliOptions,
+    assistantModel: string | null = null,
+): Promise<CodexTranscriptState> => {
     const state: CodexTranscriptState = {
-        assistantModel: null,
+        assistantModel,
         sections: [],
         sessionMeta: {},
         startedTranscript: false,

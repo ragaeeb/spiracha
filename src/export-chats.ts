@@ -5,7 +5,7 @@ import path from 'node:path';
 import { stdin as input, stdout as output } from 'node:process';
 import { createInterface } from 'node:readline/promises';
 import { getCodexHelpText, parseCodexCliArgs, runCodexExport } from './lib/codex-exporter';
-import { runInteractiveExport } from './lib/interactive-cli';
+import type { InteractiveExportResult } from './lib/interactive-cli';
 import { openPathNatively } from './lib/native-open';
 import { CliUsageError } from './lib/shared';
 
@@ -44,6 +44,7 @@ const shouldRunInteractive = (argv: string[]): boolean => {
 };
 
 const runInteractiveCliFlow = async (): Promise<void> => {
+    const { runInteractiveExport } = await import('./lib/interactive-cli');
     const result = await runInteractiveExport();
     const targetFolder = await printInteractiveExportResult(result);
     await maybeOpenExportFolder(targetFolder);
@@ -55,9 +56,7 @@ const runCodexCliFlow = async (argv: string[]): Promise<void> => {
     printCodexExportResult(result);
 };
 
-const printInteractiveExportResult = async (
-    result: Awaited<ReturnType<typeof runInteractiveExport>>,
-): Promise<string> => {
+const printInteractiveExportResult = async (result: InteractiveExportResult): Promise<string> => {
     if (result.mode === 'claude') {
         console.log(`Exported ${result.sourcePath} -> ${result.outputPath}`);
         return resolveExportFolder(result.outputPath);

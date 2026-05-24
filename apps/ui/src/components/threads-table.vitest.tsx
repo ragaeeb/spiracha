@@ -1,7 +1,7 @@
 import type { ThreadListEntry } from '@spiracha/lib/codex-browser-types';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ThreadsTable } from './threads-table';
 
 vi.mock('@tanstack/react-router', async () => {
@@ -32,6 +32,17 @@ vi.mock('#/components/data-table', async () => {
     const actual = await vi.importActual<typeof import('./data-table')>('./data-table');
     return actual;
 });
+
+vi.mock('#/components/ui/dropdown-menu', () => ({
+    DropdownMenu: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+    DropdownMenuContent: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+    DropdownMenuItem: ({ children, onClick }: { children: ReactNode; onClick?: () => void }) => (
+        <button type="button" onClick={onClick}>
+            {children}
+        </button>
+    ),
+    DropdownMenuTrigger: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+}));
 
 const threadEntry: ThreadListEntry = {
     project: 'ushman',
@@ -74,6 +85,10 @@ const threadEntry: ThreadListEntry = {
         updated_at_ms: 2,
     },
 };
+
+afterEach(() => {
+    cleanup();
+});
 
 describe('ThreadsTable', () => {
     it('should allow selecting multiple threads and trigger bulk actions', () => {
@@ -159,5 +174,26 @@ describe('ThreadsTable', () => {
         );
 
         expect(screen.getAllByText('3.0 GB').length).toBeGreaterThan(0);
+    });
+
+    it('should trigger single-thread export and delete actions from the row menu', async () => {
+        const onDeleteThread = vi.fn();
+        const onExportThread = vi.fn();
+
+        render(
+            <ThreadsTable
+                onDeleteThread={onDeleteThread}
+                onDeleteThreads={vi.fn()}
+                onExportThread={onExportThread}
+                onExportThreads={vi.fn()}
+                threads={[threadEntry]}
+            />,
+        );
+
+        fireEvent.click(await screen.findByText('Export thread'));
+        fireEvent.click(await screen.findByText('Delete thread'));
+
+        expect(onExportThread).toHaveBeenCalledWith(threadEntry);
+        expect(onDeleteThread).toHaveBeenCalledWith(threadEntry);
     });
 });

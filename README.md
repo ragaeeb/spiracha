@@ -167,6 +167,7 @@ bun test
 bun run lint
 bun run typecheck
 bun run build
+bun run coverage
 bun run ui:dev
 cd apps/ui && bun run test
 bun run test:perf
@@ -193,6 +194,14 @@ bunx --package "$package_tgz" codex-chats --help
 bunx --package "$package_tgz" codex-chats-claude --help
 ```
 
+For the exact packaged UI launch path, run:
+
+```bash
+bun run smoke:package-ui
+```
+
+This builds the app, packs the tarball, launches `bunx --package <tgz> spiracha ui --no-open` from a clean temp directory, probes the running UI over HTTP, and shuts it down.
+
 ## Project Layout
 
 - `apps/ui/`: TanStack Start browser app for browsing, analytics, export, and delete flows
@@ -214,6 +223,11 @@ The test suite includes:
 - transcript rendering helper tests
 - MCP stdio protocol round-trip tests
 - local packaging should be smoke-tested with a packed tarball before publishing
+
+Coverage enforcement:
+- `bun run coverage:root` checks the root Bun unit-test surface at a minimum of 90% line coverage.
+- `bun run coverage:ui` checks the UI unit-test surface at a minimum of 90% line coverage.
+- `bun run coverage` runs both checks.
 
 Run:
 

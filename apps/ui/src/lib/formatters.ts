@@ -1,6 +1,57 @@
-// Month abbreviations are fixed strings — deterministic regardless of locale,
-// which avoids SSR/client hydration mismatches.
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+type DateTimeFormatOptions = {
+    now?: Date;
+    timeZone?: string;
+};
+
+type DateTimeFormatterSet = {
+    dayKeyFormatter: Intl.DateTimeFormat;
+    timePartsFormatter: Intl.DateTimeFormat;
+};
+
+const DATE_TIME_FORMATTERS = new Map<string, DateTimeFormatterSet>();
+
+const getDateTimeFormatters = (timeZone?: string): DateTimeFormatterSet => {
+    const cacheKey = timeZone ?? 'local';
+    const cached = DATE_TIME_FORMATTERS.get(cacheKey);
+    if (cached) {
+        return cached;
+    }
+
+    const created = {
+        dayKeyFormatter: new Intl.DateTimeFormat('en-CA', {
+            day: '2-digit',
+            month: '2-digit',
+            timeZone,
+            year: 'numeric',
+        }),
+        timePartsFormatter: new Intl.DateTimeFormat('en-US', {
+            day: 'numeric',
+            hour: 'numeric',
+            hour12: true,
+            minute: '2-digit',
+            month: 'short',
+            timeZone,
+        }),
+    };
+
+    DATE_TIME_FORMATTERS.set(cacheKey, created);
+    return created;
+};
+
+const buildDayKey = (date: Date, timeZone?: string) => {
+    return getDateTimeFormatters(timeZone).dayKeyFormatter.format(date);
+};
+
+const formatTimeParts = (date: Date, timeZone?: string) => {
+    const parts = getDateTimeFormatters(timeZone).timePartsFormatter.formatToParts(date);
+    const partMap = new Map(parts.map((part) => [part.type, part.value]));
+
+    return {
+        day: partMap.get('day') ?? '',
+        month: partMap.get('month') ?? '',
+        time: `${partMap.get('hour') ?? ''}:${partMap.get('minute') ?? ''} ${partMap.get('dayPeriod') ?? ''}`.trim(),
+    };
+};
 
 export const formatNumber = (value: number) => {
     return new Intl.NumberFormat('en-US').format(value);
@@ -28,7 +79,10 @@ export const formatBytes = (value: number | null | undefined) => {
     return `${size.toFixed(fractionDigits)} ${units[unitIndex]}`;
 };
 
-export const formatDateTime = (value: number | string | null | undefined): string => {
+export const formatDateTime = (
+    value: number | string | null | undefined,
+    options: DateTimeFormatOptions = {},
+): string => {
     if (value === null || value === undefined || value === '') {
         return 'n/a';
     }
@@ -38,24 +92,15 @@ export const formatDateTime = (value: number | string | null | undefined): strin
         return 'n/a';
     }
 
-    // Format as locale-specific concise time: "May 16 · 2:30 PM" or "2:30 PM" if today
-    const today = new Date();
-    const isToday =
-        date.getUTCDate() === today.getUTCDate() &&
-        date.getUTCMonth() === today.getUTCMonth() &&
-        date.getUTCFullYear() === today.getUTCFullYear();
-
-    const month = MONTHS[date.getUTCMonth()];
-    const day = date.getUTCDate();
-    const hours12 = date.getUTCHours() % 12 || 12;
-    const minutes = String(date.getUTCMinutes()).padStart(2, '0');
-    const ampm = date.getUTCHours() >= 12 ? 'PM' : 'AM';
+    const now = options.now ?? new Date();
+    const { day, month, time } = formatTimeParts(date, options.timeZone);
+    const isToday = buildDayKey(date, options.timeZone) === buildDayKey(now, options.timeZone);
 
     if (isToday) {
-        return `${hours12}:${minutes} ${ampm}`;
+        return time;
     }
 
-    return `${month} ${day} · ${hours12}:${minutes} ${ampm}`;
+    return `${month} ${day} · ${time}`;
 };
 
 export const formatList = (values: string[]) => {

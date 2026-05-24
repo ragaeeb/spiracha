@@ -451,4 +451,104 @@ describe('TranscriptView', () => {
             ),
         );
     });
+
+    it('should render extra event kinds and raw json when those toggles are enabled', () => {
+        render(
+            <TranscriptView
+                assistantModel="gpt-5.4"
+                events={[
+                    {
+                        collaborationModeKind: 'default',
+                        kind: 'task_started',
+                        modelContextWindow: 123456,
+                        raw: { type: 'task_started' },
+                        sequence: 20,
+                        startedAt: 1715964571109,
+                        timestamp: '2026-05-17T16:49:31.109Z',
+                        turnId: 'turn-1',
+                    },
+                    {
+                        completedAt: 1715964572109,
+                        durationMs: 55,
+                        kind: 'task_complete',
+                        lastAgentMessage: null,
+                        raw: { type: 'task_complete' },
+                        sequence: 21,
+                        timestamp: '2026-05-17T16:49:32.109Z',
+                        timeToFirstTokenMs: 7,
+                        turnId: 'turn-1',
+                    },
+                    {
+                        info: { bucket: 'primary' },
+                        kind: 'token_count',
+                        rateLimits: { primary: 1 },
+                        raw: { type: 'token_count' },
+                        sequence: 22,
+                        timestamp: '2026-05-17T16:49:33.109Z',
+                    },
+                    {
+                        content: { encrypted: true },
+                        hasEncryptedContent: true,
+                        kind: 'reasoning',
+                        raw: { type: 'reasoning' },
+                        sequence: 23,
+                        summary: ['step', 'one'],
+                        timestamp: '2026-05-17T16:49:34.109Z',
+                    },
+                    {
+                        action: { engine: 'web' },
+                        callId: 'search-1',
+                        kind: 'web_search',
+                        phase: 'call',
+                        query: 'how to export codex chats',
+                        raw: { type: 'web_search_call' },
+                        sequence: 24,
+                        status: 'running',
+                        timestamp: '2026-05-17T16:49:35.109Z',
+                    },
+                ]}
+                projectPath="/Users/example/workspace/spiracha"
+                showCommentary={false}
+                showExtraEvents
+                showRawJson
+                showToolCalls={false}
+            />,
+        );
+
+        expect(screen.getByText(/Context window: 123456/)).toBeTruthy();
+        expect(screen.getByText(/Duration: 55 ms/)).toBeTruthy();
+        expect(screen.getByText(/"primary": 1/)).toBeTruthy();
+        expect(screen.getByText('Encrypted reasoning payload captured.')).toBeTruthy();
+        expect(screen.getByText('how to export codex chats')).toBeTruthy();
+        expect(screen.getAllByText(/"type":/).length).toBeGreaterThan(0);
+    });
+
+    it('should select all visible events from the sticky toolbar', async () => {
+        const writeText = vi.fn().mockResolvedValue(undefined);
+        Object.assign(navigator, {
+            clipboard: { writeText },
+        });
+
+        render(
+            <TranscriptView
+                assistantModel={null}
+                events={[messageEvent, { ...toolEvent, sequence: 30 }]}
+                projectPath="/Users/example/workspace/spiracha"
+                showCommentary={false}
+                showExtraEvents={false}
+                showRawJson={false}
+                showToolCalls
+            />,
+        );
+
+        fireEvent.click(screen.getAllByRole('checkbox')[0]!);
+        fireEvent.click(screen.getAllByRole('button', { name: 'Copy selected messages' })[0]!);
+
+        expect(writeText).toHaveBeenCalledWith(
+            [
+                '## User\n\nBuild the UI',
+                '## Tool call: exec_command\n\nrtk bun test\n\n/Users/example/workspace/spiracha',
+            ].join('\n\n'),
+        );
+    });
 });

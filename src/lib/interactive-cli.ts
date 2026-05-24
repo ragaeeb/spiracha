@@ -23,7 +23,7 @@ type InteractiveInference = {
     value: string | null;
 };
 
-type InteractiveExportResult =
+export type InteractiveExportResult =
     | {
           mode: 'codex';
           outputDir: string;
