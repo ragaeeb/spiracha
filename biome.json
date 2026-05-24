@@ -16,6 +16,8 @@
     "files": {
         "ignoreUnknown": true,
         "includes": [
+            "apps/**",
+            "docs/**",
             "src/**",
             "testing/**",
             ".github/**",
@@ -25,6 +27,8 @@
             "*.json",
             "*.md",
             "*.json",
+            "!!apps/ui/src/styles.css",
+            "!!apps/ui/src/routeTree.gen.ts",
             "!!**/node_modules",
             "!!**/dist",
             "!!coverage"
@@ -55,7 +59,12 @@
         "enabled": true,
         "rules": {
             "complexity": {
-                "noExcessiveCognitiveComplexity": "warn",
+                "noExcessiveCognitiveComplexity": {
+                    "level": "error",
+                    "options": {
+                        "maxAllowedComplexity": 15
+                    }
+                },
                 "useArrowFunction": "warn"
             },
             "correctness": {

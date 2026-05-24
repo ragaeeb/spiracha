@@ -21,3 +21,6 @@
 /.codex-tmp
 /.claude
 /.tmp-playwright/
+/reviews/
+/.codex/
+/*.tgz

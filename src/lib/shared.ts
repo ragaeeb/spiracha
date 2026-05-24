@@ -1,8 +1,9 @@
-import { createReadStream } from 'node:fs';
+import { createReadStream, createWriteStream } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
+import { finished } from 'node:stream/promises';
 
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 
@@ -57,6 +58,31 @@ export const cleanInlineTitle = (value: string): string => {
 
 export const cleanExtractedText = (text: string): string => {
     return text.replace(/^\s*<\/?image>\s*$/gm, '').replace(/\n{3,}/g, '\n\n');
+};
+
+export const formatModelLabel = (value: string | null | undefined): string => {
+    if (!value) {
+        return 'Assistant';
+    }
+
+    return value
+        .split(/[-_\s]+/u)
+        .filter(Boolean)
+        .map((part) => {
+            const lower = part.toLowerCase();
+            if (lower === 'gpt') {
+                return 'GPT';
+            }
+            if (/^[a-z]\d$/u.test(lower)) {
+                return lower.toUpperCase();
+            }
+            if (/^\d+(\.\d+)*$/u.test(part)) {
+                return part;
+            }
+
+            return `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`;
+        })
+        .join(' ');
 };
 
 export const asObject = (value: JsonValue): Record<string, JsonValue> | null => {
@@ -205,6 +231,16 @@ export const inlineCode = (value: string): string => {
 export const writeExportFile = async (outputPath: string, content: string) => {
     await mkdir(path.dirname(outputPath), { recursive: true });
     await Bun.write(outputPath, content);
+};
+
+export const createExportWriteStream = async (outputPath: string) => {
+    await mkdir(path.dirname(outputPath), { recursive: true });
+    return createWriteStream(outputPath, { encoding: 'utf8' });
+};
+
+export const finalizeExportWriteStream = async (stream: NodeJS.WritableStream) => {
+    stream.end();
+    await finished(stream);
 };
 
 const toMetadataValue = (value: unknown, format: ExportFormat): string => {

@@ -22,6 +22,7 @@ describe('runCodexExport', () => {
             cwdFilter: null,
             dbPath: fixture.dbPath,
             flat: false,
+            includeCommentary: true,
             includeTools: true,
             inputDir: fixture.inputDir,
             optimized: false,
@@ -37,7 +38,7 @@ describe('runCodexExport', () => {
         const exported = await Bun.file(result.files[0]!.outputPath).text();
         expect(exported).toContain('Metadata');
         expect(exported).toContain('User\n----\nexport this');
-        expect(exported).toContain('Assistant\n---------\ndone');
+        expect(exported).toContain('GPT 5.4\n-------\ndone');
         expect(exported).toContain('Tool\n----\nCommand: echo hi');
         expect(exported).toContain('Tool Output\n-----------\nCommand: echo hi');
         expect(exported).not.toContain('## User');
@@ -62,6 +63,7 @@ describe('runCodexExport', () => {
             cwdFilter: null,
             dbPath: fixture.dbPath,
             flat: true,
+            includeCommentary: true,
             includeTools: true,
             inputDir: fixture.inputDir,
             optimized: false,
@@ -131,6 +133,7 @@ describe('runCodexExport', () => {
             cwdFilter: null,
             dbPath: fixture.dbPath,
             flat: true,
+            includeCommentary: true,
             includeTools: true,
             inputDir: fixture.inputDir,
             optimized: false,
@@ -161,6 +164,7 @@ describe('runCodexExport', () => {
             cwdFilter: null,
             dbPath: fixture.dbPath,
             flat: true,
+            includeCommentary: true,
             includeTools: false,
             inputDir: fixture.inputDir,
             optimized: false,
@@ -189,6 +193,7 @@ describe('runCodexExport', () => {
                 cwdFilter: null,
                 dbPath: fixture.dbPath,
                 flat: false,
+                includeCommentary: true,
                 includeTools: false,
                 inputDir: fixture.inputDir,
                 optimized: false,

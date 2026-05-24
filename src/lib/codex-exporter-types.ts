@@ -10,6 +10,7 @@ export type CodexCliOptions = {
     projectFilter: string | null;
     threadIds: string[];
     optimized: boolean;
+    includeCommentary: boolean;
     includeTools: boolean;
     outputFormat: ExportFormat;
     flat: boolean;
@@ -35,11 +36,14 @@ export type SessionMeta = {
     source?: string;
     originator?: string;
     cli_version?: string;
+    thread_source?: string;
+    model_provider?: string;
 };
 
 export type MessageRecord = {
     role: string;
     content: JsonValue;
+    model?: string | null;
     phase?: string;
 };
 
@@ -77,6 +81,10 @@ export type ThreadRow = {
     model: string | null;
     reasoning_effort: string | null;
     agent_path: string | null;
+    created_at_ms: number | null;
+    updated_at_ms: number | null;
+    thread_source: string | null;
+    preview: string;
 };
 
 export type SpawnEdgeRow = {

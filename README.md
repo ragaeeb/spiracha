@@ -5,7 +5,7 @@
 [![license](https://img.shields.io/npm/l/spiracha)](LICENSE.md)
 [![runtime](https://img.shields.io/badge/runtime-Bun-000000?logo=bun)](https://bun.sh)
 
-Export local Codex chats and Claude Code transcripts to Markdown or plain text.
+Export local Codex chats and Claude Code transcripts to Markdown or plain text, and inspect local Codex history through a browser UI.
 
 ## Quick Start
 
@@ -13,18 +13,25 @@ For repo-local development:
 
 ```bash
 bun start
+bun run ui:dev
 ```
 
 Published package usage, once the package is available on npm:
 
 ```bash
 bunx spiracha
+bunx spiracha ui
 bunx spiracha claude /path/to/session-export.jsonl --output-format txt
 ```
 
 ## Features
 
 - Export Codex session transcripts from local `.codex` history
+- Browse local Codex projects and threads in a TanStack Start UI
+- Inspect transcript timelines, tool calls, thread metadata, and raw Codex event context
+- Delete threads or derived projects from the Codex SQLite database after confirmation
+- Download thread exports directly from the UI as Markdown or plain text, with optional optimized mode and tool-call inclusion
+- View dashboard and analytics summaries, including token totals and tool-call frequency
 - Filter Codex exports by:
   - exact `cwd`
   - project basename via `--project`
@@ -44,6 +51,7 @@ For package use after publish, no local install is required:
 
 ```bash
 bunx spiracha --help
+bunx spiracha ui --help
 ```
 
 ## Usage
@@ -80,6 +88,31 @@ Important flags:
 - `--optimized`: compact transcript output
 - `--flat`: write files into a single output folder
 - `--output-format md|txt`: output as Markdown or plain text
+
+### Browser UI
+
+```bash
+bunx spiracha ui
+```
+
+This launches the packaged production UI server, opens your browser by default, and keeps running in the foreground.
+Large download bundles are written to a Spiracha-managed directory under your OS temp folder and served directly by the UI server, so packaged `bunx spiracha ui` exports do not depend on your current working directory.
+
+Useful flags:
+- `--port <port>`: bind a specific port, default `3000`
+- `--host <host>`: bind a specific host, default `127.0.0.1`
+- `--db <path>`: override the Codex SQLite path used by the UI
+- `--no-open`: do not open the browser automatically
+
+Examples:
+
+```bash
+bunx spiracha ui
+bunx spiracha ui --port 43123 --no-open
+bunx spiracha ui --db ~/.codex/state_5.sqlite
+```
+
+Stop the UI with `Ctrl+C`.
 
 ### Claude exports
 
@@ -123,7 +156,7 @@ Exposed tools:
 - `export_codex_chats`
 - `export_claude_transcript`
 
-The local plugin lives in [plugins/codex-chats-export](~/workspace/codex-chats/plugins/codex-chats-export) and is registered through [plugins/codex-chats-export/.mcp.json](~/workspace/codex-chats/plugins/codex-chats-export/.mcp.json).
+The local plugin lives in [plugins/codex-chats-export](plugins/codex-chats-export) and is registered through [plugins/codex-chats-export/.mcp.json](plugins/codex-chats-export/.mcp.json).
 
 ## Development
 
@@ -131,8 +164,11 @@ Useful commands:
 
 ```bash
 bun test
+bun run lint
 bun run typecheck
 bun run build
+bun run ui:dev
+cd apps/ui && bun run test
 bun run test:perf
 bun start
 bun start --interactive
@@ -145,23 +181,27 @@ Packed-tarball smoke test before publishing:
 
 ```bash
 bun pm pack
-package_tgz="$PWD/codex-chats-<version>.tgz"
+package_tgz="$PWD/spiracha-<version>.tgz"
 tmp_dir=$(mktemp -d)
 cd "$tmp_dir"
 printf '{"name":"codex-chats-smoke","private":true}\n' > package.json
 bun add "$package_tgz"
-bunx spiracha --help
-bunx spiracha claude --help
-bunx codex-chats --help
-bunx codex-chats-claude --help
+bunx --package "$package_tgz" spiracha --help
+bunx --package "$package_tgz" spiracha ui --help
+bunx --package "$package_tgz" spiracha claude --help
+bunx --package "$package_tgz" codex-chats --help
+bunx --package "$package_tgz" codex-chats-claude --help
 ```
 
 ## Project Layout
 
+- `apps/ui/`: TanStack Start browser app for browsing, analytics, export, and delete flows
 - `src/export-chats.ts`: Codex CLI wrapper
 - `src/export-claude.ts`: Claude CLI wrapper
 - `src/mcp-server.ts`: MCP server entrypoint
 - `src/lib/codex-exporter-*.ts`: Codex exporter modules
+- `src/lib/codex-browser-*.ts`: shared browser/UI data, analytics, and export helpers
+- `src/lib/codex-thread-*.ts`: structured transcript parsing and caching helpers
 - `src/lib/claude-exporter.ts`: Claude exporter implementation
 - `plugins/codex-chats-export/`: local Codex plugin bundle
 

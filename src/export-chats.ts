@@ -6,6 +6,7 @@ import { stdin as input, stdout as output } from 'node:process';
 import { createInterface } from 'node:readline/promises';
 import { getCodexHelpText, parseCodexCliArgs, runCodexExport } from './lib/codex-exporter';
 import { runInteractiveExport } from './lib/interactive-cli';
+import { openPathNatively } from './lib/native-open';
 import { CliUsageError } from './lib/shared';
 
 export const runExportChatsCli = async (argv = process.argv.slice(2)): Promise<void> => {
@@ -113,20 +114,6 @@ const resolveExportFolder = async (targetPath: string): Promise<string> => {
         return targetPath;
     }
     return path.dirname(targetPath);
-};
-
-const openPathNatively = async (targetPath: string): Promise<void> => {
-    const command = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'explorer' : 'xdg-open';
-
-    const proc = Bun.spawn([command, targetPath], {
-        stderr: 'pipe',
-        stdout: 'ignore',
-    });
-    const exitCode = await proc.exited;
-    if (exitCode !== 0) {
-        const errorText = await new Response(proc.stderr).text();
-        throw new Error(`Failed to open ${targetPath} with ${command}: ${errorText.trim() || `exit code ${exitCode}`}`);
-    }
 };
 
 if (import.meta.main) {
