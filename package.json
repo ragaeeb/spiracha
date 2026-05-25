@@ -109,7 +109,7 @@
         "ui:preview": "bun run --cwd apps/ui preview"
     },
     "type": "module",
-    "version": "1.1.1",
+    "version": "1.1.2",
     "workspaces": [
         "apps/*"
     ]

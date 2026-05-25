@@ -1,3 +1,4 @@
+import { Database } from 'bun:sqlite';
 import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
@@ -18,6 +19,27 @@ afterEach(async () => {
 
     await Promise.all(tempPaths.splice(0).map((targetPath) => rm(targetPath, { force: true, recursive: true })));
 });
+
+const listZipEntries = async (zipPath: string) => {
+    const proc = Bun.spawn(['unzip', '-Z1', zipPath], {
+        stderr: 'pipe',
+        stdout: 'pipe',
+    });
+    const [stdoutText, stderrText, exitCode] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        proc.exited,
+    ]);
+
+    if (exitCode !== 0) {
+        throw new Error(`unzip failed (${exitCode}): ${(stderrText || stdoutText).trim()}`);
+    }
+
+    return stdoutText
+        .split(/\r?\n/u)
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+};
 
 describe('renderCodexThreadDownload', () => {
     it('should render a thread export to downloadable markdown content', async () => {
@@ -166,6 +188,106 @@ describe('renderCodexThreadDownload', () => {
         expect(download.fileName.endsWith('.zip')).toBe(true);
         expect(download.fileName.includes('threads-2')).toBe(true);
         expect(await Bun.file(path.join(tempRoot, path.basename(download.downloadUrl))).exists()).toBe(true);
+    });
+
+    it('should keep every selected thread when batch export filenames would otherwise collide', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-export-batch-collision-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const originalThreadId = fixture.threads[0]!.threadId;
+        const collidingThreadId = `${originalThreadId.slice(0, 8)}-ffff-7fff-8fff-ffffffffffff`;
+        const db = new Database(fixture.dbPath);
+
+        try {
+            db.prepare(`
+                INSERT INTO threads (
+                    id,
+                    rollout_path,
+                    created_at,
+                    updated_at,
+                    source,
+                    model_provider,
+                    cwd,
+                    title,
+                    sandbox_policy,
+                    approval_mode,
+                    tokens_used,
+                    has_user_event,
+                    archived,
+                    archived_at,
+                    git_sha,
+                    git_branch,
+                    git_origin_url,
+                    cli_version,
+                    first_user_message,
+                    agent_nickname,
+                    agent_role,
+                    memory_mode,
+                    model,
+                    reasoning_effort,
+                    agent_path,
+                    created_at_ms,
+                    updated_at_ms,
+                    thread_source,
+                    preview
+                )
+                SELECT
+                    ?,
+                    rollout_path,
+                    created_at,
+                    updated_at,
+                    source,
+                    model_provider,
+                    cwd,
+                    title,
+                    sandbox_policy,
+                    approval_mode,
+                    tokens_used,
+                    has_user_event,
+                    archived,
+                    archived_at,
+                    git_sha,
+                    git_branch,
+                    git_origin_url,
+                    cli_version,
+                    first_user_message,
+                    agent_nickname,
+                    agent_role,
+                    memory_mode,
+                    model,
+                    reasoning_effort,
+                    agent_path,
+                    created_at_ms,
+                    updated_at_ms,
+                    thread_source,
+                    preview
+                FROM threads
+                WHERE id = ?
+            `).run(collidingThreadId, originalThreadId);
+        } finally {
+            db.close();
+        }
+
+        const download = await renderCodexThreadsDownload({
+            dbPath: fixture.dbPath,
+            includeCommentary: true,
+            includeTools: true,
+            optimized: false,
+            outputFormat: 'md',
+            publicExportDir: tempRoot,
+            threadIds: [originalThreadId, collidingThreadId],
+        });
+
+        expect(download.mode).toBe('download_url');
+        if (download.mode !== 'download_url') {
+            throw new Error('expected zipped batch download url mode');
+        }
+
+        const zipPath = path.join(tempRoot, path.basename(download.downloadUrl));
+        const entries = await listZipEntries(zipPath);
+
+        expect(entries).toHaveLength(2);
+        expect(new Set(entries).size).toBe(2);
     });
 
     it('should return a unique zip url for repeated multi-thread exports of the same selection', async () => {

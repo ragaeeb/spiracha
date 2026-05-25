@@ -79,6 +79,17 @@ const buildUniqueArchivePath = (exportDir: string, exportBaseName: string) => {
     return path.join(exportDir, `${exportBaseName}-${randomUUID()}.zip`);
 };
 
+const buildUniqueBatchEntryBaseName = (baseName: string, threadId: string, usedBaseNames: Set<string>): string => {
+    if (!usedBaseNames.has(baseName)) {
+        usedBaseNames.add(baseName);
+        return baseName;
+    }
+
+    const collisionSafeBaseName = `${baseName}-${threadId}`;
+    usedBaseNames.add(collisionSafeBaseName);
+    return collisionSafeBaseName;
+};
+
 type RolloutSnapshot = {
     mtimeMs: number;
     sizeBytes: number;
@@ -340,6 +351,7 @@ export const renderCodexThreadsDownload = async (
     const exportBaseName = buildBatchExportBaseName(threads);
     const bundleDirectory = await createExportWorkspace(exportDir, exportBaseName);
     const zipPath = buildUniqueArchivePath(exportDir, exportBaseName);
+    const usedBatchEntryBaseNames = new Set<string>();
 
     logExportEvent('info', 'batch_start', {
         exportBaseName,
@@ -352,8 +364,13 @@ export const renderCodexThreadsDownload = async (
         for (const entry of browseEntries) {
             const rolloutSnapshotBefore = await getRolloutSnapshot(entry.thread.rollout_path);
             const singleBaseName = buildExportBaseName(entry.thread);
+            const uniqueBaseName = buildUniqueBatchEntryBaseName(
+                singleBaseName,
+                entry.thread.id,
+                usedBatchEntryBaseNames,
+            );
             const extension = input.outputFormat === 'md' ? 'md' : 'txt';
-            const relativeFileName = `${singleBaseName}.${extension}`;
+            const relativeFileName = `${uniqueBaseName}.${extension}`;
             const savedPath = path.join(bundleDirectory, relativeFileName);
             const transform = (text: string) =>
                 input.pathDisplaySettings
@@ -362,6 +379,14 @@ export const renderCodexThreadsDownload = async (
                           projectPath: entry.thread.cwd,
                       })
                     : text;
+
+            if (uniqueBaseName !== singleBaseName) {
+                logExportEvent('warn', 'batch_entry_name_collision', {
+                    resolvedFileName: relativeFileName,
+                    singleBaseName,
+                    threadId: entry.thread.id,
+                });
+            }
 
             const saved = await writeSessionFileExport(
                 {
