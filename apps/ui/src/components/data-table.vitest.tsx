@@ -1,6 +1,6 @@
 import type { ColumnDef } from '@tanstack/react-table';
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DataTable } from './data-table';
 
 type Row = {
@@ -29,6 +29,10 @@ const rows: Row[] = [
     { id: 'row-2', model: 'gpt-5.4', tokens: 10 },
     { id: 'row-3', model: 'gpt-5.3', tokens: 20 },
 ];
+
+afterEach(() => {
+    cleanup();
+});
 
 describe('DataTable', () => {
     it('should toggle header sorting between ascending and descending order', () => {
@@ -62,5 +66,45 @@ describe('DataTable', () => {
         fireEvent.click(screen.getByRole('checkbox', { name: /select row row-3/i }), { shiftKey: true });
 
         expect(screen.getByText((content) => content.includes('row-1,row-2,row-3'))).toBeTruthy();
+    });
+
+    it('should render empty states and invoke row click handlers', () => {
+        const onRowClick = vi.fn();
+
+        const { rerender } = render(
+            <DataTable columns={columns} data={[]} emptyMessage="No rows" onRowClick={onRowClick} />,
+        );
+
+        expect(screen.getByText('No rows')).toBeTruthy();
+
+        rerender(<DataTable columns={columns} data={rows} emptyMessage="No rows" onRowClick={onRowClick} />);
+
+        fireEvent.click(screen.getAllByText('gpt-5.5')[0]!);
+        expect(onRowClick).toHaveBeenCalledWith(rows[0]);
+    });
+
+    it('should clear selected rows through the custom toolbar action', () => {
+        render(
+            <DataTable
+                columns={columns}
+                data={rows}
+                emptyMessage="No rows"
+                enableRowSelection
+                getRowId={(row) => row.id}
+                renderToolbar={({ clearSelection, selectedRows }) => (
+                    <div>
+                        <span>{selectedRows.length} selected</span>
+                        <button type="button" onClick={clearSelection}>
+                            Clear
+                        </button>
+                    </div>
+                )}
+            />,
+        );
+
+        fireEvent.click(screen.getAllByRole('checkbox', { name: 'Select all rows' })[0]!);
+        expect(screen.getByText('3 selected')).toBeTruthy();
+        fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+        expect(screen.getByText('0 selected')).toBeTruthy();
     });
 });

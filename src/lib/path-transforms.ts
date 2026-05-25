@@ -26,6 +26,7 @@ const replaceExactProjectPath = (text: string, projectPath: string) => {
 
 const redactRemainingUsernames = (text: string) => {
     return text
+        .replace(/\/home\/[^/\\]+(?=\/|$)/gu, '~')
         .replace(/\/Users\/[^/\\]+(?=\/|$)/gu, '~')
         .replace(/[A-Za-z]:[\\/]+Users[\\/]+[^\\/]+(?=[\\/]|$)/gu, '~');
 };

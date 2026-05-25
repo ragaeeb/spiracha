@@ -24,3 +24,6 @@
 /reviews/
 /.codex/
 /*.tgz
+/apps/ui/coverage/
+/coverage/
+/exports/

@@ -1,6 +1,6 @@
-import { Database } from 'bun:sqlite';
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
+import { withReadonlyDb } from './codex-browser-db';
 import {
     type CodexCliOptions,
     DEFAULT_CODEX_DIR,
@@ -17,33 +17,29 @@ export const loadThreadData = (dbPath: string, options: CodexCliOptions): Thread
     const parentByChildId = new Map<string, SpawnEdgeRow>();
     const childEdgesByParentId = new Map<string, SpawnEdgeRow[]>();
 
-    let db: Database | null = null;
-
     try {
-        db = new Database(dbPath, { readonly: true });
+        withReadonlyDb(dbPath, (db) => {
+            const threadQuery = buildThreadQuery(options);
+            const threadRows = db.query(threadQuery.sql).all(...threadQuery.params) as ThreadRow[];
 
-        const threadQuery = buildThreadQuery(options);
-        const threadRows = db.query(threadQuery.sql).all(...threadQuery.params) as ThreadRow[];
+            for (const row of threadRows) {
+                threadsById.set(row.id, row);
+            }
 
-        for (const row of threadRows) {
-            threadsById.set(row.id, row);
-        }
+            const edgeQuery = buildSpawnEdgeQuery([...threadsById.keys()], options);
+            const edgeRows = db.query(edgeQuery.sql).all(...edgeQuery.params) as SpawnEdgeRow[];
 
-        const edgeQuery = buildSpawnEdgeQuery([...threadsById.keys()], options);
-        const edgeRows = db.query(edgeQuery.sql).all(...edgeQuery.params) as SpawnEdgeRow[];
+            for (const row of edgeRows) {
+                parentByChildId.set(row.child_thread_id, row);
 
-        for (const row of edgeRows) {
-            parentByChildId.set(row.child_thread_id, row);
-
-            const existing = childEdgesByParentId.get(row.parent_thread_id) ?? [];
-            existing.push(row);
-            childEdgesByParentId.set(row.parent_thread_id, existing);
-        }
+                const existing = childEdgesByParentId.get(row.parent_thread_id) ?? [];
+                existing.push(row);
+                childEdgesByParentId.set(row.parent_thread_id, existing);
+            }
+        });
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         throw new Error(`Failed to read thread database at ${dbPath}: ${message}`);
-    } finally {
-        db?.close();
     }
 
     return {
@@ -210,14 +206,17 @@ export const toOutputRelativePath = (
         return flatName;
     }
 
+    // Prefer preserving the input sessions tree when the rollout lives under the configured input root.
     if (normalized.startsWith(`${inputRoot}${path.sep}`)) {
         return path.relative(inputRoot, normalized).replace(/\.jsonl$/i, extension);
     }
 
+    // Fall back to a stable Codex-relative path when the file is under ~/.codex.
     if (normalized.startsWith(`${codexRoot}${path.sep}`)) {
         return path.relative(codexRoot, normalized).replace(/\.jsonl$/i, extension);
     }
 
+    // Otherwise collapse to the basename so ad hoc session files cannot escape the output directory.
     return path.basename(normalized).replace(/\.jsonl$/i, extension);
 };
 

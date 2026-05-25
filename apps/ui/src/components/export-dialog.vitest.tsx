@@ -48,4 +48,23 @@ describe('ExportDialog', () => {
 
         expect((screen.getByRole('button', { name: 'Exporting...' }) as HTMLButtonElement).disabled).toBe(true);
     });
+
+    it('should allow disabling tool-call inclusion and closing the dialog', () => {
+        const onExport = vi.fn();
+        const onOpenChange = vi.fn();
+
+        render(<ExportDialog open onExport={onExport} onOpenChange={onOpenChange} />);
+
+        fireEvent.click(screen.getByRole('checkbox', { name: /include tool calls/i }));
+        fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+        expect(onExport).toHaveBeenCalledWith({
+            includeCommentary: false,
+            includeTools: false,
+            optimized: false,
+            outputFormat: 'md',
+        });
+        expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
 });

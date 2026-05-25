@@ -83,7 +83,10 @@ function DashboardPage() {
                                             {thread.preview}
                                         </p>
                                     </div>
-                                    <p className="shrink-0 whitespace-nowrap font-mono text-[var(--muted-foreground)] text-xs">
+                                    <p
+                                        className="shrink-0 whitespace-nowrap font-mono text-[var(--muted-foreground)] text-xs"
+                                        suppressHydrationWarning
+                                    >
                                         {formatDateTime(thread.updated_at_ms ?? thread.updated_at * 1000)}
                                     </p>
                                 </div>

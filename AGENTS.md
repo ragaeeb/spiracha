@@ -106,6 +106,8 @@ rtk bun test
 rtk bun run lint
 rtk bun run typecheck
 rtk bun run build
+rtk bun run coverage
+rtk bun run smoke:package-ui
 rtk bun run test:perf
 rtk bun start
 rtk bun start -- --help
@@ -126,6 +128,7 @@ printf '{"name":"codex-chats-smoke","private":true}\n' > package.json
 rtk bun add "$package_tgz"
 rtk bunx codex-chats --help
 rtk bunx codex-chats-claude --help
+rtk bun run smoke:package-ui
 ```
 
 Example Codex export:

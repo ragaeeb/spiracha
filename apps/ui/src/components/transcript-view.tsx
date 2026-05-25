@@ -257,7 +257,9 @@ function TranscriptEventCard({
                     ) : null}
                 </div>
                 {event.timestamp ? (
-                    <p className="shrink-0 text-[var(--muted-foreground)] text-xs">{formatDateTime(event.timestamp)}</p>
+                    <p className="shrink-0 text-[var(--muted-foreground)] text-xs" suppressHydrationWarning>
+                        {formatDateTime(event.timestamp)}
+                    </p>
                 ) : null}
             </div>
             <div className="mt-2.5 min-w-0">{renderEventBody(event, transform)}</div>
@@ -337,6 +339,13 @@ export function TranscriptView({
             timeoutIdsRef.current = [];
         };
     }, []);
+
+    useEffect(() => {
+        setSelectedEventKeys((current) => {
+            const next = current.filter((key) => visibleEventKeySet.has(key));
+            return next.length === current.length ? current : next;
+        });
+    }, [visibleEventKeySet]);
 
     const scheduleTimeout = (callback: () => void, delayMs: number) => {
         const timeoutId = window.setTimeout(() => {

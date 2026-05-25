@@ -1,7 +1,7 @@
 import type { ThreadListEntry } from '@spiracha/lib/codex-browser-types';
-import { fireEvent, render, screen } from '@testing-library/react';
-import type { ReactNode } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import type { MouseEventHandler, ReactNode } from 'react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ThreadsTable } from './threads-table';
 
 vi.mock('@tanstack/react-router', async () => {
@@ -31,6 +31,91 @@ vi.mock('@tanstack/react-router', async () => {
 vi.mock('#/components/data-table', async () => {
     const actual = await vi.importActual<typeof import('./data-table')>('./data-table');
     return actual;
+});
+
+vi.mock('#/components/ui/dropdown-menu', async () => {
+    const React = await vi.importActual<typeof import('react')>('react');
+
+    type DropdownMenuState = {
+        open: boolean;
+        setOpen: React.Dispatch<React.SetStateAction<boolean>>;
+    };
+
+    const DropdownMenuContext = React.createContext<DropdownMenuState | null>(null);
+
+    const useDropdownMenuState = () => {
+        const context = React.useContext(DropdownMenuContext);
+        if (!context) {
+            throw new Error('DropdownMenu mock requires a provider');
+        }
+
+        return context;
+    };
+
+    return {
+        DropdownMenu: ({ children }: { children: ReactNode }) => {
+            const [open, setOpen] = React.useState(false);
+            return <DropdownMenuContext.Provider value={{ open, setOpen }}>{children}</DropdownMenuContext.Provider>;
+        },
+        DropdownMenuContent: ({ children }: { children: ReactNode }) => {
+            const { open } = useDropdownMenuState();
+            return open ? <div>{children}</div> : null;
+        },
+        DropdownMenuItem: ({
+            children,
+            className,
+            onClick,
+        }: {
+            children: ReactNode;
+            className?: string;
+            onClick?: () => void;
+        }) => {
+            const { setOpen } = useDropdownMenuState();
+            return (
+                <button
+                    className={className}
+                    type="button"
+                    onClick={() => {
+                        onClick?.();
+                        setOpen(false);
+                    }}
+                >
+                    {children}
+                </button>
+            );
+        },
+        DropdownMenuTrigger: ({ children }: { children: ReactNode }) => {
+            const { open, setOpen } = useDropdownMenuState();
+
+            if (React.isValidElement(children)) {
+                const child = children as React.ReactElement<{
+                    onClick?: MouseEventHandler<HTMLButtonElement>;
+                    'aria-expanded'?: boolean;
+                    'aria-haspopup'?: string;
+                }>;
+
+                return React.cloneElement(child, {
+                    'aria-expanded': open,
+                    'aria-haspopup': 'menu',
+                    onClick: (event) => {
+                        child.props.onClick?.(event);
+                        setOpen((current) => !current);
+                    },
+                });
+            }
+
+            return (
+                <button
+                    aria-expanded={open}
+                    aria-haspopup="menu"
+                    type="button"
+                    onClick={() => setOpen((current) => !current)}
+                >
+                    {children}
+                </button>
+            );
+        },
+    };
 });
 
 const threadEntry: ThreadListEntry = {
@@ -74,6 +159,10 @@ const threadEntry: ThreadListEntry = {
         updated_at_ms: 2,
     },
 };
+
+afterEach(() => {
+    cleanup();
+});
 
 describe('ThreadsTable', () => {
     it('should allow selecting multiple threads and trigger bulk actions', () => {
@@ -159,5 +248,35 @@ describe('ThreadsTable', () => {
         );
 
         expect(screen.getAllByText('3.0 GB').length).toBeGreaterThan(0);
+    });
+
+    it('should trigger single-thread export and delete actions from the row menu', async () => {
+        const onDeleteThread = vi.fn();
+        const onExportThread = vi.fn();
+
+        render(
+            <ThreadsTable
+                onDeleteThread={onDeleteThread}
+                onDeleteThreads={vi.fn()}
+                onExportThread={onExportThread}
+                onExportThreads={vi.fn()}
+                threads={[threadEntry]}
+            />,
+        );
+
+        const menuTrigger = screen
+            .getAllByRole('button')
+            .find((button) => button.getAttribute('aria-haspopup') === 'menu');
+        if (!menuTrigger) {
+            throw new Error('expected a row action menu trigger');
+        }
+
+        fireEvent.click(menuTrigger);
+        fireEvent.click(await screen.findByText('Export thread'));
+        fireEvent.click(menuTrigger);
+        fireEvent.click(await screen.findByText('Delete thread'));
+
+        expect(onExportThread).toHaveBeenCalledWith(threadEntry);
+        expect(onDeleteThread).toHaveBeenCalledWith(threadEntry);
     });
 });

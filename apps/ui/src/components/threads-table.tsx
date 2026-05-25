@@ -46,12 +46,20 @@ const columns = (
             id: 'title',
         }),
         columnHelper.accessor((row) => row.thread.updated_at_ms ?? row.thread.updated_at * 1000, {
-            cell: (info) => <span className="whitespace-nowrap text-sm">{formatDateTime(info.getValue())}</span>,
+            cell: (info) => (
+                <span className="whitespace-nowrap text-sm" suppressHydrationWarning>
+                    {formatDateTime(info.getValue())}
+                </span>
+            ),
             header: 'Updated',
             id: 'updatedAt',
         }),
         columnHelper.accessor((row) => row.thread.created_at_ms ?? row.thread.created_at * 1000, {
-            cell: (info) => <span className="whitespace-nowrap text-sm">{formatDateTime(info.getValue())}</span>,
+            cell: (info) => (
+                <span className="whitespace-nowrap text-sm" suppressHydrationWarning>
+                    {formatDateTime(info.getValue())}
+                </span>
+            ),
             header: 'Created',
             id: 'createdAt',
         }),

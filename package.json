@@ -21,6 +21,7 @@
         "@tanstack/react-virtual": "3.13.25",
         "class-variance-authority": "0.7.1",
         "clsx": "2.1.1",
+        "iconv-lite": "^0.7.2",
         "lucide-react": "1.16.0",
         "radix-ui": "1.4.3",
         "react": "19.2.6",
@@ -61,6 +62,7 @@
         "src/lib/ui-export-files.ts",
         "src/lib/ui-cache.ts",
         "src/lib/interactive-cli.ts",
+        "src/lib/model-label.ts",
         "src/lib/native-open.ts",
         "src/lib/shared.ts",
         "apps/ui/dist/client/assets/**/*",
@@ -91,10 +93,14 @@
     },
     "scripts": {
         "build": "bun run typecheck && bun run --cwd apps/ui build",
+        "coverage": "bun run coverage:root && bun run coverage:ui",
+        "coverage:root": "bun test --coverage --coverage-reporter=lcov --coverage-dir coverage && bun run ./src/coverage-check.ts root",
+        "coverage:ui": "bun run --cwd apps/ui coverage && bun run ./src/coverage-check.ts ui",
         "export:claude": "bun run ./src/export-claude.ts",
         "format": "biome check . --write && biome lint . --write",
         "lint": "biome check .",
         "mcp": "bun run ./src/mcp-server.ts",
+        "smoke:package-ui": "bun run ./src/package-ui-smoke.ts",
         "start": "bun run ./src/export-chats.ts",
         "typecheck": "bun run typecheck:root && bun run typecheck:ui",
         "typecheck:root": "bunx tsc --noEmit",
@@ -103,7 +109,7 @@
         "ui:preview": "bun run --cwd apps/ui preview"
     },
     "type": "module",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "workspaces": [
         "apps/*"
     ]

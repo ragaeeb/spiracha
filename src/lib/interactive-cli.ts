@@ -1,11 +1,10 @@
-import { Database } from 'bun:sqlite';
 import { access, lstat } from 'node:fs/promises';
 import path from 'node:path';
 import { stdin as input, stdout as output } from 'node:process';
 import { createInterface, type Interface } from 'node:readline/promises';
 import { checkbox } from '@inquirer/prompts';
 import { type ClaudeCliOptions, runClaudeExport } from './claude-exporter';
-import { resolveCodexThreadDbPath } from './codex-browser-db';
+import { resolveCodexThreadDbPath, withReadonlyDb } from './codex-browser-db';
 import { type CodexCliOptions, runCodexExport } from './codex-exporter';
 import { DEFAULT_INPUT_DIR } from './codex-exporter-types';
 import { type ExportFormat, expandHome, getPortablePathBasename } from './shared';
@@ -23,7 +22,7 @@ type InteractiveInference = {
     value: string | null;
 };
 
-type InteractiveExportResult =
+export type InteractiveExportResult =
     | {
           mode: 'codex';
           outputDir: string;
@@ -399,15 +398,12 @@ const normalizeInteractiveThreadSelections = (value: string): string[] => {
 };
 
 const listCodexProjects = (dbPath: string): string[] => {
-    const db = new Database(dbPath, { readonly: true });
-    try {
+    return withReadonlyDb(dbPath, (db) => {
         const rows = db.query("SELECT DISTINCT cwd FROM threads WHERE cwd IS NOT NULL AND cwd != ''").all() as Array<{
             cwd: string;
         }>;
         return [...new Set(rows.map((row) => getPortablePathBasename(row.cwd)).filter(Boolean))].sort();
-    } finally {
-        db.close();
-    }
+    });
 };
 
 const resolveInteractiveDbPath = (): string => {
@@ -419,16 +415,13 @@ const listThreadIdsForProjects = (dbPath: string, projectNames: string[]): strin
         return [];
     }
 
-    const db = new Database(dbPath, { readonly: true });
-    try {
+    return withReadonlyDb(dbPath, (db) => {
         const projectNameSet = new Set(projectNames);
         const rows = db
             .query("SELECT id, cwd FROM threads WHERE cwd IS NOT NULL AND cwd != '' ORDER BY updated_at DESC")
             .all() as Array<{ id: string; cwd: string }>;
         return rows.filter((row) => projectNameSet.has(getPortablePathBasename(row.cwd))).map((row) => row.id);
-    } finally {
-        db.close();
-    }
+    });
 };
 
 const createPromptInterface = (): Interface => {

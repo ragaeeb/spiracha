@@ -66,7 +66,11 @@ export function ExportDialog({
                     </div>
 
                     <div className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--panel-secondary)] p-3">
-                        <Checkbox checked={optimized} onCheckedChange={(checked) => setOptimized(checked === true)} />
+                        <Checkbox
+                            aria-label="Optimized transcript"
+                            checked={optimized}
+                            onCheckedChange={(checked) => setOptimized(checked === true)}
+                        />
                         <span className="space-y-1">
                             <span className="block font-medium text-sm">Optimized transcript</span>
                             <span className="block text-[var(--muted-foreground)] text-sm">
@@ -77,6 +81,7 @@ export function ExportDialog({
 
                     <div className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--panel-secondary)] p-3">
                         <Checkbox
+                            aria-label="Include commentary"
                             checked={includeCommentary}
                             onCheckedChange={(checked) => setIncludeCommentary(checked === true)}
                         />
@@ -90,6 +95,7 @@ export function ExportDialog({
 
                     <div className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--panel-secondary)] p-3">
                         <Checkbox
+                            aria-label="Include tool calls"
                             checked={includeTools}
                             onCheckedChange={(checked) => setIncludeTools(checked === true)}
                         />

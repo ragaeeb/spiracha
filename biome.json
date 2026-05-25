@@ -31,7 +31,8 @@
             "!!apps/ui/src/routeTree.gen.ts",
             "!!**/node_modules",
             "!!**/dist",
-            "!!coverage"
+            "!!coverage",
+            "!!**/coverage"
         ]
     },
     "formatter": {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { downloadTextFile, downloadUrlFile } from './download';
+import { downloadTextFile, downloadUrlFile, waitForDownloadUrlAvailability } from './download';
 
 describe('downloadUrlFile', () => {
     it('should retry the download url until it becomes available before clicking the anchor', async () => {
@@ -67,5 +67,31 @@ describe('downloadUrlFile', () => {
         expect(revokeObjectUrl).not.toHaveBeenCalled();
         expect(schedule).toHaveBeenCalledTimes(1);
         expect(schedule).toHaveBeenCalledWith(expect.any(Function), 30000);
+    });
+
+    it('should treat HEAD 405 responses as ready and throw after exhausting retries', async () => {
+        await expect(
+            waitForDownloadUrlAvailability('/__exports/export.zip', 'export.zip', {
+                fetchImpl: vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 405 })),
+                logger: {
+                    error: vi.fn(),
+                    info: vi.fn(),
+                    warn: vi.fn(),
+                },
+            }),
+        ).resolves.toBeUndefined();
+
+        await expect(
+            waitForDownloadUrlAvailability('/__exports/missing.zip', 'missing.zip', {
+                fetchImpl: vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 404 })),
+                logger: {
+                    error: vi.fn(),
+                    info: vi.fn(),
+                    warn: vi.fn(),
+                },
+                maxAttempts: 2,
+                sleep: vi.fn(async () => {}),
+            }),
+        ).rejects.toThrow('Download file was not available after 2 attempts: missing.zip');
     });
 });

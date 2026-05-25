@@ -261,7 +261,7 @@ export const resolveDefaultOutputDir = (cwdFilter: string | null): string => {
 };
 
 const requireValue = (value: string | undefined, flag: string): string => {
-    if (!value || value.startsWith('--')) {
+    if (!value || (value.startsWith('-') && value !== '-')) {
         throw new CliUsageError(`Missing value for ${flag}`);
     }
 

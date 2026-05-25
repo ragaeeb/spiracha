@@ -204,4 +204,129 @@ describe('runCodexExport', () => {
             } satisfies CodexCliOptions),
         ).rejects.toThrow(`Failed to read Codex transcript ${missingSessionFile}`);
     });
+
+    it('should export fallback session files when a matching jsonl exists without a thread row', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-export-fallback-session-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexFixture(tempRoot);
+
+        const db = new Database(fixture.dbPath);
+        db.prepare('DELETE FROM threads WHERE id = ?').run(fixture.threadId);
+        db.close();
+
+        const result = await runCodexExport({
+            cwdFilter: null,
+            dbPath: fixture.dbPath,
+            flat: false,
+            includeCommentary: true,
+            includeTools: false,
+            inputDir: fixture.inputDir,
+            optimized: false,
+            outputDir: fixture.outputDir,
+            outputFormat: 'md',
+            projectFilter: null,
+            threadIds: [],
+        } satisfies CodexCliOptions);
+
+        expect(result.exportedCount).toBe(1);
+        expect(result.files[0]?.threadId).toBeNull();
+        expect(await Bun.file(result.files[0]!.outputPath).text()).toContain('exported_from: "session_jsonl_fallback"');
+    });
+
+    it('should throw a no-match error when scoped filters export zero chats', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-export-no-match-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexFixture(tempRoot);
+
+        await Bun.write(
+            fixture.sessionFile,
+            JSON.stringify({
+                content: [{ text: '<environment_context>', type: 'input_text' }],
+                role: 'user',
+                type: 'message',
+            }),
+        );
+
+        await expect(
+            runCodexExport({
+                cwdFilter: null,
+                dbPath: fixture.dbPath,
+                flat: false,
+                includeCommentary: true,
+                includeTools: false,
+                inputDir: fixture.inputDir,
+                optimized: false,
+                outputDir: fixture.outputDir,
+                outputFormat: 'md',
+                projectFilter: null,
+                threadIds: [fixture.threadId],
+            } satisfies CodexCliOptions),
+        ).rejects.toThrow(`No chats matched the requested filters (threadIds=${fixture.threadId})`);
+    });
+
+    it('should throw when neither thread rows nor fallback session files exist', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-export-empty-sources-test-'));
+        tempPaths.push(tempRoot);
+        const dbPath = path.join(tempRoot, 'state.sqlite');
+        const inputDir = path.join(tempRoot, 'sessions');
+
+        await mkdir(inputDir, { recursive: true });
+        const db = new Database(dbPath);
+        db.exec(`
+            CREATE TABLE threads (
+                id TEXT PRIMARY KEY,
+                rollout_path TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                source TEXT NOT NULL,
+                model_provider TEXT NOT NULL,
+                cwd TEXT NOT NULL,
+                title TEXT NOT NULL,
+                sandbox_policy TEXT NOT NULL,
+                approval_mode TEXT NOT NULL,
+                tokens_used INTEGER NOT NULL DEFAULT 0,
+                has_user_event INTEGER NOT NULL DEFAULT 0,
+                archived INTEGER NOT NULL DEFAULT 0,
+                archived_at INTEGER,
+                git_sha TEXT,
+                git_branch TEXT,
+                git_origin_url TEXT,
+                cli_version TEXT NOT NULL DEFAULT '',
+                first_user_message TEXT NOT NULL DEFAULT '',
+                agent_nickname TEXT,
+                agent_role TEXT,
+                memory_mode TEXT NOT NULL DEFAULT 'enabled',
+                model TEXT,
+                reasoning_effort TEXT,
+                agent_path TEXT,
+                created_at_ms INTEGER,
+                updated_at_ms INTEGER,
+                thread_source TEXT,
+                preview TEXT NOT NULL DEFAULT ''
+            );
+
+            CREATE TABLE thread_spawn_edges (
+                parent_thread_id TEXT NOT NULL,
+                child_thread_id TEXT NOT NULL,
+                status TEXT NOT NULL
+            );
+        `);
+        db.close();
+
+        await expect(
+            runCodexExport({
+                cwdFilter: null,
+                dbPath,
+                flat: false,
+                includeCommentary: true,
+                includeTools: false,
+                inputDir,
+                optimized: false,
+                outputDir: path.join(tempRoot, 'exports'),
+                outputFormat: 'md',
+                projectFilter: null,
+                threadIds: [],
+            } satisfies CodexCliOptions),
+        ).rejects.toThrow(`No threads found in ${dbPath} and no .jsonl files found in ${inputDir}`);
+    });
 });
