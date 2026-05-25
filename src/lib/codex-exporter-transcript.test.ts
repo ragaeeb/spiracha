@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { access, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { getThreadBrowseData } from './codex-browser-db';
@@ -426,5 +426,49 @@ describe('codex exporter transcript helpers', () => {
         );
 
         expect(skipped).toBe(false);
+    });
+
+    it('cleans up temporary files in writeSessionFileExport when an error occurs', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-exporter-cleanup-test-'));
+        tempPaths.push(tempRoot);
+
+        const badTarget = {
+            fallbackReason: null,
+            outputRelativePath: 'Test.md',
+            relations: { childEdges: [], parentThreadId: null },
+            sessionFile: tempRoot,
+            thread: null,
+        };
+
+        const badOptions = {
+            cwdFilter: null,
+            dbPath: 'dummy.sqlite',
+            flat: false,
+            includeCommentary: false,
+            includeTools: false,
+            inputDir: tempRoot,
+            optimized: false,
+            outputDir: tempRoot,
+            outputFormat: 'md' as const,
+            projectFilter: null,
+            threadIds: [],
+        };
+
+        const targetOutputPath = path.join(tempRoot, 'output.md');
+        const expectedTmpFile = `${targetOutputPath}.transcript.tmp`;
+
+        let threw = false;
+        try {
+            await writeSessionFileExport(badTarget, badOptions, targetOutputPath);
+        } catch {
+            threw = true;
+        }
+
+        expect(threw).toBe(true);
+
+        const tmpFileExists = await access(expectedTmpFile)
+            .then(() => true)
+            .catch(() => false);
+        expect(tmpFileExists).toBe(false);
     });
 });

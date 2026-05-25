@@ -30,6 +30,15 @@ describe('formatters', () => {
         ).toBe('May 23 · 8:30 PM');
     });
 
+    it('should include the year for dates outside the current calendar year', () => {
+        expect(
+            formatDateTime('2025-05-23T00:30:00.000Z', {
+                now: new Date('2026-05-24T12:00:00.000Z'),
+                timeZone: 'America/Toronto',
+            }),
+        ).toBe('May 22, 2025 · 8:30 PM');
+    });
+
     it('should format supporting display primitives', () => {
         expect(formatBytes(0)).toBe('0 B');
         expect(formatBytes(1536)).toBe('1.5 KB');

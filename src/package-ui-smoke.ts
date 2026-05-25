@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import { mkdtemp, rm } from 'node:fs/promises';
+import { createServer } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -16,7 +17,6 @@ type SpawnedCommandResult = {
 };
 
 const SMOKE_HOST = '127.0.0.1';
-const SMOKE_PORT = 43139;
 const STARTUP_TIMEOUT_MS = 20_000;
 
 export const getPackedTarballPath = (cwd: string, packageName: string, version: string) => {
@@ -25,6 +25,30 @@ export const getPackedTarballPath = (cwd: string, packageName: string, version: 
 
 const readPackageManifest = async (cwd: string): Promise<PackageManifest> => {
     return Bun.file(path.join(cwd, 'package.json')).json();
+};
+
+const getAvailablePort = async () => {
+    return new Promise<number>((resolve, reject) => {
+        const server = createServer();
+        server.unref();
+        server.once('error', reject);
+        server.listen(0, SMOKE_HOST, () => {
+            const address = server.address();
+            if (!address || typeof address === 'string') {
+                server.close(() => reject(new Error('Failed to resolve a free port for the packaged UI smoke test.')));
+                return;
+            }
+
+            server.close((error) => {
+                if (error) {
+                    reject(error);
+                    return;
+                }
+
+                resolve(address.port);
+            });
+        });
+    });
 };
 
 const runCommand = async (
@@ -151,6 +175,7 @@ export const runPackagedUiSmokeTest = async (cwd = process.cwd()) => {
     const manifest = await readPackageManifest(cwd);
     const packageTgz = getPackedTarballPath(cwd, manifest.name, manifest.version);
     const tempDir = await mkdtemp(path.join(os.tmpdir(), 'spiracha-packaged-ui-smoke-'));
+    const smokePort = await getAvailablePort();
 
     try {
         console.log('Building package artifacts...');
@@ -168,7 +193,7 @@ export const runPackagedUiSmokeTest = async (cwd = process.cwd()) => {
         );
 
         console.log('Launching packaged UI...');
-        const runningUi = await startPackagedUi(packageTgz, tempDir, SMOKE_PORT);
+        const runningUi = await startPackagedUi(packageTgz, tempDir, smokePort);
 
         try {
             console.log(`Packaged UI responded at ${runningUi.url}`);

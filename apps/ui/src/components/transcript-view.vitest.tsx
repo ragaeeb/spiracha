@@ -551,4 +551,49 @@ describe('TranscriptView', () => {
             ].join('\n\n'),
         );
     });
+
+    it('should discard hidden selections when filters hide previously selected events', () => {
+        const { rerender } = render(
+            <TranscriptView
+                assistantModel={null}
+                events={[messageEvent, toolEvent]}
+                projectPath="/Users/example/workspace/spiracha"
+                showCommentary={false}
+                showExtraEvents={false}
+                showRawJson={false}
+                showToolCalls
+            />,
+        );
+
+        fireEvent.click(screen.getByRole('checkbox', { name: 'Select Tool call: exec_command' }));
+        expect(screen.getByText('1 selected')).toBeTruthy();
+
+        rerender(
+            <TranscriptView
+                assistantModel={null}
+                events={[messageEvent, toolEvent]}
+                projectPath="/Users/example/workspace/spiracha"
+                showCommentary={false}
+                showExtraEvents={false}
+                showRawJson={false}
+                showToolCalls={false}
+            />,
+        );
+
+        expect(screen.getByText('0 selected')).toBeTruthy();
+
+        rerender(
+            <TranscriptView
+                assistantModel={null}
+                events={[messageEvent, toolEvent]}
+                projectPath="/Users/example/workspace/spiracha"
+                showCommentary={false}
+                showExtraEvents={false}
+                showRawJson={false}
+                showToolCalls
+            />,
+        );
+
+        expect(screen.getByText('0 selected')).toBeTruthy();
+    });
 });

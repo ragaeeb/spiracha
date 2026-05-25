@@ -62,6 +62,7 @@
         "src/lib/ui-export-files.ts",
         "src/lib/ui-cache.ts",
         "src/lib/interactive-cli.ts",
+        "src/lib/model-label.ts",
         "src/lib/native-open.ts",
         "src/lib/shared.ts",
         "apps/ui/dist/client/assets/**/*",

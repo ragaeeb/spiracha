@@ -106,7 +106,10 @@ const parseLcovBlock = (block: string) => {
 
 export const summarizeLcovReport = (profile: CoverageProfileName, lcovText: string): CoverageSummary => {
     const profileConfig = COVERAGE_PROFILES[profile];
-    const blocks = lcovText.split('end_of_record\n').filter(Boolean);
+    const blocks = lcovText
+        .split(/\r?\nend_of_record\r?\n?/u)
+        .map((block) => block.trim())
+        .filter(Boolean);
     const fileSummaries: FileCoverageSummary[] = [];
 
     for (const block of blocks) {

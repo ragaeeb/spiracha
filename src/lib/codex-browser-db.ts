@@ -26,6 +26,75 @@ type DeleteProjectOptions = {
     deleteSessionFiles?: boolean;
 };
 
+const SQLITE_DELETE_BATCH_SIZE = 400;
+const SESSION_FILE_DELETE_CONCURRENCY = 16;
+const THREAD_LIST_IO_CONCURRENCY = 8;
+
+const chunkValues = <T>(values: T[], chunkSize: number) => {
+    const chunks: T[][] = [];
+
+    for (let index = 0; index < values.length; index += chunkSize) {
+        chunks.push(values.slice(index, index + chunkSize));
+    }
+
+    return chunks;
+};
+
+const isPromiseLike = (value: unknown): value is PromiseLike<unknown> => {
+    if ((typeof value !== 'object' && typeof value !== 'function') || value === null) {
+        return false;
+    }
+
+    return 'then' in value && typeof value.then === 'function';
+};
+
+const mapWithConcurrency = async <T, TResult>(
+    values: T[],
+    limit: number,
+    mapper: (value: T, index: number) => Promise<TResult>,
+) => {
+    const results = new Array<TResult>(values.length);
+    let nextIndex = 0;
+
+    const worker = async () => {
+        while (true) {
+            const currentIndex = nextIndex;
+            nextIndex += 1;
+
+            if (currentIndex >= values.length) {
+                return;
+            }
+
+            results[currentIndex] = await mapper(values[currentIndex]!, currentIndex);
+        }
+    };
+
+    await Promise.all(Array.from({ length: Math.min(limit, values.length) }, () => worker()));
+    return results;
+};
+
+const openReadonlyDb = (dbPath: string, busyTimeoutMs: number) => {
+    const db = new Database(dbPath, { readonly: true });
+    try {
+        db.exec(`PRAGMA busy_timeout = ${busyTimeoutMs}`);
+        return db;
+    } catch (error) {
+        db.close();
+        throw error;
+    }
+};
+
+const openWritableDb = (dbPath: string, busyTimeoutMs: number) => {
+    const db = new Database(dbPath);
+    try {
+        db.exec(`PRAGMA busy_timeout = ${busyTimeoutMs}`);
+        return db;
+    } catch (error) {
+        db.close();
+        throw error;
+    }
+};
+
 const toTimestampMs = (thread: ThreadRow) => {
     return thread.updated_at_ms ?? thread.updated_at * 1000;
 };
@@ -54,13 +123,17 @@ const parseJsonSafely = (value: string | null) => {
     }
 };
 
-const withReadonlyDb = <T>(dbPath: string, callback: (db: Database) => T): T => {
+export const withReadonlyDb = <T>(dbPath: string, callback: (db: Database) => T): T => {
     return runWithSqliteRetry({
         action: () => {
-            const db = new Database(dbPath, { readonly: true });
-            db.exec('PRAGMA busy_timeout = 5000');
+            const db = openReadonlyDb(dbPath, 5000);
             try {
-                return callback(db);
+                const result = callback(db);
+                if (isPromiseLike(result)) {
+                    throw new Error('Database callbacks must be synchronous');
+                }
+
+                return result;
             } finally {
                 db.close();
             }
@@ -71,13 +144,16 @@ const withReadonlyDb = <T>(dbPath: string, callback: (db: Database) => T): T => 
 const withWritableDb = <T>(dbPath: string, callback: (db: Database) => T): T => {
     const db = runWithSqliteRetry({
         action: () => {
-            const connection = new Database(dbPath);
-            connection.exec('PRAGMA busy_timeout = 5000');
-            return connection;
+            return openWritableDb(dbPath, 5000);
         },
     });
     try {
-        return callback(db);
+        const result = callback(db);
+        if (isPromiseLike(result)) {
+            throw new Error('Database callbacks must be synchronous');
+        }
+
+        return result;
     } finally {
         db.close();
     }
@@ -99,9 +175,7 @@ export const resolveCodexThreadDbPath = () => {
         try {
             const db = runWithSqliteRetry({
                 action: () => {
-                    const connection = new Database(candidate, { readonly: true });
-                    connection.exec('PRAGMA busy_timeout = 1500');
-                    return connection;
+                    return openReadonlyDb(candidate, 1500);
                 },
             });
             db.close();
@@ -236,11 +310,21 @@ const getThreadDeleteTargets = (db: Database, threadIds: string[]) => {
         return [];
     }
 
-    const placeholders = threadIds.map(() => '?').join(', ');
-    return db.query(`SELECT id, rollout_path FROM threads WHERE id IN (${placeholders})`).all(...threadIds) as Array<{
-        id: string;
-        rollout_path: string;
-    }>;
+    const targets: Array<{ id: string; rollout_path: string }> = [];
+
+    for (const threadIdChunk of chunkValues(threadIds, SQLITE_DELETE_BATCH_SIZE)) {
+        const placeholders = threadIdChunk.map(() => '?').join(', ');
+        targets.push(
+            ...(db
+                .query(`SELECT id, rollout_path FROM threads WHERE id IN (${placeholders})`)
+                .all(...threadIdChunk) as Array<{
+                id: string;
+                rollout_path: string;
+            }>),
+        );
+    }
+
+    return targets;
 };
 
 const deleteThreadIds = (db: Database, threadIds: string[]): DeleteThreadsResult => {
@@ -263,28 +347,30 @@ const deleteThreadIds = (db: Database, threadIds: string[]): DeleteThreadsResult
     }
 
     const deleteMany = db.transaction((ids: string[]) => {
-        const placeholders = ids.map(() => '?').join(', ');
+        for (const threadIdChunk of chunkValues(ids, SQLITE_DELETE_BATCH_SIZE)) {
+            const placeholders = threadIdChunk.map(() => '?').join(', ');
 
-        // Codex schema differs across versions, so only touch dependent tables that actually exist.
-        if (existingTableNames.has('thread_dynamic_tools')) {
-            db.query(`DELETE FROM thread_dynamic_tools WHERE thread_id IN (${placeholders})`).run(...ids);
+            // Codex schema differs across versions, so only touch dependent tables that actually exist.
+            if (existingTableNames.has('thread_dynamic_tools')) {
+                db.query(`DELETE FROM thread_dynamic_tools WHERE thread_id IN (${placeholders})`).run(...threadIdChunk);
+            }
+
+            if (existingTableNames.has('thread_goals')) {
+                db.query(`DELETE FROM thread_goals WHERE thread_id IN (${placeholders})`).run(...threadIdChunk);
+            }
+
+            if (existingTableNames.has('stage1_outputs')) {
+                db.query(`DELETE FROM stage1_outputs WHERE thread_id IN (${placeholders})`).run(...threadIdChunk);
+            }
+
+            if (existingTableNames.has('thread_spawn_edges')) {
+                db.query(
+                    `DELETE FROM thread_spawn_edges WHERE parent_thread_id IN (${placeholders}) OR child_thread_id IN (${placeholders})`,
+                ).run(...threadIdChunk, ...threadIdChunk);
+            }
+
+            db.query(`DELETE FROM threads WHERE id IN (${placeholders})`).run(...threadIdChunk);
         }
-
-        if (existingTableNames.has('thread_goals')) {
-            db.query(`DELETE FROM thread_goals WHERE thread_id IN (${placeholders})`).run(...ids);
-        }
-
-        if (existingTableNames.has('stage1_outputs')) {
-            db.query(`DELETE FROM stage1_outputs WHERE thread_id IN (${placeholders})`).run(...ids);
-        }
-
-        if (existingTableNames.has('thread_spawn_edges')) {
-            db.query(
-                `DELETE FROM thread_spawn_edges WHERE parent_thread_id IN (${placeholders}) OR child_thread_id IN (${placeholders})`,
-            ).run(...ids, ...ids);
-        }
-
-        db.query(`DELETE FROM threads WHERE id IN (${placeholders})`).run(...ids);
     });
 
     deleteMany(existingIds);
@@ -297,7 +383,10 @@ const deleteThreadIds = (db: Database, threadIds: string[]): DeleteThreadsResult
 
 const deleteThreadSessionFiles = async (sessionFiles: string[]) => {
     const uniqueSessionFiles = [...new Set(sessionFiles)];
-    await Promise.all(uniqueSessionFiles.map((sessionFile) => rm(sessionFile, { force: true })));
+    await mapWithConcurrency(uniqueSessionFiles, SESSION_FILE_DELETE_CONCURRENCY, async (sessionFile) => {
+        await rm(sessionFile, { force: true });
+        return sessionFile;
+    });
     return uniqueSessionFiles;
 };
 
@@ -323,39 +412,37 @@ export const listProjectThreads = async (
     options: ListProjectThreadsOptions = {},
 ): Promise<ThreadListEntry[]> => {
     const threads = filterThreadsByProject(readAllThreads(dbPath), projectName);
-    const entries = await Promise.all(
-        threads.map(async (thread): Promise<ThreadListEntry> => {
-            const rollout = await getThreadRolloutLoadState(thread.rollout_path, options.largeTranscriptThresholdBytes);
+    const entries = await mapWithConcurrency(threads, THREAD_LIST_IO_CONCURRENCY, async (thread) => {
+        const rollout = await getThreadRolloutLoadState(thread.rollout_path, options.largeTranscriptThresholdBytes);
 
-            if (rollout.shouldDeferTranscriptLoad) {
-                return {
-                    project: projectName,
-                    rolloutSizeBytes: rollout.fileSizeBytes,
-                    stats: {
-                        deferred: true,
-                        execCommandCount: 0,
-                        toolCallCount: 0,
-                        webSearchEventCount: 0,
-                    },
-                    thread: compactThreadListRow(thread),
-                };
-            }
-
-            const transcript = await getCachedParsedCodexTranscript(thread.rollout_path);
-
+        if (rollout.shouldDeferTranscriptLoad) {
             return {
                 project: projectName,
                 rolloutSizeBytes: rollout.fileSizeBytes,
                 stats: {
-                    deferred: false,
-                    execCommandCount: transcript.stats.execCommandCount,
-                    toolCallCount: transcript.stats.toolCallCount,
-                    webSearchEventCount: transcript.stats.webSearchEventCount,
+                    deferred: true,
+                    execCommandCount: 0,
+                    toolCallCount: 0,
+                    webSearchEventCount: 0,
                 },
                 thread: compactThreadListRow(thread),
             };
-        }),
-    );
+        }
+
+        const transcript = await getCachedParsedCodexTranscript(thread.rollout_path);
+
+        return {
+            project: projectName,
+            rolloutSizeBytes: rollout.fileSizeBytes,
+            stats: {
+                deferred: false,
+                execCommandCount: transcript.stats.execCommandCount,
+                toolCallCount: transcript.stats.toolCallCount,
+                webSearchEventCount: transcript.stats.webSearchEventCount,
+            },
+            thread: compactThreadListRow(thread),
+        };
+    });
 
     return entries.sort((left, right) => toTimestampMs(right.thread) - toTimestampMs(left.thread));
 };

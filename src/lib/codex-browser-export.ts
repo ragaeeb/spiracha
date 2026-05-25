@@ -153,6 +153,17 @@ const logRolloutChangeIfDetected = (
     });
 };
 
+const cleanupExportWorkspace = async (workspacePath: string) => {
+    try {
+        await rm(workspacePath, { force: true, recursive: true });
+    } catch (error) {
+        logExportEvent('warn', 'workspace_cleanup_failed', {
+            error: error instanceof Error ? error.message : String(error),
+            workspacePath,
+        });
+    }
+};
+
 const zipExportFile = async (sourcePath: string, zipPath: string) => {
     const proc = Bun.spawn(['zip', '-9', '-j', zipPath, sourcePath], {
         stderr: 'pipe',
@@ -240,7 +251,7 @@ export const renderCodexThreadDownload = async (
 
                 await zipExportFile(savedPath, zipPath);
             } finally {
-                await rm(workspaceDir, { force: true, recursive: true });
+                await cleanupExportWorkspace(workspaceDir);
             }
 
             const rolloutSnapshotAfter = await getRolloutSnapshot(browseData.thread.rollout_path);
@@ -395,7 +406,7 @@ export const renderCodexThreadsDownload = async (
         });
         throw error;
     } finally {
-        await rm(bundleDirectory, { force: true, recursive: true });
+        await cleanupExportWorkspace(bundleDirectory);
     }
 
     const zipStat = await Bun.file(zipPath).stat();

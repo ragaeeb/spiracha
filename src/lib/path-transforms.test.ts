@@ -51,4 +51,19 @@ describe('applyPathTransforms', () => {
             }),
         ).toBe('~/workspace/spiracha-docs/README.md');
     });
+
+    it('should redact remaining Linux home-directory usernames after project-root replacement', () => {
+        const text = [
+            'Project file: /home/user/workspace/spiracha/src/index.ts',
+            'External file: /home/other/notes/todo.md',
+        ].join('\n');
+
+        expect(
+            applyPathTransforms(text, {
+                convertToProjectRoot: true,
+                projectPath: '/home/user/workspace/spiracha',
+                redactUsername: true,
+            }),
+        ).toBe(['Project file: src/index.ts', 'External file: ~/notes/todo.md'].join('\n'));
+    });
 });

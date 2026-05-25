@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { finished } from 'node:stream/promises';
+import { formatModelLabel as formatSharedModelLabel } from './model-label';
 
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 
@@ -60,30 +61,7 @@ export const cleanExtractedText = (text: string): string => {
     return text.replace(/^\s*<\/?image>\s*$/gm, '').replace(/\n{3,}/g, '\n\n');
 };
 
-export const formatModelLabel = (value: string | null | undefined): string => {
-    if (!value) {
-        return 'Assistant';
-    }
-
-    return value
-        .split(/[-_\s]+/u)
-        .filter(Boolean)
-        .map((part) => {
-            const lower = part.toLowerCase();
-            if (lower === 'gpt') {
-                return 'GPT';
-            }
-            if (/^[a-z]\d$/u.test(lower)) {
-                return lower.toUpperCase();
-            }
-            if (/^\d+(\.\d+)*$/u.test(part)) {
-                return part;
-            }
-
-            return `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`;
-        })
-        .join(' ');
-};
+export const formatModelLabel = formatSharedModelLabel;
 
 export const asObject = (value: JsonValue): Record<string, JsonValue> | null => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {

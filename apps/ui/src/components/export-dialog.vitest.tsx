@@ -55,7 +55,7 @@ describe('ExportDialog', () => {
 
         render(<ExportDialog open onExport={onExport} onOpenChange={onOpenChange} />);
 
-        fireEvent.click(screen.getAllByRole('checkbox')[2]!);
+        fireEvent.click(screen.getByRole('checkbox', { name: /include tool calls/i }));
         fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
         fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
 

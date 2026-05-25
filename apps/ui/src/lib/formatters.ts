@@ -1,3 +1,5 @@
+import { formatModelLabel as formatSharedModelLabel } from '@spiracha/lib/model-label';
+
 type DateTimeFormatOptions = {
     now?: Date;
     timeZone?: string;
@@ -31,6 +33,7 @@ const getDateTimeFormatters = (timeZone?: string): DateTimeFormatterSet => {
             minute: '2-digit',
             month: 'short',
             timeZone,
+            year: 'numeric',
         }),
     };
 
@@ -45,11 +48,19 @@ const buildDayKey = (date: Date, timeZone?: string) => {
 const formatTimeParts = (date: Date, timeZone?: string) => {
     const parts = getDateTimeFormatters(timeZone).timePartsFormatter.formatToParts(date);
     const partMap = new Map(parts.map((part) => [part.type, part.value]));
+    const hour = partMap.get('hour');
+    const minute = partMap.get('minute');
+    const dayPeriod = partMap.get('dayPeriod');
+
+    if (!hour || !minute || !dayPeriod) {
+        return null;
+    }
 
     return {
         day: partMap.get('day') ?? '',
         month: partMap.get('month') ?? '',
-        time: `${partMap.get('hour') ?? ''}:${partMap.get('minute') ?? ''} ${partMap.get('dayPeriod') ?? ''}`.trim(),
+        time: `${hour}:${minute} ${dayPeriod}`.trim(),
+        year: partMap.get('year') ?? '',
     };
 };
 
@@ -87,17 +98,27 @@ export const formatDateTime = (
         return 'n/a';
     }
 
-    const date = typeof value === 'number' ? new Date(value) : new Date(value);
+    const date = new Date(value);
     if (Number.isNaN(date.getTime())) {
         return 'n/a';
     }
 
     const now = options.now ?? new Date();
-    const { day, month, time } = formatTimeParts(date, options.timeZone);
+    const parts = formatTimeParts(date, options.timeZone);
+    if (!parts) {
+        return 'n/a';
+    }
+
+    const { day, month, time, year } = parts;
     const isToday = buildDayKey(date, options.timeZone) === buildDayKey(now, options.timeZone);
 
     if (isToday) {
         return time;
+    }
+
+    const currentYear = formatTimeParts(now, options.timeZone)?.year;
+    if (year && currentYear && year !== currentYear) {
+        return `${month} ${day}, ${year} · ${time}`;
     }
 
     return `${month} ${day} · ${time}`;
@@ -123,27 +144,4 @@ export const formatBooleanLabel = (value: boolean) => {
     return value ? 'Yes' : 'No';
 };
 
-export const formatModelLabel = (value: string | null | undefined): string => {
-    if (!value) {
-        return 'Assistant';
-    }
-
-    return value
-        .split(/[-_\s]+/u)
-        .filter(Boolean)
-        .map((part) => {
-            const lower = part.toLowerCase();
-            if (lower === 'gpt') {
-                return 'GPT';
-            }
-            if (/^[a-z]\d$/u.test(lower)) {
-                return lower.toUpperCase();
-            }
-            if (/^\d+(\.\d+)*$/u.test(part)) {
-                return part;
-            }
-
-            return `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`;
-        })
-        .join(' ');
-};
+export const formatModelLabel = formatSharedModelLabel;

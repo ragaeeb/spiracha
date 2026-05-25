@@ -848,7 +848,7 @@ const fileExists = async (targetPath: string): Promise<boolean> => {
 };
 
 const requireValue = (value: string | undefined, flag: string): string => {
-    if (!value || value.startsWith('--')) {
+    if (!value || (value.startsWith('-') && value !== '-')) {
         throw new CliUsageError(`Missing value for ${flag}`);
     }
 

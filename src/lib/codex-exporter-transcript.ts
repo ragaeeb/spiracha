@@ -64,7 +64,7 @@ export const writeSessionFileExport = async (
     transform: TranscriptTextTransform = (text) => text,
 ): Promise<boolean> => {
     const transcriptOutputPath = `${outputPath}.transcript.tmp`;
-    const transcriptStream = await createExportWriteStream(transcriptOutputPath);
+    let transcriptStream: any = null;
     const state: CodexTranscriptState = {
         assistantModel: target.thread?.model ?? null,
         sections: [],
@@ -74,6 +74,7 @@ export const writeSessionFileExport = async (
     let wroteSection = false;
 
     try {
+        transcriptStream = await createExportWriteStream(transcriptOutputPath);
         for await (const parsed of readJsonlObjects(target.sessionFile)) {
             captureSessionMeta(parsed, state.sessionMeta);
             const block = renderCodexTranscriptRecord(parsed, options, state);
@@ -84,31 +85,39 @@ export const writeSessionFileExport = async (
             transcriptStream.write(transform(wroteSection ? `${getSectionSeparator(options)}${block}` : block));
             wroteSection = true;
         }
+        await finalizeExportWriteStream(transcriptStream);
+        transcriptStream = null;
+
+        if (!matchesFilters(target.thread?.cwd ?? state.sessionMeta.cwd ?? null, options) || !wroteSection) {
+            return false;
+        }
+
+        const outputStream = await createExportWriteStream(outputPath);
+        try {
+            const prefix = buildStreamExportPrefix(target, state.sessionMeta, options);
+            if (prefix) {
+                outputStream.write(transform(prefix));
+            }
+
+            const transcriptReadStream = createReadStream(transcriptOutputPath, { encoding: 'utf8' });
+            transcriptReadStream.pipe(outputStream, { end: false });
+            await finished(transcriptReadStream);
+            outputStream.write('\n');
+            await finalizeExportWriteStream(outputStream);
+        } catch (error) {
+            outputStream.destroy();
+            throw error;
+        }
+
+        return true;
     } catch (error) {
-        transcriptStream.destroy();
+        if (transcriptStream) {
+            transcriptStream.destroy();
+        }
         throw error;
-    }
-
-    await finalizeExportWriteStream(transcriptStream);
-
-    if (!matchesFilters(target.thread?.cwd ?? state.sessionMeta.cwd ?? null, options) || !wroteSection) {
+    } finally {
         await rm(transcriptOutputPath, { force: true });
-        return false;
     }
-
-    const outputStream = await createExportWriteStream(outputPath);
-    const prefix = buildStreamExportPrefix(target, state.sessionMeta, options);
-    if (prefix) {
-        outputStream.write(transform(prefix));
-    }
-
-    const transcriptReadStream = createReadStream(transcriptOutputPath, { encoding: 'utf8' });
-    transcriptReadStream.pipe(outputStream, { end: false });
-    await finished(transcriptReadStream);
-    outputStream.write('\n');
-    await finalizeExportWriteStream(outputStream);
-    await rm(transcriptOutputPath, { force: true });
-    return true;
 };
 
 type CodexTranscriptState = {

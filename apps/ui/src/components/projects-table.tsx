@@ -42,7 +42,11 @@ const columns = (onDeleteProject: (project: ProjectSummary) => void) =>
             header: 'Tokens',
         }),
         columnHelper.accessor('lastUpdatedAtMs', {
-            cell: (info) => <span className="text-sm">{formatDateTime(info.getValue())}</span>,
+            cell: (info) => (
+                <span className="text-sm" suppressHydrationWarning>
+                    {formatDateTime(info.getValue())}
+                </span>
+            ),
             header: 'Last updated',
         }),
         columnHelper.display({

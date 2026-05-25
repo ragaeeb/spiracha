@@ -43,14 +43,39 @@ const buildThreadItems = (snapshot: ThreadSnapshot) => {
         { label: 'Thread ID', value: <span data-mono="true">{snapshot.thread.id}</span> },
         { label: 'Project', value: snapshot.project },
         { label: 'CWD', value: <span data-mono="true">{snapshot.thread.cwd}</span> },
-        { label: 'Created', value: formatDateTime(snapshot.thread.created_at_ms ?? snapshot.thread.created_at * 1000) },
-        { label: 'Updated', value: formatDateTime(snapshot.thread.updated_at_ms ?? snapshot.thread.updated_at * 1000) },
-        { label: 'Session started', value: formatDateTime(snapshot.transcript?.sessionMeta.timestamp ?? null) },
+        {
+            label: 'Created',
+            value: (
+                <span suppressHydrationWarning>
+                    {formatDateTime(snapshot.thread.created_at_ms ?? snapshot.thread.created_at * 1000)}
+                </span>
+            ),
+        },
+        {
+            label: 'Updated',
+            value: (
+                <span suppressHydrationWarning>
+                    {formatDateTime(snapshot.thread.updated_at_ms ?? snapshot.thread.updated_at * 1000)}
+                </span>
+            ),
+        },
+        {
+            label: 'Session started',
+            value: (
+                <span suppressHydrationWarning>
+                    {formatDateTime(snapshot.transcript?.sessionMeta.timestamp ?? null)}
+                </span>
+            ),
+        },
         { label: 'Rollout size', value: formatBytes(snapshot.rollout.fileSizeBytes) },
         { label: 'Archived', value: formatBooleanLabel(Boolean(snapshot.thread.archived)) },
         {
             label: 'Archived at',
-            value: formatDateTime(snapshot.thread.archived_at ? snapshot.thread.archived_at * 1000 : null),
+            value: (
+                <span suppressHydrationWarning>
+                    {formatDateTime(snapshot.thread.archived_at ? snapshot.thread.archived_at * 1000 : null)}
+                </span>
+            ),
         },
     ];
 };
@@ -447,7 +472,11 @@ function ThreadDetailPage() {
                 <MetricCard label="Tokens" value={formatTokens(snapshot.thread.tokens_used)} />
                 <MetricCard
                     label="Updated"
-                    value={formatDateTime(snapshot.thread.updated_at_ms ?? snapshot.thread.updated_at * 1000)}
+                    value={
+                        <span suppressHydrationWarning>
+                            {formatDateTime(snapshot.thread.updated_at_ms ?? snapshot.thread.updated_at * 1000)}
+                        </span>
+                    }
                 />
                 <MetricCard
                     label="Thread source"

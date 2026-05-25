@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import path from 'node:path';
 import {
     type CodexCliOptions,
     DEFAULT_DB_PATH,
@@ -62,10 +63,10 @@ describe('codex exporter cli', () => {
             '~/workspace/spiracha',
         ]);
 
-        expect(options.dbPath.includes('.codex/db.sqlite')).toBe(true);
-        expect(options.inputDir.includes('/sessions')).toBe(true);
-        expect(options.outputDir.includes('/exports')).toBe(true);
-        expect(options.cwdFilter?.includes('/workspace/spiracha')).toBe(true);
+        expect(path.normalize(options.dbPath)).toContain(path.normalize(path.join('.codex', 'db.sqlite')));
+        expect(path.normalize(options.inputDir)).toContain(path.normalize(path.join('sessions')));
+        expect(path.normalize(options.outputDir)).toContain(path.normalize(path.join('exports')));
+        expect(path.normalize(options.cwdFilter ?? '')).toContain(path.normalize(path.join('workspace', 'spiracha')));
     });
 
     it('extracts thread ids from codex deeplinks only', () => {

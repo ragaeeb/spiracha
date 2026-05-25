@@ -59,7 +59,7 @@ describe('sqlite retry helpers', () => {
                 delaysMs: [1],
                 sleep: () => {},
             }),
-        ).toThrow('database is locked');
+        ).toThrow('SQLite operation failed after 2 attempts: database is locked');
         expect(attempts).toBe(2);
     });
 

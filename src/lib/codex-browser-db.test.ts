@@ -10,6 +10,7 @@ import {
     getThreadBrowseData,
     listCodexProjects,
     listProjectThreads,
+    withReadonlyDb,
 } from './codex-browser-db';
 import { createCodexBrowserFixture } from './codex-test-helpers';
 
@@ -214,6 +215,104 @@ const createMinimalBrowseSchemaFixture = async (tempRoot: string) => {
     };
 };
 
+const createLargeProjectDeleteFixture = async (tempRoot: string, threadCount: number) => {
+    const dbPath = path.join(tempRoot, 'state.sqlite');
+    const sessionsRoot = path.join(tempRoot, 'sessions');
+    const projectCwd = '/Users/user/workspace/big-project';
+    const db = new Database(dbPath);
+    db.exec(`
+        CREATE TABLE threads (
+            id TEXT PRIMARY KEY,
+            rollout_path TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            source TEXT NOT NULL,
+            model_provider TEXT NOT NULL,
+            cwd TEXT NOT NULL,
+            title TEXT NOT NULL,
+            sandbox_policy TEXT NOT NULL,
+            approval_mode TEXT NOT NULL,
+            tokens_used INTEGER NOT NULL DEFAULT 0,
+            has_user_event INTEGER NOT NULL DEFAULT 0,
+            archived INTEGER NOT NULL DEFAULT 0,
+            archived_at INTEGER,
+            git_sha TEXT,
+            git_branch TEXT,
+            git_origin_url TEXT,
+            cli_version TEXT NOT NULL DEFAULT '',
+            first_user_message TEXT NOT NULL DEFAULT '',
+            agent_nickname TEXT,
+            agent_role TEXT,
+            memory_mode TEXT NOT NULL DEFAULT 'enabled',
+            model TEXT,
+            reasoning_effort TEXT,
+            agent_path TEXT,
+            created_at_ms INTEGER,
+            updated_at_ms INTEGER,
+            thread_source TEXT,
+            preview TEXT NOT NULL DEFAULT ''
+        );
+
+        CREATE TABLE thread_spawn_edges (
+            parent_thread_id TEXT NOT NULL,
+            child_thread_id TEXT NOT NULL,
+            status TEXT NOT NULL
+        );
+    `);
+
+    const insertThread = db.prepare(`
+        INSERT INTO threads (
+            id, rollout_path, created_at, updated_at, source, model_provider, cwd, title,
+            sandbox_policy, approval_mode, tokens_used, has_user_event, archived, cli_version,
+            first_user_message, memory_mode, model, created_at_ms, updated_at_ms, preview
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const insertEdge = db.prepare(`
+        INSERT INTO thread_spawn_edges (parent_thread_id, child_thread_id, status)
+        VALUES (?, ?, ?)
+    `);
+
+    for (let index = 0; index < threadCount; index += 1) {
+        const threadId = `thread-${index}`;
+        const sessionFile = path.join(sessionsRoot, `rollout-${index}.jsonl`);
+        await mkdir(path.dirname(sessionFile), { recursive: true });
+        await Bun.write(sessionFile, JSON.stringify({ type: 'session_meta' }));
+        insertThread.run(
+            threadId,
+            sessionFile,
+            index + 1,
+            index + 2,
+            'vscode',
+            'openai',
+            projectCwd,
+            `Thread ${index}`,
+            '{"type":"danger-full-access"}',
+            'never',
+            1,
+            1,
+            0,
+            '0.1.0',
+            'Prompt',
+            'enabled',
+            'gpt-5.4',
+            (index + 1) * 1000,
+            (index + 2) * 1000,
+            'Prompt',
+        );
+        if (index > 0) {
+            insertEdge.run(`thread-${index - 1}`, threadId, 'done');
+        }
+    }
+
+    db.close();
+
+    return {
+        dbPath,
+        projectName: 'big-project',
+        sessionsRoot,
+    };
+};
+
 describe('codex browser db', () => {
     it('should group live threads into portable project summaries', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-projects-test-'));
@@ -390,5 +489,38 @@ describe('codex browser db', () => {
                 expect(await Bun.file(sessionFile).exists()).toBe(false);
             }),
         );
+    });
+
+    it('should reject async database callbacks before closing the connection early', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-async-callback-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createMinimalBrowseSchemaFixture(tempRoot);
+
+        expect(() =>
+            withReadonlyDb(fixture.dbPath, async () => {
+                return 'nope';
+            }),
+        ).toThrow('Database callbacks must be synchronous');
+    });
+
+    it('should delete very large projects without exceeding SQLite parameter limits', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-large-project-delete-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createLargeProjectDeleteFixture(tempRoot, 520);
+
+        const result = await deleteCodexProject(fixture.dbPath, fixture.projectName, {
+            deleteSessionFiles: true,
+        });
+
+        expect(result.deletedThreadIds).toHaveLength(520);
+        expect(result.deletedSessionFiles).toHaveLength(520);
+
+        const db = new Database(fixture.dbPath, { readonly: true });
+        expect(db.query('SELECT COUNT(*) AS count FROM threads').get()).toEqual({ count: 0 });
+        expect(db.query('SELECT COUNT(*) AS count FROM thread_spawn_edges').get()).toEqual({ count: 0 });
+        db.close();
+
+        expect(await Bun.file(path.join(fixture.sessionsRoot, 'rollout-0.jsonl')).exists()).toBe(false);
+        expect(await Bun.file(path.join(fixture.sessionsRoot, 'rollout-519.jsonl')).exists()).toBe(false);
     });
 });
