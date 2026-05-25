@@ -428,7 +428,7 @@ describe('codex exporter transcript helpers', () => {
         expect(skipped).toBe(false);
     });
 
-    it('cleans up temporary files in writeSessionFileExport when an error occurs', async () => {
+    it('should clean up temporary files in writeSessionFileExport when an error occurs', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-exporter-cleanup-test-'));
         tempPaths.push(tempRoot);
 
