@@ -17,8 +17,8 @@ type ExportDialogProps = {
     title?: string;
     onExport: (options: {
         includeCommentary: boolean;
+        includeMetadata: boolean;
         includeTools: boolean;
-        optimized: boolean;
         outputFormat: 'md' | 'txt';
     }) => void;
     onOpenChange: (open: boolean) => void;
@@ -32,7 +32,7 @@ export function ExportDialog({
     onOpenChange,
 }: ExportDialogProps) {
     const [outputFormat, setOutputFormat] = useState<'md' | 'txt'>('md');
-    const [optimized, setOptimized] = useState(false);
+    const [includeMetadata, setIncludeMetadata] = useState(true);
     const [includeCommentary, setIncludeCommentary] = useState(false);
     const [includeTools, setIncludeTools] = useState(true);
 
@@ -67,14 +67,14 @@ export function ExportDialog({
 
                     <div className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--panel-secondary)] p-3">
                         <Checkbox
-                            aria-label="Optimized transcript"
-                            checked={optimized}
-                            onCheckedChange={(checked) => setOptimized(checked === true)}
+                            aria-label="Include metadata"
+                            checked={includeMetadata}
+                            onCheckedChange={(checked) => setIncludeMetadata(checked === true)}
                         />
                         <span className="space-y-1">
-                            <span className="block font-medium text-sm">Optimized transcript</span>
+                            <span className="block font-medium text-sm">Include metadata</span>
                             <span className="block text-[var(--muted-foreground)] text-sm">
-                                Removes metadata and condenses the transcript for readability and token efficiency.
+                                Includes the chat metadata section at the top of the exported transcript.
                             </span>
                         </span>
                     </div>
@@ -115,7 +115,7 @@ export function ExportDialog({
                     <Button
                         className="rounded-full"
                         disabled={pending}
-                        onClick={() => onExport({ includeCommentary, includeTools, optimized, outputFormat })}
+                        onClick={() => onExport({ includeCommentary, includeMetadata, includeTools, outputFormat })}
                     >
                         {pending ? 'Exporting...' : 'Download export'}
                     </Button>

@@ -27,7 +27,6 @@ export {
     toOutputRelativePath,
 } from './codex-exporter-db';
 export {
-    compactMessageText,
     convertSessionFile,
     formatToolOutputSummary,
     parseExecCommandArguments,

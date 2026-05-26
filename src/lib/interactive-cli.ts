@@ -307,7 +307,7 @@ const promptForCommonCodexOptions = async (
     target: Pick<CodexCliOptions, 'threadIds' | 'cwdFilter' | 'projectFilter'>,
 ): Promise<CodexCliOptions> => {
     const outputFormat = await promptForOutputFormat(rl);
-    const optimized = await promptYesNo(rl, 'Use optimized output? [y/N]: ', false);
+    const includeMetadata = await promptYesNo(rl, 'Include metadata? [Y/n]: ', true);
     const includeCommentary = await promptYesNo(rl, 'Include commentary messages? [y/N]: ', false);
     const includeTools = await promptYesNo(rl, 'Include tool logs? [y/N]: ', false);
     const flat = await promptYesNo(rl, 'Write to a flat output folder? [y/N]: ', false);
@@ -318,9 +318,9 @@ const promptForCommonCodexOptions = async (
         dbPath,
         flat,
         includeCommentary,
+        includeMetadata,
         includeTools,
         inputDir: DEFAULT_INPUT_DIR,
-        optimized,
         outputDir: outputDir ?? resolveInteractiveOutputDir(target.cwdFilter),
         outputFormat,
         projectFilter: target.projectFilter,

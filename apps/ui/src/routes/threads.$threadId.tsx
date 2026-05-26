@@ -372,7 +372,7 @@ function ThreadDetailPage() {
         mutationFn: async (options: {
             includeCommentary: boolean;
             includeTools: boolean;
-            optimized: boolean;
+            includeMetadata: boolean;
             outputFormat: 'md' | 'txt';
         }) => {
             console.info('[spiracha:export-ui] request', {

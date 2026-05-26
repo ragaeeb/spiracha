@@ -11,6 +11,7 @@ rtk bun run dev
 rtk bun run build
 rtk bun run test
 rtk bun run typecheck
+rtk bun run coverage
 ```
 
 Important:
@@ -22,6 +23,7 @@ Important:
 - This package uses TanStack Start with file-based routes in `src/routes/`.
 - `src/routeTree.gen.ts` is generated. Do not edit it manually.
 - If route typing behaves strangely, delete `src/routeTree.gen.ts` and rebuild with `rtk bun run build` to regenerate it cleanly.
+- The UI supports both `/threads/$threadId` and a root shortcut route `/$threadId` that redirects straight to the thread detail page.
 
 ## Shared Data Layer
 

@@ -50,8 +50,8 @@ describe('renderCodexThreadDownload', () => {
         const download = await renderCodexThreadDownload({
             dbPath: fixture.dbPath,
             includeCommentary: true,
+            includeMetadata: true,
             includeTools: true,
-            optimized: false,
             outputFormat: 'md',
             threadId: fixture.threadId,
         });
@@ -75,8 +75,8 @@ describe('renderCodexThreadDownload', () => {
         const download = await renderCodexThreadDownload({
             dbPath: fixture.dbPath,
             includeCommentary: true,
+            includeMetadata: true,
             includeTools: true,
-            optimized: false,
             outputFormat: 'md',
             pathDisplaySettings: {
                 convertToProjectRoot: true,
@@ -102,8 +102,8 @@ describe('renderCodexThreadDownload', () => {
         const download = await renderCodexThreadDownload({
             dbPath: fixture.dbPath,
             includeCommentary: false,
+            includeMetadata: true,
             includeTools: true,
-            optimized: false,
             outputFormat: 'md',
             threadId: fixture.threads[0]!.threadId,
         });
@@ -125,9 +125,9 @@ describe('renderCodexThreadDownload', () => {
         const download = await renderCodexThreadDownload({
             dbPath: fixture.dbPath,
             includeCommentary: true,
+            includeMetadata: true,
             includeTools: true,
             largeExportThresholdBytes: 1,
-            optimized: false,
             outputFormat: 'md',
             publicExportDir: tempRoot,
             threadId: fixture.threads[0]!.threadId,
@@ -152,9 +152,9 @@ describe('renderCodexThreadDownload', () => {
         const download = await renderCodexThreadDownload({
             dbPath: fixture.dbPath,
             includeCommentary: true,
+            includeMetadata: true,
             includeTools: true,
             largeExportThresholdBytes: 1,
-            optimized: false,
             outputFormat: 'md',
             threadId: fixture.threads[0]!.threadId,
         });
@@ -174,8 +174,8 @@ describe('renderCodexThreadDownload', () => {
         const download = await renderCodexThreadsDownload({
             dbPath: fixture.dbPath,
             includeCommentary: true,
+            includeMetadata: true,
             includeTools: true,
-            optimized: false,
             outputFormat: 'md',
             publicExportDir: tempRoot,
             threadIds: fixture.threads.slice(0, 2).map((thread) => thread.threadId),
@@ -271,8 +271,8 @@ describe('renderCodexThreadDownload', () => {
         const download = await renderCodexThreadsDownload({
             dbPath: fixture.dbPath,
             includeCommentary: true,
+            includeMetadata: true,
             includeTools: true,
-            optimized: false,
             outputFormat: 'md',
             publicExportDir: tempRoot,
             threadIds: [originalThreadId, collidingThreadId],
@@ -299,8 +299,8 @@ describe('renderCodexThreadDownload', () => {
         const firstDownload = await renderCodexThreadsDownload({
             dbPath: fixture.dbPath,
             includeCommentary: true,
+            includeMetadata: true,
             includeTools: true,
-            optimized: false,
             outputFormat: 'md',
             publicExportDir: tempRoot,
             threadIds,
@@ -308,8 +308,8 @@ describe('renderCodexThreadDownload', () => {
         const secondDownload = await renderCodexThreadsDownload({
             dbPath: fixture.dbPath,
             includeCommentary: true,
+            includeMetadata: true,
             includeTools: true,
-            optimized: false,
             outputFormat: 'md',
             publicExportDir: tempRoot,
             threadIds,

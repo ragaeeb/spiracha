@@ -12,8 +12,8 @@ describe('ExportDialog', () => {
 
         expect(onExport).toHaveBeenCalledWith({
             includeCommentary: false,
+            includeMetadata: true,
             includeTools: true,
-            optimized: false,
             outputFormat: 'md',
         });
     });
@@ -34,8 +34,8 @@ describe('ExportDialog', () => {
 
             expect(onExport).toHaveBeenCalledWith({
                 includeCommentary: true,
+                includeMetadata: false,
                 includeTools: true,
-                optimized: true,
                 outputFormat: 'txt',
             });
         } finally {
@@ -61,8 +61,8 @@ describe('ExportDialog', () => {
 
         expect(onExport).toHaveBeenCalledWith({
             includeCommentary: false,
+            includeMetadata: true,
             includeTools: false,
-            optimized: false,
             outputFormat: 'md',
         });
         expect(onOpenChange).toHaveBeenCalledWith(false);

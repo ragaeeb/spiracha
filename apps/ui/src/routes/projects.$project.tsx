@@ -93,7 +93,7 @@ function ProjectDetailPage() {
         mutationFn: async (options: {
             includeCommentary: boolean;
             includeTools: boolean;
-            optimized: boolean;
+            includeMetadata: boolean;
             outputFormat: 'md' | 'txt';
         }) => {
             if (!pendingExport) {

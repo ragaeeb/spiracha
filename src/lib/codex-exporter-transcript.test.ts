@@ -3,13 +3,7 @@ import { access, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { getThreadBrowseData } from './codex-browser-db';
-import {
-    compactMessageText,
-    convertSessionFile,
-    formatToolOutputSummary,
-    type MessageRecord,
-    parseExecCommandArguments,
-} from './codex-exporter';
+import { convertSessionFile, formatToolOutputSummary, parseExecCommandArguments } from './codex-exporter';
 import { writeSessionFileExport } from './codex-exporter-transcript';
 import { createCodexFixture } from './codex-test-helpers';
 
@@ -20,21 +14,6 @@ afterEach(async () => {
 });
 
 describe('codex exporter transcript helpers', () => {
-    it('drops preview wrappers from optimized message content', () => {
-        const message: MessageRecord = {
-            content: [
-                {
-                    text: ['Generated preview', '## GPT 5.4', '', 'Actual answer'].join('\n\n'),
-                    type: 'output_text',
-                },
-            ],
-            model: 'gpt-5.4',
-            role: 'assistant',
-        };
-
-        expect(compactMessageText(message, true)).toBe('GPT 5.4\n\nActual answer');
-    });
-
     it('extracts only stable command metadata from tool output', () => {
         const summary = formatToolOutputSummary(
             ['Command: echo hi', 'Chunk ID: abc', 'Process exited with code 0', 'Wall time: 0.1 seconds'].join('\n'),
@@ -78,9 +57,9 @@ describe('codex exporter transcript helpers', () => {
                 dbPath: fixture.dbPath,
                 flat: false,
                 includeCommentary: true,
+                includeMetadata: true,
                 includeTools: false,
                 inputDir: fixture.inputDir,
-                optimized: false,
                 outputDir: fixture.outputDir,
                 outputFormat: 'md',
                 projectFilter: null,
@@ -136,9 +115,9 @@ describe('codex exporter transcript helpers', () => {
                 dbPath: fixture.dbPath,
                 flat: false,
                 includeCommentary: true,
+                includeMetadata: true,
                 includeTools: false,
                 inputDir: fixture.inputDir,
-                optimized: false,
                 outputDir: fixture.outputDir,
                 outputFormat: 'md',
                 projectFilter: null,
@@ -249,9 +228,9 @@ describe('codex exporter transcript helpers', () => {
                 dbPath: fixture.dbPath,
                 flat: false,
                 includeCommentary: false,
+                includeMetadata: true,
                 includeTools: true,
                 inputDir: fixture.inputDir,
-                optimized: false,
                 outputDir: fixture.outputDir,
                 outputFormat: 'md',
                 projectFilter: null,
@@ -271,8 +250,8 @@ describe('codex exporter transcript helpers', () => {
         expect(content).not.toContain('unstructured output');
     });
 
-    it('should support optimized transcript export and transformed streaming output', async () => {
-        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-exporter-transcript-optimized-test-'));
+    it('should support metadata-free transcript export and transformed streaming output', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-exporter-transcript-metadata-test-'));
         tempPaths.push(tempRoot);
         const fixture = await createCodexFixture(tempRoot);
         const outputPath = path.join(tempRoot, 'streamed.md');
@@ -342,10 +321,10 @@ describe('codex exporter transcript helpers', () => {
         );
 
         const browseData = getThreadBrowseData(fixture.dbPath, fixture.threadId);
-        const optimized = await convertSessionFile(
+        const content = await convertSessionFile(
             {
                 fallbackReason: null,
-                outputRelativePath: 'Optimized.md',
+                outputRelativePath: 'Transcript.md',
                 relations: browseData.relations,
                 sessionFile: fixture.sessionFile,
                 thread: browseData.thread,
@@ -355,9 +334,9 @@ describe('codex exporter transcript helpers', () => {
                 dbPath: fixture.dbPath,
                 flat: false,
                 includeCommentary: false,
+                includeMetadata: false,
                 includeTools: true,
                 inputDir: fixture.inputDir,
-                optimized: true,
                 outputDir: fixture.outputDir,
                 outputFormat: 'md',
                 projectFilter: null,
@@ -365,18 +344,21 @@ describe('codex exporter transcript helpers', () => {
             },
         );
 
-        expect(optimized).toContain('U: Actual request');
-        expect(optimized).toContain('GPT 5.4: Assistant');
-        expect(optimized).toContain('Final answer');
-        expect(optimized).toContain('T: exec_command `bun test` @ /tmp/app');
-        expect(optimized).toContain('R: exited with code 0; wall time: 0.1 seconds');
-        expect(optimized).not.toContain('Commentary that should be hidden');
-        expect(optimized).not.toContain('AGENTS.md instructions');
+        expect(content).toContain('## User');
+        expect(content).toContain('Actual request');
+        expect(content).toContain('## GPT 5.4');
+        expect(content).toContain('Final **answer**');
+        expect(content).toContain('## Tool');
+        expect(content).toContain('Command: `bun test`');
+        expect(content).toContain('## Tool Output');
+        expect(content).not.toContain('Metadata');
+        expect(content).not.toContain('Commentary that should be hidden');
+        expect(content).not.toContain('AGENTS.md instructions');
 
         const saved = await writeSessionFileExport(
             {
                 fallbackReason: null,
-                outputRelativePath: 'Optimized.md',
+                outputRelativePath: 'Transcript.md',
                 relations: browseData.relations,
                 sessionFile: fixture.sessionFile,
                 thread: browseData.thread,
@@ -386,9 +368,9 @@ describe('codex exporter transcript helpers', () => {
                 dbPath: fixture.dbPath,
                 flat: false,
                 includeCommentary: false,
+                includeMetadata: false,
                 includeTools: true,
                 inputDir: fixture.inputDir,
-                optimized: false,
                 outputDir: fixture.outputDir,
                 outputFormat: 'txt',
                 projectFilter: null,
@@ -404,7 +386,7 @@ describe('codex exporter transcript helpers', () => {
         const skipped = await writeSessionFileExport(
             {
                 fallbackReason: null,
-                outputRelativePath: 'Optimized.md',
+                outputRelativePath: 'Transcript.md',
                 relations: browseData.relations,
                 sessionFile: fixture.sessionFile,
                 thread: browseData.thread,
@@ -414,9 +396,9 @@ describe('codex exporter transcript helpers', () => {
                 dbPath: fixture.dbPath,
                 flat: false,
                 includeCommentary: false,
+                includeMetadata: false,
                 includeTools: true,
                 inputDir: fixture.inputDir,
-                optimized: false,
                 outputDir: fixture.outputDir,
                 outputFormat: 'txt',
                 projectFilter: null,
@@ -445,9 +427,9 @@ describe('codex exporter transcript helpers', () => {
             dbPath: 'dummy.sqlite',
             flat: false,
             includeCommentary: false,
+            includeMetadata: true,
             includeTools: false,
             inputDir: tempRoot,
-            optimized: false,
             outputDir: tempRoot,
             outputFormat: 'md' as const,
             projectFilter: null,

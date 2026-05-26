@@ -10,10 +10,13 @@ Main entrypoints:
 - `bun run export:claude -- ...` for Claude transcript export
 - `bun run mcp` for the MCP server used by the local Codex plugin
 - `bun run ui:dev` for the local browser UI
-- published package goal:
-  - `bunx codex-chats`
-  - `bunx codex-chats ...`
-  - `bunx codex-chats-claude ...`
+- published package entrypoints:
+  - `bunx spiracha`
+  - `bunx spiracha ui`
+  - `bunx spiracha claude ...`
+  - legacy aliases retained:
+    - `bunx codex-chats`
+    - `bunx codex-chats-claude`
 
 ## Conventions and Rules
 
@@ -126,6 +129,9 @@ tmp_dir=$(mktemp -d)
 cd "$tmp_dir"
 printf '{"name":"codex-chats-smoke","private":true}\n' > package.json
 rtk bun add "$package_tgz"
+rtk bunx spiracha --help
+rtk bunx spiracha ui --help
+rtk bunx spiracha claude --help
 rtk bunx codex-chats --help
 rtk bunx codex-chats-claude --help
 rtk bun run smoke:package-ui
@@ -134,8 +140,8 @@ rtk bun run smoke:package-ui
 Example Codex export:
 
 ```bash
-rtk bunx codex-chats
-rtk bunx codex-chats codex://threads/<thread-id> --optimized
+rtk bunx spiracha
+rtk bunx spiracha codex://threads/<thread-id> --no-metadata
 rtk bun start --tools --project summer
 rtk bun start codex://threads/<thread-id> --output-format txt
 ```
@@ -143,7 +149,7 @@ rtk bun start codex://threads/<thread-id> --output-format txt
 Example Claude export:
 
 ```bash
-rtk bunx codex-chats-claude /path/to/transcript --output-format txt
+rtk bunx spiracha claude /path/to/transcript --output-format txt
 rtk bun run export:claude -- /path/to/export-dir --output-format txt
 ```
 

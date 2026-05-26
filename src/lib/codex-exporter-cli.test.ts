@@ -41,9 +41,9 @@ describe('codex exporter cli', () => {
             dbPath: DEFAULT_DB_PATH,
             flat: false,
             includeCommentary: true,
+            includeMetadata: true,
             includeTools: false,
             inputDir: DEFAULT_INPUT_DIR,
-            optimized: false,
             outputDir: DEFAULT_OUTPUT_DIR,
             outputFormat: 'md',
             projectFilter: null,
@@ -81,6 +81,7 @@ describe('codex exporter cli', () => {
         const help = getCodexHelpText();
         expect(help).toContain('--project');
         expect(help).toContain('codex://threads/<id>');
+        expect(help).toContain('--no-metadata');
         expect(help).toContain('--interactive');
     });
 
@@ -97,6 +98,11 @@ describe('codex exporter cli', () => {
     it('should support inline output format flags', () => {
         const options = parseCodexCliArgs(['--output-format=txt']);
         expect(options.outputFormat).toBe('txt');
+    });
+
+    it('should allow disabling metadata from the cli path', () => {
+        const options = parseCodexCliArgs(['--no-metadata']);
+        expect(options.includeMetadata).toBe(false);
     });
 
     it('should reject unsupported positional arguments and bad flag usage', () => {

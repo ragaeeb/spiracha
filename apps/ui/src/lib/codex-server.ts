@@ -48,8 +48,8 @@ const analyticsSchema = z.object({
 const exportSchema = z.object({
     convertToProjectRoot: z.boolean(),
     includeCommentary: z.boolean(),
+    includeMetadata: z.boolean(),
     includeTools: z.boolean(),
-    optimized: z.boolean(),
     outputFormat: z.enum(['md', 'txt']),
     redactUsername: z.boolean(),
     threadId: z.string().min(1),
@@ -58,8 +58,8 @@ const exportSchema = z.object({
 const exportThreadsSchema = z.object({
     convertToProjectRoot: z.boolean(),
     includeCommentary: z.boolean(),
+    includeMetadata: z.boolean(),
     includeTools: z.boolean(),
-    optimized: z.boolean(),
     outputFormat: z.enum(['md', 'txt']),
     redactUsername: z.boolean(),
     threadIds: z.array(z.string().min(1)).min(1),
@@ -143,8 +143,8 @@ export const exportThreadFn = createServerFn({ method: 'POST' })
         return renderCodexThreadDownload({
             dbPath: getDbPath(),
             includeCommentary: data.includeCommentary,
+            includeMetadata: data.includeMetadata,
             includeTools: data.includeTools,
-            optimized: data.optimized,
             outputFormat: data.outputFormat,
             pathDisplaySettings: {
                 convertToProjectRoot: data.convertToProjectRoot,
@@ -160,8 +160,8 @@ export const exportThreadsFn = createServerFn({ method: 'POST' })
         return renderCodexThreadsDownload({
             dbPath: getDbPath(),
             includeCommentary: data.includeCommentary,
+            includeMetadata: data.includeMetadata,
             includeTools: data.includeTools,
-            optimized: data.optimized,
             outputFormat: data.outputFormat,
             pathDisplaySettings: {
                 convertToProjectRoot: data.convertToProjectRoot,

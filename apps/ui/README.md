@@ -19,7 +19,7 @@ The browser UI for browsing local Codex history, inspecting thread details, expo
 - lists threads within a project in chronological order
 - shows thread timelines, tool calls, metadata, and raw event context
 - exports a single thread as Markdown or plain text
-- supports optimized transcript downloads and optional tool-call inclusion
+- supports transcript downloads with optional metadata, commentary, and tool-call inclusion
 - deletes a thread or all threads in a derived project from the Codex DB after confirmation
 - shows dashboard and analytics summaries, including token totals and tool-call frequency
 
@@ -63,6 +63,8 @@ Export artifacts are served through the UI as attachment downloads from `/__expo
   - project thread listing
 - `/threads/$threadId`
   - thread detail, transcript, export, and delete
+- `/$threadId`
+  - shortcut redirect to the thread detail page for pasted Codex thread UUIDs
 - `/analytics`
   - token and tool-call analytics with project filter
 

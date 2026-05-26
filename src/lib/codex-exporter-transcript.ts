@@ -40,16 +40,16 @@ export const convertSessionFile = async (target: ExportTarget, options: CodexCli
         return null;
     }
 
-    if (options.optimized) {
-        return transcriptState.sections.join('\n\n').trimEnd() + '\n';
-    }
-
     const title = getTitle(target, transcriptState.sessionMeta);
-    const metadata = buildMetadataEntries(target, transcriptState.sessionMeta, options);
     const parts = [
         renderDocumentTitle(title, options.outputFormat),
         '',
-        renderMetadataBlock(metadata, options.outputFormat),
+        options.includeMetadata
+            ? renderMetadataBlock(
+                  buildMetadataEntries(target, transcriptState.sessionMeta, options),
+                  options.outputFormat,
+              )
+            : '',
         ...transcriptState.sections,
     ].filter(Boolean);
     return parts.join('\n').trimEnd() + '\n';
@@ -69,7 +69,6 @@ export const writeSessionFileExport = async (
         assistantModel: target.thread?.model ?? null,
         sections: [],
         sessionMeta: {},
-        startedTranscript: false,
     };
     let wroteSection = false;
 
@@ -82,7 +81,7 @@ export const writeSessionFileExport = async (
                 continue;
             }
 
-            transcriptStream.write(transform(wroteSection ? `${getSectionSeparator(options)}${block}` : block));
+            transcriptStream.write(transform(wroteSection ? `${getSectionSeparator()}${block}` : block));
             wroteSection = true;
         }
         await finalizeExportWriteStream(transcriptStream);
@@ -124,7 +123,6 @@ type CodexTranscriptState = {
     assistantModel: string | null;
     sessionMeta: SessionMeta;
     sections: string[];
-    startedTranscript: boolean;
 };
 
 const collectCodexTranscript = async (
@@ -136,7 +134,6 @@ const collectCodexTranscript = async (
         assistantModel,
         sections: [],
         sessionMeta: {},
-        startedTranscript: false,
     };
 
     for await (const parsed of readJsonlObjects(sessionFile)) {
@@ -146,9 +143,7 @@ const collectCodexTranscript = async (
     return state;
 };
 
-const getSectionSeparator = (options: CodexCliOptions) => {
-    return options.optimized ? '\n\n' : '\n';
-};
+const getSectionSeparator = () => '\n';
 
 const processCodexTranscriptRecord = (
     parsed: Record<string, JsonValue>,
@@ -181,70 +176,28 @@ const renderCodexTranscriptRecord = (
         return '';
     }
 
-    return options.optimized
-        ? renderCompactToolBlock(tool, options.outputFormat)
-        : renderToolBlock(tool, options.outputFormat);
+    return renderToolBlock(tool, options.outputFormat);
 };
 
 const processCodexMessageRecord = (message: MessageRecord, options: CodexCliOptions, state: CodexTranscriptState) => {
-    if (options.optimized) {
-        return processOptimizedCodexMessageRecord(message, options, state);
-    }
-
     return renderMessageBlock(message, options.outputFormat, state.assistantModel, options.includeCommentary);
 };
 
-const processOptimizedCodexMessageRecord = (
-    message: MessageRecord,
-    options: CodexCliOptions,
-    state: CodexTranscriptState,
-) => {
-    if (message.role !== 'user' && message.role !== 'assistant') {
-        return '';
-    }
-
-    if (message.role === 'assistant' && message.phase === 'commentary' && !options.includeCommentary) {
-        return '';
-    }
-
-    const compact = compactMessageText(message, true);
-    if (!compact) {
-        return '';
-    }
-
-    if (!state.startedTranscript) {
-        if (shouldSkipOptimizedPrelude(message.role, compact)) {
-            return '';
-        }
-        state.startedTranscript = true;
-    }
-
-    return renderCompactBlock(message, compact, options.outputFormat, state.assistantModel);
-};
-
 const buildStreamExportPrefix = (target: ExportTarget, sessionMeta: SessionMeta, options: CodexCliOptions) => {
-    if (options.optimized) {
+    if (!options.includeMetadata) {
         return '';
     }
 
     const title = getTitle(target, sessionMeta);
-    const metadata = buildMetadataEntries(target, sessionMeta, options);
     const parts = [
         renderDocumentTitle(title, options.outputFormat),
         '',
-        renderMetadataBlock(metadata, options.outputFormat),
+        renderMetadataBlock(buildMetadataEntries(target, sessionMeta, options), options.outputFormat),
     ]
         .filter(Boolean)
         .join('\n');
 
     return `${parts}\n`;
-};
-
-export const compactMessageText = (message: MessageRecord, optimized: boolean): string => {
-    const rawText = extractText(message.content);
-    const cleaned = stripPreviewBlock(rawText);
-
-    return optimized ? optimizePlainText(optimizeRenderedText(cleaned)) : cleaned.trim();
 };
 
 export const formatToolOutputSummary = (outputText: string, outputFormat: ExportFormat): string => {
@@ -306,27 +259,6 @@ const getTitle = (target: ExportTarget, sessionMeta: SessionMeta): string => {
     }
 
     return sessionMeta.id ?? path.basename(target.sessionFile, '.jsonl');
-};
-
-const shouldSkipOptimizedPrelude = (role: string, text: string): boolean => {
-    if (role !== 'user') {
-        return true;
-    }
-
-    return (
-        text.startsWith('AGENTS.md instructions for ') ||
-        text.startsWith('# AGENTS.md instructions for ') ||
-        text.startsWith('<permissions instructions>') ||
-        text.startsWith('<environment_context>') ||
-        text.startsWith('<app-context>') ||
-        text.startsWith('<collaboration_mode>') ||
-        text.startsWith('<skills_instructions>') ||
-        text.startsWith('You are Codex, a coding agent based on GPT-5.') ||
-        text.startsWith('Read this before making changes.') ||
-        text.includes('Filesystem sandboxing defines which files can be read or written.') ||
-        text.includes('approval_policy') ||
-        text.includes('base_instructions')
-    );
 };
 
 const buildMetadataEntries = (
@@ -585,7 +517,7 @@ const renderMessageBlock = (
         return '';
     }
 
-    const text = cleanExtractedText(extractText(message.content)).trim();
+    const text = cleanExtractedText(stripPreviewBlock(extractText(message.content))).trim();
     if (!text || shouldSkipMessage(message.role, text)) {
         return '';
     }
@@ -604,36 +536,6 @@ const renderToolBlock = (tool: ToolRecord, outputFormat: ExportFormat): string =
 
     const summary = formatToolOutputSummary(tool.outputText ?? '', outputFormat);
     return summary ? renderSection('Tool Output', summary, outputFormat) : '';
-};
-
-const renderCompactBlock = (
-    message: MessageRecord,
-    text: string,
-    outputFormat: ExportFormat,
-    assistantModel: string | null,
-): string => {
-    const prefix = message.role === 'user' ? 'U:' : `${formatModelLabel(message.model ?? assistantModel)}:`;
-    const lines = text.split('\n');
-    const [firstLine, ...rest] = lines;
-
-    if (rest.length === 0) {
-        return `${prefix} ${normalizeCompactLiteral(firstLine, outputFormat)}`;
-    }
-
-    return [
-        `${prefix} ${normalizeCompactLiteral(firstLine, outputFormat)}`,
-        ...rest.map((line) => normalizeCompactLiteral(line, outputFormat)),
-    ].join('\n');
-};
-
-const renderCompactToolBlock = (tool: ToolRecord, outputFormat: ExportFormat): string => {
-    if (tool.kind === 'call') {
-        const details = formatCompactToolCall(tool, outputFormat);
-        return details ? `T: ${details}` : '';
-    }
-
-    const summary = formatCompactToolOutput(tool.outputText ?? '');
-    return summary ? `R: ${summary}` : '';
 };
 
 const stripPreviewBlock = (text: string): string => {
@@ -662,46 +564,12 @@ const stripPreviewBlock = (text: string): string => {
     return parts.slice(1).join('\n\n');
 };
 
-const optimizeRenderedText = (text: string): string => {
-    return text
-        .replace(/^\*Phase:\s+`[^`]+`\*\s*\n*/gm, '')
-        .replace(/^\s*<image\b[^>]*>\s*$/gim, '')
-        .replace(/^\s*<\/image>\s*$/gim, '')
-        .replace(/^\s*\[Image attached\]\s*$/gim, '')
-        .replace(/^#{1,6}\s+/gm, '')
-        .replace(/^```[^\n]*\n?/gm, '')
-        .replace(/\n```$/gm, '')
-        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-        .replace(/^##\s+User\s*$/gm, 'User:')
-        .replace(/^##\s+Assistant\s*$/gm, 'Assistant:')
-        .replace(/`([^`]+)`/g, '$1')
-        .replace(/\*\*([^*]+)\*\*/g, '$1')
-        .replace(/\*([^*\n]+)\*/g, '$1')
-        .replace(/\n{3,}/g, '\n\n')
-        .trim();
-};
-
-const optimizePlainText = (text: string): string => {
-    const normalized = text
-        .replace(/\r/g, '')
-        .replace(/^\s*<image\b[^>]*>\s*$/gim, '')
-        .replace(/^\s*<\/image>\s*$/gim, '')
-        .replace(/^\s*\[Image attached\]\s*$/gim, '')
-        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-        .replace(/`([^`]+)`/g, '$1')
-        .replace(/\*\*([^*]+)\*\*/g, '$1')
-        .replace(/\*([^*\n]+)\*/g, '$1');
-
-    return normalized
-        .split('\n')
-        .map((line) => line.replace(/[ \t]+$/g, ''))
-        .join('\n')
-        .replace(/\n{3,}/g, '\n\n')
-        .trim();
-};
-
 const shouldSkipMessage = (role: string, text: string): boolean => {
     if (text.startsWith('<environment_context>')) {
+        return true;
+    }
+
+    if (text.startsWith('AGENTS.md instructions for ')) {
         return true;
     }
 
@@ -723,44 +591,6 @@ const formatToolCallDetails = (tool: ToolRecord, outputFormat: ExportFormat): st
 
     const details = parseExecCommandArguments(tool.argumentsText);
     return details.cmd ? `Command: ${formatInlineLiteral(details.cmd, outputFormat)}` : '';
-};
-
-const formatCompactToolCall = (tool: ToolRecord, outputFormat: ExportFormat): string => {
-    if (tool.name === 'exec_command') {
-        const details = parseExecCommandArguments(tool.argumentsText);
-        if (!details.cmd) {
-            return 'exec_command';
-        }
-
-        const command = formatInlineLiteral(details.cmd, outputFormat);
-        return details.workdir ? `exec_command ${command} @ ${details.workdir}` : `exec_command ${command}`;
-    }
-
-    return tool.callId ? `${tool.name} (${tool.callId})` : tool.name;
-};
-
-const formatCompactToolOutput = (outputText: string): string => {
-    if (!outputText) {
-        return '';
-    }
-
-    const lines = outputText
-        .split('\n')
-        .map((line) => line.trim())
-        .filter(Boolean);
-
-    const exit = lines.find((line) => line.startsWith('Process exited with code '));
-    const wall = lines.find((line) => line.startsWith('Wall time: '));
-
-    if (exit && wall) {
-        return `${exit.replace('Process ', '')}; ${wall.toLowerCase()}`;
-    }
-
-    if (exit) {
-        return exit.replace('Process ', '');
-    }
-
-    return '';
 };
 
 const extractText = (content: JsonValue): string => {
@@ -801,8 +631,4 @@ const extractContentPart = (value: JsonValue): string => {
     }
 
     return text ?? '';
-};
-
-const normalizeCompactLiteral = (value: string, outputFormat: ExportFormat): string => {
-    return outputFormat === 'md' ? value : value.replace(/`([^`]+)`/g, '$1');
 };

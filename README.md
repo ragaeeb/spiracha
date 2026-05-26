@@ -4,6 +4,7 @@
 [![downloads](https://img.shields.io/npm/dm/spiracha?label=downloads)](https://www.npmjs.com/package/spiracha)
 [![license](https://img.shields.io/npm/l/spiracha)](LICENSE.md)
 [![runtime](https://img.shields.io/badge/runtime-Bun-000000?logo=bun)](https://bun.sh)
+[![wakatime](https://wakatime.com/badge/user/a0b906ce-b8e7-4463-8bce-383238df6d4b/project/f035d5e2-fa44-4383-913b-53c2c326d8a7.svg)](https://wakatime.com/badge/user/a0b906ce-b8e7-4463-8bce-383238df6d4b/project/f035d5e2-fa44-4383-913b-53c2c326d8a7)
 
 Export local Codex chats and Claude Code transcripts to Markdown or plain text, and inspect local Codex history through a browser UI.
 
@@ -30,7 +31,7 @@ bunx spiracha claude /path/to/session-export.jsonl --output-format txt
 - Browse local Codex projects and threads in a TanStack Start UI
 - Inspect transcript timelines, tool calls, thread metadata, and raw Codex event context
 - Delete threads or derived projects from the Codex SQLite database after confirmation
-- Download thread exports directly from the UI as Markdown or plain text, with optional optimized mode and tool-call inclusion
+- Download thread exports directly from the UI as Markdown or plain text, with optional metadata, commentary, and tool-call inclusion
 - View dashboard and analytics summaries, including token totals and tool-call frequency
 - Filter Codex exports by:
   - exact `cwd`
@@ -77,6 +78,7 @@ bunx spiracha --tools --project summer
 bunx spiracha codex://threads/019da28f-ee5b-7881-afe0-68b3d3bd2c77
 bunx spiracha codex://threads/019da28f-ee5b-7881-afe0-68b3d3bd2c77 --output-format txt
 bunx spiracha --cwd ~/workspace/reversed/summer --flat
+bunx spiracha codex://threads/<thread-id> --no-metadata
 ```
 
 Important flags:
@@ -85,7 +87,7 @@ Important flags:
 - `--project <name>`: matches the final `cwd` path segment for both POSIX and Windows-style paths
 - `--cwd <path>`: exact cwd match
 - `--tools`: include `exec_command` call logs and summaries
-- `--optimized`: compact transcript output
+- `--no-metadata`: omit the metadata section from the top of each export
 - `--flat`: write files into a single output folder
 - `--output-format md|txt`: output as Markdown or plain text
 
@@ -103,6 +105,8 @@ Useful flags:
 - `--host <host>`: bind a specific host, default `127.0.0.1`
 - `--db <path>`: override the Codex SQLite path used by the UI
 - `--no-open`: do not open the browser automatically
+
+The thread detail page also supports a direct UUID shortcut route. Pasting `http://localhost:3000/<thread-id>` redirects to `/threads/<thread-id>`.
 
 Examples:
 

@@ -11,9 +11,9 @@ import { buildUiExportDownloadUrl, ensureUiExportDir } from './ui-export-files';
 type RenderCodexThreadDownloadInput = {
     dbPath: string;
     includeCommentary: boolean;
+    includeMetadata: boolean;
     includeTools: boolean;
     largeExportThresholdBytes?: number;
-    optimized: boolean;
     outputFormat: ExportFormat;
     pathDisplaySettings?: Pick<PathDisplaySettings, 'convertToProjectRoot' | 'redactUsername'>;
     publicExportDir?: string;
@@ -101,9 +101,9 @@ const toDownloadOptions = (input: RenderCodexThreadDownloadInput): CodexCliOptio
         dbPath: input.dbPath,
         flat: false,
         includeCommentary: input.includeCommentary,
+        includeMetadata: input.includeMetadata,
         includeTools: input.includeTools,
         inputDir: '',
-        optimized: input.optimized,
         outputDir: '',
         outputFormat: input.outputFormat,
         projectFilter: null,

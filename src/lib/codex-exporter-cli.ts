@@ -10,7 +10,7 @@ export const parseCodexCliArgs = (argv: string[]): CodexCliOptions => {
     let projectFilter: string | null = null;
     let threadIds: string[] = [];
     let outputProvided = false;
-    let optimized = false;
+    let includeMetadata = true;
     let includeCommentary = true;
     let includeTools = false;
     let outputFormat: ExportFormat = 'md';
@@ -22,9 +22,9 @@ export const parseCodexCliArgs = (argv: string[]): CodexCliOptions => {
             dbPath,
             flat,
             includeCommentary,
+            includeMetadata,
             includeTools,
             inputDir,
-            optimized,
             outputDir,
             outputFormat,
             outputProvided,
@@ -37,9 +37,9 @@ export const parseCodexCliArgs = (argv: string[]): CodexCliOptions => {
             dbPath,
             flat,
             includeCommentary,
+            includeMetadata,
             includeTools,
             inputDir,
-            optimized,
             outputDir,
             outputFormat,
             outputProvided,
@@ -58,9 +58,9 @@ export const parseCodexCliArgs = (argv: string[]): CodexCliOptions => {
         dbPath,
         flat,
         includeCommentary,
+        includeMetadata,
         includeTools,
         inputDir,
-        optimized,
         outputDir: outputDir ?? DEFAULT_OUTPUT_DIR,
         outputFormat,
         projectFilter,
@@ -73,9 +73,9 @@ type CodexCliState = {
     dbPath: string;
     flat: boolean;
     includeCommentary: boolean;
+    includeMetadata: boolean;
     includeTools: boolean;
     inputDir: string;
-    optimized: boolean;
     outputDir: string | null;
     outputFormat: ExportFormat;
     outputProvided: boolean;
@@ -142,12 +142,12 @@ const applyCodexCliArg = (argv: string[], index: number, state: CodexCliState): 
         };
     }
 
-    if (arg === '--optimized') {
+    if (arg === '--no-metadata') {
         return {
             index,
             state: {
                 ...state,
-                optimized: true,
+                includeMetadata: false,
             },
         };
     }
@@ -220,7 +220,7 @@ export const getCodexHelpText = (): string => {
         'Usage:',
         '  codex-chats',
         '  codex-chats --interactive',
-        '  codex-chats [--db FILE] [--input DIR] [--output DIR] [--cwd DIR] [--project NAME] [--optimized] [--tools] [--flat] [--output-format md|txt] [codex://threads/<thread-id> ...]',
+        '  codex-chats [--db FILE] [--input DIR] [--output DIR] [--cwd DIR] [--project NAME] [--no-metadata] [--tools] [--flat] [--output-format md|txt] [codex://threads/<thread-id> ...]',
         '',
         'Options:',
         `  --db            Thread database path (default: ${DEFAULT_DB_PATH})`,
@@ -230,7 +230,7 @@ export const getCodexHelpText = (): string => {
         '  --project       Only export chats whose cwd basename matches this project name',
         '  codex://threads/<id>',
         '                  Only export the exact threads referenced by these Codex deeplinks',
-        '  --optimized     Suppress metadata and apply token-saving text cleanup',
+        '  --no-metadata   Omit the chat metadata section from the export header',
         '  --tools         Include tool-call logs such as exec_command invocations',
         '  --flat          Write all exports into one folder instead of nested subfolders',
         '  --output-format Output file format: md or txt (default: md)',
