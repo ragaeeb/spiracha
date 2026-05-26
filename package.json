@@ -4,9 +4,9 @@
         "url": "https://github.com/ragaeeb"
     },
     "bin": {
-        "codex-chats": "./src/export-chats.ts",
-        "codex-chats-claude": "./src/export-claude.ts",
-        "spiracha": "./src/spiracha.ts"
+        "codex-chats": "./bin/codex-chats.js",
+        "codex-chats-claude": "./bin/codex-chats-claude.js",
+        "spiracha": "./bin/spiracha.js"
     },
     "bugs": {
         "url": "https://github.com/ragaeeb/spiracha/issues"
@@ -39,6 +39,9 @@
         "bun": ">=1.3.13"
     },
     "files": [
+        "bin/codex-chats.js",
+        "bin/codex-chats-claude.js",
+        "bin/spiracha.js",
         "src/export-chats.ts",
         "src/export-claude.ts",
         "src/mcp-server.ts",

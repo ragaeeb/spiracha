@@ -2,7 +2,10 @@ import { describe, expect, it } from 'bun:test';
 import path from 'node:path';
 
 type PackageManifest = {
+    bin?: Record<string, string>;
     dependencies?: Record<string, string>;
+    name: string;
+    version: string;
 };
 
 const readPackageManifest = async (): Promise<PackageManifest> => {
@@ -16,5 +19,15 @@ describe('package manifest', () => {
 
         expect(manifest.dependencies).toBeDefined();
         expect(manifest.dependencies).toHaveProperty('iconv-lite');
+    });
+
+    it('should declare explicit relative bin entrypoints for npm publishing', async () => {
+        const manifest = await readPackageManifest();
+
+        expect(manifest.bin).toEqual({
+            'codex-chats': './bin/codex-chats.js',
+            'codex-chats-claude': './bin/codex-chats-claude.js',
+            spiracha: './bin/spiracha.js',
+        });
     });
 });
