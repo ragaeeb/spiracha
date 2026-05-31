@@ -1,9 +1,10 @@
-import { Database } from 'bun:sqlite';
+import { constants, Database } from 'bun:sqlite';
 import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
+    CURSOR_READONLY_DB_OPEN_FLAGS,
     findCursorWorkspaceGroups,
     getCursorReadonlyDbUri,
     listCursorThreadsForGroup,
@@ -272,6 +273,11 @@ describe('cursor-db transcript reads', () => {
 });
 
 describe('openCursorReadonlyDb', () => {
+    it('should enable sqlite uri parsing for immutable readonly opens', () => {
+        expect(CURSOR_READONLY_DB_OPEN_FLAGS & constants.SQLITE_OPEN_READONLY).toBe(constants.SQLITE_OPEN_READONLY);
+        expect(CURSOR_READONLY_DB_OPEN_FLAGS & constants.SQLITE_OPEN_URI).toBe(constants.SQLITE_OPEN_URI);
+    });
+
     it('should build a portable immutable file uri for absolute database paths', () => {
         const uri = getCursorReadonlyDbUri('/home/runner/work/spiracha/with space/state.vscdb');
 

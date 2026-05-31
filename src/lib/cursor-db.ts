@@ -1,4 +1,4 @@
-import { Database } from 'bun:sqlite';
+import { constants, Database } from 'bun:sqlite';
 import { readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import {
@@ -26,10 +26,13 @@ type ComposerEntry = Record<string, JsonValue> & {
     workspaceIdentifier?: { id?: string } | null;
 };
 
+export const CURSOR_READONLY_DB_OPEN_FLAGS = constants.SQLITE_OPEN_READONLY | constants.SQLITE_OPEN_URI;
+
 // Cursor databases are WAL-mode. A plain read-only open fails once Cursor cleanly shuts down and
 // removes the -wal/-shm sidecars, and the failure only surfaces at query time (so a try/catch around
 // the constructor never sees it). immutable=1 reads the main database file directly, which works
-// whether or not Cursor is running and whether or not the WAL sidecars are present.
+// whether or not Cursor is running and whether or not the WAL sidecars are present. The explicit URI
+// flag keeps this portable across SQLite builds where URI filename parsing is not enabled globally.
 export const getCursorReadonlyDbUri = (dbPath: string): string => {
     const normalizedPath = dbPath.replace(/\\/gu, '/');
     const absolutePath = normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`;
@@ -42,7 +45,7 @@ export const getCursorReadonlyDbUri = (dbPath: string): string => {
 };
 
 export const openCursorReadonlyDb = (dbPath: string): Database => {
-    return new Database(getCursorReadonlyDbUri(dbPath), { readonly: true });
+    return new Database(getCursorReadonlyDbUri(dbPath), CURSOR_READONLY_DB_OPEN_FLAGS);
 };
 
 const pathExists = async (target: string): Promise<boolean> => {
