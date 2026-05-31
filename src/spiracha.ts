@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-type SpirachaCommandKind = 'codex' | 'claude' | 'cursor' | 'help' | 'ui';
+type SpirachaCommandKind = 'codex' | 'claude' | 'cursor' | 'help' | 'ui' | 'version';
 
 type SpirachaInvocation = {
     kind: SpirachaCommandKind;
@@ -30,7 +30,20 @@ export const resolveSpirachaInvocation = (argv: string[]): SpirachaInvocation =>
         return { argv: [], kind: 'help' };
     }
 
+    if (firstArg === '--version' || firstArg === '-v' || firstArg === 'version') {
+        return { argv: [], kind: 'version' };
+    }
+
     return { argv, kind: 'codex' };
+};
+
+export const readSpirachaPackageVersion = async (): Promise<string> => {
+    const manifest = (await Bun.file(new URL('../package.json', import.meta.url)).json()) as { version?: unknown };
+    if (typeof manifest.version !== 'string' || !manifest.version) {
+        throw new Error('Unable to read Spiracha version from package.json.');
+    }
+
+    return manifest.version;
 };
 
 export const getSpirachaHelpText = (): string => {
@@ -59,6 +72,7 @@ export const getSpirachaHelpText = (): string => {
         '  spiracha claude --help',
         '  spiracha cursor --help',
         '  spiracha ui --help',
+        '  spiracha --version',
     ].join('\n');
 };
 
@@ -67,6 +81,11 @@ export const runSpirachaCli = async (argv = process.argv.slice(2)): Promise<void
 
     if (invocation.kind === 'help') {
         console.log(getSpirachaHelpText());
+        return;
+    }
+
+    if (invocation.kind === 'version') {
+        console.log(await readSpirachaPackageVersion());
         return;
     }
 

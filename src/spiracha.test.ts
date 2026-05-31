@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { getSpirachaHelpText, resolveSpirachaInvocation } from './spiracha';
+import { getSpirachaHelpText, readSpirachaPackageVersion, resolveSpirachaInvocation } from './spiracha';
 
 describe('spiracha dispatcher', () => {
     it('should route the claude subcommand to the Claude CLI', () => {
@@ -43,9 +43,23 @@ describe('spiracha dispatcher', () => {
         expect(helpText).toContain('spiracha codex [Codex options]');
         expect(helpText).toContain('spiracha cursor [Cursor options]');
         expect(helpText).toContain('spiracha ui [UI options]');
+        expect(helpText).toContain('spiracha --version');
         expect(resolveSpirachaInvocation(['--help'])).toEqual({
             argv: [],
             kind: 'help',
         });
+    });
+
+    it('should route top-level version requests and read the package version', async () => {
+        expect(resolveSpirachaInvocation(['--version'])).toEqual({
+            argv: [],
+            kind: 'version',
+        });
+        expect(resolveSpirachaInvocation(['version'])).toEqual({
+            argv: [],
+            kind: 'version',
+        });
+        const manifest = (await Bun.file('package.json').json()) as { version: string };
+        expect(await readSpirachaPackageVersion()).toBe(manifest.version);
     });
 });
