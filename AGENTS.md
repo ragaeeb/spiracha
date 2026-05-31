@@ -5,19 +5,19 @@
 This repo exports local Codex chats, Claude Code transcripts, and Cursor Agent/Composer threads to Markdown or plain text, and the UI also browses local Antigravity conversation history.
 
 Main entrypoints:
-- `bun start ...` for Codex chat export
-- `bun start` for interactive export mode
-- `bun run export:claude -- ...` for Claude transcript export
-- `bun run ./src/export-cursor.ts ...` (or `spiracha cursor ...`) for Cursor thread export, recovery, and prune
-- `bun run mcp` for the MCP server used by the local Codex plugin
-- `bun run ui:dev` for the local browser UI across Codex, Cursor, and Antigravity data
+- `rtk bun start ...` for Codex chat export
+- `rtk bun start` for interactive export mode
+- `rtk bun run export:claude -- ...` for Claude transcript export
+- `rtk bun run ./src/export-cursor.ts ...` (or `rtk spiracha cursor ...`) for Cursor thread export, recovery, and prune
+- `rtk bun run mcp` for the MCP server used by the local Codex plugin
+- `rtk bun run ui:dev` for the local browser UI across Codex, Cursor, and Antigravity data
 - published package entrypoints:
-  - `bunx spiracha`
-  - `bunx spiracha ui`
-  - `bunx spiracha claude ...`
+  - `rtk bunx spiracha`
+  - `rtk bunx spiracha ui`
+  - `rtk bunx spiracha claude ...`
   - legacy aliases retained:
-    - `bunx codex-chats`
-    - `bunx codex-chats-claude`
+    - `rtk bunx codex-chats`
+    - `rtk bunx codex-chats-claude`
 
 ## Conventions and Rules
 

@@ -216,6 +216,18 @@ function ProjectDetailPage() {
                 title={params.project}
             />
 
+            {recoverProjectMutation.isError ? (
+                <p className="text-[var(--destructive)] text-sm">
+                    {recoverProjectMutation.error instanceof Error
+                        ? recoverProjectMutation.error.message
+                        : 'Project recovery failed'}
+                </p>
+            ) : null}
+
+            {recoverProjectMutation.isSuccess ? (
+                <p className="text-[var(--success)] text-sm">Project thread metadata recovery completed.</p>
+            ) : null}
+
             <ThreadsTable
                 threads={visibleThreads}
                 onDeleteThread={(thread) => setPendingDelete({ threads: [thread] })}

@@ -71,6 +71,22 @@ describe('renderCursorBubble', () => {
         const blocks = renderCursorBubble(buildTranscript().bubbles[1]!, options());
         expect(blocks.join('\n')).not.toContain('Tool Call');
     });
+
+    it('should not render unknown bubbles as assistant messages', () => {
+        const blocks = renderCursorBubble(
+            {
+                bubbleId: 'unknown-1',
+                createdAtMs: null,
+                kind: 'unknown',
+                text: 'internal cursor payload',
+                thinking: null,
+                toolCall: null,
+            },
+            options(),
+        );
+
+        expect(blocks).toEqual([]);
+    });
 });
 
 describe('renderCursorToolCall', () => {
@@ -106,5 +122,21 @@ describe('renderCursorTranscript', () => {
     it('should return null when there is nothing renderable', () => {
         const content = renderCursorTranscript(buildTranscript({ bubbles: [] }), options());
         expect(content).toBeNull();
+    });
+
+    it('should omit invalid timestamp metadata instead of throwing', () => {
+        const transcript = buildTranscript({
+            head: {
+                ...buildTranscript().head,
+                createdAtMs: Number.POSITIVE_INFINITY,
+                lastUpdatedAtMs: 9_000_000_000_000_000,
+            },
+        });
+
+        const content = renderCursorTranscript(transcript, options());
+
+        expect(content).toContain('created_at_unix_ms: Infinity');
+        expect(content).not.toContain('created_at_iso');
+        expect(content).not.toContain('last_updated_at_iso');
     });
 });

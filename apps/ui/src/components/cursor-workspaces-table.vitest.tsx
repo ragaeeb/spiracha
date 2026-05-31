@@ -166,6 +166,8 @@ describe('CursorWorkspacesTable', () => {
             />,
         );
 
+        expect(screen.getByRole('button', { name: 'Actions for demo' })).toBeTruthy();
+
         const menuTrigger = screen
             .getAllByRole('button')
             .find((button) => button.getAttribute('aria-haspopup') === 'menu');

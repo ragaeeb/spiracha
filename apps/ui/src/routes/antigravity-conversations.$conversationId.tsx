@@ -10,6 +10,7 @@ import { PageHeader } from '#/components/page-header';
 import { ReloadErrorPanel } from '#/components/reload-error-panel';
 import { TextDocumentPanel } from '#/components/text-document-panel';
 import { Button } from '#/components/ui/button';
+import { canExportAntigravityConversation } from '#/lib/antigravity-conversation-state';
 import {
     antigravityConversationDetailQueryOptions,
     antigravityDecryptionQueryOptions,
@@ -77,14 +78,16 @@ function AntigravityConversationDetailErrorComponent({ error }: { error: Error }
 }
 
 function AntigravityConversationHeaderActions({
-    detail,
+    canExportArtifacts,
+    canExportConversation,
     exportArtifactsPending,
     exportConversationPending,
     showConversationExport,
     onExportArtifacts,
     onExportConversation,
 }: {
-    detail: AntigravityConversationDetail;
+    canExportArtifacts: boolean;
+    canExportConversation: boolean;
     exportArtifactsPending: boolean;
     exportConversationPending: boolean;
     showConversationExport: boolean;
@@ -96,7 +99,7 @@ function AntigravityConversationHeaderActions({
             {showConversationExport ? (
                 <Button
                     className="rounded-full"
-                    disabled={detail.transcriptLocked || exportConversationPending}
+                    disabled={!canExportConversation || exportConversationPending}
                     type="button"
                     variant="outline"
                     onClick={onExportConversation}
@@ -105,7 +108,7 @@ function AntigravityConversationHeaderActions({
                     Export conversation
                 </Button>
             ) : null}
-            {detail.conversation.artifactCount > 0 ? (
+            {canExportArtifacts ? (
                 <Button
                     className="rounded-full"
                     disabled={exportArtifactsPending}
@@ -164,9 +167,14 @@ function AntigravityConversationPanels({ detail }: { detail: AntigravityConversa
 }
 
 function AntigravityConversationDetailPage() {
-    useSuspenseQuery(antigravityDecryptionQueryOptions());
+    const decryptionState = useSuspenseQuery(antigravityDecryptionQueryOptions()).data;
     const detail = useSuspenseQuery(antigravityConversationDetailQueryOptions(Route.useParams().conversationId)).data;
-    const showConversationExport = detail.transcriptLocked || detail.conversationMarkdown !== null;
+    const canExportConversation = canExportAntigravityConversation(
+        detail.conversation,
+        Boolean(decryptionState?.isUnlocked),
+    );
+    const canExportArtifacts = detail.artifactsMarkdown !== null;
+    const showConversationExport = canExportConversation || detail.transcriptLocked;
 
     const exportConversationMutation = useMutation({
         mutationFn: () =>
@@ -189,7 +197,8 @@ function AntigravityConversationDetailPage() {
             <PageHeader
                 actions={
                     <AntigravityConversationHeaderActions
-                        detail={detail}
+                        canExportArtifacts={canExportArtifacts}
+                        canExportConversation={canExportConversation}
                         exportArtifactsPending={exportArtifactsMutation.isPending}
                         exportConversationPending={exportConversationMutation.isPending}
                         showConversationExport={showConversationExport}

@@ -115,27 +115,11 @@ const getCursorExportMimeType = (outputFormat: 'md' | 'txt') => {
     return outputFormat === 'md' ? 'text/markdown; charset=utf-8' : 'text/plain; charset=utf-8';
 };
 
-export const Route = createFileRoute('/cursor/$workspaceKey')({
-    component: CursorWorkspacePage,
-    errorComponent: CursorWorkspaceErrorComponent,
-    loader: async ({ context, params }) => {
-        const workspaces = await context.queryClient.ensureQueryData(cursorWorkspacesQueryOptions());
-        findWorkspaceOrThrow(workspaces, params.workspaceKey);
-        await context.queryClient.ensureQueryData(cursorThreadsQueryOptions(params.workspaceKey));
-    },
-    pendingComponent: () => (
-        <LoadingPanel
-            description="Loading Cursor threads and workspace metadata. Larger workspaces can take a moment."
-            title="Loading workspace"
-        />
-    ),
-});
-
-function CursorWorkspaceErrorComponent({ error }: { error: Error }) {
+const CursorWorkspaceErrorComponent = ({ error }: { error: Error }) => {
     return <ReloadErrorPanel description={error.message} title="Failed to load Cursor workspace" />;
-}
+};
 
-function CursorWorkspacePage() {
+const CursorWorkspacePage = () => {
     const navigate = useNavigate();
     const params = Route.useParams();
     const queryClient = useQueryClient();
@@ -165,11 +149,15 @@ function CursorWorkspacePage() {
                 ? deleteCursorWorkspaceFn({ data: { workspaceKey: target.workspace.key } })
                 : deleteCursorThreadsFn({ data: { composerIds: target.threads.map((thread) => thread.composerId) } }),
         onSuccess: async (_result, target) => {
-            await invalidateWorkspaceQueries();
-            setPendingDelete(null);
             if (target.kind === 'workspace') {
                 await navigate({ to: '/cursor' });
+                await queryClient.invalidateQueries({ queryKey: ['cursor-workspaces'] });
+                setPendingDelete(null);
+                return;
             }
+
+            await invalidateWorkspaceQueries();
+            setPendingDelete(null);
         },
     });
 
@@ -287,9 +275,9 @@ function CursorWorkspacePage() {
             />
         </div>
     );
-}
+};
 
-function CursorWorkspaceHeaderActions({
+const CursorWorkspaceHeaderActions = ({
     deletePending,
     recoverPending,
     searchInput,
@@ -305,7 +293,7 @@ function CursorWorkspaceHeaderActions({
     onDeleteWorkspace: () => void;
     onRecoverWorkspace: () => void;
     onSearchInputChange: (value: string) => void;
-}) {
+}) => {
     return (
         <div className="flex flex-col gap-2 sm:flex-row">
             {workspace.needsRecovery ? (
@@ -337,9 +325,9 @@ function CursorWorkspaceHeaderActions({
             />
         </div>
     );
-}
+};
 
-function CursorWorkspaceRecoveryNotice({ workspace }: { workspace: CursorWorkspaceGroup }) {
+const CursorWorkspaceRecoveryNotice = ({ workspace }: { workspace: CursorWorkspaceGroup }) => {
     if (!workspace.needsRecovery) {
         return null;
     }
@@ -353,9 +341,9 @@ function CursorWorkspaceRecoveryNotice({ workspace }: { workspace: CursorWorkspa
             </p>
         </div>
     );
-}
+};
 
-function CursorWorkspaceErrors({
+const CursorWorkspaceErrors = ({
     deleteError,
     exportError,
     recoverError,
@@ -363,7 +351,7 @@ function CursorWorkspaceErrors({
     deleteError: Error | null;
     exportError: Error | null;
     recoverError: Error | null;
-}) {
+}) => {
     const entries = [
         recoverError ? recoverError.message : null,
         deleteError ? deleteError.message : null,
@@ -383,9 +371,9 @@ function CursorWorkspaceErrors({
             ))}
         </div>
     );
-}
+};
 
-function CursorWorkspaceDeleteDialog({
+const CursorWorkspaceDeleteDialog = ({
     pending,
     pendingDelete,
     onConfirm,
@@ -395,7 +383,7 @@ function CursorWorkspaceDeleteDialog({
     pendingDelete: PendingCursorDelete | null;
     onConfirm: () => void;
     onOpenChange: (open: boolean) => void;
-}) {
+}) => {
     return (
         <DeleteConfirmDialog
             confirmLabel={getCursorDeleteConfirmLabel(pendingDelete, pending)}
@@ -406,4 +394,20 @@ function CursorWorkspaceDeleteDialog({
             onOpenChange={onOpenChange}
         />
     );
-}
+};
+
+export const Route = createFileRoute('/cursor/$workspaceKey')({
+    component: CursorWorkspacePage,
+    errorComponent: CursorWorkspaceErrorComponent,
+    loader: async ({ context, params }) => {
+        const workspaces = await context.queryClient.ensureQueryData(cursorWorkspacesQueryOptions());
+        findWorkspaceOrThrow(workspaces, params.workspaceKey);
+        await context.queryClient.ensureQueryData(cursorThreadsQueryOptions(params.workspaceKey));
+    },
+    pendingComponent: () => (
+        <LoadingPanel
+            description="Loading Cursor threads and workspace metadata. Larger workspaces can take a moment."
+            title="Loading workspace"
+        />
+    ),
+});

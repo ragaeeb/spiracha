@@ -70,7 +70,7 @@ describe('display components', () => {
         expect(screen.getByText((content) => content.includes('# Heading'))).toBeTruthy();
         expect(screen.getByRole('link', { name: 'Codex' }).getAttribute('href')).toBe('/projects');
         expect(screen.getByRole('link', { name: 'demo' }).getAttribute('href')).toBe('/projects/demo');
-        expect(screen.getByText('Current thread')).toBeTruthy();
+        expect(screen.getByText('Current thread').getAttribute('aria-current')).toBe('page');
     });
 
     it('should render loading and page headers with optional content', () => {

@@ -78,6 +78,19 @@ describe('antigravity-server', () => {
         expect(detail.conversationMarkdown).toBe('transcript markdown');
     });
 
+    it('should suppress duplicate conversation markdown when artifacts render the same content', async () => {
+        const conversation = makeConversation({ artifactCount: 1 });
+        listAntigravityConversationsMock.mockResolvedValue([conversation]);
+        getCachedAntigravityKeychainSecretMock.mockReturnValue(null);
+        renderAntigravityConversationMarkdownMock.mockResolvedValue('# Duplicate\n\nsame body');
+        renderAntigravityArtifactsMarkdownMock.mockResolvedValue('# Duplicate\n\nsame body');
+
+        const detail = await loadAntigravityConversationDetail(conversation.conversationId);
+
+        expect(detail.artifactsMarkdown).toBe('# Duplicate\n\nsame body');
+        expect(detail.conversationMarkdown).toBeNull();
+    });
+
     it('should reject conversation export when only artifacts are available', async () => {
         const conversation = makeConversation({
             artifactCount: 2,

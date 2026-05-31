@@ -81,6 +81,7 @@ const columns = (
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                         <Button
+                            aria-label={`Actions for ${info.row.original.name}`}
                             className="rounded-full"
                             size="icon"
                             type="button"
@@ -114,13 +115,13 @@ const columns = (
         }),
     ] as const;
 
-export function CursorThreadsTable({
+export const CursorThreadsTable = ({
     onDeleteThread,
     onDeleteThreads,
     onExportThread,
     onExportThreads,
     threads,
-}: CursorThreadsTableProps) {
+}: CursorThreadsTableProps) => {
     const tableColumns = useMemo(() => columns(onDeleteThread, onExportThread), [onDeleteThread, onExportThread]);
 
     return (
@@ -185,4 +186,4 @@ export function CursorThreadsTable({
             }}
         />
     );
-}
+};

@@ -1,6 +1,6 @@
 import { constants, Database } from 'bun:sqlite';
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -235,6 +235,18 @@ describe('cursor-db workspace discovery', () => {
         expect(threads[0]?.composerId).toBe('thread-1');
         expect(threads[0]?.bubbleCount).toBe(3);
         expect(threads[0]?.name).toBe('Demo thread');
+    });
+
+    it('should resolve transcript directories from the explicit Cursor user dir', async () => {
+        const userDir = await makeUserDir();
+        await createCursorFixture(userDir, baseSpec());
+        const transcriptDir = path.join(userDir, 'projects', 'demo-project', 'agent-transcripts', 'thread-1');
+        await mkdir(transcriptDir, { recursive: true });
+
+        const [group] = await listCursorWorkspaceGroups(userDir);
+        const threads = await listCursorThreadsForGroup(group!, userDir);
+
+        expect(threads[0]?.transcriptDirs).toEqual([transcriptDir]);
     });
 });
 

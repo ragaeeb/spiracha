@@ -3,7 +3,7 @@ import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { getCursorHelpText, parseCursorCliArgs, runCursorExport } from './cursor-exporter';
-import { resolveCursorUserDir } from './cursor-exporter-types';
+import { getDefaultCursorUserDir, resolveCursorUserDir } from './cursor-exporter-types';
 import { type CursorFixtureSpec, createCursorFixture } from './cursor-test-helpers';
 
 const tempDirs: string[] = [];
@@ -130,6 +130,18 @@ describe('getCursorHelpText', () => {
 });
 
 describe('resolveCursorUserDir', () => {
+    it('should compute platform-specific default Cursor user directories', () => {
+        expect(getDefaultCursorUserDir('darwin', {}, '/Users/alice')).toBe(
+            '/Users/alice/Library/Application Support/Cursor/User',
+        );
+        expect(
+            getDefaultCursorUserDir('win32', { APPDATA: 'C:\\Users\\Alice\\AppData\\Roaming' }, 'C:\\Users\\Alice'),
+        ).toBe('C:\\Users\\Alice\\AppData\\Roaming\\Cursor\\User');
+        expect(getDefaultCursorUserDir('linux', { XDG_DATA_HOME: '/home/alice/.local/state' }, '/home/alice')).toBe(
+            '/home/alice/.local/state/Cursor/User',
+        );
+    });
+
     it('should honor the SPIRACHA_CURSOR_USER_DIR override', () => {
         const previous = process.env.SPIRACHA_CURSOR_USER_DIR;
         process.env.SPIRACHA_CURSOR_USER_DIR = '/tmp/custom-cursor';

@@ -93,6 +93,7 @@ const columns = (
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                         <Button
+                            aria-label={`Actions for ${info.row.original.label}`}
                             className="rounded-full"
                             size="icon"
                             type="button"
@@ -124,11 +125,11 @@ const columns = (
         }),
     ] as const;
 
-export function CursorWorkspacesTable({
+export const CursorWorkspacesTable = ({
     onDeleteWorkspace,
     onRecoverWorkspace,
     workspaces,
-}: CursorWorkspacesTableProps) {
+}: CursorWorkspacesTableProps) => {
     return (
         <DataTable
             columns={columns(onDeleteWorkspace, onRecoverWorkspace)}
@@ -136,4 +137,4 @@ export function CursorWorkspacesTable({
             emptyMessage="No Cursor workspaces match the current search."
         />
     );
-}
+};

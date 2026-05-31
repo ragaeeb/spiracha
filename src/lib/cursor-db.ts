@@ -57,6 +57,11 @@ const pathExists = async (target: string): Promise<boolean> => {
     }
 };
 
+const isMissingOrUnreadableCursorStoreError = (error: unknown): boolean => {
+    const code = (error as { code?: unknown }).code;
+    return code === 'ENOENT' || code === 'ENOTDIR' || code === 'SQLITE_CANTOPEN';
+};
+
 const readItemValue = <T>(db: Database, key: string): T | null => {
     const row = db.query('SELECT value FROM ItemTable WHERE key = ?').get(key) as { value?: string } | null;
     if (!row?.value) {
@@ -244,9 +249,21 @@ const buildBucket = async (
         return null;
     }
 
-    const identity = await resolveBucketIdentity(wsData, bucketId);
-    const dbStat = await stat(dbPath);
-    const composerIds = readBucketComposerIds(dbPath);
+    let identity: Awaited<ReturnType<typeof resolveBucketIdentity>>;
+    let dbStat: Awaited<ReturnType<typeof stat>>;
+    let composerIds: string[];
+    try {
+        identity = await resolveBucketIdentity(wsData, bucketId);
+        dbStat = await stat(dbPath);
+        composerIds = readBucketComposerIds(dbPath);
+    } catch (error) {
+        if (isMissingOrUnreadableCursorStoreError(error)) {
+            return null;
+        }
+
+        throw error;
+    }
+
     const headerIds = headerIdsByBucket.get(bucketId) ?? new Set<string>();
     const threadComposerIds = [...new Set([...composerIds, ...headerIds])];
 
@@ -387,8 +404,11 @@ const countBubbles = (db: Database, composerId: string): { count: number; bytes:
     return { bytes: row.bytes, count: row.count };
 };
 
-export const findCursorTranscriptDirs = async (composerId: string): Promise<string[]> => {
-    const projectsDir = getCursorProjectsDir();
+export const findCursorTranscriptDirs = async (
+    composerId: string,
+    userDir = resolveCursorUserDir(),
+): Promise<string[]> => {
+    const projectsDir = getCursorProjectsDir(userDir);
     if (!(await pathExists(projectsDir))) {
         return [];
     }
@@ -430,13 +450,11 @@ export const listCursorThreadsForGroup = async (
     return Promise.all(
         threads.map(async (thread) => ({
             ...thread,
-            transcriptDirs: await findCursorTranscriptDirs(thread.composerId),
+            transcriptDirs: await findCursorTranscriptDirs(thread.composerId, userDir),
         })),
     );
 };
 
-// ---- Global-store-first discovery ----
-//
 // Older threads' workspace buckets get pruned by Cursor over time, and many threads predate the
 // workspace-linking migration, so a bucket-only walk hides large amounts of history. Discovery
 // instead enumerates every thread in the global store and resolves each to a folder via (in order):

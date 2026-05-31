@@ -66,7 +66,8 @@ export const loadAntigravityConversationDetail = async (conversationId: string) 
     return {
         artifactsMarkdown,
         conversation,
-        conversationMarkdown,
+        // Suppress the duplicate panel when artifactsMarkdown and conversationMarkdown are identical.
+        conversationMarkdown: conversationMarkdown === artifactsMarkdown ? null : conversationMarkdown,
         transcriptLocked,
     };
 };

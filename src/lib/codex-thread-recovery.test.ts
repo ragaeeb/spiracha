@@ -250,4 +250,32 @@ describe('codex thread recovery', () => {
         expect(await Bun.file(result.backups.stateDb).exists()).toBe(true);
         expect(await Bun.file(result.backups.sessionIndex).exists()).toBe(true);
     });
+
+    it('should backfill saved roots and project order when the cwd is only active', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-recovery-active-only-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createRecoveryFixture(tempRoot);
+        const globalStatePath = path.join(fixture.codexDir, '.codex-global-state.json');
+        await Bun.write(
+            globalStatePath,
+            JSON.stringify({
+                'active-workspace-roots': ['/Users/user/workspace/recover-me'],
+                'electron-saved-workspace-roots': ['/Users/user/workspace/another-project'],
+                'project-order': ['/Users/user/workspace/another-project'],
+            }),
+        );
+
+        const result = await recoverCodexProjectThreads(fixture.dbPath, 'recover-me');
+
+        expect(result.savedRootsAdded).toBe(1);
+        expect(result.projectRootsAdded).toBe(1);
+        const state = (await Bun.file(globalStatePath).json()) as {
+            'active-workspace-roots': string[];
+            'electron-saved-workspace-roots': string[];
+            'project-order': string[];
+        };
+        expect(state['active-workspace-roots']).toEqual(['/Users/user/workspace/recover-me']);
+        expect(state['electron-saved-workspace-roots']).toContain('/Users/user/workspace/recover-me');
+        expect(state['project-order']).toContain('/Users/user/workspace/recover-me');
+    });
 });

@@ -18,9 +18,17 @@ import {
 } from './shared';
 
 const TOOL_RESULT_PREVIEW_LIMIT = 4000;
+const MIN_DATE_MS = -8_640_000_000_000_000;
+const MAX_DATE_MS = 8_640_000_000_000_000;
 
 const formatUnixMillis = (value: number | null): string | null => {
-    if (value === null || value === undefined) {
+    if (
+        value === null ||
+        value === undefined ||
+        !Number.isFinite(value) ||
+        value < MIN_DATE_MS ||
+        value > MAX_DATE_MS
+    ) {
         return null;
     }
 
@@ -99,7 +107,11 @@ export const renderCursorBubble = (bubble: CursorBubble, options: CursorExportOp
         return block ? [block] : [];
     }
 
-    return renderAssistantBubble(bubble, options);
+    if (bubble.kind === 'assistant') {
+        return renderAssistantBubble(bubble, options);
+    }
+
+    return [];
 };
 
 const getThreadTitle = (head: CursorThreadHead): string => {

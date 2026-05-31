@@ -51,11 +51,10 @@ const writeGlobalState = async (globalStatePath: string, state: GlobalState) => 
 const updateGlobalRoots = (state: GlobalState, projectCwds: string[]) => {
     const savedRoots = state['electron-saved-workspace-roots'] ?? [];
     const projectOrder = state['project-order'] ?? [];
-    const activeRoots = state['active-workspace-roots'] ?? [];
-    const knownRoots = new Set([...savedRoots, ...projectOrder, ...activeRoots]);
-    const missingRoots = projectCwds.filter((cwd) => !knownRoots.has(cwd));
+    const missingSaved = projectCwds.filter((cwd) => !savedRoots.includes(cwd));
+    const missingProjectOrder = projectCwds.filter((cwd) => !projectOrder.includes(cwd));
 
-    if (missingRoots.length === 0) {
+    if (missingSaved.length === 0 && missingProjectOrder.length === 0) {
         return {
             projectRootsAdded: 0,
             savedRootsAdded: 0,
@@ -63,12 +62,12 @@ const updateGlobalRoots = (state: GlobalState, projectCwds: string[]) => {
         };
     }
 
-    state['electron-saved-workspace-roots'] = [...savedRoots, ...missingRoots];
-    state['project-order'] = [...projectOrder, ...missingRoots.filter((cwd) => !projectOrder.includes(cwd))];
+    state['electron-saved-workspace-roots'] = [...savedRoots, ...missingSaved];
+    state['project-order'] = [...projectOrder, ...missingProjectOrder];
 
     return {
-        projectRootsAdded: missingRoots.length,
-        savedRootsAdded: missingRoots.length,
+        projectRootsAdded: missingProjectOrder.length,
+        savedRootsAdded: missingSaved.length,
         state,
     };
 };

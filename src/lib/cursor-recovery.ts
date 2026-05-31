@@ -38,6 +38,11 @@ type ComposerData = {
     hasMigratedMultipleComposers?: boolean;
 };
 
+type BucketComposerDataSnapshot = {
+    data: ComposerData;
+    exists: boolean;
+};
+
 export const isCursorRunning = async (): Promise<boolean> => {
     const proc = Bun.spawn(['pgrep', '-x', 'Cursor'], { stderr: 'ignore', stdout: 'ignore' });
     return (await proc.exited) === 0;
@@ -252,36 +257,90 @@ export const recoverCursorWorkspaceGroup = async (
         return buildRecoverResult(group, target, merged, globalDbPath, 0, merged.length);
     }
 
+    const currentBucketData = readTargetBucketComposerData(target);
     await backupComposerHeaders(globalDbPath);
-    writeTargetBucketComposerData(target, merged);
+    await backupTargetBucketComposerData(target, currentBucketData);
 
     const db = new Database(globalDbPath);
+    let committed = false;
+    let relinked = 0;
+    let added = 0;
     try {
-        const { relinked, added } = relinkHeaders(db, merged, sourceBucketIds, target);
-        return buildRecoverResult(group, target, merged, globalDbPath, relinked, added);
+        db.exec('BEGIN IMMEDIATE');
+        writeTargetBucketComposerData(target, buildTargetBucketComposerData(currentBucketData.data, merged));
+        ({ relinked, added } = relinkHeaders(db, merged, sourceBucketIds, target));
+        db.exec('COMMIT');
+        committed = true;
+    } catch (error) {
+        if (!committed) {
+            try {
+                db.exec('ROLLBACK');
+            } catch {}
+
+            try {
+                writeTargetBucketComposerData(target, currentBucketData);
+            } catch {}
+        }
+
+        throw error;
     } finally {
         db.close();
         invalidateCursorDiscoveryCache();
     }
+
+    return buildRecoverResult(group, target, merged, globalDbPath, relinked, added);
 };
 
 // Non-migrated workspaces read their thread list from the bucket's composer.composerData rather than
 // the global headers, so we write the merged threads into the active bucket as well as relinking
 // global headers. This mirrors what Cursor itself stores and makes recovery work for both layouts.
-const writeTargetBucketComposerData = (target: CursorWorkspaceBucket, merged: ComposerEntry[]): void => {
+const readTargetBucketComposerData = (target: CursorWorkspaceBucket): BucketComposerDataSnapshot => {
+    const db = openCursorReadonlyDb(target.dbPath);
+    try {
+        const data = readJsonItem<ComposerData>(db, COMPOSER_DATA_KEY);
+        return {
+            data: data ?? {},
+            exists: data !== null,
+        };
+    } finally {
+        db.close();
+    }
+};
+
+const backupTargetBucketComposerData = async (
+    target: CursorWorkspaceBucket,
+    snapshot: BucketComposerDataSnapshot,
+): Promise<string> => {
+    const backupPath = `${target.dbPath}.composerData.${backupStamp()}.json`;
+    await Bun.write(backupPath, JSON.stringify(snapshot));
+    return backupPath;
+};
+
+const buildTargetBucketComposerData = (existing: ComposerData, merged: ComposerEntry[]): ComposerData => {
+    const selectedIds = merged.map((entry) => entry.composerId).filter((value): value is string => Boolean(value));
+
+    return {
+        ...existing,
+        allComposers: merged,
+        hasMigratedComposerData: true,
+        hasMigratedMultipleComposers: true,
+        lastFocusedComposerIds: selectedIds.slice(0, 1),
+        selectedComposerIds: selectedIds.slice(0, 5),
+    };
+};
+
+const writeTargetBucketComposerData = (
+    target: CursorWorkspaceBucket,
+    snapshot: BucketComposerDataSnapshot | ComposerData,
+): void => {
     const db = new Database(target.dbPath);
     try {
-        const existing = readJsonItem<ComposerData>(db, COMPOSER_DATA_KEY) ?? {};
-        const selectedIds = merged.map((entry) => entry.composerId).filter((value): value is string => Boolean(value));
+        if ('exists' in snapshot && !snapshot.exists) {
+            db.run('DELETE FROM ItemTable WHERE key = ?', [COMPOSER_DATA_KEY]);
+            return;
+        }
 
-        writeJsonItem(db, COMPOSER_DATA_KEY, {
-            ...existing,
-            allComposers: merged,
-            hasMigratedComposerData: true,
-            hasMigratedMultipleComposers: true,
-            lastFocusedComposerIds: selectedIds.slice(0, 1),
-            selectedComposerIds: selectedIds.slice(0, 5),
-        });
+        writeJsonItem(db, COMPOSER_DATA_KEY, 'exists' in snapshot ? snapshot.data : snapshot);
     } finally {
         db.close();
     }
@@ -471,7 +530,7 @@ export const collectCursorThreadsForDeletion = async (
                 lastUpdatedAtMs: null,
                 mode: null,
                 name: '',
-                transcriptDirs: await findCursorTranscriptDirs(composerId),
+                transcriptDirs: await findCursorTranscriptDirs(composerId, userDir),
                 workspaceKey: '',
                 workspaceLabel: '',
             });

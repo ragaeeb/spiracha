@@ -74,24 +74,11 @@ const getCursorExportMimeType = (outputFormat: 'md' | 'txt') => {
     return outputFormat === 'md' ? 'text/markdown; charset=utf-8' : 'text/plain; charset=utf-8';
 };
 
-export const Route = createFileRoute('/cursor-threads/$composerId')({
-    component: CursorThreadDetailPage,
-    errorComponent: CursorThreadDetailErrorComponent,
-    loader: ({ context, params }) =>
-        context.queryClient.ensureQueryData(cursorThreadDetailQueryOptions(params.composerId)),
-    pendingComponent: () => (
-        <LoadingPanel
-            description="Loading the Cursor transcript, thread metadata, and workspace context."
-            title="Loading thread"
-        />
-    ),
-});
-
-function CursorThreadDetailErrorComponent({ error }: { error: Error }) {
+const CursorThreadDetailErrorComponent = ({ error }: { error: Error }) => {
     return <ReloadErrorPanel description={error.message} title="Failed to load Cursor thread" />;
-}
+};
 
-function CursorThreadDetailPage() {
+const CursorThreadDetailPage = () => {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const detail = useSuspenseQuery(cursorThreadDetailQueryOptions(Route.useParams().composerId)).data;
@@ -101,15 +88,15 @@ function CursorThreadDetailPage() {
     const deleteThreadMutation = useMutation({
         mutationFn: () => deleteCursorThreadsFn({ data: { composerIds: [detail.thread.composerId] } }),
         onSuccess: async () => {
+            await navigate({
+                params: { workspaceKey: detail.thread.workspaceKey },
+                to: '/cursor/$workspaceKey',
+            });
             await Promise.all([
                 queryClient.invalidateQueries({ queryKey: ['cursor-thread', detail.thread.composerId] }),
                 queryClient.invalidateQueries({ queryKey: ['cursor-threads', detail.thread.workspaceKey] }),
                 queryClient.invalidateQueries({ queryKey: ['cursor-workspaces'] }),
             ]);
-            await navigate({
-                params: { workspaceKey: detail.thread.workspaceKey },
-                to: '/cursor/$workspaceKey',
-            });
         },
     });
 
@@ -235,4 +222,17 @@ function CursorThreadDetailPage() {
             />
         </div>
     );
-}
+};
+
+export const Route = createFileRoute('/cursor-threads/$composerId')({
+    component: CursorThreadDetailPage,
+    errorComponent: CursorThreadDetailErrorComponent,
+    loader: ({ context, params }) =>
+        context.queryClient.ensureQueryData(cursorThreadDetailQueryOptions(params.composerId)),
+    pendingComponent: () => (
+        <LoadingPanel
+            description="Loading the Cursor transcript, thread metadata, and workspace context."
+            title="Loading thread"
+        />
+    ),
+});

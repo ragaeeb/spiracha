@@ -11,17 +11,11 @@ import { cursorWorkspacesQueryOptions } from '#/lib/cursor-queries';
 import { deleteCursorWorkspaceFn, recoverCursorWorkspaceFn } from '#/lib/cursor-server';
 import { matchesTextQuery } from '#/lib/text-filter';
 
-export const Route = createFileRoute('/cursor/')({
-    component: CursorPage,
-    errorComponent: CursorErrorComponent,
-    loader: ({ context }) => context.queryClient.ensureQueryData(cursorWorkspacesQueryOptions()),
-});
-
-function CursorErrorComponent({ error }: { error: Error }) {
+const CursorErrorComponent = ({ error }: { error: Error }) => {
     return <ReloadErrorPanel description={error.message} title="Failed to load Cursor workspaces" />;
-}
+};
 
-function CursorPage() {
+const CursorPage = () => {
     const queryClient = useQueryClient();
     const workspaces = useSuspenseQuery(cursorWorkspacesQueryOptions()).data;
     const [searchInput, setSearchInput] = useState('');
@@ -117,4 +111,10 @@ function CursorPage() {
             />
         </div>
     );
-}
+};
+
+export const Route = createFileRoute('/cursor/')({
+    component: CursorPage,
+    errorComponent: CursorErrorComponent,
+    loader: ({ context }) => context.queryClient.ensureQueryData(cursorWorkspacesQueryOptions()),
+});

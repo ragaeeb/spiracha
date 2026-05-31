@@ -2,10 +2,28 @@ import os from 'node:os';
 import path from 'node:path';
 import type { ExportFormat } from './shared';
 
+type CursorPlatform = NodeJS.Platform;
+
 // Cursor keeps chat history in two SQLite stores under the user data dir:
 // - per-workspace buckets under workspaceStorage/<bucketId>/state.vscdb
 // - a single globalStorage/state.vscdb holding composer headers and message bubbles
-export const DEFAULT_CURSOR_USER_DIR = path.join(os.homedir(), 'Library', 'Application Support', 'Cursor', 'User');
+export const getDefaultCursorUserDir = (
+    platform: CursorPlatform = process.platform,
+    env: NodeJS.ProcessEnv = process.env,
+    homeDir = os.homedir(),
+): string => {
+    if (platform === 'win32') {
+        return path.win32.join(env.APPDATA || path.win32.join(homeDir, 'AppData', 'Roaming'), 'Cursor', 'User');
+    }
+
+    if (platform === 'linux') {
+        return path.posix.join(env.XDG_DATA_HOME || path.posix.join(homeDir, '.local', 'share'), 'Cursor', 'User');
+    }
+
+    return path.posix.join(homeDir, 'Library', 'Application Support', 'Cursor', 'User');
+};
+
+export const DEFAULT_CURSOR_USER_DIR = getDefaultCursorUserDir();
 
 export const resolveCursorUserDir = (): string => {
     const configured = process.env.SPIRACHA_CURSOR_USER_DIR?.trim();
@@ -18,7 +36,30 @@ export const getCursorWorkspaceStorageDir = (userDir = resolveCursorUserDir()): 
 export const getCursorGlobalDbPath = (userDir = resolveCursorUserDir()): string =>
     path.join(userDir, 'globalStorage', 'state.vscdb');
 
-export const getCursorProjectsDir = (): string => path.join(os.homedir(), '.cursor', 'projects');
+const inferHomeDirFromCursorUserDir = (userDir: string): string | null => {
+    const normalized = userDir.replace(/\\/gu, '/');
+    const macSuffix = '/Library/Application Support/Cursor/User';
+    const windowsSuffix = '/AppData/Roaming/Cursor/User';
+    const linuxSuffix = '/.local/share/Cursor/User';
+
+    for (const suffix of [macSuffix, windowsSuffix, linuxSuffix]) {
+        if (normalized.endsWith(suffix)) {
+            return userDir.slice(0, userDir.length - suffix.length);
+        }
+    }
+
+    return null;
+};
+
+export const getCursorProjectsDir = (userDir = resolveCursorUserDir()): string => {
+    const configured = process.env.SPIRACHA_CURSOR_PROJECTS_DIR?.trim();
+    if (configured) {
+        return configured;
+    }
+
+    const inferredHomeDir = inferHomeDirFromCursorUserDir(userDir);
+    return inferredHomeDir ? path.join(inferredHomeDir, '.cursor', 'projects') : path.join(userDir, 'projects');
+};
 
 export const COMPOSER_DATA_KEY = 'composer.composerData';
 export const COMPOSER_HEADERS_KEY = 'composer.composerHeaders';

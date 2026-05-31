@@ -68,6 +68,11 @@ const pathExists = async (target: string): Promise<boolean> => {
     }
 };
 
+const isFileMissingError = (error: unknown): boolean => {
+    const code = (error as { code?: unknown }).code;
+    return code === 'ENOENT' || code === 'ENOTDIR';
+};
+
 const readVarint = (buffer: Uint8Array, start: number, end: number): { next: number; value: number } => {
     let value = 0;
     let multiplier = 1;
@@ -246,6 +251,11 @@ const parseContextWorkspaceInfo = (field: ProtoField | null): WorkspaceInfo | nu
     return parseWorkspaceInfo(nestedWorkspace);
 };
 
+// Antigravity summary parsing is reverse-engineered from agyhub_summaries_proto.pb:
+// entry field 1 = conversation id, entry field 2 = summary message. Inside that summary,
+// field 1 = title, 2 = indexed item count, 3 = last-updated timestamp, 7 = created timestamp,
+// 9 = workspace info, and 17 = context workspace info. parseWorkspaceInfo uses nested fields
+// 1/2 for URI variants; parseContextWorkspaceInfo uses field 7 or nested workspace field 1.
 const parseSummaryEntry = (entryField: ProtoField, summaryPath: string): SummaryEntry | null => {
     try {
         const entryFields = nestedFields(entryField);
@@ -306,6 +316,37 @@ const preferConversationFile = (
     return candidate.bytes > current.bytes ? candidate : current;
 };
 
+const readConversationFileCandidate = async (
+    root: string,
+    conversationDir: string,
+    entry: { isFile: () => boolean; name: string },
+): Promise<{ conversationId: string; file: ConversationFile } | null> => {
+    if (!entry.isFile() || !entry.name.endsWith('.pb')) {
+        return null;
+    }
+
+    const conversationId = entry.name.slice(0, -'.pb'.length);
+    const filePath = path.join(conversationDir, entry.name);
+    try {
+        const info = await stat(filePath);
+        return {
+            conversationId,
+            file: {
+                bytes: info.size,
+                mtimeMs: info.mtimeMs,
+                path: filePath,
+                root,
+            },
+        };
+    } catch (error) {
+        if (isFileMissingError(error)) {
+            return null;
+        }
+
+        throw error;
+    }
+};
+
 const readConversationFiles = async (roots: string[]): Promise<Map<string, ConversationFile>> => {
     const files = new Map<string, ConversationFile>();
     for (const root of roots) {
@@ -318,20 +359,13 @@ const readConversationFiles = async (roots: string[]): Promise<Map<string, Conve
         }
 
         for (const entry of entries) {
-            if (!entry.isFile() || !entry.name.endsWith('.pb')) {
-                continue;
+            const candidate = await readConversationFileCandidate(root, conversationDir, entry);
+            if (candidate) {
+                files.set(
+                    candidate.conversationId,
+                    preferConversationFile(files.get(candidate.conversationId), candidate.file),
+                );
             }
-
-            const conversationId = entry.name.slice(0, -'.pb'.length);
-            const filePath = path.join(conversationDir, entry.name);
-            const info = await stat(filePath);
-            const candidate = {
-                bytes: info.size,
-                mtimeMs: info.mtimeMs,
-                path: filePath,
-                root,
-            };
-            files.set(conversationId, preferConversationFile(files.get(conversationId), candidate));
         }
     }
 
@@ -358,6 +392,31 @@ const readArtifactMetadata = async (
     }
 };
 
+const readArtifactCandidate = async (
+    root: string,
+    artifactPath: string,
+    fileName: string,
+): Promise<AntigravityArtifact | null> => {
+    try {
+        const [info, metadata] = await Promise.all([stat(artifactPath), readArtifactMetadata(artifactPath)]);
+        return {
+            artifactType: metadata.artifactType,
+            bytes: info.size,
+            name: fileName,
+            path: artifactPath,
+            sourceRoot: root,
+            summary: metadata.summary,
+            updatedAtMs: metadata.updatedAtMs ?? info.mtimeMs,
+        };
+    } catch (error) {
+        if (isFileMissingError(error)) {
+            return null;
+        }
+
+        throw error;
+    }
+};
+
 const readArtifactsForRoot = async (root: string): Promise<Map<string, AntigravityArtifact[]>> => {
     const brainDir = getAntigravityBrainDir(root);
     let entries: Array<{ isDirectory: () => boolean; name: string }> = [];
@@ -381,17 +440,12 @@ const readArtifactsForRoot = async (root: string): Promise<Map<string, Antigravi
             }
 
             const artifactPath = path.join(artifactDir, file.name);
-            const [info, metadata] = await Promise.all([stat(artifactPath), readArtifactMetadata(artifactPath)]);
+            const artifact = await readArtifactCandidate(root, artifactPath, file.name);
+            if (!artifact) {
+                continue;
+            }
             const list = artifactsByConversation.get(entry.name) ?? [];
-            list.push({
-                artifactType: metadata.artifactType,
-                bytes: info.size,
-                name: file.name,
-                path: artifactPath,
-                sourceRoot: root,
-                summary: metadata.summary,
-                updatedAtMs: metadata.updatedAtMs ?? info.mtimeMs,
-            });
+            list.push(artifact);
             artifactsByConversation.set(entry.name, list);
         }
     }

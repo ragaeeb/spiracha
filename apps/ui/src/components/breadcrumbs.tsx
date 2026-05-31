@@ -20,7 +20,7 @@ const isLinkItem = (item: BreadcrumbItem): item is Extract<BreadcrumbItem, { to:
     return 'to' in item;
 };
 
-export function Breadcrumbs({ items }: BreadcrumbsProps) {
+export const Breadcrumbs = ({ items }: BreadcrumbsProps) => {
     return (
         <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-1 text-sm">
             {items.map((item, index) => {
@@ -33,7 +33,9 @@ export function Breadcrumbs({ items }: BreadcrumbsProps) {
                         {item.label}
                     </Link>
                 ) : (
-                    <span className="font-medium text-[var(--foreground)]">{item.label}</span>
+                    <span aria-current="page" className="font-medium text-[var(--foreground)]">
+                        {item.label}
+                    </span>
                 );
 
                 return (
@@ -48,4 +50,4 @@ export function Breadcrumbs({ items }: BreadcrumbsProps) {
             })}
         </nav>
     );
-}
+};

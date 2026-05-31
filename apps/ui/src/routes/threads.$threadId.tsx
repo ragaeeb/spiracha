@@ -197,44 +197,44 @@ function TranscriptControls({
         <div className="flex flex-wrap gap-4 rounded-xl border border-[var(--border)] bg-[var(--panel)] px-4 py-3 shadow-[var(--panel-shadow)]">
             <div className="flex items-center gap-2 text-sm">
                 <Checkbox
-                    aria-label="Show tool calls"
                     checked={showToolCalls}
+                    id="transcript-show-tool-calls"
                     onCheckedChange={(checked) => onShowToolCallsChange(checked === true)}
                 />
-                <span>Show tool calls</span>
+                <label htmlFor="transcript-show-tool-calls">Show tool calls</label>
             </div>
             <div className="flex items-center gap-2 text-sm">
                 <Checkbox
-                    aria-label="Show commentary"
                     checked={showCommentary}
+                    id="transcript-show-commentary"
                     onCheckedChange={(checked) => onShowCommentaryChange(checked === true)}
                 />
-                <span>Show commentary</span>
+                <label htmlFor="transcript-show-commentary">Show commentary</label>
             </div>
             <div className="flex items-center gap-2 text-sm">
                 <Checkbox
-                    aria-label="Show extra events"
                     checked={showExtraEvents}
+                    id="transcript-show-extra-events"
                     onCheckedChange={(checked) => onShowExtraEventsChange(checked === true)}
                 />
-                <span>Show extra events</span>
+                <label htmlFor="transcript-show-extra-events">Show extra events</label>
             </div>
             <div className="flex items-center gap-2 text-sm">
                 <Checkbox
-                    aria-label="Show raw JSON"
                     checked={showRawJson}
                     disabled={rawJsonDisabled}
+                    id="transcript-show-raw-json"
                     onCheckedChange={(checked) => onShowRawJsonChange(checked === true)}
                 />
-                <span>Raw JSON</span>
+                <label htmlFor="transcript-show-raw-json">Raw JSON</label>
             </div>
             <div className="flex items-center gap-2 text-sm">
                 <Checkbox
-                    aria-label="Show user messages"
                     checked={showUserMessages}
+                    id="transcript-show-user-messages"
                     onCheckedChange={(checked) => onShowUserMessagesChange(checked === true)}
                 />
-                <span>User</span>
+                <label htmlFor="transcript-show-user-messages">User</label>
             </div>
         </div>
     );

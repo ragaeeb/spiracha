@@ -193,6 +193,8 @@ describe('CursorThreadsTable', () => {
             />,
         );
 
+        expect(screen.getByRole('button', { name: 'Actions for Fix the checkout flow' })).toBeTruthy();
+
         const menuTrigger = screen
             .getAllByRole('button')
             .find((button) => button.getAttribute('aria-haspopup') === 'menu');
