@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as CursorRouteImport } from './routes/cursor'
 import { Route as AnalyticsRouteImport } from './routes/analytics'
 import { Route as ThreadIdRouteImport } from './routes/$threadId'
 import { Route as IndexRouteImport } from './routes/index'
@@ -20,6 +21,11 @@ import { Route as ProjectsProjectRouteImport } from './routes/projects.$project'
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CursorRoute = CursorRouteImport.update({
+  id: '/cursor',
+  path: '/cursor',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AnalyticsRoute = AnalyticsRouteImport.update({
@@ -57,6 +63,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/$threadId': typeof ThreadIdRoute
   '/analytics': typeof AnalyticsRoute
+  '/cursor': typeof CursorRoute
   '/settings': typeof SettingsRoute
   '/projects/$project': typeof ProjectsProjectRoute
   '/threads/$threadId': typeof ThreadsThreadIdRoute
@@ -66,6 +73,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/$threadId': typeof ThreadIdRoute
   '/analytics': typeof AnalyticsRoute
+  '/cursor': typeof CursorRoute
   '/settings': typeof SettingsRoute
   '/projects/$project': typeof ProjectsProjectRoute
   '/threads/$threadId': typeof ThreadsThreadIdRoute
@@ -76,6 +84,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/$threadId': typeof ThreadIdRoute
   '/analytics': typeof AnalyticsRoute
+  '/cursor': typeof CursorRoute
   '/settings': typeof SettingsRoute
   '/projects/$project': typeof ProjectsProjectRoute
   '/threads/$threadId': typeof ThreadsThreadIdRoute
@@ -87,6 +96,7 @@ export interface FileRouteTypes {
     | '/'
     | '/$threadId'
     | '/analytics'
+    | '/cursor'
     | '/settings'
     | '/projects/$project'
     | '/threads/$threadId'
@@ -96,6 +106,7 @@ export interface FileRouteTypes {
     | '/'
     | '/$threadId'
     | '/analytics'
+    | '/cursor'
     | '/settings'
     | '/projects/$project'
     | '/threads/$threadId'
@@ -105,6 +116,7 @@ export interface FileRouteTypes {
     | '/'
     | '/$threadId'
     | '/analytics'
+    | '/cursor'
     | '/settings'
     | '/projects/$project'
     | '/threads/$threadId'
@@ -115,6 +127,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ThreadIdRoute: typeof ThreadIdRoute
   AnalyticsRoute: typeof AnalyticsRoute
+  CursorRoute: typeof CursorRoute
   SettingsRoute: typeof SettingsRoute
   ProjectsProjectRoute: typeof ProjectsProjectRoute
   ThreadsThreadIdRoute: typeof ThreadsThreadIdRoute
@@ -128,6 +141,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/cursor': {
+      id: '/cursor'
+      path: '/cursor'
+      fullPath: '/cursor'
+      preLoaderRoute: typeof CursorRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/analytics': {
@@ -179,6 +199,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ThreadIdRoute: ThreadIdRoute,
   AnalyticsRoute: AnalyticsRoute,
+  CursorRoute: CursorRoute,
   SettingsRoute: SettingsRoute,
   ProjectsProjectRoute: ProjectsProjectRoute,
   ThreadsThreadIdRoute: ThreadsThreadIdRoute,

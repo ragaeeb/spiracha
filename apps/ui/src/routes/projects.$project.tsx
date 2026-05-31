@@ -1,15 +1,23 @@
 import type { ThreadListEntry } from '@spiracha/lib/codex-browser-types';
 import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
+import { RefreshCcw } from 'lucide-react';
 import { startTransition, useDeferredValue, useState } from 'react';
 import { DeleteConfirmDialog } from '#/components/delete-confirm-dialog';
 import { ExportDialog } from '#/components/export-dialog';
 import { LoadingPanel } from '#/components/loading-panel';
 import { PageHeader } from '#/components/page-header';
 import { ThreadsTable } from '#/components/threads-table';
+import { Button } from '#/components/ui/button';
 import { Input } from '#/components/ui/input';
 import { projectThreadsQueryOptions } from '#/lib/codex-queries';
-import { deleteThreadFn, deleteThreadsFn, exportThreadFn, exportThreadsFn } from '#/lib/codex-server';
+import {
+    deleteThreadFn,
+    deleteThreadsFn,
+    exportThreadFn,
+    exportThreadsFn,
+    recoverProjectThreadsFn,
+} from '#/lib/codex-server';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import { useSettings } from '#/lib/settings-store';
 
@@ -86,6 +94,23 @@ function ProjectDetailPage() {
                 queryClient.invalidateQueries({ queryKey: ['projects'] }),
             ]);
             setPendingDelete(null);
+        },
+    });
+
+    const recoverProjectMutation = useMutation({
+        mutationFn: () =>
+            recoverProjectThreadsFn({
+                data: {
+                    project: params.project,
+                },
+            }),
+        onSuccess: async () => {
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ['analytics'] }),
+                queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+                queryClient.invalidateQueries({ queryKey: ['project-threads', params.project] }),
+                queryClient.invalidateQueries({ queryKey: ['projects'] }),
+            ]);
         },
     });
 
@@ -171,6 +196,16 @@ function ProjectDetailPage() {
             <PageHeader
                 actions={
                     <div className="flex flex-col gap-2 sm:flex-row">
+                        <Button
+                            className="rounded-full"
+                            disabled={recoverProjectMutation.isPending}
+                            type="button"
+                            variant="outline"
+                            onClick={() => recoverProjectMutation.mutate()}
+                        >
+                            <RefreshCcw className="mr-2 size-4" />
+                            {recoverProjectMutation.isPending ? 'Recovering...' : 'Recover'}
+                        </Button>
                         <Input
                             className="h-10 w-full rounded-full border-[var(--border)] bg-[var(--panel)] px-4 sm:w-[20rem]"
                             placeholder="Search thread title or preview"
@@ -184,7 +219,7 @@ function ProjectDetailPage() {
                     </div>
                 }
                 eyebrow="Project"
-                subtitle="Sort by any column, inspect tool call volume, and manage thread records for this derived project."
+                subtitle="Sort by any column, inspect tool call volume, manage thread records, or repair stale Codex thread metadata for this derived project."
                 title={params.project}
             />
 

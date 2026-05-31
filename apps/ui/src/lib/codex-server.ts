@@ -15,6 +15,7 @@ import {
     getCachedThreadTranscriptPreview,
     getThreadRolloutLoadState,
 } from '@spiracha/lib/codex-thread-cache';
+import { recoverCodexProjectThreads } from '@spiracha/lib/codex-thread-recovery';
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
 
@@ -193,4 +194,10 @@ export const deleteProjectFn = createServerFn({ method: 'POST' })
         return deleteCodexProject(getDbPath(), data.project, {
             deleteSessionFiles: data.deleteSessionFiles,
         });
+    });
+
+export const recoverProjectThreadsFn = createServerFn({ method: 'POST' })
+    .inputValidator(projectSchema)
+    .handler(async ({ data }) => {
+        return recoverCodexProjectThreads(getDbPath(), data.project);
     });

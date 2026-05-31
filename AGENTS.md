@@ -2,12 +2,13 @@
 
 ## Purpose
 
-This repo exports local Codex chats and Claude Code transcripts to Markdown or plain text.
+This repo exports local Codex chats, Claude Code transcripts, and Cursor Agent/Composer threads to Markdown or plain text.
 
 Main entrypoints:
 - `bun start ...` for Codex chat export
 - `bun start` for interactive export mode
 - `bun run export:claude -- ...` for Claude transcript export
+- `bun run ./src/export-cursor.ts ...` (or `spiracha cursor ...`) for Cursor thread export, recovery, and prune
 - `bun run mcp` for the MCP server used by the local Codex plugin
 - `bun run ui:dev` for the local browser UI
 - published package entrypoints:
@@ -57,6 +58,20 @@ Codex exporter modules:
   - JSONL transcript parsing, metadata extraction, message/tool rendering
 - `src/lib/codex-exporter-types.ts`
   - shared Codex exporter types and default path constants
+
+Cursor exporter modules:
+- `src/export-cursor.ts`
+  - CLI runner with `list`, `export`, `recover`, and `prune` subcommands
+- `src/lib/cursor-exporter.ts`
+  - export orchestration, CLI parsing, and help text
+- `src/lib/cursor-db.ts`
+  - workspace storage bucket discovery, grouping, thread/bubble reads from the global store
+- `src/lib/cursor-recovery.ts`
+  - re-links lost threads into the active workspace bucket and prunes threads (destructive)
+- `src/lib/cursor-transcript.ts`
+  - renders Cursor bubbles (user, assistant, reasoning, tool calls) to Markdown or TXT
+- `src/lib/cursor-exporter-types.ts`
+  - shared Cursor types and macOS Cursor data-dir path resolution (`SPIRACHA_CURSOR_USER_DIR` override)
 
 Other important files:
 - `src/lib/claude-exporter.ts`

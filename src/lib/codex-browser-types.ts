@@ -191,6 +191,22 @@ export type DeleteProjectResult = DeleteThreadsResult & {
     projectName: string;
 };
 
+export type RecoverProjectThreadsResult = {
+    backups: {
+        globalState: string;
+        sessionIndex: string;
+        stateDb: string;
+    };
+    projectName: string;
+    projectRootsAdded: number;
+    resolvedCwds: string[];
+    rolloutFilesTouched: number;
+    savedRootsAdded: number;
+    sessionIndexRowsUpdated: number;
+    threadDbRowsUpdated: number;
+    topLevelThreadsFound: number;
+};
+
 export type ToolUsageSummary = {
     count: number;
     name: string;
