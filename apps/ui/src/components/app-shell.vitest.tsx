@@ -37,5 +37,13 @@ describe('AppShell', () => {
         expect(screen.getByRole('link', { name: /Dashboard/i }).className).toContain(
             'hover:bg-[var(--panel-secondary)]',
         );
+        expect(screen.getAllByRole('link').map((link) => link.textContent)).toEqual([
+            'Dashboard',
+            'Projects',
+            'Antigravity',
+            'Cursor',
+            'Analytics',
+            'Settings',
+        ]);
     });
 });

@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as CursorRouteImport } from './routes/cursor'
+import { Route as AntigravityRouteImport } from './routes/antigravity'
 import { Route as AnalyticsRouteImport } from './routes/analytics'
 import { Route as ThreadIdRouteImport } from './routes/$threadId'
 import { Route as IndexRouteImport } from './routes/index'
@@ -26,6 +27,11 @@ const SettingsRoute = SettingsRouteImport.update({
 const CursorRoute = CursorRouteImport.update({
   id: '/cursor',
   path: '/cursor',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AntigravityRoute = AntigravityRouteImport.update({
+  id: '/antigravity',
+  path: '/antigravity',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AnalyticsRoute = AnalyticsRouteImport.update({
@@ -63,6 +69,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/$threadId': typeof ThreadIdRoute
   '/analytics': typeof AnalyticsRoute
+  '/antigravity': typeof AntigravityRoute
   '/cursor': typeof CursorRoute
   '/settings': typeof SettingsRoute
   '/projects/$project': typeof ProjectsProjectRoute
@@ -73,6 +80,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/$threadId': typeof ThreadIdRoute
   '/analytics': typeof AnalyticsRoute
+  '/antigravity': typeof AntigravityRoute
   '/cursor': typeof CursorRoute
   '/settings': typeof SettingsRoute
   '/projects/$project': typeof ProjectsProjectRoute
@@ -84,6 +92,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/$threadId': typeof ThreadIdRoute
   '/analytics': typeof AnalyticsRoute
+  '/antigravity': typeof AntigravityRoute
   '/cursor': typeof CursorRoute
   '/settings': typeof SettingsRoute
   '/projects/$project': typeof ProjectsProjectRoute
@@ -96,6 +105,7 @@ export interface FileRouteTypes {
     | '/'
     | '/$threadId'
     | '/analytics'
+    | '/antigravity'
     | '/cursor'
     | '/settings'
     | '/projects/$project'
@@ -106,6 +116,7 @@ export interface FileRouteTypes {
     | '/'
     | '/$threadId'
     | '/analytics'
+    | '/antigravity'
     | '/cursor'
     | '/settings'
     | '/projects/$project'
@@ -116,6 +127,7 @@ export interface FileRouteTypes {
     | '/'
     | '/$threadId'
     | '/analytics'
+    | '/antigravity'
     | '/cursor'
     | '/settings'
     | '/projects/$project'
@@ -127,6 +139,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ThreadIdRoute: typeof ThreadIdRoute
   AnalyticsRoute: typeof AnalyticsRoute
+  AntigravityRoute: typeof AntigravityRoute
   CursorRoute: typeof CursorRoute
   SettingsRoute: typeof SettingsRoute
   ProjectsProjectRoute: typeof ProjectsProjectRoute
@@ -148,6 +161,13 @@ declare module '@tanstack/react-router' {
       path: '/cursor'
       fullPath: '/cursor'
       preLoaderRoute: typeof CursorRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/antigravity': {
+      id: '/antigravity'
+      path: '/antigravity'
+      fullPath: '/antigravity'
+      preLoaderRoute: typeof AntigravityRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/analytics': {
@@ -199,6 +219,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ThreadIdRoute: ThreadIdRoute,
   AnalyticsRoute: AnalyticsRoute,
+  AntigravityRoute: AntigravityRoute,
   CursorRoute: CursorRoute,
   SettingsRoute: SettingsRoute,
   ProjectsProjectRoute: ProjectsProjectRoute,

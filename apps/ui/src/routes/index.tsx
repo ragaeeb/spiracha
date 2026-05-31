@@ -2,8 +2,9 @@ import { useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { MetricCard } from '#/components/metric-card';
 import { PageHeader } from '#/components/page-header';
+import { RecentThreadsList } from '#/components/recent-threads-list';
 import { dashboardQueryOptions } from '#/lib/codex-queries';
-import { formatDateTime, formatNumber, formatTokens } from '#/lib/formatters';
+import { formatNumber, formatTokens } from '#/lib/formatters';
 
 export const Route = createFileRoute('/')({
     component: DashboardPage,
@@ -68,36 +69,7 @@ function DashboardPage() {
                             View projects
                         </Link>
                     </div>
-                    <div className="mt-4 space-y-2">
-                        {dashboard.recentThreads.map((thread) => (
-                            <Link
-                                key={thread.id}
-                                className="block overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--panel-secondary)] p-3.5 transition-colors hover:border-[var(--accent)]/30 hover:bg-[var(--accent-muted)]"
-                                params={{ threadId: thread.id }}
-                                to="/threads/$threadId"
-                            >
-                                <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
-                                    <div className="min-w-0 shrink">
-                                        <p className="truncate font-medium text-sm">{thread.title}</p>
-                                        <p className="mt-0.5 line-clamp-1 text-[var(--muted-foreground)] text-xs">
-                                            {thread.preview}
-                                        </p>
-                                    </div>
-                                    <p
-                                        className="shrink-0 whitespace-nowrap font-mono text-[var(--muted-foreground)] text-xs"
-                                        suppressHydrationWarning
-                                    >
-                                        {formatDateTime(thread.updated_at_ms ?? thread.updated_at * 1000)}
-                                    </p>
-                                </div>
-                                <div className="mt-2 flex flex-wrap gap-3 text-[var(--muted-foreground)] text-xs">
-                                    <span className="font-mono">{thread.model ?? 'unknown model'}</span>
-                                    <span>{formatTokens(thread.tokens_used)}</span>
-                                    <span>{thread.thread_source ?? 'n/a'}</span>
-                                </div>
-                            </Link>
-                        ))}
-                    </div>
+                    <RecentThreadsList threads={dashboard.recentThreads} />
                 </section>
 
                 <div className="grid min-w-0 gap-4">

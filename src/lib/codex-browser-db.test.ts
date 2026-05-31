@@ -470,6 +470,21 @@ describe('codex browser db', () => {
         expect(summary.totalTokens).toBe(91000);
     });
 
+    it('should include project names for recent dashboard threads', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-dashboard-recent-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+
+        const summary = getCodexDashboardSummary(fixture.dbPath);
+
+        expect(summary.recentThreads[0]).toMatchObject({
+            project: 'spiracha',
+            thread: {
+                id: fixture.threads[0]!.threadId,
+            },
+        });
+    });
+
     it('should delete all project session files when requested', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-delete-project-session-test-'));
         tempPaths.push(tempRoot);

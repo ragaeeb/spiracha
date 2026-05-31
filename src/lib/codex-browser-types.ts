@@ -170,10 +170,15 @@ export type ThreadBrowseData = {
     thread: ThreadRow;
 };
 
+export type DashboardRecentThread = {
+    project: string;
+    thread: ThreadRow;
+};
+
 export type DashboardSummary = {
     activeThreads: number;
     archivedThreads: number;
-    recentThreads: ThreadRow[];
+    recentThreads: DashboardRecentThread[];
     threadsWithRelations: number;
     topProjectsByThreadCount: ProjectSummary[];
     topProjectsByTokens: ProjectSummary[];

@@ -28,10 +28,12 @@ type TranscriptControlsProps = {
     showExtraEvents: boolean;
     showRawJson: boolean;
     showToolCalls: boolean;
+    showUserMessages: boolean;
     onShowCommentaryChange: (checked: boolean) => void;
     onShowExtraEventsChange: (checked: boolean) => void;
     onShowRawJsonChange: (checked: boolean) => void;
     onShowToolCallsChange: (checked: boolean) => void;
+    onShowUserMessagesChange: (checked: boolean) => void;
 };
 
 type ThreadMetadataProps = {
@@ -183,10 +185,12 @@ function TranscriptControls({
     showExtraEvents,
     showRawJson,
     showToolCalls,
+    showUserMessages,
     onShowCommentaryChange,
     onShowExtraEventsChange,
     onShowRawJsonChange,
     onShowToolCallsChange,
+    onShowUserMessagesChange,
 }: TranscriptControlsProps) {
     return (
         <div className="flex flex-wrap gap-4 rounded-xl border border-[var(--border)] bg-[var(--panel)] px-4 py-3 shadow-[var(--panel-shadow)]">
@@ -218,6 +222,13 @@ function TranscriptControls({
                     onCheckedChange={(checked) => onShowRawJsonChange(checked === true)}
                 />
                 <span>Raw JSON</span>
+            </div>
+            <div className="flex items-center gap-2 text-sm">
+                <Checkbox
+                    checked={showUserMessages}
+                    onCheckedChange={(checked) => onShowUserMessagesChange(checked === true)}
+                />
+                <span>User</span>
             </div>
         </div>
     );
@@ -359,6 +370,7 @@ function ThreadDetailPage() {
     const [showCommentary, setShowCommentary] = useState(false);
     const [showExtraEvents, setShowExtraEvents] = useState(false);
     const [showRawJson, setShowRawJson] = useState(false);
+    const [showUserMessages, setShowUserMessages] = useState(true);
     const [exportOpen, setExportOpen] = useState(false);
     const [deleteOpen, setDeleteOpen] = useState(false);
     const transcriptQuery = useQuery({
@@ -504,10 +516,12 @@ function ThreadDetailPage() {
                         showExtraEvents={showExtraEvents}
                         showRawJson={showRawJson}
                         showToolCalls={showToolCalls}
+                        showUserMessages={showUserMessages}
                         onShowCommentaryChange={setShowCommentary}
                         onShowExtraEventsChange={setShowExtraEvents}
                         onShowRawJsonChange={setShowRawJson}
                         onShowToolCallsChange={setShowToolCalls}
+                        onShowUserMessagesChange={setShowUserMessages}
                     />
                     {transcript ? (
                         <TranscriptView
@@ -518,6 +532,7 @@ function ThreadDetailPage() {
                             showExtraEvents={showExtraEvents}
                             showRawJson={showRawJson && transcript.rawIncluded}
                             showToolCalls={showToolCalls}
+                            showUserMessages={showUserMessages}
                         />
                     ) : (
                         <DeferredTranscriptNotice

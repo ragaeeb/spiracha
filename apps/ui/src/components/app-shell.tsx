@@ -1,5 +1,5 @@
 import { Link, useRouterState } from '@tanstack/react-router';
-import { BarChart3, FolderOpen, LayoutDashboard, Settings2, SquareTerminal } from 'lucide-react';
+import { BarChart3, FolderOpen, LayoutDashboard, Settings2, Sparkles, SquareTerminal } from 'lucide-react';
 import type { PropsWithChildren } from 'react';
 import { cn } from '#/lib/utils';
 import { ThemeToggle } from './theme-toggle';
@@ -7,6 +7,7 @@ import { ThemeToggle } from './theme-toggle';
 const navItems = [
     { icon: LayoutDashboard, label: 'Dashboard', to: '/' },
     { icon: FolderOpen, label: 'Projects', to: '/projects' },
+    { icon: Sparkles, label: 'Antigravity', to: '/antigravity' },
     { icon: SquareTerminal, label: 'Cursor', to: '/cursor' },
     { icon: BarChart3, label: 'Analytics', to: '/analytics' },
     { icon: Settings2, label: 'Settings', to: '/settings' },
