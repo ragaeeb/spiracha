@@ -1,37 +1,31 @@
-import type { AntigravityDecryptionState } from '@spiracha/lib/antigravity-keychain';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { KeyRound, LockKeyhole, ShieldCheck, TriangleAlert } from 'lucide-react';
-import { useEffect } from 'react';
 import { Button } from '#/components/ui/button';
 import { antigravityDecryptionQueryOptions } from '#/lib/antigravity-queries';
 import { unlockAntigravityDecryptionFn } from '#/lib/antigravity-server';
 import { cn } from '#/lib/utils';
 
-type AntigravityKeychainPanelProps = {
-    onStateChange?: (state: AntigravityDecryptionState | null) => void;
-};
-
-export function AntigravityKeychainPanel({ onStateChange }: AntigravityKeychainPanelProps) {
+export function AntigravityKeychainPanel() {
     const queryClient = useQueryClient();
     const decryptionQuery = useQuery(antigravityDecryptionQueryOptions());
     const decryptionState = decryptionQuery.data ?? null;
     const unlockMutation = useMutation({
         mutationFn: () => unlockAntigravityDecryptionFn(),
-        onSuccess: () => {
-            void queryClient.invalidateQueries({ queryKey: antigravityDecryptionQueryOptions().queryKey });
+        onSuccess: (result) => {
+            queryClient.setQueryData(antigravityDecryptionQueryOptions().queryKey, result);
+            void Promise.all([
+                queryClient.invalidateQueries({ queryKey: antigravityDecryptionQueryOptions().queryKey }),
+                queryClient.invalidateQueries({ queryKey: ['antigravity-conversation'] }),
+            ]);
         },
     });
-
-    useEffect(() => {
-        onStateChange?.(decryptionState);
-    }, [decryptionState, onStateChange]);
 
     if (!decryptionState || decryptionState.status === 'unsupported') {
         return null;
     }
 
-    const isUnlocked = decryptionState.isUnlocked || unlockMutation.data?.isUnlocked;
-    const error = unlockMutation.data?.error ?? unlockMutation.error?.message ?? decryptionState.error;
+    const isUnlocked = decryptionState.isUnlocked;
+    const error = unlockMutation.error?.message ?? decryptionState.error;
 
     return (
         <div

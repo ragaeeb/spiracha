@@ -85,6 +85,14 @@ function CursorPage() {
                 </p>
             ) : null}
 
+            {deleteWorkspaceMutation.isError ? (
+                <p className="text-[var(--destructive)] text-sm">
+                    {deleteWorkspaceMutation.error instanceof Error
+                        ? deleteWorkspaceMutation.error.message
+                        : 'Workspace deletion failed'}
+                </p>
+            ) : null}
+
             <DeleteConfirmDialog
                 confirmLabel={deleteWorkspaceMutation.isPending ? 'Deleting...' : 'Delete workspace'}
                 description={

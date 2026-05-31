@@ -255,4 +255,35 @@ describe('antigravity db discovery', () => {
         expect(markdown).toContain('### Tool Calls');
         expect(markdown).toContain('`list_dir`');
     });
+
+    it('should derive a workspace group from the source root when a conversation has no summary metadata', async () => {
+        const root = await makeRoot();
+        const conversationId = '77777777-7777-4777-8777-777777777777';
+        await Bun.write(path.join(root, 'conversations', `${conversationId}.pb`), new Uint8Array([1, 2, 3]));
+
+        const [conversation] = await listAntigravityConversations([root]);
+
+        expect(conversation).toMatchObject({
+            conversationId,
+            workspaceKey: `folder:${root}`,
+            workspaceLabel: path.basename(root),
+        });
+    });
+
+    it('should not treat artifacts as conversation transcript markdown', async () => {
+        const root = await makeRoot();
+        const conversationId = '88888888-8888-4888-8888-888888888888';
+        const artifactDir = path.join(root, 'brain', conversationId);
+        await mkdir(artifactDir, { recursive: true });
+        await Bun.write(
+            path.join(root, 'agyhub_summaries_proto.pb'),
+            encodeSummaryIndex([{ id: conversationId, title: 'Artifact only session' }]),
+        );
+        await Bun.write(path.join(artifactDir, 'artifact.md'), 'Only artifact content.\n');
+
+        const [conversation] = await listAntigravityConversations([root]);
+        const markdown = await renderAntigravityConversationMarkdown(conversation!);
+
+        expect(markdown).toBeNull();
+    });
 });

@@ -30,8 +30,19 @@ type ComposerEntry = Record<string, JsonValue> & {
 // removes the -wal/-shm sidecars, and the failure only surfaces at query time (so a try/catch around
 // the constructor never sees it). immutable=1 reads the main database file directly, which works
 // whether or not Cursor is running and whether or not the WAL sidecars are present.
+export const getCursorReadonlyDbUri = (dbPath: string): string => {
+    const normalizedPath = dbPath.replace(/\\/gu, '/');
+    const absolutePath = normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`;
+    const encodedPath = absolutePath
+        .split('/')
+        .map((segment) => (/^[A-Za-z]:$/u.test(segment) ? segment : encodeURIComponent(segment)))
+        .join('/');
+
+    return `file://${encodedPath}?immutable=1`;
+};
+
 export const openCursorReadonlyDb = (dbPath: string): Database => {
-    return new Database(`file:${encodeURI(dbPath)}?immutable=1`, { readonly: true });
+    return new Database(getCursorReadonlyDbUri(dbPath), { readonly: true });
 };
 
 const pathExists = async (target: string): Promise<boolean> => {

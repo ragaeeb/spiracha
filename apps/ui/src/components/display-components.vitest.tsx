@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Breadcrumbs } from './breadcrumbs';
 import { JsonPanel } from './json-panel';
 import { LoadingPanel } from './loading-panel';
@@ -34,6 +34,10 @@ vi.mock('@tanstack/react-router', () => ({
 }));
 
 describe('display components', () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
     it('should render json panels and metadata cards', () => {
         render(
             <div>
@@ -92,5 +96,17 @@ describe('display components', () => {
             screen.getByText((content) => content.includes('Line one') && content.includes('Line two')),
         ).toBeTruthy();
         expect(screen.getByRole('button', { name: 'Refresh' })).toBeTruthy();
+    });
+
+    it('should avoid duplicate React keys when breadcrumb labels and destinations repeat', () => {
+        const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        render(
+            <Breadcrumbs
+                items={[{ label: 'Codex', to: '/projects' }, { label: 'Codex', to: '/projects' }, { label: 'Codex' }]}
+            />,
+        );
+
+        expect(consoleErrorSpy).not.toHaveBeenCalled();
     });
 });

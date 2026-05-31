@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router';
 import type { SortingState } from '@tanstack/react-table';
 import { createColumnHelper } from '@tanstack/react-table';
 import { Download, MoreHorizontal, Trash2, X } from 'lucide-react';
+import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
 import { Button } from '#/components/ui/button';
 import {
@@ -120,9 +121,11 @@ export function CursorThreadsTable({
     onExportThreads,
     threads,
 }: CursorThreadsTableProps) {
+    const tableColumns = useMemo(() => columns(onDeleteThread, onExportThread), [onDeleteThread, onExportThread]);
+
     return (
         <DataTable
-            columns={columns(onDeleteThread, onExportThread)}
+            columns={tableColumns}
             data={threads}
             emptyMessage="No Cursor threads match the current workspace filter."
             enableRowSelection

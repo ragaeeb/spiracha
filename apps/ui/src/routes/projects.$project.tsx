@@ -2,7 +2,7 @@ import type { ThreadListEntry } from '@spiracha/lib/codex-browser-types';
 import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import { RefreshCcw } from 'lucide-react';
-import { useDeferredValue, useState } from 'react';
+import { useDeferredValue, useMemo, useState } from 'react';
 import { DeleteConfirmDialog } from '#/components/delete-confirm-dialog';
 import { ExportDialog } from '#/components/export-dialog';
 import { ListSearchInput } from '#/components/list-search-input';
@@ -178,10 +178,15 @@ function ProjectDetailPage() {
             thread.thread.id,
         ]);
     });
+    const visibleThreadsById = useMemo(
+        () => new Map(visibleThreads.map((thread) => [thread.thread.id, thread])),
+        [visibleThreads],
+    );
 
     const lookupSelectedThreads = (threadIds: string[]) => {
-        const threadIdSet = new Set(threadIds);
-        return visibleThreads.filter((thread) => threadIdSet.has(thread.thread.id));
+        return threadIds
+            .map((threadId) => visibleThreadsById.get(threadId) ?? null)
+            .filter((thread): thread is ThreadListEntry => thread !== null);
     };
 
     return (
@@ -245,7 +250,13 @@ function ProjectDetailPage() {
             />
 
             <DeleteConfirmDialog
-                confirmLabel={deleteThreadMutation.isPending ? 'Deleting...' : 'Delete thread'}
+                confirmLabel={
+                    deleteThreadMutation.isPending
+                        ? 'Deleting...'
+                        : pendingDelete && pendingDelete.threads.length > 1
+                          ? 'Delete threads'
+                          : 'Delete thread'
+                }
                 defaultDeleteSessionFiles
                 description={
                     pendingDelete
@@ -256,7 +267,11 @@ function ProjectDetailPage() {
                 }
                 open={pendingDelete !== null}
                 showDeleteSessionFilesOption
-                title="Delete Codex thread?"
+                title={
+                    pendingDelete && pendingDelete.threads.length > 1
+                        ? `Delete ${pendingDelete.threads.length} Codex threads?`
+                        : 'Delete Codex thread?'
+                }
                 onConfirm={({ deleteSessionFiles }) => {
                     if (!pendingDelete) {
                         return;

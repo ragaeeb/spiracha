@@ -24,6 +24,9 @@ Important:
 - `src/routeTree.gen.ts` is generated. Do not edit it manually.
 - If route typing behaves strangely, delete `src/routeTree.gen.ts` and rebuild with `rtk bun run build` to regenerate it cleanly.
 - The UI supports both `/threads/$threadId` and a root shortcut route `/$threadId` that redirects straight to the thread detail page.
+- Cursor thread detail lives at `/cursor-threads/$composerId`.
+- Antigravity conversation detail lives at `/antigravity-conversations/$conversationId`.
+- Keep the Codex, Cursor, and Antigravity list/detail pages aligned around the same table-driven index/detail pattern when adding new source integrations.
 
 ## Shared Data Layer
 

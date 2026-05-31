@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
     findCursorWorkspaceGroups,
+    getCursorReadonlyDbUri,
     listCursorThreadsForGroup,
     listCursorWorkspaceGroups,
     openCursorReadonlyDb,
@@ -271,6 +272,12 @@ describe('cursor-db transcript reads', () => {
 });
 
 describe('openCursorReadonlyDb', () => {
+    it('should build a portable immutable file uri for absolute database paths', () => {
+        const uri = getCursorReadonlyDbUri('/home/runner/work/spiracha/with space/state.vscdb');
+
+        expect(uri).toBe('file:///home/runner/work/spiracha/with%20space/state.vscdb?immutable=1');
+    });
+
     it('should read a WAL database after a clean shutdown removed the -wal/-shm sidecars', async () => {
         const dir = await mkdtemp(path.join(os.tmpdir(), 'cursor-wal-'));
         tempDirs.push(dir);

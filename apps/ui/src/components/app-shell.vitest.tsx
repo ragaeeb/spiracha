@@ -1,6 +1,6 @@
-import { render, screen } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const useRouterStateMock = vi.fn();
 
@@ -21,6 +21,10 @@ vi.mock('./theme-toggle', () => ({
 import { AppShell } from './app-shell';
 
 describe('AppShell', () => {
+    afterEach(() => {
+        cleanup();
+    });
+
     it('should render navigation items and highlight the active section', () => {
         useRouterStateMock.mockReturnValue('/projects/ushman');
 
@@ -45,5 +49,29 @@ describe('AppShell', () => {
             'Analytics',
             'Settings',
         ]);
+    });
+
+    it('should keep Cursor active on standalone thread detail routes', () => {
+        useRouterStateMock.mockReturnValue('/cursor-threads/thread-1');
+
+        render(
+            <AppShell>
+                <div>Content area</div>
+            </AppShell>,
+        );
+
+        expect(screen.getByRole('link', { name: 'Cursor' }).className).toContain('bg-[var(--accent-muted)]');
+    });
+
+    it('should keep Antigravity active on standalone conversation detail routes', () => {
+        useRouterStateMock.mockReturnValue('/antigravity-conversations/conversation-1');
+
+        render(
+            <AppShell>
+                <div>Content area</div>
+            </AppShell>,
+        );
+
+        expect(screen.getByRole('link', { name: 'Antigravity' }).className).toContain('bg-[var(--accent-muted)]');
     });
 });

@@ -1,5 +1,9 @@
 # spiracha
 
+<p align="center">
+  <img src="apps/ui/public/icon.svg" alt="Spiracha icon" width="96" height="100">
+</p>
+
 [![npm version](https://img.shields.io/npm/v/spiracha?label=npm)](https://www.npmjs.com/package/spiracha)
 [![downloads](https://img.shields.io/npm/dm/spiracha?label=downloads)](https://www.npmjs.com/package/spiracha)
 [![license](https://img.shields.io/npm/l/spiracha)](LICENSE.md)
@@ -32,8 +36,8 @@ bunx spiracha cursor list
 - Export Cursor Agent/Composer threads from local Cursor storage
 - Browse Codex, Cursor, and Antigravity history in a TanStack Start UI
 - Inspect Codex thread timelines, tool calls, thread metadata, and raw event context
-- Inspect Cursor workspace inventories, recover split storage buckets, and export or delete workspace threads
-- Inspect Antigravity workspaces, unlock transcript export through macOS Keychain, and export conversation transcripts or generated artifacts
+- Inspect Cursor workspace inventories, dedicated thread detail pages, recover split storage buckets, and export or delete workspace threads
+- Inspect Antigravity workspaces, dedicated conversation detail pages, unlock transcript export through macOS Keychain, and export conversation transcripts or generated artifacts
 - Delete threads or derived projects from the Codex SQLite database after confirmation
 - Download thread exports directly from the UI as Markdown or plain text, with optional metadata, commentary, and tool-call inclusion
 - View dashboard and analytics summaries, including token totals and tool-call frequency
@@ -113,11 +117,19 @@ Useful flags:
 
 The UI currently includes:
 - a Codex inventory and derived-project detail flow
-- a Cursor workspace inventory and workspace-thread detail flow
-- an Antigravity workspace inventory and conversation detail flow
+- a Cursor workspace inventory, workspace-thread listing, and standalone thread detail flow
+- an Antigravity workspace inventory, conversation listing, and standalone conversation detail flow
 - a Codex dashboard, Codex thread detail view, and Codex analytics page
 
 The thread detail page also supports a direct UUID shortcut route. Pasting `http://localhost:3000/<thread-id>` redirects to `/threads/<thread-id>`.
+
+Notable UI routes:
+- `/projects` and `/projects/$project` for Codex inventory and project threads
+- `/threads/$threadId` for Codex thread detail
+- `/cursor` and `/cursor/$workspaceKey` for Cursor workspace inventory and thread lists
+- `/cursor-threads/$composerId` for Cursor thread detail
+- `/antigravity` and `/antigravity/$workspaceKey` for Antigravity workspace inventory and conversation lists
+- `/antigravity-conversations/$conversationId` for Antigravity conversation detail
 
 Examples:
 

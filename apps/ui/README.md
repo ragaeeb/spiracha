@@ -20,8 +20,10 @@ The browser UI for browsing local Codex, Cursor, and Antigravity history, inspec
 - shows Codex thread timelines, tool calls, metadata, and raw event context
 - exports Codex threads as Markdown or plain text with optional metadata, commentary, and tool-call inclusion
 - lists Cursor workspaces and workspace threads with the same table-based index/detail flow as Codex
+- shows dedicated Cursor thread detail pages with breadcrumbs back to the workspace and source
 - recovers split Cursor storage buckets, exports Cursor threads, and deletes Cursor workspaces or threads
 - lists Antigravity workspaces and conversations, including transcript/artifact availability
+- shows dedicated Antigravity conversation detail pages with shared metadata and export actions
 - unlocks Antigravity transcript export through macOS Keychain and exports conversations or artifacts as Markdown
 - shows dashboard and analytics summaries, including Codex token totals and tool-call frequency
 
@@ -67,10 +69,14 @@ Export artifacts are served through the UI as attachment downloads from `/__expo
   - Cursor workspace inventory and search
 - `/cursor/$workspaceKey`
   - Cursor workspace thread listing
+- `/cursor-threads/$composerId`
+  - Cursor thread detail, export, and delete
 - `/antigravity`
   - Antigravity workspace inventory and search
 - `/antigravity/$workspaceKey`
   - Antigravity workspace conversation listing
+- `/antigravity-conversations/$conversationId`
+  - Antigravity conversation detail, export, and artifact inspection
 - `/threads/$threadId`
   - Codex thread detail, transcript, export, and delete
 - `/$threadId`

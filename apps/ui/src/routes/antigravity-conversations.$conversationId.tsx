@@ -59,10 +59,10 @@ export const Route = createFileRoute('/antigravity-conversations/$conversationId
     component: AntigravityConversationDetailPage,
     errorComponent: AntigravityConversationDetailErrorComponent,
     loader: async ({ context, params }) => {
-        const decryptionState = await context.queryClient.ensureQueryData(antigravityDecryptionQueryOptions());
-        await context.queryClient.ensureQueryData(
-            antigravityConversationDetailQueryOptions(params.conversationId, decryptionState.isUnlocked),
-        );
+        await Promise.all([
+            context.queryClient.ensureQueryData(antigravityDecryptionQueryOptions()),
+            context.queryClient.ensureQueryData(antigravityConversationDetailQueryOptions(params.conversationId)),
+        ]);
     },
     pendingComponent: () => (
         <LoadingPanel
@@ -76,11 +76,97 @@ function AntigravityConversationDetailErrorComponent({ error }: { error: Error }
     return <ReloadErrorPanel description={error.message} title="Failed to load Antigravity conversation" />;
 }
 
+function AntigravityConversationHeaderActions({
+    detail,
+    exportArtifactsPending,
+    exportConversationPending,
+    showConversationExport,
+    onExportArtifacts,
+    onExportConversation,
+}: {
+    detail: AntigravityConversationDetail;
+    exportArtifactsPending: boolean;
+    exportConversationPending: boolean;
+    showConversationExport: boolean;
+    onExportArtifacts: () => void;
+    onExportConversation: () => void;
+}) {
+    return (
+        <div className="flex flex-wrap gap-2">
+            {showConversationExport ? (
+                <Button
+                    className="rounded-full"
+                    disabled={detail.transcriptLocked || exportConversationPending}
+                    type="button"
+                    variant="outline"
+                    onClick={onExportConversation}
+                >
+                    <Download className="mr-2 size-4" />
+                    Export conversation
+                </Button>
+            ) : null}
+            {detail.conversation.artifactCount > 0 ? (
+                <Button
+                    className="rounded-full"
+                    disabled={exportArtifactsPending}
+                    type="button"
+                    variant="outline"
+                    onClick={onExportArtifacts}
+                >
+                    <ScrollText className="mr-2 size-4" />
+                    Export artifacts
+                </Button>
+            ) : null}
+        </div>
+    );
+}
+
+function AntigravityConversationPanels({ detail }: { detail: AntigravityConversationDetail }) {
+    return (
+        <div className="space-y-4">
+            {detail.transcriptLocked ? (
+                <section className="rounded-[1.6rem] border border-[var(--border)] bg-[var(--panel)] p-5 shadow-[var(--panel-shadow)]">
+                    <h3 className="font-semibold text-[var(--muted-foreground)] text-sm uppercase tracking-[0.18em]">
+                        Transcript
+                    </h3>
+                    <p className="mt-4 text-[var(--muted-foreground)] text-sm">
+                        Unlock Antigravity transcript export to inspect the rendered conversation content here.
+                    </p>
+                </section>
+            ) : detail.conversationMarkdown ? (
+                <TextDocumentPanel
+                    content={detail.conversationMarkdown}
+                    description="Rendered from the available Antigravity transcript or decrypted safe-storage payload."
+                    title="Conversation transcript"
+                />
+            ) : (
+                <section className="rounded-[1.6rem] border border-[var(--border)] bg-[var(--panel)] p-5 shadow-[var(--panel-shadow)]">
+                    <h3 className="font-semibold text-[var(--muted-foreground)] text-sm uppercase tracking-[0.18em]">
+                        Transcript
+                    </h3>
+                    <p className="mt-4 text-[var(--muted-foreground)] text-sm">
+                        {detail.artifactsMarkdown
+                            ? 'No transcript preview is available for this conversation. Generated artifacts are available below.'
+                            : 'No transcript preview is available for this conversation.'}
+                    </p>
+                </section>
+            )}
+
+            {detail.artifactsMarkdown ? (
+                <TextDocumentPanel
+                    content={detail.artifactsMarkdown}
+                    description="Markdown artifacts generated for this conversation."
+                    title="Artifacts"
+                />
+            ) : null}
+        </div>
+    );
+}
+
 function AntigravityConversationDetailPage() {
-    const decryptionState = useSuspenseQuery(antigravityDecryptionQueryOptions()).data;
-    const detail = useSuspenseQuery(
-        antigravityConversationDetailQueryOptions(Route.useParams().conversationId, decryptionState.isUnlocked),
-    ).data;
+    useSuspenseQuery(antigravityDecryptionQueryOptions());
+    const detail = useSuspenseQuery(antigravityConversationDetailQueryOptions(Route.useParams().conversationId)).data;
+    const showConversationExport = detail.transcriptLocked || detail.conversationMarkdown !== null;
 
     const exportConversationMutation = useMutation({
         mutationFn: () =>
@@ -102,29 +188,14 @@ function AntigravityConversationDetailPage() {
         <div className="space-y-6">
             <PageHeader
                 actions={
-                    <div className="flex flex-wrap gap-2">
-                        <Button
-                            className="rounded-full"
-                            disabled={detail.transcriptLocked}
-                            type="button"
-                            variant="outline"
-                            onClick={() => exportConversationMutation.mutate()}
-                        >
-                            <Download className="mr-2 size-4" />
-                            Export conversation
-                        </Button>
-                        {detail.conversation.artifactCount > 0 ? (
-                            <Button
-                                className="rounded-full"
-                                type="button"
-                                variant="outline"
-                                onClick={() => exportArtifactsMutation.mutate()}
-                            >
-                                <ScrollText className="mr-2 size-4" />
-                                Export artifacts
-                            </Button>
-                        ) : null}
-                    </div>
+                    <AntigravityConversationHeaderActions
+                        detail={detail}
+                        exportArtifactsPending={exportArtifactsMutation.isPending}
+                        exportConversationPending={exportConversationMutation.isPending}
+                        showConversationExport={showConversationExport}
+                        onExportArtifacts={() => exportArtifactsMutation.mutate()}
+                        onExportConversation={() => exportConversationMutation.mutate()}
+                    />
                 }
                 breadcrumb={
                     <Breadcrumbs
@@ -159,41 +230,7 @@ function AntigravityConversationDetailPage() {
 
             <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
                 <MetadataSection items={buildConversationMetadata(detail)} title="Conversation metadata" />
-                <div className="space-y-4">
-                    {detail.transcriptLocked ? (
-                        <section className="rounded-[1.6rem] border border-[var(--border)] bg-[var(--panel)] p-5 shadow-[var(--panel-shadow)]">
-                            <h3 className="font-semibold text-[var(--muted-foreground)] text-sm uppercase tracking-[0.18em]">
-                                Transcript
-                            </h3>
-                            <p className="mt-4 text-[var(--muted-foreground)] text-sm">
-                                Unlock Antigravity transcript export to inspect the rendered conversation content here.
-                            </p>
-                        </section>
-                    ) : detail.conversationMarkdown ? (
-                        <TextDocumentPanel
-                            content={detail.conversationMarkdown}
-                            description="Rendered from the available Antigravity transcript or decrypted safe-storage payload."
-                            title="Conversation transcript"
-                        />
-                    ) : (
-                        <section className="rounded-[1.6rem] border border-[var(--border)] bg-[var(--panel)] p-5 shadow-[var(--panel-shadow)]">
-                            <h3 className="font-semibold text-[var(--muted-foreground)] text-sm uppercase tracking-[0.18em]">
-                                Transcript
-                            </h3>
-                            <p className="mt-4 text-[var(--muted-foreground)] text-sm">
-                                No transcript preview is available for this conversation.
-                            </p>
-                        </section>
-                    )}
-
-                    {detail.artifactsMarkdown ? (
-                        <TextDocumentPanel
-                            content={detail.artifactsMarkdown}
-                            description="Markdown artifacts generated for this conversation."
-                            title="Artifacts"
-                        />
-                    ) : null}
-                </div>
+                <AntigravityConversationPanels detail={detail} />
             </div>
 
             {exportConversationMutation.isError ? (

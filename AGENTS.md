@@ -100,6 +100,7 @@ Other important files:
   - local Codex plugin manifest, skill, and MCP wiring
 - `apps/ui/`
   - TanStack Start browser UI package for Codex, Cursor, and Antigravity
+  - source-specific index/detail routes include `/threads/$threadId`, `/cursor-threads/$composerId`, and `/antigravity-conversations/$conversationId`
 
 ## Test Strategy
 

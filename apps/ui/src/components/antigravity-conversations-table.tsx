@@ -3,6 +3,7 @@ import type { AntigravityDecryptionState } from '@spiracha/lib/antigravity-keych
 import { Link } from '@tanstack/react-router';
 import { createColumnHelper } from '@tanstack/react-table';
 import { Download, LockKeyhole, MoreHorizontal, ScrollText } from 'lucide-react';
+import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
 import { Badge } from '#/components/ui/badge';
 import { Button } from '#/components/ui/button';
@@ -12,6 +13,12 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu';
+import {
+    canExportAntigravityConversation,
+    hasEncryptedAntigravityConversation,
+    hasReadableAntigravityConversation,
+    isAntigravityConversationLocked,
+} from '#/lib/antigravity-conversation-state';
 import { formatBytes, formatDateTime, formatNumber } from '#/lib/formatters';
 
 type AntigravityConversationsTableProps = {
@@ -26,6 +33,7 @@ type ConversationExportState = {
     hasArtifacts: boolean;
     hasTranscript: boolean;
     lockedTranscript: boolean;
+    showConversationAction: boolean;
     showActions: boolean;
 };
 
@@ -36,21 +44,20 @@ const getConversationExportState = (
     decryptionState: AntigravityDecryptionState | null,
 ): ConversationExportState => {
     const hasArtifacts = conversation.artifactCount > 0;
-    const hasTranscript = conversation.transcriptEntryCount > 0;
-    const hasRawPayload = conversation.conversationPath !== null;
     const isUnlocked = Boolean(decryptionState?.isUnlocked);
-    const canExportArtifactsOnly = hasArtifacts && !hasTranscript;
-    const canExportTranscript = hasTranscript && isUnlocked;
-    const canTryEncryptedPayload = !hasTranscript && !hasArtifacts && hasRawPayload && isUnlocked;
-    const canExportConversation = canExportArtifactsOnly || canExportTranscript || canTryEncryptedPayload;
-    const lockedTranscript = hasTranscript && !isUnlocked;
+    const hasTranscript =
+        hasReadableAntigravityConversation(conversation) || hasEncryptedAntigravityConversation(conversation);
+    const canExportConversation = canExportAntigravityConversation(conversation, isUnlocked);
+    const lockedTranscript = isAntigravityConversationLocked(conversation, isUnlocked);
+    const showConversationAction = canExportConversation || lockedTranscript;
 
     return {
         canExportConversation,
         hasArtifacts,
         hasTranscript,
         lockedTranscript,
-        showActions: canExportConversation || lockedTranscript || hasArtifacts,
+        showActions: showConversationAction || hasArtifacts,
+        showConversationAction,
     };
 };
 
@@ -148,19 +155,21 @@ const columns = (
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                            <DropdownMenuItem
-                                disabled={!exportState.canExportConversation}
-                                onClick={() => onExportConversation(info.row.original)}
-                            >
-                                {exportState.lockedTranscript ? (
-                                    <LockKeyhole className="mr-2 size-4" />
-                                ) : (
-                                    <Download className="mr-2 size-4" />
-                                )}
-                                {exportState.lockedTranscript
-                                    ? 'Unlock transcript export first'
-                                    : 'Export conversation'}
-                            </DropdownMenuItem>
+                            {exportState.showConversationAction ? (
+                                <DropdownMenuItem
+                                    disabled={!exportState.canExportConversation}
+                                    onClick={() => onExportConversation(info.row.original)}
+                                >
+                                    {exportState.lockedTranscript ? (
+                                        <LockKeyhole className="mr-2 size-4" />
+                                    ) : (
+                                        <Download className="mr-2 size-4" />
+                                    )}
+                                    {exportState.lockedTranscript
+                                        ? 'Unlock conversation export first'
+                                        : 'Export conversation'}
+                                </DropdownMenuItem>
+                            ) : null}
                             {exportState.hasArtifacts ? (
                                 <DropdownMenuItem onClick={() => onExportArtifacts(info.row.original)}>
                                     <ScrollText className="mr-2 size-4" />
@@ -182,9 +191,14 @@ export function AntigravityConversationsTable({
     onExportArtifacts,
     onExportConversation,
 }: AntigravityConversationsTableProps) {
+    const tableColumns = useMemo(
+        () => columns(decryptionState, onExportConversation, onExportArtifacts),
+        [decryptionState, onExportArtifacts, onExportConversation],
+    );
+
     return (
         <DataTable
-            columns={columns(decryptionState, onExportConversation, onExportArtifacts)}
+            columns={tableColumns}
             data={conversations}
             emptyMessage="No Antigravity conversations match the current workspace filter."
         />

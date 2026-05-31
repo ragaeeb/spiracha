@@ -1,5 +1,4 @@
 import type { AntigravityConversation, AntigravityWorkspaceGroup } from '@spiracha/lib/antigravity-exporter-types';
-import type { AntigravityDecryptionState } from '@spiracha/lib/antigravity-keychain';
 import { useMutation, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import { useDeferredValue, useState } from 'react';
@@ -57,7 +56,6 @@ function AntigravityWorkspacePage() {
     const conversations = useSuspenseQuery(antigravityConversationsQueryOptions(workspace.key)).data;
     const decryptionState = useSuspenseQuery(antigravityDecryptionQueryOptions()).data ?? null;
     const [searchInput, setSearchInput] = useState('');
-    const [keychainState, setKeychainState] = useState<AntigravityDecryptionState | null>(decryptionState);
     const deferredSearch = useDeferredValue(searchInput);
 
     const exportConversationMutation = useMutation({
@@ -100,11 +98,11 @@ function AntigravityWorkspacePage() {
                 title={workspace.label}
             />
 
-            <AntigravityKeychainPanel onStateChange={setKeychainState} />
+            <AntigravityKeychainPanel />
 
             <AntigravityConversationsTable
                 conversations={visibleConversations}
-                decryptionState={keychainState}
+                decryptionState={decryptionState}
                 onExportArtifacts={(conversation) => exportArtifactsMutation.mutate(conversation)}
                 onExportConversation={(conversation) => exportConversationMutation.mutate(conversation)}
             />

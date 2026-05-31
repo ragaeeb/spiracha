@@ -39,7 +39,7 @@ export function Breadcrumbs({ items }: BreadcrumbsProps) {
                 return (
                     <div
                         className="flex items-center gap-1"
-                        key={isLinkItem(item) ? `${item.label}-${item.to}` : `${item.label}-current`}
+                        key={isLinkItem(item) ? `${item.label}-${item.to}-${index}` : `${item.label}-current-${index}`}
                     >
                         {index > 0 ? <ChevronRight className="size-3.5 text-[var(--muted-foreground)]" /> : null}
                         {content}

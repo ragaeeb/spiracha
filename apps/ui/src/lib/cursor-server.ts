@@ -1,16 +1,3 @@
-import {
-    listCursorThreadsForGroup,
-    listCursorWorkspaceGroups,
-    readCursorThreadTranscript,
-} from '@spiracha/lib/cursor-db';
-import { getCursorGlobalDbPath } from '@spiracha/lib/cursor-exporter-types';
-import {
-    collectCursorThreadsForDeletion,
-    isCursorRunning,
-    pruneCursorThreads,
-    recoverCursorWorkspaceGroup,
-} from '@spiracha/lib/cursor-recovery';
-import { renderCursorTranscript } from '@spiracha/lib/cursor-transcript';
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
 
@@ -48,6 +35,7 @@ const deleteThreadsSchema = z.object({
 });
 
 const ensureCursorClosedForWrite = async () => {
+    const { isCursorRunning } = await import('@spiracha/lib/cursor-recovery');
     if (await isCursorRunning()) {
         throw new Error(
             'Quit Cursor before deleting. It rewrites chat history on exit, which can resurrect deleted threads.',
@@ -56,6 +44,7 @@ const ensureCursorClosedForWrite = async () => {
 };
 
 const findGroupByKey = async (workspaceKey: string) => {
+    const { listCursorWorkspaceGroups } = await import('@spiracha/lib/cursor-db');
     const groups = await listCursorWorkspaceGroups();
     const group = groups.find((candidate) => candidate.key === workspaceKey);
     if (!group) {
@@ -65,9 +54,10 @@ const findGroupByKey = async (workspaceKey: string) => {
     return group;
 };
 
-const findThreadByComposerId = async (composerId: string) => {
+export const findCursorThreadByComposerId = async (composerId: string) => {
+    const { listCursorThreadsForGroup, listCursorWorkspaceGroups } = await import('@spiracha/lib/cursor-db');
     for (const group of await listCursorWorkspaceGroups()) {
-        const threads = await listCursorThreadsForGroup(group);
+        const threads = await listCursorThreadsForGroup(group, undefined, { includeTranscriptDirs: false });
         const thread = threads.find((candidate) => candidate.composerId === composerId);
         if (thread) {
             return thread;
@@ -77,13 +67,16 @@ const findThreadByComposerId = async (composerId: string) => {
     return null;
 };
 
-const renderCursorDownload = (input: {
+const renderCursorDownload = async (input: {
     composerIds: string[];
     includeCommentary: boolean;
     includeMetadata: boolean;
     includeTools: boolean;
     outputFormat: 'md' | 'txt';
 }) => {
+    const { readCursorThreadTranscript } = await import('@spiracha/lib/cursor-db');
+    const { getCursorGlobalDbPath } = await import('@spiracha/lib/cursor-exporter-types');
+    const { renderCursorTranscript } = await import('@spiracha/lib/cursor-transcript');
     const rendered = input.composerIds.map((composerId) => {
         const transcript = readCursorThreadTranscript(getCursorGlobalDbPath(), composerId);
         if (!transcript) {
@@ -129,12 +122,14 @@ const renderCursorDownload = (input: {
 };
 
 export const listCursorWorkspacesFn = createServerFn({ method: 'GET' }).handler(async () => {
+    const { listCursorWorkspaceGroups } = await import('@spiracha/lib/cursor-db');
     return listCursorWorkspaceGroups();
 });
 
 export const listCursorThreadsFn = createServerFn({ method: 'GET' })
     .inputValidator(workspaceSchema)
     .handler(async ({ data }) => {
+        const { listCursorThreadsForGroup } = await import('@spiracha/lib/cursor-db');
         const group = await findGroupByKey(data.workspaceKey);
         return listCursorThreadsForGroup(group, undefined, { includeTranscriptDirs: false });
     });
@@ -142,7 +137,10 @@ export const listCursorThreadsFn = createServerFn({ method: 'GET' })
 export const getCursorThreadDetailFn = createServerFn({ method: 'GET' })
     .inputValidator(threadSchema)
     .handler(async ({ data }) => {
-        const thread = await findThreadByComposerId(data.composerId);
+        const { readCursorThreadTranscript } = await import('@spiracha/lib/cursor-db');
+        const { getCursorGlobalDbPath } = await import('@spiracha/lib/cursor-exporter-types');
+        const { renderCursorTranscript } = await import('@spiracha/lib/cursor-transcript');
+        const thread = await findCursorThreadByComposerId(data.composerId);
         if (!thread) {
             throw new Error(`Cursor thread not found: ${data.composerId}`);
         }
@@ -165,7 +163,7 @@ export const getCursorThreadDetailFn = createServerFn({ method: 'GET' })
 export const exportCursorThreadFn = createServerFn({ method: 'POST' })
     .inputValidator(exportSchema)
     .handler(async ({ data }) => {
-        return renderCursorDownload({
+        return await renderCursorDownload({
             composerIds: [data.composerId],
             includeCommentary: data.includeCommentary,
             includeMetadata: data.includeMetadata,
@@ -177,7 +175,7 @@ export const exportCursorThreadFn = createServerFn({ method: 'POST' })
 export const exportCursorThreadsFn = createServerFn({ method: 'POST' })
     .inputValidator(exportThreadsSchema)
     .handler(async ({ data }) => {
-        return renderCursorDownload({
+        return await renderCursorDownload({
             composerIds: data.composerIds,
             includeCommentary: data.includeCommentary,
             includeMetadata: data.includeMetadata,
@@ -189,6 +187,7 @@ export const exportCursorThreadsFn = createServerFn({ method: 'POST' })
 export const recoverCursorWorkspaceFn = createServerFn({ method: 'POST' })
     .inputValidator(recoverSchema)
     .handler(async ({ data }) => {
+        const { isCursorRunning, recoverCursorWorkspaceGroup } = await import('@spiracha/lib/cursor-recovery');
         const group = await findGroupByKey(data.workspaceKey);
         // Cursor rewrites composer.composerHeaders on exit, so a write while it is running gets
         // clobbered. Refuse to apply until Cursor is closed.
@@ -202,6 +201,7 @@ export const recoverCursorWorkspaceFn = createServerFn({ method: 'POST' })
 export const deleteCursorThreadsFn = createServerFn({ method: 'POST' })
     .inputValidator(deleteThreadsSchema)
     .handler(async ({ data }) => {
+        const { collectCursorThreadsForDeletion, pruneCursorThreads } = await import('@spiracha/lib/cursor-recovery');
         await ensureCursorClosedForWrite();
         const threads = await collectCursorThreadsForDeletion(data.composerIds);
         return pruneCursorThreads(threads, true);
@@ -210,6 +210,8 @@ export const deleteCursorThreadsFn = createServerFn({ method: 'POST' })
 export const deleteCursorWorkspaceFn = createServerFn({ method: 'POST' })
     .inputValidator(workspaceSchema)
     .handler(async ({ data }) => {
+        const { listCursorThreadsForGroup } = await import('@spiracha/lib/cursor-db');
+        const { collectCursorThreadsForDeletion, pruneCursorThreads } = await import('@spiracha/lib/cursor-recovery');
         await ensureCursorClosedForWrite();
         const group = await findGroupByKey(data.workspaceKey);
         const threads = await listCursorThreadsForGroup(group, undefined, { includeTranscriptDirs: false });

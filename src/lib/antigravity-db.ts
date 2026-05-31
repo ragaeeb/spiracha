@@ -195,12 +195,12 @@ const normalizeWorkspaceFolder = (value: string): string => {
     return decoded.replace(/\/+$/u, '') || decoded;
 };
 
-const workspaceFromUri = (uri: string | null): WorkspaceInfo | null => {
-    if (!uri) {
+const workspaceFromFolder = (folderValue: string | null): WorkspaceInfo | null => {
+    if (!folderValue) {
         return null;
     }
 
-    const folder = normalizeWorkspaceFolder(uri);
+    const folder = normalizeWorkspaceFolder(folderValue);
     if (!folder) {
         return null;
     }
@@ -209,6 +209,22 @@ const workspaceFromUri = (uri: string | null): WorkspaceInfo | null => {
         workspaceFolder: folder,
         workspaceKey: `folder:${folder}`,
         workspaceLabel: path.basename(folder) || folder,
+        workspaceUri: null,
+    };
+};
+
+const workspaceFromUri = (uri: string | null): WorkspaceInfo | null => {
+    if (!uri) {
+        return null;
+    }
+
+    const workspace = workspaceFromFolder(uri);
+    if (!workspace) {
+        return null;
+    }
+
+    return {
+        ...workspace,
         workspaceUri: uri,
     };
 };
@@ -508,6 +524,41 @@ const maxArtifactUpdatedAt = (artifacts: AntigravityArtifact[]): number | null =
     return value > 0 ? value : null;
 };
 
+const resolveConversationSourceRoot = (
+    file: ConversationFile | undefined,
+    transcript: TranscriptFile | undefined,
+    artifacts: AntigravityArtifact[],
+) => {
+    return file?.root ?? transcript?.root ?? artifacts[0]?.sourceRoot ?? null;
+};
+
+const resolveConversationWorkspace = (
+    summary: SummaryEntry | undefined,
+    file: ConversationFile | undefined,
+    transcript: TranscriptFile | undefined,
+    artifacts: AntigravityArtifact[],
+): WorkspaceInfo => {
+    return (
+        summary ?? workspaceFromFolder(resolveConversationSourceRoot(file, transcript, artifacts)) ?? UNKNOWN_WORKSPACE
+    );
+};
+
+const resolveConversationTranscriptSource = (
+    file: ConversationFile | undefined,
+    transcript: TranscriptFile | undefined,
+) => {
+    return transcript?.source ?? (file?.path ? 'safe-storage' : null);
+};
+
+const resolveConversationLastUpdatedAt = (
+    artifacts: AntigravityArtifact[],
+    file: ConversationFile | undefined,
+    summary: SummaryEntry | undefined,
+    transcript: TranscriptFile | undefined,
+) => {
+    return summary?.lastUpdatedAtMs ?? transcript?.mtimeMs ?? file?.mtimeMs ?? maxArtifactUpdatedAt(artifacts);
+};
+
 const toConversation = (
     conversationId: string,
     summary: SummaryEntry | undefined,
@@ -517,9 +568,9 @@ const toConversation = (
 ): AntigravityConversation => {
     const fallbackTitle = artifacts[0]?.summary ?? conversationId;
     const artifactBytes = artifacts.reduce((total, artifact) => total + artifact.bytes, 0);
-    const workspace = summary ?? UNKNOWN_WORKSPACE;
-    const lastUpdatedAtMs =
-        summary?.lastUpdatedAtMs ?? transcript?.mtimeMs ?? file?.mtimeMs ?? maxArtifactUpdatedAt(artifacts);
+    const workspace = resolveConversationWorkspace(summary, file, transcript, artifacts);
+    const lastUpdatedAtMs = resolveConversationLastUpdatedAt(artifacts, file, summary, transcript);
+    const sourceRoot = resolveConversationSourceRoot(file, transcript, artifacts);
 
     return {
         artifactBytes,
@@ -532,13 +583,13 @@ const toConversation = (
         createdAtMs: summary?.createdAtMs ?? null,
         indexedItemCount: summary?.indexedItemCount ?? null,
         lastUpdatedAtMs,
-        sourceRoot: file?.root ?? transcript?.root ?? artifacts[0]?.sourceRoot ?? null,
+        sourceRoot,
         summaryPath: summary?.summaryPath ?? null,
         title: summary?.title ?? cleanTitle(fallbackTitle, conversationId),
         transcriptBytes: transcript?.bytes ?? 0,
         transcriptEntryCount: transcript?.entryCount ?? 0,
         transcriptPath: transcript?.path ?? null,
-        transcriptSource: transcript?.source ?? null,
+        transcriptSource: resolveConversationTranscriptSource(file, transcript),
         workspaceFolder: workspace.workspaceFolder,
         workspaceKey: workspace.workspaceKey,
         workspaceLabel: workspace.workspaceLabel,
@@ -827,5 +878,5 @@ export const renderAntigravityConversationMarkdown = async (
         }
     }
 
-    return renderAntigravityArtifactsMarkdown(conversation);
+    return null;
 };

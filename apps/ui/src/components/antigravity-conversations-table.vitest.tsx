@@ -170,10 +170,18 @@ describe('AntigravityConversationsTable', () => {
         expect(link.getAttribute('href')).toBe('/antigravity-conversations/conversation-1');
     });
 
-    it('should show an artifacts export while transcript export stays locked', async () => {
+    it('should show a locked conversation export when only safe-storage content is available', async () => {
         render(
             <AntigravityConversationsTable
-                conversations={[conversation]}
+                conversations={[
+                    {
+                        ...conversation,
+                        transcriptBytes: 0,
+                        transcriptEntryCount: 0,
+                        transcriptPath: null,
+                        transcriptSource: 'safe-storage',
+                    },
+                ]}
                 decryptionState={lockedState}
                 onExportArtifacts={vi.fn()}
                 onExportConversation={vi.fn()}
@@ -189,7 +197,65 @@ describe('AntigravityConversationsTable', () => {
 
         fireEvent.click(menuTrigger);
 
-        expect((await screen.findByText('Unlock transcript export first')).getAttribute('disabled')).not.toBeNull();
+        expect((await screen.findByText('Unlock conversation export first')).getAttribute('disabled')).not.toBeNull();
+        expect(await screen.findByText('Export artifacts')).toBeTruthy();
+    });
+
+    it('should keep local-log transcript export available without keychain unlock', async () => {
+        const onExportConversation = vi.fn();
+
+        render(
+            <AntigravityConversationsTable
+                conversations={[conversation]}
+                decryptionState={lockedState}
+                onExportArtifacts={vi.fn()}
+                onExportConversation={onExportConversation}
+            />,
+        );
+
+        const menuTrigger = screen
+            .getAllByRole('button')
+            .find((button) => button.getAttribute('aria-haspopup') === 'menu');
+        if (!menuTrigger) {
+            throw new Error('expected a row action menu trigger');
+        }
+
+        fireEvent.click(menuTrigger);
+        fireEvent.click(await screen.findByText('Export conversation'));
+
+        expect(onExportConversation).toHaveBeenCalledWith(conversation);
+    });
+
+    it('should not offer a conversation export for artifact-only rows', async () => {
+        render(
+            <AntigravityConversationsTable
+                conversations={[
+                    {
+                        ...conversation,
+                        artifactCount: 1,
+                        conversationPath: null,
+                        transcriptBytes: 0,
+                        transcriptEntryCount: 0,
+                        transcriptPath: null,
+                        transcriptSource: null,
+                    },
+                ]}
+                decryptionState={unlockedState}
+                onExportArtifacts={vi.fn()}
+                onExportConversation={vi.fn()}
+            />,
+        );
+
+        const menuTrigger = screen
+            .getAllByRole('button')
+            .find((button) => button.getAttribute('aria-haspopup') === 'menu');
+        if (!menuTrigger) {
+            throw new Error('expected a row action menu trigger');
+        }
+
+        fireEvent.click(menuTrigger);
+
+        expect(screen.queryByText('Export conversation')).toBeNull();
         expect(await screen.findByText('Export artifacts')).toBeTruthy();
     });
 

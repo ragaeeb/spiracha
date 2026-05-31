@@ -40,6 +40,13 @@ function DashboardPage() {
     return (
         <div className="space-y-6">
             <PageHeader
+                actions={
+                    <img
+                        alt="Spiracha icon"
+                        className="size-16 shrink-0 rounded-2xl border border-[var(--border)] bg-white/95 p-2 shadow-[var(--panel-shadow)]"
+                        src="/icon.svg"
+                    />
+                }
                 eyebrow="Overview"
                 subtitle="A compact readout of local Codex activity, project distribution, and recent thread movement."
                 title="Dashboard"

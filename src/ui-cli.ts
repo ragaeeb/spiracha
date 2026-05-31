@@ -32,7 +32,7 @@ const resolveUiDistPaths = () => {
 const ensureUiBuildExists = async () => {
     const { clientDir, serverEntryPath } = resolveUiDistPaths();
     const serverEntry = Bun.file(serverEntryPath);
-    const clientAssetExists = await Bun.file(path.join(clientDir, 'favicon.ico')).exists();
+    const clientAssetExists = await Bun.file(path.join(clientDir, 'icon.svg')).exists();
     const serverEntryExists = await serverEntry.exists();
 
     if (!clientAssetExists || !serverEntryExists) {

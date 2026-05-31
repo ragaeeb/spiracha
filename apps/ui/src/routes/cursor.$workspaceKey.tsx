@@ -1,6 +1,6 @@
 import type { CursorThreadSummary, CursorWorkspaceGroup } from '@spiracha/lib/cursor-exporter-types';
 import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { RefreshCcw, Trash2 } from 'lucide-react';
 import { useDeferredValue, useState } from 'react';
 import { CursorThreadsTable } from '#/components/cursor-threads-table';
@@ -76,7 +76,11 @@ const getCursorDeleteConfirmLabel = (pendingDelete: PendingCursorDelete | null, 
         return 'Deleting...';
     }
 
-    return pendingDelete?.kind === 'workspace' ? 'Delete workspace' : 'Delete thread';
+    if (pendingDelete?.kind === 'workspace') {
+        return 'Delete workspace';
+    }
+
+    return pendingDelete && pendingDelete.threads.length > 1 ? 'Delete threads' : 'Delete thread';
 };
 
 const getCursorDeleteDescription = (pendingDelete: PendingCursorDelete | null) => {
@@ -96,7 +100,15 @@ const getCursorDeleteDescription = (pendingDelete: PendingCursorDelete | null) =
 };
 
 const getCursorDeleteTitle = (pendingDelete: PendingCursorDelete | null) => {
-    return pendingDelete?.kind === 'workspace' ? 'Delete Cursor workspace?' : 'Delete Cursor thread?';
+    if (pendingDelete?.kind === 'workspace') {
+        return 'Delete Cursor workspace?';
+    }
+
+    if (pendingDelete && pendingDelete.threads.length > 1) {
+        return `Delete ${pendingDelete.threads.length} Cursor threads?`;
+    }
+
+    return 'Delete Cursor thread?';
 };
 
 const getCursorExportMimeType = (outputFormat: 'md' | 'txt') => {
@@ -124,6 +136,7 @@ function CursorWorkspaceErrorComponent({ error }: { error: Error }) {
 }
 
 function CursorWorkspacePage() {
+    const navigate = useNavigate();
     const params = Route.useParams();
     const queryClient = useQueryClient();
     const workspaces = useSuspenseQuery(cursorWorkspacesQueryOptions()).data;
@@ -151,9 +164,12 @@ function CursorWorkspacePage() {
             target.kind === 'workspace'
                 ? deleteCursorWorkspaceFn({ data: { workspaceKey: target.workspace.key } })
                 : deleteCursorThreadsFn({ data: { composerIds: target.threads.map((thread) => thread.composerId) } }),
-        onSuccess: async () => {
+        onSuccess: async (_result, target) => {
             await invalidateWorkspaceQueries();
             setPendingDelete(null);
+            if (target.kind === 'workspace') {
+                await navigate({ to: '/cursor' });
+            }
         },
     });
 

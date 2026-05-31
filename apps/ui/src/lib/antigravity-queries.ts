@@ -25,9 +25,9 @@ export const antigravityConversationsQueryOptions = (workspaceKey: string | null
         queryKey: ['antigravity-conversations', workspaceKey ?? 'none'],
     });
 
-export const antigravityConversationDetailQueryOptions = (conversationId: string | null, unlocked: boolean) =>
+export const antigravityConversationDetailQueryOptions = (conversationId: string | null) =>
     queryOptions({
         enabled: conversationId !== null,
         queryFn: () => getAntigravityConversationDetailFn({ data: { conversationId: conversationId ?? '' } }),
-        queryKey: ['antigravity-conversation', conversationId ?? 'none', unlocked ? 'unlocked' : 'locked'],
+        queryKey: ['antigravity-conversation', conversationId ?? 'none'],
     });

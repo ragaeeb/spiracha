@@ -197,6 +197,7 @@ function TranscriptControls({
         <div className="flex flex-wrap gap-4 rounded-xl border border-[var(--border)] bg-[var(--panel)] px-4 py-3 shadow-[var(--panel-shadow)]">
             <div className="flex items-center gap-2 text-sm">
                 <Checkbox
+                    aria-label="Show tool calls"
                     checked={showToolCalls}
                     onCheckedChange={(checked) => onShowToolCallsChange(checked === true)}
                 />
@@ -204,6 +205,7 @@ function TranscriptControls({
             </div>
             <div className="flex items-center gap-2 text-sm">
                 <Checkbox
+                    aria-label="Show commentary"
                     checked={showCommentary}
                     onCheckedChange={(checked) => onShowCommentaryChange(checked === true)}
                 />
@@ -211,6 +213,7 @@ function TranscriptControls({
             </div>
             <div className="flex items-center gap-2 text-sm">
                 <Checkbox
+                    aria-label="Show extra events"
                     checked={showExtraEvents}
                     onCheckedChange={(checked) => onShowExtraEventsChange(checked === true)}
                 />
@@ -218,6 +221,7 @@ function TranscriptControls({
             </div>
             <div className="flex items-center gap-2 text-sm">
                 <Checkbox
+                    aria-label="Show raw JSON"
                     checked={showRawJson}
                     disabled={rawJsonDisabled}
                     onCheckedChange={(checked) => onShowRawJsonChange(checked === true)}
@@ -226,6 +230,7 @@ function TranscriptControls({
             </div>
             <div className="flex items-center gap-2 text-sm">
                 <Checkbox
+                    aria-label="Show user messages"
                     checked={showUserMessages}
                     onCheckedChange={(checked) => onShowUserMessagesChange(checked === true)}
                 />
