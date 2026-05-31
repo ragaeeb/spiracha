@@ -117,6 +117,7 @@ Current tests cover:
 - transcript formatting helpers
 - MCP stdio protocol round-trips using the real server process
 - wrapped UI Vitest suite via `src/ui-package.test.ts`
+- packaged UI `bunx --package` launch path via `src/package-ui-smoke.test.ts`
 - type-checking via `bun run typecheck`
 
 When changing risky areas:

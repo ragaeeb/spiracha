@@ -16,11 +16,28 @@ type SpawnedCommandResult = {
     stdoutText: string;
 };
 
+type PackagedUiProbe = {
+    bodyText: string;
+    contentType: string | null;
+    ok: boolean;
+    status: number;
+};
+
 const SMOKE_HOST = '127.0.0.1';
 const STARTUP_TIMEOUT_MS = 20_000;
 
 export const getPackedTarballPath = (cwd: string, packageName: string, version: string) => {
     return path.join(cwd, `${packageName}-${version}.tgz`);
+};
+
+export const isPackagedUiHealthyResponse = (probe: PackagedUiProbe) => {
+    return (
+        probe.ok &&
+        probe.contentType?.toLowerCase().includes('text/html') === true &&
+        /<html[\s>]/iu.test(probe.bodyText) &&
+        probe.bodyText.includes('Spiracha') &&
+        !probe.bodyText.includes('Welcome to Bun!')
+    );
 };
 
 const readPackageManifest = async (cwd: string): Promise<PackageManifest> => {
@@ -132,6 +149,25 @@ const waitForServer = async (url: string, timeoutMs: number) => {
     throw new Error(`Timed out waiting for packaged UI at ${url}${lastError ? ` (${lastError})` : ''}`);
 };
 
+const probePackagedUi = async (url: string): Promise<PackagedUiProbe> => {
+    const response = await fetch(url);
+    return {
+        bodyText: await response.text(),
+        contentType: response.headers.get('content-type'),
+        ok: response.ok,
+        status: response.status,
+    };
+};
+
+const formatPackagedUiProbeError = (probe: PackagedUiProbe) => {
+    const preview = probe.bodyText.replace(/\s+/gu, ' ').trim().slice(0, 160);
+    return [
+        `HTTP ${probe.status}`,
+        probe.contentType ? `content-type: ${probe.contentType}` : 'content-type: <missing>',
+        preview ? `body: ${preview}` : 'body: <empty>',
+    ].join(', ');
+};
+
 const startPackagedUi = async (packageTgz: string, cwd: string, port: number) => {
     const proc = Bun.spawn(['bunx', '--package', packageTgz, 'spiracha', 'ui', '--port', String(port), '--no-open'], {
         cwd,
@@ -145,6 +181,13 @@ const startPackagedUi = async (packageTgz: string, cwd: string, port: number) =>
 
     try {
         await waitForServer(url, STARTUP_TIMEOUT_MS);
+        const probe = await probePackagedUi(url);
+        if (!isPackagedUiHealthyResponse(probe)) {
+            throw new Error(
+                `Packaged UI returned an unhealthy response at ${url} (${formatPackagedUiProbeError(probe)})`,
+            );
+        }
+
         return {
             proc,
             stderrPromise,
@@ -173,7 +216,6 @@ const startPackagedUi = async (packageTgz: string, cwd: string, port: number) =>
 
 export const runPackagedUiSmokeTest = async (cwd = process.cwd()) => {
     const manifest = await readPackageManifest(cwd);
-    const packageTgz = getPackedTarballPath(cwd, manifest.name, manifest.version);
     const tempDir = await mkdtemp(path.join(os.tmpdir(), 'spiracha-packaged-ui-smoke-'));
     const smokePort = await getAvailablePort();
 
@@ -182,18 +224,19 @@ export const runPackagedUiSmokeTest = async (cwd = process.cwd()) => {
         await assertSuccessfulCommand(['bun', 'run', 'build'], cwd, 'bun run build', 120_000);
 
         console.log('Packing tarball...');
-        await assertSuccessfulCommand(['bun', 'pm', 'pack'], cwd, 'bun pm pack', 120_000);
+        await assertSuccessfulCommand(['bun', 'pm', 'pack', '--destination', tempDir], cwd, 'bun pm pack', 120_000);
+        const smokePackageTgz = getPackedTarballPath(tempDir, manifest.name, manifest.version);
         await Bun.write(path.join(tempDir, 'package.json'), '{"name":"spiracha-smoke","private":true}\n');
 
         console.log('Checking packaged command help...');
         await assertSuccessfulCommand(
-            ['bunx', '--package', packageTgz, 'spiracha', 'ui', '--help'],
+            ['bunx', '--package', smokePackageTgz, 'spiracha', 'ui', '--help'],
             tempDir,
             'bunx --package <tgz> spiracha ui --help',
         );
 
         console.log('Launching packaged UI...');
-        const runningUi = await startPackagedUi(packageTgz, tempDir, smokePort);
+        const runningUi = await startPackagedUi(smokePackageTgz, tempDir, smokePort);
 
         try {
             console.log(`Packaged UI responded at ${runningUi.url}`);

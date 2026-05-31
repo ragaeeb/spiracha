@@ -252,7 +252,7 @@ For the exact packaged UI launch path, run:
 rtk bun run smoke:package-ui
 ```
 
-This builds the app, packs the tarball, launches `rtk bunx --package <tgz> spiracha ui --no-open` from a clean temp directory, probes the running UI over HTTP, and shuts it down.
+This builds the app, packs a fresh tarball in a clean temp directory, launches `rtk bunx --package <tgz> spiracha ui --no-open`, probes the running UI for real SSR HTML, rejects Bun fallback responses, and shuts it down. The same packaged-path smoke is also covered by `src/package-ui-smoke.test.ts`.
 
 ## Project Layout
 

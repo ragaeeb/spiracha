@@ -14,6 +14,27 @@ const readPackageManifest = async (): Promise<PackageManifest> => {
     return Bun.file(packageJsonPath).json();
 };
 
+const readUiPackageManifest = async (): Promise<PackageManifest> => {
+    const packageJsonPath = path.join(process.cwd(), 'apps', 'ui', 'package.json');
+    return Bun.file(packageJsonPath).json();
+};
+
+const publishedUiRuntimeDependencies = [
+    '@tanstack/react-query',
+    '@tanstack/react-router',
+    '@tanstack/react-router-ssr-query',
+    '@tanstack/react-table',
+    '@tanstack/react-virtual',
+    'class-variance-authority',
+    'clsx',
+    'lucide-react',
+    'radix-ui',
+    'react',
+    'react-dom',
+    'tailwind-merge',
+    'zod',
+] as const;
+
 describe('package manifest', () => {
     it('should declare iconv-lite as a direct runtime dependency for bunx ui flows', async () => {
         const manifest = await readPackageManifest();
@@ -39,5 +60,13 @@ describe('package manifest', () => {
         expect(manifest.files).not.toContain('apps/ui/dist/client/favicon.ico');
         expect(manifest.files).not.toContain('apps/ui/dist/client/logo192.png');
         expect(manifest.files).not.toContain('apps/ui/dist/client/logo512.png');
+    });
+
+    it('should pin published UI runtime dependencies to the UI package versions', async () => {
+        const [manifest, uiManifest] = await Promise.all([readPackageManifest(), readUiPackageManifest()]);
+
+        for (const dependencyName of publishedUiRuntimeDependencies) {
+            expect(manifest.dependencies?.[dependencyName]).toBe(uiManifest.dependencies?.[dependencyName]);
+        }
     });
 });
