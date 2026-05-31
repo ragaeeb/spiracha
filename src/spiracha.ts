@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-type SpirachaCommandKind = 'codex' | 'claude' | 'help' | 'ui';
+type SpirachaCommandKind = 'codex' | 'claude' | 'cursor' | 'help' | 'ui';
 
 type SpirachaInvocation = {
     kind: SpirachaCommandKind;
@@ -18,6 +18,10 @@ export const resolveSpirachaInvocation = (argv: string[]): SpirachaInvocation =>
         return { argv: rest, kind: 'codex' };
     }
 
+    if (firstArg === 'cursor') {
+        return { argv: rest, kind: 'cursor' };
+    }
+
     if (firstArg === 'ui') {
         return { argv: rest, kind: 'ui' };
     }
@@ -31,18 +35,20 @@ export const resolveSpirachaInvocation = (argv: string[]): SpirachaInvocation =>
 
 export const getSpirachaHelpText = (): string => {
     return [
-        'spiracha - export Codex chats and Claude transcripts',
+        'spiracha - export local assistant transcripts and browse local history',
         '',
         'Usage:',
         '  spiracha',
         '  spiracha codex [Codex options]',
         '  spiracha claude [Claude options]',
+        '  spiracha cursor [Cursor options]',
         '  spiracha ui [UI options]',
         '',
         'Commands:',
         '  codex   Export Codex chats (default when no subcommand is provided)',
         '  claude  Export a Claude transcript file or export directory',
-        '  ui      Launch the local browser UI for browsing Codex history',
+        '  cursor  Export, recover, and prune local Cursor Agent/Composer threads',
+        '  ui      Launch the local browser UI for Codex, Cursor, and Antigravity history',
         '',
         'Aliases:',
         '  codex-chats',
@@ -51,6 +57,7 @@ export const getSpirachaHelpText = (): string => {
         'For command-specific help:',
         '  spiracha codex --help',
         '  spiracha claude --help',
+        '  spiracha cursor --help',
         '  spiracha ui --help',
     ].join('\n');
 };
@@ -66,6 +73,12 @@ export const runSpirachaCli = async (argv = process.argv.slice(2)): Promise<void
     if (invocation.kind === 'claude') {
         const { runExportClaudeCli } = await import('./export-claude');
         await runExportClaudeCli(invocation.argv);
+        return;
+    }
+
+    if (invocation.kind === 'cursor') {
+        const { runExportCursorCli } = await import('./export-cursor');
+        await runExportCursorCli(invocation.argv);
         return;
     }
 

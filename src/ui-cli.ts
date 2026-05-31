@@ -32,7 +32,7 @@ const resolveUiDistPaths = () => {
 const ensureUiBuildExists = async () => {
     const { clientDir, serverEntryPath } = resolveUiDistPaths();
     const serverEntry = Bun.file(serverEntryPath);
-    const clientAssetExists = await Bun.file(path.join(clientDir, 'favicon.ico')).exists();
+    const clientAssetExists = await Bun.file(path.join(clientDir, 'icon.svg')).exists();
     const serverEntryExists = await serverEntry.exists();
 
     if (!clientAssetExists || !serverEntryExists) {
@@ -131,7 +131,7 @@ export const parseUiCliArgs = (argv: string[]): UiCliOptions => {
 
 export const getUiHelpText = (): string => {
     return [
-        'Launch the Spiracha browser UI.',
+        'Launch the Spiracha browser UI for Codex, Cursor, and Antigravity history.',
         '',
         'Usage:',
         '  spiracha ui [--port 3000] [--host 127.0.0.1] [--db FILE] [--no-open]',

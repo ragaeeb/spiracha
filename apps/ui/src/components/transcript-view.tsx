@@ -18,6 +18,7 @@ type TranscriptViewProps = {
     showExtraEvents: boolean;
     showRawJson: boolean;
     showToolCalls: boolean;
+    showUserMessages?: boolean;
 };
 
 const isCommentaryMessage = (event: ThreadEvent) =>
@@ -28,12 +29,17 @@ const shouldShowEvent = (
     showToolCalls: boolean,
     showExtraEvents: boolean,
     showCommentary: boolean,
+    showUserMessages: boolean,
 ) => {
     if (isCommentaryMessage(event) && !showCommentary) {
         return false;
     }
 
     if (event.kind === 'message') {
+        if (event.role === 'user' && !showUserMessages) {
+            return false;
+        }
+
         return !event.isHiddenByDefault || showExtraEvents;
     }
 
@@ -291,10 +297,11 @@ export function TranscriptView({
     showExtraEvents,
     showRawJson,
     showToolCalls,
+    showUserMessages = true,
 }: TranscriptViewProps) {
     const { settings } = useSettings();
     const visibleEvents = events.filter((event) =>
-        shouldShowEvent(event, showToolCalls, showExtraEvents, showCommentary),
+        shouldShowEvent(event, showToolCalls, showExtraEvents, showCommentary, showUserMessages),
     );
     const [copiedEventKeys, setCopiedEventKeys] = useState<string[]>([]);
     const [copiedSelection, setCopiedSelection] = useState(false);

@@ -24,6 +24,28 @@ describe('DeleteConfirmDialog', () => {
         });
     });
 
+    it('should allow threads to opt into a checked delete session files default', () => {
+        const onConfirm = vi.fn();
+
+        render(
+            <DeleteConfirmDialog
+                defaultDeleteSessionFiles
+                description="Delete this thread."
+                open
+                showDeleteSessionFilesOption
+                title="Delete thread?"
+                onConfirm={onConfirm}
+                onOpenChange={vi.fn()}
+            />,
+        );
+
+        fireEvent.click(screen.getAllByRole('button', { name: 'Delete' })[0]!);
+
+        expect(onConfirm).toHaveBeenCalledWith({
+            deleteSessionFiles: true,
+        });
+    });
+
     it('should submit the delete session file option when enabled', () => {
         const onConfirm = vi.fn();
 
@@ -50,6 +72,7 @@ describe('DeleteConfirmDialog', () => {
         const onConfirm = vi.fn();
         const { rerender } = render(
             <DeleteConfirmDialog
+                defaultDeleteSessionFiles
                 description="Delete this thread."
                 open
                 showDeleteSessionFilesOption
@@ -61,10 +84,11 @@ describe('DeleteConfirmDialog', () => {
 
         const checkbox = screen.getByRole('checkbox', { name: 'Delete Session files' });
         fireEvent.click(checkbox);
-        expect(checkbox.getAttribute('aria-checked')).toBe('true');
+        expect(checkbox.getAttribute('aria-checked')).toBe('false');
 
         rerender(
             <DeleteConfirmDialog
+                defaultDeleteSessionFiles
                 description="Delete this thread."
                 open={false}
                 showDeleteSessionFilesOption
@@ -75,6 +99,7 @@ describe('DeleteConfirmDialog', () => {
         );
         rerender(
             <DeleteConfirmDialog
+                defaultDeleteSessionFiles
                 description="Delete this thread."
                 open
                 showDeleteSessionFilesOption
@@ -85,7 +110,7 @@ describe('DeleteConfirmDialog', () => {
         );
 
         expect(screen.getByRole('checkbox', { name: 'Delete Session files' }).getAttribute('aria-checked')).toBe(
-            'false',
+            'true',
         );
     });
 });

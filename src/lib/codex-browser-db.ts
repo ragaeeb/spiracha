@@ -491,7 +491,13 @@ export const getCodexDashboardSummary = (dbPath: string): DashboardSummary => {
     return {
         activeThreads: threads.filter((thread) => !thread.archived).length,
         archivedThreads: threads.filter((thread) => Boolean(thread.archived)).length,
-        recentThreads: threads.slice(0, 5),
+        recentThreads: threads
+            .slice(0, 5)
+            .filter((thread) => Boolean(getPortablePathBasename(thread.cwd)))
+            .map((thread) => ({
+                project: getPortablePathBasename(thread.cwd),
+                thread: compactThreadListRow(thread),
+            })),
         threadsWithRelations,
         topProjectsByThreadCount: [...projects]
             .sort((left, right) => {

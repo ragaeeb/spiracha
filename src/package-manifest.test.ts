@@ -4,6 +4,7 @@ import path from 'node:path';
 type PackageManifest = {
     bin?: Record<string, string>;
     dependencies?: Record<string, string>;
+    files?: string[];
     name: string;
     version: string;
 };
@@ -29,5 +30,14 @@ describe('package manifest', () => {
             'codex-chats-claude': './bin/codex-chats-claude.js',
             spiracha: './bin/spiracha.js',
         });
+    });
+
+    it('should package the shared SVG app icon instead of generated logo copies', async () => {
+        const manifest = await readPackageManifest();
+
+        expect(manifest.files).toContain('apps/ui/dist/client/icon.svg');
+        expect(manifest.files).not.toContain('apps/ui/dist/client/favicon.ico');
+        expect(manifest.files).not.toContain('apps/ui/dist/client/logo192.png');
+        expect(manifest.files).not.toContain('apps/ui/dist/client/logo512.png');
     });
 });

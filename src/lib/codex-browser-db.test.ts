@@ -470,6 +470,38 @@ describe('codex browser db', () => {
         expect(summary.totalTokens).toBe(91000);
     });
 
+    it('should include project names for recent dashboard threads', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-dashboard-recent-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+
+        const summary = getCodexDashboardSummary(fixture.dbPath);
+
+        expect(summary.recentThreads[0]).toMatchObject({
+            project: 'spiracha',
+            thread: {
+                id: fixture.threads[0]!.threadId,
+            },
+        });
+    });
+
+    it('should omit recent dashboard threads without a portable project key', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-dashboard-recent-project-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const db = new Database(fixture.dbPath);
+        try {
+            db.run('UPDATE threads SET cwd = ? WHERE id = ?', ['', fixture.threads[0]!.threadId]);
+        } finally {
+            db.close();
+        }
+
+        const summary = getCodexDashboardSummary(fixture.dbPath);
+
+        expect(summary.recentThreads.map((entry) => entry.thread.id)).not.toContain(fixture.threads[0]!.threadId);
+        expect(summary.recentThreads.every((entry) => entry.project.length > 0)).toBe(true);
+    });
+
     it('should delete all project session files when requested', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-delete-project-session-test-'));
         tempPaths.push(tempRoot);

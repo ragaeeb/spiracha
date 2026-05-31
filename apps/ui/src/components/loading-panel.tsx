@@ -6,7 +6,7 @@ type LoadingPanelProps = {
 };
 
 export function LoadingPanel({
-    description = 'Fetching local Codex data. Larger projects can take a moment.',
+    description = 'Fetching local data. Larger workspaces can take a moment.',
     title = 'Loading',
 }: LoadingPanelProps) {
     return (

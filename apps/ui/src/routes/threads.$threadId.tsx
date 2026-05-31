@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tansta
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { Download, Trash2 } from 'lucide-react';
 import { useState } from 'react';
+import { Breadcrumbs } from '#/components/breadcrumbs';
 import { DeleteConfirmDialog } from '#/components/delete-confirm-dialog';
 import { ExportDialog } from '#/components/export-dialog';
 import { JsonPanel } from '#/components/json-panel';
@@ -28,10 +29,12 @@ type TranscriptControlsProps = {
     showExtraEvents: boolean;
     showRawJson: boolean;
     showToolCalls: boolean;
+    showUserMessages: boolean;
     onShowCommentaryChange: (checked: boolean) => void;
     onShowExtraEventsChange: (checked: boolean) => void;
     onShowRawJsonChange: (checked: boolean) => void;
     onShowToolCallsChange: (checked: boolean) => void;
+    onShowUserMessagesChange: (checked: boolean) => void;
 };
 
 type ThreadMetadataProps = {
@@ -183,41 +186,55 @@ function TranscriptControls({
     showExtraEvents,
     showRawJson,
     showToolCalls,
+    showUserMessages,
     onShowCommentaryChange,
     onShowExtraEventsChange,
     onShowRawJsonChange,
     onShowToolCallsChange,
+    onShowUserMessagesChange,
 }: TranscriptControlsProps) {
     return (
         <div className="flex flex-wrap gap-4 rounded-xl border border-[var(--border)] bg-[var(--panel)] px-4 py-3 shadow-[var(--panel-shadow)]">
             <div className="flex items-center gap-2 text-sm">
                 <Checkbox
                     checked={showToolCalls}
+                    id="transcript-show-tool-calls"
                     onCheckedChange={(checked) => onShowToolCallsChange(checked === true)}
                 />
-                <span>Show tool calls</span>
+                <label htmlFor="transcript-show-tool-calls">Show tool calls</label>
             </div>
             <div className="flex items-center gap-2 text-sm">
                 <Checkbox
                     checked={showCommentary}
+                    id="transcript-show-commentary"
                     onCheckedChange={(checked) => onShowCommentaryChange(checked === true)}
                 />
-                <span>Show commentary</span>
+                <label htmlFor="transcript-show-commentary">Show commentary</label>
             </div>
             <div className="flex items-center gap-2 text-sm">
                 <Checkbox
                     checked={showExtraEvents}
+                    id="transcript-show-extra-events"
                     onCheckedChange={(checked) => onShowExtraEventsChange(checked === true)}
                 />
-                <span>Show extra events</span>
+                <label htmlFor="transcript-show-extra-events">Show extra events</label>
             </div>
             <div className="flex items-center gap-2 text-sm">
                 <Checkbox
                     checked={showRawJson}
                     disabled={rawJsonDisabled}
+                    id="transcript-show-raw-json"
                     onCheckedChange={(checked) => onShowRawJsonChange(checked === true)}
                 />
-                <span>Raw JSON</span>
+                <label htmlFor="transcript-show-raw-json">Raw JSON</label>
+            </div>
+            <div className="flex items-center gap-2 text-sm">
+                <Checkbox
+                    checked={showUserMessages}
+                    id="transcript-show-user-messages"
+                    onCheckedChange={(checked) => onShowUserMessagesChange(checked === true)}
+                />
+                <label htmlFor="transcript-show-user-messages">User</label>
             </div>
         </div>
     );
@@ -359,6 +376,7 @@ function ThreadDetailPage() {
     const [showCommentary, setShowCommentary] = useState(false);
     const [showExtraEvents, setShowExtraEvents] = useState(false);
     const [showRawJson, setShowRawJson] = useState(false);
+    const [showUserMessages, setShowUserMessages] = useState(true);
     const [exportOpen, setExportOpen] = useState(false);
     const [deleteOpen, setDeleteOpen] = useState(false);
     const transcriptQuery = useQuery({
@@ -462,6 +480,19 @@ function ThreadDetailPage() {
                         </Button>
                     </>
                 }
+                breadcrumb={
+                    <Breadcrumbs
+                        items={[
+                            { label: 'Codex', to: '/projects' },
+                            {
+                                label: snapshot.project,
+                                params: { project: snapshot.project },
+                                to: '/projects/$project',
+                            },
+                            { label: snapshot.thread.title },
+                        ]}
+                    />
+                }
                 eyebrow={snapshot.project}
                 subtitle={snapshot.thread.preview}
                 title={snapshot.thread.title}
@@ -504,10 +535,12 @@ function ThreadDetailPage() {
                         showExtraEvents={showExtraEvents}
                         showRawJson={showRawJson}
                         showToolCalls={showToolCalls}
+                        showUserMessages={showUserMessages}
                         onShowCommentaryChange={setShowCommentary}
                         onShowExtraEventsChange={setShowExtraEvents}
                         onShowRawJsonChange={setShowRawJson}
                         onShowToolCallsChange={setShowToolCalls}
+                        onShowUserMessagesChange={setShowUserMessages}
                     />
                     {transcript ? (
                         <TranscriptView
@@ -518,6 +551,7 @@ function ThreadDetailPage() {
                             showExtraEvents={showExtraEvents}
                             showRawJson={showRawJson && transcript.rawIncluded}
                             showToolCalls={showToolCalls}
+                            showUserMessages={showUserMessages}
                         />
                     ) : (
                         <DeferredTranscriptNotice
@@ -546,6 +580,7 @@ function ThreadDetailPage() {
 
             <DeleteConfirmDialog
                 confirmLabel={deleteThreadMutation.isPending ? 'Deleting...' : 'Delete thread'}
+                defaultDeleteSessionFiles
                 description="Delete this thread from the Codex database. Enable Delete Session files if you also want to remove the rollout JSONL from disk."
                 open={deleteOpen}
                 showDeleteSessionFilesOption

@@ -67,6 +67,15 @@ export const Route = createRootRouteWithContext<RouterContext>()({
                 href: appCss,
                 rel: 'stylesheet',
             },
+            {
+                href: '/icon.svg',
+                rel: 'icon',
+                type: 'image/svg+xml',
+            },
+            {
+                href: '/manifest.json',
+                rel: 'manifest',
+            },
         ],
         meta: [
             {
@@ -77,8 +86,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
                 name: 'viewport',
             },
             {
-                content:
-                    'Browse local Codex threads, projects, tool calls, and analytics through a compact workspace UI.',
+                content: 'Browse local Codex, Cursor, and Antigravity history through a compact workspace UI.',
                 name: 'description',
             },
             {

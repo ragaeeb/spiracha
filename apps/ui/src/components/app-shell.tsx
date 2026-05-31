@@ -1,15 +1,34 @@
 import { Link, useRouterState } from '@tanstack/react-router';
-import { BarChart3, FolderOpen, LayoutDashboard, Settings2 } from 'lucide-react';
+import { BarChart3, FolderOpen, LayoutDashboard, Settings2, Sparkles, SquareTerminal } from 'lucide-react';
 import type { PropsWithChildren } from 'react';
 import { cn } from '#/lib/utils';
 import { ThemeToggle } from './theme-toggle';
 
-const navItems = [
+type NavItem = {
+    activePrefixes?: readonly string[];
+    icon: typeof LayoutDashboard;
+    label: string;
+    to: string;
+};
+
+const navItems: readonly NavItem[] = [
     { icon: LayoutDashboard, label: 'Dashboard', to: '/' },
-    { icon: FolderOpen, label: 'Projects', to: '/projects' },
+    { activePrefixes: ['/projects', '/threads'], icon: FolderOpen, label: 'Codex', to: '/projects' },
+    {
+        activePrefixes: ['/antigravity', '/antigravity-conversations'],
+        icon: Sparkles,
+        label: 'Antigravity',
+        to: '/antigravity',
+    },
+    { activePrefixes: ['/cursor', '/cursor-threads'], icon: SquareTerminal, label: 'Cursor', to: '/cursor' },
     { icon: BarChart3, label: 'Analytics', to: '/analytics' },
     { icon: Settings2, label: 'Settings', to: '/settings' },
 ] as const;
+
+const isNavItemActive = (pathname: string, item: NavItem) => {
+    const prefixes = item.activePrefixes ?? [item.to];
+    return prefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+};
 
 export function AppShell({ children }: PropsWithChildren) {
     const pathname = useRouterState({
@@ -27,7 +46,7 @@ export function AppShell({ children }: PropsWithChildren) {
                             </p>
                             <div>
                                 <h1 className="font-['IBM_Plex_Sans'] font-semibold text-lg tracking-[-0.02em]">
-                                    Codex Console
+                                    Spiracha Console
                                 </h1>
                             </div>
                         </div>
@@ -36,7 +55,7 @@ export function AppShell({ children }: PropsWithChildren) {
 
                     <nav className="mt-5 grid gap-1">
                         {navItems.map((item) => {
-                            const active = pathname === item.to || pathname.startsWith(`${item.to}/`);
+                            const active = isNavItemActive(pathname, item);
                             const Icon = item.icon;
 
                             return (

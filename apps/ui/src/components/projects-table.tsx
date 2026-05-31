@@ -1,5 +1,5 @@
 import type { ProjectSummary } from '@spiracha/lib/codex-browser-types';
-import { useNavigate } from '@tanstack/react-router';
+import { Link } from '@tanstack/react-router';
 import { createColumnHelper } from '@tanstack/react-table';
 import { MoreHorizontal, Trash2 } from 'lucide-react';
 import { DataTable } from '#/components/data-table';
@@ -23,13 +23,17 @@ const columns = (onDeleteProject: (project: ProjectSummary) => void) =>
     [
         columnHelper.accessor('name', {
             cell: (info) => (
-                <div className="space-y-1">
-                    <p className="font-medium">{info.getValue()}</p>
+                <Link
+                    className="block w-[14rem] max-w-[18rem] space-y-1 rounded-md outline-none transition hover:opacity-80 focus-visible:ring-2 focus-visible:ring-[var(--accent)] lg:w-auto"
+                    params={{ project: info.row.original.name }}
+                    to="/projects/$project"
+                >
+                    <p className="font-medium underline-offset-2 hover:underline">{info.getValue()}</p>
                     <p className="text-[var(--muted-foreground)] text-xs">
                         {formatNumber(info.row.original.cwdPaths.length)} cwd path
                         {info.row.original.cwdPaths.length === 1 ? '' : 's'}
                     </p>
-                </div>
+                </Link>
             ),
             header: 'Project',
         }),
@@ -93,21 +97,11 @@ const columns = (onDeleteProject: (project: ProjectSummary) => void) =>
     ] as const;
 
 export function ProjectsTable({ projects, onDeleteProject }: ProjectsTableProps) {
-    const navigate = useNavigate();
-
     return (
         <DataTable
             columns={columns(onDeleteProject)}
             data={projects}
             emptyMessage="No projects match the current search."
-            onRowClick={(project) =>
-                navigate({
-                    params: {
-                        project: project.name,
-                    },
-                    to: '/projects/$project',
-                })
-            }
         />
     );
 }

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This package is the local browser UI for Spiracha. It reads the Codex SQLite database and rollout JSONL files through TanStack Start server functions and shared root-package helpers.
+This package is the local browser UI for Spiracha. It reads Codex, Cursor, and Antigravity local data through TanStack Start server functions and shared root-package helpers.
 
 ## Commands
 
@@ -24,6 +24,9 @@ Important:
 - `src/routeTree.gen.ts` is generated. Do not edit it manually.
 - If route typing behaves strangely, delete `src/routeTree.gen.ts` and rebuild with `rtk bun run build` to regenerate it cleanly.
 - The UI supports both `/threads/$threadId` and a root shortcut route `/$threadId` that redirects straight to the thread detail page.
+- Cursor thread detail lives at `/cursor-threads/$composerId`.
+- Antigravity conversation detail lives at `/antigravity-conversations/$conversationId`.
+- Keep the Codex, Cursor, and Antigravity list/detail pages aligned around the same table-driven index/detail pattern when adding new source integrations.
 
 ## Shared Data Layer
 
@@ -33,6 +36,11 @@ The UI depends on root-package helpers via `@spiracha/*` path aliases:
 - `@spiracha/lib/codex-browser-export`
 - `@spiracha/lib/codex-thread-cache`
 - `@spiracha/lib/codex-analytics`
+- `@spiracha/lib/cursor-db`
+- `@spiracha/lib/cursor-recovery`
+- `@spiracha/lib/cursor-transcript`
+- `@spiracha/lib/antigravity-db`
+- `@spiracha/lib/antigravity-keychain`
 
 Keep server-only imports inside server functions or route loaders. Do not import Bun-only modules into purely client-side components.
 
@@ -40,19 +48,19 @@ Keep server-only imports inside server functions or route loaders. Do not import
 
 Use the existing layers consistently:
 
-- TanStack Start server functions in `src/lib/codex-server.ts`
-  - Use for any browser-triggered read/write that needs Bun-only modules, DB access, filesystem access, or shared root-package helpers.
-- TanStack Query query options in `src/lib/codex-queries.ts`
+- TanStack Start server functions in `src/lib/codex-server.ts`, `src/lib/cursor-server.ts`, and `src/lib/antigravity-server.ts`
+  - Use for any browser-triggered read/write that needs Bun-only modules, DB access, filesystem access, Keychain access, or shared root-package helpers.
+- TanStack Query query options in `src/lib/codex-queries.ts`, `src/lib/cursor-queries.ts`, and `src/lib/antigravity-queries.ts`
   - Use for client-side fetching, caching, retries, and invalidation of server-function results.
 - Shared root-package helpers under `@spiracha/lib/*`
   - Extend these when the behavior should stay shared between the UI, CLI, and packaged launcher.
 - `settings-store.tsx`
-  - Use only for browser-local UI preferences. Do not put server-derived Codex data here.
+  - Use only for browser-local UI preferences. Do not put server-derived source data here.
 
-If a feature needs new Codex data, prefer:
+If a feature needs new source data, prefer:
 1. shared root-package helper changes
-2. server-function exposure in `codex-server.ts`
-3. TanStack Query wiring in `codex-queries.ts`
+2. server-function exposure in the matching `*-server.ts`
+3. TanStack Query wiring in the matching `*-queries.ts`
 4. client component consumption
 
 ## Testing

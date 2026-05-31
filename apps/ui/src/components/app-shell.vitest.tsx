@@ -1,6 +1,6 @@
-import { render, screen } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const useRouterStateMock = vi.fn();
 
@@ -21,6 +21,10 @@ vi.mock('./theme-toggle', () => ({
 import { AppShell } from './app-shell';
 
 describe('AppShell', () => {
+    afterEach(() => {
+        cleanup();
+    });
+
     it('should render navigation items and highlight the active section', () => {
         useRouterStateMock.mockReturnValue('/projects/ushman');
 
@@ -30,12 +34,44 @@ describe('AppShell', () => {
             </AppShell>,
         );
 
-        expect(screen.getByText('Codex Console')).toBeTruthy();
+        expect(screen.getByText('Spiracha Console')).toBeTruthy();
         expect(screen.getByText('Theme switcher')).toBeTruthy();
         expect(screen.getByText('Content area')).toBeTruthy();
-        expect(screen.getByRole('link', { name: /Projects/i }).className).toContain('bg-[var(--accent-muted)]');
+        expect(screen.getByRole('link', { name: /Codex/i }).className).toContain('bg-[var(--accent-muted)]');
         expect(screen.getByRole('link', { name: /Dashboard/i }).className).toContain(
             'hover:bg-[var(--panel-secondary)]',
         );
+        expect(screen.getAllByRole('link').map((link) => link.textContent)).toEqual([
+            'Dashboard',
+            'Codex',
+            'Antigravity',
+            'Cursor',
+            'Analytics',
+            'Settings',
+        ]);
+    });
+
+    it('should keep Cursor active on standalone thread detail routes', () => {
+        useRouterStateMock.mockReturnValue('/cursor-threads/thread-1');
+
+        render(
+            <AppShell>
+                <div>Content area</div>
+            </AppShell>,
+        );
+
+        expect(screen.getByRole('link', { name: 'Cursor' }).className).toContain('bg-[var(--accent-muted)]');
+    });
+
+    it('should keep Antigravity active on standalone conversation detail routes', () => {
+        useRouterStateMock.mockReturnValue('/antigravity-conversations/conversation-1');
+
+        render(
+            <AppShell>
+                <div>Content area</div>
+            </AppShell>,
+        );
+
+        expect(screen.getByRole('link', { name: 'Antigravity' }).className).toContain('bg-[var(--accent-muted)]');
     });
 });

@@ -221,6 +221,32 @@ describe('TranscriptView', () => {
         expect(screen.getByText('I am working through the codebase now.')).toBeTruthy();
     });
 
+    it('should hide user messages when user messages are disabled', () => {
+        render(
+            <TranscriptView
+                assistantModel="gpt-5.4"
+                events={[
+                    messageEvent,
+                    {
+                        ...messageEvent,
+                        role: 'assistant',
+                        sequence: 6,
+                        text: 'Implemented the requested dashboard update.',
+                    },
+                ]}
+                projectPath="/Users/example/workspace/spiracha"
+                showCommentary
+                showExtraEvents={false}
+                showRawJson={false}
+                showToolCalls={false}
+                showUserMessages={false}
+            />,
+        );
+
+        expect(screen.queryByText('Build the UI')).toBeNull();
+        expect(screen.getByText('Implemented the requested dashboard update.')).toBeTruthy();
+    });
+
     it('should copy a single event as markdown from the per-card copy action', async () => {
         const writeText = vi.fn().mockResolvedValue(undefined);
         Object.assign(navigator, {

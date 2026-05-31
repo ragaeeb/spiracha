@@ -170,10 +170,15 @@ export type ThreadBrowseData = {
     thread: ThreadRow;
 };
 
+export type DashboardRecentThread = {
+    project: string;
+    thread: ThreadRow;
+};
+
 export type DashboardSummary = {
     activeThreads: number;
     archivedThreads: number;
-    recentThreads: ThreadRow[];
+    recentThreads: DashboardRecentThread[];
     threadsWithRelations: number;
     topProjectsByThreadCount: ProjectSummary[];
     topProjectsByTokens: ProjectSummary[];
@@ -189,6 +194,22 @@ export type DeleteThreadsResult = {
 
 export type DeleteProjectResult = DeleteThreadsResult & {
     projectName: string;
+};
+
+export type RecoverProjectThreadsResult = {
+    backups: {
+        globalState: string;
+        sessionIndex: string;
+        stateDb: string;
+    };
+    projectName: string;
+    projectRootsAdded: number;
+    resolvedCwds: string[];
+    rolloutFilesTouched: number;
+    savedRootsAdded: number;
+    sessionIndexRowsUpdated: number;
+    threadDbRowsUpdated: number;
+    topLevelThreadsFound: number;
 };
 
 export type ToolUsageSummary = {
