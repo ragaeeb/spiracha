@@ -1,13 +1,15 @@
 import type { ProjectSummary } from '@spiracha/lib/codex-browser-types';
 import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
-import { startTransition, useDeferredValue, useState } from 'react';
+import { useDeferredValue, useState } from 'react';
 import { DeleteConfirmDialog } from '#/components/delete-confirm-dialog';
+import { ListSearchInput } from '#/components/list-search-input';
 import { PageHeader } from '#/components/page-header';
 import { ProjectsTable } from '#/components/projects-table';
-import { Input } from '#/components/ui/input';
+import { ReloadErrorPanel } from '#/components/reload-error-panel';
 import { projectsQueryOptions } from '#/lib/codex-queries';
 import { deleteProjectFn } from '#/lib/codex-server';
+import { matchesTextQuery } from '#/lib/text-filter';
 
 export const Route = createFileRoute('/projects/')({
     component: ProjectsPage,
@@ -18,21 +20,12 @@ export const Route = createFileRoute('/projects/')({
 function ProjectsErrorComponent({ error }: { error: Error }) {
     const isSqlite = error.message.includes('unable to open database') || error.message.includes('database is locked');
     return (
-        <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] px-6 py-10 text-center">
-            <p className="font-medium text-[var(--destructive)] text-sm">
-                {isSqlite ? 'Database unavailable' : 'Failed to load projects'}
-            </p>
-            <p className="mt-2 text-[var(--muted-foreground)] text-sm">
-                {isSqlite ? 'Codex may have an exclusive lock on the database. Reload to retry.' : error.message}
-            </p>
-            <button
-                className="mt-4 text-[var(--accent)] text-sm underline-offset-2 hover:underline"
-                type="button"
-                onClick={() => window.location.reload()}
-            >
-                Reload
-            </button>
-        </div>
+        <ReloadErrorPanel
+            description={
+                isSqlite ? 'Codex may have an exclusive lock on the database. Reload to retry.' : error.message
+            }
+            title={isSqlite ? 'Database unavailable' : 'Failed to load Codex inventory'}
+        />
     );
 }
 
@@ -56,31 +49,26 @@ function ProjectsPage() {
     });
 
     const visibleProjects = projects.filter((project) => {
-        if (!deferredSearch) {
-            return true;
-        }
-
-        return project.name.toLowerCase().includes(deferredSearch);
+        return matchesTextQuery(deferredSearch, [
+            project.name,
+            project.cwdPaths.join('\n'),
+            project.modelNames.join('\n'),
+        ]);
     });
 
     return (
         <div className="space-y-6">
             <PageHeader
                 actions={
-                    <Input
-                        className="h-10 w-full rounded-full border-[var(--border)] bg-[var(--panel)] px-4 sm:w-[20rem]"
-                        placeholder="Search projects by name"
+                    <ListSearchInput
+                        placeholder="Search project name, cwd, or model"
                         value={searchInput}
-                        onChange={(event) => {
-                            startTransition(() => {
-                                setSearchInput(event.target.value);
-                            });
-                        }}
+                        onValueChange={setSearchInput}
                     />
                 }
                 eyebrow="Inventory"
                 subtitle="Derived projects are grouped from the final basename of each thread cwd, matching the existing CLI behavior."
-                title="Projects"
+                title="Codex"
             />
 
             <ProjectsTable projects={visibleProjects} onDeleteProject={setPendingDelete} />
@@ -94,7 +82,7 @@ function ProjectsPage() {
                 }
                 open={pendingDelete !== null}
                 showDeleteSessionFilesOption
-                title="Delete project from Codex DB?"
+                title="Delete Codex project?"
                 onConfirm={({ deleteSessionFiles }) => {
                     if (!pendingDelete) {
                         return;

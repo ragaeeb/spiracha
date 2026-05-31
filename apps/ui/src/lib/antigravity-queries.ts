@@ -1,5 +1,6 @@
 import { queryOptions } from '@tanstack/react-query';
 import {
+    getAntigravityConversationDetailFn,
     getAntigravityDecryptionStateFn,
     listAntigravityConversationsFn,
     listAntigravityWorkspacesFn,
@@ -22,4 +23,11 @@ export const antigravityConversationsQueryOptions = (workspaceKey: string | null
         enabled: workspaceKey !== null,
         queryFn: () => listAntigravityConversationsFn({ data: { workspaceKey: workspaceKey ?? '' } }),
         queryKey: ['antigravity-conversations', workspaceKey ?? 'none'],
+    });
+
+export const antigravityConversationDetailQueryOptions = (conversationId: string | null, unlocked: boolean) =>
+    queryOptions({
+        enabled: conversationId !== null,
+        queryFn: () => getAntigravityConversationDetailFn({ data: { conversationId: conversationId ?? '' } }),
+        queryKey: ['antigravity-conversation', conversationId ?? 'none', unlocked ? 'unlocked' : 'locked'],
     });

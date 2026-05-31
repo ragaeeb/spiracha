@@ -10,28 +10,22 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SettingsRouteImport } from './routes/settings'
-import { Route as CursorRouteImport } from './routes/cursor'
-import { Route as AntigravityRouteImport } from './routes/antigravity'
 import { Route as AnalyticsRouteImport } from './routes/analytics'
 import { Route as ThreadIdRouteImport } from './routes/$threadId'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ProjectsIndexRouteImport } from './routes/projects.index'
+import { Route as CursorIndexRouteImport } from './routes/cursor.index'
+import { Route as AntigravityIndexRouteImport } from './routes/antigravity.index'
 import { Route as ThreadsThreadIdRouteImport } from './routes/threads.$threadId'
 import { Route as ProjectsProjectRouteImport } from './routes/projects.$project'
+import { Route as CursorWorkspaceKeyRouteImport } from './routes/cursor.$workspaceKey'
+import { Route as CursorThreadsComposerIdRouteImport } from './routes/cursor-threads.$composerId'
+import { Route as AntigravityWorkspaceKeyRouteImport } from './routes/antigravity.$workspaceKey'
+import { Route as AntigravityConversationsConversationIdRouteImport } from './routes/antigravity-conversations.$conversationId'
 
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CursorRoute = CursorRouteImport.update({
-  id: '/cursor',
-  path: '/cursor',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AntigravityRoute = AntigravityRouteImport.update({
-  id: '/antigravity',
-  path: '/antigravity',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AnalyticsRoute = AnalyticsRouteImport.update({
@@ -54,6 +48,16 @@ const ProjectsIndexRoute = ProjectsIndexRouteImport.update({
   path: '/projects/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CursorIndexRoute = CursorIndexRouteImport.update({
+  id: '/cursor/',
+  path: '/cursor/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AntigravityIndexRoute = AntigravityIndexRouteImport.update({
+  id: '/antigravity/',
+  path: '/antigravity/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ThreadsThreadIdRoute = ThreadsThreadIdRouteImport.update({
   id: '/threads/$threadId',
   path: '/threads/$threadId',
@@ -64,27 +68,56 @@ const ProjectsProjectRoute = ProjectsProjectRouteImport.update({
   path: '/projects/$project',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CursorWorkspaceKeyRoute = CursorWorkspaceKeyRouteImport.update({
+  id: '/cursor/$workspaceKey',
+  path: '/cursor/$workspaceKey',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CursorThreadsComposerIdRoute = CursorThreadsComposerIdRouteImport.update({
+  id: '/cursor-threads/$composerId',
+  path: '/cursor-threads/$composerId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AntigravityWorkspaceKeyRoute = AntigravityWorkspaceKeyRouteImport.update({
+  id: '/antigravity/$workspaceKey',
+  path: '/antigravity/$workspaceKey',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AntigravityConversationsConversationIdRoute =
+  AntigravityConversationsConversationIdRouteImport.update({
+    id: '/antigravity-conversations/$conversationId',
+    path: '/antigravity-conversations/$conversationId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/$threadId': typeof ThreadIdRoute
   '/analytics': typeof AnalyticsRoute
-  '/antigravity': typeof AntigravityRoute
-  '/cursor': typeof CursorRoute
   '/settings': typeof SettingsRoute
+  '/antigravity-conversations/$conversationId': typeof AntigravityConversationsConversationIdRoute
+  '/antigravity/$workspaceKey': typeof AntigravityWorkspaceKeyRoute
+  '/cursor-threads/$composerId': typeof CursorThreadsComposerIdRoute
+  '/cursor/$workspaceKey': typeof CursorWorkspaceKeyRoute
   '/projects/$project': typeof ProjectsProjectRoute
   '/threads/$threadId': typeof ThreadsThreadIdRoute
+  '/antigravity/': typeof AntigravityIndexRoute
+  '/cursor/': typeof CursorIndexRoute
   '/projects/': typeof ProjectsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/$threadId': typeof ThreadIdRoute
   '/analytics': typeof AnalyticsRoute
-  '/antigravity': typeof AntigravityRoute
-  '/cursor': typeof CursorRoute
   '/settings': typeof SettingsRoute
+  '/antigravity-conversations/$conversationId': typeof AntigravityConversationsConversationIdRoute
+  '/antigravity/$workspaceKey': typeof AntigravityWorkspaceKeyRoute
+  '/cursor-threads/$composerId': typeof CursorThreadsComposerIdRoute
+  '/cursor/$workspaceKey': typeof CursorWorkspaceKeyRoute
   '/projects/$project': typeof ProjectsProjectRoute
   '/threads/$threadId': typeof ThreadsThreadIdRoute
+  '/antigravity': typeof AntigravityIndexRoute
+  '/cursor': typeof CursorIndexRoute
   '/projects': typeof ProjectsIndexRoute
 }
 export interface FileRoutesById {
@@ -92,11 +125,15 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/$threadId': typeof ThreadIdRoute
   '/analytics': typeof AnalyticsRoute
-  '/antigravity': typeof AntigravityRoute
-  '/cursor': typeof CursorRoute
   '/settings': typeof SettingsRoute
+  '/antigravity-conversations/$conversationId': typeof AntigravityConversationsConversationIdRoute
+  '/antigravity/$workspaceKey': typeof AntigravityWorkspaceKeyRoute
+  '/cursor-threads/$composerId': typeof CursorThreadsComposerIdRoute
+  '/cursor/$workspaceKey': typeof CursorWorkspaceKeyRoute
   '/projects/$project': typeof ProjectsProjectRoute
   '/threads/$threadId': typeof ThreadsThreadIdRoute
+  '/antigravity/': typeof AntigravityIndexRoute
+  '/cursor/': typeof CursorIndexRoute
   '/projects/': typeof ProjectsIndexRoute
 }
 export interface FileRouteTypes {
@@ -105,33 +142,45 @@ export interface FileRouteTypes {
     | '/'
     | '/$threadId'
     | '/analytics'
-    | '/antigravity'
-    | '/cursor'
     | '/settings'
+    | '/antigravity-conversations/$conversationId'
+    | '/antigravity/$workspaceKey'
+    | '/cursor-threads/$composerId'
+    | '/cursor/$workspaceKey'
     | '/projects/$project'
     | '/threads/$threadId'
+    | '/antigravity/'
+    | '/cursor/'
     | '/projects/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/$threadId'
     | '/analytics'
-    | '/antigravity'
-    | '/cursor'
     | '/settings'
+    | '/antigravity-conversations/$conversationId'
+    | '/antigravity/$workspaceKey'
+    | '/cursor-threads/$composerId'
+    | '/cursor/$workspaceKey'
     | '/projects/$project'
     | '/threads/$threadId'
+    | '/antigravity'
+    | '/cursor'
     | '/projects'
   id:
     | '__root__'
     | '/'
     | '/$threadId'
     | '/analytics'
-    | '/antigravity'
-    | '/cursor'
     | '/settings'
+    | '/antigravity-conversations/$conversationId'
+    | '/antigravity/$workspaceKey'
+    | '/cursor-threads/$composerId'
+    | '/cursor/$workspaceKey'
     | '/projects/$project'
     | '/threads/$threadId'
+    | '/antigravity/'
+    | '/cursor/'
     | '/projects/'
   fileRoutesById: FileRoutesById
 }
@@ -139,11 +188,15 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ThreadIdRoute: typeof ThreadIdRoute
   AnalyticsRoute: typeof AnalyticsRoute
-  AntigravityRoute: typeof AntigravityRoute
-  CursorRoute: typeof CursorRoute
   SettingsRoute: typeof SettingsRoute
+  AntigravityConversationsConversationIdRoute: typeof AntigravityConversationsConversationIdRoute
+  AntigravityWorkspaceKeyRoute: typeof AntigravityWorkspaceKeyRoute
+  CursorThreadsComposerIdRoute: typeof CursorThreadsComposerIdRoute
+  CursorWorkspaceKeyRoute: typeof CursorWorkspaceKeyRoute
   ProjectsProjectRoute: typeof ProjectsProjectRoute
   ThreadsThreadIdRoute: typeof ThreadsThreadIdRoute
+  AntigravityIndexRoute: typeof AntigravityIndexRoute
+  CursorIndexRoute: typeof CursorIndexRoute
   ProjectsIndexRoute: typeof ProjectsIndexRoute
 }
 
@@ -154,20 +207,6 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/cursor': {
-      id: '/cursor'
-      path: '/cursor'
-      fullPath: '/cursor'
-      preLoaderRoute: typeof CursorRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/antigravity': {
-      id: '/antigravity'
-      path: '/antigravity'
-      fullPath: '/antigravity'
-      preLoaderRoute: typeof AntigravityRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/analytics': {
@@ -198,6 +237,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/cursor/': {
+      id: '/cursor/'
+      path: '/cursor'
+      fullPath: '/cursor/'
+      preLoaderRoute: typeof CursorIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/antigravity/': {
+      id: '/antigravity/'
+      path: '/antigravity'
+      fullPath: '/antigravity/'
+      preLoaderRoute: typeof AntigravityIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/threads/$threadId': {
       id: '/threads/$threadId'
       path: '/threads/$threadId'
@@ -212,6 +265,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectsProjectRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/cursor/$workspaceKey': {
+      id: '/cursor/$workspaceKey'
+      path: '/cursor/$workspaceKey'
+      fullPath: '/cursor/$workspaceKey'
+      preLoaderRoute: typeof CursorWorkspaceKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/cursor-threads/$composerId': {
+      id: '/cursor-threads/$composerId'
+      path: '/cursor-threads/$composerId'
+      fullPath: '/cursor-threads/$composerId'
+      preLoaderRoute: typeof CursorThreadsComposerIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/antigravity/$workspaceKey': {
+      id: '/antigravity/$workspaceKey'
+      path: '/antigravity/$workspaceKey'
+      fullPath: '/antigravity/$workspaceKey'
+      preLoaderRoute: typeof AntigravityWorkspaceKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/antigravity-conversations/$conversationId': {
+      id: '/antigravity-conversations/$conversationId'
+      path: '/antigravity-conversations/$conversationId'
+      fullPath: '/antigravity-conversations/$conversationId'
+      preLoaderRoute: typeof AntigravityConversationsConversationIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -219,11 +300,16 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ThreadIdRoute: ThreadIdRoute,
   AnalyticsRoute: AnalyticsRoute,
-  AntigravityRoute: AntigravityRoute,
-  CursorRoute: CursorRoute,
   SettingsRoute: SettingsRoute,
+  AntigravityConversationsConversationIdRoute:
+    AntigravityConversationsConversationIdRoute,
+  AntigravityWorkspaceKeyRoute: AntigravityWorkspaceKeyRoute,
+  CursorThreadsComposerIdRoute: CursorThreadsComposerIdRoute,
+  CursorWorkspaceKeyRoute: CursorWorkspaceKeyRoute,
   ProjectsProjectRoute: ProjectsProjectRoute,
   ThreadsThreadIdRoute: ThreadsThreadIdRoute,
+  AntigravityIndexRoute: AntigravityIndexRoute,
+  CursorIndexRoute: CursorIndexRoute,
   ProjectsIndexRoute: ProjectsIndexRoute,
 }
 export const routeTree = rootRouteImport

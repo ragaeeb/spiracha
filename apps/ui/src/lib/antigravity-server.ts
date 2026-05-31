@@ -17,6 +17,10 @@ const workspaceSchema = z.object({
     workspaceKey: z.string().min(1),
 });
 
+const conversationSchema = z.object({
+    conversationId: z.string().min(1),
+});
+
 const exportSchema = z.object({
     conversationId: z.string().min(1),
 });
@@ -37,6 +41,32 @@ export const listAntigravityConversationsFn = createServerFn({ method: 'GET' })
     .inputValidator(workspaceSchema)
     .handler(async ({ data }) => {
         return listAntigravityConversationsForGroup(data.workspaceKey);
+    });
+
+export const getAntigravityConversationDetailFn = createServerFn({ method: 'GET' })
+    .inputValidator(conversationSchema)
+    .handler(async ({ data }) => {
+        const conversation = (await listAntigravityConversations()).find(
+            (candidate) => candidate.conversationId === data.conversationId,
+        );
+        if (!conversation) {
+            throw new Error(`Antigravity conversation not found: ${data.conversationId}`);
+        }
+
+        const keychainSecret = getCachedAntigravityKeychainSecret();
+        const transcriptLocked = conversation.transcriptEntryCount > 0 && !keychainSecret;
+        const conversationMarkdown = transcriptLocked
+            ? null
+            : await renderAntigravityConversationMarkdown(conversation, { keychainSecret });
+        const artifactsMarkdown =
+            conversation.artifactCount > 0 ? await renderAntigravityArtifactsMarkdown(conversation) : null;
+
+        return {
+            artifactsMarkdown,
+            conversation,
+            conversationMarkdown: conversationMarkdown === artifactsMarkdown ? null : conversationMarkdown,
+            transcriptLocked,
+        };
     });
 
 export const exportAntigravityArtifactsFn = createServerFn({ method: 'POST' })

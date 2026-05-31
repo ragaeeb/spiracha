@@ -13,6 +13,7 @@ import { Checkbox } from '#/components/ui/checkbox';
 
 type DeleteConfirmDialogProps = {
     confirmLabel?: string;
+    defaultDeleteSessionFiles?: boolean;
     description: string;
     open: boolean;
     showDeleteSessionFilesOption?: boolean;
@@ -23,6 +24,7 @@ type DeleteConfirmDialogProps = {
 
 export function DeleteConfirmDialog({
     confirmLabel = 'Delete',
+    defaultDeleteSessionFiles = false,
     description,
     open,
     showDeleteSessionFilesOption = false,
@@ -32,13 +34,13 @@ export function DeleteConfirmDialog({
 }: DeleteConfirmDialogProps) {
     const checkboxId = useId();
     const checkboxDescriptionId = useId();
-    const [deleteSessionFiles, setDeleteSessionFiles] = useState(false);
+    const [deleteSessionFiles, setDeleteSessionFiles] = useState(defaultDeleteSessionFiles);
 
     useEffect(() => {
         if (!open) {
-            setDeleteSessionFiles(false);
+            setDeleteSessionFiles(defaultDeleteSessionFiles);
         }
-    }, [open]);
+    }, [defaultDeleteSessionFiles, open]);
 
     return (
         <AlertDialog open={open} onOpenChange={onOpenChange}>

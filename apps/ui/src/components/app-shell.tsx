@@ -6,7 +6,7 @@ import { ThemeToggle } from './theme-toggle';
 
 const navItems = [
     { icon: LayoutDashboard, label: 'Dashboard', to: '/' },
-    { icon: FolderOpen, label: 'Projects', to: '/projects' },
+    { icon: FolderOpen, label: 'Codex', to: '/projects' },
     { icon: Sparkles, label: 'Antigravity', to: '/antigravity' },
     { icon: SquareTerminal, label: 'Cursor', to: '/cursor' },
     { icon: BarChart3, label: 'Analytics', to: '/analytics' },
@@ -29,7 +29,7 @@ export function AppShell({ children }: PropsWithChildren) {
                             </p>
                             <div>
                                 <h1 className="font-['IBM_Plex_Sans'] font-semibold text-lg tracking-[-0.02em]">
-                                    Codex Console
+                                    Spiracha Console
                                 </h1>
                             </div>
                         </div>

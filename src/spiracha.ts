@@ -35,7 +35,7 @@ export const resolveSpirachaInvocation = (argv: string[]): SpirachaInvocation =>
 
 export const getSpirachaHelpText = (): string => {
     return [
-        'spiracha - export Codex chats and Claude transcripts',
+        'spiracha - export local assistant transcripts and browse local history',
         '',
         'Usage:',
         '  spiracha',
@@ -48,7 +48,7 @@ export const getSpirachaHelpText = (): string => {
         '  codex   Export Codex chats (default when no subcommand is provided)',
         '  claude  Export a Claude transcript file or export directory',
         '  cursor  Export, recover, and prune local Cursor Agent/Composer threads',
-        '  ui      Launch the local browser UI for browsing Codex history',
+        '  ui      Launch the local browser UI for Codex, Cursor, and Antigravity history',
         '',
         'Aliases:',
         '  codex-chats',

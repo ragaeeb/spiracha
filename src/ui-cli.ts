@@ -131,7 +131,7 @@ export const parseUiCliArgs = (argv: string[]): UiCliOptions => {
 
 export const getUiHelpText = (): string => {
     return [
-        'Launch the Spiracha browser UI.',
+        'Launch the Spiracha browser UI for Codex, Cursor, and Antigravity history.',
         '',
         'Usage:',
         '  spiracha ui [--port 3000] [--host 127.0.0.1] [--db FILE] [--no-open]',

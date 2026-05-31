@@ -2,14 +2,15 @@ import type { ThreadListEntry } from '@spiracha/lib/codex-browser-types';
 import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import { RefreshCcw } from 'lucide-react';
-import { startTransition, useDeferredValue, useState } from 'react';
+import { useDeferredValue, useState } from 'react';
 import { DeleteConfirmDialog } from '#/components/delete-confirm-dialog';
 import { ExportDialog } from '#/components/export-dialog';
+import { ListSearchInput } from '#/components/list-search-input';
 import { LoadingPanel } from '#/components/loading-panel';
 import { PageHeader } from '#/components/page-header';
+import { ReloadErrorPanel } from '#/components/reload-error-panel';
 import { ThreadsTable } from '#/components/threads-table';
 import { Button } from '#/components/ui/button';
-import { Input } from '#/components/ui/input';
 import { projectThreadsQueryOptions } from '#/lib/codex-queries';
 import {
     deleteThreadFn,
@@ -20,6 +21,7 @@ import {
 } from '#/lib/codex-server';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import { useSettings } from '#/lib/settings-store';
+import { matchesTextQuery } from '#/lib/text-filter';
 
 type PendingThreadDelete = {
     threads: ThreadListEntry[];
@@ -45,21 +47,12 @@ export const Route = createFileRoute('/projects/$project')({
 function ProjectDetailErrorComponent({ error }: { error: Error }) {
     const isSqlite = error.message.includes('unable to open database') || error.message.includes('database is locked');
     return (
-        <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] px-6 py-10 text-center">
-            <p className="font-medium text-[var(--destructive)] text-sm">
-                {isSqlite ? 'Database unavailable' : 'Failed to load project'}
-            </p>
-            <p className="mt-2 text-[var(--muted-foreground)] text-sm">
-                {isSqlite ? 'Codex may have an exclusive lock on the database. Reload to retry.' : error.message}
-            </p>
-            <button
-                className="mt-4 text-[var(--accent)] text-sm underline-offset-2 hover:underline"
-                type="button"
-                onClick={() => window.location.reload()}
-            >
-                Reload
-            </button>
-        </div>
+        <ReloadErrorPanel
+            description={
+                isSqlite ? 'Codex may have an exclusive lock on the database. Reload to retry.' : error.message
+            }
+            title={isSqlite ? 'Database unavailable' : 'Failed to load Codex project'}
+        />
     );
 }
 
@@ -178,12 +171,12 @@ function ProjectDetailPage() {
     });
 
     const visibleThreads = [...threads].filter((thread) => {
-        if (!deferredSearch) {
-            return true;
-        }
-
-        const haystack = `${thread.thread.title}\n${thread.thread.preview}`.toLowerCase();
-        return haystack.includes(deferredSearch);
+        return matchesTextQuery(deferredSearch, [
+            thread.thread.title,
+            thread.thread.preview,
+            thread.thread.model,
+            thread.thread.id,
+        ]);
     });
 
     const lookupSelectedThreads = (threadIds: string[]) => {
@@ -206,19 +199,14 @@ function ProjectDetailPage() {
                             <RefreshCcw className="mr-2 size-4" />
                             {recoverProjectMutation.isPending ? 'Recovering...' : 'Recover'}
                         </Button>
-                        <Input
-                            className="h-10 w-full rounded-full border-[var(--border)] bg-[var(--panel)] px-4 sm:w-[20rem]"
-                            placeholder="Search thread title or preview"
+                        <ListSearchInput
+                            placeholder="Search thread title, preview, or model"
                             value={searchInput}
-                            onChange={(event) => {
-                                startTransition(() => {
-                                    setSearchInput(event.target.value);
-                                });
-                            }}
+                            onValueChange={setSearchInput}
                         />
                     </div>
                 }
-                eyebrow="Project"
+                eyebrow="Codex project"
                 subtitle="Sort by any column, inspect tool call volume, manage thread records, or repair stale Codex thread metadata for this derived project."
                 title={params.project}
             />
@@ -258,6 +246,7 @@ function ProjectDetailPage() {
 
             <DeleteConfirmDialog
                 confirmLabel={deleteThreadMutation.isPending ? 'Deleting...' : 'Delete thread'}
+                defaultDeleteSessionFiles
                 description={
                     pendingDelete
                         ? pendingDelete.threads.length === 1
@@ -267,7 +256,7 @@ function ProjectDetailPage() {
                 }
                 open={pendingDelete !== null}
                 showDeleteSessionFilesOption
-                title="Delete thread from Codex DB?"
+                title="Delete Codex thread?"
                 onConfirm={({ deleteSessionFiles }) => {
                     if (!pendingDelete) {
                         return;

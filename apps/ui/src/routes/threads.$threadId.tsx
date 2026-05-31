@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tansta
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { Download, Trash2 } from 'lucide-react';
 import { useState } from 'react';
+import { Breadcrumbs } from '#/components/breadcrumbs';
 import { DeleteConfirmDialog } from '#/components/delete-confirm-dialog';
 import { ExportDialog } from '#/components/export-dialog';
 import { JsonPanel } from '#/components/json-panel';
@@ -474,6 +475,19 @@ function ThreadDetailPage() {
                         </Button>
                     </>
                 }
+                breadcrumb={
+                    <Breadcrumbs
+                        items={[
+                            { label: 'Codex', to: '/projects' },
+                            {
+                                label: snapshot.project,
+                                params: { project: snapshot.project },
+                                to: '/projects/$project',
+                            },
+                            { label: snapshot.thread.title },
+                        ]}
+                    />
+                }
                 eyebrow={snapshot.project}
                 subtitle={snapshot.thread.preview}
                 title={snapshot.thread.title}
@@ -561,6 +575,7 @@ function ThreadDetailPage() {
 
             <DeleteConfirmDialog
                 confirmLabel={deleteThreadMutation.isPending ? 'Deleting...' : 'Delete thread'}
+                defaultDeleteSessionFiles
                 description="Delete this thread from the Codex database. Enable Delete Session files if you also want to remove the rollout JSONL from disk."
                 open={deleteOpen}
                 showDeleteSessionFilesOption

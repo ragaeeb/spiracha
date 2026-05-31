@@ -1,0 +1,224 @@
+import type { AntigravityConversation } from '@spiracha/lib/antigravity-exporter-types';
+import type { AntigravityDecryptionState } from '@spiracha/lib/antigravity-keychain';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import type { MouseEventHandler, ReactNode } from 'react';
+import * as React from 'react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { AntigravityConversationsTable } from './antigravity-conversations-table';
+
+vi.mock('@tanstack/react-router', async () => {
+    return {
+        Link: ({
+            children,
+            params,
+            to,
+            ...props
+        }: {
+            children: ReactNode;
+            params?: { conversationId?: string };
+            to: string;
+        }) => {
+            const href = to.replace('$conversationId', encodeURIComponent(params?.conversationId ?? ''));
+            return (
+                <a href={href} {...props}>
+                    {children}
+                </a>
+            );
+        },
+    };
+});
+
+vi.mock('#/components/ui/dropdown-menu', async () => {
+    type DropdownMenuState = {
+        open: boolean;
+        setOpen: React.Dispatch<React.SetStateAction<boolean>>;
+    };
+
+    const DropdownMenuContext = React.createContext<DropdownMenuState | null>(null);
+
+    const useDropdownMenuState = () => {
+        const context = React.useContext(DropdownMenuContext);
+        if (!context) {
+            throw new Error('DropdownMenu mock requires a provider');
+        }
+
+        return context;
+    };
+
+    return {
+        DropdownMenu: ({ children }: { children: ReactNode }) => {
+            const [open, setOpen] = React.useState(false);
+            return <DropdownMenuContext.Provider value={{ open, setOpen }}>{children}</DropdownMenuContext.Provider>;
+        },
+        DropdownMenuContent: ({ children }: { children: ReactNode }) => {
+            const { open } = useDropdownMenuState();
+            return open ? <div>{children}</div> : null;
+        },
+        DropdownMenuItem: ({
+            children,
+            disabled,
+            onClick,
+        }: {
+            children: ReactNode;
+            disabled?: boolean;
+            onClick?: () => void;
+        }) => {
+            const { setOpen } = useDropdownMenuState();
+            return (
+                <button
+                    disabled={disabled}
+                    type="button"
+                    onClick={() => {
+                        onClick?.();
+                        setOpen(false);
+                    }}
+                >
+                    {children}
+                </button>
+            );
+        },
+        DropdownMenuTrigger: ({ children }: { children: ReactNode }) => {
+            const { open, setOpen } = useDropdownMenuState();
+
+            if (React.isValidElement(children)) {
+                const child = children as React.ReactElement<{
+                    onClick?: MouseEventHandler<HTMLButtonElement>;
+                    'aria-expanded'?: boolean;
+                    'aria-haspopup'?: string;
+                }>;
+
+                return React.cloneElement(child, {
+                    'aria-expanded': open,
+                    'aria-haspopup': 'menu',
+                    onClick: (event) => {
+                        child.props.onClick?.(event);
+                        setOpen((current) => !current);
+                    },
+                });
+            }
+
+            return (
+                <button
+                    aria-expanded={open}
+                    aria-haspopup="menu"
+                    type="button"
+                    onClick={() => setOpen((current) => !current)}
+                >
+                    {children}
+                </button>
+            );
+        },
+    };
+});
+
+const conversation: AntigravityConversation = {
+    artifactBytes: 1024,
+    artifactCount: 1,
+    artifacts: [],
+    conversationBytes: 4096,
+    conversationId: 'conversation-1',
+    conversationMtimeMs: 1_700_000_000_000,
+    conversationPath: '/tmp/conversation.pb',
+    createdAtMs: 1_700_000_000_000,
+    indexedItemCount: 7,
+    lastUpdatedAtMs: 1_700_000_100_000,
+    sourceRoot: '/Users/user/.gemini/antigravity',
+    summaryPath: '/tmp/summary.pb',
+    title: 'Investigate flaky workspace sync',
+    transcriptBytes: 2048,
+    transcriptEntryCount: 12,
+    transcriptPath: '/tmp/overview.txt',
+    transcriptSource: 'overview',
+    workspaceFolder: '/Users/user/workspace/demo',
+    workspaceKey: 'folder:/Users/user/workspace/demo',
+    workspaceLabel: 'demo',
+    workspaceUri: 'file:///Users/user/workspace/demo',
+};
+
+const lockedState: AntigravityDecryptionState = {
+    canRequestAccess: true,
+    error: null,
+    isUnlocked: false,
+    keychainAccount: 'Antigravity Key',
+    keychainService: 'Antigravity Safe Storage',
+    platform: 'darwin',
+    provider: 'keychain',
+    status: 'locked',
+};
+
+const unlockedState: AntigravityDecryptionState = {
+    ...lockedState,
+    isUnlocked: true,
+};
+
+afterEach(() => {
+    cleanup();
+});
+
+describe('AntigravityConversationsTable', () => {
+    it('should render the conversation title as a real link for opening in a new tab', () => {
+        render(
+            <AntigravityConversationsTable
+                conversations={[conversation]}
+                decryptionState={lockedState}
+                onExportArtifacts={vi.fn()}
+                onExportConversation={vi.fn()}
+            />,
+        );
+
+        const link = screen.getByRole('link', { name: /investigate flaky workspace sync/i });
+        expect(link.getAttribute('href')).toBe('/antigravity-conversations/conversation-1');
+    });
+
+    it('should show an artifacts export while transcript export stays locked', async () => {
+        render(
+            <AntigravityConversationsTable
+                conversations={[conversation]}
+                decryptionState={lockedState}
+                onExportArtifacts={vi.fn()}
+                onExportConversation={vi.fn()}
+            />,
+        );
+
+        const menuTrigger = screen
+            .getAllByRole('button')
+            .find((button) => button.getAttribute('aria-haspopup') === 'menu');
+        if (!menuTrigger) {
+            throw new Error('expected a row action menu trigger');
+        }
+
+        fireEvent.click(menuTrigger);
+
+        expect((await screen.findByText('Unlock transcript export first')).getAttribute('disabled')).not.toBeNull();
+        expect(await screen.findByText('Export artifacts')).toBeTruthy();
+    });
+
+    it('should trigger conversation and artifact exports when unlocked', async () => {
+        const onExportArtifacts = vi.fn();
+        const onExportConversation = vi.fn();
+
+        render(
+            <AntigravityConversationsTable
+                conversations={[conversation]}
+                decryptionState={unlockedState}
+                onExportArtifacts={onExportArtifacts}
+                onExportConversation={onExportConversation}
+            />,
+        );
+
+        const menuTrigger = screen
+            .getAllByRole('button')
+            .find((button) => button.getAttribute('aria-haspopup') === 'menu');
+        if (!menuTrigger) {
+            throw new Error('expected a row action menu trigger');
+        }
+
+        fireEvent.click(menuTrigger);
+        fireEvent.click(await screen.findByText('Export conversation'));
+        fireEvent.click(menuTrigger);
+        fireEvent.click(await screen.findByText('Export artifacts'));
+
+        expect(onExportConversation).toHaveBeenCalledWith(conversation);
+        expect(onExportArtifacts).toHaveBeenCalledWith(conversation);
+    });
+});

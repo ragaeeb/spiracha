@@ -2,15 +2,17 @@ import type { ReactNode } from 'react';
 
 type PageHeaderProps = {
     actions?: ReactNode;
+    breadcrumb?: ReactNode;
     eyebrow?: string;
     subtitle?: string;
     title: string;
 };
 
-export function PageHeader({ actions, eyebrow, subtitle, title }: PageHeaderProps) {
+export function PageHeader({ actions, breadcrumb, eyebrow, subtitle, title }: PageHeaderProps) {
     return (
         <div className="flex flex-col gap-4 border-[var(--border)] border-b pb-5 sm:flex-row sm:items-end sm:justify-between">
             <div className="space-y-2">
+                {breadcrumb ? <div>{breadcrumb}</div> : null}
                 {eyebrow ? (
                     <p className="font-semibold text-[11px] text-[var(--muted-foreground)] uppercase tracking-[0.18em]">
                         {eyebrow}

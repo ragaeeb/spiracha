@@ -66,7 +66,7 @@ function DashboardPage() {
                             </p>
                         </div>
                         <Link className="shrink-0 font-medium text-[var(--accent)] text-sm" to="/projects">
-                            View projects
+                            View Codex
                         </Link>
                     </div>
                     <RecentThreadsList threads={dashboard.recentThreads} />

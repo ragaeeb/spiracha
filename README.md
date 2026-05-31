@@ -6,7 +6,7 @@
 [![runtime](https://img.shields.io/badge/runtime-Bun-000000?logo=bun)](https://bun.sh)
 [![wakatime](https://wakatime.com/badge/user/a0b906ce-b8e7-4463-8bce-383238df6d4b/project/f035d5e2-fa44-4383-913b-53c2c326d8a7.svg)](https://wakatime.com/badge/user/a0b906ce-b8e7-4463-8bce-383238df6d4b/project/f035d5e2-fa44-4383-913b-53c2c326d8a7)
 
-Export local Codex chats and Claude Code transcripts to Markdown or plain text, and inspect local Codex history through a browser UI.
+Export local Codex, Claude Code, and Cursor transcripts to Markdown or plain text, and inspect Codex, Cursor, and Antigravity history through a browser UI.
 
 ## Quick Start
 
@@ -23,13 +23,17 @@ Published package usage, once the package is available on npm:
 bunx spiracha
 bunx spiracha ui
 bunx spiracha claude /path/to/session-export.jsonl --output-format txt
+bunx spiracha cursor list
 ```
 
 ## Features
 
 - Export Codex session transcripts from local `.codex` history
-- Browse local Codex projects and threads in a TanStack Start UI
-- Inspect transcript timelines, tool calls, thread metadata, and raw Codex event context
+- Export Cursor Agent/Composer threads from local Cursor storage
+- Browse Codex, Cursor, and Antigravity history in a TanStack Start UI
+- Inspect Codex thread timelines, tool calls, thread metadata, and raw event context
+- Inspect Cursor workspace inventories, recover split storage buckets, and export or delete workspace threads
+- Inspect Antigravity workspaces, unlock transcript export through macOS Keychain, and export conversation transcripts or generated artifacts
 - Delete threads or derived projects from the Codex SQLite database after confirmation
 - Download thread exports directly from the UI as Markdown or plain text, with optional metadata, commentary, and tool-call inclusion
 - View dashboard and analytics summaries, including token totals and tool-call frequency
@@ -40,6 +44,7 @@ bunx spiracha claude /path/to/session-export.jsonl --output-format txt
 - Include command logs with `--tools`
 - Write Markdown or real plain-text output with `--output-format md|txt`
 - Export Claude Code transcript `.jsonl` files or export directories
+- Export, recover, and prune Cursor chat history from the CLI
 - Run the same export flows through an MCP server and a local Codex plugin
 
 ## Install
@@ -106,6 +111,12 @@ Useful flags:
 - `--db <path>`: override the Codex SQLite path used by the UI
 - `--no-open`: do not open the browser automatically
 
+The UI currently includes:
+- a Codex inventory and derived-project detail flow
+- a Cursor workspace inventory and workspace-thread detail flow
+- an Antigravity workspace inventory and conversation detail flow
+- a Codex dashboard, Codex thread detail view, and Codex analytics page
+
 The thread detail page also supports a direct UUID shortcut route. Pasting `http://localhost:3000/<thread-id>` redirects to `/threads/<thread-id>`.
 
 Examples:
@@ -147,6 +158,31 @@ Legacy aliases remain available for compatibility:
 bunx codex-chats
 bunx codex-chats-claude
 ```
+
+### Cursor exports
+
+```bash
+bunx spiracha cursor <subcommand> [options]
+```
+
+Examples:
+
+```bash
+bunx spiracha cursor list
+bunx spiracha cursor list --query summer
+bunx spiracha cursor export --workspace summer --output-dir ./cursor-exports
+bunx spiracha cursor export --thread <composer-id> --output-format txt
+bunx spiracha cursor recover --workspace summer --apply
+bunx spiracha cursor prune --workspace summer --apply
+```
+
+Repo-local equivalent during development:
+
+```bash
+bun run ./src/export-cursor.ts --help
+```
+
+Antigravity conversation browsing and export currently live in the browser UI rather than a standalone CLI subcommand.
 
 ## MCP server
 
@@ -208,14 +244,17 @@ This builds the app, packs the tarball, launches `bunx --package <tgz> spiracha 
 
 ## Project Layout
 
-- `apps/ui/`: TanStack Start browser app for browsing, analytics, export, and delete flows
+- `apps/ui/`: TanStack Start browser app for Codex, Cursor, and Antigravity browsing plus export and delete flows
 - `src/export-chats.ts`: Codex CLI wrapper
 - `src/export-claude.ts`: Claude CLI wrapper
+- `src/export-cursor.ts`: Cursor CLI wrapper
 - `src/mcp-server.ts`: MCP server entrypoint
+- `src/lib/antigravity-*.ts`: Antigravity workspace discovery, transcript rendering, and Keychain helpers
 - `src/lib/codex-exporter-*.ts`: Codex exporter modules
 - `src/lib/codex-browser-*.ts`: shared browser/UI data, analytics, and export helpers
 - `src/lib/codex-thread-*.ts`: structured transcript parsing and caching helpers
 - `src/lib/claude-exporter.ts`: Claude exporter implementation
+- `src/lib/cursor-*.ts`: Cursor discovery, transcript rendering, recovery, and CLI helpers
 - `plugins/codex-chats-export/`: local Codex plugin bundle
 
 ## Testing
@@ -223,6 +262,8 @@ This builds the app, packs the tarball, launches `bunx --package <tgz> spiracha 
 The test suite includes:
 - Codex exporter end-to-end coverage
 - Claude exporter end-to-end coverage
+- Cursor exporter and recovery coverage
+- Antigravity discovery and export coverage
 - Codex CLI helper tests
 - transcript rendering helper tests
 - MCP stdio protocol round-trip tests

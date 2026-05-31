@@ -30,16 +30,16 @@ describe('AppShell', () => {
             </AppShell>,
         );
 
-        expect(screen.getByText('Codex Console')).toBeTruthy();
+        expect(screen.getByText('Spiracha Console')).toBeTruthy();
         expect(screen.getByText('Theme switcher')).toBeTruthy();
         expect(screen.getByText('Content area')).toBeTruthy();
-        expect(screen.getByRole('link', { name: /Projects/i }).className).toContain('bg-[var(--accent-muted)]');
+        expect(screen.getByRole('link', { name: /Codex/i }).className).toContain('bg-[var(--accent-muted)]');
         expect(screen.getByRole('link', { name: /Dashboard/i }).className).toContain(
             'hover:bg-[var(--panel-secondary)]',
         );
         expect(screen.getAllByRole('link').map((link) => link.textContent)).toEqual([
             'Dashboard',
-            'Projects',
+            'Codex',
             'Antigravity',
             'Cursor',
             'Analytics',

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This repo exports local Codex chats, Claude Code transcripts, and Cursor Agent/Composer threads to Markdown or plain text.
+This repo exports local Codex chats, Claude Code transcripts, and Cursor Agent/Composer threads to Markdown or plain text, and the UI also browses local Antigravity conversation history.
 
 Main entrypoints:
 - `bun start ...` for Codex chat export
@@ -10,7 +10,7 @@ Main entrypoints:
 - `bun run export:claude -- ...` for Claude transcript export
 - `bun run ./src/export-cursor.ts ...` (or `spiracha cursor ...`) for Cursor thread export, recovery, and prune
 - `bun run mcp` for the MCP server used by the local Codex plugin
-- `bun run ui:dev` for the local browser UI
+- `bun run ui:dev` for the local browser UI across Codex, Cursor, and Antigravity data
 - published package entrypoints:
   - `bunx spiracha`
   - `bunx spiracha ui`
@@ -73,6 +73,14 @@ Cursor exporter modules:
 - `src/lib/cursor-exporter-types.ts`
   - shared Cursor types and macOS Cursor data-dir path resolution (`SPIRACHA_CURSOR_USER_DIR` override)
 
+Antigravity browser/export modules:
+- `src/lib/antigravity-db.ts`
+  - Antigravity workspace discovery, summary-index parsing, transcript lookup, and Markdown rendering
+- `src/lib/antigravity-exporter-types.ts`
+  - shared Antigravity workspace and conversation types plus default data-dir resolution
+- `src/lib/antigravity-keychain.ts`
+  - macOS Keychain access and safe-storage decryption helpers for Antigravity transcript export
+
 Other important files:
 - `src/lib/claude-exporter.ts`
   - Claude transcript export pipeline
@@ -91,12 +99,14 @@ Other important files:
 - `plugins/codex-chats-export/`
   - local Codex plugin manifest, skill, and MCP wiring
 - `apps/ui/`
-  - TanStack Start browser UI package
+  - TanStack Start browser UI package for Codex, Cursor, and Antigravity
 
 ## Test Strategy
 
 Current tests cover:
 - exporter end-to-end behavior for Codex and Claude
+- Cursor export, recovery, and pruning behavior
+- Antigravity discovery, transcript parsing, and artifact export rendering
 - structured Codex transcript parsing
 - project/thread browsing and destructive DB flows
 - analytics aggregation
@@ -131,6 +141,7 @@ rtk bun start
 rtk bun start -- --help
 rtk bun start --interactive
 rtk bun run export:claude -- --help
+rtk bun run ./src/export-cursor.ts -- --help
 rtk bun run mcp
 rtk bun run ui:dev
 ```
@@ -168,11 +179,21 @@ rtk bunx spiracha claude /path/to/transcript --output-format txt
 rtk bun run export:claude -- /path/to/export-dir --output-format txt
 ```
 
+Example Cursor export:
+
+```bash
+rtk bunx spiracha cursor list
+rtk bunx spiracha cursor export --workspace summer
+rtk bunx spiracha cursor export --thread <composer-id> --output-format txt
+rtk bunx spiracha cursor recover --workspace summer --apply
+```
+
 ## Notes
 
 - `--project` matches the final `cwd` path segment for both POSIX and Windows-style paths, not the full path.
 - Running `codex-chats` or `bun start` with no args enters interactive mode.
 - Codex MCP exports must be scoped by at least one of `deeplinks`, `project`, or `cwd`.
+- Antigravity browsing/export currently ships through the browser UI rather than a standalone CLI command.
 - `txt` output is intentionally real plain text, not Markdown with a `.txt` extension.
 - The published package is Bun-first. `bin` entrypoints target Bun shebang execution.
 - The UI package runs `vite` through `bun --bun ...` because its server functions depend on Bun-only modules like `bun:sqlite`.

@@ -77,8 +77,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
                 name: 'viewport',
             },
             {
-                content:
-                    'Browse local Codex threads, projects, tool calls, and analytics through a compact workspace UI.',
+                content: 'Browse local Codex, Cursor, and Antigravity history through a compact workspace UI.',
                 name: 'description',
             },
             {
