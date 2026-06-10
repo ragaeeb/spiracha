@@ -6,6 +6,7 @@ import { convertSessionFile, writeSessionFileExport } from './codex-exporter-tra
 import type { CodexCliOptions } from './codex-exporter-types';
 import { applyPathTransforms, type PathDisplaySettings } from './path-transforms';
 import { type ExportFormat, getPortablePathBasename } from './shared';
+import { getExportMimeType, sanitizeExportFileName, zipExportDirectory, zipExportFile } from './ui-export-archive';
 import { buildUiExportDownloadUrl, ensureUiExportDir } from './ui-export-files';
 
 type RenderCodexThreadDownloadInput = {
@@ -41,14 +42,6 @@ export type CodexThreadDownload =
 
 const LARGE_BROWSER_EXPORT_THRESHOLD_BYTES = 128 * 1024 * 1024;
 
-const toSanitizedFileName = (value: string) => {
-    return value
-        .replace(/[<>:"/\\|?*\u0000-\u001f]/gu, ' ')
-        .replace(/\.\.+/gu, ' ')
-        .replace(/\s+/gu, ' ')
-        .trim();
-};
-
 const formatReadableExportDate = (value: number) => {
     const date = new Date(value);
     const year = date.getUTCFullYear();
@@ -60,7 +53,7 @@ const formatReadableExportDate = (value: number) => {
 };
 
 const buildExportBaseName = (thread: ReturnType<typeof getThreadBrowseData>['thread']) => {
-    const projectName = toSanitizedFileName(getPortablePathBasename(thread.cwd) || 'thread') || 'thread';
+    const projectName = sanitizeExportFileName(getPortablePathBasename(thread.cwd) || 'thread') || 'thread';
     const timestamp = thread.updated_at_ms ?? thread.updated_at * 1000;
     return `${projectName}-${formatReadableExportDate(timestamp)}-${thread.id.slice(0, 8)}`;
 };
@@ -71,7 +64,7 @@ const buildBatchExportBaseName = (threads: Array<ReturnType<typeof getThreadBrow
         throw new Error('No threads selected for export');
     }
 
-    const projectName = toSanitizedFileName(getPortablePathBasename(firstThread.cwd) || 'threads') || 'threads';
+    const projectName = sanitizeExportFileName(getPortablePathBasename(firstThread.cwd) || 'threads') || 'threads';
     const latestTimestamp = Math.max(...threads.map((thread) => thread.updated_at_ms ?? thread.updated_at * 1000));
     return `${projectName}-${formatReadableExportDate(latestTimestamp)}-threads-${threads.length}`;
 };
@@ -112,10 +105,6 @@ const toDownloadOptions = (input: RenderCodexThreadDownloadInput): CodexCliOptio
     };
 };
 
-const getMimeType = (outputFormat: ExportFormat) => {
-    return outputFormat === 'md' ? 'text/markdown; charset=utf-8' : 'text/plain; charset=utf-8';
-};
-
 const resolvePublicExportDir = async (publicExportDir?: string) => {
     if (publicExportDir) {
         await ensureDirectory(publicExportDir);
@@ -147,7 +136,6 @@ const logExportEvent = (level: 'error' | 'info' | 'warn', event: string, details
 
 const logRolloutChangeIfDetected = (
     threadId: string,
-    rolloutPath: string,
     beforeSnapshot: RolloutSnapshot,
     afterSnapshot: RolloutSnapshot,
 ) => {
@@ -160,7 +148,6 @@ const logRolloutChangeIfDetected = (
         afterSizeBytes: afterSnapshot.sizeBytes,
         beforeMtimeMs: beforeSnapshot.mtimeMs,
         beforeSizeBytes: beforeSnapshot.sizeBytes,
-        rolloutPath,
         threadId,
     });
 };
@@ -176,39 +163,6 @@ const cleanupExportWorkspace = async (workspacePath: string) => {
     }
 };
 
-const zipExportFile = async (sourcePath: string, zipPath: string) => {
-    const proc = Bun.spawn(['zip', '-9', '-j', zipPath, sourcePath], {
-        stderr: 'pipe',
-        stdout: 'pipe',
-    });
-    const [stdoutText, stderrText, exitCode] = await Promise.all([
-        new Response(proc.stdout).text(),
-        new Response(proc.stderr).text(),
-        proc.exited,
-    ]);
-
-    if (exitCode !== 0) {
-        throw new Error(`zip failed (${exitCode}): ${(stderrText || stdoutText).trim()}`);
-    }
-};
-
-const zipExportDirectory = async (sourceDirectory: string, zipPath: string) => {
-    const proc = Bun.spawn(['zip', '-9', '-r', zipPath, '.'], {
-        cwd: sourceDirectory,
-        stderr: 'pipe',
-        stdout: 'pipe',
-    });
-    const [stdoutText, stderrText, exitCode] = await Promise.all([
-        new Response(proc.stdout).text(),
-        new Response(proc.stderr).text(),
-        proc.exited,
-    ]);
-
-    if (exitCode !== 0) {
-        throw new Error(`zip failed (${exitCode}): ${(stderrText || stdoutText).trim()}`);
-    }
-};
-
 export const renderCodexThreadDownload = async (
     input: RenderCodexThreadDownloadInput,
 ): Promise<CodexThreadDownload> => {
@@ -217,7 +171,7 @@ export const renderCodexThreadDownload = async (
     const extension = input.outputFormat === 'md' ? 'md' : 'txt';
     const fileBaseName = buildExportBaseName(browseData.thread);
     const fileName = `${fileBaseName}.${extension}`;
-    const mimeType = getMimeType(input.outputFormat);
+    const mimeType = getExportMimeType(input.outputFormat);
     const transform = (text: string) =>
         input.pathDisplaySettings
             ? applyPathTransforms(text, {
@@ -229,7 +183,6 @@ export const renderCodexThreadDownload = async (
 
     logExportEvent('info', 'single_start', {
         fileName,
-        rolloutPath: browseData.thread.rollout_path,
         sizeBytes: rolloutSnapshotBefore.sizeBytes,
         threadId: input.threadId,
     });
@@ -268,12 +221,7 @@ export const renderCodexThreadDownload = async (
             }
 
             const rolloutSnapshotAfter = await getRolloutSnapshot(browseData.thread.rollout_path);
-            logRolloutChangeIfDetected(
-                input.threadId,
-                browseData.thread.rollout_path,
-                rolloutSnapshotBefore,
-                rolloutSnapshotAfter,
-            );
+            logRolloutChangeIfDetected(input.threadId, rolloutSnapshotBefore, rolloutSnapshotAfter);
 
             const zipStat = await Bun.file(zipPath).stat();
             logExportEvent('info', 'single_zip_ready', {
@@ -309,12 +257,7 @@ export const renderCodexThreadDownload = async (
         }
 
         const rolloutSnapshotAfter = await getRolloutSnapshot(browseData.thread.rollout_path);
-        logRolloutChangeIfDetected(
-            input.threadId,
-            browseData.thread.rollout_path,
-            rolloutSnapshotBefore,
-            rolloutSnapshotAfter,
-        );
+        logRolloutChangeIfDetected(input.threadId, rolloutSnapshotBefore, rolloutSnapshotAfter);
         logExportEvent('info', 'single_inline_ready', {
             durationMs: Date.now() - startedAt,
             fileName,
@@ -414,12 +357,7 @@ export const renderCodexThreadsDownload = async (
             }
 
             const rolloutSnapshotAfter = await getRolloutSnapshot(entry.thread.rollout_path);
-            logRolloutChangeIfDetected(
-                entry.thread.id,
-                entry.thread.rollout_path,
-                rolloutSnapshotBefore,
-                rolloutSnapshotAfter,
-            );
+            logRolloutChangeIfDetected(entry.thread.id, rolloutSnapshotBefore, rolloutSnapshotAfter);
         }
 
         await zipExportDirectory(bundleDirectory, zipPath);

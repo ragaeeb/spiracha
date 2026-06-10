@@ -15,6 +15,7 @@ type DeleteConfirmDialogProps = {
     confirmLabel?: string;
     defaultDeleteSessionFiles?: boolean;
     description: string;
+    errorMessage?: string | null;
     open: boolean;
     showDeleteSessionFilesOption?: boolean;
     title: string;
@@ -26,6 +27,7 @@ export function DeleteConfirmDialog({
     confirmLabel = 'Delete',
     defaultDeleteSessionFiles = false,
     description,
+    errorMessage = null,
     open,
     showDeleteSessionFilesOption = false,
     title,
@@ -70,6 +72,7 @@ export function DeleteConfirmDialog({
                         </span>
                     </div>
                 ) : null}
+                {errorMessage ? <p className="text-[var(--destructive)] text-sm">{errorMessage}</p> : null}
                 <AlertDialogFooter>
                     <AlertDialogCancel className="border-[var(--border)]">Cancel</AlertDialogCancel>
                     <AlertDialogAction

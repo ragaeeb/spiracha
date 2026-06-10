@@ -113,4 +113,19 @@ describe('DeleteConfirmDialog', () => {
             'true',
         );
     });
+
+    it('should show delete errors inside the open dialog', () => {
+        render(
+            <DeleteConfirmDialog
+                description="Delete this thread."
+                errorMessage="Quit Cursor before deleting."
+                open
+                title="Delete thread?"
+                onConfirm={vi.fn()}
+                onOpenChange={vi.fn()}
+            />,
+        );
+
+        expect(screen.getByText('Quit Cursor before deleting.')).toBeTruthy();
+    });
 });

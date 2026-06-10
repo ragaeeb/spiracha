@@ -377,33 +377,45 @@ const CursorThreadDetailPage = () => {
                 </TabsContent>
             </Tabs>
 
-            {deleteThreadMutation.isError ? (
-                <p className="text-[var(--destructive)] text-sm">
-                    {deleteThreadMutation.error instanceof Error ? deleteThreadMutation.error.message : 'Delete failed'}
-                </p>
-            ) : null}
-
-            {exportThreadMutation.isError ? (
-                <p className="text-[var(--destructive)] text-sm">
-                    {exportThreadMutation.error instanceof Error ? exportThreadMutation.error.message : 'Export failed'}
-                </p>
-            ) : null}
-
             <DeleteConfirmDialog
                 confirmLabel={deleteThreadMutation.isPending ? 'Deleting...' : 'Delete thread'}
                 description={`Permanently delete "${detail.thread.name}" from Cursor's database and remove any on-disk transcript directories. Quit Cursor first. This cannot be undone.`}
+                errorMessage={
+                    deleteThreadMutation.isError
+                        ? deleteThreadMutation.error instanceof Error
+                            ? deleteThreadMutation.error.message
+                            : 'Delete failed'
+                        : null
+                }
                 open={pendingDelete}
                 title="Delete Cursor thread?"
                 onConfirm={() => deleteThreadMutation.mutate()}
-                onOpenChange={setPendingDelete}
+                onOpenChange={(nextOpen) => {
+                    setPendingDelete(nextOpen);
+                    if (!nextOpen) {
+                        deleteThreadMutation.reset();
+                    }
+                }}
             />
 
             <ExportDialog
+                errorMessage={
+                    exportThreadMutation.isError
+                        ? exportThreadMutation.error instanceof Error
+                            ? exportThreadMutation.error.message
+                            : 'Export failed'
+                        : null
+                }
                 open={pendingExport}
                 pending={exportThreadMutation.isPending}
                 title={`Export ${detail.thread.name}`}
                 onExport={(options) => exportThreadMutation.mutate(options)}
-                onOpenChange={setPendingExport}
+                onOpenChange={(nextOpen) => {
+                    setPendingExport(nextOpen);
+                    if (!nextOpen) {
+                        exportThreadMutation.reset();
+                    }
+                }}
             />
         </div>
     );

@@ -131,6 +131,17 @@ describe('antigravity db discovery', () => {
         });
     });
 
+    it('should ignore artifact directories whose names are not safe conversation ids', async () => {
+        const root = await makeRoot();
+        const unsafeArtifactDir = path.join(root, 'brain', '..not-a-conversation-id');
+        await mkdir(unsafeArtifactDir, { recursive: true });
+        await Bun.write(path.join(unsafeArtifactDir, 'notes.md'), '# Notes\n');
+
+        const conversations = await listAntigravityConversations([root]);
+
+        expect(conversations).toEqual([]);
+    });
+
     it('should group conversations by Antigravity workspace and keep unknown chats separate', async () => {
         const root = await makeRoot();
         await Bun.write(

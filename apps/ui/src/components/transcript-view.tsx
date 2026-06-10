@@ -1,7 +1,7 @@
 import type { ThreadEvent } from '@spiracha/lib/codex-browser-types';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Check, Copy } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Badge } from '#/components/ui/badge';
 import { Button } from '#/components/ui/button';
 import { Checkbox } from '#/components/ui/checkbox';
@@ -77,7 +77,15 @@ const getMessageTitle = (event: Extract<ThreadEvent, { kind: 'message' }>, assis
         return event.role === 'assistant' ? modelLabel : 'Assistant update';
     }
 
-    return event.role === 'assistant' ? modelLabel : 'User';
+    if (event.role === 'assistant') {
+        return modelLabel;
+    }
+
+    return event.role === 'system' ? 'System' : 'User';
+};
+
+const assertNever = (value: never): never => {
+    throw new Error(`Unhandled transcript event kind: ${JSON.stringify(value)}`);
 };
 
 const getNonMessageTitle = (event: Exclude<ThreadEvent, { kind: 'message' }>) => {
@@ -96,6 +104,8 @@ const getNonMessageTitle = (event: Exclude<ThreadEvent, { kind: 'message' }>) =>
             return 'Reasoning';
         case 'web_search':
             return 'Web search';
+        default:
+            return assertNever(event);
     }
 };
 
@@ -146,6 +156,22 @@ const getEventMarkdownBody = (event: ThreadEvent, transform: Transform) => {
 
 const getEventMarkdown = (event: ThreadEvent, assistantModel: string | null, transform: Transform) =>
     `## ${getEventTitle(event, assistantModel)}\n\n${getEventMarkdownBody(event, transform)}`;
+
+const buildEventKey = (event: ThreadEvent, index: number) => {
+    if (event.kind === 'tool_call') {
+        return `${event.kind}-${event.sequence}-${event.callId ?? event.timestamp ?? event.name}-${index}`;
+    }
+
+    if (event.kind === 'tool_output') {
+        return `${event.kind}-${event.sequence}-${event.callId ?? event.timestamp ?? 'output'}-${index}`;
+    }
+
+    if (event.kind === 'message') {
+        return `${event.kind}-${event.sequence}-${event.variant}-${event.timestamp ?? event.role}-${index}`;
+    }
+
+    return `${event.kind}-${event.sequence}-${event.timestamp ?? 'event'}-${index}`;
+};
 
 const renderMessageBody = (event: Extract<ThreadEvent, { kind: 'message' }>, t: Transform) => (
     <p className="min-w-0 whitespace-pre-wrap break-words text-sm leading-6 [overflow-wrap:anywhere]">
@@ -304,8 +330,12 @@ export function TranscriptView({
     showUserMessages = true,
 }: TranscriptViewProps) {
     const { settings } = useSettings();
-    const visibleEvents = events.filter((event) =>
-        shouldShowEvent(event, showToolCalls, showExtraEvents, showCommentary, showUserMessages),
+    const visibleEvents = useMemo(
+        () =>
+            events.filter((event) =>
+                shouldShowEvent(event, showToolCalls, showExtraEvents, showCommentary, showUserMessages),
+            ),
+        [events, showCommentary, showExtraEvents, showToolCalls, showUserMessages],
     );
     const [copiedEventKeys, setCopiedEventKeys] = useState<string[]>([]);
     const [copiedSelection, setCopiedSelection] = useState(false);
@@ -314,25 +344,18 @@ export function TranscriptView({
     const parentRef = useRef<HTMLDivElement | null>(null);
     const timeoutIdsRef = useRef<number[]>([]);
     const useVirtualList = visibleEvents.length > 40;
-    const getEventKey = (event: ThreadEvent) => {
-        if (event.kind === 'tool_call') {
-            return `${event.kind}-${event.sequence}-${event.callId ?? event.timestamp ?? event.name}`;
-        }
-
-        if (event.kind === 'tool_output') {
-            return `${event.kind}-${event.sequence}-${event.callId ?? event.timestamp ?? 'output'}`;
-        }
-
-        if (event.kind === 'message') {
-            return `${event.kind}-${event.sequence}-${event.variant}-${event.timestamp ?? event.role}`;
-        }
-
-        return `${event.kind}-${event.sequence}-${event.timestamp ?? 'event'}`;
-    };
+    const eventKeyByEvent = useMemo(
+        () => new Map(events.map((event, index) => [event, buildEventKey(event, index)])),
+        [events],
+    );
+    const getEventKey = (event: ThreadEvent) => eventKeyByEvent.get(event) ?? buildEventKey(event, -1);
     const transform = (text: string) => applyPathTransforms(text, settings, projectPath);
-    const visibleEventKeys = visibleEvents.map(getEventKey);
-    const visibleEventKeySet = new Set(visibleEventKeys);
-    const selectedEventKeySet = new Set(selectedEventKeys);
+    const visibleEventKeys = useMemo(
+        () => visibleEvents.map((event) => eventKeyByEvent.get(event) ?? buildEventKey(event, -1)),
+        [visibleEvents, eventKeyByEvent],
+    );
+    const visibleEventKeySet = useMemo(() => new Set(visibleEventKeys), [visibleEventKeys]);
+    const selectedEventKeySet = useMemo(() => new Set(selectedEventKeys), [selectedEventKeys]);
     const virtualizer = useVirtualizer({
         count: useVirtualList ? visibleEvents.length : 0,
         estimateSize: () => 160,
@@ -373,7 +396,11 @@ export function TranscriptView({
         }, 1500);
     };
 
-    const visibleSelectedKeys = selectedEventKeys.filter((key) => visibleEventKeySet.has(key));
+    const visibleSelectedKeys = useMemo(
+        () => selectedEventKeys.filter((key) => visibleEventKeySet.has(key)),
+        [selectedEventKeys, visibleEventKeySet],
+    );
+    const visibleSelectedKeySet = useMemo(() => new Set(visibleSelectedKeys), [visibleSelectedKeys]);
     const allVisibleSelected = visibleEvents.length > 0 && visibleSelectedKeys.length === visibleEvents.length;
 
     const handleSelectionChange = (event: ThreadEvent, checked: boolean) => {
@@ -406,7 +433,7 @@ export function TranscriptView({
     };
 
     const handleCopySelected = async () => {
-        const selectedEvents = visibleEvents.filter((event) => visibleSelectedKeys.includes(getEventKey(event)));
+        const selectedEvents = visibleEvents.filter((event) => visibleSelectedKeySet.has(getEventKey(event)));
         if (selectedEvents.length === 0) {
             return;
         }

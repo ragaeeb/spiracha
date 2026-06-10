@@ -96,6 +96,7 @@ describe('ExportDialog', () => {
         const zipArchive = screen.getByRole('checkbox', { name: /zip archive/i }) as HTMLButtonElement;
         expect(zipArchive.getAttribute('aria-checked')).toBe('true');
         expect(zipArchive.disabled).toBe(true);
+        expect(screen.getByText('Required when exporting multiple threads.')).toBeTruthy();
 
         fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
 
@@ -106,5 +107,33 @@ describe('ExportDialog', () => {
             outputFormat: 'md',
             zipArchive: true,
         });
+    });
+
+    it('should reset local options after closing and reopening', () => {
+        const onExport = vi.fn();
+        const { rerender } = render(<ExportDialog open onExport={onExport} onOpenChange={vi.fn()} />);
+
+        fireEvent.click(screen.getByRole('checkbox', { name: /include metadata/i }));
+        fireEvent.click(screen.getByRole('checkbox', { name: /include commentary/i }));
+        fireEvent.click(screen.getByRole('checkbox', { name: /zip archive/i }));
+
+        rerender(<ExportDialog open={false} onExport={onExport} onOpenChange={vi.fn()} />);
+        rerender(<ExportDialog open onExport={onExport} onOpenChange={vi.fn()} />);
+
+        fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
+
+        expect(onExport).toHaveBeenLastCalledWith({
+            includeCommentary: false,
+            includeMetadata: true,
+            includeTools: true,
+            outputFormat: 'md',
+            zipArchive: false,
+        });
+    });
+
+    it('should show export errors inline while dialog remains open', () => {
+        render(<ExportDialog errorMessage="Could not export thread" open onExport={vi.fn()} onOpenChange={vi.fn()} />);
+
+        expect(screen.getByText('Could not export thread')).toBeTruthy();
     });
 });

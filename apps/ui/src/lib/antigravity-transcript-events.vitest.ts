@@ -49,6 +49,11 @@ const markdown = [
 ].join('\n');
 
 describe('antigravityMarkdownToThreadEvents', () => {
+    it('should return no events for empty transcript markdown', () => {
+        expect(antigravityMarkdownToThreadEvents(null)).toEqual([]);
+        expect(antigravityMarkdownToThreadEvents('')).toEqual([]);
+    });
+
     it('should adapt rendered Antigravity transcript markdown into transcript-view events', () => {
         const events = antigravityMarkdownToThreadEvents(markdown);
 
@@ -201,7 +206,7 @@ describe('antigravityMarkdownToThreadEvents', () => {
         );
     });
 
-    it('should keep a final answer visible when Antigravity transcript ends after tool use', () => {
+    it('should not promote pre-tool assistant text to final answer when the transcript ends after tool use', () => {
         const events = antigravityMarkdownToThreadEvents(
             [
                 '## User',
@@ -234,11 +239,12 @@ describe('antigravityMarkdownToThreadEvents', () => {
         expect(events).toContainEqual(
             expect.objectContaining({
                 kind: 'message',
-                phase: 'final_answer',
+                phase: 'commentary',
                 role: 'assistant',
                 text: 'Now let me check the dispatch prompt path reference:',
             }),
         );
+        expect(events).not.toContainEqual(expect.objectContaining({ kind: 'message', phase: 'final_answer' }));
         expect(events).toContainEqual(
             expect.objectContaining({
                 kind: 'tool_output',

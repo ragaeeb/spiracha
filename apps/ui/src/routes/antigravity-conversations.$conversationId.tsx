@@ -102,6 +102,7 @@ const buildTranscriptStatsItems = (
         { label: 'Commentary updates', value: formatNumber(stats.commentaryCount) },
         { label: 'Final answers', value: formatNumber(stats.finalAnswerCount) },
         { label: 'Tool calls', value: formatNumber(stats.toolCallCount) },
+        { label: 'Tool outputs', value: formatNumber(stats.toolOutputCount) },
     ];
 };
 

@@ -1,4 +1,5 @@
 import { constants, Database } from 'bun:sqlite';
+import { createHash } from 'node:crypto';
 import { readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import {
@@ -109,13 +110,29 @@ const normalizeCursorPath = (value: string): string => {
     return decoded.replace(/\/+$/u, '') || decoded;
 };
 
+const warnCursorDataIssue = (event: string, details: Record<string, unknown>) => {
+    console.warn(`[spiracha:cursor] ${event}`, details);
+};
+
+const stripJsonComments = (value: string): string => {
+    return value.replace(/\/\*[\s\S]*?\*\//gu, '').replace(/(^|\s)\/\/.*$/gmu, '$1');
+};
+
+const parseCodeWorkspaceJson = (text: string): { folders?: Array<{ path?: string }> } => {
+    try {
+        return JSON.parse(text) as { folders?: Array<{ path?: string }> };
+    } catch {
+        return JSON.parse(stripJsonComments(text)) as { folders?: Array<{ path?: string }> };
+    }
+};
+
 const parseCodeWorkspaceFolders = async (workspaceFilePath: string): Promise<string[]> => {
     if (!workspaceFilePath.endsWith('.code-workspace')) {
         return [];
     }
 
     try {
-        const data = (await Bun.file(workspaceFilePath).json()) as { folders?: Array<{ path?: string }> };
+        const data = parseCodeWorkspaceJson(await Bun.file(workspaceFilePath).text());
         const folders: string[] = [];
         for (const entry of data.folders ?? []) {
             const folderPath = entry.path;
@@ -131,18 +148,30 @@ const parseCodeWorkspaceFolders = async (workspaceFilePath: string): Promise<str
         }
 
         return folders;
-    } catch {
+    } catch (error) {
+        warnCursorDataIssue('invalid_code_workspace_json', {
+            error: error instanceof Error ? error.message : String(error),
+            workspaceFilePath,
+        });
         return [];
     }
 };
 
 export const loadGlobalComposerHeaders = (globalDbPath: string): ComposerEntry[] => {
-    const db = openCursorReadonlyDb(globalDbPath);
     try {
-        const data = readItemValue<{ allComposers?: ComposerEntry[] }>(db, COMPOSER_HEADERS_KEY);
-        return data?.allComposers ?? [];
-    } finally {
-        db.close();
+        const db = openCursorReadonlyDb(globalDbPath);
+        try {
+            const data = readItemValue<{ allComposers?: ComposerEntry[] }>(db, COMPOSER_HEADERS_KEY);
+            return data?.allComposers ?? [];
+        } finally {
+            db.close();
+        }
+    } catch (error) {
+        warnCursorDataIssue('global_composer_headers_unavailable', {
+            error: error instanceof Error ? error.message : String(error),
+            globalDbPath,
+        });
+        return [];
     }
 };
 
@@ -1059,13 +1088,92 @@ const normalizeBubbleText = (value: string | null): string => {
     return (value ?? '').replace(/\s+/gu, ' ').trim();
 };
 
-const getBubbleSignature = (bubble: CursorBubble): string => {
-    const toolCall = bubble.toolCall
-        ? [bubble.toolCall.name, bubble.toolCall.argumentsText ?? '', bubble.toolCall.resultText ?? ''].join('\u0001')
-        : '';
-    return [bubble.kind, normalizeBubbleText(bubble.text), normalizeBubbleText(bubble.thinking), toolCall].join(
-        '\u0000',
+const hashText = (value: string) => createHash('sha1').update(value).digest('hex').slice(0, 12);
+
+const stableStringifyJson = (value: JsonValue): string => {
+    if (Array.isArray(value)) {
+        return `[${value.map(stableStringifyJson).join(',')}]`;
+    }
+
+    if (value && typeof value === 'object') {
+        return `{${Object.keys(value)
+            .sort()
+            .map((key) => `${JSON.stringify(key)}:${stableStringifyJson((value as Record<string, JsonValue>)[key]!)}`)
+            .join(',')}}`;
+    }
+
+    return JSON.stringify(value);
+};
+
+const normalizeToolArgumentsText = (value: string | null): string => {
+    if (!value?.trim()) {
+        return '';
+    }
+
+    try {
+        return stableStringifyJson(JSON.parse(value) as JsonValue);
+    } catch {
+        return normalizeBubbleText(value);
+    }
+};
+
+const hasRenderableTextSuperset = (left: string | null, right: string | null): boolean => {
+    const normalizedLeft = normalizeBubbleText(left);
+    const normalizedRight = normalizeBubbleText(right);
+    if (!normalizedLeft && !normalizedRight) {
+        return true;
+    }
+
+    return (
+        normalizedLeft === normalizedRight ||
+        normalizedLeft.startsWith(normalizedRight) ||
+        normalizedRight.startsWith(normalizedLeft)
     );
+};
+
+const haveSameToolIdentity = (left: CursorToolCall | null, right: CursorToolCall | null): boolean => {
+    if (!left && !right) {
+        return true;
+    }
+
+    if (!left || !right) {
+        return false;
+    }
+
+    return (
+        left.name === right.name &&
+        normalizeToolArgumentsText(left.argumentsText) === normalizeToolArgumentsText(right.argumentsText)
+    );
+};
+
+const areEquivalentBubbles = (left: CursorBubble, right: CursorBubble): boolean => {
+    return (
+        left.kind === right.kind &&
+        hasRenderableTextSuperset(left.text, right.text) &&
+        Boolean(normalizeBubbleText(left.thinking)) === Boolean(normalizeBubbleText(right.thinking)) &&
+        haveSameToolIdentity(left.toolCall, right.toolCall)
+    );
+};
+
+const findAgentTailStartIndex = (existingBubbles: CursorBubble[], agentBubbles: CursorBubble[]): number => {
+    const maxOverlap = Math.min(existingBubbles.length, agentBubbles.length);
+    // Agent transcript files contain the complete run while SQLite may lag or truncate the tail.
+    // Match the longest SQLite suffix to the agent prefix, then append only the remaining agent tail.
+    for (let overlapLength = maxOverlap; overlapLength > 0; overlapLength -= 1) {
+        const existingStart = existingBubbles.length - overlapLength;
+        const matches = agentBubbles
+            .slice(0, overlapLength)
+            .every((bubble, index) => areEquivalentBubbles(existingBubbles[existingStart + index]!, bubble));
+        if (matches) {
+            return overlapLength;
+        }
+    }
+
+    return 0;
+};
+
+const hasEquivalentBubble = (bubbles: CursorBubble[], candidate: CursorBubble): boolean => {
+    return bubbles.some((bubble) => areEquivalentBubbles(bubble, candidate));
 };
 
 const getAgentTranscriptContentParts = (entry: Record<string, JsonValue>): Record<string, JsonValue>[] => {
@@ -1118,7 +1226,7 @@ const parseAgentTranscriptBubble = (
         .join('\n\n');
     const toolCall = parseAgentTranscriptToolCall(parts);
     const bubble: CursorBubble = {
-        bubbleId: `agent-transcript:${path.basename(filePath)}:${lineNumber}`,
+        bubbleId: `agent-transcript:${hashText(path.resolve(filePath))}:${path.basename(filePath)}:${lineNumber}`,
         createdAtMs: null,
         kind,
         text,
@@ -1133,7 +1241,11 @@ const readCursorAgentTranscriptFile = async (filePath: string): Promise<CursorBu
     let text = '';
     try {
         text = await Bun.file(filePath).text();
-    } catch {
+    } catch (error) {
+        warnCursorDataIssue('agent_transcript_unreadable', {
+            error: error instanceof Error ? error.message : String(error),
+            filePath,
+        });
         return [];
     }
 
@@ -1146,7 +1258,12 @@ const readCursorAgentTranscriptFile = async (filePath: string): Promise<CursorBu
         let raw: JsonValue;
         try {
             raw = JSON.parse(line) as JsonValue;
-        } catch {
+        } catch (error) {
+            warnCursorDataIssue('invalid_agent_transcript_jsonl', {
+                error: error instanceof Error ? error.message : String(error),
+                filePath,
+                lineNumber: index + 1,
+            });
             continue;
         }
 
@@ -1204,24 +1321,16 @@ const mergeAgentTranscriptTail = (
     transcript: CursorThreadTranscript,
     agentBubbles: CursorBubble[],
 ): CursorThreadTranscript => {
-    const existingSignatures = new Set(transcript.bubbles.map(getBubbleSignature));
-    let lastOverlapIndex = -1;
-    for (const [index, bubble] of agentBubbles.entries()) {
-        if (existingSignatures.has(getBubbleSignature(bubble))) {
-            lastOverlapIndex = index;
-        }
-    }
-
-    const seen = new Set(existingSignatures);
+    const tailStartIndex = findAgentTailStartIndex(transcript.bubbles, agentBubbles);
+    const seen = [...transcript.bubbles];
     const appended: CursorBubble[] = [];
-    const candidates = lastOverlapIndex >= 0 ? agentBubbles.slice(lastOverlapIndex + 1) : agentBubbles;
+    const candidates = agentBubbles.slice(tailStartIndex);
     for (const bubble of candidates) {
-        const signature = getBubbleSignature(bubble);
-        if (seen.has(signature)) {
+        if (hasEquivalentBubble(seen, bubble)) {
             continue;
         }
 
-        seen.add(signature);
+        seen.push(bubble);
         appended.push(bubble);
     }
 

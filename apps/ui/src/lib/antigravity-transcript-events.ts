@@ -189,16 +189,12 @@ const buildToolOutputEvent = (
 const getFinalAssistantSectionSequences = (sections: MarkdownSection[]): Set<number> => {
     const finalAssistantSectionSequences = new Set<number>();
     let currentAssistantContentSequence: number | null = null;
-    let currentAssistantFallbackSequence: number | null = null;
 
     const flushAssistantRun = () => {
         if (currentAssistantContentSequence !== null) {
             finalAssistantSectionSequences.add(currentAssistantContentSequence);
-        } else if (currentAssistantFallbackSequence !== null) {
-            finalAssistantSectionSequences.add(currentAssistantFallbackSequence);
         }
         currentAssistantContentSequence = null;
-        currentAssistantFallbackSequence = null;
     };
 
     for (const section of sections) {
@@ -214,13 +210,10 @@ const getFinalAssistantSectionSequences = (sections: MarkdownSection[]): Set<num
 
         const { body } = extractTimestamp(section.body);
         const parsed = parseAssistantSection(body);
-        if (parsed.content && parsed.toolCalls.length === 0) {
+        if (parsed.toolCalls.length > 0) {
+            currentAssistantContentSequence = null;
+        } else if (parsed.content) {
             currentAssistantContentSequence = section.sequence;
-            continue;
-        }
-
-        if (parsed.content) {
-            currentAssistantFallbackSequence = section.sequence;
         }
     }
 

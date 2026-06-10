@@ -17,6 +17,7 @@ rtk bun run coverage
 Important:
 
 - `dev`, `build`, and `preview` run through `bun --bun ...` on purpose. Do not switch them back to plain `vite` or Node execution, because the server functions import Bun-only modules such as `bun:sqlite`.
+- Keep TanStack/React runtime dependency versions aligned with the root package when both manifests list the same package. Version drift can break packaged server-function manifests in production.
 
 ## Routing
 
@@ -53,6 +54,7 @@ Use the existing layers consistently:
 
 - TanStack Start server functions in `src/lib/codex-server.ts`, `src/lib/cursor-server.ts`, and `src/lib/antigravity-server.ts`
   - Use for any browser-triggered read/write that needs Bun-only modules, DB access, filesystem access, Keychain access, or shared root-package helpers.
+  - Use `.validator(...)` for input validation. Do not add new `.inputValidator(...)` calls.
 - TanStack Query query options in `src/lib/codex-queries.ts`, `src/lib/cursor-queries.ts`, and `src/lib/antigravity-queries.ts`
   - Use for client-side fetching, caching, retries, and invalidation of server-function results.
 - Shared root-package helpers under `@spiracha/lib/*`

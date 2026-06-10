@@ -122,12 +122,8 @@ const getAssistantFinalTextIndexes = (bubbles: CursorBubble[]) => {
     };
 
     bubbles.forEach((bubble, index) => {
-        if (bubble.kind === 'user') {
-            flushAssistantRun();
-            return;
-        }
-
         if (bubble.kind !== 'assistant') {
+            flushAssistantRun();
             return;
         }
 

@@ -9,7 +9,12 @@ import { PageHeader } from '#/components/page-header';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '#/components/ui/select';
 import { analyticsQueryOptions, projectsQueryOptions } from '#/lib/codex-queries';
 import { formatNumber, formatTokens } from '#/lib/formatters';
-import { parseAnalyticsSearch, withAnalyticsProjectSearch } from '#/lib/route-search';
+import {
+    decodeAnalyticsProjectSelectValue,
+    encodeAnalyticsProjectSelectValue,
+    parseAnalyticsSearch,
+    withAnalyticsProjectSearch,
+} from '#/lib/route-search';
 
 const toolUsageColumnHelper = createColumnHelper<ToolUsageSummary>();
 const toolUsageColumns = [
@@ -64,13 +69,13 @@ function AnalyticsPage() {
             <PageHeader
                 actions={
                     <Select
-                        value={selectedProject ?? '__all__'}
+                        value={encodeAnalyticsProjectSelectValue(selectedProject)}
                         onValueChange={(value) => {
                             startTransition(() => {
                                 void navigate({
                                     replace: true,
                                     search: (previous: Record<string, unknown>) =>
-                                        withAnalyticsProjectSearch(previous, value === '__all__' ? null : value),
+                                        withAnalyticsProjectSearch(previous, decodeAnalyticsProjectSelectValue(value)),
                                 });
                             });
                         }}
@@ -81,7 +86,7 @@ function AnalyticsPage() {
                         <SelectContent>
                             <SelectItem value="__all__">All projects</SelectItem>
                             {projects.map((project) => (
-                                <SelectItem key={project.name} value={project.name}>
+                                <SelectItem key={project.name} value={encodeAnalyticsProjectSelectValue(project.name)}>
                                     {project.name}
                                 </SelectItem>
                             ))}

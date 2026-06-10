@@ -27,8 +27,10 @@ export const hashCacheKeyParts = (...parts: string[]) => {
 export const hashCacheKeyPartsIterable = (parts: Iterable<string>) => {
     const hash = createHash('sha1');
     for (const part of parts) {
+        hash.update(String(part.length));
+        hash.update(':');
         hash.update(part);
-        hash.update('|');
+        hash.update(';');
     }
 
     return hash.digest('hex');
@@ -65,7 +67,8 @@ export const getCachedJson = async <T>(key: string): Promise<T | null> => {
         return (parsed as CacheEnvelope<T>).value;
     }
 
-    return parsed as T;
+    await rm(filePath, { force: true });
+    return null;
 };
 
 export const setCachedJson = async <T>(key: string, value: T) => {

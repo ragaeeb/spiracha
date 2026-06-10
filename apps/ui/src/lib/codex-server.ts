@@ -172,6 +172,7 @@ export const exportThreadsFn = createServerFn({ method: 'POST' })
                 redactUsername: data.redactUsername,
             },
             threadIds: data.threadIds,
+            zipArchive: data.zipArchive,
         });
     });
 

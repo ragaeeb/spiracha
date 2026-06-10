@@ -203,4 +203,6 @@ rtk bunx spiracha cursor recover --workspace summer --apply
 - `txt` output is intentionally real plain text, not Markdown with a `.txt` extension.
 - The published package is Bun-first. `bin` entrypoints target Bun shebang execution.
 - The UI package runs `vite` through `bun --bun ...` because its server functions depend on Bun-only modules like `bun:sqlite`.
+- Keep UI runtime dependency versions aligned with the root package when both package manifests list the same TanStack/React runtime package; mismatched server-function manifests have broken packaged production builds.
+- TanStack Start server functions should use `.validator(...)`, not deprecated `.inputValidator(...)`.
 - `apps/ui/src/routeTree.gen.ts` is generated and should not be manually edited or lint-formatted.

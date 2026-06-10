@@ -248,6 +248,37 @@ describe('TranscriptView', () => {
         expect(screen.getByText('Implemented the requested dashboard update.')).toBeTruthy();
     });
 
+    it('should label system messages as System instead of User', () => {
+        render(
+            <TranscriptView
+                assistantModel={null}
+                events={[
+                    {
+                        isHiddenByDefault: true,
+                        kind: 'message',
+                        memoryCitation: null,
+                        model: null,
+                        phase: null,
+                        raw: {},
+                        role: 'system',
+                        sequence: 7,
+                        text: 'Background event',
+                        timestamp: null,
+                        variant: 'message',
+                    },
+                ]}
+                projectPath="/Users/example/workspace/spiracha"
+                showCommentary
+                showExtraEvents
+                showRawJson={false}
+                showToolCalls={false}
+            />,
+        );
+
+        expect(screen.getByRole('heading', { name: 'System' })).toBeTruthy();
+        expect(screen.queryByRole('heading', { name: 'User' })).toBeNull();
+    });
+
     it('should copy a single event as markdown from the per-card copy action', async () => {
         const writeText = vi.fn().mockResolvedValue(undefined);
         Object.assign(navigator, {
@@ -361,6 +392,47 @@ describe('TranscriptView', () => {
                 '## User\n\nBuild the UI',
                 '## Tool call: exec_command\n\nrtk bun test\n\n/Users/example/workspace/spiracha',
             ].join('\n\n'),
+        );
+    });
+
+    it('should keep selection keys distinct for duplicate tool-call metadata', async () => {
+        const writeText = vi.fn().mockResolvedValue(undefined);
+        Object.assign(navigator, {
+            clipboard: { writeText },
+        });
+
+        render(
+            <TranscriptView
+                assistantModel={null}
+                events={[
+                    {
+                        ...toolEvent,
+                        callId: null,
+                        command: 'first command',
+                        sequence: 12,
+                        timestamp: null,
+                    },
+                    {
+                        ...toolEvent,
+                        callId: null,
+                        command: 'second command',
+                        sequence: 12,
+                        timestamp: null,
+                    },
+                ]}
+                projectPath="/Users/example/workspace/spiracha"
+                showCommentary={false}
+                showExtraEvents={false}
+                showRawJson={false}
+                showToolCalls
+            />,
+        );
+
+        fireEvent.click(screen.getAllByRole('checkbox', { name: /select tool call: exec_command/i })[0]!);
+        fireEvent.click(screen.getAllByRole('button', { name: 'Copy selected messages' })[0]!);
+
+        expect(writeText).toHaveBeenCalledWith(
+            '## Tool call: exec_command\n\nfirst command\n\n/Users/example/workspace/spiracha',
         );
     });
 

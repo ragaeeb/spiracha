@@ -1,3 +1,14 @@
+import { randomUUID } from 'node:crypto';
+import { mkdtemp, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import {
+    getExportMimeType,
+    resolveUniqueExportFileBaseName,
+    sanitizeExportFileName,
+    zipExportDirectory,
+} from '@spiracha/lib/ui-export-archive';
+import { buildUiExportDownloadUrl, ensureUiExportDir } from '@spiracha/lib/ui-export-files';
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
 
@@ -56,58 +67,25 @@ const findGroupByKey = async (workspaceKey: string) => {
     return group;
 };
 
-const getCursorExportMimeType = (outputFormat: 'md' | 'txt') => {
-    return outputFormat === 'md' ? 'text/markdown; charset=utf-8' : 'text/plain; charset=utf-8';
-};
-
 const toSafeExportName = (value: string) => {
-    return (
-        value
-            .replace(/[<>:"/\\|?*\u0000-\u001f]/gu, ' ')
-            .replace(/\.\.+/gu, ' ')
-            .replace(/\s+/gu, ' ')
-            .trim() || 'cursor-thread'
-    );
-};
-
-const zipExportDirectory = async (sourceDirectory: string, zipPath: string) => {
-    const proc = Bun.spawn(['zip', '-9', '-r', zipPath, '.'], {
-        cwd: sourceDirectory,
-        stderr: 'pipe',
-        stdout: 'pipe',
-    });
-    const [stdoutText, stderrText, exitCode] = await Promise.all([
-        new Response(proc.stdout).text(),
-        new Response(proc.stderr).text(),
-        proc.exited,
-    ]);
-
-    if (exitCode !== 0) {
-        throw new Error(`zip failed (${exitCode}): ${(stderrText || stdoutText).trim()}`);
-    }
+    return sanitizeExportFileName(value) || 'cursor-thread';
 };
 
 const renderCursorZipDownload = async (
     rendered: Array<{ composerId: string; content: string }>,
     outputFormat: 'md' | 'txt',
 ) => {
-    const { randomUUID } = await import('node:crypto');
-    const { mkdtemp, rm } = await import('node:fs/promises');
-    const os = await import('node:os');
-    const path = await import('node:path');
-    const { buildUiExportDownloadUrl, ensureUiExportDir } = await import('@spiracha/lib/ui-export-files');
     const exportDir = await ensureUiExportDir();
     const exportBaseName =
         rendered.length === 1 ? `${toSafeExportName(rendered[0]!.composerId)}` : `cursor-threads-${rendered.length}`;
     const workspaceDir = await mkdtemp(path.join(os.tmpdir(), `${exportBaseName}-`));
     const zipPath = path.join(exportDir, `${exportBaseName}-${randomUUID()}.zip`);
-    const usedNames = new Set<string>();
+    const usedBaseNames = new Map<string, number>();
 
     try {
         for (const entry of rendered) {
             const baseName = toSafeExportName(entry.composerId);
-            const fileBaseName = usedNames.has(baseName) ? `${baseName}-${usedNames.size + 1}` : baseName;
-            usedNames.add(fileBaseName);
+            const fileBaseName = resolveUniqueExportFileBaseName(baseName, usedBaseNames);
             await Bun.write(path.join(workspaceDir, `${fileBaseName}.${outputFormat}`), entry.content);
         }
 
@@ -182,7 +160,7 @@ const renderCursorDownload = async (input: {
         return {
             content: rendered[0]!.content,
             fileName: `${toSafeExportName(rendered[0]!.composerId)}.${input.outputFormat}`,
-            mimeType: getCursorExportMimeType(input.outputFormat),
+            mimeType: getExportMimeType(input.outputFormat),
             mode: 'download' as const,
         };
     }
@@ -242,7 +220,7 @@ export const exportCursorThreadsFn = createServerFn({ method: 'POST' })
             includeMetadata: data.includeMetadata,
             includeTools: data.includeTools,
             outputFormat: data.outputFormat,
-            zipArchive: true,
+            zipArchive: data.zipArchive,
         });
     });
 

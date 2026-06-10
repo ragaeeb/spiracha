@@ -87,6 +87,107 @@ const buildMultiStepTranscript = (): CursorThreadTranscript => ({
 });
 
 describe('cursorTranscriptToThreadEvents', () => {
+    it('should return no events for empty transcripts', () => {
+        expect(
+            cursorTranscriptToThreadEvents({
+                bubbles: [],
+                head: {
+                    composerId: 'empty',
+                    createdAtMs: null,
+                    lastUpdatedAtMs: null,
+                    mode: null,
+                    name: null,
+                    orderedBubbleIds: [],
+                    totalBubbleHeaders: 0,
+                },
+                omittedBubbleCount: 0,
+                renderableBubbleCount: 0,
+            }),
+        ).toEqual([]);
+    });
+
+    it('should classify a single assistant bubble as a final answer', () => {
+        const events = cursorTranscriptToThreadEvents({
+            bubbles: [
+                {
+                    bubbleId: 'a1',
+                    createdAtMs: 1_700_000_001_000,
+                    kind: 'assistant',
+                    text: 'Done.',
+                    thinking: null,
+                    toolCall: null,
+                },
+            ],
+            head: {
+                composerId: 'thread-1',
+                createdAtMs: 1_700_000_001_000,
+                lastUpdatedAtMs: 1_700_000_001_000,
+                mode: 'agent',
+                name: 'Single bubble',
+                orderedBubbleIds: ['a1'],
+                totalBubbleHeaders: 1,
+            },
+            omittedBubbleCount: 0,
+            renderableBubbleCount: 1,
+        });
+
+        expect(events).toContainEqual(
+            expect.objectContaining({ kind: 'message', phase: 'final_answer', role: 'assistant', text: 'Done.' }),
+        );
+    });
+
+    it('should flush assistant final-answer runs when unknown bubbles appear between assistant messages', () => {
+        const events = cursorTranscriptToThreadEvents({
+            bubbles: [
+                {
+                    bubbleId: 'a1',
+                    createdAtMs: 1_700_000_001_000,
+                    kind: 'assistant',
+                    text: 'First completed response.',
+                    thinking: null,
+                    toolCall: null,
+                },
+                {
+                    bubbleId: 'unknown',
+                    createdAtMs: 1_700_000_001_500,
+                    kind: 'unknown',
+                    text: 'internal event',
+                    thinking: null,
+                    toolCall: null,
+                },
+                {
+                    bubbleId: 'a2',
+                    createdAtMs: 1_700_000_002_000,
+                    kind: 'assistant',
+                    text: 'Second completed response.',
+                    thinking: null,
+                    toolCall: null,
+                },
+            ],
+            head: {
+                composerId: 'thread-1',
+                createdAtMs: 1_700_000_001_000,
+                lastUpdatedAtMs: 1_700_000_002_000,
+                mode: 'agent',
+                name: 'Unknown separator',
+                orderedBubbleIds: ['a1', 'unknown', 'a2'],
+                totalBubbleHeaders: 3,
+            },
+            omittedBubbleCount: 0,
+            renderableBubbleCount: 3,
+        });
+        const finalAnswerTexts = events
+            .filter(
+                (
+                    event,
+                ): event is Extract<ReturnType<typeof cursorTranscriptToThreadEvents>[number], { kind: 'message' }> =>
+                    event.kind === 'message' && event.role === 'assistant' && event.phase === 'final_answer',
+            )
+            .map((event) => event.text);
+
+        expect(finalAnswerTexts).toEqual(['First completed response.', 'Second completed response.']);
+    });
+
     it('should adapt Cursor bubbles into transcript-view events', () => {
         const events = cursorTranscriptToThreadEvents(buildTranscript());
 
