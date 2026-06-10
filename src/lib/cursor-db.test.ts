@@ -13,6 +13,7 @@ import {
     parseCursorBubble,
     readCursorThreadHead,
     readCursorThreadTranscript,
+    readCursorThreadTranscriptWithAgentFiles,
 } from './cursor-db';
 import { getCursorGlobalDbPath } from './cursor-exporter-types';
 import { type CursorFixtureSpec, createCursorFixture } from './cursor-test-helpers';
@@ -248,6 +249,35 @@ describe('cursor-db workspace discovery', () => {
 
         expect(threads[0]?.transcriptDirs).toEqual([transcriptDir]);
     });
+
+    it('should parse JSONC code-workspace files when resolving workspace folders', async () => {
+        const userDir = await makeUserDir();
+        const workspaceFilePath = path.join(userDir, 'demo.code-workspace');
+        await Bun.write(
+            workspaceFilePath,
+            [
+                '{',
+                '  // Cursor and VS Code commonly preserve comments here.',
+                '  "folders": [',
+                '    { "path": "packages/app" }',
+                '  ]',
+                '}',
+            ].join('\n'),
+        );
+        await createCursorFixture(userDir, {
+            buckets: [
+                {
+                    bucketId: 'workspace-bucket',
+                    workspace: `file://${workspaceFilePath}`,
+                },
+            ],
+            threads: [],
+        });
+
+        const [group] = await listCursorWorkspaceGroups(userDir);
+
+        expect(group?.folders).toEqual([path.join(userDir, 'packages/app')]);
+    });
 });
 
 describe('cursor-db transcript reads', () => {
@@ -281,6 +311,261 @@ describe('cursor-db transcript reads', () => {
         const transcript = readCursorThreadTranscript(getCursorGlobalDbPath(userDir), 'thread-1');
 
         expect(transcript?.omittedBubbleCount).toBe(50);
+    });
+
+    it('should append tail messages from Cursor agent transcript files', async () => {
+        const userDir = await makeUserDir();
+        const spec = baseSpec();
+        spec.threads[0]!.bubbles = [
+            { bubbleId: 'b1', text: 'Original request', type: 1 },
+            { bubbleId: 'b2', text: 'Known assistant update', type: 2 },
+        ];
+        await createCursorFixture(userDir, spec);
+        const transcriptDir = path.join(userDir, 'projects', 'demo-project', 'agent-transcripts', 'thread-1');
+        await mkdir(transcriptDir, { recursive: true });
+        await Bun.write(
+            path.join(transcriptDir, 'thread-1.jsonl'),
+            [
+                JSON.stringify({
+                    message: { content: [{ text: 'Known assistant update', type: 'text' }] },
+                    role: 'assistant',
+                }),
+                JSON.stringify({
+                    message: { content: [{ text: 'Did I read the transcript? Yes, now.', type: 'text' }] },
+                    role: 'assistant',
+                }),
+                JSON.stringify({ status: 'success', type: 'result' }),
+            ].join('\n'),
+        );
+
+        const transcript = await readCursorThreadTranscriptWithAgentFiles(
+            getCursorGlobalDbPath(userDir),
+            'thread-1',
+            userDir,
+        );
+
+        expect(transcript?.bubbles.map((bubble) => bubble.text)).toEqual([
+            'Original request',
+            'Known assistant update',
+            'Did I read the transcript? Yes, now.',
+        ]);
+        expect(transcript?.renderableBubbleCount).toBe(3);
+    });
+
+    it('should append all agent transcript messages when no overlap exists', async () => {
+        const userDir = await makeUserDir();
+        const spec = baseSpec();
+        spec.threads[0]!.bubbles = [{ bubbleId: 'b1', text: 'Original request', type: 1 }];
+        await createCursorFixture(userDir, spec);
+        const transcriptDir = path.join(userDir, 'projects', 'demo-project', 'agent-transcripts', 'thread-1');
+        await mkdir(transcriptDir, { recursive: true });
+        await Bun.write(
+            path.join(transcriptDir, 'thread-1.jsonl'),
+            [
+                JSON.stringify({
+                    message: { content: [{ text: 'New agent message one', type: 'text' }] },
+                    role: 'assistant',
+                }),
+                JSON.stringify({
+                    message: { content: [{ text: 'New agent message two', type: 'text' }] },
+                    role: 'assistant',
+                }),
+            ].join('\n'),
+        );
+
+        const transcript = await readCursorThreadTranscriptWithAgentFiles(
+            getCursorGlobalDbPath(userDir),
+            'thread-1',
+            userDir,
+        );
+
+        expect(transcript?.bubbles.map((bubble) => bubble.text)).toEqual([
+            'Original request',
+            'New agent message one',
+            'New agent message two',
+        ]);
+    });
+
+    it('should not append duplicate bubbles when agent transcript is already covered by SQLite bubbles', async () => {
+        const userDir = await makeUserDir();
+        const spec = baseSpec();
+        spec.threads[0]!.bubbles = [
+            { bubbleId: 'b1', text: 'Original request', type: 1 },
+            { bubbleId: 'b2', text: 'Known assistant update', type: 2 },
+        ];
+        await createCursorFixture(userDir, spec);
+        const transcriptDir = path.join(userDir, 'projects', 'demo-project', 'agent-transcripts', 'thread-1');
+        await mkdir(transcriptDir, { recursive: true });
+        await Bun.write(
+            path.join(transcriptDir, 'thread-1.jsonl'),
+            [
+                JSON.stringify({
+                    message: { content: [{ text: 'Original request', type: 'text' }] },
+                    role: 'user',
+                }),
+                JSON.stringify({
+                    message: { content: [{ text: 'Known assistant update', type: 'text' }] },
+                    role: 'assistant',
+                }),
+            ].join('\n'),
+        );
+
+        const transcript = await readCursorThreadTranscriptWithAgentFiles(
+            getCursorGlobalDbPath(userDir),
+            'thread-1',
+            userDir,
+        );
+
+        expect(transcript?.bubbles.map((bubble) => bubble.text)).toEqual([
+            'Original request',
+            'Known assistant update',
+        ]);
+        expect(transcript?.renderableBubbleCount).toBe(2);
+    });
+
+    it('should preserve ordered tail messages from multiple agent transcript files', async () => {
+        const userDir = await makeUserDir();
+        const spec = baseSpec();
+        spec.threads[0]!.bubbles = [{ bubbleId: 'b1', text: 'Original request', type: 1 }];
+        await createCursorFixture(userDir, spec);
+        const transcriptDir = path.join(userDir, 'projects', 'demo-project', 'agent-transcripts', 'thread-1');
+        await mkdir(transcriptDir, { recursive: true });
+        await Bun.write(
+            path.join(transcriptDir, 'thread-1-part1.jsonl'),
+            JSON.stringify({ message: { content: [{ text: 'Part one', type: 'text' }] }, role: 'assistant' }),
+        );
+        await Bun.write(
+            path.join(transcriptDir, 'thread-1-part2.jsonl'),
+            JSON.stringify({ message: { content: [{ text: 'Part two', type: 'text' }] }, role: 'assistant' }),
+        );
+
+        const transcript = await readCursorThreadTranscriptWithAgentFiles(
+            getCursorGlobalDbPath(userDir),
+            'thread-1',
+            userDir,
+        );
+
+        expect(transcript?.bubbles.map((bubble) => bubble.text)).toEqual(['Original request', 'Part one', 'Part two']);
+    });
+
+    it('should treat superset agent messages as overlap when merging tail bubbles', async () => {
+        const userDir = await makeUserDir();
+        const spec = baseSpec();
+        spec.threads[0]!.bubbles = [
+            { bubbleId: 'b1', text: 'Original request', type: 1 },
+            { bubbleId: 'b2', text: 'Known assistant update', type: 2 },
+        ];
+        await createCursorFixture(userDir, spec);
+        const transcriptDir = path.join(userDir, 'projects', 'demo-project', 'agent-transcripts', 'thread-1');
+        await mkdir(transcriptDir, { recursive: true });
+        await Bun.write(
+            path.join(transcriptDir, 'thread-1.jsonl'),
+            [
+                JSON.stringify({
+                    message: { content: [{ text: 'Known assistant update with extra streamed text', type: 'text' }] },
+                    role: 'assistant',
+                }),
+                JSON.stringify({
+                    message: { content: [{ text: 'Final tail message', type: 'text' }] },
+                    role: 'assistant',
+                }),
+            ].join('\n'),
+        );
+
+        const transcript = await readCursorThreadTranscriptWithAgentFiles(
+            getCursorGlobalDbPath(userDir),
+            'thread-1',
+            userDir,
+        );
+
+        expect(transcript?.bubbles.map((bubble) => bubble.text)).toEqual([
+            'Original request',
+            'Known assistant update',
+            'Final tail message',
+        ]);
+    });
+
+    it('should merge agent transcript tails without duplicating overlapping tool calls with output', async () => {
+        const userDir = await makeUserDir();
+        const spec = baseSpec();
+        spec.threads[0]!.bubbles = [
+            { bubbleId: 'b1', text: 'Original request', type: 1 },
+            {
+                bubbleId: 'b2',
+                toolCall: {
+                    name: 'read_file',
+                    rawArgs: '{\n  "path": "README.md"\n}',
+                    result: 'file contents',
+                    toolCallId: 'tool-1',
+                },
+                type: 2,
+            },
+        ];
+        await createCursorFixture(userDir, spec);
+        const transcriptDir = path.join(userDir, 'projects', 'demo-project', 'agent-transcripts', 'thread-1');
+        await mkdir(transcriptDir, { recursive: true });
+        await Bun.write(
+            path.join(transcriptDir, 'thread-1.jsonl'),
+            [
+                JSON.stringify({
+                    message: {
+                        content: [{ id: 'tool-1', input: { path: 'README.md' }, name: 'read_file', type: 'tool_use' }],
+                    },
+                    role: 'assistant',
+                }),
+                JSON.stringify({
+                    message: { content: [{ text: 'Final answer after reading README.', type: 'text' }] },
+                    role: 'assistant',
+                }),
+            ].join('\n'),
+        );
+
+        const transcript = await readCursorThreadTranscriptWithAgentFiles(
+            getCursorGlobalDbPath(userDir),
+            'thread-1',
+            userDir,
+        );
+
+        expect(transcript?.bubbles.map((bubble) => bubble.toolCall?.name).filter(Boolean)).toEqual(['read_file']);
+        expect(transcript?.bubbles.map((bubble) => bubble.text).filter(Boolean)).toEqual([
+            'Original request',
+            'Final answer after reading README.',
+        ]);
+    });
+
+    it('should warn and continue when agent transcript JSONL lines are malformed', async () => {
+        const userDir = await makeUserDir();
+        const spec = baseSpec();
+        spec.threads[0]!.bubbles = [{ bubbleId: 'b1', text: 'Original request', type: 1 }];
+        await createCursorFixture(userDir, spec);
+        const transcriptDir = path.join(userDir, 'projects', 'demo-project', 'agent-transcripts', 'thread-1');
+        await mkdir(transcriptDir, { recursive: true });
+        await Bun.write(
+            path.join(transcriptDir, 'thread-1.jsonl'),
+            [
+                '{not-json',
+                JSON.stringify({
+                    message: { content: [{ text: 'Recovered tail.', type: 'text' }] },
+                    role: 'assistant',
+                }),
+            ].join('\n'),
+        );
+        const warn = console.warn;
+        const warnings: unknown[][] = [];
+        console.warn = (...args: unknown[]) => warnings.push(args);
+
+        try {
+            const transcript = await readCursorThreadTranscriptWithAgentFiles(
+                getCursorGlobalDbPath(userDir),
+                'thread-1',
+                userDir,
+            );
+
+            expect(transcript?.bubbles.map((bubble) => bubble.text)).toEqual(['Original request', 'Recovered tail.']);
+            expect(warnings.some((args) => String(args[0]).includes('invalid_agent_transcript_jsonl'))).toBe(true);
+        } finally {
+            console.warn = warn;
+        }
     });
 });
 

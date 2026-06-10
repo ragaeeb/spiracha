@@ -11,6 +11,7 @@ import {
     resolveAntigravityRoots,
 } from './antigravity-exporter-types';
 import { decryptAntigravitySafeStoragePayload } from './antigravity-keychain';
+import { mapWithConcurrency } from './concurrency';
 
 type ProtoField = {
     bytes?: Uint8Array;
@@ -38,6 +39,11 @@ type ConversationFile = {
     path: string;
     root: string;
 };
+
+const ANTIGRAVITY_ARTIFACT_READ_CONCURRENCY = 16;
+const SAFE_CONVERSATION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+
+const isSafeConversationId = (value: string) => SAFE_CONVERSATION_ID_PATTERN.test(value);
 
 type TranscriptFile = {
     bytes: number;
@@ -428,25 +434,22 @@ const readArtifactsForRoot = async (root: string): Promise<Map<string, Antigravi
 
     const artifactsByConversation = new Map<string, AntigravityArtifact[]>();
     for (const entry of entries) {
-        if (!entry.isDirectory()) {
+        if (!entry.isDirectory() || !isSafeConversationId(entry.name)) {
             continue;
         }
 
         const artifactDir = path.join(brainDir, entry.name);
         const files = await readdir(artifactDir, { withFileTypes: true }).catch(() => []);
-        for (const file of files) {
-            if (!file.isFile() || !file.name.endsWith('.md')) {
-                continue;
+        const markdownFiles = files.filter((file) => file.isFile() && file.name.endsWith('.md'));
+        const artifacts = await mapWithConcurrency(markdownFiles, ANTIGRAVITY_ARTIFACT_READ_CONCURRENCY, (file) =>
+            readArtifactCandidate(root, path.join(artifactDir, file.name), file.name),
+        );
+        for (const artifact of artifacts) {
+            if (artifact) {
+                const list = artifactsByConversation.get(entry.name) ?? [];
+                list.push(artifact);
+                artifactsByConversation.set(entry.name, list);
             }
-
-            const artifactPath = path.join(artifactDir, file.name);
-            const artifact = await readArtifactCandidate(root, artifactPath, file.name);
-            if (!artifact) {
-                continue;
-            }
-            const list = artifactsByConversation.get(entry.name) ?? [];
-            list.push(artifact);
-            artifactsByConversation.set(entry.name, list);
         }
     }
 
@@ -811,6 +814,10 @@ const logEntryHeading = (entry: AntigravityLogEntry): string => {
     }
 
     if (source === 'MODEL') {
+        if (type && type !== 'PLANNER_RESPONSE') {
+            return `Tool: ${type}`;
+        }
+
         return 'Assistant';
     }
 

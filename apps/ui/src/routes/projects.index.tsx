@@ -1,7 +1,7 @@
 import type { ProjectSummary } from '@spiracha/lib/codex-browser-types';
 import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
-import { createFileRoute } from '@tanstack/react-router';
-import { useDeferredValue, useState } from 'react';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { startTransition, useDeferredValue, useState } from 'react';
 import { DeleteConfirmDialog } from '#/components/delete-confirm-dialog';
 import { ListSearchInput } from '#/components/list-search-input';
 import { PageHeader } from '#/components/page-header';
@@ -9,12 +9,14 @@ import { ProjectsTable } from '#/components/projects-table';
 import { ReloadErrorPanel } from '#/components/reload-error-panel';
 import { projectsQueryOptions } from '#/lib/codex-queries';
 import { deleteProjectFn } from '#/lib/codex-server';
+import { parseTextQuerySearch, withTextQuerySearch } from '#/lib/route-search';
 import { matchesTextQuery } from '#/lib/text-filter';
 
 export const Route = createFileRoute('/projects/')({
     component: ProjectsPage,
     errorComponent: ProjectsErrorComponent,
     loader: ({ context }) => context.queryClient.ensureQueryData(projectsQueryOptions()),
+    validateSearch: parseTextQuerySearch,
 });
 
 function ProjectsErrorComponent({ error }: { error: Error }) {
@@ -30,9 +32,11 @@ function ProjectsErrorComponent({ error }: { error: Error }) {
 }
 
 function ProjectsPage() {
+    const navigate = useNavigate({ from: Route.fullPath });
     const queryClient = useQueryClient();
     const projects = useSuspenseQuery(projectsQueryOptions()).data;
-    const [searchInput, setSearchInput] = useState('');
+    const search = Route.useSearch();
+    const searchInput = search.q ?? '';
     const [pendingDelete, setPendingDelete] = useState<ProjectSummary | null>(null);
     const deferredSearch = useDeferredValue(searchInput.trim().toLowerCase());
 
@@ -63,7 +67,14 @@ function ProjectsPage() {
                     <ListSearchInput
                         placeholder="Search project name, cwd, or model"
                         value={searchInput}
-                        onValueChange={setSearchInput}
+                        onValueChange={(value) => {
+                            startTransition(() => {
+                                void navigate({
+                                    replace: true,
+                                    search: (previous: Record<string, unknown>) => withTextQuerySearch(previous, value),
+                                });
+                            });
+                        }}
                     />
                 }
                 eyebrow="Inventory"

@@ -4,7 +4,7 @@ import {
     listCursorThreadsForGroup,
     listCursorWorkspaceGroups,
     readCursorThreadHead,
-    readCursorThreadTranscript,
+    readCursorThreadTranscriptWithAgentFiles,
 } from './cursor-db';
 import {
     type CursorCliOptions,
@@ -115,7 +115,7 @@ const exportSingleThread = async (
     outputDir: string,
     options: CursorCliOptions,
 ): Promise<CursorExportedFile | null> => {
-    const transcript = readCursorThreadTranscript(globalDbPath, thread.composerId);
+    const transcript = await readCursorThreadTranscriptWithAgentFiles(globalDbPath, thread.composerId, options.userDir);
     if (!transcript) {
         return null;
     }

@@ -3,7 +3,13 @@ import { createHash } from 'node:crypto';
 import { rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { getCachedJson, invalidateCacheByPrefix, setCachedJson, withCachedJson } from './ui-cache';
+import {
+    getCachedJson,
+    hashCacheKeyPartsIterable,
+    invalidateCacheByPrefix,
+    setCachedJson,
+    withCachedJson,
+} from './ui-cache';
 
 const CACHE_DIR = path.join(os.tmpdir(), 'spiracha-ui-cache');
 const getCacheFilePath = (key: string) => {
@@ -71,5 +77,16 @@ describe('ui cache', () => {
         expect(value).toEqual({ repaired: true });
         expect(loadCount).toBe(1);
         expect(await getCachedJson<{ repaired: boolean }>(key)).toEqual({ repaired: true });
+    });
+
+    it('should reject stale cache envelope versions', async () => {
+        const key = 'stale-version-entry';
+        await Bun.write(getCacheFilePath(key), JSON.stringify({ value: { stale: true }, version: 0 }));
+
+        expect(await getCachedJson<{ stale: boolean }>(key)).toBeNull();
+    });
+
+    it('should hash iterable cache key parts without delimiter collisions', () => {
+        expect(hashCacheKeyPartsIterable(['a|b'])).not.toBe(hashCacheKeyPartsIterable(['a', 'b']));
     });
 });

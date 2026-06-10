@@ -1,4 +1,5 @@
 import { constants, Database } from 'bun:sqlite';
+import { createHash } from 'node:crypto';
 import { readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import {
@@ -109,13 +110,29 @@ const normalizeCursorPath = (value: string): string => {
     return decoded.replace(/\/+$/u, '') || decoded;
 };
 
+const warnCursorDataIssue = (event: string, details: Record<string, unknown>) => {
+    console.warn(`[spiracha:cursor] ${event}`, details);
+};
+
+const stripJsonComments = (value: string): string => {
+    return value.replace(/\/\*[\s\S]*?\*\//gu, '').replace(/(^|\s)\/\/.*$/gmu, '$1');
+};
+
+const parseCodeWorkspaceJson = (text: string): { folders?: Array<{ path?: string }> } => {
+    try {
+        return JSON.parse(text) as { folders?: Array<{ path?: string }> };
+    } catch {
+        return JSON.parse(stripJsonComments(text)) as { folders?: Array<{ path?: string }> };
+    }
+};
+
 const parseCodeWorkspaceFolders = async (workspaceFilePath: string): Promise<string[]> => {
     if (!workspaceFilePath.endsWith('.code-workspace')) {
         return [];
     }
 
     try {
-        const data = (await Bun.file(workspaceFilePath).json()) as { folders?: Array<{ path?: string }> };
+        const data = parseCodeWorkspaceJson(await Bun.file(workspaceFilePath).text());
         const folders: string[] = [];
         for (const entry of data.folders ?? []) {
             const folderPath = entry.path;
@@ -131,18 +148,30 @@ const parseCodeWorkspaceFolders = async (workspaceFilePath: string): Promise<str
         }
 
         return folders;
-    } catch {
+    } catch (error) {
+        warnCursorDataIssue('invalid_code_workspace_json', {
+            error: error instanceof Error ? error.message : String(error),
+            workspaceFilePath,
+        });
         return [];
     }
 };
 
 export const loadGlobalComposerHeaders = (globalDbPath: string): ComposerEntry[] => {
-    const db = openCursorReadonlyDb(globalDbPath);
     try {
-        const data = readItemValue<{ allComposers?: ComposerEntry[] }>(db, COMPOSER_HEADERS_KEY);
-        return data?.allComposers ?? [];
-    } finally {
-        db.close();
+        const db = openCursorReadonlyDb(globalDbPath);
+        try {
+            const data = readItemValue<{ allComposers?: ComposerEntry[] }>(db, COMPOSER_HEADERS_KEY);
+            return data?.allComposers ?? [];
+        } finally {
+            db.close();
+        }
+    } catch (error) {
+        warnCursorDataIssue('global_composer_headers_unavailable', {
+            error: error instanceof Error ? error.message : String(error),
+            globalDbPath,
+        });
+        return [];
     }
 };
 
@@ -1055,6 +1084,274 @@ const isRenderableBubble = (bubble: CursorBubble): boolean => {
     return Boolean(bubble.text.trim() || bubble.thinking?.trim() || bubble.toolCall);
 };
 
+const normalizeBubbleText = (value: string | null): string => {
+    return (value ?? '').replace(/\s+/gu, ' ').trim();
+};
+
+const hashText = (value: string) => createHash('sha1').update(value).digest('hex').slice(0, 12);
+
+const stableStringifyJson = (value: JsonValue): string => {
+    if (Array.isArray(value)) {
+        return `[${value.map(stableStringifyJson).join(',')}]`;
+    }
+
+    if (value && typeof value === 'object') {
+        return `{${Object.keys(value)
+            .sort()
+            .map((key) => `${JSON.stringify(key)}:${stableStringifyJson((value as Record<string, JsonValue>)[key]!)}`)
+            .join(',')}}`;
+    }
+
+    return JSON.stringify(value);
+};
+
+const normalizeToolArgumentsText = (value: string | null): string => {
+    if (!value?.trim()) {
+        return '';
+    }
+
+    try {
+        return stableStringifyJson(JSON.parse(value) as JsonValue);
+    } catch {
+        return normalizeBubbleText(value);
+    }
+};
+
+const hasRenderableTextSuperset = (left: string | null, right: string | null): boolean => {
+    const normalizedLeft = normalizeBubbleText(left);
+    const normalizedRight = normalizeBubbleText(right);
+    if (!normalizedLeft && !normalizedRight) {
+        return true;
+    }
+
+    return (
+        normalizedLeft === normalizedRight ||
+        normalizedLeft.startsWith(normalizedRight) ||
+        normalizedRight.startsWith(normalizedLeft)
+    );
+};
+
+const haveSameToolIdentity = (left: CursorToolCall | null, right: CursorToolCall | null): boolean => {
+    if (!left && !right) {
+        return true;
+    }
+
+    if (!left || !right) {
+        return false;
+    }
+
+    return (
+        left.name === right.name &&
+        normalizeToolArgumentsText(left.argumentsText) === normalizeToolArgumentsText(right.argumentsText)
+    );
+};
+
+const areEquivalentBubbles = (left: CursorBubble, right: CursorBubble): boolean => {
+    return (
+        left.kind === right.kind &&
+        hasRenderableTextSuperset(left.text, right.text) &&
+        Boolean(normalizeBubbleText(left.thinking)) === Boolean(normalizeBubbleText(right.thinking)) &&
+        haveSameToolIdentity(left.toolCall, right.toolCall)
+    );
+};
+
+const findAgentTailStartIndex = (existingBubbles: CursorBubble[], agentBubbles: CursorBubble[]): number => {
+    const maxOverlap = Math.min(existingBubbles.length, agentBubbles.length);
+    // Agent transcript files contain the complete run while SQLite may lag or truncate the tail.
+    // Match the longest SQLite suffix to the agent prefix, then append only the remaining agent tail.
+    for (let overlapLength = maxOverlap; overlapLength > 0; overlapLength -= 1) {
+        const existingStart = existingBubbles.length - overlapLength;
+        const matches = agentBubbles
+            .slice(0, overlapLength)
+            .every((bubble, index) => areEquivalentBubbles(existingBubbles[existingStart + index]!, bubble));
+        if (matches) {
+            return overlapLength;
+        }
+    }
+
+    return 0;
+};
+
+const hasEquivalentBubble = (bubbles: CursorBubble[], candidate: CursorBubble): boolean => {
+    return bubbles.some((bubble) => areEquivalentBubbles(bubble, candidate));
+};
+
+const getAgentTranscriptContentParts = (entry: Record<string, JsonValue>): Record<string, JsonValue>[] => {
+    const message = asObject(entry.message ?? null);
+    const content = message?.content ?? entry.content ?? null;
+    if (Array.isArray(content)) {
+        return content.map((part) => asObject(part)).filter((part): part is Record<string, JsonValue> => Boolean(part));
+    }
+
+    if (typeof content === 'string') {
+        return [{ text: content, type: 'text' }];
+    }
+
+    return [];
+};
+
+const parseAgentTranscriptToolCall = (parts: Record<string, JsonValue>[]): CursorToolCall | null => {
+    const toolUse = parts.find((part) => asString(part.type ?? null) === 'tool_use');
+    if (!toolUse) {
+        return null;
+    }
+
+    const name = asString(toolUse.name ?? null);
+    if (!name) {
+        return null;
+    }
+
+    return {
+        argumentsText: toolUse.input === undefined ? null : JSON.stringify(toolUse.input),
+        callId: asString(toolUse.id ?? null),
+        name,
+        resultText: null,
+        status: null,
+    };
+};
+
+const parseAgentTranscriptBubble = (
+    filePath: string,
+    lineNumber: number,
+    raw: Record<string, JsonValue>,
+): CursorBubble | null => {
+    const message = asObject(raw.message ?? null);
+    const role = asString(raw.role ?? message?.role ?? null);
+    const kind = role === 'user' || role === 'assistant' ? role : 'unknown';
+    const parts = getAgentTranscriptContentParts(raw);
+    const text = parts
+        .filter((part) => asString(part.type ?? null) === 'text')
+        .map((part) => asString(part.text ?? null))
+        .filter((value): value is string => Boolean(value?.trim()))
+        .join('\n\n');
+    const toolCall = parseAgentTranscriptToolCall(parts);
+    const bubble: CursorBubble = {
+        bubbleId: `agent-transcript:${hashText(path.resolve(filePath))}:${path.basename(filePath)}:${lineNumber}`,
+        createdAtMs: null,
+        kind,
+        text,
+        thinking: null,
+        toolCall,
+    };
+
+    return isRenderableBubble(bubble) ? bubble : null;
+};
+
+const readCursorAgentTranscriptFile = async (filePath: string): Promise<CursorBubble[]> => {
+    let text = '';
+    try {
+        text = await Bun.file(filePath).text();
+    } catch (error) {
+        warnCursorDataIssue('agent_transcript_unreadable', {
+            error: error instanceof Error ? error.message : String(error),
+            filePath,
+        });
+        return [];
+    }
+
+    const bubbles: CursorBubble[] = [];
+    for (const [index, line] of text.split(/\n/u).entries()) {
+        if (!line.trim()) {
+            continue;
+        }
+
+        let raw: JsonValue;
+        try {
+            raw = JSON.parse(line) as JsonValue;
+        } catch (error) {
+            warnCursorDataIssue('invalid_agent_transcript_jsonl', {
+                error: error instanceof Error ? error.message : String(error),
+                filePath,
+                lineNumber: index + 1,
+            });
+            continue;
+        }
+
+        const entry = asObject(raw);
+        if (!entry) {
+            continue;
+        }
+
+        const bubble = parseAgentTranscriptBubble(filePath, index + 1, entry);
+        if (bubble) {
+            bubbles.push(bubble);
+        }
+    }
+
+    return bubbles;
+};
+
+const listCursorAgentTranscriptFiles = async (transcriptDir: string, composerId: string): Promise<string[]> => {
+    const preferred = path.join(transcriptDir, `${composerId}.jsonl`);
+    const files = new Set<string>();
+    if (await pathExists(preferred)) {
+        files.add(preferred);
+    }
+
+    let entries: string[] = [];
+    try {
+        entries = await readdir(transcriptDir);
+    } catch {
+        return [...files];
+    }
+
+    for (const entry of entries) {
+        if (entry.endsWith('.jsonl')) {
+            files.add(path.join(transcriptDir, entry));
+        }
+    }
+
+    return [...files].sort();
+};
+
+const readCursorAgentTranscriptBubbles = async (composerId: string, userDir: string): Promise<CursorBubble[]> => {
+    const transcriptDirs = await findCursorTranscriptDirs(composerId, userDir);
+    const bubbles: CursorBubble[] = [];
+    for (const transcriptDir of transcriptDirs.sort()) {
+        const files = await listCursorAgentTranscriptFiles(transcriptDir, composerId);
+        for (const file of files) {
+            bubbles.push(...(await readCursorAgentTranscriptFile(file)));
+        }
+    }
+
+    return bubbles;
+};
+
+const mergeAgentTranscriptTail = (
+    transcript: CursorThreadTranscript,
+    agentBubbles: CursorBubble[],
+): CursorThreadTranscript => {
+    const tailStartIndex = findAgentTailStartIndex(transcript.bubbles, agentBubbles);
+    const seen = [...transcript.bubbles];
+    const appended: CursorBubble[] = [];
+    const candidates = agentBubbles.slice(tailStartIndex);
+    for (const bubble of candidates) {
+        if (hasEquivalentBubble(seen, bubble)) {
+            continue;
+        }
+
+        seen.push(bubble);
+        appended.push(bubble);
+    }
+
+    if (appended.length === 0) {
+        return transcript;
+    }
+
+    return {
+        ...transcript,
+        bubbles: [...transcript.bubbles, ...appended],
+        renderableBubbleCount: transcript.renderableBubbleCount + appended.length,
+    };
+};
+
+const inferCursorUserDirFromGlobalDbPath = (globalDbPath: string): string => {
+    const globalStorageDir = path.dirname(globalDbPath);
+    return path.basename(globalStorageDir) === 'globalStorage'
+        ? path.dirname(globalStorageDir)
+        : resolveCursorUserDir();
+};
+
 export const readCursorThreadTranscript = (globalDbPath: string, composerId: string): CursorThreadTranscript | null => {
     const head = readCursorThreadHead(globalDbPath, composerId);
     if (!head) {
@@ -1085,6 +1382,20 @@ export const readCursorThreadTranscript = (globalDbPath: string, composerId: str
     } finally {
         db.close();
     }
+};
+
+export const readCursorThreadTranscriptWithAgentFiles = async (
+    globalDbPath: string,
+    composerId: string,
+    userDir = inferCursorUserDirFromGlobalDbPath(globalDbPath),
+): Promise<CursorThreadTranscript | null> => {
+    const transcript = readCursorThreadTranscript(globalDbPath, composerId);
+    if (!transcript) {
+        return null;
+    }
+
+    const agentBubbles = await readCursorAgentTranscriptBubbles(composerId, userDir);
+    return mergeAgentTranscriptTail(transcript, agentBubbles);
 };
 
 const readAllBubbleIds = (db: Database, composerId: string): string[] => {

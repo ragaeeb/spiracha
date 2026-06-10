@@ -91,7 +91,9 @@ Other important files:
 - `src/lib/codex-thread-parser.ts`
   - structured Codex event parsing used by analytics and the UI
 - `src/lib/codex-analytics.ts`
-  - token/tool analytics derived from thread rows plus parsed transcripts
+  - token/tool analytics derived from thread rows plus bounded transcript parsing and DB-row metadata cache keys
+- `src/lib/concurrency.ts`
+  - shared bounded-concurrency helper for large file/database workloads
 - `src/lib/ui-cache.ts`
   - temporary cache under `os.tmpdir()` for transcript and analytics lookups
 - `src/mcp-server.ts`
@@ -111,6 +113,7 @@ Current tests cover:
 - structured Codex transcript parsing
 - project/thread browsing and destructive DB flows
 - analytics aggregation
+- bounded concurrency helpers and analytics cache-key behavior
 - browser-export rendering helpers
 - Codex CLI parsing helpers
 - interactive-mode inference helpers
@@ -126,6 +129,7 @@ When changing risky areas:
 - structured transcript parsing/UI event extraction: update/add tests in `src/lib/codex-thread-parser.test.ts`
 - DB/filter/target logic: prefer focused unit tests against `src/lib/codex-exporter-db.ts`
 - project/thread browsing, delete semantics, and analytics: update/add tests in `src/lib/codex-browser-db.test.ts` and `src/lib/codex-analytics.test.ts`
+- shared concurrency behavior: update/add tests in `src/lib/concurrency.test.ts`
 - MCP contract changes: update `src/mcp-server.test.ts`
 - UI component behavior: update/add Vitest files under `apps/ui/src/**/*.vitest.tsx`
 
@@ -199,4 +203,6 @@ rtk bunx spiracha cursor recover --workspace summer --apply
 - `txt` output is intentionally real plain text, not Markdown with a `.txt` extension.
 - The published package is Bun-first. `bin` entrypoints target Bun shebang execution.
 - The UI package runs `vite` through `bun --bun ...` because its server functions depend on Bun-only modules like `bun:sqlite`.
+- Keep UI runtime dependency versions aligned with the root package when both package manifests list the same TanStack/React runtime package; mismatched server-function manifests have broken packaged production builds.
+- TanStack Start server functions should use `.validator(...)`, not deprecated `.inputValidator(...)`.
 - `apps/ui/src/routeTree.gen.ts` is generated and should not be manually edited or lint-formatted.

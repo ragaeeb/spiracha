@@ -1,7 +1,8 @@
+import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/codex-browser-types';
 import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { Download, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Breadcrumbs } from '#/components/breadcrumbs';
 import { DeleteConfirmDialog } from '#/components/delete-confirm-dialog';
 import { ExportDialog } from '#/components/export-dialog';
@@ -11,12 +12,15 @@ import { MetadataSection } from '#/components/metadata-section';
 import { MetricCard } from '#/components/metric-card';
 import { PageHeader } from '#/components/page-header';
 import { ReloadErrorPanel } from '#/components/reload-error-panel';
-import { TextDocumentPanel } from '#/components/text-document-panel';
+import { TranscriptView } from '#/components/transcript-view';
 import { Button } from '#/components/ui/button';
+import { Checkbox } from '#/components/ui/checkbox';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
 import { cursorThreadDetailQueryOptions } from '#/lib/cursor-queries';
 import { deleteCursorThreadsFn, exportCursorThreadFn, type getCursorThreadDetailFn } from '#/lib/cursor-server';
-import { downloadTextFile } from '#/lib/download';
-import { formatBytes, formatDateTime, formatNumber } from '#/lib/formatters';
+import { cursorTranscriptToThreadEvents, getCursorThreadTranscriptStats } from '#/lib/cursor-transcript-events';
+import { downloadTextFile, downloadUrlFile } from '#/lib/download';
+import { formatBytes, formatDateTime, formatList, formatNumber } from '#/lib/formatters';
 
 type CursorThreadDetail = Awaited<ReturnType<typeof getCursorThreadDetailFn>>;
 
@@ -25,6 +29,21 @@ type ExportDialogOptions = {
     includeMetadata: boolean;
     includeTools: boolean;
     outputFormat: 'md' | 'txt';
+    zipArchive: boolean;
+};
+
+type TranscriptControlsProps = {
+    rawJsonDisabled?: boolean;
+    showCommentary: boolean;
+    showExtraEvents: boolean;
+    showRawJson: boolean;
+    showToolCalls: boolean;
+    showUserMessages: boolean;
+    onShowCommentaryChange: (checked: boolean) => void;
+    onShowExtraEventsChange: (checked: boolean) => void;
+    onShowRawJsonChange: (checked: boolean) => void;
+    onShowToolCallsChange: (checked: boolean) => void;
+    onShowUserMessagesChange: (checked: boolean) => void;
 };
 
 const buildCursorThreadMetadata = (detail: CursorThreadDetail) => {
@@ -70,8 +89,122 @@ const buildCursorThreadMetadata = (detail: CursorThreadDetail) => {
     ];
 };
 
-const getCursorExportMimeType = (outputFormat: 'md' | 'txt') => {
-    return outputFormat === 'md' ? 'text/markdown; charset=utf-8' : 'text/plain; charset=utf-8';
+const buildCursorTranscriptStatsItems = (
+    detail: CursorThreadDetail,
+    events: ThreadEvent[],
+    stats: ThreadTranscriptStats,
+) => {
+    if (!detail.transcript) {
+        return [{ label: 'Transcript load', value: 'No renderable Cursor transcript content was found.' }];
+    }
+
+    return [
+        { label: 'Event kinds', value: formatList([...new Set(events.map((event) => event.kind))]) },
+        { label: 'Messages', value: formatNumber(stats.messageCount) },
+        { label: 'User messages', value: formatNumber(stats.userMessageCount) },
+        { label: 'Assistant messages', value: formatNumber(stats.assistantMessageCount) },
+        { label: 'Commentary updates', value: formatNumber(stats.commentaryCount) },
+        { label: 'Tool calls', value: formatNumber(stats.toolCallCount) },
+        { label: 'Tool outputs', value: formatNumber(stats.toolOutputCount) },
+        { label: 'Renderable bubbles', value: formatNumber(detail.transcript.renderableBubbleCount) },
+        { label: 'Omitted bubbles', value: formatNumber(detail.transcript.omittedBubbleCount) },
+    ];
+};
+
+const CursorTranscriptControls = ({
+    rawJsonDisabled = false,
+    showCommentary,
+    showExtraEvents,
+    showRawJson,
+    showToolCalls,
+    showUserMessages,
+    onShowCommentaryChange,
+    onShowExtraEventsChange,
+    onShowRawJsonChange,
+    onShowToolCallsChange,
+    onShowUserMessagesChange,
+}: TranscriptControlsProps) => {
+    return (
+        <div className="flex flex-wrap gap-4 rounded-xl border border-[var(--border)] bg-[var(--panel)] px-4 py-3 shadow-[var(--panel-shadow)]">
+            <div className="flex items-center gap-2 text-sm">
+                <Checkbox
+                    checked={showToolCalls}
+                    id="cursor-transcript-show-tool-calls"
+                    onCheckedChange={(checked) => onShowToolCallsChange(checked === true)}
+                />
+                <label htmlFor="cursor-transcript-show-tool-calls">Show tool calls</label>
+            </div>
+            <div className="flex items-center gap-2 text-sm">
+                <Checkbox
+                    checked={showCommentary}
+                    id="cursor-transcript-show-commentary"
+                    onCheckedChange={(checked) => onShowCommentaryChange(checked === true)}
+                />
+                <label htmlFor="cursor-transcript-show-commentary">Show commentary</label>
+            </div>
+            <div className="flex items-center gap-2 text-sm">
+                <Checkbox
+                    checked={showExtraEvents}
+                    id="cursor-transcript-show-extra-events"
+                    onCheckedChange={(checked) => onShowExtraEventsChange(checked === true)}
+                />
+                <label htmlFor="cursor-transcript-show-extra-events">Show extra events</label>
+            </div>
+            <div className="flex items-center gap-2 text-sm">
+                <Checkbox
+                    checked={showRawJson}
+                    disabled={rawJsonDisabled}
+                    id="cursor-transcript-show-raw-json"
+                    onCheckedChange={(checked) => onShowRawJsonChange(checked === true)}
+                />
+                <label htmlFor="cursor-transcript-show-raw-json">Raw JSON</label>
+            </div>
+            <div className="flex items-center gap-2 text-sm">
+                <Checkbox
+                    checked={showUserMessages}
+                    id="cursor-transcript-show-user-messages"
+                    onCheckedChange={(checked) => onShowUserMessagesChange(checked === true)}
+                />
+                <label htmlFor="cursor-transcript-show-user-messages">User</label>
+            </div>
+        </div>
+    );
+};
+
+const CursorThreadMetadataPanels = ({
+    detail,
+    events,
+    stats,
+}: {
+    detail: CursorThreadDetail;
+    events: ThreadEvent[];
+    stats: ThreadTranscriptStats;
+}) => {
+    return (
+        <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+            <MetadataSection items={buildCursorThreadMetadata(detail)} title="Thread metadata" />
+            <MetadataSection items={buildCursorTranscriptStatsItems(detail, events, stats)} title="Transcript stats" />
+        </div>
+    );
+};
+
+const CursorThreadRawPanels = ({ detail, events }: { detail: CursorThreadDetail; events: ThreadEvent[] }) => {
+    if (!detail.transcript) {
+        return (
+            <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] px-5 py-4 text-sm">
+                No Cursor transcript payload was found for this thread.
+            </div>
+        );
+    }
+
+    return (
+        <div className="space-y-4">
+            <JsonPanel title="Thread summary" value={detail.thread} />
+            <JsonPanel title="Transcript head" value={detail.transcript.head} />
+            <JsonPanel title="Cursor bubbles" value={detail.transcript.bubbles} />
+            <JsonPanel title="Transcript events" value={events} />
+        </div>
+    );
 };
 
 const CursorThreadDetailErrorComponent = ({ error }: { error: Error }) => {
@@ -84,6 +217,16 @@ const CursorThreadDetailPage = () => {
     const detail = useSuspenseQuery(cursorThreadDetailQueryOptions(Route.useParams().composerId)).data;
     const [pendingDelete, setPendingDelete] = useState(false);
     const [pendingExport, setPendingExport] = useState(false);
+    const [showToolCalls, setShowToolCalls] = useState(false);
+    const [showCommentary, setShowCommentary] = useState(false);
+    const [showExtraEvents, setShowExtraEvents] = useState(false);
+    const [showRawJson, setShowRawJson] = useState(false);
+    const [showUserMessages, setShowUserMessages] = useState(true);
+    const transcriptEvents = useMemo(
+        () => (detail.transcript ? cursorTranscriptToThreadEvents(detail.transcript) : []),
+        [detail.transcript],
+    );
+    const transcriptStats = useMemo(() => getCursorThreadTranscriptStats(transcriptEvents), [transcriptEvents]);
 
     const deleteThreadMutation = useMutation({
         mutationFn: () => deleteCursorThreadsFn({ data: { composerIds: [detail.thread.composerId] } }),
@@ -109,7 +252,12 @@ const CursorThreadDetailPage = () => {
                 },
             });
 
-            downloadTextFile(download.filename, download.content, getCursorExportMimeType(options.outputFormat));
+            if (download.mode === 'download') {
+                downloadTextFile(download.fileName, download.content, download.mimeType);
+                return;
+            }
+
+            await downloadUrlFile(download.fileName, download.downloadUrl);
         },
         onSuccess: () => {
             setPendingExport(false);
@@ -170,55 +318,104 @@ const CursorThreadDetailPage = () => {
                 />
             </div>
 
-            <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
-                <MetadataSection items={buildCursorThreadMetadata(detail)} title="Thread metadata" />
-                {detail.renderedTranscript ? (
-                    <TextDocumentPanel
-                        content={detail.renderedTranscript}
-                        description="Rendered with commentary and tool calls enabled."
-                        title="Transcript"
+            <Tabs className="space-y-4" defaultValue="transcript">
+                <TabsList className="grid w-fit min-w-[24rem] grid-cols-3 rounded-full border border-[var(--border)] bg-[var(--panel)] p-1">
+                    <TabsTrigger className="rounded-full px-5 text-sm" value="transcript">
+                        Transcript
+                    </TabsTrigger>
+                    <TabsTrigger className="rounded-full px-5 text-sm" value="metadata">
+                        Metadata
+                    </TabsTrigger>
+                    <TabsTrigger className="rounded-full px-5 text-sm" value="raw">
+                        Raw
+                    </TabsTrigger>
+                </TabsList>
+
+                <TabsContent className="space-y-3" value="transcript">
+                    <CursorTranscriptControls
+                        rawJsonDisabled={!detail.transcript}
+                        showCommentary={showCommentary}
+                        showExtraEvents={showExtraEvents}
+                        showRawJson={showRawJson}
+                        showToolCalls={showToolCalls}
+                        showUserMessages={showUserMessages}
+                        onShowCommentaryChange={setShowCommentary}
+                        onShowExtraEventsChange={setShowExtraEvents}
+                        onShowRawJsonChange={setShowRawJson}
+                        onShowToolCallsChange={setShowToolCalls}
+                        onShowUserMessagesChange={setShowUserMessages}
                     />
-                ) : (
-                    <section className="rounded-[1.6rem] border border-[var(--border)] bg-[var(--panel)] p-5 shadow-[var(--panel-shadow)]">
-                        <h3 className="font-semibold text-[var(--muted-foreground)] text-sm uppercase tracking-[0.18em]">
-                            Transcript
-                        </h3>
-                        <p className="mt-4 text-[var(--muted-foreground)] text-sm">
-                            No renderable Cursor transcript content was found for this thread.
-                        </p>
-                    </section>
-                )}
-            </div>
+                    {detail.transcript && transcriptEvents.length > 0 ? (
+                        <TranscriptView
+                            assistantModel={null}
+                            events={transcriptEvents}
+                            projectPath={null}
+                            showCommentary={showCommentary}
+                            showExtraEvents={showExtraEvents}
+                            showRawJson={showRawJson}
+                            showToolCalls={showToolCalls}
+                            showUserMessages={showUserMessages}
+                        />
+                    ) : (
+                        <section className="rounded-[1.6rem] border border-[var(--border)] bg-[var(--panel)] p-5 shadow-[var(--panel-shadow)]">
+                            <h3 className="font-semibold text-[var(--muted-foreground)] text-sm uppercase tracking-[0.18em]">
+                                Transcript
+                            </h3>
+                            <p className="mt-4 text-[var(--muted-foreground)] text-sm">
+                                No renderable Cursor transcript content was found for this thread.
+                            </p>
+                        </section>
+                    )}
+                </TabsContent>
 
-            {detail.transcript ? <JsonPanel title="Raw transcript" value={detail.transcript} /> : null}
+                <TabsContent value="metadata">
+                    <CursorThreadMetadataPanels detail={detail} events={transcriptEvents} stats={transcriptStats} />
+                </TabsContent>
 
-            {deleteThreadMutation.isError ? (
-                <p className="text-[var(--destructive)] text-sm">
-                    {deleteThreadMutation.error instanceof Error ? deleteThreadMutation.error.message : 'Delete failed'}
-                </p>
-            ) : null}
-
-            {exportThreadMutation.isError ? (
-                <p className="text-[var(--destructive)] text-sm">
-                    {exportThreadMutation.error instanceof Error ? exportThreadMutation.error.message : 'Export failed'}
-                </p>
-            ) : null}
+                <TabsContent value="raw">
+                    <CursorThreadRawPanels detail={detail} events={transcriptEvents} />
+                </TabsContent>
+            </Tabs>
 
             <DeleteConfirmDialog
                 confirmLabel={deleteThreadMutation.isPending ? 'Deleting...' : 'Delete thread'}
                 description={`Permanently delete "${detail.thread.name}" from Cursor's database and remove any on-disk transcript directories. Quit Cursor first. This cannot be undone.`}
+                errorMessage={
+                    deleteThreadMutation.isError
+                        ? deleteThreadMutation.error instanceof Error
+                            ? deleteThreadMutation.error.message
+                            : 'Delete failed'
+                        : null
+                }
                 open={pendingDelete}
                 title="Delete Cursor thread?"
                 onConfirm={() => deleteThreadMutation.mutate()}
-                onOpenChange={setPendingDelete}
+                onOpenChange={(nextOpen) => {
+                    setPendingDelete(nextOpen);
+                    if (!nextOpen) {
+                        deleteThreadMutation.reset();
+                    }
+                }}
             />
 
             <ExportDialog
+                errorMessage={
+                    exportThreadMutation.isError
+                        ? exportThreadMutation.error instanceof Error
+                            ? exportThreadMutation.error.message
+                            : 'Export failed'
+                        : null
+                }
                 open={pendingExport}
                 pending={exportThreadMutation.isPending}
                 title={`Export ${detail.thread.name}`}
                 onExport={(options) => exportThreadMutation.mutate(options)}
-                onOpenChange={setPendingExport}
+                onOpenChange={(nextOpen) => {
+                    setPendingExport(nextOpen);
+                    if (!nextOpen) {
+                        exportThreadMutation.reset();
+                    }
+                }}
             />
         </div>
     );

@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { createCodexBrowserFixture } from './lib/codex-test-helpers';
 
 type PackageManifest = {
     name: string;
@@ -168,9 +169,13 @@ const formatPackagedUiProbeError = (probe: PackagedUiProbe) => {
     ].join(', ');
 };
 
-const startPackagedUi = async (packageTgz: string, cwd: string, port: number) => {
+const startPackagedUi = async (packageTgz: string, cwd: string, port: number, env: Record<string, string> = {}) => {
     const proc = Bun.spawn(['bunx', '--package', packageTgz, 'spiracha', 'ui', '--port', String(port), '--no-open'], {
         cwd,
+        env: {
+            ...process.env,
+            ...env,
+        },
         stderr: 'pipe',
         stdout: 'pipe',
     });
@@ -218,6 +223,7 @@ export const runPackagedUiSmokeTest = async (cwd = process.cwd()) => {
     const manifest = await readPackageManifest(cwd);
     const tempDir = await mkdtemp(path.join(os.tmpdir(), 'spiracha-packaged-ui-smoke-'));
     const smokePort = await getAvailablePort();
+    const fixture = await createCodexBrowserFixture(tempDir);
 
     try {
         console.log('Building package artifacts...');
@@ -236,10 +242,22 @@ export const runPackagedUiSmokeTest = async (cwd = process.cwd()) => {
         );
 
         console.log('Launching packaged UI...');
-        const runningUi = await startPackagedUi(smokePackageTgz, tempDir, smokePort);
+        const runningUi = await startPackagedUi(smokePackageTgz, tempDir, smokePort, {
+            SPIRACHA_CODEX_DB: fixture.dbPath,
+        });
 
         try {
             console.log(`Packaged UI responded at ${runningUi.url}`);
+            const directThreadUrl = `http://${SMOKE_HOST}:${smokePort}/threads/${fixture.threads[0]!.threadId}`;
+            const directThreadProbe = await probePackagedUi(directThreadUrl);
+            if (
+                !isPackagedUiHealthyResponse(directThreadProbe) ||
+                !directThreadProbe.bodyText.includes(fixture.threads[0]!.title)
+            ) {
+                throw new Error(
+                    `Packaged UI returned an unhealthy response at ${directThreadUrl} (${formatPackagedUiProbeError(directThreadProbe)})`,
+                );
+            }
         } finally {
             runningUi.proc.kill();
             await Promise.all([

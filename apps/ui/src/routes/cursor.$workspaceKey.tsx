@@ -19,7 +19,7 @@ import {
     exportCursorThreadsFn,
     recoverCursorWorkspaceFn,
 } from '#/lib/cursor-server';
-import { downloadTextFile } from '#/lib/download';
+import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import { matchesTextQuery } from '#/lib/text-filter';
 
 type PendingCursorDelete =
@@ -36,6 +36,7 @@ type ExportDialogOptions = {
     includeMetadata: boolean;
     includeTools: boolean;
     outputFormat: 'md' | 'txt';
+    zipArchive: boolean;
 };
 
 const findWorkspaceOrThrow = (workspaces: CursorWorkspaceGroup[], workspaceKey: string) => {
@@ -111,10 +112,6 @@ const getCursorDeleteTitle = (pendingDelete: PendingCursorDelete | null) => {
     return 'Delete Cursor thread?';
 };
 
-const getCursorExportMimeType = (outputFormat: 'md' | 'txt') => {
-    return outputFormat === 'md' ? 'text/markdown; charset=utf-8' : 'text/plain; charset=utf-8';
-};
-
 const CursorWorkspaceErrorComponent = ({ error }: { error: Error }) => {
     return <ReloadErrorPanel description={error.message} title="Failed to load Cursor workspace" />;
 };
@@ -182,7 +179,12 @@ const CursorWorkspacePage = () => {
                           },
                       });
 
-            downloadTextFile(download.filename, download.content, getCursorExportMimeType(options.outputFormat));
+            if (download.mode === 'download') {
+                downloadTextFile(download.fileName, download.content, download.mimeType);
+                return;
+            }
+
+            await downloadUrlFile(download.fileName, download.downloadUrl);
         },
         onSuccess: () => {
             setPendingExport(null);
@@ -263,6 +265,7 @@ const CursorWorkspacePage = () => {
             />
 
             <ExportDialog
+                forceZipArchive={pendingExport ? pendingExport.composerIds.length > 1 : false}
                 open={pendingExport !== null}
                 pending={exportMutation.isPending}
                 title={pendingExport ? `Export ${pendingExport.label}` : 'Export thread'}

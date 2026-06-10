@@ -30,7 +30,7 @@ export const unlockAntigravityDecryptionFn = createServerFn({ method: 'POST' }).
 });
 
 export const listAntigravityConversationsFn = createServerFn({ method: 'GET' })
-    .inputValidator(workspaceSchema)
+    .validator(workspaceSchema)
     .handler(async ({ data }) => {
         const { listAntigravityConversationsForGroup } = await import('@spiracha/lib/antigravity-db');
         return listAntigravityConversationsForGroup(data.workspaceKey);
@@ -99,13 +99,13 @@ export const loadAntigravityConversationExport = async (conversationId: string) 
 };
 
 export const getAntigravityConversationDetailFn = createServerFn({ method: 'GET' })
-    .inputValidator(conversationSchema)
+    .validator(conversationSchema)
     .handler(async ({ data }) => {
         return loadAntigravityConversationDetail(data.conversationId);
     });
 
 export const exportAntigravityArtifactsFn = createServerFn({ method: 'POST' })
-    .inputValidator(exportSchema)
+    .validator(exportSchema)
     .handler(async ({ data }) => {
         const { renderAntigravityArtifactsMarkdown } = await import('@spiracha/lib/antigravity-db');
         const conversation = await findAntigravityConversationById(data.conversationId);
@@ -122,7 +122,7 @@ export const exportAntigravityArtifactsFn = createServerFn({ method: 'POST' })
     });
 
 export const exportAntigravityConversationFn = createServerFn({ method: 'POST' })
-    .inputValidator(exportSchema)
+    .validator(exportSchema)
     .handler(async ({ data }) => {
         return loadAntigravityConversationExport(data.conversationId);
     });

@@ -14,6 +14,7 @@ import type {
 import type { ThreadRelations, ThreadRow } from './codex-exporter-types';
 import { DEFAULT_CODEX_DIR, DEFAULT_DB_PATH } from './codex-exporter-types';
 import { getCachedParsedCodexTranscript, getThreadRolloutLoadState } from './codex-thread-cache';
+import { mapWithConcurrency } from './concurrency';
 import { cleanInlineTitle, getPortablePathBasename } from './shared';
 import { runWithSqliteRetry } from './sqlite-retry';
 import { invalidateCacheByPrefix } from './ui-cache';
@@ -46,31 +47,6 @@ const isPromiseLike = (value: unknown): value is PromiseLike<unknown> => {
     }
 
     return 'then' in value && typeof value.then === 'function';
-};
-
-const mapWithConcurrency = async <T, TResult>(
-    values: T[],
-    limit: number,
-    mapper: (value: T, index: number) => Promise<TResult>,
-) => {
-    const results = new Array<TResult>(values.length);
-    let nextIndex = 0;
-
-    const worker = async () => {
-        while (true) {
-            const currentIndex = nextIndex;
-            nextIndex += 1;
-
-            if (currentIndex >= values.length) {
-                return;
-            }
-
-            results[currentIndex] = await mapper(values[currentIndex]!, currentIndex);
-        }
-    };
-
-    await Promise.all(Array.from({ length: Math.min(limit, values.length) }, () => worker()));
-    return results;
 };
 
 const openReadonlyDb = (dbPath: string, busyTimeoutMs: number) => {

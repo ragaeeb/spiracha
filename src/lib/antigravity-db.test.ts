@@ -131,6 +131,17 @@ describe('antigravity db discovery', () => {
         });
     });
 
+    it('should ignore artifact directories whose names are not safe conversation ids', async () => {
+        const root = await makeRoot();
+        const unsafeArtifactDir = path.join(root, 'brain', '..not-a-conversation-id');
+        await mkdir(unsafeArtifactDir, { recursive: true });
+        await Bun.write(path.join(unsafeArtifactDir, 'notes.md'), '# Notes\n');
+
+        const conversations = await listAntigravityConversations([root]);
+
+        expect(conversations).toEqual([]);
+    });
+
     it('should group conversations by Antigravity workspace and keep unknown chats separate', async () => {
         const root = await makeRoot();
         await Bun.write(
@@ -254,6 +265,45 @@ describe('antigravity db discovery', () => {
         expect(markdown).toContain('I will inspect the local Antigravity data directory.');
         expect(markdown).toContain('### Tool Calls');
         expect(markdown).toContain('`list_dir`');
+    });
+
+    it('should render Antigravity operation results as tool output sections', async () => {
+        const root = await makeRoot();
+        const conversationId = '99999999-9999-4999-8999-999999999999';
+        const logsDir = path.join(root, 'brain', conversationId, '.system_generated', 'logs');
+        await mkdir(logsDir, { recursive: true });
+        await Bun.write(
+            path.join(root, 'agyhub_summaries_proto.pb'),
+            encodeSummaryIndex([{ id: conversationId, title: 'Review docs' }]),
+        );
+        await Bun.write(
+            path.join(logsDir, 'transcript.jsonl'),
+            [
+                JSON.stringify({
+                    content: 'Review README.md',
+                    created_at: '2026-06-07T03:10:02Z',
+                    source: 'USER_EXPLICIT',
+                    status: 'DONE',
+                    step_index: 0,
+                    type: 'USER_INPUT',
+                }),
+                JSON.stringify({
+                    content: 'Created At: 2026-06-07T03:10:07Z\nFile Path: `file://README.md`\n1: # Demo',
+                    created_at: '2026-06-07T03:10:07Z',
+                    source: 'MODEL',
+                    status: 'DONE',
+                    step_index: 1,
+                    type: 'VIEW_FILE',
+                }),
+            ].join('\n'),
+        );
+
+        const [conversation] = await listAntigravityConversations([root]);
+        const markdown = await renderAntigravityConversationMarkdown(conversation!);
+
+        expect(markdown).toContain('## Tool: VIEW_FILE');
+        expect(markdown).toContain('File Path: `file://README.md`');
+        expect(markdown).not.toContain('## Assistant\n\n_Timestamp: 2026-06-07T03:10:07Z_');
     });
 
     it('should derive a workspace group from the source root when a conversation has no summary metadata', async () => {

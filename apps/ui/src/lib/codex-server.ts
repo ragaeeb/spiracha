@@ -54,6 +54,7 @@ const exportSchema = z.object({
     outputFormat: z.enum(['md', 'txt']),
     redactUsername: z.boolean(),
     threadId: z.string().min(1),
+    zipArchive: z.boolean().default(false),
 });
 
 const exportThreadsSchema = z.object({
@@ -64,6 +65,7 @@ const exportThreadsSchema = z.object({
     outputFormat: z.enum(['md', 'txt']),
     redactUsername: z.boolean(),
     threadIds: z.array(z.string().min(1)).min(1),
+    zipArchive: z.boolean().default(true),
 });
 
 const getDbPath = () => process.env.SPIRACHA_CODEX_DB?.trim() || resolveCodexThreadDbPath();
@@ -81,13 +83,13 @@ export const listProjectsFn = createServerFn({ method: 'GET' }).handler(async ()
 });
 
 export const listProjectThreadsFn = createServerFn({ method: 'GET' })
-    .inputValidator(projectSchema)
+    .validator(projectSchema)
     .handler(async ({ data }) => {
         return listProjectThreads(getDbPath(), data.project);
     });
 
 export const getThreadSnapshotFn = createServerFn({ method: 'GET' })
-    .inputValidator(threadSchema)
+    .validator(threadSchema)
     .handler(async ({ data }) => {
         const dbPath = getDbPath();
         const browseData = getThreadBrowseData(dbPath, data.threadId);
@@ -122,7 +124,7 @@ export const getThreadSnapshotFn = createServerFn({ method: 'GET' })
     });
 
 export const getThreadTranscriptFn = createServerFn({ method: 'GET' })
-    .inputValidator(threadSchema)
+    .validator(threadSchema)
     .handler(async ({ data }) => {
         const dbPath = getDbPath();
         const browseData = getThreadBrowseData(dbPath, data.threadId);
@@ -130,7 +132,7 @@ export const getThreadTranscriptFn = createServerFn({ method: 'GET' })
     });
 
 export const getAnalyticsFn = createServerFn({ method: 'GET' })
-    .inputValidator(analyticsSchema)
+    .validator(analyticsSchema)
     .handler(async ({ data }) => {
         return getCodexAnalytics({
             dbPath: getDbPath(),
@@ -139,7 +141,7 @@ export const getAnalyticsFn = createServerFn({ method: 'GET' })
     });
 
 export const exportThreadFn = createServerFn({ method: 'POST' })
-    .inputValidator(exportSchema)
+    .validator(exportSchema)
     .handler(async ({ data }) => {
         return renderCodexThreadDownload({
             dbPath: getDbPath(),
@@ -152,11 +154,12 @@ export const exportThreadFn = createServerFn({ method: 'POST' })
                 redactUsername: data.redactUsername,
             },
             threadId: data.threadId,
+            zipArchive: data.zipArchive,
         });
     });
 
 export const exportThreadsFn = createServerFn({ method: 'POST' })
-    .inputValidator(exportThreadsSchema)
+    .validator(exportThreadsSchema)
     .handler(async ({ data }) => {
         return renderCodexThreadsDownload({
             dbPath: getDbPath(),
@@ -169,11 +172,12 @@ export const exportThreadsFn = createServerFn({ method: 'POST' })
                 redactUsername: data.redactUsername,
             },
             threadIds: data.threadIds,
+            zipArchive: data.zipArchive,
         });
     });
 
 export const deleteThreadFn = createServerFn({ method: 'POST' })
-    .inputValidator(deleteThreadSchema)
+    .validator(deleteThreadSchema)
     .handler(async ({ data }) => {
         return deleteCodexThread(getDbPath(), data.threadId, {
             deleteSessionFiles: data.deleteSessionFiles,
@@ -181,7 +185,7 @@ export const deleteThreadFn = createServerFn({ method: 'POST' })
     });
 
 export const deleteThreadsFn = createServerFn({ method: 'POST' })
-    .inputValidator(deleteThreadsSchema)
+    .validator(deleteThreadsSchema)
     .handler(async ({ data }) => {
         return deleteCodexThreads(getDbPath(), data.threadIds, {
             deleteSessionFiles: data.deleteSessionFiles,
@@ -189,7 +193,7 @@ export const deleteThreadsFn = createServerFn({ method: 'POST' })
     });
 
 export const deleteProjectFn = createServerFn({ method: 'POST' })
-    .inputValidator(deleteProjectSchema)
+    .validator(deleteProjectSchema)
     .handler(async ({ data }) => {
         return deleteCodexProject(getDbPath(), data.project, {
             deleteSessionFiles: data.deleteSessionFiles,
@@ -197,7 +201,7 @@ export const deleteProjectFn = createServerFn({ method: 'POST' })
     });
 
 export const recoverProjectThreadsFn = createServerFn({ method: 'POST' })
-    .inputValidator(projectSchema)
+    .validator(projectSchema)
     .handler(async ({ data }) => {
         return recoverCodexProjectThreads(getDbPath(), data.project);
     });

@@ -1,3 +1,14 @@
+import { randomUUID } from 'node:crypto';
+import { mkdtemp, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import {
+    getExportMimeType,
+    resolveUniqueExportFileBaseName,
+    sanitizeExportFileName,
+    zipExportDirectory,
+} from '@spiracha/lib/ui-export-archive';
+import { buildUiExportDownloadUrl, ensureUiExportDir } from '@spiracha/lib/ui-export-files';
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
 
@@ -20,6 +31,7 @@ const exportSchema = z.object({
     includeMetadata: z.boolean().default(true),
     includeTools: z.boolean().default(true),
     outputFormat: z.enum(['md', 'txt']).default('md'),
+    zipArchive: z.boolean().default(false),
 });
 
 const exportThreadsSchema = z.object({
@@ -28,6 +40,7 @@ const exportThreadsSchema = z.object({
     includeMetadata: z.boolean().default(true),
     includeTools: z.boolean().default(true),
     outputFormat: z.enum(['md', 'txt']).default('md'),
+    zipArchive: z.boolean().default(true),
 });
 
 const deleteThreadsSchema = z.object({
@@ -54,6 +67,41 @@ const findGroupByKey = async (workspaceKey: string) => {
     return group;
 };
 
+const toSafeExportName = (value: string) => {
+    return sanitizeExportFileName(value) || 'cursor-thread';
+};
+
+const renderCursorZipDownload = async (
+    rendered: Array<{ composerId: string; content: string }>,
+    outputFormat: 'md' | 'txt',
+) => {
+    const exportDir = await ensureUiExportDir();
+    const exportBaseName =
+        rendered.length === 1 ? `${toSafeExportName(rendered[0]!.composerId)}` : `cursor-threads-${rendered.length}`;
+    const workspaceDir = await mkdtemp(path.join(os.tmpdir(), `${exportBaseName}-`));
+    const zipPath = path.join(exportDir, `${exportBaseName}-${randomUUID()}.zip`);
+    const usedBaseNames = new Map<string, number>();
+
+    try {
+        for (const entry of rendered) {
+            const baseName = toSafeExportName(entry.composerId);
+            const fileBaseName = resolveUniqueExportFileBaseName(baseName, usedBaseNames);
+            await Bun.write(path.join(workspaceDir, `${fileBaseName}.${outputFormat}`), entry.content);
+        }
+
+        await zipExportDirectory(workspaceDir, zipPath);
+    } finally {
+        await rm(workspaceDir, { force: true, recursive: true });
+    }
+
+    return {
+        downloadUrl: buildUiExportDownloadUrl(zipPath),
+        fileName: `${exportBaseName}.zip`,
+        mimeType: 'application/zip',
+        mode: 'download_url' as const,
+    };
+};
+
 export const findCursorThreadByComposerId = async (composerId: string) => {
     const { listCursorThreadsForGroup, listCursorWorkspaceGroups } = await import('@spiracha/lib/cursor-db');
     for (const group of await listCursorWorkspaceGroups()) {
@@ -73,52 +121,51 @@ const renderCursorDownload = async (input: {
     includeMetadata: boolean;
     includeTools: boolean;
     outputFormat: 'md' | 'txt';
+    zipArchive: boolean;
 }) => {
-    const { readCursorThreadTranscript } = await import('@spiracha/lib/cursor-db');
+    const { readCursorThreadTranscriptWithAgentFiles } = await import('@spiracha/lib/cursor-db');
     const { getCursorGlobalDbPath } = await import('@spiracha/lib/cursor-exporter-types');
     const { renderCursorTranscript } = await import('@spiracha/lib/cursor-transcript');
-    const rendered = input.composerIds.map((composerId) => {
-        const transcript = readCursorThreadTranscript(getCursorGlobalDbPath(), composerId);
-        if (!transcript) {
-            throw new Error(`No transcript found for thread: ${composerId}`);
-        }
+    const globalDbPath = getCursorGlobalDbPath();
+    const rendered = await Promise.all(
+        input.composerIds.map(async (composerId) => {
+            const transcript = await readCursorThreadTranscriptWithAgentFiles(globalDbPath, composerId);
+            if (!transcript) {
+                throw new Error(`No transcript found for thread: ${composerId}`);
+            }
 
-        const content = renderCursorTranscript(transcript, {
-            includeCommentary: input.includeCommentary,
-            includeMetadata: input.includeMetadata,
-            includeTools: input.includeTools,
-            outputFormat: input.outputFormat,
-        });
+            const content = renderCursorTranscript(transcript, {
+                includeCommentary: input.includeCommentary,
+                includeMetadata: input.includeMetadata,
+                includeTools: input.includeTools,
+                outputFormat: input.outputFormat,
+            });
 
-        if (!content) {
-            throw new Error(`Thread has no exportable content: ${composerId}`);
-        }
+            if (!content) {
+                throw new Error(`Thread has no exportable content: ${composerId}`);
+            }
 
-        return {
-            composerId,
-            content,
-        };
-    });
+            return {
+                composerId,
+                content,
+            };
+        }),
+    );
+
+    if (input.zipArchive || rendered.length > 1) {
+        return renderCursorZipDownload(rendered, input.outputFormat);
+    }
 
     if (rendered.length === 1) {
         return {
             content: rendered[0]!.content,
-            filename: `${rendered[0]!.composerId}.${input.outputFormat}`,
+            fileName: `${toSafeExportName(rendered[0]!.composerId)}.${input.outputFormat}`,
+            mimeType: getExportMimeType(input.outputFormat),
+            mode: 'download' as const,
         };
     }
 
-    const separator =
-        input.outputFormat === 'md'
-            ? '\n\n---\n\n'
-            : '\n\n================================================================\n\n';
-
-    return {
-        content: rendered
-            .map((entry) => entry.content.trimEnd())
-            .join(separator)
-            .concat('\n'),
-        filename: `cursor-threads-${rendered.length}.${input.outputFormat}`,
-    };
+    throw new Error('No Cursor threads selected for export');
 };
 
 export const listCursorWorkspacesFn = createServerFn({ method: 'GET' }).handler(async () => {
@@ -127,7 +174,7 @@ export const listCursorWorkspacesFn = createServerFn({ method: 'GET' }).handler(
 });
 
 export const listCursorThreadsFn = createServerFn({ method: 'GET' })
-    .inputValidator(workspaceSchema)
+    .validator(workspaceSchema)
     .handler(async ({ data }) => {
         const { listCursorThreadsForGroup } = await import('@spiracha/lib/cursor-db');
         const group = await findGroupByKey(data.workspaceKey);
@@ -135,33 +182,24 @@ export const listCursorThreadsFn = createServerFn({ method: 'GET' })
     });
 
 export const getCursorThreadDetailFn = createServerFn({ method: 'GET' })
-    .inputValidator(threadSchema)
+    .validator(threadSchema)
     .handler(async ({ data }) => {
-        const { readCursorThreadTranscript } = await import('@spiracha/lib/cursor-db');
+        const { readCursorThreadTranscriptWithAgentFiles } = await import('@spiracha/lib/cursor-db');
         const { getCursorGlobalDbPath } = await import('@spiracha/lib/cursor-exporter-types');
-        const { renderCursorTranscript } = await import('@spiracha/lib/cursor-transcript');
         const thread = await findCursorThreadByComposerId(data.composerId);
         if (!thread) {
             throw new Error(`Cursor thread not found: ${data.composerId}`);
         }
 
-        const transcript = readCursorThreadTranscript(getCursorGlobalDbPath(), data.composerId);
+        const transcript = await readCursorThreadTranscriptWithAgentFiles(getCursorGlobalDbPath(), data.composerId);
         return {
-            renderedTranscript: transcript
-                ? renderCursorTranscript(transcript, {
-                      includeCommentary: true,
-                      includeMetadata: false,
-                      includeTools: true,
-                      outputFormat: 'md',
-                  })
-                : null,
             thread,
             transcript,
         };
     });
 
 export const exportCursorThreadFn = createServerFn({ method: 'POST' })
-    .inputValidator(exportSchema)
+    .validator(exportSchema)
     .handler(async ({ data }) => {
         return await renderCursorDownload({
             composerIds: [data.composerId],
@@ -169,11 +207,12 @@ export const exportCursorThreadFn = createServerFn({ method: 'POST' })
             includeMetadata: data.includeMetadata,
             includeTools: data.includeTools,
             outputFormat: data.outputFormat,
+            zipArchive: data.zipArchive,
         });
     });
 
 export const exportCursorThreadsFn = createServerFn({ method: 'POST' })
-    .inputValidator(exportThreadsSchema)
+    .validator(exportThreadsSchema)
     .handler(async ({ data }) => {
         return await renderCursorDownload({
             composerIds: data.composerIds,
@@ -181,11 +220,12 @@ export const exportCursorThreadsFn = createServerFn({ method: 'POST' })
             includeMetadata: data.includeMetadata,
             includeTools: data.includeTools,
             outputFormat: data.outputFormat,
+            zipArchive: data.zipArchive,
         });
     });
 
 export const recoverCursorWorkspaceFn = createServerFn({ method: 'POST' })
-    .inputValidator(recoverSchema)
+    .validator(recoverSchema)
     .handler(async ({ data }) => {
         const { isCursorRunning, recoverCursorWorkspaceGroup } = await import('@spiracha/lib/cursor-recovery');
         const group = await findGroupByKey(data.workspaceKey);
@@ -199,7 +239,7 @@ export const recoverCursorWorkspaceFn = createServerFn({ method: 'POST' })
     });
 
 export const deleteCursorThreadsFn = createServerFn({ method: 'POST' })
-    .inputValidator(deleteThreadsSchema)
+    .validator(deleteThreadsSchema)
     .handler(async ({ data }) => {
         const { collectCursorThreadsForDeletion, pruneCursorThreads } = await import('@spiracha/lib/cursor-recovery');
         await ensureCursorClosedForWrite();
@@ -208,7 +248,7 @@ export const deleteCursorThreadsFn = createServerFn({ method: 'POST' })
     });
 
 export const deleteCursorWorkspaceFn = createServerFn({ method: 'POST' })
-    .inputValidator(workspaceSchema)
+    .validator(workspaceSchema)
     .handler(async ({ data }) => {
         const { listCursorThreadsForGroup } = await import('@spiracha/lib/cursor-db');
         const { collectCursorThreadsForDeletion, pruneCursorThreads } = await import('@spiracha/lib/cursor-recovery');
