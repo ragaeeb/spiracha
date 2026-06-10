@@ -1,8 +1,8 @@
 import type { ThreadListEntry } from '@spiracha/lib/codex-browser-types';
 import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { RefreshCcw } from 'lucide-react';
-import { useDeferredValue, useMemo, useState } from 'react';
+import { startTransition, useDeferredValue, useMemo, useState } from 'react';
 import { DeleteConfirmDialog } from '#/components/delete-confirm-dialog';
 import { ExportDialog } from '#/components/export-dialog';
 import { ListSearchInput } from '#/components/list-search-input';
@@ -20,6 +20,7 @@ import {
     recoverProjectThreadsFn,
 } from '#/lib/codex-server';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
+import { parseTextQuerySearch, withTextQuerySearch } from '#/lib/route-search';
 import { useSettings } from '#/lib/settings-store';
 import { matchesTextQuery } from '#/lib/text-filter';
 
@@ -36,6 +37,38 @@ const shouldForceZipArchive = (pendingExport: PendingThreadExport | null) => {
     return Boolean(pendingExport && pendingExport.threadIds.length > 1);
 };
 
+const getDeleteConfirmLabel = (pendingDelete: PendingThreadDelete | null, isPending: boolean) => {
+    if (isPending) {
+        return 'Deleting...';
+    }
+
+    if (pendingDelete && pendingDelete.threads.length > 1) {
+        return 'Delete threads';
+    }
+
+    return 'Delete thread';
+};
+
+const getDeleteDescription = (pendingDelete: PendingThreadDelete | null) => {
+    if (!pendingDelete) {
+        return '';
+    }
+
+    if (pendingDelete.threads.length === 1) {
+        return `Delete the thread "${pendingDelete.threads[0]!.thread.title}" from the Codex database. Leave Session files unchecked if you only want to remove the current DB row.`;
+    }
+
+    return `Delete ${pendingDelete.threads.length} selected threads from the Codex database. Enable Delete Session files if you also want to remove their rollout JSONL files.`;
+};
+
+const getDeleteTitle = (pendingDelete: PendingThreadDelete | null) => {
+    if (pendingDelete && pendingDelete.threads.length > 1) {
+        return `Delete ${pendingDelete.threads.length} Codex threads?`;
+    }
+
+    return 'Delete Codex thread?';
+};
+
 export const Route = createFileRoute('/projects/$project')({
     component: ProjectDetailPage,
     errorComponent: ProjectDetailErrorComponent,
@@ -46,6 +79,7 @@ export const Route = createFileRoute('/projects/$project')({
             title="Loading project"
         />
     ),
+    validateSearch: parseTextQuerySearch,
 });
 
 function ProjectDetailErrorComponent({ error }: { error: Error }) {
@@ -61,11 +95,13 @@ function ProjectDetailErrorComponent({ error }: { error: Error }) {
 }
 
 function ProjectDetailPage() {
+    const navigate = useNavigate({ from: Route.fullPath });
     const params = Route.useParams();
     const queryClient = useQueryClient();
     const threads = useSuspenseQuery(projectThreadsQueryOptions(params.project)).data;
     const { settings } = useSettings();
-    const [searchInput, setSearchInput] = useState('');
+    const search = Route.useSearch();
+    const searchInput = search.q ?? '';
     const [pendingDelete, setPendingDelete] = useState<PendingThreadDelete | null>(null);
     const [pendingExport, setPendingExport] = useState<PendingThreadExport | null>(null);
     const deferredSearch = useDeferredValue(searchInput.trim().toLowerCase());
@@ -188,6 +224,15 @@ function ProjectDetailPage() {
         () => new Map(visibleThreads.map((thread) => [thread.thread.id, thread])),
         [visibleThreads],
     );
+    const updateSearchInput = (value: string) => {
+        startTransition(() => {
+            void navigate({
+                params: true,
+                replace: true,
+                search: (previous: Record<string, unknown>) => withTextQuerySearch(previous, value),
+            });
+        });
+    };
 
     const lookupSelectedThreads = (threadIds: string[]) => {
         return threadIds
@@ -213,7 +258,7 @@ function ProjectDetailPage() {
                         <ListSearchInput
                             placeholder="Search thread title, preview, or model"
                             value={searchInput}
-                            onValueChange={setSearchInput}
+                            onValueChange={updateSearchInput}
                         />
                     </div>
                 }
@@ -268,28 +313,12 @@ function ProjectDetailPage() {
             />
 
             <DeleteConfirmDialog
-                confirmLabel={
-                    deleteThreadMutation.isPending
-                        ? 'Deleting...'
-                        : pendingDelete && pendingDelete.threads.length > 1
-                          ? 'Delete threads'
-                          : 'Delete thread'
-                }
+                confirmLabel={getDeleteConfirmLabel(pendingDelete, deleteThreadMutation.isPending)}
                 defaultDeleteSessionFiles
-                description={
-                    pendingDelete
-                        ? pendingDelete.threads.length === 1
-                            ? `Delete the thread "${pendingDelete.threads[0]!.thread.title}" from the Codex database. Leave Session files unchecked if you only want to remove the current DB row.`
-                            : `Delete ${pendingDelete.threads.length} selected threads from the Codex database. Enable Delete Session files if you also want to remove their rollout JSONL files.`
-                        : ''
-                }
+                description={getDeleteDescription(pendingDelete)}
                 open={pendingDelete !== null}
                 showDeleteSessionFilesOption
-                title={
-                    pendingDelete && pendingDelete.threads.length > 1
-                        ? `Delete ${pendingDelete.threads.length} Codex threads?`
-                        : 'Delete Codex thread?'
-                }
+                title={getDeleteTitle(pendingDelete)}
                 onConfirm={({ deleteSessionFiles }) => {
                     if (!pendingDelete) {
                         return;

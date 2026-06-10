@@ -1,14 +1,15 @@
 import type { ModelTokenSummary, ToolUsageSummary } from '@spiracha/lib/codex-browser-types';
 import { useSuspenseQuery } from '@tanstack/react-query';
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { createColumnHelper } from '@tanstack/react-table';
-import { startTransition, useState } from 'react';
+import { startTransition } from 'react';
 import { DataTable } from '#/components/data-table';
 import { MetricCard } from '#/components/metric-card';
 import { PageHeader } from '#/components/page-header';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '#/components/ui/select';
 import { analyticsQueryOptions, projectsQueryOptions } from '#/lib/codex-queries';
 import { formatNumber, formatTokens } from '#/lib/formatters';
+import { parseAnalyticsSearch, withAnalyticsProjectSearch } from '#/lib/route-search';
 
 const toolUsageColumnHelper = createColumnHelper<ToolUsageSummary>();
 const toolUsageColumns = [
@@ -40,17 +41,22 @@ const modelColumns = [
 
 export const Route = createFileRoute('/analytics')({
     component: AnalyticsPage,
-    loader: ({ context }) => {
+    loader: ({ context, deps }) => {
+        const { project } = deps as { project: string | null };
         return Promise.all([
             context.queryClient.ensureQueryData(projectsQueryOptions()),
-            context.queryClient.ensureQueryData(analyticsQueryOptions(null)),
+            context.queryClient.ensureQueryData(analyticsQueryOptions(project)),
         ]);
     },
+    loaderDeps: ({ search }) => ({ project: parseAnalyticsSearch(search).project ?? null }),
+    validateSearch: parseAnalyticsSearch,
 });
 
 function AnalyticsPage() {
+    const navigate = useNavigate({ from: Route.fullPath });
     const projects = useSuspenseQuery(projectsQueryOptions()).data;
-    const [selectedProject, setSelectedProject] = useState<string | null>(null);
+    const search = Route.useSearch();
+    const selectedProject = search.project ?? null;
     const analytics = useSuspenseQuery(analyticsQueryOptions(selectedProject)).data;
 
     return (
@@ -61,7 +67,11 @@ function AnalyticsPage() {
                         value={selectedProject ?? '__all__'}
                         onValueChange={(value) => {
                             startTransition(() => {
-                                setSelectedProject(value === '__all__' ? null : value);
+                                void navigate({
+                                    replace: true,
+                                    search: (previous: Record<string, unknown>) =>
+                                        withAnalyticsProjectSearch(previous, value === '__all__' ? null : value),
+                                });
                             });
                         }}
                     >

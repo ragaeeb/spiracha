@@ -1,13 +1,37 @@
 import { listScopedThreads } from './codex-browser-db';
 import type { CodexAnalytics, DistributionItem, ModelTokenSummary } from './codex-browser-types';
 import type { ThreadRow } from './codex-exporter-types';
-import { getCachedParsedCodexTranscript } from './codex-thread-cache';
-import { getPortablePathBasename } from './shared';
-import { getFileFingerprint, hashCacheKeyParts, withCachedJson } from './ui-cache';
+import { mapWithConcurrency } from './concurrency';
+import { asObject, asString, getPortablePathBasename, readJsonlObjects } from './shared';
+import { hashCacheKeyParts, hashCacheKeyPartsIterable, withCachedJson } from './ui-cache';
 
 export type CodexAnalyticsInput = {
     dbPath: string;
     project: string | null;
+    transcriptConcurrency?: number;
+};
+
+export type ThreadAnalyticsSummary = {
+    hasWebSearch: boolean;
+    toolNames: string[];
+};
+
+export type ComputeCodexAnalyticsOptions = {
+    loadThreadAnalytics?: (thread: ThreadRow) => Promise<ThreadAnalyticsSummary>;
+    transcriptConcurrency?: number;
+};
+
+export const DEFAULT_ANALYTICS_TRANSCRIPT_CONCURRENCY = 8;
+
+export const resolveAnalyticsTranscriptConcurrency = (
+    configuredValue = process.env.SPIRACHA_ANALYTICS_TRANSCRIPT_CONCURRENCY,
+) => {
+    const parsed = Number(configuredValue);
+    if (!Number.isInteger(parsed) || parsed < 1) {
+        return DEFAULT_ANALYTICS_TRANSCRIPT_CONCURRENCY;
+    }
+
+    return parsed;
 };
 
 const roundToTwoDecimals = (value: number) => {
@@ -52,28 +76,100 @@ const buildModelsByTokens = (threads: ThreadRow[]): ModelTokenSummary[] => {
         });
 };
 
-const buildAnalyticsCacheKey = async (dbPath: string, threads: ThreadRow[], project: string | null) => {
-    const dbFingerprint = await getFileFingerprint(dbPath);
-    const rolloutFingerprints = await Promise.all(threads.map((thread) => getFileFingerprint(thread.rollout_path)));
-    return `analytics-${hashCacheKeyParts(dbFingerprint, project ?? 'all', ...rolloutFingerprints)}`;
+const timestampSignature = (thread: ThreadRow) => {
+    return String(thread.updated_at_ms ?? thread.updated_at * 1000);
 };
 
-const computeCodexAnalytics = async (threads: ThreadRow[]): Promise<CodexAnalytics> => {
+const threadMetadataCacheKeyParts = (thread: ThreadRow) => [
+    thread.id,
+    thread.rollout_path,
+    timestampSignature(thread),
+    String(thread.created_at_ms ?? thread.created_at * 1000),
+    String(thread.tokens_used),
+    String(thread.archived),
+    String(thread.archived_at ?? ''),
+    thread.cwd,
+    thread.model ?? '',
+    thread.model_provider,
+    thread.cli_version,
+    thread.title,
+    thread.preview,
+];
+
+export const buildCodexAnalyticsCacheKey = (dbPath: string, threads: ThreadRow[], project: string | null) => {
+    const parts = (function* () {
+        yield 'v2';
+        yield dbPath;
+        yield project ?? 'all';
+        yield String(threads.length);
+        for (const thread of threads) {
+            yield* threadMetadataCacheKeyParts(thread);
+        }
+    })();
+
+    return `analytics-${hashCacheKeyPartsIterable(parts)}`;
+};
+
+const buildThreadAnalyticsCacheKey = (thread: ThreadRow) => {
+    return `thread-analytics-${hashCacheKeyParts('v1', ...threadMetadataCacheKeyParts(thread))}`;
+};
+
+const parseThreadAnalyticsFile = async (sessionFile: string): Promise<ThreadAnalyticsSummary> => {
+    const toolNames: string[] = [];
+    let hasWebSearch = false;
+
+    for await (const parsed of readJsonlObjects(sessionFile)) {
+        if (parsed.type !== 'response_item') {
+            continue;
+        }
+
+        const payload = asObject(parsed.payload);
+        if (!payload) {
+            continue;
+        }
+
+        const payloadType = asString(payload.type);
+        if (payloadType === 'function_call') {
+            toolNames.push(asString(payload.name) ?? 'unknown');
+            continue;
+        }
+
+        if (payloadType === 'web_search_call' || payloadType === 'web_search_end') {
+            hasWebSearch = true;
+        }
+    }
+
+    return {
+        hasWebSearch,
+        toolNames,
+    };
+};
+
+const getCachedThreadAnalytics = async (thread: ThreadRow): Promise<ThreadAnalyticsSummary> => {
+    return withCachedJson(buildThreadAnalyticsCacheKey(thread), () => parseThreadAnalyticsFile(thread.rollout_path));
+};
+
+export const computeCodexAnalyticsFromThreads = async (
+    threads: ThreadRow[],
+    options: ComputeCodexAnalyticsOptions = {},
+): Promise<CodexAnalytics> => {
     const totalTokens = threads.reduce((sum, thread) => sum + thread.tokens_used, 0);
     const projectNames = new Set(threads.map((thread) => getPortablePathBasename(thread.cwd)).filter(Boolean));
     const toolUsage = new Map<string, number>();
-    const transcripts = await Promise.all(threads.map((thread) => getCachedParsedCodexTranscript(thread.rollout_path)));
     let threadsWithWebSearch = 0;
+    const loadThreadAnalytics = options.loadThreadAnalytics ?? getCachedThreadAnalytics;
+    const transcriptConcurrency = options.transcriptConcurrency ?? resolveAnalyticsTranscriptConcurrency();
+    const threadAnalytics = await mapWithConcurrency(threads, transcriptConcurrency, (thread) =>
+        loadThreadAnalytics(thread),
+    );
 
-    for (const transcript of transcripts) {
-        if (transcript.stats.webSearchEventCount > 0) {
+    for (const analytics of threadAnalytics) {
+        if (analytics.hasWebSearch) {
             threadsWithWebSearch += 1;
         }
 
-        for (const event of transcript.events) {
-            if (event.kind === 'tool_call') {
-                incrementCount(toolUsage, event.name);
-            }
+        for (const toolName of analytics.toolNames) {
+            incrementCount(toolUsage, toolName);
         }
     }
 
@@ -94,7 +190,11 @@ const computeCodexAnalytics = async (threads: ThreadRow[]): Promise<CodexAnalyti
 
 export const getCodexAnalytics = async (input: CodexAnalyticsInput): Promise<CodexAnalytics> => {
     const threads = listScopedThreads(input.dbPath, input.project);
-    const key = await buildAnalyticsCacheKey(input.dbPath, threads, input.project);
+    const key = buildCodexAnalyticsCacheKey(input.dbPath, threads, input.project);
 
-    return withCachedJson(key, async () => computeCodexAnalytics(threads));
+    return withCachedJson(key, async () =>
+        computeCodexAnalyticsFromThreads(threads, {
+            transcriptConcurrency: input.transcriptConcurrency,
+        }),
+    );
 };

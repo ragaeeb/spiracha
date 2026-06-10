@@ -26,6 +26,7 @@ The browser UI for browsing local Codex, Cursor, and Antigravity history, inspec
 - shows dedicated Antigravity conversation detail pages with shared metadata and export actions
 - unlocks Antigravity transcript export through macOS Keychain and exports conversations or artifacts as Markdown
 - shows dashboard and analytics summaries, including Codex token totals and tool-call frequency
+- keeps Codex inventory search and analytics project filters in URL search params for reloadable and shareable views
 
 ## Commands
 
@@ -54,17 +55,22 @@ Runtime configuration is intentionally small:
 - `SPIRACHA_UI_EXPORT_DIR`
   - Optional directory for temporary browser-download artifacts such as zipped thread exports.
   - If unset, Spiracha uses an OS temp directory under `spiracha-ui-exports`.
+- `SPIRACHA_ANALYTICS_TRANSCRIPT_CONCURRENCY`
+  - Optional positive integer for Codex analytics transcript parsing concurrency.
+  - Defaults to `8`.
 
 Export artifacts are served through the UI as attachment downloads from `/__exports/*`. The packaged `spiracha ui` launcher and the local dev server both use the same export-directory contract.
+
+Codex analytics cache keys are based on Codex DB row metadata instead of statting every rollout file before cache hits. That keeps large histories responsive. The tradeoff is that manual JSONL edits outside Codex do not invalidate analytics unless DB row metadata changes or the temporary UI cache is cleared.
 
 ## Routes
 
 - `/`
   - dashboard
 - `/projects`
-  - Codex inventory and search
+  - Codex inventory and search, with `q` as the route search param
 - `/projects/$project`
-  - Codex project thread listing
+  - Codex project thread listing, with `q` as the route search param
 - `/cursor`
   - Cursor workspace inventory and search
 - `/cursor/$workspaceKey`
@@ -82,9 +88,10 @@ Export artifacts are served through the UI as attachment downloads from `/__expo
 - `/$threadId`
   - shortcut redirect to the thread detail page for pasted Codex thread UUIDs
 - `/analytics`
-  - Codex token and tool-call analytics with project filter
+  - Codex token and tool-call analytics, with `project` as the route search param
 
 ## Testing
 
 - UI component tests live under `src/**/*.vitest.tsx`.
+- Route search parsing tests live in `src/lib/route-search.vitest.ts`.
 - The repo root wraps this Vitest suite from `src/ui-package.test.ts`, so `rtk bun test` at the root covers both the Bun tests and the UI tests.

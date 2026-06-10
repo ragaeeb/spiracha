@@ -24,6 +24,16 @@ export const hashCacheKeyParts = (...parts: string[]) => {
     return createHash('sha1').update(parts.join('|')).digest('hex');
 };
 
+export const hashCacheKeyPartsIterable = (parts: Iterable<string>) => {
+    const hash = createHash('sha1');
+    for (const part of parts) {
+        hash.update(part);
+        hash.update('|');
+    }
+
+    return hash.digest('hex');
+};
+
 export const getFileFingerprint = async (filePath: string) => {
     const metadata = await stat(filePath);
     return `${filePath}:${metadata.size}:${metadata.mtimeMs}`;

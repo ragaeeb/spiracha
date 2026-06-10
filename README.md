@@ -121,6 +121,10 @@ The UI currently includes:
 - an Antigravity workspace inventory, conversation listing, and standalone conversation detail flow
 - a Codex dashboard, Codex thread detail view, and Codex analytics page
 
+Codex inventory search and analytics project filters are stored in route search params, so filtered views can be bookmarked or reloaded. `/projects` and `/projects/$project` use `q`, and `/analytics` uses `project`.
+
+Analytics cache keys are derived from Codex DB row metadata instead of statting every rollout file. This avoids large per-rollout stat storms on big histories and lets cached analytics resolve without touching transcript files. The hard tradeoff is that manual JSONL edits outside Codex do not invalidate analytics unless the corresponding DB row metadata changes or the temp UI cache is cleared. Transcript analytics parsing uses a bounded worker pool; tune it with `SPIRACHA_ANALYTICS_TRANSCRIPT_CONCURRENCY` when benchmarking large datasets.
+
 The thread detail page also supports a direct UUID shortcut route. Pasting `http://localhost:3000/<thread-id>` redirects to `/threads/<thread-id>`.
 
 Notable UI routes:
@@ -265,6 +269,7 @@ This builds the app, packs a fresh tarball in a clean temp directory, launches `
 - `src/lib/codex-exporter-*.ts`: Codex exporter modules
 - `src/lib/codex-browser-*.ts`: shared browser/UI data, analytics, and export helpers
 - `src/lib/codex-thread-*.ts`: structured transcript parsing and caching helpers
+- `src/lib/concurrency.ts`: shared bounded-concurrency helper for large transcript and DB workloads
 - `src/lib/claude-exporter.ts`: Claude exporter implementation
 - `src/lib/cursor-*.ts`: Cursor discovery, transcript rendering, recovery, and CLI helpers
 - `plugins/codex-chats-export/`: local Codex plugin bundle
@@ -278,6 +283,7 @@ The test suite includes:
 - Antigravity discovery and export coverage
 - Codex CLI helper tests
 - transcript rendering helper tests
+- route search parsing and bounded concurrency tests
 - MCP stdio protocol round-trip tests
 - local packaging should be smoke-tested with a packed tarball before publishing
 
