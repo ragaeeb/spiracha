@@ -20,6 +20,7 @@ const exportSchema = z.object({
     includeMetadata: z.boolean().default(true),
     includeTools: z.boolean().default(true),
     outputFormat: z.enum(['md', 'txt']).default('md'),
+    zipArchive: z.boolean().default(false),
 });
 
 const exportThreadsSchema = z.object({
@@ -28,6 +29,7 @@ const exportThreadsSchema = z.object({
     includeMetadata: z.boolean().default(true),
     includeTools: z.boolean().default(true),
     outputFormat: z.enum(['md', 'txt']).default('md'),
+    zipArchive: z.boolean().default(true),
 });
 
 const deleteThreadsSchema = z.object({
@@ -54,6 +56,74 @@ const findGroupByKey = async (workspaceKey: string) => {
     return group;
 };
 
+const getCursorExportMimeType = (outputFormat: 'md' | 'txt') => {
+    return outputFormat === 'md' ? 'text/markdown; charset=utf-8' : 'text/plain; charset=utf-8';
+};
+
+const toSafeExportName = (value: string) => {
+    return (
+        value
+            .replace(/[<>:"/\\|?*\u0000-\u001f]/gu, ' ')
+            .replace(/\.\.+/gu, ' ')
+            .replace(/\s+/gu, ' ')
+            .trim() || 'cursor-thread'
+    );
+};
+
+const zipExportDirectory = async (sourceDirectory: string, zipPath: string) => {
+    const proc = Bun.spawn(['zip', '-9', '-r', zipPath, '.'], {
+        cwd: sourceDirectory,
+        stderr: 'pipe',
+        stdout: 'pipe',
+    });
+    const [stdoutText, stderrText, exitCode] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        proc.exited,
+    ]);
+
+    if (exitCode !== 0) {
+        throw new Error(`zip failed (${exitCode}): ${(stderrText || stdoutText).trim()}`);
+    }
+};
+
+const renderCursorZipDownload = async (
+    rendered: Array<{ composerId: string; content: string }>,
+    outputFormat: 'md' | 'txt',
+) => {
+    const { randomUUID } = await import('node:crypto');
+    const { mkdtemp, rm } = await import('node:fs/promises');
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const { buildUiExportDownloadUrl, ensureUiExportDir } = await import('@spiracha/lib/ui-export-files');
+    const exportDir = await ensureUiExportDir();
+    const exportBaseName =
+        rendered.length === 1 ? `${toSafeExportName(rendered[0]!.composerId)}` : `cursor-threads-${rendered.length}`;
+    const workspaceDir = await mkdtemp(path.join(os.tmpdir(), `${exportBaseName}-`));
+    const zipPath = path.join(exportDir, `${exportBaseName}-${randomUUID()}.zip`);
+    const usedNames = new Set<string>();
+
+    try {
+        for (const entry of rendered) {
+            const baseName = toSafeExportName(entry.composerId);
+            const fileBaseName = usedNames.has(baseName) ? `${baseName}-${usedNames.size + 1}` : baseName;
+            usedNames.add(fileBaseName);
+            await Bun.write(path.join(workspaceDir, `${fileBaseName}.${outputFormat}`), entry.content);
+        }
+
+        await zipExportDirectory(workspaceDir, zipPath);
+    } finally {
+        await rm(workspaceDir, { force: true, recursive: true });
+    }
+
+    return {
+        downloadUrl: buildUiExportDownloadUrl(zipPath),
+        fileName: `${exportBaseName}.zip`,
+        mimeType: 'application/zip',
+        mode: 'download_url' as const,
+    };
+};
+
 export const findCursorThreadByComposerId = async (composerId: string) => {
     const { listCursorThreadsForGroup, listCursorWorkspaceGroups } = await import('@spiracha/lib/cursor-db');
     for (const group of await listCursorWorkspaceGroups()) {
@@ -73,6 +143,7 @@ const renderCursorDownload = async (input: {
     includeMetadata: boolean;
     includeTools: boolean;
     outputFormat: 'md' | 'txt';
+    zipArchive: boolean;
 }) => {
     const { readCursorThreadTranscriptWithAgentFiles } = await import('@spiracha/lib/cursor-db');
     const { getCursorGlobalDbPath } = await import('@spiracha/lib/cursor-exporter-types');
@@ -103,25 +174,20 @@ const renderCursorDownload = async (input: {
         }),
     );
 
+    if (input.zipArchive || rendered.length > 1) {
+        return renderCursorZipDownload(rendered, input.outputFormat);
+    }
+
     if (rendered.length === 1) {
         return {
             content: rendered[0]!.content,
-            filename: `${rendered[0]!.composerId}.${input.outputFormat}`,
+            fileName: `${toSafeExportName(rendered[0]!.composerId)}.${input.outputFormat}`,
+            mimeType: getCursorExportMimeType(input.outputFormat),
+            mode: 'download' as const,
         };
     }
 
-    const separator =
-        input.outputFormat === 'md'
-            ? '\n\n---\n\n'
-            : '\n\n================================================================\n\n';
-
-    return {
-        content: rendered
-            .map((entry) => entry.content.trimEnd())
-            .join(separator)
-            .concat('\n'),
-        filename: `cursor-threads-${rendered.length}.${input.outputFormat}`,
-    };
+    throw new Error('No Cursor threads selected for export');
 };
 
 export const listCursorWorkspacesFn = createServerFn({ method: 'GET' }).handler(async () => {
@@ -142,7 +208,6 @@ export const getCursorThreadDetailFn = createServerFn({ method: 'GET' })
     .handler(async ({ data }) => {
         const { readCursorThreadTranscriptWithAgentFiles } = await import('@spiracha/lib/cursor-db');
         const { getCursorGlobalDbPath } = await import('@spiracha/lib/cursor-exporter-types');
-        const { renderCursorTranscript } = await import('@spiracha/lib/cursor-transcript');
         const thread = await findCursorThreadByComposerId(data.composerId);
         if (!thread) {
             throw new Error(`Cursor thread not found: ${data.composerId}`);
@@ -150,14 +215,6 @@ export const getCursorThreadDetailFn = createServerFn({ method: 'GET' })
 
         const transcript = await readCursorThreadTranscriptWithAgentFiles(getCursorGlobalDbPath(), data.composerId);
         return {
-            renderedTranscript: transcript
-                ? renderCursorTranscript(transcript, {
-                      includeCommentary: true,
-                      includeMetadata: false,
-                      includeTools: true,
-                      outputFormat: 'md',
-                  })
-                : null,
             thread,
             transcript,
         };
@@ -172,6 +229,7 @@ export const exportCursorThreadFn = createServerFn({ method: 'POST' })
             includeMetadata: data.includeMetadata,
             includeTools: data.includeTools,
             outputFormat: data.outputFormat,
+            zipArchive: data.zipArchive,
         });
     });
 
@@ -184,6 +242,7 @@ export const exportCursorThreadsFn = createServerFn({ method: 'POST' })
             includeMetadata: data.includeMetadata,
             includeTools: data.includeTools,
             outputFormat: data.outputFormat,
+            zipArchive: true,
         });
     });
 

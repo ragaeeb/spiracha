@@ -205,6 +205,7 @@ describe('TranscriptView', () => {
 
         expect(screen.queryByText('I am working through the codebase now.')).toBeNull();
         expect(screen.getByText('Here is the final answer.')).toBeTruthy();
+        expect(screen.getByText('Final Answer')).toBeTruthy();
 
         rerender(
             <TranscriptView

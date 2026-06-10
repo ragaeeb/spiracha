@@ -15,6 +15,7 @@ describe('ExportDialog', () => {
             includeMetadata: true,
             includeTools: true,
             outputFormat: 'md',
+            zipArchive: false,
         });
     });
 
@@ -37,6 +38,7 @@ describe('ExportDialog', () => {
                 includeMetadata: false,
                 includeTools: true,
                 outputFormat: 'txt',
+                zipArchive: false,
             });
         } finally {
             HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
@@ -64,7 +66,45 @@ describe('ExportDialog', () => {
             includeMetadata: true,
             includeTools: false,
             outputFormat: 'md',
+            zipArchive: false,
         });
         expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
+
+    it('should submit zip archive when selected', () => {
+        const onExport = vi.fn();
+
+        render(<ExportDialog open onExport={onExport} onOpenChange={vi.fn()} />);
+
+        fireEvent.click(screen.getByRole('checkbox', { name: /zip archive/i }));
+        fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
+
+        expect(onExport).toHaveBeenCalledWith({
+            includeCommentary: false,
+            includeMetadata: true,
+            includeTools: true,
+            outputFormat: 'md',
+            zipArchive: true,
+        });
+    });
+
+    it('should force zip archive for multi-thread exports', () => {
+        const onExport = vi.fn();
+
+        render(<ExportDialog forceZipArchive open onExport={onExport} onOpenChange={vi.fn()} />);
+
+        const zipArchive = screen.getByRole('checkbox', { name: /zip archive/i }) as HTMLButtonElement;
+        expect(zipArchive.getAttribute('aria-checked')).toBe('true');
+        expect(zipArchive.disabled).toBe(true);
+
+        fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
+
+        expect(onExport).toHaveBeenCalledWith({
+            includeCommentary: false,
+            includeMetadata: true,
+            includeTools: true,
+            outputFormat: 'md',
+            zipArchive: true,
+        });
     });
 });

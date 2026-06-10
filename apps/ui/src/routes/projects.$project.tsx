@@ -32,6 +32,10 @@ type PendingThreadExport = {
     threadLabel: string;
 };
 
+const shouldForceZipArchive = (pendingExport: PendingThreadExport | null) => {
+    return Boolean(pendingExport && pendingExport.threadIds.length > 1);
+};
+
 export const Route = createFileRoute('/projects/$project')({
     component: ProjectDetailPage,
     errorComponent: ProjectDetailErrorComponent,
@@ -113,6 +117,7 @@ function ProjectDetailPage() {
             includeTools: boolean;
             includeMetadata: boolean;
             outputFormat: 'md' | 'txt';
+            zipArchive: boolean;
         }) => {
             if (!pendingExport) {
                 throw new Error('No thread selected for export');
@@ -123,6 +128,7 @@ function ProjectDetailPage() {
                 project: params.project,
                 selectedThreadCount: pendingExport.threadIds.length,
                 selectedThreadIds: pendingExport.threadIds,
+                zipArchive: options.zipArchive,
             });
 
             const download =
@@ -301,6 +307,7 @@ function ProjectDetailPage() {
             />
 
             <ExportDialog
+                forceZipArchive={shouldForceZipArchive(pendingExport)}
                 open={pendingExport !== null}
                 pending={exportThreadMutation.isPending}
                 title={pendingExport ? `Export ${pendingExport.threadLabel}` : 'Export thread'}

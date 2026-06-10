@@ -392,12 +392,14 @@ function ThreadDetailPage() {
             includeTools: boolean;
             includeMetadata: boolean;
             outputFormat: 'md' | 'txt';
+            zipArchive: boolean;
         }) => {
             console.info('[spiracha:export-ui] request', {
                 outputFormat: options.outputFormat,
                 project: snapshot.project,
                 selectedThreadCount: 1,
                 selectedThreadIds: [snapshot.thread.id],
+                zipArchive: options.zipArchive,
             });
 
             const download = await exportThreadFn({

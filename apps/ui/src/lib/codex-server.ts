@@ -54,6 +54,7 @@ const exportSchema = z.object({
     outputFormat: z.enum(['md', 'txt']),
     redactUsername: z.boolean(),
     threadId: z.string().min(1),
+    zipArchive: z.boolean().default(false),
 });
 
 const exportThreadsSchema = z.object({
@@ -64,6 +65,7 @@ const exportThreadsSchema = z.object({
     outputFormat: z.enum(['md', 'txt']),
     redactUsername: z.boolean(),
     threadIds: z.array(z.string().min(1)).min(1),
+    zipArchive: z.boolean().default(true),
 });
 
 const getDbPath = () => process.env.SPIRACHA_CODEX_DB?.trim() || resolveCodexThreadDbPath();
@@ -152,6 +154,7 @@ export const exportThreadFn = createServerFn({ method: 'POST' })
                 redactUsername: data.redactUsername,
             },
             threadId: data.threadId,
+            zipArchive: data.zipArchive,
         });
     });
 

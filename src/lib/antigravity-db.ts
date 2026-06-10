@@ -811,6 +811,10 @@ const logEntryHeading = (entry: AntigravityLogEntry): string => {
     }
 
     if (source === 'MODEL') {
+        if (type && type !== 'PLANNER_RESPONSE') {
+            return `Tool: ${type}`;
+        }
+
         return 'Assistant';
     }
 

@@ -102,6 +102,7 @@ export function ProjectsTable({ projects, onDeleteProject }: ProjectsTableProps)
             columns={columns(onDeleteProject)}
             data={projects}
             emptyMessage="No projects match the current search."
+            initialSorting={[{ desc: true, id: 'lastUpdatedAtMs' }]}
         />
     );
 }

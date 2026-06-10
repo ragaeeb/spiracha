@@ -143,6 +143,34 @@ describe('renderCodexThreadDownload', () => {
         expect(await Bun.file(path.join(tempRoot, path.basename(download.downloadUrl))).exists()).toBe(true);
     });
 
+    it('should zip a single thread export when requested', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-export-zip-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+
+        const download = await renderCodexThreadDownload({
+            dbPath: fixture.dbPath,
+            includeCommentary: true,
+            includeMetadata: true,
+            includeTools: true,
+            outputFormat: 'md',
+            publicExportDir: tempRoot,
+            threadId: fixture.threads[0]!.threadId,
+            zipArchive: true,
+        });
+
+        expect(download.mode).toBe('download_url');
+        if (download.mode !== 'download_url') {
+            throw new Error('expected zipped download url mode');
+        }
+        expect(download.fileName.endsWith('.zip')).toBe(true);
+
+        const zipPath = path.join(tempRoot, path.basename(download.downloadUrl));
+        const entries = await listZipEntries(zipPath);
+
+        expect(entries).toEqual(['spiracha-2026-05-17-1712-019e36d7.md']);
+    });
+
     it('should write oversized browser exports into the shared UI export directory when no override is provided', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-export-shared-dir-test-'));
         tempPaths.push(tempRoot);

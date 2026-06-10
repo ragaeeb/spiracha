@@ -67,6 +67,10 @@ const getEventTone = (event: ThreadEvent) => {
 };
 
 const getMessageTitle = (event: Extract<ThreadEvent, { kind: 'message' }>, assistantModel: string | null) => {
+    if (event.role === 'assistant' && event.phase === 'final_answer') {
+        return 'Final Answer';
+    }
+
     const modelLabel = formatModelLabel(event.model ?? assistantModel);
 
     if (event.variant === 'agent_message') {

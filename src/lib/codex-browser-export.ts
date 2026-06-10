@@ -18,6 +18,7 @@ type RenderCodexThreadDownloadInput = {
     pathDisplaySettings?: Pick<PathDisplaySettings, 'convertToProjectRoot' | 'redactUsername'>;
     publicExportDir?: string;
     threadId: string;
+    zipArchive?: boolean;
 };
 
 type RenderCodexThreadsDownloadInput = Omit<RenderCodexThreadDownloadInput, 'threadId'> & {
@@ -235,6 +236,7 @@ export const renderCodexThreadDownload = async (
 
     try {
         if (
+            input.zipArchive ||
             rolloutSnapshotBefore.sizeBytes > (input.largeExportThresholdBytes ?? LARGE_BROWSER_EXPORT_THRESHOLD_BYTES)
         ) {
             const exportBaseName = fileBaseName;

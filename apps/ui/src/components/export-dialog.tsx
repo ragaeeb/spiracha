@@ -12,6 +12,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '#/components/ui/select';
 
 type ExportDialogProps = {
+    forceZipArchive?: boolean;
     open: boolean;
     pending?: boolean;
     title?: string;
@@ -20,11 +21,13 @@ type ExportDialogProps = {
         includeMetadata: boolean;
         includeTools: boolean;
         outputFormat: 'md' | 'txt';
+        zipArchive: boolean;
     }) => void;
     onOpenChange: (open: boolean) => void;
 };
 
 export function ExportDialog({
+    forceZipArchive = false,
     open,
     pending = false,
     title = 'Export thread',
@@ -35,6 +38,8 @@ export function ExportDialog({
     const [includeMetadata, setIncludeMetadata] = useState(true);
     const [includeCommentary, setIncludeCommentary] = useState(false);
     const [includeTools, setIncludeTools] = useState(true);
+    const [zipArchive, setZipArchive] = useState(false);
+    const effectiveZipArchive = forceZipArchive || zipArchive;
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -54,13 +59,23 @@ export function ExportDialog({
                         <Select value={outputFormat} onValueChange={(value) => setOutputFormat(value as 'md' | 'txt')}>
                             <SelectTrigger
                                 id="output-format"
-                                className="border-[var(--border)] bg-[var(--panel-secondary)]"
+                                className="border-[var(--border)] bg-[var(--panel-secondary)] text-[var(--foreground)]"
                             >
                                 <SelectValue placeholder="Choose a format" />
                             </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="md">Markdown (.md)</SelectItem>
-                                <SelectItem value="txt">Plain text (.txt)</SelectItem>
+                            <SelectContent className="border-[var(--border)] bg-[var(--panel)] text-[var(--foreground)] shadow-[var(--panel-shadow)]">
+                                <SelectItem
+                                    className="focus:bg-[var(--panel-secondary)] focus:text-[var(--foreground)] data-[highlighted]:bg-[var(--panel-secondary)] data-[highlighted]:text-[var(--foreground)]"
+                                    value="md"
+                                >
+                                    Markdown (.md)
+                                </SelectItem>
+                                <SelectItem
+                                    className="focus:bg-[var(--panel-secondary)] focus:text-[var(--foreground)] data-[highlighted]:bg-[var(--panel-secondary)] data-[highlighted]:text-[var(--foreground)]"
+                                    value="txt"
+                                >
+                                    Plain text (.txt)
+                                </SelectItem>
                             </SelectContent>
                         </Select>
                     </div>
@@ -106,6 +121,21 @@ export function ExportDialog({
                             </span>
                         </span>
                     </div>
+
+                    <div className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--panel-secondary)] p-3">
+                        <Checkbox
+                            aria-label="Zip archive"
+                            checked={effectiveZipArchive}
+                            disabled={forceZipArchive}
+                            onCheckedChange={(checked) => setZipArchive(checked === true)}
+                        />
+                        <span className="space-y-1">
+                            <span className="block font-medium text-sm">Zip archive</span>
+                            <span className="block text-[var(--muted-foreground)] text-sm">
+                                Downloads the exported transcript inside a .zip archive.
+                            </span>
+                        </span>
+                    </div>
                 </div>
 
                 <DialogFooter>
@@ -115,7 +145,15 @@ export function ExportDialog({
                     <Button
                         className="rounded-full"
                         disabled={pending}
-                        onClick={() => onExport({ includeCommentary, includeMetadata, includeTools, outputFormat })}
+                        onClick={() =>
+                            onExport({
+                                includeCommentary,
+                                includeMetadata,
+                                includeTools,
+                                outputFormat,
+                                zipArchive: effectiveZipArchive,
+                            })
+                        }
                     >
                         {pending ? 'Exporting...' : 'Download export'}
                     </Button>
