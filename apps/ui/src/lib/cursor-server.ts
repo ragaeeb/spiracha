@@ -74,31 +74,34 @@ const renderCursorDownload = async (input: {
     includeTools: boolean;
     outputFormat: 'md' | 'txt';
 }) => {
-    const { readCursorThreadTranscript } = await import('@spiracha/lib/cursor-db');
+    const { readCursorThreadTranscriptWithAgentFiles } = await import('@spiracha/lib/cursor-db');
     const { getCursorGlobalDbPath } = await import('@spiracha/lib/cursor-exporter-types');
     const { renderCursorTranscript } = await import('@spiracha/lib/cursor-transcript');
-    const rendered = input.composerIds.map((composerId) => {
-        const transcript = readCursorThreadTranscript(getCursorGlobalDbPath(), composerId);
-        if (!transcript) {
-            throw new Error(`No transcript found for thread: ${composerId}`);
-        }
+    const globalDbPath = getCursorGlobalDbPath();
+    const rendered = await Promise.all(
+        input.composerIds.map(async (composerId) => {
+            const transcript = await readCursorThreadTranscriptWithAgentFiles(globalDbPath, composerId);
+            if (!transcript) {
+                throw new Error(`No transcript found for thread: ${composerId}`);
+            }
 
-        const content = renderCursorTranscript(transcript, {
-            includeCommentary: input.includeCommentary,
-            includeMetadata: input.includeMetadata,
-            includeTools: input.includeTools,
-            outputFormat: input.outputFormat,
-        });
+            const content = renderCursorTranscript(transcript, {
+                includeCommentary: input.includeCommentary,
+                includeMetadata: input.includeMetadata,
+                includeTools: input.includeTools,
+                outputFormat: input.outputFormat,
+            });
 
-        if (!content) {
-            throw new Error(`Thread has no exportable content: ${composerId}`);
-        }
+            if (!content) {
+                throw new Error(`Thread has no exportable content: ${composerId}`);
+            }
 
-        return {
-            composerId,
-            content,
-        };
-    });
+            return {
+                composerId,
+                content,
+            };
+        }),
+    );
 
     if (rendered.length === 1) {
         return {
@@ -137,7 +140,7 @@ export const listCursorThreadsFn = createServerFn({ method: 'GET' })
 export const getCursorThreadDetailFn = createServerFn({ method: 'GET' })
     .inputValidator(threadSchema)
     .handler(async ({ data }) => {
-        const { readCursorThreadTranscript } = await import('@spiracha/lib/cursor-db');
+        const { readCursorThreadTranscriptWithAgentFiles } = await import('@spiracha/lib/cursor-db');
         const { getCursorGlobalDbPath } = await import('@spiracha/lib/cursor-exporter-types');
         const { renderCursorTranscript } = await import('@spiracha/lib/cursor-transcript');
         const thread = await findCursorThreadByComposerId(data.composerId);
@@ -145,7 +148,7 @@ export const getCursorThreadDetailFn = createServerFn({ method: 'GET' })
             throw new Error(`Cursor thread not found: ${data.composerId}`);
         }
 
-        const transcript = readCursorThreadTranscript(getCursorGlobalDbPath(), data.composerId);
+        const transcript = await readCursorThreadTranscriptWithAgentFiles(getCursorGlobalDbPath(), data.composerId);
         return {
             renderedTranscript: transcript
                 ? renderCursorTranscript(transcript, {

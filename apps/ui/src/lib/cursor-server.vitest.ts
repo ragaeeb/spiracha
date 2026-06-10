@@ -10,6 +10,7 @@ vi.mock('@spiracha/lib/cursor-db', () => ({
     listCursorThreadsForGroup: listCursorThreadsForGroupMock,
     listCursorWorkspaceGroups: listCursorWorkspaceGroupsMock,
     readCursorThreadTranscript: vi.fn(),
+    readCursorThreadTranscriptWithAgentFiles: vi.fn(),
 }));
 
 vi.mock('@spiracha/lib/cursor-exporter-types', () => ({

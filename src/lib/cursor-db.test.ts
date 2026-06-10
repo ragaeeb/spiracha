@@ -13,6 +13,7 @@ import {
     parseCursorBubble,
     readCursorThreadHead,
     readCursorThreadTranscript,
+    readCursorThreadTranscriptWithAgentFiles,
 } from './cursor-db';
 import { getCursorGlobalDbPath } from './cursor-exporter-types';
 import { type CursorFixtureSpec, createCursorFixture } from './cursor-test-helpers';
@@ -281,6 +282,45 @@ describe('cursor-db transcript reads', () => {
         const transcript = readCursorThreadTranscript(getCursorGlobalDbPath(userDir), 'thread-1');
 
         expect(transcript?.omittedBubbleCount).toBe(50);
+    });
+
+    it('should append tail messages from Cursor agent transcript files', async () => {
+        const userDir = await makeUserDir();
+        const spec = baseSpec();
+        spec.threads[0]!.bubbles = [
+            { bubbleId: 'b1', text: 'Original request', type: 1 },
+            { bubbleId: 'b2', text: 'Known assistant update', type: 2 },
+        ];
+        await createCursorFixture(userDir, spec);
+        const transcriptDir = path.join(userDir, 'projects', 'demo-project', 'agent-transcripts', 'thread-1');
+        await mkdir(transcriptDir, { recursive: true });
+        await Bun.write(
+            path.join(transcriptDir, 'thread-1.jsonl'),
+            [
+                JSON.stringify({
+                    message: { content: [{ text: 'Known assistant update', type: 'text' }] },
+                    role: 'assistant',
+                }),
+                JSON.stringify({
+                    message: { content: [{ text: 'Did I read the transcript? Yes, now.', type: 'text' }] },
+                    role: 'assistant',
+                }),
+                JSON.stringify({ status: 'success', type: 'result' }),
+            ].join('\n'),
+        );
+
+        const transcript = await readCursorThreadTranscriptWithAgentFiles(
+            getCursorGlobalDbPath(userDir),
+            'thread-1',
+            userDir,
+        );
+
+        expect(transcript?.bubbles.map((bubble) => bubble.text)).toEqual([
+            'Original request',
+            'Known assistant update',
+            'Did I read the transcript? Yes, now.',
+        ]);
+        expect(transcript?.renderableBubbleCount).toBe(3);
     });
 });
 

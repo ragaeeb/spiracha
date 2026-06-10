@@ -1055,6 +1055,194 @@ const isRenderableBubble = (bubble: CursorBubble): boolean => {
     return Boolean(bubble.text.trim() || bubble.thinking?.trim() || bubble.toolCall);
 };
 
+const normalizeBubbleText = (value: string | null): string => {
+    return (value ?? '').replace(/\s+/gu, ' ').trim();
+};
+
+const getBubbleSignature = (bubble: CursorBubble): string => {
+    const toolCall = bubble.toolCall
+        ? [bubble.toolCall.name, bubble.toolCall.argumentsText ?? '', bubble.toolCall.resultText ?? ''].join('\u0001')
+        : '';
+    return [bubble.kind, normalizeBubbleText(bubble.text), normalizeBubbleText(bubble.thinking), toolCall].join(
+        '\u0000',
+    );
+};
+
+const getAgentTranscriptContentParts = (entry: Record<string, JsonValue>): Record<string, JsonValue>[] => {
+    const message = asObject(entry.message ?? null);
+    const content = message?.content ?? entry.content ?? null;
+    if (Array.isArray(content)) {
+        return content.map((part) => asObject(part)).filter((part): part is Record<string, JsonValue> => Boolean(part));
+    }
+
+    if (typeof content === 'string') {
+        return [{ text: content, type: 'text' }];
+    }
+
+    return [];
+};
+
+const parseAgentTranscriptToolCall = (parts: Record<string, JsonValue>[]): CursorToolCall | null => {
+    const toolUse = parts.find((part) => asString(part.type ?? null) === 'tool_use');
+    if (!toolUse) {
+        return null;
+    }
+
+    const name = asString(toolUse.name ?? null);
+    if (!name) {
+        return null;
+    }
+
+    return {
+        argumentsText: toolUse.input === undefined ? null : JSON.stringify(toolUse.input),
+        callId: asString(toolUse.id ?? null),
+        name,
+        resultText: null,
+        status: null,
+    };
+};
+
+const parseAgentTranscriptBubble = (
+    filePath: string,
+    lineNumber: number,
+    raw: Record<string, JsonValue>,
+): CursorBubble | null => {
+    const message = asObject(raw.message ?? null);
+    const role = asString(raw.role ?? message?.role ?? null);
+    const kind = role === 'user' || role === 'assistant' ? role : 'unknown';
+    const parts = getAgentTranscriptContentParts(raw);
+    const text = parts
+        .filter((part) => asString(part.type ?? null) === 'text')
+        .map((part) => asString(part.text ?? null))
+        .filter((value): value is string => Boolean(value?.trim()))
+        .join('\n\n');
+    const toolCall = parseAgentTranscriptToolCall(parts);
+    const bubble: CursorBubble = {
+        bubbleId: `agent-transcript:${path.basename(filePath)}:${lineNumber}`,
+        createdAtMs: null,
+        kind,
+        text,
+        thinking: null,
+        toolCall,
+    };
+
+    return isRenderableBubble(bubble) ? bubble : null;
+};
+
+const readCursorAgentTranscriptFile = async (filePath: string): Promise<CursorBubble[]> => {
+    let text = '';
+    try {
+        text = await Bun.file(filePath).text();
+    } catch {
+        return [];
+    }
+
+    const bubbles: CursorBubble[] = [];
+    for (const [index, line] of text.split(/\n/u).entries()) {
+        if (!line.trim()) {
+            continue;
+        }
+
+        let raw: JsonValue;
+        try {
+            raw = JSON.parse(line) as JsonValue;
+        } catch {
+            continue;
+        }
+
+        const entry = asObject(raw);
+        if (!entry) {
+            continue;
+        }
+
+        const bubble = parseAgentTranscriptBubble(filePath, index + 1, entry);
+        if (bubble) {
+            bubbles.push(bubble);
+        }
+    }
+
+    return bubbles;
+};
+
+const listCursorAgentTranscriptFiles = async (transcriptDir: string, composerId: string): Promise<string[]> => {
+    const preferred = path.join(transcriptDir, `${composerId}.jsonl`);
+    const files = new Set<string>();
+    if (await pathExists(preferred)) {
+        files.add(preferred);
+    }
+
+    let entries: string[] = [];
+    try {
+        entries = await readdir(transcriptDir);
+    } catch {
+        return [...files];
+    }
+
+    for (const entry of entries) {
+        if (entry.endsWith('.jsonl')) {
+            files.add(path.join(transcriptDir, entry));
+        }
+    }
+
+    return [...files].sort();
+};
+
+const readCursorAgentTranscriptBubbles = async (composerId: string, userDir: string): Promise<CursorBubble[]> => {
+    const transcriptDirs = await findCursorTranscriptDirs(composerId, userDir);
+    const bubbles: CursorBubble[] = [];
+    for (const transcriptDir of transcriptDirs.sort()) {
+        const files = await listCursorAgentTranscriptFiles(transcriptDir, composerId);
+        for (const file of files) {
+            bubbles.push(...(await readCursorAgentTranscriptFile(file)));
+        }
+    }
+
+    return bubbles;
+};
+
+const mergeAgentTranscriptTail = (
+    transcript: CursorThreadTranscript,
+    agentBubbles: CursorBubble[],
+): CursorThreadTranscript => {
+    const existingSignatures = new Set(transcript.bubbles.map(getBubbleSignature));
+    let lastOverlapIndex = -1;
+    for (const [index, bubble] of agentBubbles.entries()) {
+        if (existingSignatures.has(getBubbleSignature(bubble))) {
+            lastOverlapIndex = index;
+        }
+    }
+
+    const seen = new Set(existingSignatures);
+    const appended: CursorBubble[] = [];
+    const candidates = lastOverlapIndex >= 0 ? agentBubbles.slice(lastOverlapIndex + 1) : agentBubbles;
+    for (const bubble of candidates) {
+        const signature = getBubbleSignature(bubble);
+        if (seen.has(signature)) {
+            continue;
+        }
+
+        seen.add(signature);
+        appended.push(bubble);
+    }
+
+    if (appended.length === 0) {
+        return transcript;
+    }
+
+    return {
+        ...transcript,
+        bubbles: [...transcript.bubbles, ...appended],
+        renderableBubbleCount: transcript.renderableBubbleCount + appended.length,
+    };
+};
+
+const inferCursorUserDirFromGlobalDbPath = (globalDbPath: string): string => {
+    const globalStorageDir = path.dirname(globalDbPath);
+    return path.basename(globalStorageDir) === 'globalStorage'
+        ? path.dirname(globalStorageDir)
+        : resolveCursorUserDir();
+};
+
 export const readCursorThreadTranscript = (globalDbPath: string, composerId: string): CursorThreadTranscript | null => {
     const head = readCursorThreadHead(globalDbPath, composerId);
     if (!head) {
@@ -1085,6 +1273,20 @@ export const readCursorThreadTranscript = (globalDbPath: string, composerId: str
     } finally {
         db.close();
     }
+};
+
+export const readCursorThreadTranscriptWithAgentFiles = async (
+    globalDbPath: string,
+    composerId: string,
+    userDir = inferCursorUserDirFromGlobalDbPath(globalDbPath),
+): Promise<CursorThreadTranscript | null> => {
+    const transcript = readCursorThreadTranscript(globalDbPath, composerId);
+    if (!transcript) {
+        return null;
+    }
+
+    const agentBubbles = await readCursorAgentTranscriptBubbles(composerId, userDir);
+    return mergeAgentTranscriptTail(transcript, agentBubbles);
 };
 
 const readAllBubbleIds = (db: Database, composerId: string): string[] => {
