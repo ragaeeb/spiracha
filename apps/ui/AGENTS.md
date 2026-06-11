@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This package is the local browser UI for Spiracha. It reads Codex, Cursor, and Antigravity local data through TanStack Start server functions and shared root-package helpers.
+This package is the local browser UI for Spiracha. It reads Codex, Cursor, Antigravity, and OpenCode local data through TanStack Start server functions and shared root-package helpers.
 
 ## Commands
 
@@ -29,7 +29,8 @@ Important:
 - Codex analytics uses the `project` route search param so filtered analytics links can be bookmarked and reloaded.
 - Cursor thread detail lives at `/cursor-threads/$composerId`.
 - Antigravity conversation detail lives at `/antigravity-conversations/$conversationId`.
-- Keep the Codex, Cursor, and Antigravity list/detail pages aligned around the same table-driven index/detail pattern when adding new source integrations.
+- OpenCode session detail lives at `/opencode-sessions/$sessionId`.
+- Keep the Codex, Cursor, Antigravity, and OpenCode list/detail pages aligned around the same table-driven index/detail pattern when adding new source integrations.
 
 ## Shared Data Layer
 
@@ -45,6 +46,8 @@ The UI depends on root-package helpers via `@spiracha/*` path aliases:
 - `@spiracha/lib/cursor-transcript`
 - `@spiracha/lib/antigravity-db`
 - `@spiracha/lib/antigravity-keychain`
+- `@spiracha/lib/opencode-db`
+- `@spiracha/lib/opencode-transcript`
 
 Keep server-only imports inside server functions or route loaders. Do not import Bun-only modules into purely client-side components.
 
@@ -52,10 +55,10 @@ Keep server-only imports inside server functions or route loaders. Do not import
 
 Use the existing layers consistently:
 
-- TanStack Start server functions in `src/lib/codex-server.ts`, `src/lib/cursor-server.ts`, and `src/lib/antigravity-server.ts`
+- TanStack Start server functions in `src/lib/codex-server.ts`, `src/lib/cursor-server.ts`, `src/lib/antigravity-server.ts`, and `src/lib/opencode-server.ts`
   - Use for any browser-triggered read/write that needs Bun-only modules, DB access, filesystem access, Keychain access, or shared root-package helpers.
   - Use `.validator(...)` for input validation. Do not add new `.inputValidator(...)` calls.
-- TanStack Query query options in `src/lib/codex-queries.ts`, `src/lib/cursor-queries.ts`, and `src/lib/antigravity-queries.ts`
+- TanStack Query query options in `src/lib/codex-queries.ts`, `src/lib/cursor-queries.ts`, `src/lib/antigravity-queries.ts`, and `src/lib/opencode-queries.ts`
   - Use for client-side fetching, caching, retries, and invalidation of server-function results.
 - Shared root-package helpers under `@spiracha/lib/*`
   - Extend these when the behavior should stay shared between the UI, CLI, and packaged launcher.

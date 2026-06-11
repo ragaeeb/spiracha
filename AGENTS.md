@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This repo exports local Codex chats, Claude Code transcripts, and Cursor Agent/Composer threads to Markdown or plain text, and the UI also browses local Antigravity conversation history.
+This repo exports local Codex chats, Claude Code transcripts, and Cursor Agent/Composer threads to Markdown or plain text, and the UI also browses local Antigravity and OpenCode conversation history.
 
 Main entrypoints:
 - `rtk bun start ...` for Codex chat export
@@ -10,7 +10,7 @@ Main entrypoints:
 - `rtk bun run export:claude -- ...` for Claude transcript export
 - `rtk bun run ./src/export-cursor.ts ...` (or `rtk spiracha cursor ...`) for Cursor thread export, recovery, and prune
 - `rtk bun run mcp` for the MCP server used by the local Codex plugin
-- `rtk bun run ui:dev` for the local browser UI across Codex, Cursor, and Antigravity data
+- `rtk bun run ui:dev` for the local browser UI across Codex, Cursor, Antigravity, and OpenCode data
 - published package entrypoints:
   - `rtk bunx spiracha`
   - `rtk bunx spiracha ui`
@@ -81,6 +81,14 @@ Antigravity browser/export modules:
 - `src/lib/antigravity-keychain.ts`
   - macOS Keychain access and safe-storage decryption helpers for Antigravity transcript export
 
+OpenCode browser/export modules:
+- `src/lib/opencode-db.ts`
+  - read-only OpenCode project/session discovery, transcript part parsing, and workspace grouping
+- `src/lib/opencode-exporter-types.ts`
+  - shared OpenCode workspace, session, message, part, and export option types plus default DB path resolution
+- `src/lib/opencode-transcript.ts`
+  - renders OpenCode sessions to Markdown or plain text for UI downloads
+
 Other important files:
 - `src/lib/claude-exporter.ts`
   - Claude transcript export pipeline
@@ -101,8 +109,8 @@ Other important files:
 - `plugins/codex-chats-export/`
   - local Codex plugin manifest, skill, and MCP wiring
 - `apps/ui/`
-  - TanStack Start browser UI package for Codex, Cursor, and Antigravity
-  - source-specific index/detail routes include `/threads/$threadId`, `/cursor-threads/$composerId`, and `/antigravity-conversations/$conversationId`
+  - TanStack Start browser UI package for Codex, Cursor, Antigravity, and OpenCode
+  - source-specific index/detail routes include `/threads/$threadId`, `/cursor-threads/$composerId`, `/antigravity-conversations/$conversationId`, and `/opencode-sessions/$sessionId`
 
 ## Test Strategy
 
@@ -110,6 +118,7 @@ Current tests cover:
 - exporter end-to-end behavior for Codex and Claude
 - Cursor export, recovery, and pruning behavior
 - Antigravity discovery, transcript parsing, and artifact export rendering
+- OpenCode discovery, transcript parsing, and export rendering
 - structured Codex transcript parsing
 - project/thread browsing and destructive DB flows
 - analytics aggregation
@@ -199,7 +208,7 @@ rtk bunx spiracha cursor recover --workspace summer --apply
 - `--project` matches the final `cwd` path segment for both POSIX and Windows-style paths, not the full path.
 - Running `codex-chats` or `bun start` with no args enters interactive mode.
 - Codex MCP exports must be scoped by at least one of `deeplinks`, `project`, or `cwd`.
-- Antigravity browsing/export currently ships through the browser UI rather than a standalone CLI command.
+- Antigravity and OpenCode browsing/export currently ship through the browser UI rather than standalone CLI commands.
 - `txt` output is intentionally real plain text, not Markdown with a `.txt` extension.
 - The published package is Bun-first. `bin` entrypoints target Bun shebang execution.
 - The UI package runs `vite` through `bun --bun ...` because its server functions depend on Bun-only modules like `bun:sqlite`.

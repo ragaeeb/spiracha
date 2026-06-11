@@ -1,6 +1,6 @@
 # Spiracha UI
 
-The browser UI for browsing local Codex, Cursor, and Antigravity history, inspecting transcript details, exporting chats, and analyzing Codex usage patterns.
+The browser UI for browsing local Codex, Cursor, Antigravity, and OpenCode history, inspecting transcript details, exporting chats, and analyzing Codex usage patterns.
 
 ## Stack
 
@@ -25,6 +25,8 @@ The browser UI for browsing local Codex, Cursor, and Antigravity history, inspec
 - lists Antigravity workspaces and conversations, including transcript/artifact availability
 - shows dedicated Antigravity conversation detail pages with shared metadata and export actions
 - unlocks Antigravity transcript export through macOS Keychain and exports conversations or artifacts as Markdown
+- lists OpenCode workspaces and sessions from the local OpenCode SQLite database
+- shows dedicated OpenCode session detail pages with reasoning, tool parts, token metadata, and export actions
 - shows dashboard and analytics summaries, including Codex token totals and tool-call frequency
 - keeps Codex inventory search and analytics project filters in URL search params for reloadable and shareable views
 
@@ -58,6 +60,9 @@ Runtime configuration is intentionally small:
 - `SPIRACHA_ANALYTICS_TRANSCRIPT_CONCURRENCY`
   - Optional positive integer for Codex analytics transcript parsing concurrency.
   - Defaults to `8`.
+- `SPIRACHA_OPENCODE_DB`
+  - Optional absolute path to the OpenCode SQLite database.
+  - If unset, Spiracha reads `${XDG_DATA_HOME:-~/.local/share}/opencode/opencode.db`.
 
 Export artifacts are served through the UI as attachment downloads from `/__exports/*`. The packaged `spiracha ui` launcher and the local dev server both use the same export-directory contract.
 
@@ -83,6 +88,12 @@ Codex analytics cache keys are based on Codex DB row metadata instead of stattin
   - Antigravity workspace conversation listing
 - `/antigravity-conversations/$conversationId`
   - Antigravity conversation detail, export, and artifact inspection
+- `/opencode`
+  - OpenCode workspace inventory and search
+- `/opencode/$workspaceKey`
+  - OpenCode workspace session listing
+- `/opencode-sessions/$sessionId`
+  - OpenCode session detail and export
 - `/threads/$threadId`
   - Codex thread detail, transcript, export, and delete
 - `/$threadId`

@@ -14,10 +14,13 @@ import { Route as AnalyticsRouteImport } from './routes/analytics'
 import { Route as ThreadIdRouteImport } from './routes/$threadId'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ProjectsIndexRouteImport } from './routes/projects.index'
+import { Route as OpencodeIndexRouteImport } from './routes/opencode.index'
 import { Route as CursorIndexRouteImport } from './routes/cursor.index'
 import { Route as AntigravityIndexRouteImport } from './routes/antigravity.index'
 import { Route as ThreadsThreadIdRouteImport } from './routes/threads.$threadId'
 import { Route as ProjectsProjectRouteImport } from './routes/projects.$project'
+import { Route as OpencodeWorkspaceKeyRouteImport } from './routes/opencode.$workspaceKey'
+import { Route as OpencodeSessionsSessionIdRouteImport } from './routes/opencode-sessions.$sessionId'
 import { Route as CursorWorkspaceKeyRouteImport } from './routes/cursor.$workspaceKey'
 import { Route as CursorThreadsComposerIdRouteImport } from './routes/cursor-threads.$composerId'
 import { Route as AntigravityWorkspaceKeyRouteImport } from './routes/antigravity.$workspaceKey'
@@ -48,6 +51,11 @@ const ProjectsIndexRoute = ProjectsIndexRouteImport.update({
   path: '/projects/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OpencodeIndexRoute = OpencodeIndexRouteImport.update({
+  id: '/opencode/',
+  path: '/opencode/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CursorIndexRoute = CursorIndexRouteImport.update({
   id: '/cursor/',
   path: '/cursor/',
@@ -68,6 +76,17 @@ const ProjectsProjectRoute = ProjectsProjectRouteImport.update({
   path: '/projects/$project',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OpencodeWorkspaceKeyRoute = OpencodeWorkspaceKeyRouteImport.update({
+  id: '/opencode/$workspaceKey',
+  path: '/opencode/$workspaceKey',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OpencodeSessionsSessionIdRoute =
+  OpencodeSessionsSessionIdRouteImport.update({
+    id: '/opencode-sessions/$sessionId',
+    path: '/opencode-sessions/$sessionId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const CursorWorkspaceKeyRoute = CursorWorkspaceKeyRouteImport.update({
   id: '/cursor/$workspaceKey',
   path: '/cursor/$workspaceKey',
@@ -99,10 +118,13 @@ export interface FileRoutesByFullPath {
   '/antigravity/$workspaceKey': typeof AntigravityWorkspaceKeyRoute
   '/cursor-threads/$composerId': typeof CursorThreadsComposerIdRoute
   '/cursor/$workspaceKey': typeof CursorWorkspaceKeyRoute
+  '/opencode-sessions/$sessionId': typeof OpencodeSessionsSessionIdRoute
+  '/opencode/$workspaceKey': typeof OpencodeWorkspaceKeyRoute
   '/projects/$project': typeof ProjectsProjectRoute
   '/threads/$threadId': typeof ThreadsThreadIdRoute
   '/antigravity/': typeof AntigravityIndexRoute
   '/cursor/': typeof CursorIndexRoute
+  '/opencode/': typeof OpencodeIndexRoute
   '/projects/': typeof ProjectsIndexRoute
 }
 export interface FileRoutesByTo {
@@ -114,10 +136,13 @@ export interface FileRoutesByTo {
   '/antigravity/$workspaceKey': typeof AntigravityWorkspaceKeyRoute
   '/cursor-threads/$composerId': typeof CursorThreadsComposerIdRoute
   '/cursor/$workspaceKey': typeof CursorWorkspaceKeyRoute
+  '/opencode-sessions/$sessionId': typeof OpencodeSessionsSessionIdRoute
+  '/opencode/$workspaceKey': typeof OpencodeWorkspaceKeyRoute
   '/projects/$project': typeof ProjectsProjectRoute
   '/threads/$threadId': typeof ThreadsThreadIdRoute
   '/antigravity': typeof AntigravityIndexRoute
   '/cursor': typeof CursorIndexRoute
+  '/opencode': typeof OpencodeIndexRoute
   '/projects': typeof ProjectsIndexRoute
 }
 export interface FileRoutesById {
@@ -130,10 +155,13 @@ export interface FileRoutesById {
   '/antigravity/$workspaceKey': typeof AntigravityWorkspaceKeyRoute
   '/cursor-threads/$composerId': typeof CursorThreadsComposerIdRoute
   '/cursor/$workspaceKey': typeof CursorWorkspaceKeyRoute
+  '/opencode-sessions/$sessionId': typeof OpencodeSessionsSessionIdRoute
+  '/opencode/$workspaceKey': typeof OpencodeWorkspaceKeyRoute
   '/projects/$project': typeof ProjectsProjectRoute
   '/threads/$threadId': typeof ThreadsThreadIdRoute
   '/antigravity/': typeof AntigravityIndexRoute
   '/cursor/': typeof CursorIndexRoute
+  '/opencode/': typeof OpencodeIndexRoute
   '/projects/': typeof ProjectsIndexRoute
 }
 export interface FileRouteTypes {
@@ -147,10 +175,13 @@ export interface FileRouteTypes {
     | '/antigravity/$workspaceKey'
     | '/cursor-threads/$composerId'
     | '/cursor/$workspaceKey'
+    | '/opencode-sessions/$sessionId'
+    | '/opencode/$workspaceKey'
     | '/projects/$project'
     | '/threads/$threadId'
     | '/antigravity/'
     | '/cursor/'
+    | '/opencode/'
     | '/projects/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -162,10 +193,13 @@ export interface FileRouteTypes {
     | '/antigravity/$workspaceKey'
     | '/cursor-threads/$composerId'
     | '/cursor/$workspaceKey'
+    | '/opencode-sessions/$sessionId'
+    | '/opencode/$workspaceKey'
     | '/projects/$project'
     | '/threads/$threadId'
     | '/antigravity'
     | '/cursor'
+    | '/opencode'
     | '/projects'
   id:
     | '__root__'
@@ -177,10 +211,13 @@ export interface FileRouteTypes {
     | '/antigravity/$workspaceKey'
     | '/cursor-threads/$composerId'
     | '/cursor/$workspaceKey'
+    | '/opencode-sessions/$sessionId'
+    | '/opencode/$workspaceKey'
     | '/projects/$project'
     | '/threads/$threadId'
     | '/antigravity/'
     | '/cursor/'
+    | '/opencode/'
     | '/projects/'
   fileRoutesById: FileRoutesById
 }
@@ -193,10 +230,13 @@ export interface RootRouteChildren {
   AntigravityWorkspaceKeyRoute: typeof AntigravityWorkspaceKeyRoute
   CursorThreadsComposerIdRoute: typeof CursorThreadsComposerIdRoute
   CursorWorkspaceKeyRoute: typeof CursorWorkspaceKeyRoute
+  OpencodeSessionsSessionIdRoute: typeof OpencodeSessionsSessionIdRoute
+  OpencodeWorkspaceKeyRoute: typeof OpencodeWorkspaceKeyRoute
   ProjectsProjectRoute: typeof ProjectsProjectRoute
   ThreadsThreadIdRoute: typeof ThreadsThreadIdRoute
   AntigravityIndexRoute: typeof AntigravityIndexRoute
   CursorIndexRoute: typeof CursorIndexRoute
+  OpencodeIndexRoute: typeof OpencodeIndexRoute
   ProjectsIndexRoute: typeof ProjectsIndexRoute
 }
 
@@ -237,6 +277,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/opencode/': {
+      id: '/opencode/'
+      path: '/opencode'
+      fullPath: '/opencode/'
+      preLoaderRoute: typeof OpencodeIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/cursor/': {
       id: '/cursor/'
       path: '/cursor'
@@ -263,6 +310,20 @@ declare module '@tanstack/react-router' {
       path: '/projects/$project'
       fullPath: '/projects/$project'
       preLoaderRoute: typeof ProjectsProjectRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/opencode/$workspaceKey': {
+      id: '/opencode/$workspaceKey'
+      path: '/opencode/$workspaceKey'
+      fullPath: '/opencode/$workspaceKey'
+      preLoaderRoute: typeof OpencodeWorkspaceKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/opencode-sessions/$sessionId': {
+      id: '/opencode-sessions/$sessionId'
+      path: '/opencode-sessions/$sessionId'
+      fullPath: '/opencode-sessions/$sessionId'
+      preLoaderRoute: typeof OpencodeSessionsSessionIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/cursor/$workspaceKey': {
@@ -306,10 +367,13 @@ const rootRouteChildren: RootRouteChildren = {
   AntigravityWorkspaceKeyRoute: AntigravityWorkspaceKeyRoute,
   CursorThreadsComposerIdRoute: CursorThreadsComposerIdRoute,
   CursorWorkspaceKeyRoute: CursorWorkspaceKeyRoute,
+  OpencodeSessionsSessionIdRoute: OpencodeSessionsSessionIdRoute,
+  OpencodeWorkspaceKeyRoute: OpencodeWorkspaceKeyRoute,
   ProjectsProjectRoute: ProjectsProjectRoute,
   ThreadsThreadIdRoute: ThreadsThreadIdRoute,
   AntigravityIndexRoute: AntigravityIndexRoute,
   CursorIndexRoute: CursorIndexRoute,
+  OpencodeIndexRoute: OpencodeIndexRoute,
   ProjectsIndexRoute: ProjectsIndexRoute,
 }
 export const routeTree = rootRouteImport

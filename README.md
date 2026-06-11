@@ -10,7 +10,7 @@
 [![runtime](https://img.shields.io/badge/runtime-Bun-000000?logo=bun)](https://bun.sh)
 [![wakatime](https://wakatime.com/badge/user/a0b906ce-b8e7-4463-8bce-383238df6d4b/project/f035d5e2-fa44-4383-913b-53c2c326d8a7.svg)](https://wakatime.com/badge/user/a0b906ce-b8e7-4463-8bce-383238df6d4b/project/f035d5e2-fa44-4383-913b-53c2c326d8a7)
 
-Export local Codex, Claude Code, and Cursor transcripts to Markdown or plain text, and inspect Codex, Cursor, and Antigravity history through a browser UI.
+Export local Codex, Claude Code, and Cursor transcripts to Markdown or plain text, and inspect Codex, Cursor, Antigravity, and OpenCode history through a browser UI.
 
 ## Quick Start
 
@@ -34,10 +34,11 @@ rtk bunx spiracha cursor list
 
 - Export Codex session transcripts from local `.codex` history
 - Export Cursor Agent/Composer threads from local Cursor storage
-- Browse Codex, Cursor, and Antigravity history in a TanStack Start UI
+- Browse Codex, Cursor, Antigravity, and OpenCode history in a TanStack Start UI
 - Inspect Codex thread timelines, tool calls, thread metadata, and raw event context
 - Inspect Cursor workspace inventories, dedicated thread detail pages, recover split storage buckets, and export or delete workspace threads
 - Inspect Antigravity workspaces, dedicated conversation detail pages, unlock transcript export through macOS Keychain, and export conversation transcripts or generated artifacts
+- Inspect OpenCode project workspaces, dedicated session detail pages, reasoning/tool parts, token metadata, and export sessions
 - Delete threads or derived projects from the Codex SQLite database after confirmation
 - Download thread exports directly from the UI as Markdown or plain text, with optional metadata, commentary, and tool-call inclusion
 - View dashboard and analytics summaries, including token totals and tool-call frequency
@@ -119,6 +120,7 @@ The UI currently includes:
 - a Codex inventory and derived-project detail flow
 - a Cursor workspace inventory, workspace-thread listing, and standalone thread detail flow
 - an Antigravity workspace inventory, conversation listing, and standalone conversation detail flow
+- an OpenCode workspace inventory, session listing, and standalone session detail flow
 - a Codex dashboard, Codex thread detail view, and Codex analytics page
 
 Codex inventory search and analytics project filters are stored in route search params, so filtered views can be bookmarked or reloaded. `/projects` and `/projects/$project` use `q`, and `/analytics` uses `project`.
@@ -134,6 +136,8 @@ Notable UI routes:
 - `/cursor-threads/$composerId` for Cursor thread detail
 - `/antigravity` and `/antigravity/$workspaceKey` for Antigravity workspace inventory and conversation lists
 - `/antigravity-conversations/$conversationId` for Antigravity conversation detail
+- `/opencode` and `/opencode/$workspaceKey` for OpenCode workspace inventory and session lists
+- `/opencode-sessions/$sessionId` for OpenCode session detail
 
 Examples:
 
@@ -198,7 +202,7 @@ Repo-local equivalent during development:
 rtk bun run ./src/export-cursor.ts --help
 ```
 
-Antigravity conversation browsing and export currently live in the browser UI rather than a standalone CLI subcommand.
+Antigravity and OpenCode conversation browsing and export currently live in the browser UI rather than standalone CLI subcommands.
 
 ## MCP server
 
@@ -260,7 +264,7 @@ This builds the app, packs a fresh tarball in a clean temp directory, launches `
 
 ## Project Layout
 
-- `apps/ui/`: TanStack Start browser app for Codex, Cursor, and Antigravity browsing plus export and delete flows
+- `apps/ui/`: TanStack Start browser app for Codex, Cursor, Antigravity, and OpenCode browsing plus export and delete flows
 - `src/export-chats.ts`: Codex CLI wrapper
 - `src/export-claude.ts`: Claude CLI wrapper
 - `src/export-cursor.ts`: Cursor CLI wrapper
@@ -272,6 +276,7 @@ This builds the app, packs a fresh tarball in a clean temp directory, launches `
 - `src/lib/concurrency.ts`: shared bounded-concurrency helper for large transcript and DB workloads
 - `src/lib/claude-exporter.ts`: Claude exporter implementation
 - `src/lib/cursor-*.ts`: Cursor discovery, transcript rendering, recovery, and CLI helpers
+- `src/lib/opencode-*.ts`: OpenCode project/session discovery and transcript rendering helpers
 - `plugins/codex-chats-export/`: local Codex plugin bundle
 
 ## Testing
@@ -281,6 +286,7 @@ The test suite includes:
 - Claude exporter end-to-end coverage
 - Cursor exporter and recovery coverage
 - Antigravity discovery and export coverage
+- OpenCode discovery and export coverage
 - Codex CLI helper tests
 - transcript rendering helper tests
 - route search parsing and bounded concurrency tests

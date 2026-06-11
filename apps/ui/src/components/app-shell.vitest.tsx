@@ -52,7 +52,7 @@ describe('AppShell', () => {
                 .getAllByRole('link')
                 .map((link) => link.textContent)
                 .filter(Boolean),
-        ).toEqual(['Dashboard', 'Codex', 'Antigravity', 'Cursor', 'Analytics', 'Settings']);
+        ).toEqual(['Dashboard', 'Codex', 'Antigravity', 'Cursor', 'OpenCode', 'Analytics', 'Settings']);
     });
 
     it('should keep Cursor active on standalone thread detail routes', () => {
@@ -77,5 +77,17 @@ describe('AppShell', () => {
         );
 
         expect(screen.getByRole('link', { name: 'Antigravity' }).className).toContain('bg-[var(--accent-muted)]');
+    });
+
+    it('should keep OpenCode active on standalone session detail routes', () => {
+        useRouterStateMock.mockReturnValue('/opencode-sessions/session-1');
+
+        render(
+            <AppShell>
+                <div>Content area</div>
+            </AppShell>,
+        );
+
+        expect(screen.getByRole('link', { name: 'OpenCode' }).className).toContain('bg-[var(--accent-muted)]');
     });
 });
