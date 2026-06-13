@@ -7,6 +7,10 @@ import { getFileFingerprint, hashCacheKeyParts, withCachedJson } from './ui-cach
 export const LARGE_THREAD_SIZE_BYTES = 100 * 1024 * 1024;
 export const LARGE_THREAD_PREVIEW_EVENT_LIMIT = 200;
 
+const isMissingFileError = (error: unknown) => {
+    return error instanceof Error && 'code' in error && error.code === 'ENOENT';
+};
+
 export const getCachedParsedCodexTranscript = async (sessionFile: string): Promise<ParsedCodexTranscript> => {
     const fingerprint = await getFileFingerprint(sessionFile);
     const key = `thread-${hashCacheKeyParts(path.basename(sessionFile), fingerprint)}`;
@@ -23,7 +27,19 @@ export const getThreadRolloutLoadState = async (
     sessionFile: string,
     largeTranscriptThresholdBytes = LARGE_THREAD_SIZE_BYTES,
 ) => {
-    const metadata = await stat(sessionFile);
+    let metadata: Awaited<ReturnType<typeof stat>>;
+    try {
+        metadata = await stat(sessionFile);
+    } catch (error) {
+        if (isMissingFileError(error)) {
+            return {
+                fileSizeBytes: null,
+                shouldDeferTranscriptLoad: false,
+            };
+        }
+
+        throw error;
+    }
 
     return {
         fileSizeBytes: metadata.size,

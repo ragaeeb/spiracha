@@ -1,4 +1,5 @@
 import { Database } from 'bun:sqlite';
+import { statSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -168,6 +169,64 @@ const readAllThreads = (dbPath: string): ThreadRow[] => {
             .query('SELECT * FROM threads ORDER BY COALESCE(updated_at_ms, updated_at * 1000) DESC, id DESC')
             .all() as ThreadRow[];
     });
+};
+
+const applyRolloutActivityTimestamps = (threads: ThreadRow[]) => {
+    return threads
+        .map((thread) => {
+            let rolloutUpdatedAtMs = toTimestampMs(thread);
+            try {
+                rolloutUpdatedAtMs = Math.max(rolloutUpdatedAtMs, statSync(thread.rollout_path).mtimeMs);
+            } catch {}
+
+            if (rolloutUpdatedAtMs <= toTimestampMs(thread)) {
+                return thread;
+            }
+
+            return {
+                ...thread,
+                updated_at: Math.floor(rolloutUpdatedAtMs / 1000),
+                updated_at_ms: Math.floor(rolloutUpdatedAtMs),
+            };
+        })
+        .sort((left, right) => {
+            const updatedDifference = toTimestampMs(right) - toTimestampMs(left);
+            if (updatedDifference !== 0) {
+                return updatedDifference;
+            }
+
+            return right.id.localeCompare(left.id);
+        });
+};
+
+const buildDashboardRecentThreads = (threads: ThreadRow[]) => {
+    const bestThreadByProject = new Map<string, ThreadRow>();
+    for (const thread of threads) {
+        const project = getPortablePathBasename(thread.cwd);
+        if (!project) {
+            continue;
+        }
+
+        const current = bestThreadByProject.get(project);
+        if (!current || toTimestampMs(thread) > toTimestampMs(current)) {
+            bestThreadByProject.set(project, thread);
+        }
+    }
+
+    return [...bestThreadByProject.values()]
+        .sort((left, right) => {
+            const updatedDifference = toTimestampMs(right) - toTimestampMs(left);
+            if (updatedDifference !== 0) {
+                return updatedDifference;
+            }
+
+            return right.id.localeCompare(left.id);
+        })
+        .slice(0, 5)
+        .map((thread) => ({
+            project: getPortablePathBasename(thread.cwd),
+            thread: compactThreadListRow(thread),
+        }));
 };
 
 const filterThreadsByProject = (threads: ThreadRow[], projectName: string | null) => {
@@ -367,7 +426,7 @@ const deleteThreadSessionFiles = async (sessionFiles: string[]) => {
 };
 
 export const listCodexProjects = (dbPath: string): ProjectSummary[] => {
-    return mapProjectSummaries(buildProjectSummaryMap(readAllThreads(dbPath)));
+    return mapProjectSummaries(buildProjectSummaryMap(applyRolloutActivityTimestamps(readAllThreads(dbPath))));
 };
 
 type ListProjectThreadsOptions = {
@@ -390,6 +449,20 @@ export const listProjectThreads = async (
     const threads = filterThreadsByProject(readAllThreads(dbPath), projectName);
     const entries = await mapWithConcurrency(threads, THREAD_LIST_IO_CONCURRENCY, async (thread) => {
         const rollout = await getThreadRolloutLoadState(thread.rollout_path, options.largeTranscriptThresholdBytes);
+
+        if (rollout.fileSizeBytes === null) {
+            return {
+                project: projectName,
+                rolloutSizeBytes: null,
+                stats: {
+                    deferred: false,
+                    execCommandCount: 0,
+                    toolCallCount: 0,
+                    webSearchEventCount: 0,
+                },
+                thread: compactThreadListRow(thread),
+            };
+        }
 
         if (rollout.shouldDeferTranscriptLoad) {
             return {
@@ -449,7 +522,7 @@ export const getThreadBrowseData = (dbPath: string, threadId: string): ThreadBro
 };
 
 export const getCodexDashboardSummary = (dbPath: string): DashboardSummary => {
-    const threads = readAllThreads(dbPath);
+    const threads = applyRolloutActivityTimestamps(readAllThreads(dbPath));
     const projects = mapProjectSummaries(buildProjectSummaryMap(threads));
     const threadsWithRelations = withReadonlyDb(dbPath, (db) => {
         if (!getExistingTableNames(db).has('thread_spawn_edges')) {
@@ -467,13 +540,7 @@ export const getCodexDashboardSummary = (dbPath: string): DashboardSummary => {
     return {
         activeThreads: threads.filter((thread) => !thread.archived).length,
         archivedThreads: threads.filter((thread) => Boolean(thread.archived)).length,
-        recentThreads: threads
-            .slice(0, 5)
-            .filter((thread) => Boolean(getPortablePathBasename(thread.cwd)))
-            .map((thread) => ({
-                project: getPortablePathBasename(thread.cwd),
-                thread: compactThreadListRow(thread),
-            })),
+        recentThreads: buildDashboardRecentThreads(threads),
         threadsWithRelations,
         topProjectsByThreadCount: [...projects]
             .sort((left, right) => {

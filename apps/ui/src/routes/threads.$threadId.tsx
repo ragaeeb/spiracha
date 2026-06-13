@@ -306,7 +306,7 @@ function DeferredTranscriptNotice({
     pending,
     onLoad,
 }: {
-    fileSizeBytes: number;
+    fileSizeBytes: number | null;
     missing?: boolean;
     pending: boolean;
     onLoad: () => void;

@@ -1,6 +1,6 @@
 import { Database } from 'bun:sqlite';
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, utimes } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -388,6 +388,31 @@ describe('codex browser db', () => {
         expect(threads[0]?.thread.title.includes('\n')).toBe(false);
     });
 
+    it('should keep project thread lists usable when a rollout file is missing', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-missing-rollout-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const missingThread = fixture.threads[0]!;
+
+        await rm(missingThread.sessionFile, { force: true });
+
+        const threads = await listProjectThreads(fixture.dbPath, missingThread.project);
+        const staleThread = threads.find((thread) => thread.thread.id === missingThread.threadId);
+
+        expect(staleThread).toMatchObject({
+            rolloutSizeBytes: null,
+            stats: {
+                deferred: false,
+                execCommandCount: 0,
+                toolCallCount: 0,
+                webSearchEventCount: 0,
+            },
+            thread: {
+                id: missingThread.threadId,
+            },
+        });
+    });
+
     it('should delete a thread row and its dependent records without touching the rollout file', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-delete-thread-test-'));
         tempPaths.push(tempRoot);
@@ -485,20 +510,106 @@ describe('codex browser db', () => {
         });
     });
 
+    it('should use rollout file activity when dashboard thread timestamps are stale', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-dashboard-rollout-activity-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const staleThread = fixture.threads[1]!;
+        const rolloutUpdatedAt = new Date('2030-11-20T17:46:39.999Z');
+
+        await utimes(staleThread.sessionFile, rolloutUpdatedAt, rolloutUpdatedAt);
+
+        const summary = getCodexDashboardSummary(fixture.dbPath);
+
+        expect(summary.recentThreads[0]).toMatchObject({
+            project: staleThread.project,
+            thread: {
+                id: staleThread.threadId,
+                updated_at_ms: rolloutUpdatedAt.getTime(),
+            },
+        });
+    });
+
+    it('should list the most recently active rollout once per project', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-dashboard-project-activity-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const newerSpirachaThread = fixture.threads.filter((thread) => thread.project === 'spiracha')[1]!;
+        const shibukThread = fixture.threads.find((thread) => thread.project === 'shibuk')!;
+
+        await utimes(
+            shibukThread.sessionFile,
+            new Date('2030-11-20T17:46:30.000Z'),
+            new Date('2030-11-20T17:46:30.000Z'),
+        );
+        await utimes(
+            newerSpirachaThread.sessionFile,
+            new Date('2030-11-20T17:46:39.000Z'),
+            new Date('2030-11-20T17:46:39.000Z'),
+        );
+
+        const summary = getCodexDashboardSummary(fixture.dbPath);
+
+        expect(summary.recentThreads.map((entry) => entry.project).slice(0, 2)).toEqual(['spiracha', 'shibuk']);
+        expect(summary.recentThreads.filter((entry) => entry.project === 'spiracha')).toHaveLength(1);
+        expect(summary.recentThreads[0]?.thread.id).toBe(newerSpirachaThread.threadId);
+    });
+
     it('should omit recent dashboard threads without a portable project key', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-dashboard-recent-project-test-'));
         tempPaths.push(tempRoot);
         const fixture = await createCodexBrowserFixture(tempRoot);
         const db = new Database(fixture.dbPath);
         try {
-            db.run('UPDATE threads SET cwd = ? WHERE id = ?', ['', fixture.threads[0]!.threadId]);
+            const { latestUpdatedAtMs } = db
+                .query<{ latestUpdatedAtMs: number }, []>(
+                    'SELECT MAX(COALESCE(updated_at_ms, updated_at * 1000)) AS latestUpdatedAtMs FROM threads',
+                )
+                .get() ?? { latestUpdatedAtMs: 0 };
+            const insertThread = db.prepare(`
+                INSERT INTO threads (
+                    id, rollout_path, created_at, updated_at, source, model_provider, cwd, title,
+                    sandbox_policy, approval_mode, tokens_used, has_user_event, archived, cli_version,
+                    first_user_message, memory_mode, model, created_at_ms, updated_at_ms, preview
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `);
+            for (const index of [0, 1, 2, 3, 4, 5]) {
+                const hasPortableProject = index >= 3;
+                const updatedAtMs = latestUpdatedAtMs + 10_000 - index;
+                insertThread.run(
+                    `recent-${index}`,
+                    path.join(tempRoot, 'sessions', `recent-${index}.jsonl`),
+                    Math.floor(updatedAtMs / 1000),
+                    Math.floor(updatedAtMs / 1000),
+                    'vscode',
+                    'openai',
+                    hasPortableProject ? `/Users/user/workspace/recent-${index}` : '',
+                    `Recent ${index}`,
+                    '{"type":"danger-full-access"}',
+                    'never',
+                    10,
+                    1,
+                    0,
+                    '0.1.0',
+                    `Prompt ${index}`,
+                    'enabled',
+                    'gpt-5.5',
+                    updatedAtMs,
+                    updatedAtMs,
+                    `Prompt ${index}`,
+                );
+            }
         } finally {
             db.close();
         }
 
         const summary = getCodexDashboardSummary(fixture.dbPath);
+        const recentThreadIds = summary.recentThreads.map((entry) => entry.thread.id);
 
-        expect(summary.recentThreads.map((entry) => entry.thread.id)).not.toContain(fixture.threads[0]!.threadId);
+        expect(recentThreadIds).not.toContain('recent-0');
+        expect(recentThreadIds).not.toContain('recent-1');
+        expect(recentThreadIds).not.toContain('recent-2');
+        expect(recentThreadIds).toContain('recent-5');
         expect(summary.recentThreads.every((entry) => entry.project.length > 0)).toBe(true);
     });
 

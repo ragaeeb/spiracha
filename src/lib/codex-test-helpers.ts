@@ -1,5 +1,5 @@
 import { Database } from 'bun:sqlite';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, utimes } from 'node:fs/promises';
 import path from 'node:path';
 
 export type CodexFixture = {
@@ -550,6 +550,8 @@ export const createCodexFixture = async (tempRoot: string): Promise<CodexFixture
             'done',
         ),
     );
+    const mtime = new Date(1776948060 * 1000);
+    await utimes(sessionFile, mtime, mtime);
 
     const db = new Database(dbPath);
     createDbSchema(db);
@@ -663,6 +665,8 @@ export const createCodexBrowserFixture = async (tempRoot: string): Promise<Codex
             sessionFile,
             buildRichRecords(sessionMeta, definition.firstUserMessage, definition.assistantText),
         );
+        const mtime = new Date(definition.updatedAt * 1000);
+        await utimes(sessionFile, mtime, mtime);
 
         insertThread(db, {
             archived: definition.archived ?? 0,
