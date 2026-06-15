@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test';
+import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -210,7 +211,7 @@ describe('claude code workspace discovery', () => {
     });
 
     it('should return empty results when Claude Code data is missing', async () => {
-        const missingProjectsDir = path.join(os.tmpdir(), 'spiracha-missing-claude-code-projects');
+        const missingProjectsDir = path.join(os.tmpdir(), `spiracha-missing-claude-code-projects-${randomUUID()}`);
 
         expect(await listClaudeCodeWorkspaceGroups(missingProjectsDir)).toEqual([]);
         expect(await listClaudeCodeSessionsForGroup('project:missing', missingProjectsDir)).toEqual([]);

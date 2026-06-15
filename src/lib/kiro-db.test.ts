@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, rm, utimes } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -518,7 +518,7 @@ describe('kiro workspace discovery', () => {
     });
 
     it('should return empty results when Kiro data is missing', async () => {
-        const missingSessionsDir = path.join(os.tmpdir(), 'spiracha-missing-kiro-sessions');
+        const missingSessionsDir = path.join(os.tmpdir(), `spiracha-missing-kiro-sessions-${randomUUID()}`);
 
         expect(await listKiroWorkspaceGroups(missingSessionsDir)).toEqual([]);
         expect(await listKiroSessionsForGroup('workspace:missing', missingSessionsDir)).toEqual([]);

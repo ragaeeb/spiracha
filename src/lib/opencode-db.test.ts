@@ -159,6 +159,32 @@ describe('opencode db helpers', () => {
         expect(groups[0]?.partCount).toBe(6);
     });
 
+    it('should encode workspace file URIs for paths with spaces', async () => {
+        const dbPath = await makeDbPath();
+        await createOpenCodeFixture(dbPath, {
+            projects: [
+                {
+                    id: 'pro_spaced',
+                    timeUpdated: 1_700_000_000_000,
+                    worktree: '/Users/test/workspace/demo project',
+                },
+            ],
+            sessions: [
+                {
+                    id: 'ses_spaced',
+                    messages: [],
+                    projectId: 'pro_spaced',
+                    timeUpdated: 1_700_000_000_000,
+                    title: 'Spaced path',
+                },
+            ],
+        });
+
+        const groups = await listOpenCodeWorkspaceGroups(dbPath);
+
+        expect(groups[0]?.uri).toBe('file:///Users/test/workspace/demo%20project');
+    });
+
     it('should match workspaces by basename or path query', async () => {
         const dbPath = await createFixtureDb();
         const groups = await listOpenCodeWorkspaceGroups(dbPath);

@@ -44,22 +44,9 @@ type TranscriptControlsProps = {
     onShowUserMessagesChange: (checked: boolean) => void;
 };
 
-export const Route = createFileRoute('/opencode-sessions/$sessionId')({
-    component: OpenCodeSessionDetailPage,
-    errorComponent: OpenCodeSessionDetailErrorComponent,
-    loader: ({ context, params }) =>
-        context.queryClient.ensureQueryData(openCodeSessionDetailQueryOptions(params.sessionId)),
-    pendingComponent: () => (
-        <LoadingPanel
-            description="Loading the OpenCode transcript, parts, and session metadata."
-            title="Loading session"
-        />
-    ),
-});
-
-function OpenCodeSessionDetailErrorComponent({ error }: { error: Error }) {
+const OpenCodeSessionDetailErrorComponent = ({ error }: { error: Error }) => {
     return <ReloadErrorPanel description={error.message} title="Failed to load OpenCode session" />;
-}
+};
 
 const buildSessionMetadata = (detail: OpenCodeSessionTranscript) => [
     { label: 'Session ID', value: <span data-mono="true">{detail.session.sessionId}</span> },
@@ -161,7 +148,7 @@ const OpenCodeTranscriptControls = ({
     );
 };
 
-function OpenCodeRawPanels({ detail, events }: { detail: OpenCodeSessionTranscript; events: ThreadEvent[] }) {
+const OpenCodeRawPanels = ({ detail, events }: { detail: OpenCodeSessionTranscript; events: ThreadEvent[] }) => {
     return (
         <div className="space-y-4">
             <JsonPanel title="Session summary" value={detail.session} />
@@ -169,9 +156,9 @@ function OpenCodeRawPanels({ detail, events }: { detail: OpenCodeSessionTranscri
             <JsonPanel title="Transcript events" value={events} />
         </div>
     );
-}
+};
 
-function OpenCodeSessionDetailPage() {
+const OpenCodeSessionDetailPage = () => {
     const detail = useSuspenseQuery(openCodeSessionDetailQueryOptions(Route.useParams().sessionId)).data;
     const [pendingExport, setPendingExport] = useState(false);
     const [showToolCalls, setShowToolCalls] = useState(false);
@@ -331,4 +318,17 @@ function OpenCodeSessionDetailPage() {
             />
         </div>
     );
-}
+};
+
+export const Route = createFileRoute('/opencode-sessions/$sessionId')({
+    component: OpenCodeSessionDetailPage,
+    errorComponent: OpenCodeSessionDetailErrorComponent,
+    loader: ({ context, params }) =>
+        context.queryClient.ensureQueryData(openCodeSessionDetailQueryOptions(params.sessionId)),
+    pendingComponent: () => (
+        <LoadingPanel
+            description="Loading the OpenCode transcript, parts, and session metadata."
+            title="Loading session"
+        />
+    ),
+});

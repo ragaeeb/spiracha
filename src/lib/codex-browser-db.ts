@@ -3,6 +3,7 @@ import { closeSync, openSync, readdirSync, readSync, statSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { StringDecoder } from 'node:string_decoder';
 import { pathToFileURL } from 'node:url';
 import type {
     DashboardSummary,
@@ -33,6 +34,7 @@ const SQLITE_DELETE_BATCH_SIZE = 400;
 const SESSION_FILE_DELETE_CONCURRENCY = 16;
 const THREAD_LIST_IO_CONCURRENCY = 8;
 const CODEX_READONLY_DB_OPEN_FLAGS = constants.SQLITE_OPEN_READONLY | constants.SQLITE_OPEN_URI;
+const JSONL_READ_CHUNK_BYTES = 64 * 1024;
 const SESSION_META_READ_LIMIT_BYTES = 4 * 1024 * 1024;
 const THREAD_ID_PATTERN = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/iu;
 
@@ -217,20 +219,59 @@ const resolveCodexDirFromDbPath = (dbPath: string) => {
     return path.basename(dbDir) === 'sqlite' ? path.dirname(dbDir) : dbDir;
 };
 
-const readTextFile = (filePath: string): string | null => {
+const parseJsonlObject = <T>(line: string): T | null => {
+    try {
+        return JSON.parse(line) as T;
+    } catch {
+        return null;
+    }
+};
+
+const emitJsonlLine = <T>(line: string, onRecord: (record: T) => void) => {
+    const trimmed = line.trim();
+    const parsed = trimmed ? parseJsonlObject<T>(trimmed) : null;
+    if (parsed) {
+        onRecord(parsed);
+    }
+};
+
+const emitCompleteJsonlLines = <T>(text: string, onRecord: (record: T) => void): string => {
+    const lines = text.split(/\r?\n/u);
+    const pending = lines.pop() ?? '';
+    for (const line of lines) {
+        emitJsonlLine(line, onRecord);
+    }
+    return pending;
+};
+
+const readJsonlObjects = <T>(filePath: string, onRecord: (record: T) => void) => {
     let descriptor: number | null = null;
     try {
         const stats = statSync(filePath);
         if (!stats.isFile()) {
-            return null;
+            return;
         }
 
         descriptor = openSync(filePath, 'r');
-        const buffer = Buffer.alloc(stats.size);
-        const bytesRead = readSync(descriptor, buffer, 0, buffer.length, 0);
-        return buffer.subarray(0, bytesRead).toString('utf8');
+        const buffer = Buffer.alloc(JSONL_READ_CHUNK_BYTES);
+        const decoder = new StringDecoder('utf8');
+        let position = 0;
+        let pending = '';
+
+        while (true) {
+            const bytesRead = readSync(descriptor, buffer, 0, buffer.length, position);
+            if (bytesRead === 0) {
+                break;
+            }
+
+            position += bytesRead;
+            pending += decoder.write(buffer.subarray(0, bytesRead));
+            pending = emitCompleteJsonlLines(pending, onRecord);
+        }
+
+        emitJsonlLine(pending + decoder.end(), onRecord);
     } catch {
-        return null;
+        return;
     } finally {
         if (descriptor !== null) {
             closeSync(descriptor);
@@ -238,30 +279,16 @@ const readTextFile = (filePath: string): string | null => {
     }
 };
 
-const readJsonlObjects = <T>(filePath: string): T[] => {
-    const text = readTextFile(filePath);
-    if (!text) {
-        return [];
-    }
-
-    try {
-        return text
-            .split(/\r?\n/u)
-            .filter(Boolean)
-            .flatMap((line) => {
-                try {
-                    return [JSON.parse(line) as T];
-                } catch {
-                    return [];
-                }
-            });
-    } catch {
-        return [];
-    }
+const collectJsonlObjects = <T>(filePath: string): T[] => {
+    const records: T[] = [];
+    readJsonlObjects<T>(filePath, (record) => {
+        records.push(record);
+    });
+    return records;
 };
 
 const readSessionIndexEntries = (codexDir: string): SessionIndexEntry[] => {
-    return readJsonlObjects<SessionIndexEntry>(path.join(codexDir, 'session_index.jsonl')).filter(
+    return collectJsonlObjects<SessionIndexEntry>(path.join(codexDir, 'session_index.jsonl')).filter(
         (entry) => typeof entry.id === 'string' && entry.id.length > 0,
     );
 };
@@ -379,31 +406,31 @@ const readFallbackRolloutStats = (sessionFile: string): FallbackRolloutStats => 
     let model: string | null = null;
     let tokensUsed = 0;
 
-    for (const record of readJsonlObjects<Record<string, unknown>>(sessionFile)) {
+    readJsonlObjects<Record<string, unknown>>(sessionFile, (record) => {
         const payload = objectOrNull(record.payload);
         if (!payload) {
-            continue;
+            return;
         }
 
         if (record.type === 'turn_context') {
             model = stringOrNull(payload.model) ?? model;
-            continue;
+            return;
         }
 
         const payloadType = stringOrNull(payload.type);
         if (payloadType === 'message' || payloadType === 'agent_message') {
             model = stringOrNull(payload.model) ?? model;
-            continue;
+            return;
         }
 
         if (payloadType !== 'token_count') {
-            continue;
+            return;
         }
 
         const info = objectOrNull(payload.info);
         const totalTokenUsage = objectOrNull(info?.total_token_usage);
         tokensUsed = numberOrNull(totalTokenUsage?.total_tokens) ?? tokensUsed;
-    }
+    });
 
     return {
         model,

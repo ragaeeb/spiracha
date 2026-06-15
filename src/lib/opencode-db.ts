@@ -189,7 +189,7 @@ const toWorkspaceGroup = (row: WorkspaceRow): OpenCodeWorkspaceGroup => {
         partCount: row.partCount,
         projectId: row.projectId,
         sessionCount: row.sessionCount,
-        uri: `file://${row.worktree}`,
+        uri: pathToFileURL(row.worktree).href,
         worktree: row.worktree,
     };
 };

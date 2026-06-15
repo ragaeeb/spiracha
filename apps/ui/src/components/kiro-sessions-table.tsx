@@ -98,7 +98,7 @@ const columns = (onExportSession: (session: KiroSessionSummary) => void) =>
         }),
     ] as const;
 
-export function KiroSessionsTable({ onExportSession, sessions }: KiroSessionsTableProps) {
+export const KiroSessionsTable = ({ onExportSession, sessions }: KiroSessionsTableProps) => {
     const tableColumns = useMemo(() => columns(onExportSession), [onExportSession]);
 
     return (
@@ -109,4 +109,4 @@ export function KiroSessionsTable({ onExportSession, sessions }: KiroSessionsTab
             initialSorting={defaultSorting}
         />
     );
-}
+};

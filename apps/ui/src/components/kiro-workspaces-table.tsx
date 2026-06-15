@@ -46,8 +46,8 @@ const columns = [
     }),
 ] as const;
 
-export function KiroWorkspacesTable({ workspaces }: KiroWorkspacesTableProps) {
+export const KiroWorkspacesTable = ({ workspaces }: KiroWorkspacesTableProps) => {
     return (
         <DataTable columns={columns} data={workspaces} emptyMessage="No Kiro workspaces match the current search." />
     );
-}
+};

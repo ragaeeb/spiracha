@@ -8,17 +8,11 @@ import { ReloadErrorPanel } from '#/components/reload-error-panel';
 import { openCodeWorkspacesQueryOptions } from '#/lib/opencode-queries';
 import { matchesTextQuery } from '#/lib/text-filter';
 
-export const Route = createFileRoute('/opencode/')({
-    component: OpenCodePage,
-    errorComponent: OpenCodeErrorComponent,
-    loader: ({ context }) => context.queryClient.ensureQueryData(openCodeWorkspacesQueryOptions()),
-});
-
-function OpenCodeErrorComponent({ error }: { error: Error }) {
+const OpenCodeErrorComponent = ({ error }: { error: Error }) => {
     return <ReloadErrorPanel description={error.message} title="Failed to load OpenCode workspaces" />;
-}
+};
 
-function OpenCodePage() {
+const OpenCodePage = () => {
     const workspaces = useSuspenseQuery(openCodeWorkspacesQueryOptions()).data;
     const [searchInput, setSearchInput] = useState('');
     const deferredSearch = useDeferredValue(searchInput);
@@ -45,4 +39,10 @@ function OpenCodePage() {
             <OpenCodeWorkspacesTable workspaces={visibleWorkspaces} />
         </div>
     );
-}
+};
+
+export const Route = createFileRoute('/opencode/')({
+    component: OpenCodePage,
+    errorComponent: OpenCodeErrorComponent,
+    loader: ({ context }) => context.queryClient.ensureQueryData(openCodeWorkspacesQueryOptions()),
+});

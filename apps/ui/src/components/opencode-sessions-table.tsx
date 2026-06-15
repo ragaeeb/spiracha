@@ -114,7 +114,7 @@ const columns = (onExportSession: (session: OpenCodeSessionSummary) => void) =>
         }),
     ] as const;
 
-export function OpenCodeSessionsTable({ onExportSession, sessions }: OpenCodeSessionsTableProps) {
+export const OpenCodeSessionsTable = ({ onExportSession, sessions }: OpenCodeSessionsTableProps) => {
     const tableColumns = useMemo(() => columns(onExportSession), [onExportSession]);
 
     return (
@@ -125,4 +125,4 @@ export function OpenCodeSessionsTable({ onExportSession, sessions }: OpenCodeSes
             initialSorting={defaultSorting}
         />
     );
-}
+};

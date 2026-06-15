@@ -603,9 +603,10 @@ function ThreadDetailPage() {
             />
 
             <ExportDialog
+                disabled={transcriptMissing}
                 errorMessage={getThreadExportErrorMessage(transcriptMissing, exportThreadMutation.error)}
                 open={exportOpen}
-                pending={exportThreadMutation.isPending || transcriptMissing}
+                pending={exportThreadMutation.isPending}
                 onExport={(options) => {
                     if (!transcriptMissing) {
                         exportThreadMutation.mutate(options);

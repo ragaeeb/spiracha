@@ -30,24 +30,11 @@ const findWorkspaceOrThrow = (workspaces: KiroWorkspaceGroup[], workspaceKey: st
     return workspace;
 };
 
-export const Route = createFileRoute('/kiro/$workspaceKey')({
-    component: KiroWorkspacePage,
-    errorComponent: KiroWorkspaceErrorComponent,
-    loader: async ({ context, params }) => {
-        const workspaces = await context.queryClient.ensureQueryData(kiroWorkspacesQueryOptions());
-        findWorkspaceOrThrow(workspaces, params.workspaceKey);
-        await context.queryClient.ensureQueryData(kiroSessionsQueryOptions(params.workspaceKey));
-    },
-    pendingComponent: () => (
-        <LoadingPanel description="Loading Kiro sessions and transcript metadata." title="Loading workspace" />
-    ),
-});
-
-function KiroWorkspaceErrorComponent({ error }: { error: Error }) {
+const KiroWorkspaceErrorComponent = ({ error }: { error: Error }) => {
     return <ReloadErrorPanel description={error.message} title="Failed to load Kiro workspace" />;
-}
+};
 
-function KiroWorkspacePage() {
+const KiroWorkspacePage = () => {
     const params = Route.useParams();
     const workspaces = useSuspenseQuery(kiroWorkspacesQueryOptions()).data;
     const workspace = findWorkspaceOrThrow(workspaces, params.workspaceKey);
@@ -133,4 +120,17 @@ function KiroWorkspacePage() {
             ) : null}
         </div>
     );
-}
+};
+
+export const Route = createFileRoute('/kiro/$workspaceKey')({
+    component: KiroWorkspacePage,
+    errorComponent: KiroWorkspaceErrorComponent,
+    loader: async ({ context, params }) => {
+        const workspaces = await context.queryClient.ensureQueryData(kiroWorkspacesQueryOptions());
+        findWorkspaceOrThrow(workspaces, params.workspaceKey);
+        await context.queryClient.ensureQueryData(kiroSessionsQueryOptions(params.workspaceKey));
+    },
+    pendingComponent: () => (
+        <LoadingPanel description="Loading Kiro sessions and transcript metadata." title="Loading workspace" />
+    ),
+});

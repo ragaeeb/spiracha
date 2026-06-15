@@ -8,17 +8,11 @@ import { ReloadErrorPanel } from '#/components/reload-error-panel';
 import { kiroWorkspacesQueryOptions } from '#/lib/kiro-queries';
 import { matchesTextQuery } from '#/lib/text-filter';
 
-export const Route = createFileRoute('/kiro/')({
-    component: KiroPage,
-    errorComponent: KiroErrorComponent,
-    loader: ({ context }) => context.queryClient.ensureQueryData(kiroWorkspacesQueryOptions()),
-});
-
-function KiroErrorComponent({ error }: { error: Error }) {
+const KiroErrorComponent = ({ error }: { error: Error }) => {
     return <ReloadErrorPanel description={error.message} title="Failed to load Kiro workspaces" />;
-}
+};
 
-function KiroPage() {
+const KiroPage = () => {
     const workspaces = useSuspenseQuery(kiroWorkspacesQueryOptions()).data;
     const [searchInput, setSearchInput] = useState('');
     const deferredSearch = useDeferredValue(searchInput);
@@ -45,4 +39,10 @@ function KiroPage() {
             <KiroWorkspacesTable workspaces={visibleWorkspaces} />
         </div>
     );
-}
+};
+
+export const Route = createFileRoute('/kiro/')({
+    component: KiroPage,
+    errorComponent: KiroErrorComponent,
+    loader: ({ context }) => context.queryClient.ensureQueryData(kiroWorkspacesQueryOptions()),
+});

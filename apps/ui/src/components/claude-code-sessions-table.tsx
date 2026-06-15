@@ -39,8 +39,8 @@ const columns = (onExportSession: (session: ClaudeCodeSessionSummary) => void) =
         }),
         columnHelper.accessor('lastActiveAtMs', {
             cell: (info) => (
-                <span className="whitespace-nowrap text-sm" suppressHydrationWarning>
-                    {formatDateTime(info.getValue())}
+                <span className="whitespace-nowrap text-sm">
+                    {formatDateTime(info.getValue(), { timeZone: 'UTC' })}
                 </span>
             ),
             header: 'Updated',

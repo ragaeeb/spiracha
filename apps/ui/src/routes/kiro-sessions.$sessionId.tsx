@@ -44,22 +44,9 @@ type TranscriptControlsProps = {
     onShowUserMessagesChange: (checked: boolean) => void;
 };
 
-export const Route = createFileRoute('/kiro-sessions/$sessionId')({
-    component: KiroSessionDetailPage,
-    errorComponent: KiroSessionDetailErrorComponent,
-    loader: ({ context, params }) =>
-        context.queryClient.ensureQueryData(kiroSessionDetailQueryOptions(params.sessionId)),
-    pendingComponent: () => (
-        <LoadingPanel
-            description="Loading the Kiro transcript, messages, attachments, and session metadata."
-            title="Loading session"
-        />
-    ),
-});
-
-function KiroSessionDetailErrorComponent({ error }: { error: Error }) {
+const KiroSessionDetailErrorComponent = ({ error }: { error: Error }) => {
     return <ReloadErrorPanel description={error.message} title="Failed to load Kiro session" />;
-}
+};
 
 const getKiroModelLabel = (detail: KiroSessionTranscript): string => {
     return detail.session.selectedModel ?? detail.session.defaultModelTitle ?? 'unknown';
@@ -170,7 +157,7 @@ const KiroTranscriptControls = ({
     );
 };
 
-function KiroRawPanels({ detail, events }: { detail: KiroSessionTranscript; events: ThreadEvent[] }) {
+const KiroRawPanels = ({ detail, events }: { detail: KiroSessionTranscript; events: ThreadEvent[] }) => {
     return (
         <div className="space-y-4">
             <JsonPanel title="Session summary" value={detail.session} />
@@ -179,9 +166,9 @@ function KiroRawPanels({ detail, events }: { detail: KiroSessionTranscript; even
             <JsonPanel title="Transcript events" value={events} />
         </div>
     );
-}
+};
 
-function KiroSessionDetailPage() {
+const KiroSessionDetailPage = () => {
     const detail = useSuspenseQuery(kiroSessionDetailQueryOptions(Route.useParams().sessionId)).data;
     const [pendingExport, setPendingExport] = useState(false);
     const [showToolCalls, setShowToolCalls] = useState(false);
@@ -342,4 +329,17 @@ function KiroSessionDetailPage() {
             />
         </div>
     );
-}
+};
+
+export const Route = createFileRoute('/kiro-sessions/$sessionId')({
+    component: KiroSessionDetailPage,
+    errorComponent: KiroSessionDetailErrorComponent,
+    loader: ({ context, params }) =>
+        context.queryClient.ensureQueryData(kiroSessionDetailQueryOptions(params.sessionId)),
+    pendingComponent: () => (
+        <LoadingPanel
+            description="Loading the Kiro transcript, messages, attachments, and session metadata."
+            title="Loading session"
+        />
+    ),
+});

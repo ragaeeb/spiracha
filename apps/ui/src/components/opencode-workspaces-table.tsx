@@ -46,7 +46,7 @@ const columns = [
     }),
 ] as const;
 
-export function OpenCodeWorkspacesTable({ workspaces }: OpenCodeWorkspacesTableProps) {
+export const OpenCodeWorkspacesTable = ({ workspaces }: OpenCodeWorkspacesTableProps) => {
     return (
         <DataTable
             columns={columns}
@@ -54,4 +54,4 @@ export function OpenCodeWorkspacesTable({ workspaces }: OpenCodeWorkspacesTableP
             emptyMessage="No OpenCode workspaces match the current search."
         />
     );
-}
+};

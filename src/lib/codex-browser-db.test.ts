@@ -467,6 +467,98 @@ describe('codex browser db', () => {
         expect(scopedThreads.map((thread) => thread.id)).toContain(fallbackThreadId);
     });
 
+    it('should read fallback rollout stats without allocating the whole file', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-large-rollout-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const fallbackThreadId = '019ec3d5-859d-77d0-b851-256ae567ff63';
+        const fallbackSessionFile = path.join(
+            tempRoot,
+            'sessions',
+            '2026',
+            '06',
+            '13',
+            `rollout-2026-06-13T21-53-31-${fallbackThreadId}.jsonl`,
+        );
+
+        await mkdir(path.dirname(fallbackSessionFile), { recursive: true });
+        await Bun.write(
+            fallbackSessionFile,
+            [
+                {
+                    payload: {
+                        cli_version: '0.140.0-alpha.2',
+                        cwd: '/Users/user/workspace/spiracha',
+                        id: fallbackThreadId,
+                        model_provider: 'openai',
+                        originator: 'Codex Desktop',
+                        source: 'vscode',
+                        thread_source: 'user',
+                        timestamp: '2026-06-14T01:53:31.047Z',
+                    },
+                    timestamp: '2026-06-14T01:57:28.908Z',
+                    type: 'session_meta',
+                },
+                {
+                    payload: {
+                        message: 'x'.repeat(256 * 1024),
+                    },
+                    timestamp: '2026-06-14T01:57:29.000Z',
+                    type: 'event_msg',
+                },
+                {
+                    payload: {
+                        model: 'gpt-5.5',
+                        turn_id: 'turn-1',
+                    },
+                    timestamp: '2026-06-14T01:57:30.000Z',
+                    type: 'turn_context',
+                },
+                {
+                    payload: {
+                        info: {
+                            total_token_usage: {
+                                total_tokens: 789,
+                            },
+                        },
+                        type: 'token_count',
+                    },
+                    timestamp: '2026-06-14T01:57:31.000Z',
+                    type: 'event_msg',
+                },
+            ]
+                .map((entry) => JSON.stringify(entry))
+                .join('\n'),
+        );
+        await Bun.write(
+            path.join(tempRoot, 'session_index.jsonl'),
+            JSON.stringify({
+                id: fallbackThreadId,
+                thread_name: 'Large rollout stats',
+                updated_at: '2026-06-14T01:57:34.149424Z',
+            }),
+        );
+
+        const originalAlloc = Buffer.alloc;
+        Buffer.alloc = ((size: number, fill?: string | number | Uint8Array, encoding?: BufferEncoding) => {
+            if (size > 128 * 1024) {
+                throw new Error(`unbounded allocation: ${size}`);
+            }
+
+            return originalAlloc(size, fill, encoding);
+        }) as typeof Buffer.alloc;
+
+        try {
+            const threads = await listProjectThreads(fixture.dbPath, 'spiracha');
+            const fallbackThread = threads.find((thread) => thread.thread.id === fallbackThreadId);
+
+            expect(fallbackThread?.thread.model).toBe('gpt-5.5');
+            expect(fallbackThread?.thread.tokens_used).toBe(789);
+        } finally {
+            Buffer.alloc = originalAlloc;
+        }
+    });
+
     it('should sort fallback project threads by rollout activity and omit fallback subagents', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-fallback-order-test-'));
         tempPaths.push(tempRoot);
