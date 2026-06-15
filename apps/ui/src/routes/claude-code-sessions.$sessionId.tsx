@@ -22,7 +22,7 @@ import {
     claudeCodeTranscriptToThreadEvents,
     getClaudeCodeThreadTranscriptStats,
 } from '#/lib/claude-code-transcript-events';
-import { downloadTextFile } from '#/lib/download';
+import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import { formatDateTime, formatList, formatNumber, formatTokens } from '#/lib/formatters';
 
 type ExportDialogOptions = {
@@ -199,9 +199,15 @@ function ClaudeCodeSessionDetailPage() {
                     includeTools: options.includeTools,
                     outputFormat: options.outputFormat,
                     sessionId: detail.session.sessionId,
+                    zipArchive: options.zipArchive,
                 },
             });
-            downloadTextFile(download.fileName, download.content, download.mimeType);
+            if (download.mode === 'download') {
+                downloadTextFile(download.fileName, download.content, download.mimeType);
+                return;
+            }
+
+            await downloadUrlFile(download.fileName, download.downloadUrl);
         },
         onSuccess: () => {
             setPendingExport(false);

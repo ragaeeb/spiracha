@@ -401,6 +401,122 @@ describe('kiro workspace discovery', () => {
         });
     });
 
+    it('should interleave Kiro execution entries at their matching assistant placeholders', async () => {
+        const sessionsDir = await makeTempRoot();
+        const sessionId = 'session-multi-turn-execution';
+        const workspacePath = path.join(homeDir, 'workspace', 'ushman-multi');
+        const workspaceDir = path.join(sessionsDir, encodeKiroWorkspaceDirectoryName(workspacePath));
+        await mkdir(workspaceDir, { recursive: true });
+        await Bun.write(
+            path.join(workspaceDir, 'sessions.json'),
+            JSON.stringify(
+                [
+                    {
+                        dateCreated: '1781464088',
+                        sessionId,
+                        title: 'Multi-turn execution review',
+                        workspaceDirectory: workspacePath,
+                    },
+                ],
+                null,
+                2,
+            ),
+        );
+        await Bun.write(
+            path.join(workspaceDir, `${sessionId}.json`),
+            JSON.stringify(
+                {
+                    defaultModelTitle: 'Agent',
+                    history: [
+                        {
+                            message: {
+                                content: 'First task',
+                                id: 'user-1',
+                                role: 'user',
+                            },
+                        },
+                        {
+                            executionId: 'execution-one',
+                            message: {
+                                content: 'On it.',
+                                id: 'placeholder-1',
+                                role: 'assistant',
+                            },
+                        },
+                        {
+                            message: {
+                                content: 'Second task',
+                                id: 'user-2',
+                                role: 'user',
+                            },
+                        },
+                        {
+                            executionId: 'execution-two',
+                            message: {
+                                content: 'On it!',
+                                id: 'placeholder-2',
+                                role: 'assistant',
+                            },
+                        },
+                    ],
+                    selectedModel: 'claude-sonnet-4.5',
+                    sessionId,
+                    title: 'Multi-turn execution review',
+                    workspaceDirectory: workspacePath,
+                    workspacePath,
+                },
+                null,
+                2,
+            ),
+        );
+
+        const executionRoot = path.join(sessionsDir, getKiroWorkspaceHash(workspacePath));
+        await mkdir(path.join(executionRoot, 'one'), { recursive: true });
+        await mkdir(path.join(executionRoot, 'two'), { recursive: true });
+        await Bun.write(
+            path.join(executionRoot, 'one', 'execution.json'),
+            JSON.stringify({
+                actions: [
+                    {
+                        actionId: 'assistant-one',
+                        actionType: 'assistantMessage',
+                        chatSessionId: sessionId,
+                        output: { message: 'First task complete' },
+                    },
+                ],
+                chatSessionId: sessionId,
+                executionId: 'execution-one',
+                startTime: 1_781_464_088_000,
+            }),
+        );
+        await Bun.write(
+            path.join(executionRoot, 'two', 'execution.json'),
+            JSON.stringify({
+                actions: [
+                    {
+                        actionId: 'assistant-two',
+                        actionType: 'assistantMessage',
+                        chatSessionId: sessionId,
+                        output: { message: 'Second task complete' },
+                    },
+                ],
+                chatSessionId: sessionId,
+                executionId: 'execution-two',
+                startTime: 1_781_464_089_000,
+            }),
+        );
+
+        const transcript = await readKiroSessionTranscript(sessionsDir, sessionId);
+
+        expect(transcript?.session.createdAtMs).toBe(1_781_464_088_000);
+        expect(transcript?.entries.map((entry) => entry.parts[0]?.text)).toEqual([
+            'First task',
+            'First task complete',
+            'Second task',
+            'Second task complete',
+        ]);
+    });
+
     it('should return empty results when Kiro data is missing', async () => {
         const missingSessionsDir = path.join(os.tmpdir(), 'spiracha-missing-kiro-sessions');
 

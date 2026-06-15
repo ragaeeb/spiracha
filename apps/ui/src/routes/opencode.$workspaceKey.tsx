@@ -8,7 +8,7 @@ import { LoadingPanel } from '#/components/loading-panel';
 import { OpenCodeSessionsTable } from '#/components/opencode-sessions-table';
 import { PageHeader } from '#/components/page-header';
 import { ReloadErrorPanel } from '#/components/reload-error-panel';
-import { downloadTextFile } from '#/lib/download';
+import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import { openCodeSessionsQueryOptions, openCodeWorkspacesQueryOptions } from '#/lib/opencode-queries';
 import { exportOpenCodeSessionFn } from '#/lib/opencode-server';
 import { matchesTextQuery } from '#/lib/text-filter';
@@ -69,9 +69,15 @@ function OpenCodeWorkspacePage() {
                     includeTools: options.includeTools,
                     outputFormat: options.outputFormat,
                     sessionId: pendingExport.sessionId,
+                    zipArchive: options.zipArchive,
                 },
             });
-            downloadTextFile(download.fileName, download.content, download.mimeType);
+            if (download.mode === 'download') {
+                downloadTextFile(download.fileName, download.content, download.mimeType);
+                return;
+            }
+
+            await downloadUrlFile(download.fileName, download.downloadUrl);
         },
         onSuccess: () => {
             setPendingExport(null);

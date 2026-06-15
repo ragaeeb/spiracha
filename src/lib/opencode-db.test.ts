@@ -178,6 +178,7 @@ describe('opencode db helpers', () => {
             messageCount: 2,
             modelLabel: 'gpt-5-codex high',
             partCount: 6,
+            renderablePartCount: 4,
             sessionId: 'ses_main',
             title: 'Comprehensive code review',
             toolPartCount: 1,

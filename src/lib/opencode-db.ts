@@ -1,4 +1,5 @@
 import { constants, Database } from 'bun:sqlite';
+import { stat } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
@@ -13,7 +14,15 @@ import {
     type OpenCodeWorkspaceGroup,
     resolveOpenCodeDbPath,
 } from './opencode-exporter-types';
-import { asNumber, asObject, asString, expandHome, type JsonValue } from './shared';
+import { splitOpenCodeThinkTaggedText } from './opencode-think-tags';
+import {
+    asNumber,
+    asObject,
+    asString,
+    isWorkspacePathQuery,
+    type JsonValue,
+    workspacePathMatchesQuery,
+} from './shared';
 
 export { getDefaultOpenCodeDataDir, resolveOpenCodeDbPath };
 
@@ -44,6 +53,7 @@ type SessionRow = {
     permission: string | null;
     projectId: string;
     projectName: string | null;
+    renderablePartCount: number;
     sessionId: string;
     slug: string;
     summaryAdditions: number | null;
@@ -78,11 +88,15 @@ type PartRow = {
 const MAIN_SESSION_FILTER = 's.parent_id IS NULL';
 
 const pathExists = async (target: string): Promise<boolean> => {
-    return await Bun.file(target).exists();
+    return await stat(target)
+        .then(() => true)
+        .catch(() => false);
 };
 
 export const getOpenCodeReadonlyDbUri = (dbPath: string): string => {
-    return `${pathToFileURL(dbPath).href}?mode=ro`;
+    const url = pathToFileURL(dbPath);
+    url.searchParams.set('mode', 'ro');
+    return url.href;
 };
 
 export const openOpenCodeReadonlyDb = (dbPath: string): Database => {
@@ -197,6 +211,7 @@ const toSessionSummary = (row: SessionRow): OpenCodeSessionSummary => {
         path: row.path,
         permission: row.permission,
         projectId: row.projectId,
+        renderablePartCount: row.renderablePartCount,
         sessionId: row.sessionId,
         slug: row.slug,
         summaryAdditions: row.summaryAdditions,
@@ -297,7 +312,19 @@ const sessionSelectQuery = `
             SELECT COUNT(*)
             FROM part prt
             WHERE prt.session_id = s.id AND json_extract(prt.data, '$.type') = 'tool'
-        ) AS toolPartCount
+        ) AS toolPartCount,
+        (
+            SELECT COUNT(*)
+            FROM part prt
+            WHERE prt.session_id = s.id
+              AND (
+                (
+                    json_extract(prt.data, '$.type') IN ('text', 'reasoning')
+                    AND trim(COALESCE(json_extract(prt.data, '$.text'), '')) <> ''
+                )
+                OR json_extract(prt.data, '$.type') = 'tool'
+              )
+        ) AS renderablePartCount
     FROM session s
     JOIN project p ON p.id = s.project_id
 `;
@@ -320,8 +347,6 @@ export const listOpenCodeWorkspaceGroups = async (
     }
 };
 
-const normalizePathQuery = (value: string): string => expandHome(value.trim()).replace(/\/+$/u, '');
-
 const openCodeWorkspaceMatchesQuery = (workspace: OpenCodeWorkspaceGroup, query: string): boolean => {
     const raw = query.trim();
     if (!raw) {
@@ -337,10 +362,8 @@ const openCodeWorkspaceMatchesQuery = (workspace: OpenCodeWorkspaceGroup, query:
         return true;
     }
 
-    if (raw.startsWith('/') || raw.startsWith('~') || raw.includes('/')) {
-        const normalized = normalizePathQuery(raw);
-        const worktree = normalizePathQuery(workspace.worktree);
-        return worktree === normalized || worktree.endsWith(normalized);
+    if (isWorkspacePathQuery(raw)) {
+        return workspacePathMatchesQuery(workspace.worktree, raw);
     }
 
     return path.basename(workspace.worktree).toLowerCase() === lowered;
@@ -503,7 +526,8 @@ const parseOpenCodePart = (row: PartRow, role: string): OpenCodeTranscriptPart =
 
 const isRenderablePart = (part: OpenCodeTranscriptPart): boolean => {
     if (part.type === 'text' || part.type === 'reasoning') {
-        return Boolean(part.text?.trim());
+        const { reasoningBlocks, visibleText } = splitOpenCodeThinkTaggedText(part.text ?? '');
+        return Boolean(visibleText.trim() || reasoningBlocks.length > 0);
     }
 
     if (part.type === 'tool') {

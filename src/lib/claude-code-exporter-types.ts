@@ -56,6 +56,7 @@ export type ClaudeCodeSessionSummary = {
     messageCount: number;
     model: string | null;
     outputTokens: number;
+    renderablePartCount: number;
     sessionId: string;
     title: string;
     toolCallCount: number;

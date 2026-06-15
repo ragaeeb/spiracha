@@ -187,6 +187,28 @@ describe('claude code workspace discovery', () => {
         expect(transcript?.rawEvents).toHaveLength(3);
     });
 
+    it('should parse numeric Claude Code timestamps as epoch milliseconds', async () => {
+        const projectsDir = await makeTempRoot();
+        await writeSession(projectsDir, '-Users-rhaq-workspace-ushman-corpus', 'session-numeric', [
+            {
+                cwd: corpusCwd,
+                message: {
+                    content: 'Numeric timestamp fixture',
+                    role: 'user',
+                },
+                sessionId: 'session-numeric',
+                timestamp: 1_780_308_000_000,
+                type: 'user',
+                uuid: 'session-numeric-user-1',
+            },
+        ]);
+
+        const transcript = await readClaudeCodeSessionTranscript(projectsDir, 'session-numeric');
+
+        expect(transcript?.session.createdAtMs).toBe(1_780_308_000_000);
+        expect(transcript?.session.createdAtIso).toBe('2026-06-01T10:00:00.000Z');
+    });
+
     it('should return empty results when Claude Code data is missing', async () => {
         const missingProjectsDir = path.join(os.tmpdir(), 'spiracha-missing-claude-code-projects');
 

@@ -56,6 +56,7 @@ The UI depends on root-package helpers via `@spiracha/*` path aliases:
 - `@spiracha/lib/antigravity-keychain`
 - `@spiracha/lib/opencode-db`
 - `@spiracha/lib/opencode-transcript-phase`
+- `@spiracha/lib/opencode-think-tags`
 - `@spiracha/lib/opencode-transcript`
 
 Keep server-only imports inside server functions or route loaders. Do not import Bun-only modules into purely client-side components.
@@ -73,6 +74,9 @@ Use the existing layers consistently:
 - Shared root-package helpers under `@spiracha/lib/*`
   - Extend these when the behavior should stay shared between the UI, CLI, and packaged launcher.
   - Use the shared source-specific phase helpers for assistant commentary/final-answer rules instead of duplicating that logic in UI adapters.
+  - Keep OpenCode think-tag handling in `@spiracha/lib/opencode-think-tags` so UI display and exports strip MiniMax reasoning tags consistently.
+- `src/lib/source-session-export-server.ts`
+  - Use for single-session source exports that may return either inline content or a temporary zip download URL.
 - `settings-store.tsx`
   - Use only for browser-local UI preferences. Do not put server-derived source data here.
 

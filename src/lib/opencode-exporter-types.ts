@@ -52,6 +52,7 @@ export type OpenCodeSessionSummary = {
     path: string | null;
     permission: string | null;
     projectId: string;
+    renderablePartCount: number;
     sessionId: string;
     slug: string;
     summaryAdditions: number | null;

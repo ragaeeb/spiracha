@@ -17,10 +17,11 @@ import {
     asString,
     cleanExtractedText,
     cleanInlineTitle,
-    expandHome,
     getPortablePathBasename,
+    isWorkspacePathQuery,
     type JsonValue,
     readJsonlObjects,
+    workspacePathMatchesQuery,
 } from './shared';
 
 export { getDefaultClaudeCodeDataDir, resolveClaudeCodeProjectsDir };
@@ -45,6 +46,7 @@ type SessionStats = {
     inputTokens: number;
     messageCount: number;
     outputTokens: number;
+    renderablePartCount: number;
     toolCallCount: number;
     toolResultCount: number;
     userMessageCount: number;
@@ -109,12 +111,20 @@ const toIso = (value: number | null): string | null => {
 };
 
 const parseTimestampMs = (value: JsonValue | undefined): number | null => {
-    const timestamp = asString(value ?? null);
-    if (!timestamp) {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        return value;
+    }
+
+    if (typeof value !== 'string' || !value.trim()) {
         return null;
     }
 
-    const parsed = Date.parse(timestamp);
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) {
+        return numeric;
+    }
+
+    const parsed = Date.parse(value);
     return Number.isFinite(parsed) ? parsed : null;
 };
 
@@ -297,6 +307,7 @@ const createEmptyStats = (): SessionStats => ({
     inputTokens: 0,
     messageCount: 0,
     outputTokens: 0,
+    renderablePartCount: 0,
     toolCallCount: 0,
     toolResultCount: 0,
     userMessageCount: 0,
@@ -333,6 +344,7 @@ const updateStatsFromEntry = (stats: SessionStats, entry: ClaudeCodeTranscriptEn
 
     stats.toolCallCount += entry.parts.filter((part) => part.type === 'tool_use').length;
     stats.toolResultCount += entry.parts.filter((part) => part.type === 'tool_result').length;
+    stats.renderablePartCount += entry.parts.filter(isRenderablePart).length;
     addUsageStats(stats, asObject(entry.raw.message ?? null));
 };
 
@@ -472,16 +484,11 @@ const readTranscriptFile = async (file: TranscriptFile): Promise<ParsedTranscrip
     }
 
     const session = toSessionSummary(file, identity, stats, toTimeline(timeline, fallbackMtimeMs));
-    const renderablePartCount = entries.reduce(
-        (total, entry) => total + entry.parts.filter(isRenderablePart).length,
-        0,
-    );
-
     return {
         transcript: {
             entries,
             rawEvents,
-            renderablePartCount,
+            renderablePartCount: stats.renderablePartCount,
             session,
         },
     };
@@ -576,8 +583,6 @@ export const listClaudeCodeWorkspaceGroups = async (
         );
 };
 
-const normalizePathQuery = (value: string): string => expandHome(value.trim()).replace(/\/+$/u, '');
-
 const claudeCodeWorkspaceMatchesQuery = (workspace: ClaudeCodeWorkspaceGroup, query: string): boolean => {
     const raw = query.trim();
     if (!raw) {
@@ -593,10 +598,8 @@ const claudeCodeWorkspaceMatchesQuery = (workspace: ClaudeCodeWorkspaceGroup, qu
         return true;
     }
 
-    if (raw.startsWith('/') || raw.startsWith('~') || raw.includes('/')) {
-        const normalized = normalizePathQuery(raw);
-        const worktree = normalizePathQuery(workspace.worktree);
-        return worktree === normalized || worktree.endsWith(normalized);
+    if (isWorkspacePathQuery(raw)) {
+        return workspacePathMatchesQuery(workspace.worktree, raw);
     }
 
     return getPortablePathBasename(workspace.worktree).toLowerCase() === lowered;
@@ -610,7 +613,7 @@ export const findClaudeCodeWorkspaceGroups = (
 };
 
 const sortSessions = (sessions: ClaudeCodeSessionSummary[]): ClaudeCodeSessionSummary[] => {
-    return sessions.sort(
+    return [...sessions].sort(
         (left, right) =>
             compareNullableMsDesc(left.lastActiveAtMs, right.lastActiveAtMs) || left.title.localeCompare(right.title),
     );

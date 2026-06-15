@@ -119,7 +119,8 @@ const renderReasoningPart = (part: OpenCodeTranscriptPart, options: OpenCodeExpo
         return '';
     }
 
-    const text = cleanExtractedText(part.text ?? '').trim();
+    const { reasoningBlocks, visibleText } = splitOpenCodeThinkTaggedText(part.text ?? '');
+    const text = cleanExtractedText([...reasoningBlocks, visibleText].filter(Boolean).join('\n\n')).trim();
     return text ? renderSection('Reasoning', text, options.outputFormat) : '';
 };
 

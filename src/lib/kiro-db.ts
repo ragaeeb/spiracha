@@ -16,9 +16,10 @@ import {
     asString,
     cleanExtractedText,
     cleanInlineTitle,
-    expandHome,
     getPortablePathBasename,
+    isWorkspacePathQuery,
     type JsonValue,
+    workspacePathMatchesQuery,
 } from './shared';
 
 export { getDefaultKiroDataDir, resolveKiroWorkspaceSessionsDir };
@@ -54,6 +55,7 @@ type SessionStats = {
     imageCount: number;
     messageCount: number;
     promptLogCount: number;
+    renderablePartCount: number;
     userMessageCount: number;
 };
 
@@ -82,13 +84,13 @@ const toIso = (value: number | null): string | null => {
 
 const parseTimestampMs = (value: JsonValue | undefined): number | null => {
     if (typeof value === 'number' && Number.isFinite(value)) {
-        return value;
+        return value > 0 && value < 10_000_000_000 ? value * 1000 : value;
     }
 
     if (typeof value === 'string') {
         const numeric = Number(value);
         if (Number.isFinite(numeric)) {
-            return numeric;
+            return numeric > 0 && numeric < 10_000_000_000 ? numeric * 1000 : numeric;
         }
 
         const parsed = Date.parse(value);
@@ -104,20 +106,26 @@ const getDirectoryNameFromWorkspaceKey = (workspaceKey: string): string | null =
     return workspaceKey.startsWith(WORKSPACE_KEY_PREFIX) ? workspaceKey.slice(WORKSPACE_KEY_PREFIX.length) : null;
 };
 
+const isPlausibleWorkspacePath = (value: string): boolean => {
+    return Boolean(value.trim()) && !value.includes('\uFFFD') && !value.includes('\0');
+};
+
+const decodeBase64WorkspacePath = (value: string, encoding: BufferEncoding): string | null => {
+    try {
+        const decoded = Buffer.from(value, encoding).toString('utf8');
+        return isPlausibleWorkspacePath(decoded) ? decoded : null;
+    } catch {
+        return null;
+    }
+};
+
 const decodeWorkspaceDirectoryName = (directoryName: string): string => {
+    // Kiro currently stores base64 with trailing "_" characters standing in for padding.
     const base64WithPadding = directoryName.replace(/_+$/u, (match) => '='.repeat(match.length));
+    const decoded =
+        decodeBase64WorkspacePath(base64WithPadding, 'base64') ?? decodeBase64WorkspacePath(directoryName, 'base64url');
 
-    try {
-        const decoded = Buffer.from(base64WithPadding, 'base64').toString('utf8');
-        return decoded || directoryName;
-    } catch {}
-
-    try {
-        const decoded = Buffer.from(directoryName, 'base64url').toString('utf8');
-        return decoded || directoryName;
-    } catch {}
-
-    return directoryName;
+    return decoded ?? directoryName;
 };
 
 const getWorkspaceLabel = (worktree: string): string => {
@@ -284,6 +292,7 @@ const createEmptyStats = (): SessionStats => ({
     imageCount: 0,
     messageCount: 0,
     promptLogCount: 0,
+    renderablePartCount: 0,
     userMessageCount: 0,
 });
 
@@ -302,6 +311,7 @@ const updateStatsFromEntry = (stats: SessionStats, entry: KiroTranscriptEntry) =
 
     stats.imageCount += entry.parts.filter((part) => part.type === 'image').length;
     stats.promptLogCount += entry.promptLogCount;
+    stats.renderablePartCount += entry.parts.filter(isRenderablePart).length;
 };
 
 const updateIdentityFromRaw = (identity: SessionIdentity, raw: Record<string, JsonValue>) => {
@@ -347,8 +357,10 @@ const getEntryText = (entry: KiroTranscriptEntry): string => {
         .trim();
 };
 
+const KIRO_ASSISTANT_PLACEHOLDER_PATTERN = /^on it[.!]?$/iu;
+
 const isAssistantPlaceholderEntry = (entry: KiroTranscriptEntry): boolean => {
-    return entry.role === 'assistant' && getEntryText(entry) === 'On it.';
+    return entry.role === 'assistant' && KIRO_ASSISTANT_PLACEHOLDER_PATTERN.test(getEntryText(entry));
 };
 
 const isRenderablePart = (part: KiroTranscriptPart): boolean => {
@@ -471,11 +483,11 @@ const getActionTimestamp = (action: Record<string, JsonValue>, execution: Record
 };
 
 const formatHumanLine = (value: JsonValue | undefined): number | null => {
-    if (typeof value !== 'number' || !Number.isFinite(value) || value >= Number.MAX_SAFE_INTEGER / 2) {
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value >= Number.MAX_SAFE_INTEGER) {
         return null;
     }
 
-    return Math.max(1, Math.trunc(value) + 1);
+    return value + 1;
 };
 
 const formatFileRange = (file: Record<string, JsonValue>): string => {
@@ -669,7 +681,36 @@ const getVisibleEntries = (
         return historyEntries;
     }
 
-    return [...historyEntries.filter((entry) => !isAssistantPlaceholderEntry(entry)), ...executionEntries];
+    const executionEntriesById = new Map<string, KiroTranscriptEntry[]>();
+    for (const entry of executionEntries) {
+        if (!entry.executionId) {
+            continue;
+        }
+
+        const entries = executionEntriesById.get(entry.executionId) ?? [];
+        entries.push(entry);
+        executionEntriesById.set(entry.executionId, entries);
+    }
+
+    const usedExecutionIds = new Set<string>();
+    const visibleEntries: KiroTranscriptEntry[] = [];
+    for (const entry of historyEntries) {
+        const matchingExecutionEntries = entry.executionId ? executionEntriesById.get(entry.executionId) : undefined;
+        if (isAssistantPlaceholderEntry(entry)) {
+            if (matchingExecutionEntries) {
+                visibleEntries.push(...matchingExecutionEntries);
+                usedExecutionIds.add(entry.executionId!);
+            }
+            continue;
+        }
+
+        visibleEntries.push(entry);
+    }
+
+    visibleEntries.push(
+        ...executionEntries.filter((entry) => !entry.executionId || !usedExecutionIds.has(entry.executionId)),
+    );
+    return visibleEntries;
 };
 
 const createStatsFromEntries = (entries: KiroTranscriptEntry[]): SessionStats => {
@@ -730,15 +771,10 @@ const readSessionFile = async (
         : [];
     const entries = getVisibleEntries(historyEntries, executionEntries);
     const stats = createStatsFromEntries(entries);
-    const renderablePartCount = entries.reduce(
-        (total, entry) => total + entry.parts.filter(isRenderablePart).length,
-        0,
-    );
-
     return {
         entries,
         rawSession,
-        renderablePartCount,
+        renderablePartCount: stats.renderablePartCount,
         session: toSessionSummary(file, identity, stats, fileStats),
     };
 };
@@ -844,8 +880,6 @@ export const listKiroWorkspaceGroups = async (
         );
 };
 
-const normalizePathQuery = (value: string): string => expandHome(value.trim()).replace(/\/+$/u, '');
-
 const kiroWorkspaceMatchesQuery = (workspace: KiroWorkspaceGroup, query: string): boolean => {
     const raw = query.trim();
     if (!raw) {
@@ -861,10 +895,8 @@ const kiroWorkspaceMatchesQuery = (workspace: KiroWorkspaceGroup, query: string)
         return true;
     }
 
-    if (raw.startsWith('/') || raw.startsWith('~') || raw.includes('/')) {
-        const normalized = normalizePathQuery(raw);
-        const worktree = normalizePathQuery(workspace.worktree);
-        return worktree === normalized || worktree.endsWith(normalized);
+    if (isWorkspacePathQuery(raw)) {
+        return workspacePathMatchesQuery(workspace.worktree, raw);
     }
 
     return getPortablePathBasename(workspace.worktree).toLowerCase() === lowered;
@@ -875,7 +907,7 @@ export const findKiroWorkspaceGroups = (groups: KiroWorkspaceGroup[], query: str
 };
 
 const sortSessions = (sessions: KiroSessionSummary[]): KiroSessionSummary[] => {
-    return sessions.sort(
+    return [...sessions].sort(
         (left, right) =>
             compareNullableMsDesc(left.lastActiveAtMs, right.lastActiveAtMs) || left.title.localeCompare(right.title),
     );

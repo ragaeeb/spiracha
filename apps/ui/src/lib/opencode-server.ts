@@ -1,6 +1,6 @@
-import { getExportMimeType, sanitizeExportFileName } from '@spiracha/lib/ui-export-archive';
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
+import { renderSourceSessionDownload } from './source-session-export-server';
 
 const workspaceSchema = z.object({
     workspaceKey: z.string().min(1),
@@ -16,11 +16,8 @@ const exportSessionSchema = z.object({
     includeTools: z.boolean().default(true),
     outputFormat: z.enum(['md', 'txt']).default('md'),
     sessionId: z.string().min(1),
+    zipArchive: z.boolean().default(false),
 });
-
-const toSafeExportName = (value: string) => {
-    return sanitizeExportFileName(value) || 'opencode-session';
-};
 
 export const listOpenCodeWorkspacesFn = createServerFn({ method: 'GET' }).handler(async () => {
     const { listOpenCodeWorkspaceGroups } = await import('@spiracha/lib/opencode-db');
@@ -66,10 +63,11 @@ export const exportOpenCodeSessionFn = createServerFn({ method: 'POST' })
             throw new Error(`OpenCode session has no exportable content: ${data.sessionId}`);
         }
 
-        return {
+        return renderSourceSessionDownload({
             content,
-            fileName: `${toSafeExportName(transcript.session.slug || transcript.session.sessionId)}.${data.outputFormat}`,
-            mimeType: getExportMimeType(data.outputFormat),
-            mode: 'download' as const,
-        };
+            fallbackBaseName: 'opencode-session',
+            fileBaseName: transcript.session.title || transcript.session.slug || transcript.session.sessionId,
+            outputFormat: data.outputFormat,
+            zipArchive: data.zipArchive,
+        });
     });

@@ -2,6 +2,7 @@ import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/codex-bro
 import type { KiroSessionTranscript, KiroTranscriptEntry, KiroTranscriptPart } from '@spiracha/lib/kiro-exporter-types';
 import { getFinalKiroAssistantMessageEntryIds, getKiroMessagePhase } from '@spiracha/lib/kiro-transcript-phase';
 import type { JsonValue } from '@spiracha/lib/shared';
+import { getThreadTranscriptStats } from './thread-transcript-stats';
 
 const buildRaw = (
     entry: KiroTranscriptEntry,
@@ -16,41 +17,6 @@ const buildRaw = (
     type: part.type,
     ...part.raw,
 });
-
-const getTextJoiner = (left: string, right: string): string => {
-    const leftTrimmed = left.trim();
-    const rightTrimmed = right.trim();
-    return leftTrimmed.startsWith('|') && rightTrimmed.startsWith('|') ? '\n' : '\n\n';
-};
-
-const mergeTextParts = (left: KiroTranscriptPart, right: KiroTranscriptPart): KiroTranscriptPart => {
-    const text = `${left.text ?? ''}${getTextJoiner(left.text ?? '', right.text ?? '')}${right.text ?? ''}`;
-    return {
-        raw: {
-            sourceParts: [left.raw, right.raw],
-            text,
-            type: 'text',
-        },
-        text,
-        type: 'text',
-    };
-};
-
-const mergeAdjacentTextParts = (parts: KiroTranscriptPart[]): KiroTranscriptPart[] => {
-    const merged: KiroTranscriptPart[] = [];
-
-    for (const part of parts) {
-        const previous = merged.at(-1);
-        if (previous?.type === 'text' && part.type === 'text') {
-            merged[merged.length - 1] = mergeTextParts(previous, part);
-            continue;
-        }
-
-        merged.push(part);
-    }
-
-    return merged;
-};
 
 const buildMessageEvent = (
     transcript: KiroSessionTranscript,
@@ -131,69 +97,17 @@ const partToEvents = (
 export const kiroTranscriptToThreadEvents = (transcript: KiroSessionTranscript): ThreadEvent[] => {
     const events: ThreadEvent[] = [];
     const finalAssistantMessageEntryIds = getFinalKiroAssistantMessageEntryIds(transcript.entries);
+    let sequence = 0;
 
-    transcript.entries.forEach((entry, entryIndex) => {
-        mergeAdjacentTextParts(entry.parts).forEach((part, partIndex) => {
-            events.push(
-                ...partToEvents(
-                    transcript,
-                    entry,
-                    part,
-                    entryIndex * 100 + partIndex * 10,
-                    finalAssistantMessageEntryIds,
-                ),
-            );
-        });
-    });
+    for (const entry of transcript.entries) {
+        for (const part of entry.parts) {
+            events.push(...partToEvents(transcript, entry, part, sequence, finalAssistantMessageEntryIds));
+            sequence += 1;
+        }
+    }
     return events;
 };
 
-const updateMessageStats = (stats: ThreadTranscriptStats, event: Extract<ThreadEvent, { kind: 'message' }>) => {
-    stats.messageCount += 1;
-    if (event.role === 'assistant') {
-        stats.assistantMessageCount += 1;
-    }
-    if (event.role === 'user') {
-        stats.userMessageCount += 1;
-    }
-    if (event.phase === 'commentary') {
-        stats.commentaryCount += 1;
-    }
-    if (event.phase === 'final_answer') {
-        stats.finalAnswerCount += 1;
-    }
-};
-
 export const getKiroThreadTranscriptStats = (events: ThreadEvent[]): ThreadTranscriptStats => {
-    const stats: ThreadTranscriptStats = {
-        assistantMessageCount: 0,
-        commentaryCount: 0,
-        execCommandCount: 0,
-        finalAnswerCount: 0,
-        messageCount: 0,
-        toolCallCount: 0,
-        toolOutputCount: 0,
-        userMessageCount: 0,
-        webSearchEventCount: 0,
-    };
-
-    for (const event of events) {
-        if (event.kind === 'message') {
-            updateMessageStats(stats, event);
-        }
-        if (event.kind === 'tool_call') {
-            stats.toolCallCount += 1;
-            if (event.name === 'Bash') {
-                stats.execCommandCount += 1;
-            }
-        }
-        if (event.kind === 'tool_output') {
-            stats.toolOutputCount += 1;
-        }
-        if (event.kind === 'web_search') {
-            stats.webSearchEventCount += 1;
-        }
-    }
-
-    return stats;
+    return getThreadTranscriptStats(events);
 };

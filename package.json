@@ -82,6 +82,7 @@
         "src/lib/codex-thread-cache.ts",
         "src/lib/codex-thread-parser.ts",
         "src/lib/codex-analytics.ts",
+        "src/lib/concurrency.ts",
         "src/lib/path-transforms.ts",
         "src/lib/sqlite-error.ts",
         "src/lib/sqlite-retry.ts",

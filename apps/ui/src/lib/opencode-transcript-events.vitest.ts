@@ -83,6 +83,7 @@ const buildTranscript = (): OpenCodeSessionTranscript => ({
         path: null,
         permission: null,
         projectId: 'pro_demo',
+        renderablePartCount: 4,
         sessionId: 'ses_main',
         slug: 'quiet-mountain',
         summaryAdditions: null,
@@ -121,7 +122,16 @@ describe('openCodeTranscriptToThreadEvents', () => {
     });
 
     it('should count OpenCode transcript stats', () => {
-        const stats = getOpenCodeThreadTranscriptStats(openCodeTranscriptToThreadEvents(buildTranscript()));
+        const transcript = buildTranscript();
+        const assistantMessage = transcript.messages[1];
+        if (!assistantMessage) {
+            throw new Error('missing assistant message');
+        }
+        assistantMessage.parts[1] = {
+            ...assistantMessage.parts[1]!,
+            toolName: 'Bash',
+        };
+        const stats = getOpenCodeThreadTranscriptStats(openCodeTranscriptToThreadEvents(transcript));
 
         expect(stats.messageCount).toBe(2);
         expect(stats.userMessageCount).toBe(1);
@@ -129,6 +139,7 @@ describe('openCodeTranscriptToThreadEvents', () => {
         expect(stats.finalAnswerCount).toBe(1);
         expect(stats.toolCallCount).toBe(1);
         expect(stats.toolOutputCount).toBe(1);
+        expect(stats.execCommandCount).toBe(1);
     });
 
     it('should treat MiniMax think tags in text parts as reasoning instead of final answers', () => {
@@ -160,5 +171,66 @@ describe('openCodeTranscriptToThreadEvents', () => {
             role: 'assistant',
             text: 'Final review.',
         });
+    });
+
+    it('should normalize think tags in reasoning parts', () => {
+        const transcript = buildTranscript();
+        const assistantMessage = transcript.messages[1];
+        if (!assistantMessage) {
+            throw new Error('missing assistant message');
+        }
+        assistantMessage.parts = [
+            {
+                createdAtMs: 1_700_000_000_100,
+                messageId: 'msg_assistant',
+                partId: 'prt_reasoning',
+                raw: { text: '<think>\nInternal note.\n</think>\nVisible note.', type: 'reasoning' },
+                role: 'assistant',
+                text: '<think>\nInternal note.\n</think>\nVisible note.',
+                type: 'reasoning',
+                updatedAtMs: 1_700_000_000_100,
+            },
+        ];
+
+        const events = openCodeTranscriptToThreadEvents(transcript);
+
+        expect(events[1]).toMatchObject({
+            content: 'Internal note.\n\nVisible note.',
+            kind: 'reasoning',
+        });
+    });
+
+    it('should assign unique monotonically increasing event sequences for multi-event parts', () => {
+        const transcript = buildTranscript();
+        const assistantMessage = transcript.messages[1];
+        if (!assistantMessage) {
+            throw new Error('missing assistant message');
+        }
+        assistantMessage.parts = [
+            {
+                createdAtMs: 1_700_000_000_100,
+                messageId: 'msg_assistant',
+                partId: 'prt_minimax_text',
+                raw: { text: '<think>One</think><think>Two</think>Final', type: 'text' },
+                role: 'assistant',
+                text: '<think>One</think><think>Two</think>Final',
+                type: 'text',
+                updatedAtMs: 1_700_000_000_100,
+            },
+            {
+                createdAtMs: 1_700_000_000_200,
+                messageId: 'msg_assistant',
+                partId: 'prt_next_text',
+                raw: { text: 'Next', type: 'text' },
+                role: 'assistant',
+                text: 'Next',
+                type: 'text',
+                updatedAtMs: 1_700_000_000_200,
+            },
+        ];
+
+        const events = openCodeTranscriptToThreadEvents(transcript);
+
+        expect(events.map((event) => event.sequence)).toEqual(events.map((_, index) => index));
     });
 });

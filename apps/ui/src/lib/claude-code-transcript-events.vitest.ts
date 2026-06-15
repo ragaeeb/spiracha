@@ -72,6 +72,7 @@ const transcript: ClaudeCodeSessionTranscript = {
         messageCount: 3,
         model: 'claude-sonnet-4-5',
         outputTokens: 8,
+        renderablePartCount: 5,
         sessionId: 'session-a',
         title: 'Hello',
         toolCallCount: 1,
@@ -120,6 +121,7 @@ describe('claudeCodeTranscriptToThreadEvents', () => {
 
         expect(getClaudeCodeThreadTranscriptStats(events)).toMatchObject({
             assistantMessageCount: 1,
+            execCommandCount: 1,
             finalAnswerCount: 1,
             messageCount: 2,
             toolCallCount: 1,
@@ -227,5 +229,37 @@ describe('claudeCodeTranscriptToThreadEvents', () => {
             toolCallCount: 1,
             userMessageCount: 1,
         });
+    });
+
+    it('should assign unique monotonically increasing event sequences when entries have many parts', () => {
+        const events = claudeCodeTranscriptToThreadEvents({
+            ...transcript,
+            entries: [
+                {
+                    cwd: '/workspace/project',
+                    entryId: 'a-many',
+                    parts: Array.from({ length: 11 }, (_, index) => ({
+                        raw: { text: `part ${index}` },
+                        text: `part ${index}`,
+                        type: 'text' as const,
+                    })),
+                    raw: { message: { stop_reason: 'end_turn' }, type: 'assistant' },
+                    role: 'assistant',
+                    timestamp: null,
+                    type: 'assistant',
+                },
+                {
+                    cwd: '/workspace/project',
+                    entryId: 'u-next',
+                    parts: [{ raw: { text: 'next' }, text: 'next', type: 'text' }],
+                    raw: { type: 'user' },
+                    role: 'user',
+                    timestamp: null,
+                    type: 'user',
+                },
+            ],
+        });
+
+        expect(events.map((event) => event.sequence)).toEqual(events.map((_, index) => index));
     });
 });

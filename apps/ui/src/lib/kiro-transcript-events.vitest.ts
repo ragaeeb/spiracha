@@ -48,6 +48,7 @@ const transcript: KiroSessionTranscript = {
         lastActiveAtMs: 1_780_307_202_000,
         messageCount: 2,
         promptLogCount: 1,
+        renderablePartCount: 3,
         selectedModel: 'claude-sonnet-4.5',
         selectedProfileId: 'local',
         sessionId: 'session-a',
@@ -92,7 +93,7 @@ describe('kiroTranscriptToThreadEvents', () => {
         });
     });
 
-    it('should keep multiple text parts from one Kiro message in one transcript event', () => {
+    it('should preserve the already merged Kiro text part from the DB parser', () => {
         const events = kiroTranscriptToThreadEvents({
             ...transcript,
             entries: [
@@ -101,9 +102,11 @@ describe('kiroTranscriptToThreadEvents', () => {
                     entryType: 'message',
                     executionId: null,
                     parts: [
-                        { raw: { text: 'First read AGENTS.md.' }, text: 'First read AGENTS.md.', type: 'text' },
-                        { raw: { text: 'Dev notes:' }, text: 'Dev notes:', type: 'text' },
-                        { raw: { text: '**Problem Statement**' }, text: '**Problem Statement**', type: 'text' },
+                        {
+                            raw: { text: 'First read AGENTS.md.\n\nDev notes:\n\n**Problem Statement**' },
+                            text: 'First read AGENTS.md.\n\nDev notes:\n\n**Problem Statement**',
+                            type: 'text',
+                        },
                     ],
                     promptLogCount: 0,
                     raw: { message: { role: 'user' } },
@@ -230,6 +233,7 @@ describe('kiroTranscriptToThreadEvents', () => {
         expect(getKiroThreadTranscriptStats(events)).toMatchObject({
             assistantMessageCount: 2,
             commentaryCount: 1,
+            execCommandCount: 0,
             finalAnswerCount: 1,
             messageCount: 3,
             toolCallCount: 2,
@@ -317,6 +321,35 @@ describe('kiroTranscriptToThreadEvents', () => {
         expect(getKiroThreadTranscriptStats(events)).toMatchObject({
             commentaryCount: 2,
             finalAnswerCount: 2,
+        });
+    });
+
+    it('should count shell-like Kiro tool names as exec commands', () => {
+        const events = kiroTranscriptToThreadEvents({
+            ...transcript,
+            entries: [
+                {
+                    entryId: 'execution-a:execute',
+                    entryType: 'tool_call',
+                    executionId: 'execution-a',
+                    parts: [
+                        {
+                            raw: { toolName: 'execute_command', type: 'toolCall' },
+                            text: 'pnpm test',
+                            type: 'text',
+                        },
+                    ],
+                    promptLogCount: 0,
+                    raw: { actionId: 'execute' },
+                    role: 'tool',
+                    timestamp: null,
+                },
+            ],
+        });
+
+        expect(getKiroThreadTranscriptStats(events)).toMatchObject({
+            execCommandCount: 1,
+            toolCallCount: 1,
         });
     });
 });

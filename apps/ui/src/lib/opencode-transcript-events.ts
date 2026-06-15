@@ -6,6 +6,7 @@ import {
     getOpenCodeTextPartPhase,
 } from '@spiracha/lib/opencode-transcript-phase';
 import type { JsonValue } from '@spiracha/lib/shared';
+import { getThreadTranscriptStats } from './thread-transcript-stats';
 
 const toTimestamp = (value: number | null | undefined): string | null => {
     if (value === null || value === undefined || !Number.isFinite(value)) {
@@ -66,7 +67,8 @@ const buildReasoningEventFromText = (
 };
 
 const buildReasoningEvent = (part: OpenCodeTranscriptPart, sequence: number): ThreadEvent | null => {
-    return buildReasoningEventFromText(part, sequence, part.text);
+    const { reasoningBlocks, visibleText } = splitOpenCodeThinkTaggedText(part.text ?? '');
+    return buildReasoningEventFromText(part, sequence, [...reasoningBlocks, visibleText].filter(Boolean).join('\n\n'));
 };
 
 const buildToolCallCommand = (part: OpenCodeTranscriptPart): string => {
@@ -174,10 +176,9 @@ const toolPartToEvents = (part: OpenCodeTranscriptPart, sequence: number): Threa
 
 const partToEvents = (
     part: OpenCodeTranscriptPart,
-    index: number,
+    sequence: number,
     finalAssistantTextPartIds: Set<string>,
 ): ThreadEvent[] => {
-    const sequence = index * 10;
     if (part.type === 'text') {
         return textPartToEvents(part, sequence, finalAssistantTextPartIds);
     }
@@ -205,55 +206,16 @@ const partToEvents = (
 export const openCodeTranscriptToThreadEvents = (transcript: OpenCodeSessionTranscript): ThreadEvent[] => {
     const parts = flattenParts(transcript);
     const finalAssistantTextPartIds = getFinalOpenCodeAssistantTextPartIds(parts);
-    return parts.flatMap((part, index) => partToEvents(part, index, finalAssistantTextPartIds));
-};
-
-const updateMessageStats = (stats: ThreadTranscriptStats, event: Extract<ThreadEvent, { kind: 'message' }>) => {
-    stats.messageCount += 1;
-    if (event.role === 'assistant') {
-        stats.assistantMessageCount += 1;
+    const events: ThreadEvent[] = [];
+    let sequence = 0;
+    for (const part of parts) {
+        const partEvents = partToEvents(part, sequence, finalAssistantTextPartIds);
+        events.push(...partEvents);
+        sequence += Math.max(partEvents.length, 1);
     }
-    if (event.role === 'user') {
-        stats.userMessageCount += 1;
-    }
-    if (event.phase === 'commentary') {
-        stats.commentaryCount += 1;
-    }
-    if (event.phase === 'final_answer') {
-        stats.finalAnswerCount += 1;
-    }
+    return events;
 };
 
 export const getOpenCodeThreadTranscriptStats = (events: ThreadEvent[]): ThreadTranscriptStats => {
-    const stats: ThreadTranscriptStats = {
-        assistantMessageCount: 0,
-        commentaryCount: 0,
-        execCommandCount: 0,
-        finalAnswerCount: 0,
-        messageCount: 0,
-        toolCallCount: 0,
-        toolOutputCount: 0,
-        userMessageCount: 0,
-        webSearchEventCount: 0,
-    };
-
-    for (const event of events) {
-        if (event.kind === 'message') {
-            updateMessageStats(stats, event);
-        }
-        if (event.kind === 'tool_call') {
-            stats.toolCallCount += 1;
-            if (event.name === 'bash' || event.name === 'exec' || event.name === 'terminal') {
-                stats.execCommandCount += 1;
-            }
-        }
-        if (event.kind === 'tool_output') {
-            stats.toolOutputCount += 1;
-        }
-        if (event.kind === 'web_search') {
-            stats.webSearchEventCount += 1;
-        }
-    }
-
-    return stats;
+    return getThreadTranscriptStats(events);
 };

@@ -42,7 +42,7 @@ rtk bunx spiracha cursor list
 - Inspect Antigravity workspaces, dedicated conversation detail pages, unlock transcript export through macOS Keychain, and export conversation transcripts or generated artifacts
 - Inspect OpenCode project workspaces, dedicated session detail pages, reasoning/tool parts, MiniMax `<think>` blocks, token metadata, and export sessions
 - Delete threads or derived projects from the Codex SQLite database after confirmation
-- Download thread exports directly from the UI as Markdown or plain text, with optional metadata, commentary, and tool-call inclusion
+- Download thread exports directly from the UI as Markdown, plain text, or optional zip archives, with optional metadata, commentary, and tool-call inclusion
 - Keep source-specific assistant commentary hidden by default while still showing final answers, with matching export filtering for Claude Code, Kiro, and OpenCode
 - View dashboard and analytics summaries, including token totals and tool-call frequency
 - Filter Codex exports by:
@@ -128,7 +128,17 @@ The UI currently includes:
 - an OpenCode workspace inventory, session listing, and standalone session detail flow
 - a Codex dashboard, Codex thread detail view, and Codex analytics page
 
-Transcript detail pages use the same compact controls across sources: show or hide user messages, commentary, tool calls, extra events, and raw JSON. Claude Code uses `stop_reason` to distinguish tool-use lead-ins from final answers. Kiro uses execution traces for assistant commentary/tool calls and keeps the final assistant response for each user turn visible. OpenCode strips MiniMax `<think>` blocks into commentary and uses the final visible assistant text in each assistant run as the final answer.
+Transcript detail pages use the same compact controls across sources: show or hide user messages, commentary, tool calls, extra events, and raw JSON. Claude Code uses `stop_reason` to distinguish tool-use lead-ins from final answers. Kiro uses execution traces for assistant commentary/tool calls and keeps the final assistant response for each user turn visible. OpenCode strips MiniMax `<think>` blocks into commentary, preserves literal `<think>` examples inside Markdown code, and uses the final visible assistant text in each assistant run as the final answer.
+
+Default browser UI data locations:
+
+| Source | Default location | Primary override |
+| --- | --- | --- |
+| Codex | shared Codex DB probe list | `SPIRACHA_CODEX_DB` |
+| Claude Code | `~/.claude/projects` | `SPIRACHA_CLAUDE_CODE_PROJECTS_DIR` |
+| Kiro | `~/Library/Application Support/Kiro/User/globalStorage/kiro.kiroagent/workspace-sessions` | `SPIRACHA_KIRO_WORKSPACE_SESSIONS_DIR` |
+| OpenCode | `${XDG_DATA_HOME:-~/.local/share}/opencode/opencode.db` | `SPIRACHA_OPENCODE_DB` |
+| Export downloads | OS temp directory under `spiracha-ui-exports` | `SPIRACHA_UI_EXPORT_DIR` |
 
 Codex inventory search and analytics project filters are stored in route search params, so filtered views can be bookmarked or reloaded. `/projects` and `/projects/$project` use `q`, and `/analytics` uses `project`.
 
@@ -289,7 +299,7 @@ This builds the app, packs a fresh tarball in a clean temp directory, launches `
 - `src/lib/kiro-*.ts`: Kiro workspace/session discovery, execution-trace enrichment, assistant phase classification, and transcript rendering helpers
 - `src/lib/claude-exporter.ts`: Claude exporter implementation
 - `src/lib/cursor-*.ts`: Cursor discovery, transcript rendering, recovery, and CLI helpers
-- `src/lib/opencode-*.ts`: OpenCode project/session discovery, think-tag handling, assistant phase classification, and transcript rendering helpers
+- `src/lib/opencode-*.ts`: OpenCode project/session discovery, MiniMax think-tag handling, assistant phase classification, and transcript rendering helpers
 - `src/lib/ui-export-archive.ts` and `src/lib/ui-export-files.ts`: browser download filename, MIME type, zip archive, temp file, and URL helpers
 - `plugins/codex-chats-export/`: local Codex plugin bundle
 
@@ -304,6 +314,7 @@ The test suite includes:
 - Cursor exporter and recovery coverage
 - Antigravity discovery and export coverage
 - OpenCode discovery and export coverage
+- OpenCode MiniMax `<think>` extraction coverage, including literal tags in Markdown code
 - Codex CLI helper tests
 - transcript rendering helper tests
 - route search parsing and bounded concurrency tests

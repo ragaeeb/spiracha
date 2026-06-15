@@ -1,6 +1,6 @@
-import { getExportMimeType, sanitizeExportFileName } from '@spiracha/lib/ui-export-archive';
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
+import { renderSourceSessionDownload } from './source-session-export-server';
 
 const workspaceSchema = z.object({
     workspaceKey: z.string().min(1),
@@ -16,11 +16,8 @@ const exportSessionSchema = z.object({
     includeTools: z.boolean().default(true),
     outputFormat: z.enum(['md', 'txt']).default('md'),
     sessionId: z.string().min(1),
+    zipArchive: z.boolean().default(false),
 });
-
-const toSafeExportName = (value: string) => {
-    return sanitizeExportFileName(value) || 'claude-code-session';
-};
 
 export const listClaudeCodeWorkspacesFn = createServerFn({ method: 'GET' }).handler(async () => {
     const { listClaudeCodeWorkspaceGroups } = await import('@spiracha/lib/claude-code-db');
@@ -68,10 +65,11 @@ export const exportClaudeCodeSessionFn = createServerFn({ method: 'POST' })
             throw new Error(`Claude Code session has no exportable content: ${data.sessionId}`);
         }
 
-        return {
+        return renderSourceSessionDownload({
             content,
-            fileName: `${toSafeExportName(transcript.session.title || transcript.session.sessionId)}.${data.outputFormat}`,
-            mimeType: getExportMimeType(data.outputFormat),
-            mode: 'download' as const,
-        };
+            fallbackBaseName: 'claude-code-session',
+            fileBaseName: transcript.session.title || transcript.session.sessionId,
+            outputFormat: data.outputFormat,
+            zipArchive: data.zipArchive,
+        });
     });

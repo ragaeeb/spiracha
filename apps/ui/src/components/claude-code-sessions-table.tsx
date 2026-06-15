@@ -85,7 +85,7 @@ const columns = (onExportSession: (session: ClaudeCodeSessionSummary) => void) =
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                         <DropdownMenuItem
-                            disabled={info.row.original.messageCount === 0}
+                            disabled={info.row.original.renderablePartCount === 0}
                             onClick={() => onExportSession(info.row.original)}
                         >
                             <Download className="mr-2 size-4" />

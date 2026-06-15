@@ -108,6 +108,8 @@ OpenCode browser/export modules:
   - shared OpenCode workspace, session, message, part, and export option types plus default DB path resolution
 - `src/lib/opencode-transcript-phase.ts`
   - browser-safe assistant commentary/final-answer classification per OpenCode assistant run
+- `src/lib/opencode-think-tags.ts`
+  - browser-safe MiniMax `<think>` extraction shared by OpenCode export rendering and UI adapters
 - `src/lib/opencode-transcript.ts`
   - renders OpenCode sessions to Markdown or plain text for UI downloads
 
@@ -148,6 +150,7 @@ Current tests cover:
 - Cursor export, recovery, and pruning behavior
 - Antigravity discovery, transcript parsing, and artifact export rendering
 - OpenCode discovery, transcript parsing, and export rendering
+- OpenCode MiniMax `<think>` tag extraction, including code-literal preservation
 - structured Codex transcript parsing
 - project/thread browsing and destructive DB flows
 - analytics aggregation

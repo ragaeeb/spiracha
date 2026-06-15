@@ -83,6 +83,7 @@ const transcript: ClaudeCodeSessionTranscript = {
         messageCount: 3,
         model: 'claude-sonnet-4-5',
         outputTokens: 4,
+        renderablePartCount: 5,
         sessionId: 'session-a',
         title: 'Review Descope-Class Vendor-Detection',
         toolCallCount: 1,

@@ -49,6 +49,7 @@ export type KiroSessionSummary = {
     lastActiveAtMs: number | null;
     messageCount: number;
     promptLogCount: number;
+    renderablePartCount: number;
     selectedModel: string | null;
     selectedProfileId: string | null;
     sessionId: string;

@@ -18,7 +18,7 @@ The browser UI for browsing local Codex, Claude Code, Kiro, Cursor, Antigravity,
 - lists derived Codex projects from the Codex SQLite database
 - lists Codex threads within a project in chronological order
 - shows Codex thread timelines, tool calls, metadata, and raw event context
-- exports Codex threads as Markdown or plain text with optional metadata, commentary, and tool-call inclusion
+- exports Codex, Claude Code, Kiro, Cursor, and OpenCode sessions or threads as Markdown, plain text, or optional zip archives with optional metadata, commentary, and tool-call inclusion
 - lists Claude Code workspaces and sessions from local `~/.claude/projects` JSONL files
 - shows dedicated Claude Code session detail pages with reasoning, tool calls, token metadata, and export actions
 - lists Kiro workspaces and sessions from local Kiro workspace session files
@@ -77,9 +77,19 @@ Runtime configuration is intentionally small:
 
 Export artifacts are served through the UI as attachment downloads from `/__exports/*`. The packaged `spiracha ui` launcher and the local dev server both use the same export-directory contract.
 
+Default source locations:
+
+| Source | Default location | Primary override |
+| --- | --- | --- |
+| Codex | shared Codex DB probe list | `SPIRACHA_CODEX_DB` |
+| Claude Code | `~/.claude/projects` | `SPIRACHA_CLAUDE_CODE_PROJECTS_DIR` |
+| Kiro | `~/Library/Application Support/Kiro/User/globalStorage/kiro.kiroagent/workspace-sessions` | `SPIRACHA_KIRO_WORKSPACE_SESSIONS_DIR` |
+| OpenCode | `${XDG_DATA_HOME:-~/.local/share}/opencode/opencode.db` | `SPIRACHA_OPENCODE_DB` |
+| Export downloads | OS temp directory under `spiracha-ui-exports` | `SPIRACHA_UI_EXPORT_DIR` |
+
 Codex analytics cache keys are based on Codex DB row metadata instead of statting every rollout file before cache hits. That keeps large histories responsive. The tradeoff is that manual JSONL edits outside Codex do not invalidate analytics unless DB row metadata changes or the temporary UI cache is cleared.
 
-Transcript detail pages expose the same display controls across sources: user messages, commentary, tool calls, extra events, and raw JSON. Claude Code assistant lead-ins are classified from `stop_reason`, Kiro assistant phases are classified per user turn from session and execution files, and OpenCode assistant phases are classified per assistant run after stripping MiniMax `<think>` blocks into commentary.
+Transcript detail pages expose the same display controls across sources: user messages, commentary, tool calls, extra events, and raw JSON. Claude Code assistant lead-ins are classified from `stop_reason`, Kiro assistant phases are classified per user turn from session and execution files, and OpenCode assistant phases are classified per assistant run after stripping MiniMax `<think>` blocks into commentary. OpenCode think-tag extraction preserves literal `<think>` examples inside Markdown code spans and fenced code blocks.
 
 ## Routes
 

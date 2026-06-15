@@ -16,7 +16,7 @@ import { TranscriptView } from '#/components/transcript-view';
 import { Button } from '#/components/ui/button';
 import { Checkbox } from '#/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
-import { downloadTextFile } from '#/lib/download';
+import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import { formatDateTime, formatList, formatNumber } from '#/lib/formatters';
 import { kiroSessionDetailQueryOptions } from '#/lib/kiro-queries';
 import { exportKiroSessionFn } from '#/lib/kiro-server';
@@ -202,9 +202,15 @@ function KiroSessionDetailPage() {
                     includeTools: options.includeTools,
                     outputFormat: options.outputFormat,
                     sessionId: detail.session.sessionId,
+                    zipArchive: options.zipArchive,
                 },
             });
-            downloadTextFile(download.fileName, download.content, download.mimeType);
+            if (download.mode === 'download') {
+                downloadTextFile(download.fileName, download.content, download.mimeType);
+                return;
+            }
+
+            await downloadUrlFile(download.fileName, download.downloadUrl);
         },
         onSuccess: () => {
             setPendingExport(false);

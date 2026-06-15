@@ -84,6 +84,7 @@ const transcript: OpenCodeSessionTranscript = {
         path: null,
         permission: null,
         projectId: 'pro_demo',
+        renderablePartCount: 4,
         sessionId: 'ses_main',
         slug: 'quiet-mountain',
         summaryAdditions: null,

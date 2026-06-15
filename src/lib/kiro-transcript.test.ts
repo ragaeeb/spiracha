@@ -58,6 +58,7 @@ const transcript: KiroSessionTranscript = {
         lastActiveAtMs: 1_781_434_803_000,
         messageCount: 2,
         promptLogCount: 1,
+        renderablePartCount: 3,
         selectedModel: 'claude-sonnet-4.5',
         selectedProfileId: 'local',
         sessionId: 'session-a',
