@@ -169,7 +169,7 @@ describe('TranscriptView', () => {
         expect(latestCall?.measureElement).toBeTypeOf('function');
     });
 
-    it('should hide and show commentary messages independently of other assistant messages', () => {
+    it('should hide and show commentary messages independently of final assistant answers', () => {
         const commentaryEvent: ThreadEvent = {
             isHiddenByDefault: false,
             kind: 'message',
@@ -193,29 +193,32 @@ describe('TranscriptView', () => {
 
         const { rerender } = render(
             <TranscriptView
-                assistantModel={null}
+                assistantModel="gpt-5.4"
                 events={[commentaryEvent, finalAnswerEvent]}
                 projectPath="/Users/example/workspace/spiracha"
                 showCommentary={false}
                 showExtraEvents={false}
                 showRawJson={false}
                 showToolCalls={false}
+                showUserMessages={false}
             />,
         );
 
         expect(screen.queryByText('I am working through the codebase now.')).toBeNull();
         expect(screen.getByText('Here is the final answer.')).toBeTruthy();
-        expect(screen.getByText('Final Answer')).toBeTruthy();
+        expect(screen.getByRole('heading', { name: 'GPT 5.4' })).toBeTruthy();
+        expect(screen.queryByRole('heading', { name: 'Final Answer' })).toBeNull();
 
         rerender(
             <TranscriptView
-                assistantModel={null}
+                assistantModel="gpt-5.4"
                 events={[commentaryEvent, finalAnswerEvent]}
                 projectPath="/Users/example/workspace/spiracha"
                 showCommentary
                 showExtraEvents={false}
                 showRawJson={false}
                 showToolCalls={false}
+                showUserMessages={false}
             />,
         );
 
@@ -458,6 +461,39 @@ describe('TranscriptView', () => {
         );
 
         expect(screen.getByRole('heading', { name: 'GPT 5.4' })).toBeTruthy();
+    });
+
+    it('should copy final assistant answers with the thread model label', async () => {
+        const writeText = vi.fn().mockResolvedValue(undefined);
+        Object.assign(navigator, {
+            clipboard: { writeText },
+        });
+
+        render(
+            <TranscriptView
+                assistantModel="gpt-5.5"
+                events={[
+                    {
+                        ...messageEvent,
+                        model: null,
+                        phase: 'final_answer',
+                        role: 'assistant',
+                        sequence: 8,
+                        text: 'Finished the implementation.',
+                    },
+                ]}
+                projectPath="/Users/example/workspace/spiracha"
+                showCommentary={false}
+                showExtraEvents={false}
+                showRawJson={false}
+                showToolCalls={false}
+                showUserMessages={false}
+            />,
+        );
+
+        fireEvent.click(screen.getAllByRole('button', { name: 'Copy message' })[0]!);
+
+        expect(writeText).toHaveBeenCalledWith('## GPT 5.5\n\nFinished the implementation.');
     });
 
     it('should apply the same path transforms to copied markdown as the rendered transcript', async () => {

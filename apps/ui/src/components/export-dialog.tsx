@@ -12,6 +12,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '#/components/ui/select';
 
 type ExportDialogProps = {
+    disabled?: boolean;
     errorMessage?: string | null;
     forceZipArchive?: boolean;
     open: boolean;
@@ -28,6 +29,7 @@ type ExportDialogProps = {
 };
 
 export function ExportDialog({
+    disabled = false,
     errorMessage = null,
     forceZipArchive = false,
     open,
@@ -162,7 +164,7 @@ export function ExportDialog({
                     </Button>
                     <Button
                         className="rounded-full"
-                        disabled={pending}
+                        disabled={pending || disabled}
                         onClick={() =>
                             onExport({
                                 includeCommentary,

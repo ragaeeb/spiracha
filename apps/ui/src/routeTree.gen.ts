@@ -14,12 +14,21 @@ import { Route as AnalyticsRouteImport } from './routes/analytics'
 import { Route as ThreadIdRouteImport } from './routes/$threadId'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ProjectsIndexRouteImport } from './routes/projects.index'
+import { Route as OpencodeIndexRouteImport } from './routes/opencode.index'
+import { Route as KiroIndexRouteImport } from './routes/kiro.index'
 import { Route as CursorIndexRouteImport } from './routes/cursor.index'
+import { Route as ClaudeCodeIndexRouteImport } from './routes/claude-code.index'
 import { Route as AntigravityIndexRouteImport } from './routes/antigravity.index'
 import { Route as ThreadsThreadIdRouteImport } from './routes/threads.$threadId'
 import { Route as ProjectsProjectRouteImport } from './routes/projects.$project'
+import { Route as OpencodeWorkspaceKeyRouteImport } from './routes/opencode.$workspaceKey'
+import { Route as OpencodeSessionsSessionIdRouteImport } from './routes/opencode-sessions.$sessionId'
+import { Route as KiroWorkspaceKeyRouteImport } from './routes/kiro.$workspaceKey'
+import { Route as KiroSessionsSessionIdRouteImport } from './routes/kiro-sessions.$sessionId'
 import { Route as CursorWorkspaceKeyRouteImport } from './routes/cursor.$workspaceKey'
 import { Route as CursorThreadsComposerIdRouteImport } from './routes/cursor-threads.$composerId'
+import { Route as ClaudeCodeWorkspaceKeyRouteImport } from './routes/claude-code.$workspaceKey'
+import { Route as ClaudeCodeSessionsSessionIdRouteImport } from './routes/claude-code-sessions.$sessionId'
 import { Route as AntigravityWorkspaceKeyRouteImport } from './routes/antigravity.$workspaceKey'
 import { Route as AntigravityConversationsConversationIdRouteImport } from './routes/antigravity-conversations.$conversationId'
 
@@ -48,9 +57,24 @@ const ProjectsIndexRoute = ProjectsIndexRouteImport.update({
   path: '/projects/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OpencodeIndexRoute = OpencodeIndexRouteImport.update({
+  id: '/opencode/',
+  path: '/opencode/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const KiroIndexRoute = KiroIndexRouteImport.update({
+  id: '/kiro/',
+  path: '/kiro/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CursorIndexRoute = CursorIndexRouteImport.update({
   id: '/cursor/',
   path: '/cursor/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ClaudeCodeIndexRoute = ClaudeCodeIndexRouteImport.update({
+  id: '/claude-code/',
+  path: '/claude-code/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AntigravityIndexRoute = AntigravityIndexRouteImport.update({
@@ -68,6 +92,27 @@ const ProjectsProjectRoute = ProjectsProjectRouteImport.update({
   path: '/projects/$project',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OpencodeWorkspaceKeyRoute = OpencodeWorkspaceKeyRouteImport.update({
+  id: '/opencode/$workspaceKey',
+  path: '/opencode/$workspaceKey',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OpencodeSessionsSessionIdRoute =
+  OpencodeSessionsSessionIdRouteImport.update({
+    id: '/opencode-sessions/$sessionId',
+    path: '/opencode-sessions/$sessionId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const KiroWorkspaceKeyRoute = KiroWorkspaceKeyRouteImport.update({
+  id: '/kiro/$workspaceKey',
+  path: '/kiro/$workspaceKey',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const KiroSessionsSessionIdRoute = KiroSessionsSessionIdRouteImport.update({
+  id: '/kiro-sessions/$sessionId',
+  path: '/kiro-sessions/$sessionId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CursorWorkspaceKeyRoute = CursorWorkspaceKeyRouteImport.update({
   id: '/cursor/$workspaceKey',
   path: '/cursor/$workspaceKey',
@@ -78,6 +123,17 @@ const CursorThreadsComposerIdRoute = CursorThreadsComposerIdRouteImport.update({
   path: '/cursor-threads/$composerId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ClaudeCodeWorkspaceKeyRoute = ClaudeCodeWorkspaceKeyRouteImport.update({
+  id: '/claude-code/$workspaceKey',
+  path: '/claude-code/$workspaceKey',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ClaudeCodeSessionsSessionIdRoute =
+  ClaudeCodeSessionsSessionIdRouteImport.update({
+    id: '/claude-code-sessions/$sessionId',
+    path: '/claude-code-sessions/$sessionId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const AntigravityWorkspaceKeyRoute = AntigravityWorkspaceKeyRouteImport.update({
   id: '/antigravity/$workspaceKey',
   path: '/antigravity/$workspaceKey',
@@ -97,12 +153,21 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRoute
   '/antigravity-conversations/$conversationId': typeof AntigravityConversationsConversationIdRoute
   '/antigravity/$workspaceKey': typeof AntigravityWorkspaceKeyRoute
+  '/claude-code-sessions/$sessionId': typeof ClaudeCodeSessionsSessionIdRoute
+  '/claude-code/$workspaceKey': typeof ClaudeCodeWorkspaceKeyRoute
   '/cursor-threads/$composerId': typeof CursorThreadsComposerIdRoute
   '/cursor/$workspaceKey': typeof CursorWorkspaceKeyRoute
+  '/kiro-sessions/$sessionId': typeof KiroSessionsSessionIdRoute
+  '/kiro/$workspaceKey': typeof KiroWorkspaceKeyRoute
+  '/opencode-sessions/$sessionId': typeof OpencodeSessionsSessionIdRoute
+  '/opencode/$workspaceKey': typeof OpencodeWorkspaceKeyRoute
   '/projects/$project': typeof ProjectsProjectRoute
   '/threads/$threadId': typeof ThreadsThreadIdRoute
   '/antigravity/': typeof AntigravityIndexRoute
+  '/claude-code/': typeof ClaudeCodeIndexRoute
   '/cursor/': typeof CursorIndexRoute
+  '/kiro/': typeof KiroIndexRoute
+  '/opencode/': typeof OpencodeIndexRoute
   '/projects/': typeof ProjectsIndexRoute
 }
 export interface FileRoutesByTo {
@@ -112,12 +177,21 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsRoute
   '/antigravity-conversations/$conversationId': typeof AntigravityConversationsConversationIdRoute
   '/antigravity/$workspaceKey': typeof AntigravityWorkspaceKeyRoute
+  '/claude-code-sessions/$sessionId': typeof ClaudeCodeSessionsSessionIdRoute
+  '/claude-code/$workspaceKey': typeof ClaudeCodeWorkspaceKeyRoute
   '/cursor-threads/$composerId': typeof CursorThreadsComposerIdRoute
   '/cursor/$workspaceKey': typeof CursorWorkspaceKeyRoute
+  '/kiro-sessions/$sessionId': typeof KiroSessionsSessionIdRoute
+  '/kiro/$workspaceKey': typeof KiroWorkspaceKeyRoute
+  '/opencode-sessions/$sessionId': typeof OpencodeSessionsSessionIdRoute
+  '/opencode/$workspaceKey': typeof OpencodeWorkspaceKeyRoute
   '/projects/$project': typeof ProjectsProjectRoute
   '/threads/$threadId': typeof ThreadsThreadIdRoute
   '/antigravity': typeof AntigravityIndexRoute
+  '/claude-code': typeof ClaudeCodeIndexRoute
   '/cursor': typeof CursorIndexRoute
+  '/kiro': typeof KiroIndexRoute
+  '/opencode': typeof OpencodeIndexRoute
   '/projects': typeof ProjectsIndexRoute
 }
 export interface FileRoutesById {
@@ -128,12 +202,21 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRoute
   '/antigravity-conversations/$conversationId': typeof AntigravityConversationsConversationIdRoute
   '/antigravity/$workspaceKey': typeof AntigravityWorkspaceKeyRoute
+  '/claude-code-sessions/$sessionId': typeof ClaudeCodeSessionsSessionIdRoute
+  '/claude-code/$workspaceKey': typeof ClaudeCodeWorkspaceKeyRoute
   '/cursor-threads/$composerId': typeof CursorThreadsComposerIdRoute
   '/cursor/$workspaceKey': typeof CursorWorkspaceKeyRoute
+  '/kiro-sessions/$sessionId': typeof KiroSessionsSessionIdRoute
+  '/kiro/$workspaceKey': typeof KiroWorkspaceKeyRoute
+  '/opencode-sessions/$sessionId': typeof OpencodeSessionsSessionIdRoute
+  '/opencode/$workspaceKey': typeof OpencodeWorkspaceKeyRoute
   '/projects/$project': typeof ProjectsProjectRoute
   '/threads/$threadId': typeof ThreadsThreadIdRoute
   '/antigravity/': typeof AntigravityIndexRoute
+  '/claude-code/': typeof ClaudeCodeIndexRoute
   '/cursor/': typeof CursorIndexRoute
+  '/kiro/': typeof KiroIndexRoute
+  '/opencode/': typeof OpencodeIndexRoute
   '/projects/': typeof ProjectsIndexRoute
 }
 export interface FileRouteTypes {
@@ -145,12 +228,21 @@ export interface FileRouteTypes {
     | '/settings'
     | '/antigravity-conversations/$conversationId'
     | '/antigravity/$workspaceKey'
+    | '/claude-code-sessions/$sessionId'
+    | '/claude-code/$workspaceKey'
     | '/cursor-threads/$composerId'
     | '/cursor/$workspaceKey'
+    | '/kiro-sessions/$sessionId'
+    | '/kiro/$workspaceKey'
+    | '/opencode-sessions/$sessionId'
+    | '/opencode/$workspaceKey'
     | '/projects/$project'
     | '/threads/$threadId'
     | '/antigravity/'
+    | '/claude-code/'
     | '/cursor/'
+    | '/kiro/'
+    | '/opencode/'
     | '/projects/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -160,12 +252,21 @@ export interface FileRouteTypes {
     | '/settings'
     | '/antigravity-conversations/$conversationId'
     | '/antigravity/$workspaceKey'
+    | '/claude-code-sessions/$sessionId'
+    | '/claude-code/$workspaceKey'
     | '/cursor-threads/$composerId'
     | '/cursor/$workspaceKey'
+    | '/kiro-sessions/$sessionId'
+    | '/kiro/$workspaceKey'
+    | '/opencode-sessions/$sessionId'
+    | '/opencode/$workspaceKey'
     | '/projects/$project'
     | '/threads/$threadId'
     | '/antigravity'
+    | '/claude-code'
     | '/cursor'
+    | '/kiro'
+    | '/opencode'
     | '/projects'
   id:
     | '__root__'
@@ -175,12 +276,21 @@ export interface FileRouteTypes {
     | '/settings'
     | '/antigravity-conversations/$conversationId'
     | '/antigravity/$workspaceKey'
+    | '/claude-code-sessions/$sessionId'
+    | '/claude-code/$workspaceKey'
     | '/cursor-threads/$composerId'
     | '/cursor/$workspaceKey'
+    | '/kiro-sessions/$sessionId'
+    | '/kiro/$workspaceKey'
+    | '/opencode-sessions/$sessionId'
+    | '/opencode/$workspaceKey'
     | '/projects/$project'
     | '/threads/$threadId'
     | '/antigravity/'
+    | '/claude-code/'
     | '/cursor/'
+    | '/kiro/'
+    | '/opencode/'
     | '/projects/'
   fileRoutesById: FileRoutesById
 }
@@ -191,12 +301,21 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRoute
   AntigravityConversationsConversationIdRoute: typeof AntigravityConversationsConversationIdRoute
   AntigravityWorkspaceKeyRoute: typeof AntigravityWorkspaceKeyRoute
+  ClaudeCodeSessionsSessionIdRoute: typeof ClaudeCodeSessionsSessionIdRoute
+  ClaudeCodeWorkspaceKeyRoute: typeof ClaudeCodeWorkspaceKeyRoute
   CursorThreadsComposerIdRoute: typeof CursorThreadsComposerIdRoute
   CursorWorkspaceKeyRoute: typeof CursorWorkspaceKeyRoute
+  KiroSessionsSessionIdRoute: typeof KiroSessionsSessionIdRoute
+  KiroWorkspaceKeyRoute: typeof KiroWorkspaceKeyRoute
+  OpencodeSessionsSessionIdRoute: typeof OpencodeSessionsSessionIdRoute
+  OpencodeWorkspaceKeyRoute: typeof OpencodeWorkspaceKeyRoute
   ProjectsProjectRoute: typeof ProjectsProjectRoute
   ThreadsThreadIdRoute: typeof ThreadsThreadIdRoute
   AntigravityIndexRoute: typeof AntigravityIndexRoute
+  ClaudeCodeIndexRoute: typeof ClaudeCodeIndexRoute
   CursorIndexRoute: typeof CursorIndexRoute
+  KiroIndexRoute: typeof KiroIndexRoute
+  OpencodeIndexRoute: typeof OpencodeIndexRoute
   ProjectsIndexRoute: typeof ProjectsIndexRoute
 }
 
@@ -237,11 +356,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/opencode/': {
+      id: '/opencode/'
+      path: '/opencode'
+      fullPath: '/opencode/'
+      preLoaderRoute: typeof OpencodeIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/kiro/': {
+      id: '/kiro/'
+      path: '/kiro'
+      fullPath: '/kiro/'
+      preLoaderRoute: typeof KiroIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/cursor/': {
       id: '/cursor/'
       path: '/cursor'
       fullPath: '/cursor/'
       preLoaderRoute: typeof CursorIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/claude-code/': {
+      id: '/claude-code/'
+      path: '/claude-code'
+      fullPath: '/claude-code/'
+      preLoaderRoute: typeof ClaudeCodeIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/antigravity/': {
@@ -265,6 +405,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectsProjectRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/opencode/$workspaceKey': {
+      id: '/opencode/$workspaceKey'
+      path: '/opencode/$workspaceKey'
+      fullPath: '/opencode/$workspaceKey'
+      preLoaderRoute: typeof OpencodeWorkspaceKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/opencode-sessions/$sessionId': {
+      id: '/opencode-sessions/$sessionId'
+      path: '/opencode-sessions/$sessionId'
+      fullPath: '/opencode-sessions/$sessionId'
+      preLoaderRoute: typeof OpencodeSessionsSessionIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/kiro/$workspaceKey': {
+      id: '/kiro/$workspaceKey'
+      path: '/kiro/$workspaceKey'
+      fullPath: '/kiro/$workspaceKey'
+      preLoaderRoute: typeof KiroWorkspaceKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/kiro-sessions/$sessionId': {
+      id: '/kiro-sessions/$sessionId'
+      path: '/kiro-sessions/$sessionId'
+      fullPath: '/kiro-sessions/$sessionId'
+      preLoaderRoute: typeof KiroSessionsSessionIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/cursor/$workspaceKey': {
       id: '/cursor/$workspaceKey'
       path: '/cursor/$workspaceKey'
@@ -277,6 +445,20 @@ declare module '@tanstack/react-router' {
       path: '/cursor-threads/$composerId'
       fullPath: '/cursor-threads/$composerId'
       preLoaderRoute: typeof CursorThreadsComposerIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/claude-code/$workspaceKey': {
+      id: '/claude-code/$workspaceKey'
+      path: '/claude-code/$workspaceKey'
+      fullPath: '/claude-code/$workspaceKey'
+      preLoaderRoute: typeof ClaudeCodeWorkspaceKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/claude-code-sessions/$sessionId': {
+      id: '/claude-code-sessions/$sessionId'
+      path: '/claude-code-sessions/$sessionId'
+      fullPath: '/claude-code-sessions/$sessionId'
+      preLoaderRoute: typeof ClaudeCodeSessionsSessionIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/antigravity/$workspaceKey': {
@@ -304,12 +486,21 @@ const rootRouteChildren: RootRouteChildren = {
   AntigravityConversationsConversationIdRoute:
     AntigravityConversationsConversationIdRoute,
   AntigravityWorkspaceKeyRoute: AntigravityWorkspaceKeyRoute,
+  ClaudeCodeSessionsSessionIdRoute: ClaudeCodeSessionsSessionIdRoute,
+  ClaudeCodeWorkspaceKeyRoute: ClaudeCodeWorkspaceKeyRoute,
   CursorThreadsComposerIdRoute: CursorThreadsComposerIdRoute,
   CursorWorkspaceKeyRoute: CursorWorkspaceKeyRoute,
+  KiroSessionsSessionIdRoute: KiroSessionsSessionIdRoute,
+  KiroWorkspaceKeyRoute: KiroWorkspaceKeyRoute,
+  OpencodeSessionsSessionIdRoute: OpencodeSessionsSessionIdRoute,
+  OpencodeWorkspaceKeyRoute: OpencodeWorkspaceKeyRoute,
   ProjectsProjectRoute: ProjectsProjectRoute,
   ThreadsThreadIdRoute: ThreadsThreadIdRoute,
   AntigravityIndexRoute: AntigravityIndexRoute,
+  ClaudeCodeIndexRoute: ClaudeCodeIndexRoute,
   CursorIndexRoute: CursorIndexRoute,
+  KiroIndexRoute: KiroIndexRoute,
+  OpencodeIndexRoute: OpencodeIndexRoute,
   ProjectsIndexRoute: ProjectsIndexRoute,
 }
 export const routeTree = rootRouteImport

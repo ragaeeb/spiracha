@@ -42,6 +42,31 @@ export const getPortablePathBasename = (value: string): string => {
     return path.win32.basename(path.posix.basename(trimmed));
 };
 
+export const isWorkspacePathQuery = (value: string): boolean => {
+    const raw = value.trim();
+    return raw.startsWith('/') || raw.startsWith('~') || raw.includes('/') || raw.includes('\\');
+};
+
+export const normalizeWorkspacePathQuery = (value: string): string => {
+    return expandHome(value.trim())
+        .replace(/[\\/]+$/u, '')
+        .replace(/\\/gu, '/');
+};
+
+export const workspacePathMatchesQuery = (worktree: string, query: string): boolean => {
+    const normalizedQuery = normalizeWorkspacePathQuery(query);
+    const normalizedWorktree = normalizeWorkspacePathQuery(worktree);
+    if (!normalizedQuery) {
+        return false;
+    }
+    if (normalizedWorktree === normalizedQuery) {
+        return true;
+    }
+
+    const suffix = normalizedQuery.replace(/^\/+/u, '');
+    return Boolean(suffix) && normalizedWorktree.endsWith(`/${suffix}`);
+};
+
 export const cleanInlineTitle = (value: string): string => {
     const firstLine =
         value

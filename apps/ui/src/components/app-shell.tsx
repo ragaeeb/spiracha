@@ -1,5 +1,15 @@
 import { Link, useRouterState } from '@tanstack/react-router';
-import { BarChart3, FolderOpen, LayoutDashboard, Settings2, Sparkles, SquareTerminal } from 'lucide-react';
+import {
+    BarChart3,
+    Bot,
+    BrainCircuit,
+    Code2,
+    FolderOpen,
+    LayoutDashboard,
+    Settings2,
+    Sparkles,
+    SquareTerminal,
+} from 'lucide-react';
 import type { PropsWithChildren } from 'react';
 import { packageMetadata } from '#/lib/package-metadata';
 import { cn } from '#/lib/utils';
@@ -16,12 +26,20 @@ const navItems: readonly NavItem[] = [
     { icon: LayoutDashboard, label: 'Dashboard', to: '/' },
     { activePrefixes: ['/projects', '/threads'], icon: FolderOpen, label: 'Codex', to: '/projects' },
     {
+        activePrefixes: ['/claude-code', '/claude-code-sessions'],
+        icon: Bot,
+        label: 'Claude Code',
+        to: '/claude-code',
+    },
+    { activePrefixes: ['/kiro', '/kiro-sessions'], icon: BrainCircuit, label: 'Kiro', to: '/kiro' },
+    {
         activePrefixes: ['/antigravity', '/antigravity-conversations'],
         icon: Sparkles,
         label: 'Antigravity',
         to: '/antigravity',
     },
     { activePrefixes: ['/cursor', '/cursor-threads'], icon: SquareTerminal, label: 'Cursor', to: '/cursor' },
+    { activePrefixes: ['/opencode', '/opencode-sessions'], icon: Code2, label: 'OpenCode', to: '/opencode' },
     { icon: BarChart3, label: 'Analytics', to: '/analytics' },
     { icon: Settings2, label: 'Settings', to: '/settings' },
 ] as const;

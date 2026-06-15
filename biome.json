@@ -76,13 +76,6 @@
                 }
             },
             "nursery": {
-                "noExcessiveLinesPerFile": {
-                    "level": "off",
-                    "options": {
-                        "maxLines": 600,
-                        "skipBlankLines": true
-                    }
-                },
                 "useSortedClasses": "on"
             },
             "recommended": true,

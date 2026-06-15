@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This repo exports local Codex chats, Claude Code transcripts, and Cursor Agent/Composer threads to Markdown or plain text, and the UI also browses local Antigravity conversation history.
+This repo exports local Codex chats, Claude Code transcripts, and Cursor Agent/Composer threads to Markdown or plain text, and the UI also browses and exports local Claude Code, Kiro, Antigravity, and OpenCode conversation history.
 
 Main entrypoints:
 - `rtk bun start ...` for Codex chat export
@@ -10,7 +10,7 @@ Main entrypoints:
 - `rtk bun run export:claude -- ...` for Claude transcript export
 - `rtk bun run ./src/export-cursor.ts ...` (or `rtk spiracha cursor ...`) for Cursor thread export, recovery, and prune
 - `rtk bun run mcp` for the MCP server used by the local Codex plugin
-- `rtk bun run ui:dev` for the local browser UI across Codex, Cursor, and Antigravity data
+- `rtk bun run ui:dev` for the local browser UI across Codex, Claude Code, Kiro, Cursor, Antigravity, and OpenCode data
 - published package entrypoints:
   - `rtk bunx spiracha`
   - `rtk bunx spiracha ui`
@@ -73,6 +73,26 @@ Cursor exporter modules:
 - `src/lib/cursor-exporter-types.ts`
   - shared Cursor types and macOS Cursor data-dir path resolution (`SPIRACHA_CURSOR_USER_DIR` override)
 
+Claude Code browser/export modules:
+- `src/lib/claude-code-db.ts`
+  - local Claude Code project/session discovery from `~/.claude/projects`, transcript parsing, and workspace grouping
+- `src/lib/claude-code-exporter-types.ts`
+  - shared Claude Code workspace, session, entry, part, and export option types plus default projects-dir resolution
+- `src/lib/claude-code-transcript-phase.ts`
+  - browser-safe assistant commentary/final-answer classification based on Claude Code stop reasons
+- `src/lib/claude-code-transcript.ts`
+  - renders local Claude Code sessions to Markdown or plain text for UI downloads
+
+Kiro browser/export modules:
+- `src/lib/kiro-db.ts`
+  - read-only Kiro workspace/session discovery from Kiro workspace session JSON files, transcript part parsing, and workspace grouping
+- `src/lib/kiro-exporter-types.ts`
+  - shared Kiro workspace, session, entry, part, and export option types plus default workspace-session path resolution
+- `src/lib/kiro-transcript-phase.ts`
+  - browser-safe assistant commentary/final-answer classification per Kiro user turn
+- `src/lib/kiro-transcript.ts`
+  - renders Kiro sessions to Markdown or plain text for UI downloads
+
 Antigravity browser/export modules:
 - `src/lib/antigravity-db.ts`
   - Antigravity workspace discovery, summary-index parsing, transcript lookup, and Markdown rendering
@@ -80,6 +100,18 @@ Antigravity browser/export modules:
   - shared Antigravity workspace and conversation types plus default data-dir resolution
 - `src/lib/antigravity-keychain.ts`
   - macOS Keychain access and safe-storage decryption helpers for Antigravity transcript export
+
+OpenCode browser/export modules:
+- `src/lib/opencode-db.ts`
+  - read-only OpenCode project/session discovery, transcript part parsing, and workspace grouping
+- `src/lib/opencode-exporter-types.ts`
+  - shared OpenCode workspace, session, message, part, and export option types plus default DB path resolution
+- `src/lib/opencode-transcript-phase.ts`
+  - browser-safe assistant commentary/final-answer classification per OpenCode assistant run
+- `src/lib/opencode-think-tags.ts`
+  - browser-safe MiniMax `<think>` extraction shared by OpenCode export rendering and UI adapters
+- `src/lib/opencode-transcript.ts`
+  - renders OpenCode sessions to Markdown or plain text for UI downloads
 
 Other important files:
 - `src/lib/claude-exporter.ts`
@@ -94,6 +126,10 @@ Other important files:
   - token/tool analytics derived from thread rows plus bounded transcript parsing and DB-row metadata cache keys
 - `src/lib/concurrency.ts`
   - shared bounded-concurrency helper for large file/database workloads
+- `src/lib/ui-export-archive.ts`
+  - browser-download filename, MIME type, and zip archive helpers
+- `src/lib/ui-export-files.ts`
+  - browser-download temp file location, URL, and content-disposition helpers
 - `src/lib/ui-cache.ts`
   - temporary cache under `os.tmpdir()` for transcript and analytics lookups
 - `src/mcp-server.ts`
@@ -101,15 +137,20 @@ Other important files:
 - `plugins/codex-chats-export/`
   - local Codex plugin manifest, skill, and MCP wiring
 - `apps/ui/`
-  - TanStack Start browser UI package for Codex, Cursor, and Antigravity
-  - source-specific index/detail routes include `/threads/$threadId`, `/cursor-threads/$composerId`, and `/antigravity-conversations/$conversationId`
+  - TanStack Start browser UI package for Codex, Claude Code, Kiro, Cursor, Antigravity, and OpenCode
+  - source-specific index/detail routes include `/threads/$threadId`, `/claude-code-sessions/$sessionId`, `/kiro-sessions/$sessionId`, `/cursor-threads/$composerId`, `/antigravity-conversations/$conversationId`, and `/opencode-sessions/$sessionId`
 
 ## Test Strategy
 
 Current tests cover:
 - exporter end-to-end behavior for Codex and Claude
+- Claude Code direct-history discovery, transcript parsing, and export rendering
+- Claude Code, Kiro, and OpenCode assistant phase classification for commentary/final-answer display and export filtering
+- Kiro discovery, execution-trace enrichment, transcript parsing, and export rendering
 - Cursor export, recovery, and pruning behavior
 - Antigravity discovery, transcript parsing, and artifact export rendering
+- OpenCode discovery, transcript parsing, and export rendering
+- OpenCode MiniMax `<think>` tag extraction, including code-literal preservation
 - structured Codex transcript parsing
 - project/thread browsing and destructive DB flows
 - analytics aggregation
@@ -199,10 +240,12 @@ rtk bunx spiracha cursor recover --workspace summer --apply
 - `--project` matches the final `cwd` path segment for both POSIX and Windows-style paths, not the full path.
 - Running `codex-chats` or `bun start` with no args enters interactive mode.
 - Codex MCP exports must be scoped by at least one of `deeplinks`, `project`, or `cwd`.
-- Antigravity browsing/export currently ships through the browser UI rather than a standalone CLI command.
+- Claude Code direct-history browsing/export, Kiro browsing/export, Antigravity, and OpenCode browsing/export currently ship through the browser UI rather than standalone CLI commands.
 - `txt` output is intentionally real plain text, not Markdown with a `.txt` extension.
 - The published package is Bun-first. `bin` entrypoints target Bun shebang execution.
+- Keep every root-package source module imported by packaged UI server code listed in `package.json.files`.
 - The UI package runs `vite` through `bun --bun ...` because its server functions depend on Bun-only modules like `bun:sqlite`.
 - Keep UI runtime dependency versions aligned with the root package when both package manifests list the same TanStack/React runtime package; mismatched server-function manifests have broken packaged production builds.
 - TanStack Start server functions should use `.validator(...)`, not deprecated `.inputValidator(...)`.
+- Keep `*-transcript-phase.ts` modules browser-safe. UI client adapters import them directly, so they must not import Node or Bun runtime modules.
 - `apps/ui/src/routeTree.gen.ts` is generated and should not be manually edited or lint-formatted.

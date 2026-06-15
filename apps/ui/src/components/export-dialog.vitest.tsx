@@ -51,6 +51,12 @@ describe('ExportDialog', () => {
         expect((screen.getByRole('button', { name: 'Exporting...' }) as HTMLButtonElement).disabled).toBe(true);
     });
 
+    it('should disable export submission without showing pending text when disabled', () => {
+        render(<ExportDialog disabled open onExport={vi.fn()} onOpenChange={vi.fn()} />);
+
+        expect((screen.getByRole('button', { name: 'Download export' }) as HTMLButtonElement).disabled).toBe(true);
+    });
+
     it('should allow disabling tool-call inclusion and closing the dialog', () => {
         const onExport = vi.fn();
         const onOpenChange = vi.fn();

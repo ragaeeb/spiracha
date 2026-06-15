@@ -130,6 +130,22 @@ const getRolloutSnapshot = async (rolloutPath: string): Promise<RolloutSnapshot>
     };
 };
 
+const isMissingFileError = (error: unknown) => {
+    return error instanceof Error && 'code' in error && error.code === 'ENOENT';
+};
+
+const getExistingRolloutSnapshot = async (threadId: string, rolloutPath: string): Promise<RolloutSnapshot> => {
+    try {
+        return await getRolloutSnapshot(rolloutPath);
+    } catch (error) {
+        if (isMissingFileError(error)) {
+            throw new Error(`Thread ${threadId} rollout file is missing: ${rolloutPath}`, { cause: error });
+        }
+
+        throw error;
+    }
+};
+
 const logExportEvent = (level: 'error' | 'info' | 'warn', event: string, details: Record<string, unknown>) => {
     console[level](`[spiracha:export] ${event}`, details);
 };
@@ -179,7 +195,7 @@ export const renderCodexThreadDownload = async (
                   projectPath: browseData.thread.cwd,
               })
             : text;
-    const rolloutSnapshotBefore = await getRolloutSnapshot(browseData.thread.rollout_path);
+    const rolloutSnapshotBefore = await getExistingRolloutSnapshot(input.threadId, browseData.thread.rollout_path);
 
     logExportEvent('info', 'single_start', {
         fileName,
@@ -307,7 +323,7 @@ export const renderCodexThreadsDownload = async (
 
     try {
         for (const entry of browseEntries) {
-            const rolloutSnapshotBefore = await getRolloutSnapshot(entry.thread.rollout_path);
+            const rolloutSnapshotBefore = await getExistingRolloutSnapshot(entry.thread.id, entry.thread.rollout_path);
             const singleBaseName = buildExportBaseName(entry.thread);
             const uniqueBaseName = buildUniqueBatchEntryBaseName(
                 singleBaseName,
