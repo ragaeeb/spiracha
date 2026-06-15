@@ -139,6 +139,43 @@ describe('renderOpenCodeTranscript', () => {
         expect(markdown).toContain('The review is complete.');
     });
 
+    it('should omit assistant commentary text when commentary is disabled', () => {
+        const markdown = renderOpenCodeTranscript(
+            {
+                ...transcript,
+                messages: [
+                    transcript.messages[0]!,
+                    {
+                        ...transcript.messages[1]!,
+                        parts: [
+                            {
+                                createdAtMs: 1_700_000_000_100,
+                                messageId: 'msg_assistant',
+                                partId: 'prt_commentary_text',
+                                raw: { text: "I'll inspect the files first.", type: 'text' },
+                                role: 'assistant',
+                                text: "I'll inspect the files first.",
+                                type: 'text',
+                                updatedAtMs: 1_700_000_000_100,
+                            },
+                            transcript.messages[1]!.parts[1]!,
+                            transcript.messages[1]!.parts[2]!,
+                        ],
+                    },
+                ],
+            },
+            {
+                includeCommentary: false,
+                includeMetadata: false,
+                includeTools: false,
+                outputFormat: 'md',
+            },
+        );
+
+        expect(markdown).not.toContain("I'll inspect the files first.");
+        expect(markdown).toContain('The review is complete.');
+    });
+
     it('should render plain text output', () => {
         const text = renderOpenCodeTranscript(transcript, {
             includeCommentary: true,
@@ -150,5 +187,54 @@ describe('renderOpenCodeTranscript', () => {
         expect(text).toContain('Fixture review\n==============');
         expect(text).toContain('User\n----');
         expect(text).toContain('Assistant\n---------');
+    });
+
+    it('should strip MiniMax think tags from text parts and render them as commentary only when enabled', () => {
+        const minimaxTranscript: OpenCodeSessionTranscript = {
+            ...transcript,
+            messages: [
+                transcript.messages[0],
+                {
+                    ...transcript.messages[1],
+                    parts: [
+                        {
+                            createdAtMs: 1_700_000_000_100,
+                            messageId: 'msg_assistant',
+                            partId: 'prt_minimax_text',
+                            raw: {
+                                text: '<think>\nInternal review notes.\n</think>\n\nFinal review.',
+                                type: 'text',
+                            },
+                            role: 'assistant',
+                            text: '<think>\nInternal review notes.\n</think>\n\nFinal review.',
+                            type: 'text',
+                            updatedAtMs: 1_700_000_000_100,
+                        },
+                    ],
+                },
+            ],
+        };
+
+        const withoutCommentary = renderOpenCodeTranscript(minimaxTranscript, {
+            includeCommentary: false,
+            includeMetadata: false,
+            includeTools: false,
+            outputFormat: 'md',
+        });
+        const withCommentary = renderOpenCodeTranscript(minimaxTranscript, {
+            includeCommentary: true,
+            includeMetadata: false,
+            includeTools: false,
+            outputFormat: 'md',
+        });
+
+        expect(withoutCommentary).toContain('Final review.');
+        expect(withoutCommentary).not.toContain('<think>');
+        expect(withoutCommentary).not.toContain('Internal review notes.');
+        expect(withCommentary).toContain('## Reasoning');
+        expect(withCommentary).toContain('Internal review notes.');
+        expect(withCommentary).toContain('## Assistant');
+        expect(withCommentary).toContain('Final review.');
+        expect(withCommentary).not.toContain('<think>');
     });
 });

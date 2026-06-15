@@ -1,5 +1,10 @@
 import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/codex-browser-types';
 import type { OpenCodeSessionTranscript, OpenCodeTranscriptPart } from '@spiracha/lib/opencode-exporter-types';
+import { splitOpenCodeThinkTaggedText } from '@spiracha/lib/opencode-think-tags';
+import {
+    getFinalOpenCodeAssistantTextPartIds,
+    getOpenCodeTextPartPhase,
+} from '@spiracha/lib/opencode-transcript-phase';
 import type { JsonValue } from '@spiracha/lib/shared';
 
 const toTimestamp = (value: number | null | undefined): string | null => {
@@ -39,8 +44,12 @@ const buildMessageEvent = (
     variant: part.role === 'user' ? 'user_message' : part.role === 'assistant' ? 'agent_message' : 'message',
 });
 
-const buildReasoningEvent = (part: OpenCodeTranscriptPart, sequence: number): ThreadEvent | null => {
-    const text = part.text?.trim();
+const buildReasoningEventFromText = (
+    part: OpenCodeTranscriptPart,
+    sequence: number,
+    textValue: string | null | undefined,
+): ThreadEvent | null => {
+    const text = textValue?.trim();
     if (!text) {
         return null;
     }
@@ -54,6 +63,10 @@ const buildReasoningEvent = (part: OpenCodeTranscriptPart, sequence: number): Th
         summary: [text],
         timestamp: toTimestamp(part.createdAtMs),
     };
+};
+
+const buildReasoningEvent = (part: OpenCodeTranscriptPart, sequence: number): ThreadEvent | null => {
+    return buildReasoningEventFromText(part, sequence, part.text);
 };
 
 const buildToolCallCommand = (part: OpenCodeTranscriptPart): string => {
@@ -124,53 +137,34 @@ const flattenParts = (transcript: OpenCodeSessionTranscript): OpenCodeTranscript
     return transcript.messages.flatMap((message) => message.parts);
 };
 
-const getFinalAssistantTextPartIds = (transcript: OpenCodeSessionTranscript): Set<string> => {
-    const finalPartIds = new Set<string>();
-    let currentAssistantTextPartId: string | null = null;
-
-    const flushAssistantRun = () => {
-        if (currentAssistantTextPartId) {
-            finalPartIds.add(currentAssistantTextPartId);
-            currentAssistantTextPartId = null;
-        }
-    };
-
-    for (const part of flattenParts(transcript)) {
-        if (part.role === 'user') {
-            flushAssistantRun();
-            continue;
-        }
-
-        if (part.role !== 'assistant') {
-            continue;
-        }
-
-        if (part.type === 'tool') {
-            currentAssistantTextPartId = null;
-        }
-
-        if (part.type === 'text' && part.text?.trim()) {
-            currentAssistantTextPartId = part.partId;
-        }
-    }
-
-    flushAssistantRun();
-    return finalPartIds;
-};
-
 const textPartToEvents = (
     part: OpenCodeTranscriptPart,
     sequence: number,
     finalAssistantTextPartIds: Set<string>,
 ): ThreadEvent[] => {
-    const text = part.text?.trim();
-    if (!text) {
-        return [];
+    const { reasoningBlocks, visibleText } =
+        part.role === 'assistant'
+            ? splitOpenCodeThinkTaggedText(part.text ?? '')
+            : { reasoningBlocks: [], visibleText: part.text ?? '' };
+    const events: ThreadEvent[] = [];
+
+    if (part.role === 'assistant') {
+        events.push(
+            ...reasoningBlocks
+                .map((block, index) => buildReasoningEventFromText(part, sequence + index, block))
+                .filter((event): event is ThreadEvent => event !== null),
+        );
     }
 
-    const phase =
-        part.role === 'assistant' ? (finalAssistantTextPartIds.has(part.partId) ? 'final_answer' : 'commentary') : null;
-    return [buildMessageEvent(part, sequence, text, phase)];
+    const text = visibleText.trim();
+    if (!text) {
+        return events;
+    }
+
+    const messageSequence = sequence + events.length;
+    const phase = getOpenCodeTextPartPhase(part, finalAssistantTextPartIds);
+    events.push(buildMessageEvent(part, messageSequence, text, phase));
+    return events;
 };
 
 const toolPartToEvents = (part: OpenCodeTranscriptPart, sequence: number): ThreadEvent[] => {
@@ -209,8 +203,9 @@ const partToEvents = (
 };
 
 export const openCodeTranscriptToThreadEvents = (transcript: OpenCodeSessionTranscript): ThreadEvent[] => {
-    const finalAssistantTextPartIds = getFinalAssistantTextPartIds(transcript);
-    return flattenParts(transcript).flatMap((part, index) => partToEvents(part, index, finalAssistantTextPartIds));
+    const parts = flattenParts(transcript);
+    const finalAssistantTextPartIds = getFinalOpenCodeAssistantTextPartIds(parts);
+    return parts.flatMap((part, index) => partToEvents(part, index, finalAssistantTextPartIds));
 };
 
 const updateMessageStats = (stats: ThreadTranscriptStats, event: Extract<ThreadEvent, { kind: 'message' }>) => {

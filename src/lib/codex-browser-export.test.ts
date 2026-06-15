@@ -171,6 +171,25 @@ describe('renderCodexThreadDownload', () => {
         expect(entries).toEqual(['spiracha-2026-05-17-1712-019e36d7.md']);
     });
 
+    it('should report a missing rollout file instead of surfacing a raw stat error', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-export-missing-rollout-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const thread = fixture.threads[0]!;
+        await rm(thread.sessionFile, { force: true });
+
+        await expect(
+            renderCodexThreadDownload({
+                dbPath: fixture.dbPath,
+                includeCommentary: true,
+                includeMetadata: true,
+                includeTools: true,
+                outputFormat: 'md',
+                threadId: thread.threadId,
+            }),
+        ).rejects.toThrow(`Thread ${thread.threadId} rollout file is missing`);
+    });
+
     it('should write oversized browser exports into the shared UI export directory when no override is provided', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-export-shared-dir-test-'));
         tempPaths.push(tempRoot);

@@ -353,6 +353,14 @@ function ThreadErrorComponent({ error }: { error: Error }) {
     );
 }
 
+const getThreadExportErrorMessage = (transcriptMissing: boolean, error: unknown): string | null => {
+    if (transcriptMissing) {
+        return 'The rollout JSONL file is missing from disk, so this thread cannot be exported right now.';
+    }
+
+    return error instanceof Error ? error.message : null;
+};
+
 export const Route = createFileRoute('/threads/$threadId')({
     component: ThreadDetailPage,
     errorComponent: ThreadErrorComponent,
@@ -371,7 +379,10 @@ function ThreadDetailPage() {
     const params = Route.useParams();
     const snapshot = useSuspenseQuery(threadSnapshotQueryOptions(params.threadId)).data;
     const { settings } = useSettings();
-    const [shouldLoadTranscript, setShouldLoadTranscript] = useState(!snapshot.rollout.shouldDeferTranscriptLoad);
+    const transcriptMissing = snapshot.transcriptState === 'missing';
+    const [shouldLoadTranscript, setShouldLoadTranscript] = useState(
+        !snapshot.rollout.shouldDeferTranscriptLoad && !transcriptMissing,
+    );
     const [showToolCalls, setShowToolCalls] = useState(false);
     const [showCommentary, setShowCommentary] = useState(false);
     const [showExtraEvents, setShowExtraEvents] = useState(false);
@@ -381,7 +392,7 @@ function ThreadDetailPage() {
     const [deleteOpen, setDeleteOpen] = useState(false);
     const transcriptQuery = useQuery({
         ...threadTranscriptQueryOptions(params.threadId),
-        enabled: shouldLoadTranscript && snapshot.transcript === null,
+        enabled: shouldLoadTranscript && snapshot.transcript === null && !transcriptMissing,
     });
     const transcript = snapshot.transcript ?? transcriptQuery.data ?? null;
     const viewSnapshot = { ...snapshot, transcript };
@@ -592,9 +603,14 @@ function ThreadDetailPage() {
             />
 
             <ExportDialog
+                errorMessage={getThreadExportErrorMessage(transcriptMissing, exportThreadMutation.error)}
                 open={exportOpen}
-                pending={exportThreadMutation.isPending}
-                onExport={(options) => exportThreadMutation.mutate(options)}
+                pending={exportThreadMutation.isPending || transcriptMissing}
+                onExport={(options) => {
+                    if (!transcriptMissing) {
+                        exportThreadMutation.mutate(options);
+                    }
+                }}
                 onOpenChange={setExportOpen}
             />
         </div>

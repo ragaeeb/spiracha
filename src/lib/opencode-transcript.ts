@@ -4,6 +4,8 @@ import type {
     OpenCodeSessionTranscript,
     OpenCodeTranscriptPart,
 } from './opencode-exporter-types';
+import { splitOpenCodeThinkTaggedText } from './opencode-think-tags';
+import { getFinalOpenCodeAssistantTextPartIds, getOpenCodeTextPartPhase } from './opencode-transcript-phase';
 import {
     cleanExtractedText,
     cleanInlineTitle,
@@ -81,9 +83,35 @@ const truncateOutput = (text: string): string => {
     return `${text.slice(0, TOOL_OUTPUT_PREVIEW_LIMIT)}\n... (truncated)`;
 };
 
-const renderTextPart = (part: OpenCodeTranscriptPart, options: OpenCodeExportOptions): string => {
-    const text = cleanExtractedText(part.text ?? '').trim();
-    return text ? renderSection(roleTitle(part.role), text, options.outputFormat) : '';
+const renderTextPart = (
+    part: OpenCodeTranscriptPart,
+    options: OpenCodeExportOptions,
+    finalAssistantTextPartIds: Set<string>,
+): string => {
+    const { reasoningBlocks, visibleText } =
+        part.role === 'assistant'
+            ? splitOpenCodeThinkTaggedText(part.text ?? '')
+            : { reasoningBlocks: [], visibleText: part.text ?? '' };
+    const sections: string[] = [];
+
+    if (options.includeCommentary) {
+        sections.push(
+            ...reasoningBlocks
+                .map((block) => cleanExtractedText(block).trim())
+                .filter(Boolean)
+                .map((block) => renderSection('Reasoning', block, options.outputFormat)),
+        );
+    }
+
+    const text = cleanExtractedText(visibleText).trim();
+    if (
+        text &&
+        (getOpenCodeTextPartPhase(part, finalAssistantTextPartIds) !== 'commentary' || options.includeCommentary)
+    ) {
+        sections.push(renderSection(roleTitle(part.role), text, options.outputFormat));
+    }
+
+    return sections.join('\n\n');
 };
 
 const renderReasoningPart = (part: OpenCodeTranscriptPart, options: OpenCodeExportOptions): string => {
@@ -121,9 +149,13 @@ const renderToolPart = (part: OpenCodeTranscriptPart, options: OpenCodeExportOpt
     return renderSection('Tool Call', lines.join('\n'), options.outputFormat);
 };
 
-const renderPart = (part: OpenCodeTranscriptPart, options: OpenCodeExportOptions): string => {
+const renderPart = (
+    part: OpenCodeTranscriptPart,
+    options: OpenCodeExportOptions,
+    finalAssistantTextPartIds: Set<string>,
+): string => {
     if (part.type === 'text') {
-        return renderTextPart(part, options);
+        return renderTextPart(part, options, finalAssistantTextPartIds);
     }
 
     if (part.type === 'reasoning') {
@@ -141,9 +173,9 @@ export const renderOpenCodeTranscript = (
     transcript: OpenCodeSessionTranscript,
     options: OpenCodeExportOptions,
 ): string | null => {
-    const sections = transcript.messages.flatMap((message) =>
-        message.parts.map((part) => renderPart(part, options)).filter(Boolean),
-    );
+    const partsList = transcript.messages.flatMap((message) => message.parts);
+    const finalAssistantTextPartIds = getFinalOpenCodeAssistantTextPartIds(partsList);
+    const sections = partsList.map((part) => renderPart(part, options, finalAssistantTextPartIds)).filter(Boolean);
     if (sections.length === 0) {
         return null;
     }

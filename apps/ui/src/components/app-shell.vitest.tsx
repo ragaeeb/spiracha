@@ -52,7 +52,41 @@ describe('AppShell', () => {
                 .getAllByRole('link')
                 .map((link) => link.textContent)
                 .filter(Boolean),
-        ).toEqual(['Dashboard', 'Codex', 'Antigravity', 'Cursor', 'OpenCode', 'Analytics', 'Settings']);
+        ).toEqual([
+            'Dashboard',
+            'Codex',
+            'Claude Code',
+            'Kiro',
+            'Antigravity',
+            'Cursor',
+            'OpenCode',
+            'Analytics',
+            'Settings',
+        ]);
+    });
+
+    it('should keep Claude Code active on standalone session detail routes', () => {
+        useRouterStateMock.mockReturnValue('/claude-code-sessions/session-1');
+
+        render(
+            <AppShell>
+                <div>Content area</div>
+            </AppShell>,
+        );
+
+        expect(screen.getByRole('link', { name: 'Claude Code' }).className).toContain('bg-[var(--accent-muted)]');
+    });
+
+    it('should keep Kiro active on standalone session detail routes', () => {
+        useRouterStateMock.mockReturnValue('/kiro-sessions/session-1');
+
+        render(
+            <AppShell>
+                <div>Content area</div>
+            </AppShell>,
+        );
+
+        expect(screen.getByRole('link', { name: 'Kiro' }).className).toContain('bg-[var(--accent-muted)]');
     });
 
     it('should keep Cursor active on standalone thread detail routes', () => {

@@ -130,4 +130,35 @@ describe('openCodeTranscriptToThreadEvents', () => {
         expect(stats.toolCallCount).toBe(1);
         expect(stats.toolOutputCount).toBe(1);
     });
+
+    it('should treat MiniMax think tags in text parts as reasoning instead of final answers', () => {
+        const transcript = buildTranscript();
+        const assistantMessage = transcript.messages[1];
+        if (!assistantMessage) {
+            throw new Error('missing assistant message');
+        }
+        assistantMessage.parts = [
+            {
+                createdAtMs: 1_700_000_000_100,
+                messageId: 'msg_assistant',
+                partId: 'prt_minimax_text',
+                raw: { text: '<think>\nInternal review notes.\n</think>\n\nFinal review.', type: 'text' },
+                role: 'assistant',
+                text: '<think>\nInternal review notes.\n</think>\n\nFinal review.',
+                type: 'text',
+                updatedAtMs: 1_700_000_000_100,
+            },
+        ];
+
+        const events = openCodeTranscriptToThreadEvents(transcript);
+
+        expect(events.map((event) => event.kind)).toEqual(['message', 'reasoning', 'message']);
+        expect(events[1]).toMatchObject({ content: 'Internal review notes.', kind: 'reasoning' });
+        expect(events[2]).toMatchObject({
+            kind: 'message',
+            phase: 'final_answer',
+            role: 'assistant',
+            text: 'Final review.',
+        });
+    });
 });

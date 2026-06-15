@@ -10,6 +10,7 @@ import {
     getThreadBrowseData,
     listCodexProjects,
     listProjectThreads,
+    listScopedThreads,
     withReadonlyDb,
 } from './codex-browser-db';
 import { createCodexBrowserFixture } from './codex-test-helpers';
@@ -314,6 +315,26 @@ const createLargeProjectDeleteFixture = async (tempRoot: string, threadCount: nu
 };
 
 describe('codex browser db', () => {
+    it('should read a WAL database after a clean shutdown removed the sidecar files', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-wal-'));
+        tempPaths.push(tempRoot);
+        const dbPath = path.join(tempRoot, 'state.sqlite');
+
+        const writable = new Database(dbPath);
+        writable.exec('PRAGMA journal_mode=WAL');
+        writable.exec('CREATE TABLE threads(id TEXT PRIMARY KEY)');
+        writable.query('INSERT INTO threads VALUES (?)').run('thread-1');
+        writable.close();
+        await rm(`${dbPath}-wal`, { force: true });
+        await rm(`${dbPath}-shm`, { force: true });
+
+        const row = withReadonlyDb(dbPath, (db) => {
+            return db.query('SELECT COUNT(*) AS count FROM threads').get() as { count: number };
+        });
+
+        expect(row.count).toBe(1);
+    });
+
     it('should group live threads into portable project summaries', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-projects-test-'));
         tempPaths.push(tempRoot);
@@ -334,6 +355,212 @@ describe('codex browser db', () => {
             threadCount: 1,
             totalTokens: 91000,
         });
+    });
+
+    it('should include project threads that only exist in the session index and rollout files', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-fallback-project-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const fallbackThreadId = '019ec3d5-859d-77d0-b851-256ae567ff62';
+        const fallbackSessionFile = path.join(
+            tempRoot,
+            'sessions',
+            '2026',
+            '06',
+            '13',
+            `rollout-2026-06-13T21-53-31-${fallbackThreadId}.jsonl`,
+        );
+
+        await mkdir(path.dirname(fallbackSessionFile), { recursive: true });
+        await Bun.write(
+            fallbackSessionFile,
+            [
+                {
+                    payload: {
+                        cli_version: '0.140.0-alpha.2',
+                        cwd: '/Users/user/workspace/spiracha',
+                        id: fallbackThreadId,
+                        model_provider: 'openai',
+                        originator: 'Codex Desktop',
+                        source: 'vscode',
+                        thread_source: 'user',
+                        timestamp: '2026-06-14T01:53:31.047Z',
+                    },
+                    timestamp: '2026-06-14T01:57:28.908Z',
+                    type: 'session_meta',
+                },
+                {
+                    payload: {
+                        model: 'gpt-5.5',
+                        turn_id: 'turn-1',
+                    },
+                    timestamp: '2026-06-14T01:57:29.000Z',
+                    type: 'turn_context',
+                },
+                {
+                    payload: {
+                        info: {
+                            total_token_usage: {
+                                total_tokens: 123456,
+                            },
+                        },
+                        type: 'token_count',
+                    },
+                    timestamp: '2026-06-14T01:57:30.000Z',
+                    type: 'event_msg',
+                },
+            ]
+                .map((entry) => JSON.stringify(entry))
+                .join('\n'),
+        );
+        await Bun.write(
+            path.join(tempRoot, 'session_index.jsonl'),
+            JSON.stringify({
+                id: fallbackThreadId,
+                thread_name: 'Map pipeline unknowns',
+                updated_at: '2026-06-14T01:57:34.149424Z',
+            }),
+        );
+
+        const threads = await listProjectThreads(fixture.dbPath, 'spiracha');
+        const projects = listCodexProjects(fixture.dbPath);
+        const dashboard = getCodexDashboardSummary(fixture.dbPath);
+        const fallbackDetails = getThreadBrowseData(fixture.dbPath, fallbackThreadId);
+        const scopedThreads = listScopedThreads(fixture.dbPath, 'spiracha');
+
+        expect(threads.map((thread) => thread.thread.id)).toContain(fallbackThreadId);
+        expect(threads[0]).toMatchObject({
+            project: 'spiracha',
+            thread: {
+                cwd: '/Users/user/workspace/spiracha',
+                id: fallbackThreadId,
+                model: 'gpt-5.5',
+                rollout_path: fallbackSessionFile,
+                title: 'Map pipeline unknowns',
+                tokens_used: 123456,
+            },
+        });
+        expect(projects.find((project) => project.name === 'spiracha')?.threadCount).toBe(3);
+        expect(dashboard.recentThreads[0]).toMatchObject({
+            project: 'spiracha',
+            thread: {
+                id: fallbackThreadId,
+                model: 'gpt-5.5',
+                title: 'Map pipeline unknowns',
+                tokens_used: 123456,
+            },
+        });
+        expect(fallbackDetails).toMatchObject({
+            dynamicTools: [],
+            project: 'spiracha',
+            relations: {
+                childEdges: [],
+                parentThreadId: null,
+            },
+            thread: {
+                id: fallbackThreadId,
+                model: 'gpt-5.5',
+                title: 'Map pipeline unknowns',
+                tokens_used: 123456,
+            },
+        });
+        expect(scopedThreads.map((thread) => thread.id)).toContain(fallbackThreadId);
+    });
+
+    it('should sort fallback project threads by rollout activity and omit fallback subagents', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-fallback-order-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const completeThreadId = '019ec3a1-fc8f-7b40-8ee7-c6e306285183';
+        const mapThreadId = '019ec3d5-859d-77d0-b851-256ae567ff62';
+        const subagentThreadId = '019ec3da-6988-77a2-ba22-5778525ce583';
+        const sessionRoot = path.join(tempRoot, 'sessions', '2026', '06', '13');
+        const completeSessionFile = path.join(sessionRoot, `rollout-2026-06-13T20-57-13-${completeThreadId}.jsonl`);
+        const mapSessionFile = path.join(sessionRoot, `rollout-2026-06-13T21-53-31-${mapThreadId}.jsonl`);
+        const subagentSessionFile = path.join(sessionRoot, `rollout-2026-06-13T21-58-51-${subagentThreadId}.jsonl`);
+        const writeSessionMeta = async (
+            sessionFile: string,
+            payload: {
+                id: string;
+                parent_thread_id?: string;
+                source?: unknown;
+                thread_source: string;
+                timestamp: string;
+            },
+        ) => {
+            await mkdir(path.dirname(sessionFile), { recursive: true });
+            await Bun.write(
+                sessionFile,
+                JSON.stringify({
+                    payload: {
+                        cli_version: '0.140.0-alpha.2',
+                        cwd: '/Users/user/workspace/ushman',
+                        model_provider: 'openai',
+                        originator: 'Codex Desktop',
+                        source: 'vscode',
+                        ...payload,
+                    },
+                    timestamp: payload.timestamp,
+                    type: 'session_meta',
+                }),
+            );
+        };
+
+        await writeSessionMeta(completeSessionFile, {
+            id: completeThreadId,
+            thread_source: 'user',
+            timestamp: '2026-06-14T00:57:13.625Z',
+        });
+        await writeSessionMeta(mapSessionFile, {
+            id: mapThreadId,
+            thread_source: 'user',
+            timestamp: '2026-06-14T01:53:31.047Z',
+        });
+        await writeSessionMeta(subagentSessionFile, {
+            id: subagentThreadId,
+            parent_thread_id: mapThreadId,
+            source: {
+                subagent: {
+                    thread_spawn: {
+                        parent_thread_id: mapThreadId,
+                    },
+                },
+            },
+            thread_source: 'subagent',
+            timestamp: '2026-06-14T01:58:51.539Z',
+        });
+        await Bun.write(
+            path.join(tempRoot, 'session_index.jsonl'),
+            [
+                {
+                    id: completeThreadId,
+                    thread_name: 'Complete issue 882 E2E',
+                    updated_at: '2026-06-14T00:58:30.235114Z',
+                },
+                {
+                    id: mapThreadId,
+                    thread_name: 'Map pipeline unknowns',
+                    updated_at: '2026-06-14T01:57:34.149424Z',
+                },
+                {
+                    id: subagentThreadId,
+                    thread_name: 'Update research prompt gaps',
+                    updated_at: '2026-06-14T01:58:57.225462Z',
+                },
+            ]
+                .map((entry) => JSON.stringify(entry))
+                .join('\n'),
+        );
+        await utimes(completeSessionFile, new Date('2026-06-14T02:10:00.000Z'), new Date('2026-06-14T02:10:00.000Z'));
+        await utimes(mapSessionFile, new Date('2026-06-14T01:57:00.000Z'), new Date('2026-06-14T01:57:00.000Z'));
+        await utimes(subagentSessionFile, new Date('2026-06-14T01:58:00.000Z'), new Date('2026-06-14T01:58:00.000Z'));
+
+        const threads = await listProjectThreads(fixture.dbPath, 'ushman');
+
+        expect(threads.map((thread) => thread.thread.title)).toEqual([
+            'Complete issue 882 E2E',
+            'Map pipeline unknowns',
+        ]);
     });
 
     it('should return project thread rows sorted by update time and include browse metadata', async () => {
