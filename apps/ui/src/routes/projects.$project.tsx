@@ -1,5 +1,5 @@
 import type { ThreadListEntry } from '@spiracha/lib/codex-browser-types';
-import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { RefreshCcw } from 'lucide-react';
 import { startTransition, useDeferredValue, useMemo, useState } from 'react';
@@ -72,10 +72,9 @@ const getDeleteTitle = (pendingDelete: PendingThreadDelete | null) => {
 export const Route = createFileRoute('/projects/$project')({
     component: ProjectDetailPage,
     errorComponent: ProjectDetailErrorComponent,
-    loader: ({ context, params }) => context.queryClient.ensureQueryData(projectThreadsQueryOptions(params.project)),
     pendingComponent: () => (
         <LoadingPanel
-            description="Loading project threads and transcript summaries. Large projects can take a moment."
+            description="Loading project threads. Large projects can take a moment."
             title="Loading project"
         />
     ),
@@ -94,11 +93,27 @@ function ProjectDetailErrorComponent({ error }: { error: Error }) {
     );
 }
 
+function ProjectThreadsLoadingState({ project }: { project: string }) {
+    return (
+        <div className="space-y-6">
+            <PageHeader
+                eyebrow="Codex project"
+                subtitle="Loading project threads. Large local histories can take a moment."
+                title={project}
+            />
+            <LoadingPanel description="Reading thread rows and rollout metadata." title="Loading threads" />
+        </div>
+    );
+}
+
+const toError = (error: unknown) => (error instanceof Error ? error : new Error(String(error)));
+
 function ProjectDetailPage() {
     const navigate = useNavigate({ from: Route.fullPath });
     const params = Route.useParams();
     const queryClient = useQueryClient();
-    const threads = useSuspenseQuery(projectThreadsQueryOptions(params.project)).data;
+    const threadsQuery = useQuery(projectThreadsQueryOptions(params.project));
+    const threads = threadsQuery.data ?? [];
     const { settings } = useSettings();
     const search = Route.useSearch();
     const searchInput = search.q ?? '';
@@ -239,6 +254,14 @@ function ProjectDetailPage() {
             .map((threadId) => visibleThreadsById.get(threadId) ?? null)
             .filter((thread): thread is ThreadListEntry => thread !== null);
     };
+
+    if (threadsQuery.isLoading) {
+        return <ProjectThreadsLoadingState project={params.project} />;
+    }
+
+    if (threadsQuery.isError) {
+        return <ProjectDetailErrorComponent error={toError(threadsQuery.error)} />;
+    }
 
     return (
         <div className="space-y-6">

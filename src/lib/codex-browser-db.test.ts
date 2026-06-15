@@ -559,6 +559,103 @@ describe('codex browser db', () => {
         }
     });
 
+    it('should summarize fallback projects without parsing large irrelevant rollout records', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-fallback-summary-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const fallbackThreadId = '019ec3d5-859d-77d0-b851-256ae567ff64';
+        const fallbackSessionFile = path.join(
+            tempRoot,
+            'sessions',
+            '2026',
+            '06',
+            '13',
+            `rollout-2026-06-13T21-53-31-${fallbackThreadId}.jsonl`,
+        );
+
+        await mkdir(path.dirname(fallbackSessionFile), { recursive: true });
+        await Bun.write(
+            fallbackSessionFile,
+            [
+                {
+                    payload: {
+                        cli_version: '0.140.0-alpha.2',
+                        cwd: '/Users/user/workspace/spiracha',
+                        id: fallbackThreadId,
+                        model_provider: 'openai',
+                        source: 'vscode',
+                        thread_source: 'user',
+                        timestamp: '2026-06-14T01:53:31.047Z',
+                    },
+                    timestamp: '2026-06-14T01:57:28.908Z',
+                    type: 'session_meta',
+                },
+                {
+                    payload: {
+                        message: `expensive-middle-${'x'.repeat(6 * 1024 * 1024)}`,
+                    },
+                    timestamp: '2026-06-14T01:57:29.000Z',
+                    type: 'event_msg',
+                },
+                {
+                    payload: {
+                        model: 'gpt-5.5',
+                        turn_id: 'turn-1',
+                    },
+                    timestamp: '2026-06-14T01:57:30.000Z',
+                    type: 'turn_context',
+                },
+                {
+                    payload: {
+                        info: {
+                            total_token_usage: {
+                                total_tokens: 321,
+                            },
+                        },
+                        type: 'token_count',
+                    },
+                    timestamp: '2026-06-14T01:57:31.000Z',
+                    type: 'event_msg',
+                },
+            ]
+                .map((entry) => JSON.stringify(entry))
+                .join('\n'),
+        );
+        await Bun.write(
+            path.join(tempRoot, 'session_index.jsonl'),
+            JSON.stringify({
+                id: fallbackThreadId,
+                thread_name: 'Large summary rollout',
+                updated_at: '2026-06-14T01:57:34.149424Z',
+            }),
+        );
+
+        const originalAlloc = Buffer.alloc;
+        let allocatedReadBytes = 0;
+        Buffer.alloc = ((size: number, fill?: string | number | Uint8Array, encoding?: BufferEncoding) => {
+            if (size === 64 * 1024) {
+                allocatedReadBytes += size;
+            }
+
+            if (allocatedReadBytes > 2 * 1024 * 1024) {
+                throw new Error(`unbounded fallback summary read: ${allocatedReadBytes}`);
+            }
+
+            return originalAlloc(size, fill, encoding);
+        }) as typeof Buffer.alloc;
+
+        try {
+            const projects = listCodexProjects(fixture.dbPath);
+            const project = projects.find((candidate) => candidate.name === 'spiracha');
+
+            expect(project?.threadCount).toBe(3);
+            expect(project?.totalTokens).toBe(641112);
+            expect(project?.modelNames).toContain('gpt-5.5');
+        } finally {
+            Buffer.alloc = originalAlloc;
+        }
+    });
+
     it('should sort fallback project threads by rollout activity and omit fallback subagents', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-fallback-order-test-'));
         tempPaths.push(tempRoot);
@@ -707,6 +804,38 @@ describe('codex browser db', () => {
         expect(threads[0]?.thread.title.includes('\n')).toBe(false);
     });
 
+    it('should defer transcript stats for fast project thread lists when requested', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-fast-thread-list-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const originalParse = JSON.parse;
+        let parsedRolloutRecords = 0;
+        JSON.parse = ((text: string, reviver?: Parameters<typeof JSON.parse>[1]) => {
+            if (text.includes('"type":"session_meta"') || text.includes('"type":"event_msg"')) {
+                parsedRolloutRecords += 1;
+            }
+
+            return originalParse(text, reviver);
+        }) as typeof JSON.parse;
+
+        try {
+            const threads = await listProjectThreads(fixture.dbPath, 'spiracha', {
+                includeTranscriptStats: false,
+            });
+
+            expect(threads).toHaveLength(2);
+            expect(threads[0]?.stats).toMatchObject({
+                deferred: true,
+                execCommandCount: 0,
+                toolCallCount: 0,
+                webSearchEventCount: 0,
+            });
+            expect(parsedRolloutRecords).toBe(0);
+        } finally {
+            JSON.parse = originalParse;
+        }
+    });
+
     it('should keep project thread lists usable when a rollout file is missing', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-missing-rollout-test-'));
         tempPaths.push(tempRoot);
@@ -797,6 +926,96 @@ describe('codex browser db', () => {
 
         expect(result.deletedThreadIds).toEqual([threadId]);
         expect(await Bun.file(sessionFile).exists()).toBe(false);
+    });
+
+    it('should keep a deleted DB thread from reappearing through the fallback session index', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-delete-thread-index-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const threadId = fixture.threads[0]!.threadId;
+        const sessionFile = fixture.threads[0]!.sessionFile;
+
+        await Bun.write(
+            path.join(tempRoot, 'session_index.jsonl'),
+            JSON.stringify({
+                id: threadId,
+                thread_name: fixture.threads[0]!.title,
+                updated_at: '2026-06-14T01:57:34.149424Z',
+            }),
+        );
+
+        const result = await deleteCodexThread(fixture.dbPath, threadId);
+
+        expect(result.deletedThreadIds).toEqual([threadId]);
+        expect(result.deletedSessionFiles).toEqual([]);
+        expect(await Bun.file(sessionFile).exists()).toBe(true);
+        expect(() => getThreadBrowseData(fixture.dbPath, threadId)).toThrow('Thread not found');
+    });
+
+    it('should delete fallback-only threads from the session index and disk', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-delete-fallback-thread-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const fallbackThreadId = '019ec3d5-859d-77d0-b851-256ae567ff65';
+        const fallbackSessionFile = path.join(
+            tempRoot,
+            'sessions',
+            '2026',
+            '06',
+            '13',
+            `rollout-2026-06-13T21-53-31-${fallbackThreadId}.jsonl`,
+        );
+
+        await mkdir(path.dirname(fallbackSessionFile), { recursive: true });
+        await Bun.write(
+            fallbackSessionFile,
+            [
+                {
+                    payload: {
+                        cli_version: '0.140.0-alpha.2',
+                        cwd: '/Users/user/workspace/spiracha',
+                        id: fallbackThreadId,
+                        model_provider: 'openai',
+                        source: 'vscode',
+                        thread_source: 'user',
+                        timestamp: '2026-06-14T01:53:31.047Z',
+                    },
+                    timestamp: '2026-06-14T01:57:28.908Z',
+                    type: 'session_meta',
+                },
+                {
+                    payload: {
+                        info: {
+                            total_token_usage: {
+                                total_tokens: 456,
+                            },
+                        },
+                        type: 'token_count',
+                    },
+                    timestamp: '2026-06-14T01:57:31.000Z',
+                    type: 'event_msg',
+                },
+            ]
+                .map((entry) => JSON.stringify(entry))
+                .join('\n'),
+        );
+        await Bun.write(
+            path.join(tempRoot, 'session_index.jsonl'),
+            JSON.stringify({
+                id: fallbackThreadId,
+                thread_name: 'Delete fallback thread',
+                updated_at: '2026-06-14T01:57:34.149424Z',
+            }),
+        );
+
+        const result = await deleteCodexThread(fixture.dbPath, fallbackThreadId, {
+            deleteSessionFiles: true,
+        });
+
+        expect(result.deletedThreadIds).toEqual([fallbackThreadId]);
+        expect(result.deletedSessionFiles).toEqual([fallbackSessionFile]);
+        expect(await Bun.file(fallbackSessionFile).exists()).toBe(false);
+        expect(() => getThreadBrowseData(fixture.dbPath, fallbackThreadId)).toThrow('Thread not found');
     });
 
     it('should delete all threads that match a derived project basename', async () => {

@@ -5,6 +5,7 @@ import { startTransition, useDeferredValue, useState } from 'react';
 import { DeleteConfirmDialog } from '#/components/delete-confirm-dialog';
 import { ListSearchInput } from '#/components/list-search-input';
 import { PageHeader } from '#/components/page-header';
+import { ProjectsLoadingState } from '#/components/projects-loading-state';
 import { ProjectsTable } from '#/components/projects-table';
 import { ReloadErrorPanel } from '#/components/reload-error-panel';
 import { projectsQueryOptions } from '#/lib/codex-queries';
@@ -16,6 +17,7 @@ export const Route = createFileRoute('/projects/')({
     component: ProjectsPage,
     errorComponent: ProjectsErrorComponent,
     loader: ({ context }) => context.queryClient.ensureQueryData(projectsQueryOptions()),
+    pendingComponent: ProjectsLoadingState,
     validateSearch: parseTextQuerySearch,
 });
 

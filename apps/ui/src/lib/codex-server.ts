@@ -85,7 +85,9 @@ export const listProjectsFn = createServerFn({ method: 'GET' }).handler(async ()
 export const listProjectThreadsFn = createServerFn({ method: 'GET' })
     .validator(projectSchema)
     .handler(async ({ data }) => {
-        return listProjectThreads(getDbPath(), data.project);
+        return listProjectThreads(getDbPath(), data.project, {
+            includeTranscriptStats: false,
+        });
     });
 
 export const getThreadSnapshotFn = createServerFn({ method: 'GET' })
