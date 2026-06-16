@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This repo exports local Codex chats, Claude Code transcripts, and Cursor Agent/Composer threads to Markdown or plain text, and the UI also browses and exports local Claude Code, Kiro, Antigravity, and OpenCode conversation history.
+This repo exports local Codex chats, Claude Code transcripts, and Cursor Agent/Composer threads to Markdown or plain text, and the UI also browses and exports local Claude Code, Kiro, Qoder, Antigravity, and OpenCode conversation history.
 
 Main entrypoints:
 - `rtk bun start ...` for Codex chat export
@@ -10,7 +10,7 @@ Main entrypoints:
 - `rtk bun run export:claude -- ...` for Claude transcript export
 - `rtk bun run ./src/export-cursor.ts ...` (or `rtk spiracha cursor ...`) for Cursor thread export, recovery, and prune
 - `rtk bun run mcp` for the MCP server used by the local Codex plugin
-- `rtk bun run ui:dev` for the local browser UI across Codex, Claude Code, Kiro, Cursor, Antigravity, and OpenCode data
+- `rtk bun run ui:dev` for the local browser UI across Codex, Claude Code, Kiro, Qoder, Cursor, Antigravity, and OpenCode data
 - published package entrypoints:
   - `rtk bunx spiracha`
   - `rtk bunx spiracha ui`
@@ -93,6 +93,16 @@ Kiro browser/export modules:
 - `src/lib/kiro-transcript.ts`
   - renders Kiro sessions to Markdown or plain text for UI downloads
 
+Qoder browser/export modules:
+- `src/lib/qoder-db.ts`
+  - read-only Qoder workspace/session discovery from Qoder global state and workspace checkpoint storage
+- `src/lib/qoder-exporter-types.ts`
+  - shared Qoder workspace, session, entry, part, and export option types plus default data-dir resolution
+- `src/lib/qoder-transcript-phase.ts`
+  - browser-safe assistant commentary/final-answer classification for Qoder entries when assistant messages are present
+- `src/lib/qoder-transcript.ts`
+  - renders Qoder sessions to Markdown or plain text for UI downloads
+
 Antigravity browser/export modules:
 - `src/lib/antigravity-db.ts`
   - Antigravity workspace discovery, summary-index parsing, transcript lookup, and Markdown rendering
@@ -137,16 +147,17 @@ Other important files:
 - `plugins/codex-chats-export/`
   - local Codex plugin manifest, skill, and MCP wiring
 - `apps/ui/`
-  - TanStack Start browser UI package for Codex, Claude Code, Kiro, Cursor, Antigravity, and OpenCode
-  - source-specific index/detail routes include `/threads/$threadId`, `/claude-code-sessions/$sessionId`, `/kiro-sessions/$sessionId`, `/cursor-threads/$composerId`, `/antigravity-conversations/$conversationId`, and `/opencode-sessions/$sessionId`
+  - TanStack Start browser UI package for Codex, Claude Code, Kiro, Qoder, Cursor, Antigravity, and OpenCode
+  - source-specific index/detail routes include `/threads/$threadId`, `/claude-code-sessions/$sessionId`, `/kiro-sessions/$sessionId`, `/qoder-sessions/$sessionId`, `/cursor-threads/$composerId`, `/antigravity-conversations/$conversationId`, and `/opencode-sessions/$sessionId`
 
 ## Test Strategy
 
 Current tests cover:
 - exporter end-to-end behavior for Codex and Claude
 - Claude Code direct-history discovery, transcript parsing, and export rendering
-- Claude Code, Kiro, and OpenCode assistant phase classification for commentary/final-answer display and export filtering
+- Claude Code, Kiro, Qoder, and OpenCode assistant phase classification for commentary/final-answer display and export filtering
 - Kiro discovery, execution-trace enrichment, transcript parsing, and export rendering
+- Qoder discovery, checkpoint operation parsing, transcript parsing, and export rendering
 - Cursor export, recovery, and pruning behavior
 - Antigravity discovery, transcript parsing, and artifact export rendering
 - OpenCode discovery, transcript parsing, and export rendering

@@ -1,6 +1,6 @@
 # Spiracha UI
 
-The browser UI for browsing local Codex, Claude Code, Kiro, Cursor, Antigravity, and OpenCode history, inspecting transcript details, exporting chats, and analyzing Codex usage patterns.
+The browser UI for browsing local Codex, Claude Code, Kiro, Qoder, Cursor, Antigravity, and OpenCode history, inspecting transcript details, exporting chats, and analyzing Codex usage patterns.
 
 ## Stack
 
@@ -18,11 +18,13 @@ The browser UI for browsing local Codex, Claude Code, Kiro, Cursor, Antigravity,
 - lists derived Codex projects from the Codex SQLite database
 - lists Codex threads within a project in chronological order
 - shows Codex thread timelines, tool calls, metadata, and raw event context
-- exports Codex, Claude Code, Kiro, Cursor, and OpenCode sessions or threads as Markdown, plain text, or optional zip archives with optional metadata, commentary, and tool-call inclusion
+- exports Codex, Claude Code, Kiro, Qoder, Cursor, and OpenCode sessions or threads as Markdown, plain text, or optional zip archives with optional metadata, commentary, and tool-call inclusion
 - lists Claude Code workspaces and sessions from local `~/.claude/projects` JSONL files
 - shows dedicated Claude Code session detail pages with reasoning, tool calls, token metadata, and export actions
 - lists Kiro workspaces and sessions from local Kiro workspace session files
 - shows dedicated Kiro session detail pages with image attachments, prompt logs, execution-derived tool calls, metadata, and export actions
+- lists Qoder workspaces and sessions from local Qoder history and checkpoint storage
+- shows dedicated Qoder session detail pages with prompts, checkpoint file operations, metadata, and export actions
 - lists Cursor workspaces and workspace threads with the same table-based index/detail flow as Codex
 - shows dedicated Cursor thread detail pages with breadcrumbs back to the workspace and source
 - recovers split Cursor storage buckets, exports Cursor threads, and deletes Cursor workspaces or threads
@@ -33,7 +35,7 @@ The browser UI for browsing local Codex, Claude Code, Kiro, Cursor, Antigravity,
 - shows dedicated OpenCode session detail pages with reasoning, tool parts, MiniMax `<think>` blocks, token metadata, and export actions
 - shows dashboard and analytics summaries, including Codex token totals and tool-call frequency
 - keeps Codex inventory search and analytics project filters in URL search params for reloadable and shareable views
-- keeps source-specific commentary hidden by default while preserving final answers, with matching export filtering for Claude Code, Kiro, and OpenCode
+- keeps source-specific commentary hidden by default while preserving final answers, with matching export filtering for Claude Code, Kiro, Qoder, and OpenCode
 
 ## Commands
 
@@ -71,6 +73,12 @@ Runtime configuration is intentionally small:
 - `SPIRACHA_KIRO_WORKSPACE_SESSIONS_DIR`
   - Optional absolute path to the Kiro workspace sessions directory.
   - If unset, Spiracha reads `${SPIRACHA_KIRO_DATA_DIR:-~/Library/Application Support/Kiro/User/globalStorage/kiro.kiroagent}/workspace-sessions`. `SPIRACHA_KIRO_AGENT_DIR` and `SPIRACHA_KIRO_DIR` are also accepted aliases for the Kiro data directory.
+- `SPIRACHA_QODER_GLOBAL_STATE_DB`
+  - Optional absolute path to Qoder's global `state.vscdb`.
+  - If unset, Spiracha reads `${SPIRACHA_QODER_USER_DIR:-~/Library/Application Support/Qoder/User}/globalStorage/state.vscdb`. `SPIRACHA_QODER_DATA_DIR` and `SPIRACHA_QODER_DIR` are also accepted aliases for the Qoder user directory.
+- `SPIRACHA_QODER_WORKSPACE_STORAGE_DIR`
+  - Optional absolute path to Qoder's `workspaceStorage` directory.
+  - If unset, Spiracha reads `${SPIRACHA_QODER_USER_DIR:-~/Library/Application Support/Qoder/User}/workspaceStorage`.
 - `SPIRACHA_OPENCODE_DB`
   - Optional absolute path to the OpenCode SQLite database.
   - If unset, Spiracha reads `${SPIRACHA_OPENCODE_DATA_DIR:-${XDG_DATA_HOME:-~/.local/share}/opencode}/opencode.db`. `SPIRACHA_OPENCODE_DIR` is also accepted as an OpenCode data-directory alias.
@@ -84,12 +92,13 @@ Default source locations:
 | Codex | shared Codex DB probe list | `SPIRACHA_CODEX_DB` |
 | Claude Code | `~/.claude/projects` | `SPIRACHA_CLAUDE_CODE_PROJECTS_DIR` |
 | Kiro | `~/Library/Application Support/Kiro/User/globalStorage/kiro.kiroagent/workspace-sessions` | `SPIRACHA_KIRO_WORKSPACE_SESSIONS_DIR` |
+| Qoder | `~/Library/Application Support/Qoder/User/globalStorage/state.vscdb` + `~/Library/Application Support/Qoder/User/workspaceStorage` | `SPIRACHA_QODER_GLOBAL_STATE_DB` |
 | OpenCode | `${XDG_DATA_HOME:-~/.local/share}/opencode/opencode.db` | `SPIRACHA_OPENCODE_DB` |
 | Export downloads | OS temp directory under `spiracha-ui-exports` | `SPIRACHA_UI_EXPORT_DIR` |
 
 Codex analytics cache keys are based on Codex DB row metadata instead of statting every rollout file before cache hits. That keeps large histories responsive. The tradeoff is that manual JSONL edits outside Codex do not invalidate analytics unless DB row metadata changes or the temporary UI cache is cleared.
 
-Transcript detail pages expose the same display controls across sources: user messages, commentary, tool calls, extra events, and raw JSON. Claude Code assistant lead-ins are classified from `stop_reason`, Kiro assistant phases are classified per user turn from session and execution files, and OpenCode assistant phases are classified per assistant run after stripping MiniMax `<think>` blocks into commentary. OpenCode think-tag extraction preserves literal `<think>` examples inside Markdown code spans and fenced code blocks.
+Transcript detail pages expose the same display controls across sources: user messages, commentary, tool calls, extra events, and raw JSON. Claude Code assistant lead-ins are classified from `stop_reason`, Kiro assistant phases are classified per user turn from session and execution files, Qoder shows local prompt history plus checkpoint file operations, and OpenCode assistant phases are classified per assistant run after stripping MiniMax `<think>` blocks into commentary. OpenCode think-tag extraction preserves literal `<think>` examples inside Markdown code spans and fenced code blocks.
 
 ## Routes
 
@@ -111,6 +120,12 @@ Transcript detail pages expose the same display controls across sources: user me
   - Kiro workspace session listing
 - `/kiro-sessions/$sessionId`
   - Kiro session detail and export
+- `/qoder`
+  - Qoder workspace inventory and search
+- `/qoder/$workspaceKey`
+  - Qoder workspace session listing
+- `/qoder-sessions/$sessionId`
+  - Qoder session detail and export
 - `/cursor`
   - Cursor workspace inventory and search
 - `/cursor/$workspaceKey`

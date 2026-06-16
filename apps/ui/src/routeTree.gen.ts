@@ -13,6 +13,7 @@ import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as AnalyticsRouteImport } from './routes/analytics'
 import { Route as ThreadIdRouteImport } from './routes/$threadId'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as QoderIndexRouteImport } from './routes/qoder.index'
 import { Route as ProjectsIndexRouteImport } from './routes/projects.index'
 import { Route as OpencodeIndexRouteImport } from './routes/opencode.index'
 import { Route as KiroIndexRouteImport } from './routes/kiro.index'
@@ -20,6 +21,8 @@ import { Route as CursorIndexRouteImport } from './routes/cursor.index'
 import { Route as ClaudeCodeIndexRouteImport } from './routes/claude-code.index'
 import { Route as AntigravityIndexRouteImport } from './routes/antigravity.index'
 import { Route as ThreadsThreadIdRouteImport } from './routes/threads.$threadId'
+import { Route as QoderWorkspaceKeyRouteImport } from './routes/qoder.$workspaceKey'
+import { Route as QoderSessionsSessionIdRouteImport } from './routes/qoder-sessions.$sessionId'
 import { Route as ProjectsProjectRouteImport } from './routes/projects.$project'
 import { Route as OpencodeWorkspaceKeyRouteImport } from './routes/opencode.$workspaceKey'
 import { Route as OpencodeSessionsSessionIdRouteImport } from './routes/opencode-sessions.$sessionId'
@@ -50,6 +53,11 @@ const ThreadIdRoute = ThreadIdRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const QoderIndexRoute = QoderIndexRouteImport.update({
+  id: '/qoder/',
+  path: '/qoder/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ProjectsIndexRoute = ProjectsIndexRouteImport.update({
@@ -85,6 +93,16 @@ const AntigravityIndexRoute = AntigravityIndexRouteImport.update({
 const ThreadsThreadIdRoute = ThreadsThreadIdRouteImport.update({
   id: '/threads/$threadId',
   path: '/threads/$threadId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const QoderWorkspaceKeyRoute = QoderWorkspaceKeyRouteImport.update({
+  id: '/qoder/$workspaceKey',
+  path: '/qoder/$workspaceKey',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const QoderSessionsSessionIdRoute = QoderSessionsSessionIdRouteImport.update({
+  id: '/qoder-sessions/$sessionId',
+  path: '/qoder-sessions/$sessionId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ProjectsProjectRoute = ProjectsProjectRouteImport.update({
@@ -162,6 +180,8 @@ export interface FileRoutesByFullPath {
   '/opencode-sessions/$sessionId': typeof OpencodeSessionsSessionIdRoute
   '/opencode/$workspaceKey': typeof OpencodeWorkspaceKeyRoute
   '/projects/$project': typeof ProjectsProjectRoute
+  '/qoder-sessions/$sessionId': typeof QoderSessionsSessionIdRoute
+  '/qoder/$workspaceKey': typeof QoderWorkspaceKeyRoute
   '/threads/$threadId': typeof ThreadsThreadIdRoute
   '/antigravity/': typeof AntigravityIndexRoute
   '/claude-code/': typeof ClaudeCodeIndexRoute
@@ -169,6 +189,7 @@ export interface FileRoutesByFullPath {
   '/kiro/': typeof KiroIndexRoute
   '/opencode/': typeof OpencodeIndexRoute
   '/projects/': typeof ProjectsIndexRoute
+  '/qoder/': typeof QoderIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -186,6 +207,8 @@ export interface FileRoutesByTo {
   '/opencode-sessions/$sessionId': typeof OpencodeSessionsSessionIdRoute
   '/opencode/$workspaceKey': typeof OpencodeWorkspaceKeyRoute
   '/projects/$project': typeof ProjectsProjectRoute
+  '/qoder-sessions/$sessionId': typeof QoderSessionsSessionIdRoute
+  '/qoder/$workspaceKey': typeof QoderWorkspaceKeyRoute
   '/threads/$threadId': typeof ThreadsThreadIdRoute
   '/antigravity': typeof AntigravityIndexRoute
   '/claude-code': typeof ClaudeCodeIndexRoute
@@ -193,6 +216,7 @@ export interface FileRoutesByTo {
   '/kiro': typeof KiroIndexRoute
   '/opencode': typeof OpencodeIndexRoute
   '/projects': typeof ProjectsIndexRoute
+  '/qoder': typeof QoderIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -211,6 +235,8 @@ export interface FileRoutesById {
   '/opencode-sessions/$sessionId': typeof OpencodeSessionsSessionIdRoute
   '/opencode/$workspaceKey': typeof OpencodeWorkspaceKeyRoute
   '/projects/$project': typeof ProjectsProjectRoute
+  '/qoder-sessions/$sessionId': typeof QoderSessionsSessionIdRoute
+  '/qoder/$workspaceKey': typeof QoderWorkspaceKeyRoute
   '/threads/$threadId': typeof ThreadsThreadIdRoute
   '/antigravity/': typeof AntigravityIndexRoute
   '/claude-code/': typeof ClaudeCodeIndexRoute
@@ -218,6 +244,7 @@ export interface FileRoutesById {
   '/kiro/': typeof KiroIndexRoute
   '/opencode/': typeof OpencodeIndexRoute
   '/projects/': typeof ProjectsIndexRoute
+  '/qoder/': typeof QoderIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -237,6 +264,8 @@ export interface FileRouteTypes {
     | '/opencode-sessions/$sessionId'
     | '/opencode/$workspaceKey'
     | '/projects/$project'
+    | '/qoder-sessions/$sessionId'
+    | '/qoder/$workspaceKey'
     | '/threads/$threadId'
     | '/antigravity/'
     | '/claude-code/'
@@ -244,6 +273,7 @@ export interface FileRouteTypes {
     | '/kiro/'
     | '/opencode/'
     | '/projects/'
+    | '/qoder/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -261,6 +291,8 @@ export interface FileRouteTypes {
     | '/opencode-sessions/$sessionId'
     | '/opencode/$workspaceKey'
     | '/projects/$project'
+    | '/qoder-sessions/$sessionId'
+    | '/qoder/$workspaceKey'
     | '/threads/$threadId'
     | '/antigravity'
     | '/claude-code'
@@ -268,6 +300,7 @@ export interface FileRouteTypes {
     | '/kiro'
     | '/opencode'
     | '/projects'
+    | '/qoder'
   id:
     | '__root__'
     | '/'
@@ -285,6 +318,8 @@ export interface FileRouteTypes {
     | '/opencode-sessions/$sessionId'
     | '/opencode/$workspaceKey'
     | '/projects/$project'
+    | '/qoder-sessions/$sessionId'
+    | '/qoder/$workspaceKey'
     | '/threads/$threadId'
     | '/antigravity/'
     | '/claude-code/'
@@ -292,6 +327,7 @@ export interface FileRouteTypes {
     | '/kiro/'
     | '/opencode/'
     | '/projects/'
+    | '/qoder/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -310,6 +346,8 @@ export interface RootRouteChildren {
   OpencodeSessionsSessionIdRoute: typeof OpencodeSessionsSessionIdRoute
   OpencodeWorkspaceKeyRoute: typeof OpencodeWorkspaceKeyRoute
   ProjectsProjectRoute: typeof ProjectsProjectRoute
+  QoderSessionsSessionIdRoute: typeof QoderSessionsSessionIdRoute
+  QoderWorkspaceKeyRoute: typeof QoderWorkspaceKeyRoute
   ThreadsThreadIdRoute: typeof ThreadsThreadIdRoute
   AntigravityIndexRoute: typeof AntigravityIndexRoute
   ClaudeCodeIndexRoute: typeof ClaudeCodeIndexRoute
@@ -317,6 +355,7 @@ export interface RootRouteChildren {
   KiroIndexRoute: typeof KiroIndexRoute
   OpencodeIndexRoute: typeof OpencodeIndexRoute
   ProjectsIndexRoute: typeof ProjectsIndexRoute
+  QoderIndexRoute: typeof QoderIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -347,6 +386,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/qoder/': {
+      id: '/qoder/'
+      path: '/qoder'
+      fullPath: '/qoder/'
+      preLoaderRoute: typeof QoderIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/projects/': {
@@ -396,6 +442,20 @@ declare module '@tanstack/react-router' {
       path: '/threads/$threadId'
       fullPath: '/threads/$threadId'
       preLoaderRoute: typeof ThreadsThreadIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/qoder/$workspaceKey': {
+      id: '/qoder/$workspaceKey'
+      path: '/qoder/$workspaceKey'
+      fullPath: '/qoder/$workspaceKey'
+      preLoaderRoute: typeof QoderWorkspaceKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/qoder-sessions/$sessionId': {
+      id: '/qoder-sessions/$sessionId'
+      path: '/qoder-sessions/$sessionId'
+      fullPath: '/qoder-sessions/$sessionId'
+      preLoaderRoute: typeof QoderSessionsSessionIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/projects/$project': {
@@ -495,6 +555,8 @@ const rootRouteChildren: RootRouteChildren = {
   OpencodeSessionsSessionIdRoute: OpencodeSessionsSessionIdRoute,
   OpencodeWorkspaceKeyRoute: OpencodeWorkspaceKeyRoute,
   ProjectsProjectRoute: ProjectsProjectRoute,
+  QoderSessionsSessionIdRoute: QoderSessionsSessionIdRoute,
+  QoderWorkspaceKeyRoute: QoderWorkspaceKeyRoute,
   ThreadsThreadIdRoute: ThreadsThreadIdRoute,
   AntigravityIndexRoute: AntigravityIndexRoute,
   ClaudeCodeIndexRoute: ClaudeCodeIndexRoute,
@@ -502,6 +564,7 @@ const rootRouteChildren: RootRouteChildren = {
   KiroIndexRoute: KiroIndexRoute,
   OpencodeIndexRoute: OpencodeIndexRoute,
   ProjectsIndexRoute: ProjectsIndexRoute,
+  QoderIndexRoute: QoderIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -14,6 +14,7 @@ describe('package ui smoke helpers', () => {
         expect(manifest.files).toContain('src/lib/concurrency.ts');
         expect(manifest.files).toContain('src/lib/kiro-transcript-phase.ts');
         expect(manifest.files).toContain('src/lib/opencode-transcript-phase.ts');
+        expect(manifest.files).toContain('src/lib/qoder-transcript-phase.ts');
         expect(manifest.files).toContain('src/lib/ui-export-archive.ts');
     });
 

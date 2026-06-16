@@ -9,6 +9,7 @@ import {
     Settings2,
     Sparkles,
     SquareTerminal,
+    Workflow,
 } from 'lucide-react';
 import type { PropsWithChildren } from 'react';
 import { packageMetadata } from '#/lib/package-metadata';
@@ -32,6 +33,7 @@ const navItems: readonly NavItem[] = [
         to: '/claude-code',
     },
     { activePrefixes: ['/kiro', '/kiro-sessions'], icon: BrainCircuit, label: 'Kiro', to: '/kiro' },
+    { activePrefixes: ['/qoder', '/qoder-sessions'], icon: Workflow, label: 'Qoder', to: '/qoder' },
     {
         activePrefixes: ['/antigravity', '/antigravity-conversations'],
         icon: Sparkles,
@@ -96,6 +98,8 @@ export function AppShell({ children }: PropsWithChildren) {
 
                             return (
                                 <Link
+                                    activeOptions={{ includeSearch: false }}
+                                    aria-current={active ? 'page' : undefined}
                                     key={item.to}
                                     className={cn(
                                         'flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors',
