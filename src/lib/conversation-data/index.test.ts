@@ -68,6 +68,25 @@ describe('conversation data facade', () => {
             { messageSelector: 'last_final_answer' },
         );
 
-        expect(markdown).toBe('# Review thread\n\n## assistant\n\nThe final review result.\n');
+        expect(markdown).toBe('# Review thread\n\n## Assistant\n\nThe final review result.\n');
+    });
+
+    it('should render stable markdown for empty and unknown-role messages', () => {
+        expect(
+            renderConversationMarkdown({
+                messages: [createMessage({ role: 'unknown', text: '' })],
+                title: null,
+            }),
+        ).toBe('# Conversation\n\n## Unknown\n\n_No message content._\n');
+
+        expect(
+            renderConversationMarkdown(
+                {
+                    messages: [],
+                    title: 'Empty thread',
+                },
+                { messageSelector: 'last_final_answer' },
+            ),
+        ).toBe('# Empty thread\n\n_No messages selected._\n');
     });
 });

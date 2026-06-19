@@ -1,6 +1,6 @@
 import { constants, Database } from 'bun:sqlite';
-import { closeSync, openSync, readdirSync, readSync, statSync } from 'node:fs';
-import { rm } from 'node:fs/promises';
+import { closeSync, openSync, readdirSync, readSync, type Stats, statSync } from 'node:fs';
+import { rename, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
@@ -338,6 +338,40 @@ const collectSessionFilesByThreadId = (sessionsDir: string): Map<string, string>
     return sessionFiles;
 };
 
+const findSessionFileByThreadId = (sessionsDir: string, threadId: string): string | null => {
+    const visit = (directory: string): string | null => {
+        const entries = (() => {
+            try {
+                return readdirSync(directory, { withFileTypes: true });
+            } catch {
+                return null;
+            }
+        })();
+        if (!entries) {
+            return null;
+        }
+
+        for (const entry of entries) {
+            const entryPath = path.join(directory, entry.name);
+            if (entry.isDirectory()) {
+                const match = visit(entryPath);
+                if (match) {
+                    return match;
+                }
+                continue;
+            }
+
+            if (entry.isFile() && THREAD_ID_PATTERN.exec(entry.name)?.[1] === threadId) {
+                return entryPath;
+            }
+        }
+
+        return null;
+    };
+
+    return visit(sessionsDir);
+};
+
 const readSessionMetaLine = (sessionFile: string): string | null => {
     let descriptor: number | null = null;
     try {
@@ -458,12 +492,11 @@ const emitCompleteFallbackStatsLines = (text: string, stats: FallbackRolloutStat
     return pending;
 };
 
-const readFallbackRolloutStatsHead = (sessionFile: string, stats: FallbackRolloutStats) => {
+const readFallbackRolloutStatsHead = (sessionFile: string, stats: FallbackRolloutStats, fileStats: Stats) => {
     let descriptor: number | null = null;
     try {
-        const fileStats = statSync(sessionFile);
         if (!fileStats.isFile()) {
-            return;
+            return 0;
         }
 
         descriptor = openSync(sessionFile, 'r');
@@ -492,12 +525,13 @@ const readFallbackRolloutStatsHead = (sessionFile: string, stats: FallbackRollou
 
         if (position >= fileStats.size) {
             readFallbackStatsLine(pending + decoder.end(), stats);
-            return;
+            return position;
         }
 
         decoder.end();
+        return position;
     } catch {
-        return;
+        return 0;
     } finally {
         if (descriptor !== null) {
             closeSync(descriptor);
@@ -518,16 +552,24 @@ const trimPartialLeadingJsonlLine = (text: string) => {
     return match ? text.slice(match.index + match[0].length) : '';
 };
 
-const readFallbackRolloutStatsTail = (sessionFile: string, stats: FallbackRolloutStats) => {
+const readFallbackRolloutStatsTail = (
+    sessionFile: string,
+    stats: FallbackRolloutStats,
+    fileStats: Stats,
+    coveredPrefixBytes: number,
+) => {
     let descriptor: number | null = null;
     try {
-        const fileStats = statSync(sessionFile);
         if (!fileStats.isFile() || fileStats.size === 0) {
             return;
         }
 
-        const suffixStart = Math.max(0, fileStats.size - FALLBACK_STATS_TAIL_READ_LIMIT_BYTES);
-        const readStart = suffixStart > 0 ? suffixStart - 1 : suffixStart;
+        const suffixStart = Math.max(coveredPrefixBytes, fileStats.size - FALLBACK_STATS_TAIL_READ_LIMIT_BYTES);
+        if (suffixStart >= fileStats.size) {
+            return;
+        }
+
+        const readStart = suffixStart > 0 ? suffixStart - 1 : 0;
         const readLimitBytes = fileStats.size - readStart;
         descriptor = openSync(sessionFile, 'r');
         const buffer = Buffer.alloc(JSONL_READ_CHUNK_BYTES);
@@ -567,8 +609,17 @@ const readFallbackRolloutStats = (sessionFile: string): FallbackRolloutStats => 
         tokensUsed: 0,
     };
 
-    readFallbackRolloutStatsHead(sessionFile, stats);
-    readFallbackRolloutStatsTail(sessionFile, stats);
+    try {
+        const fileStats = statSync(sessionFile);
+        if (!fileStats.isFile()) {
+            return stats;
+        }
+
+        const coveredPrefixBytes = readFallbackRolloutStatsHead(sessionFile, stats, fileStats);
+        readFallbackRolloutStatsTail(sessionFile, stats, fileStats, coveredPrefixBytes);
+    } catch {
+        return stats;
+    }
 
     return stats;
 };
@@ -694,7 +745,7 @@ const readFallbackThreadRowById = (
         return null;
     }
 
-    const sessionFile = collectSessionFilesByThreadId(path.join(codexDir, 'sessions')).get(threadId);
+    const sessionFile = findSessionFileByThreadId(path.join(codexDir, 'sessions'), threadId);
     if (!sessionFile) {
         return null;
     }
@@ -974,6 +1025,11 @@ const getSessionFilesForThreadIds = (dbPath: string, threadIds: string[]) => {
     }
 
     const codexDir = resolveCodexDirFromDbPath(dbPath);
+    if (threadIds.length === 1) {
+        const sessionFile = findSessionFileByThreadId(path.join(codexDir, 'sessions'), threadIds[0]!);
+        return sessionFile ? [sessionFile] : [];
+    }
+
     const sessionFilesByThreadId = collectSessionFilesByThreadId(path.join(codexDir, 'sessions'));
     return threadIds
         .map((threadId) => sessionFilesByThreadId.get(threadId))
@@ -1014,7 +1070,17 @@ const removeSessionIndexEntries = async (codexDir: string, threadIds: string[]) 
         return [];
     }
 
-    await Bun.write(sessionIndexPath, retainedLines.length > 0 ? `${retainedLines.join('\n')}\n` : '');
+    const tempSessionIndexPath = path.join(
+        codexDir,
+        `.session_index.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`,
+    );
+    try {
+        await Bun.write(tempSessionIndexPath, retainedLines.length > 0 ? `${retainedLines.join('\n')}\n` : '');
+        await rename(tempSessionIndexPath, sessionIndexPath);
+    } catch (error) {
+        await rm(tempSessionIndexPath, { force: true });
+        throw error;
+    }
     return uniqueValues(removedThreadIds);
 };
 

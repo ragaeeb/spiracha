@@ -999,13 +999,23 @@ describe('codex browser db', () => {
                 .map((entry) => JSON.stringify(entry))
                 .join('\n'),
         );
+        const sessionIndexPath = path.join(tempRoot, 'session_index.jsonl');
         await Bun.write(
-            path.join(tempRoot, 'session_index.jsonl'),
-            JSON.stringify({
-                id: fallbackThreadId,
-                thread_name: 'Delete fallback thread',
-                updated_at: '2026-06-14T01:57:34.149424Z',
-            }),
+            sessionIndexPath,
+            [
+                {
+                    id: fallbackThreadId,
+                    thread_name: 'Delete fallback thread',
+                    updated_at: '2026-06-14T01:57:34.149424Z',
+                },
+                {
+                    id: '019ec3d5-859d-77d0-b851-256ae567ff66',
+                    thread_name: 'Retained fallback thread',
+                    updated_at: '2026-06-14T01:58:34.149424Z',
+                },
+            ]
+                .map((entry) => JSON.stringify(entry))
+                .join('\n'),
         );
 
         const result = await deleteCodexThread(fixture.dbPath, fallbackThreadId, {
@@ -1015,6 +1025,13 @@ describe('codex browser db', () => {
         expect(result.deletedThreadIds).toEqual([fallbackThreadId]);
         expect(result.deletedSessionFiles).toEqual([fallbackSessionFile]);
         expect(await Bun.file(fallbackSessionFile).exists()).toBe(false);
+        expect(await Bun.file(sessionIndexPath).text()).toBe(
+            `${JSON.stringify({
+                id: '019ec3d5-859d-77d0-b851-256ae567ff66',
+                thread_name: 'Retained fallback thread',
+                updated_at: '2026-06-14T01:58:34.149424Z',
+            })}\n`,
+        );
         expect(() => getThreadBrowseData(fixture.dbPath, fallbackThreadId)).toThrow('Thread not found');
     });
 

@@ -34,4 +34,18 @@ describe('qoder transcript phase helpers', () => {
         expect(getQoderMessagePhase(entries[5]!, finalIds)).toBe('final_answer');
         expect(getQoderMessagePhase(entries[0]!, finalIds)).toBeNull();
     });
+
+    it('should ignore every tool entry type when choosing final assistant messages', () => {
+        const entries = [
+            entry('u1', 'user'),
+            entry('a1-final', 'assistant'),
+            entry('tool-call', 'tool', 'tool_call'),
+            entry('tool-output', 'tool', 'tool_output'),
+            entry('u2', 'user'),
+        ];
+
+        const finalIds = getFinalQoderAssistantMessageEntryIds(entries);
+
+        expect(finalIds).toEqual(new Set(['a1-final']));
+    });
 });

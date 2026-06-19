@@ -138,12 +138,14 @@ const toIso = (value: number | null): string | null => {
 
 const parseTimestampMs = (value: JsonValue | undefined): number | null => {
     if (typeof value === 'number' && Number.isFinite(value)) {
+        // Qoder stores some task timestamps in Unix seconds and others in epoch milliseconds.
         return value > 0 && value < 10_000_000_000 ? value * 1000 : value;
     }
 
     if (typeof value === 'string') {
         const numeric = Number(value);
         if (Number.isFinite(numeric)) {
+            // Match the numeric branch so seconds-like string values sort correctly.
             return numeric > 0 && numeric < 10_000_000_000 ? numeric * 1000 : numeric;
         }
 
@@ -171,15 +173,26 @@ const getWorkspaceKey = (worktree: string): string => {
     return `${WORKSPACE_KEY_PREFIX}${Buffer.from(worktree, 'utf8').toString('base64url')}`;
 };
 
+const warnQoder = (event: string, details: Record<string, JsonValue>) => {
+    console.warn(`[spiracha:qoder] ${event}`, details);
+};
+
 const getWorktreeFromWorkspaceKey = (workspaceKey: string): string | null => {
     if (!workspaceKey.startsWith(WORKSPACE_KEY_PREFIX)) {
+        warnQoder('invalid_workspace_key', { workspaceKey });
         return null;
     }
 
     try {
         const decoded = Buffer.from(workspaceKey.slice(WORKSPACE_KEY_PREFIX.length), 'base64url').toString('utf8');
-        return decoded || null;
+        if (!decoded || decoded.includes('\uFFFD')) {
+            warnQoder('invalid_workspace_key', { workspaceKey });
+            return null;
+        }
+
+        return decoded;
     } catch {
+        warnQoder('invalid_workspace_key', { workspaceKey });
         return null;
     }
 };
@@ -205,8 +218,9 @@ const readGlobalRows = async (globalStateDb = resolveQoderGlobalStateDb()): Prom
         return [];
     }
 
-    const db = new Database(globalStateDb, { readonly: true, strict: true });
+    let db: Database | null = null;
     try {
+        db = new Database(globalStateDb, { readonly: true, strict: true });
         return db
             .query(
                 "select key, value from ItemTable where key like 'lingma.chat.localHistory.%.quest' or key = 'aicoding.questTaskListSnapshot' or key in ('aicoding.modelConfigs.cache.assistant', 'aicoding.modelConfigs.cache.quest')",
@@ -215,7 +229,7 @@ const readGlobalRows = async (globalStateDb = resolveQoderGlobalStateDb()): Prom
     } catch {
         return [];
     } finally {
-        db.close();
+        db?.close();
     }
 };
 

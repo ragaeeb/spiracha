@@ -68,7 +68,7 @@ describe('RecentThreadsList', () => {
         expect(screen.getByRole('link', { name: 'Build the UI Build the UI preview' }).getAttribute('href')).toBe(
             '/threads/thread-1',
         );
-        expect(screen.getByRole('link', { name: 'spiracha' }).getAttribute('href')).toBe('/projects/spiracha');
+        expect(screen.getByRole('link', { name: 'spiracha' }).getAttribute('href')).toBe('/codex/spiracha');
         expect(screen.getByText('gpt-5.5')).toBeTruthy();
         expect(screen.getByText('1,234 tokens')).toBeTruthy();
         expect(screen.queryByText('user')).toBeNull();

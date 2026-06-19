@@ -1,0 +1,290 @@
+import {
+    getConversation as getLocalConversation,
+    listConversationSources as listLocalConversationSources,
+    listConversationsForPath as listLocalConversationsForPath,
+    renderConversationMarkdown as renderLocalConversationMarkdown,
+    resolveConversationRef as resolveLocalConversationRef,
+} from './lib/conversation-data';
+import type {
+    ConversationDataLocations,
+    ConversationDetail,
+    ConversationMessageSelector,
+    ConversationPage,
+    ConversationSourceInfo,
+    GetConversationOptions,
+    ListConversationsForPathOptions,
+    ResolvedConversationRef,
+} from './lib/conversation-data/types';
+
+export type {
+    ConversationDataLocations,
+    ConversationDeepLinks,
+    ConversationDetail,
+    ConversationMessage,
+    ConversationMessagePhase,
+    ConversationMessageRole,
+    ConversationMessageSelector,
+    ConversationPage,
+    ConversationPathMatch,
+    ConversationSource,
+    ConversationSourceInfo,
+    GetConversationOptions,
+    ListConversationsForPathOptions,
+    ResolvedConversationRef,
+} from './lib/conversation-data/types';
+
+type HttpEnvelope<T> = {
+    data?: T;
+    error?: {
+        message?: string | null;
+    } | null;
+    meta?: {
+        hasNext?: boolean | null;
+        nextCursor?: string | null;
+        next_cursor?: string | null;
+    } | null;
+};
+
+export class SpirachaClientError extends Error {
+    readonly status: number | null;
+
+    constructor(message: string, status: number | null = null) {
+        super(message);
+        this.name = 'SpirachaClientError';
+        this.status = status;
+    }
+}
+
+export type LocalConversationClientOptions = {
+    locations?: ConversationDataLocations;
+    mode?: 'local';
+};
+
+export type HttpConversationClientOptions = {
+    baseUrl: string;
+    mode: 'http';
+};
+
+export type CreateConversationClientOptions = HttpConversationClientOptions | LocalConversationClientOptions;
+
+export type ExportConversationMarkdownOptions = GetConversationOptions;
+
+export type ConversationClient = {
+    exportConversationMarkdown: (options: ExportConversationMarkdownOptions) => Promise<string | null>;
+    getConversation: (options: GetConversationOptions) => Promise<ConversationDetail | null>;
+    listConversations: (options: ListConversationsForPathOptions) => Promise<ConversationPage>;
+    listSources: () => Promise<ConversationSourceInfo[]>;
+    resolveConversationRef: (ref: string) => Promise<ResolvedConversationRef | null>;
+};
+
+const withDefaultLocations = <T extends { locations?: ConversationDataLocations }>(
+    options: T,
+    locations: ConversationDataLocations | undefined,
+): T => {
+    return locations && !options.locations ? { ...options, locations } : options;
+};
+
+const normalizeBaseUrl = (value: string): URL => {
+    try {
+        const url = new URL(value);
+        if (url.protocol === 'http:' || url.protocol === 'https:') {
+            return url;
+        }
+    } catch {
+        // Fall through to a consistent client-facing error.
+    }
+
+    throw new SpirachaClientError(`Invalid Spiracha base URL "${value}". Use an http:// or https:// URL.`);
+};
+
+const appendOptionalNumber = (url: URL, key: string, value: number | undefined): void => {
+    if (value !== undefined) {
+        url.searchParams.set(key, String(value));
+    }
+};
+
+const appendListOptions = (url: URL, options: ListConversationsForPathOptions): void => {
+    url.searchParams.set('cwd', options.cwd);
+    if (options.cursor) {
+        url.searchParams.set('cursor', options.cursor);
+    }
+    if (options.includeMessages !== undefined) {
+        url.searchParams.set('include_messages', String(options.includeMessages));
+    }
+    if (options.limit !== undefined) {
+        url.searchParams.set('limit', String(options.limit));
+    }
+    if (options.messageSelector) {
+        url.searchParams.set('message_selector', options.messageSelector);
+    }
+    if (options.sources && options.sources !== 'all') {
+        url.searchParams.set('source', options.sources.join(','));
+    }
+    appendOptionalNumber(url, 'updated_after_ms', options.updatedAfterMs);
+    appendOptionalNumber(url, 'updated_before_ms', options.updatedBeforeMs);
+};
+
+const appendMessageSelector = (url: URL, messageSelector: ConversationMessageSelector | undefined): void => {
+    if (messageSelector) {
+        url.searchParams.set('message_selector', messageSelector);
+    }
+};
+
+const httpErrorMessage = async (response: Response): Promise<string> => {
+    const text = await response.text();
+    if (!text.trim()) {
+        return response.statusText || `HTTP ${response.status}`;
+    }
+
+    try {
+        const parsed = JSON.parse(text) as HttpEnvelope<unknown>;
+        return parsed.error?.message || text.trim();
+    } catch {
+        return text.trim();
+    }
+};
+
+const fetchResponse = async (url: URL, init?: RequestInit): Promise<Response> => {
+    try {
+        return await fetch(url, init);
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new SpirachaClientError(`Unable to reach Spiracha at ${url.origin}: ${message}`);
+    }
+};
+
+const assertOkResponse = async (response: Response): Promise<void> => {
+    if (response.ok) {
+        return;
+    }
+
+    throw new SpirachaClientError(
+        `Spiracha API request failed (${response.status}): ${await httpErrorMessage(response)}`,
+        response.status,
+    );
+};
+
+const readJsonEnvelope = async <T>(response: Response): Promise<HttpEnvelope<T>> => {
+    try {
+        return (await response.json()) as HttpEnvelope<T>;
+    } catch {
+        throw new SpirachaClientError('Spiracha API returned invalid JSON.', response.status);
+    }
+};
+
+const fetchJson = async <T>(url: URL, init?: RequestInit): Promise<HttpEnvelope<T>> => {
+    const response = await fetchResponse(url, init);
+    await assertOkResponse(response);
+    return readJsonEnvelope(response);
+};
+
+const fetchJsonOrNull = async <T>(url: URL, init?: RequestInit): Promise<HttpEnvelope<T> | null> => {
+    const response = await fetchResponse(url, init);
+    if (response.status === 404) {
+        return null;
+    }
+
+    await assertOkResponse(response);
+    return readJsonEnvelope(response);
+};
+
+const fetchTextOrNull = async (url: URL, init?: RequestInit): Promise<string | null> => {
+    const response = await fetchResponse(url, init);
+    if (response.status === 404) {
+        return null;
+    }
+
+    await assertOkResponse(response);
+    return response.text();
+};
+
+const requireData = <T>(envelope: HttpEnvelope<T>, label: string): T => {
+    if (envelope.data === undefined) {
+        throw new SpirachaClientError(`Spiracha API response did not include ${label}.`);
+    }
+
+    return envelope.data;
+};
+
+const normalizePage = (envelope: HttpEnvelope<ConversationDetail[]>): ConversationPage => {
+    const data = requireData(envelope, 'a data field');
+    if (!Array.isArray(data)) {
+        throw new SpirachaClientError('Spiracha API response did not include a data array.');
+    }
+
+    return {
+        data,
+        meta: {
+            hasNext: envelope.meta?.hasNext === true,
+            nextCursor: envelope.meta?.nextCursor ?? envelope.meta?.next_cursor ?? null,
+        },
+    };
+};
+
+const makeHttpUrl = (baseUrl: URL, pathname: string): URL => new URL(pathname, baseUrl);
+
+const rejectHttpLocations = (locations: ConversationDataLocations | undefined): void => {
+    if (locations) {
+        throw new SpirachaClientError('`locations` is only supported by local Spiracha clients.');
+    }
+};
+
+const makeLocalClient = (options: LocalConversationClientOptions): ConversationClient => ({
+    exportConversationMarkdown: async (getOptions) => {
+        const conversation = await getLocalConversation(withDefaultLocations(getOptions, options.locations));
+        return conversation ? renderLocalConversationMarkdown(conversation) : null;
+    },
+    getConversation: (getOptions) => getLocalConversation(withDefaultLocations(getOptions, options.locations)),
+    listConversations: (listOptions) =>
+        listLocalConversationsForPath(withDefaultLocations(listOptions, options.locations)),
+    listSources: () => listLocalConversationSources(),
+    resolveConversationRef: (ref) => resolveLocalConversationRef(ref),
+});
+
+const makeHttpClient = (options: HttpConversationClientOptions): ConversationClient => {
+    const baseUrl = normalizeBaseUrl(options.baseUrl);
+
+    return {
+        exportConversationMarkdown: async (getOptions) => {
+            rejectHttpLocations(getOptions.locations);
+            const { id, messageSelector, source } = getOptions;
+            const url = makeHttpUrl(baseUrl, `/api/v1/conversations/${source}/${encodeURIComponent(id)}/export`);
+            appendMessageSelector(url, messageSelector);
+            return fetchTextOrNull(url);
+        },
+        getConversation: async (getOptions) => {
+            rejectHttpLocations(getOptions.locations);
+            const { id, messageSelector, source } = getOptions;
+            const url = makeHttpUrl(baseUrl, `/api/v1/conversations/${source}/${encodeURIComponent(id)}`);
+            appendMessageSelector(url, messageSelector);
+            const envelope = await fetchJsonOrNull<ConversationDetail>(url);
+            if (!envelope) {
+                return null;
+            }
+            return requireData(envelope, 'a conversation');
+        },
+        listConversations: async (listOptions) => {
+            rejectHttpLocations(listOptions.locations);
+            const url = makeHttpUrl(baseUrl, '/api/v1/conversations');
+            appendListOptions(url, listOptions);
+            return normalizePage(await fetchJson<ConversationDetail[]>(url));
+        },
+        listSources: async () => {
+            const envelope = await fetchJson<ConversationSourceInfo[]>(makeHttpUrl(baseUrl, '/api/v1/sources'));
+            return requireData(envelope, 'a source list');
+        },
+        resolveConversationRef: async (ref) => {
+            const url = makeHttpUrl(baseUrl, '/api/v1/resolve');
+            url.searchParams.set('ref', ref);
+            const envelope = await fetchJsonOrNull<ResolvedConversationRef>(url);
+            if (!envelope) {
+                return null;
+            }
+            return requireData(envelope, 'a resolved ref');
+        },
+    };
+};
+
+export const createConversationClient = (options: CreateConversationClientOptions = {}): ConversationClient => {
+    return options.mode === 'http' ? makeHttpClient(options) : makeLocalClient(options);
+};

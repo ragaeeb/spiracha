@@ -23,7 +23,7 @@
             "@/*": ["./src/*"]
         },
         "removeComments": false,
-        "rootDir": "./src",
+        "rootDir": ".",
         "skipDefaultLibCheck": true,
         "skipLibCheck": true,
         "sourceMap": true,
@@ -33,5 +33,5 @@
         "verbatimModuleSyntax": true
     },
     "exclude": ["node_modules", "dist"],
-    "include": ["src/**/*"]
+    "include": ["bin/**/*.ts", "src/**/*"]
 }

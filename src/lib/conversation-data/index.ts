@@ -9,7 +9,6 @@ import { qoderConversationAdapter } from './qoder-adapter';
 import {
     CONVERSATION_SOURCES,
     type ConversationAdapter,
-    type ConversationDataLocations,
     type ConversationMessage,
     type ConversationMessageSelector,
     type ConversationPage,
@@ -204,6 +203,54 @@ const sourceFromSessionRoute = (segment: string): ConversationSource | null => {
     return null;
 };
 
+const decodeRefId = (value: string | undefined): string | null => {
+    if (!value) {
+        return null;
+    }
+
+    try {
+        const decoded = decodeURIComponent(value);
+        return decoded.trim() ? decoded : null;
+    } catch {
+        return null;
+    }
+};
+
+const refFromPathSegmentAt = (segments: string[], index: number): ResolvedConversationRef | null => {
+    const segment = segments[index];
+    const next = segments[index + 1];
+    const nextNext = segments[index + 2];
+
+    if (segment === 'threads') {
+        const id = decodeRefId(next);
+        return id ? { id, source: 'codex' } : null;
+    }
+
+    if (segment === 'conversations' && isConversationSource(next)) {
+        const id = decodeRefId(nextNext);
+        return id ? { id, source: next } : null;
+    }
+
+    const source = segment ? sourceFromSessionRoute(segment) : null;
+    if (!source) {
+        return null;
+    }
+
+    const id = decodeRefId(next);
+    return id ? { id, source } : null;
+};
+
+const refFromPathSegments = (segments: string[]): ResolvedConversationRef | null => {
+    for (let index = 0; index < segments.length - 1; index += 1) {
+        const ref = refFromPathSegmentAt(segments, index);
+        if (ref) {
+            return ref;
+        }
+    }
+
+    return null;
+};
+
 const parseUrlRef = (ref: string): ResolvedConversationRef | null => {
     let url: URL;
     try {
@@ -213,22 +260,17 @@ const parseUrlRef = (ref: string): ResolvedConversationRef | null => {
     }
 
     if (url.protocol === 'codex:' && url.hostname === 'threads') {
-        const id = url.pathname.replace(/^\/+/u, '');
+        const id = decodeRefId(url.pathname.replace(/^\/+/u, ''));
         return id ? { id, source: 'codex' } : null;
     }
 
     if (url.protocol === 'spiracha:' && url.hostname === 'conversation') {
-        const [source, id] = url.pathname.split('/').filter(Boolean);
-        return isConversationSource(source) && id ? { id, source } : null;
+        const [source, id, extra] = url.pathname.split('/').filter(Boolean);
+        const decodedId = decodeRefId(id);
+        return isConversationSource(source) && decodedId && !extra ? { id: decodedId, source } : null;
     }
 
-    const [segment, id] = url.pathname.split('/').filter(Boolean);
-    if (segment === 'threads' && id) {
-        return { id, source: 'codex' };
-    }
-
-    const source = segment ? sourceFromSessionRoute(segment) : null;
-    return source && id ? { id, source } : null;
+    return refFromPathSegments(url.pathname.split('/').filter(Boolean));
 };
 
 export const resolveConversationRef = async (ref: string): Promise<ResolvedConversationRef | null> => {
@@ -251,10 +293,19 @@ export const renderConversationMarkdown = (
         ? selectConversationMessages(conversation.messages, options.messageSelector)
         : conversation.messages;
     const title = conversation.title?.trim() || 'Conversation';
-    const sections = selectedMessages.map((message) => `## ${message.role}\n\n${message.text.trim()}`);
+    const roleLabels: Record<ConversationMessage['role'], string> = {
+        assistant: 'Assistant',
+        system: 'System',
+        tool: 'Tool',
+        unknown: 'Unknown',
+        user: 'User',
+    };
+    const sections = selectedMessages.map((message) => {
+        const text = message.text.trim() || '_No message content._';
+        return `## ${roleLabels[message.role]}\n\n${text}`;
+    });
+    if (sections.length === 0) {
+        sections.push('_No messages selected._');
+    }
     return [`# ${title}`, ...sections].join('\n\n').trimEnd() + '\n';
 };
-
-export const createConversationDataLocations = (
-    locations: ConversationDataLocations | undefined,
-): ConversationDataLocations | undefined => locations;

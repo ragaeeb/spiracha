@@ -1,5 +1,5 @@
 import { isRetryableSqliteError } from '@spiracha/lib/sqlite-error';
-import { queryOptions } from '@tanstack/react-query';
+import { keepPreviousData, queryOptions } from '@tanstack/react-query';
 import {
     getAnalyticsFn,
     getDashboardSummaryFn,
@@ -35,6 +35,7 @@ export const projectsQueryOptions = () =>
 
 export const projectThreadsQueryOptions = (project: string) =>
     queryOptions({
+        placeholderData: keepPreviousData,
         queryFn: () => listProjectThreadsFn({ data: { project } }),
         queryKey: ['project-threads', project],
         retry: retrySqliteQuery,

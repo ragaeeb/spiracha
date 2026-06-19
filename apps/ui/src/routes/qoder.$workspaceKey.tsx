@@ -77,6 +77,7 @@ const QoderWorkspacePage = () => {
             session.sessionId,
             session.taskId,
             session.requestId,
+            session.model,
             session.status,
             session.executionMode,
             session.agentClass,
@@ -96,7 +97,7 @@ const QoderWorkspacePage = () => {
                     />
                 }
                 eyebrow="Qoder workspace"
-                subtitle="Inspect local Qoder prompts, checkpoint metadata, and file-operation history."
+                subtitle="Inspect local Qoder prompts, session metadata, and file-operation history."
                 title={workspace.label}
             />
 
@@ -133,6 +134,6 @@ export const Route = createFileRoute('/qoder/$workspaceKey')({
         await context.queryClient.ensureQueryData(qoderSessionsQueryOptions(params.workspaceKey));
     },
     pendingComponent: () => (
-        <LoadingPanel description="Loading Qoder sessions and checkpoint metadata." title="Loading workspace" />
+        <LoadingPanel description="Loading Qoder sessions and local metadata." title="Loading workspace" />
     ),
 });

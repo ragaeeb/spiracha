@@ -35,10 +35,12 @@ const removedPackagedFiles = [
 ] as const;
 
 describe('package manifest', () => {
-    it('should not expose command line entrypoints after the CLI hard cut', async () => {
+    it('should expose only the UI launcher executable after the CLI hard cut', async () => {
         const manifest = await readPackageManifest();
 
-        expect(manifest.bin).toBeUndefined();
+        expect(manifest.bin).toEqual({
+            spiracha: './bin/spiracha.ts',
+        });
     });
 
     it('should not keep CLI or MCP runtime dependencies', async () => {
@@ -49,21 +51,33 @@ describe('package manifest', () => {
         }
     });
 
+    it('should keep UI runtime dependencies available for bunx execution', async () => {
+        const manifest = await readPackageManifest();
+
+        expect(manifest.dependencies).toMatchObject({
+            '@tanstack/react-start': '1.168.25',
+            '@vitejs/plugin-react': '6.0.2',
+            react: '19.2.7',
+            'react-dom': '19.2.7',
+            vite: '8.0.16',
+        });
+    });
+
     it('should publish the stable conversation API modules', async () => {
         const manifest = await readPackageManifest();
 
         expect(manifest.exports).toEqual({
             '.': {
-                import: './src/lib/conversation-data/index.ts',
-                types: './src/lib/conversation-data/index.ts',
+                import: './src/client.ts',
+                types: './src/client.ts',
             },
-            './conversation-api': {
-                import: './src/lib/conversation-api.ts',
-                types: './src/lib/conversation-api.ts',
+            './client': {
+                import: './src/client.ts',
+                types: './src/client.ts',
             },
-            './conversation-data': {
-                import: './src/lib/conversation-data/index.ts',
-                types: './src/lib/conversation-data/index.ts',
+            './types': {
+                import: './src/lib/conversation-data/types.ts',
+                types: './src/lib/conversation-data/types.ts',
             },
         });
     });
@@ -72,8 +86,16 @@ describe('package manifest', () => {
         const manifest = await readPackageManifest();
 
         expect(manifest.files).toContain('src/lib/**/*.ts');
+        expect(manifest.files).toContain('src/client.ts');
+        expect(manifest.files).toContain('bin/spiracha.ts');
+        expect(manifest.files).toContain('apps/ui/src/**/*');
+        expect(manifest.files).toContain('apps/ui/public/**/*');
+        expect(manifest.files).toContain('apps/ui/vite.config.ts');
+        expect(manifest.files).toContain('!apps/ui/src/**/*.vitest.ts');
+        expect(manifest.files).toContain('!apps/ui/src/**/*.vitest.tsx');
         expect(manifest.files).toContain('!src/lib/**/*.test.ts');
         expect(manifest.files).toContain('!src/lib/*-test-helpers.ts');
+        expect(manifest.files).not.toContain('STABLE_DATA_API.md');
         for (const filePath of removedPackagedFiles) {
             expect(manifest.files).not.toContain(filePath);
         }

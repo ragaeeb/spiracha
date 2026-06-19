@@ -65,9 +65,10 @@ const buildSessionMetadata = (detail: QoderSessionTranscript) => [
         ),
     },
     { label: 'Worktree', value: detail.session.worktree },
-    { label: 'Workspace storage', value: detail.session.workspaceStorageId ?? 'unknown' },
-    { label: 'Source state', value: detail.session.sourceStatePath ?? 'unknown' },
+    { label: 'Workspace data ID', value: detail.session.workspaceStorageId ?? 'unknown' },
+    { label: 'State file', value: detail.session.sourceStatePath ?? 'unknown' },
     { label: 'Status', value: detail.session.status ?? 'unknown' },
+    { label: 'Model', value: detail.session.model ?? 'unknown' },
     { label: 'Execution mode', value: detail.session.executionMode ?? 'unknown' },
     { label: 'Agent class', value: detail.session.agentClass ?? 'unknown' },
     { label: 'Created', value: <span suppressHydrationWarning>{formatDateTime(detail.session.createdAtMs)}</span> },
@@ -173,7 +174,7 @@ const QoderSessionDetailPage = () => {
     const [showUserMessages, setShowUserMessages] = useState(true);
     const transcriptEvents = useMemo(() => qoderTranscriptToThreadEvents(detail), [detail]);
     const transcriptStats = useMemo(() => getQoderThreadTranscriptStats(transcriptEvents), [transcriptEvents]);
-    const modelLabel = 'Qoder';
+    const modelLabel = detail.session.model ?? 'Qoder';
 
     const exportSessionMutation = useMutation({
         mutationFn: async (options: ExportDialogOptions) => {
@@ -227,7 +228,7 @@ const QoderSessionDetailPage = () => {
                     />
                 }
                 eyebrow="Qoder session"
-                subtitle="Session detail for the selected Qoder local history entry and checkpoint state."
+                subtitle="Session detail for the selected Qoder local history entry and local state."
                 title={detail.session.title}
             />
 
@@ -235,7 +236,7 @@ const QoderSessionDetailPage = () => {
                 <MetricCard label="Prompts" value={formatNumber(detail.session.messageCount)} />
                 <MetricCard label="File ops" value={formatNumber(detail.session.fileOperationCount)} />
                 <MetricCard label="Snapshots" value={formatNumber(detail.session.snapshotFileCount)} />
-                <MetricCard label="Status" value={detail.session.status ?? 'unknown'} />
+                <MetricCard label="Model" value={modelLabel} />
             </div>
 
             <Tabs className="space-y-4" defaultValue="transcript">
@@ -333,7 +334,7 @@ export const Route = createFileRoute('/qoder-sessions/$sessionId')({
         context.queryClient.ensureQueryData(qoderSessionDetailQueryOptions(params.sessionId)),
     pendingComponent: () => (
         <LoadingPanel
-            description="Loading the Qoder transcript, checkpoint operations, and session metadata."
+            description="Loading the Qoder transcript, file operations, and session metadata."
             title="Loading session"
         />
     ),

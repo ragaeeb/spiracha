@@ -75,6 +75,42 @@ describe('conversation API handler', () => {
         });
     });
 
+    it('should accept snake_case JSON options for conversation query clients', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversation-query', {
+                body: JSON.stringify({
+                    cwd: '/repo',
+                    include_messages: true,
+                    limit: 250,
+                    message_selector: 'last_final_answer',
+                    source: 'codex,qoder',
+                    updated_after_ms: 100,
+                    updated_before_ms: 200,
+                }),
+                method: 'POST',
+            }),
+            {
+                listConversationsForPath: async (options) => {
+                    expect(options).toMatchObject({
+                        cwd: '/repo',
+                        includeMessages: true,
+                        limit: 200,
+                        messageSelector: 'last_final_answer',
+                        sources: ['codex', 'qoder'],
+                        updatedAfterMs: 100,
+                        updatedBeforeMs: 200,
+                    });
+                    return {
+                        data: [conversation],
+                        meta: { hasNext: false, nextCursor: null },
+                    };
+                },
+            },
+        );
+
+        expect(response.status).toBe(200);
+    });
+
     it('should return typed errors for missing required input', async () => {
         const response = await handleConversationApiRequest(createRequest('/api/v1/conversations'), {});
 
@@ -126,6 +162,111 @@ describe('conversation API handler', () => {
                 },
             },
         });
+    });
+
+    it('should reject invalid cursors and timestamps', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations?cwd=/repo&cursor=not-base64&updated_after_ms=-1'),
+            {},
+        );
+
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toMatchObject({
+            error: {
+                code: 'validation_error',
+                details: {
+                    field: 'cursor',
+                },
+            },
+        });
+    });
+
+    it('should reject malformed numeric and boolean JSON options', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversation-query', {
+                body: JSON.stringify({
+                    cwd: '/repo',
+                    include_messages: 'true',
+                    limit: '25',
+                }),
+                method: 'POST',
+            }),
+            {},
+        );
+
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toMatchObject({
+            error: {
+                code: 'validation_error',
+                details: {
+                    field: 'limit',
+                },
+            },
+        });
+    });
+
+    it('should reject malformed numeric query options', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations?cwd=/repo&limit=abc'),
+            {},
+        );
+
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toMatchObject({
+            error: {
+                code: 'validation_error',
+                details: {
+                    field: 'limit',
+                },
+            },
+        });
+    });
+
+    it('should reject fractional timestamp query options', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations?cwd=/repo&updated_after_ms=1.5'),
+            {},
+        );
+
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toMatchObject({
+            error: {
+                code: 'validation_error',
+                details: {
+                    field: 'updated_after_ms',
+                },
+            },
+        });
+    });
+
+    it('should reject malformed conversation ids instead of throwing', async () => {
+        const response = await handleConversationApiRequest(createRequest('/api/v1/conversations/codex/%E0%A4%A'), {});
+
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toMatchObject({
+            error: {
+                code: 'validation_error',
+                details: {
+                    field: 'id',
+                },
+            },
+        });
+    });
+
+    it('should reject extra API path segments and include Allow for known resources', async () => {
+        const extraSegment = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/codex/thread-1/export/extra'),
+            {},
+        );
+        const wrongMethod = await handleConversationApiRequest(
+            createRequest('/api/v1/sources', { method: 'POST' }),
+            {},
+        );
+
+        expect(extraSegment.status).toBe(404);
+        expect(wrongMethod.status).toBe(405);
+        expect(wrongMethod.headers.get('Allow')).toBe('GET');
+        expect(wrongMethod.headers.get('X-Content-Type-Options')).toBe('nosniff');
     });
 
     it('should resolve conversation refs through the API', async () => {

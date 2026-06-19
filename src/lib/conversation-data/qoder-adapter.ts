@@ -134,6 +134,13 @@ const buildConversation = async (
     const messages = options.includeMessages
         ? selectConversationMessages(allMessages, options.messageSelector ?? 'last_final_answer')
         : [];
+    const assistantMessageCount = options.includeMessages
+        ? allMessages.filter((message) => message.role === 'assistant').length
+        : session.assistantMessageCount;
+    const userMessageCount = options.includeMessages
+        ? allMessages.filter((message) => message.role === 'user').length
+        : session.userMessageCount;
+    const renderablePartCount = options.includeMessages ? allMessages.length : session.renderablePartCount;
 
     return {
         createdAtMs: session.createdAtMs,
@@ -144,12 +151,19 @@ const buildConversation = async (
         messages,
         metadata: {
             agentClass: session.agentClass,
+            assistantMessageCount,
             executionMode: session.executionMode,
             fileOperationCount: session.fileOperationCount,
+            historyIds: session.historyIds,
             model: session.model,
+            query: session.query,
+            renderablePartCount,
             requestId: session.requestId,
+            sourceStatePath: session.sourceStatePath,
             status: session.status,
             taskId: session.taskId,
+            userMessageCount,
+            workspaceStorageId: session.workspaceStorageId,
         },
         source: 'qoder',
         title: cleanInlineTitle(session.title),

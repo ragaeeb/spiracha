@@ -124,7 +124,16 @@ describe('qoder conversation adapter', () => {
         });
 
         expect(page.data).toHaveLength(1);
-        expect(page.data[0]?.metadata.model).toBe('Qwen 3.7 Max');
+        expect(page.data[0]?.metadata).toMatchObject({
+            assistantMessageCount: 2,
+            fileOperationCount: 0,
+            model: 'Qwen 3.7 Max',
+            query: expect.stringContaining(path.join(project, 'src/index.ts')),
+            renderablePartCount: 5,
+            sourceStatePath: null,
+            userMessageCount: 1,
+            workspaceStorageId: 'ws-a',
+        });
         expect(page.data[0]?.messages).toEqual([
             expect.objectContaining({
                 phase: 'unknown',

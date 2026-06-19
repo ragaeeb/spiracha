@@ -13,7 +13,7 @@ import { deleteProjectFn } from '#/lib/codex-server';
 import { parseTextQuerySearch, withTextQuerySearch } from '#/lib/route-search';
 import { matchesTextQuery } from '#/lib/text-filter';
 
-export const Route = createFileRoute('/projects/')({
+export const Route = createFileRoute('/codex/')({
     component: ProjectsPage,
     errorComponent: ProjectsErrorComponent,
     loader: ({ context }) => context.queryClient.ensureQueryData(projectsQueryOptions()),

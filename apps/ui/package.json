@@ -54,7 +54,7 @@
         "build": "bun --bun vite build",
         "check": "biome check",
         "coverage": "vitest run --coverage",
-        "dev": "bun --bun vite dev --port 3000",
+        "dev": "bun --bun vite dev --host 127.0.0.1 --port 3000",
         "format": "biome format",
         "lint": "biome lint",
         "preview": "bun --bun vite preview",

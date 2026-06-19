@@ -72,5 +72,24 @@ describe('codex conversation adapter', () => {
             id: '019ecbfc-8a84-7421-ab3b-35653feb7896',
             source: 'codex',
         });
+        await expect(
+            resolveConversationRef('http://localhost:3000/api/v1/conversations/codex/thread%2Fencoded/export'),
+        ).resolves.toEqual({
+            id: 'thread/encoded',
+            source: 'codex',
+        });
+        await expect(
+            resolveConversationRef(
+                'http://localhost:3000/app/qoder-sessions/task-b353034281d1417eb2e3.session.execution',
+            ),
+        ).resolves.toEqual({
+            id: 'task-b353034281d1417eb2e3.session.execution',
+            source: 'qoder',
+        });
+        await expect(resolveConversationRef('spiracha://conversation/qoder/task%2Fencoded')).resolves.toEqual({
+            id: 'task/encoded',
+            source: 'qoder',
+        });
+        await expect(resolveConversationRef('spiracha://conversation/qoder/id/extra')).resolves.toBeNull();
     });
 });

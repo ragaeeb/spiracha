@@ -26,7 +26,7 @@ Important:
 - If route typing behaves strangely, delete `src/routeTree.gen.ts` and rebuild with `rtk bun run build` to regenerate it cleanly.
 - Stable API routes live in `src/routes/api.v1.*.ts` and should stay thin wrappers around `@spiracha/lib/conversation-api`.
 - The UI supports both `/threads/$threadId` and a root shortcut route `/$threadId` that redirects straight to the thread detail page.
-- Codex project inventory and project-thread search use route search params. `/projects` and `/projects/$project` use `q`.
+- Codex project inventory and project-thread search use route search params. `/codex` and `/codex/$project` use `q`.
 - Codex analytics uses the `project` route search param so filtered analytics links can be bookmarked and reloaded.
 - Claude Code session detail lives at `/claude-code-sessions/$sessionId`.
 - Kiro session detail lives at `/kiro-sessions/$sessionId`.

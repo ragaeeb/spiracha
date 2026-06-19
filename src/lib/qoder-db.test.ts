@@ -315,8 +315,47 @@ describe('qoder workspace discovery', () => {
         const missingStorage = path.join(tempRoot, 'workspaceStorage');
 
         expect(await listQoderWorkspaceGroups(missingDb, missingStorage)).toEqual([]);
-        expect(await listQoderSessionsForGroup('workspace:missing', missingDb, missingStorage)).toEqual([]);
+        expect(
+            await listQoderSessionsForGroup(
+                `workspace:${Buffer.from('/Users/example/workspace/missing', 'utf8').toString('base64url')}`,
+                missingDb,
+                missingStorage,
+            ),
+        ).toEqual([]);
         expect(await readQoderSessionTranscript(missingDb, missingStorage, 'missing')).toBeNull();
+    });
+
+    it('should return empty results when the Qoder global state database cannot be opened', async () => {
+        const tempRoot = await makeTempRoot();
+        const invalidDb = path.join(tempRoot, 'globalStorage');
+        const workspaceStorageDir = path.join(tempRoot, 'workspaceStorage');
+        await mkdir(invalidDb, { recursive: true });
+
+        expect(await listQoderWorkspaceGroups(invalidDb, workspaceStorageDir)).toEqual([]);
+    });
+
+    it('should warn and return empty sessions for corrupted Qoder workspace keys', async () => {
+        const tempRoot = await makeTempRoot();
+        const missingDb = path.join(tempRoot, 'missing.vscdb');
+        const missingStorage = path.join(tempRoot, 'workspaceStorage');
+        const warn = console.warn;
+        const warnings: unknown[][] = [];
+        console.warn = (...args: unknown[]) => warnings.push(args);
+
+        try {
+            expect(await listQoderSessionsForGroup('workspace:missing', missingDb, missingStorage)).toEqual([]);
+        } finally {
+            console.warn = warn;
+        }
+
+        expect(warnings).toEqual([
+            [
+                '[spiracha:qoder] invalid_workspace_key',
+                {
+                    workspaceKey: 'workspace:missing',
+                },
+            ],
+        ]);
     });
 
     it('should merge Qoder CLI JSONL messages with local history and checkpoint operations', async () => {

@@ -14,7 +14,7 @@ export const getFinalQoderAssistantMessageEntryIds = (entries: QoderTranscriptEn
     };
 
     for (const entry of entries) {
-        if (entry.entryType === 'tool_call') {
+        if (entry.role === 'tool') {
             continue;
         }
 

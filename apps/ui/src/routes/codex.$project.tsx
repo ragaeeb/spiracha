@@ -69,7 +69,15 @@ const getDeleteTitle = (pendingDelete: PendingThreadDelete | null) => {
     return 'Delete Codex thread?';
 };
 
-export const Route = createFileRoute('/projects/$project')({
+const decodeProjectParam = (project: string) => {
+    try {
+        return decodeURIComponent(project);
+    } catch {
+        return project;
+    }
+};
+
+export const Route = createFileRoute('/codex/$project')({
     component: ProjectDetailPage,
     errorComponent: ProjectDetailErrorComponent,
     pendingComponent: () => (
@@ -95,13 +103,15 @@ function ProjectDetailErrorComponent({ error }: { error: Error }) {
 
 function ProjectThreadsLoadingState({ project }: { project: string }) {
     return (
-        <div className="space-y-6">
+        <div aria-busy="true" aria-live="polite" className="space-y-6">
             <PageHeader
                 eyebrow="Codex project"
                 subtitle="Loading project threads. Large local histories can take a moment."
                 title={project}
             />
-            <LoadingPanel description="Reading thread rows and rollout metadata." title="Loading threads" />
+            <div role="status">
+                <LoadingPanel description="Reading thread rows and rollout metadata." title="Loading threads" />
+            </div>
         </div>
     );
 }
@@ -111,8 +121,9 @@ const toError = (error: unknown) => (error instanceof Error ? error : new Error(
 function ProjectDetailPage() {
     const navigate = useNavigate({ from: Route.fullPath });
     const params = Route.useParams();
+    const project = useMemo(() => decodeProjectParam(params.project), [params.project]);
     const queryClient = useQueryClient();
-    const threadsQuery = useQuery(projectThreadsQueryOptions(params.project));
+    const threadsQuery = useQuery(projectThreadsQueryOptions(project));
     const threads = threadsQuery.data ?? [];
     const { settings } = useSettings();
     const search = Route.useSearch();
@@ -138,7 +149,7 @@ function ProjectDetailPage() {
             await Promise.all([
                 queryClient.invalidateQueries({ queryKey: ['analytics'] }),
                 queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
-                queryClient.invalidateQueries({ queryKey: ['project-threads', params.project] }),
+                queryClient.invalidateQueries({ queryKey: ['project-threads', project] }),
                 queryClient.invalidateQueries({ queryKey: ['projects'] }),
             ]);
             setPendingDelete(null);
@@ -149,14 +160,14 @@ function ProjectDetailPage() {
         mutationFn: () =>
             recoverProjectThreadsFn({
                 data: {
-                    project: params.project,
+                    project,
                 },
             }),
         onSuccess: async () => {
             await Promise.all([
                 queryClient.invalidateQueries({ queryKey: ['analytics'] }),
                 queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
-                queryClient.invalidateQueries({ queryKey: ['project-threads', params.project] }),
+                queryClient.invalidateQueries({ queryKey: ['project-threads', project] }),
                 queryClient.invalidateQueries({ queryKey: ['projects'] }),
             ]);
         },
@@ -176,7 +187,7 @@ function ProjectDetailPage() {
 
             console.info('[spiracha:export-ui] request', {
                 outputFormat: options.outputFormat,
-                project: params.project,
+                project,
                 selectedThreadCount: pendingExport.threadIds.length,
                 selectedThreadIds: pendingExport.threadIds,
                 zipArchive: options.zipArchive,
@@ -203,7 +214,7 @@ function ProjectDetailPage() {
                 downloadUrl: download.mode === 'download_url' ? download.downloadUrl : null,
                 fileName: download.fileName,
                 mode: download.mode,
-                project: params.project,
+                project,
                 selectedThreadCount: pendingExport.threadIds.length,
             });
 
@@ -217,7 +228,7 @@ function ProjectDetailPage() {
         onError: (error) => {
             console.error('[spiracha:export-ui] failed', {
                 error: error instanceof Error ? error.message : String(error),
-                project: params.project,
+                project,
                 selectedThreadCount: pendingExport?.threadIds.length ?? 0,
                 selectedThreadIds: pendingExport?.threadIds ?? [],
             });
@@ -227,14 +238,18 @@ function ProjectDetailPage() {
         },
     });
 
-    const visibleThreads = [...threads].filter((thread) => {
-        return matchesTextQuery(deferredSearch, [
-            thread.thread.title,
-            thread.thread.preview,
-            thread.thread.model,
-            thread.thread.id,
-        ]);
-    });
+    const visibleThreads = useMemo(
+        () =>
+            threads.filter((thread) => {
+                return matchesTextQuery(deferredSearch, [
+                    thread.thread.title,
+                    thread.thread.preview,
+                    thread.thread.model,
+                    thread.thread.id,
+                ]);
+            }),
+        [deferredSearch, threads],
+    );
     const visibleThreadsById = useMemo(
         () => new Map(visibleThreads.map((thread) => [thread.thread.id, thread])),
         [visibleThreads],
@@ -256,7 +271,7 @@ function ProjectDetailPage() {
     };
 
     if (threadsQuery.isLoading) {
-        return <ProjectThreadsLoadingState project={params.project} />;
+        return <ProjectThreadsLoadingState project={project} />;
     }
 
     if (threadsQuery.isError) {
@@ -264,7 +279,7 @@ function ProjectDetailPage() {
     }
 
     return (
-        <div className="space-y-6">
+        <div aria-busy={threadsQuery.isFetching || undefined} className="space-y-6">
             <PageHeader
                 actions={
                     <div className="flex flex-col gap-2 sm:flex-row">
@@ -287,8 +302,14 @@ function ProjectDetailPage() {
                 }
                 eyebrow="Codex project"
                 subtitle="Sort by any column, inspect tool call volume, manage thread records, or repair stale Codex thread metadata for this derived project."
-                title={params.project}
+                title={project}
             />
+
+            {threadsQuery.isFetching && !threadsQuery.isLoading ? (
+                <p role="status" className="text-[var(--muted-foreground)] text-sm">
+                    Refreshing project threads...
+                </p>
+            ) : null}
 
             {recoverProjectMutation.isError ? (
                 <p className="text-[var(--destructive)] text-sm">

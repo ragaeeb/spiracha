@@ -68,6 +68,44 @@ const listen = async (server: net.Server, socketPath: string) => {
     });
 };
 
+const writeInitializeResponse = (socket: net.Socket, message: JsonRpcMessage) => {
+    socket.write(encodeMessage({ id: message.id, jsonrpc: '2.0', result: { capabilities: {} } }));
+};
+
+const writeLoadResponse = (socket: net.Socket, message: JsonRpcMessage) => {
+    socket.write(encodeMessage({ id: message.id, jsonrpc: '2.0', result: null }));
+};
+
+const writeAgentMessageUpdates = (socket: net.Socket, texts: string[]) => {
+    for (const text of texts) {
+        socket.write(
+            encodeMessage({
+                jsonrpc: '2.0',
+                method: 'session/update',
+                params: {
+                    sessionId: 'task-a.session.execution',
+                    update: {
+                        content: { text },
+                        sessionUpdate: 'agent_message_chunk',
+                    },
+                },
+            }),
+        );
+    }
+};
+
+const respondWithLimitedServerMessages = (socket: net.Socket, messages: JsonRpcMessage[]) => {
+    for (const message of messages) {
+        if (message.method === 'initialize') {
+            writeInitializeResponse(socket, message);
+        }
+        if (message.method === 'session/load') {
+            writeLoadResponse(socket, message);
+            writeAgentMessageUpdates(socket, ['one', 'two', 'three']);
+        }
+    }
+};
+
 describe('loadQoderAcpSession', () => {
     afterEach(async () => {
         await Promise.all(tempRoots.splice(0).map((root) => rm(root, { force: true, recursive: true })));
@@ -236,5 +274,31 @@ describe('loadQoderAcpSession', () => {
             expect.objectContaining({ sessionUpdate: 'agent_thought_chunk' }),
             expect.objectContaining({ sessionUpdate: 'agent_message_chunk' }),
         ]);
+    });
+
+    it('should enforce the requested Qoder session update limit client-side', async () => {
+        const tempRoot = await makeTempRoot();
+        const socketPath = path.join(tempRoot, 'qoder.sock');
+        const server = net.createServer((socket) => {
+            let buffer: Buffer<ArrayBufferLike> = Buffer.alloc(0);
+            socket.on('data', (chunk) => {
+                const parsed = parseMessages(appendSocketChunk(buffer, chunk));
+                buffer = parsed.rest;
+                respondWithLimitedServerMessages(socket, parsed.messages);
+            });
+        });
+        await listen(server, socketPath);
+
+        const result = await loadQoderAcpSession({
+            cwd: '/workspace/project',
+            drainMs: 25,
+            requestLimit: 2,
+            sessionId: 'task-a.session.execution',
+            socketPath,
+            timeoutMs: 500,
+        });
+        server.close();
+
+        expect(result?.events.map((event) => event.update.content)).toEqual([{ text: 'one' }, { text: 'two' }]);
     });
 });

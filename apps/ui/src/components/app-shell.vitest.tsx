@@ -45,7 +45,7 @@ describe('AppShell', () => {
     });
 
     it('should render navigation items and highlight the active section', () => {
-        useRouterStateMock.mockReturnValue('/projects/ushman');
+        useRouterStateMock.mockReturnValue('/codex/ushman');
 
         render(
             <AppShell>
@@ -62,7 +62,7 @@ describe('AppShell', () => {
         expect(screen.getByText('Content area')).toBeTruthy();
         expect(screen.getByRole('link', { name: /Codex/i }).className).toContain('bg-[var(--accent-muted)]');
         expect(screen.getByRole('link', { name: /Codex/i }).getAttribute('aria-current')).toBe('page');
-        expect(linkActiveOptionsMock).toHaveBeenCalledWith('/projects', { includeSearch: false });
+        expect(linkActiveOptionsMock).toHaveBeenCalledWith('/codex', { includeSearch: false });
         expect(screen.getByRole('link', { name: /Dashboard/i }).className).toContain(
             'hover:bg-[var(--panel-secondary)]',
         );

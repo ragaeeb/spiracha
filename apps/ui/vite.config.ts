@@ -68,7 +68,12 @@ const spirachaExportFiles = (): Plugin => {
 
 const config = defineConfig({
     plugins: [spirachaExportFiles(), devtools(), tailwindcss(), tanstackStart(), viteReact()],
-    resolve: { tsconfigPaths: true },
+    resolve: {
+        alias: {
+            '@spiracha': path.resolve(__dirname, '..', '..', 'src'),
+        },
+        tsconfigPaths: true,
+    },
     server: {
         fs: {
             allow: [path.resolve(__dirname, '..', '..')],

@@ -187,25 +187,42 @@ export const loadQoderAcpSession = async (
             }, drainMs);
         };
 
+        const recordMatchingUpdate = (message: JsonRpcMessage) => {
+            const update = getSessionUpdate(message);
+            if (update?.sessionId !== options.sessionId) {
+                return false;
+            }
+
+            if (events.length < requestLimit) {
+                events.push(update);
+            }
+            if (loadCompleted) {
+                scheduleDrain();
+            }
+            return true;
+        };
+
+        const markLoadCompleted = (message: JsonRpcMessage) => {
+            if (message.id !== LOAD_REQUEST_ID || loadCompleted) {
+                return false;
+            }
+
+            loadCompleted = true;
+            scheduleDrain();
+            return true;
+        };
+
         const handleMessage = (message: JsonRpcMessage) => {
             if (message.id === INITIALIZE_REQUEST_ID) {
                 sendLoadRequest();
                 return;
             }
 
-            const update = getSessionUpdate(message);
-            if (update?.sessionId === options.sessionId) {
-                events.push(update);
-                if (loadCompleted) {
-                    scheduleDrain();
-                }
+            if (recordMatchingUpdate(message)) {
                 return;
             }
 
-            if (message.id === LOAD_REQUEST_ID && !loadCompleted) {
-                loadCompleted = true;
-                scheduleDrain();
-            }
+            markLoadCompleted(message);
         };
 
         socket.on('connect', () => {
@@ -223,9 +240,13 @@ export const loadQoderAcpSession = async (
         });
 
         socket.on('data', (chunk) => {
-            const parsed = parseJsonRpcMessages(appendSocketChunk(buffer, chunk));
-            buffer = parsed.rest;
-            parsed.messages.forEach(handleMessage);
+            try {
+                const parsed = parseJsonRpcMessages(appendSocketChunk(buffer, chunk));
+                buffer = parsed.rest;
+                parsed.messages.forEach(handleMessage);
+            } catch {
+                finish(events.length > 0 ? { events, socketPath } : null);
+            }
         });
 
         socket.on('error', () => {

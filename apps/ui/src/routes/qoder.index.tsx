@@ -32,7 +32,7 @@ const QoderPage = () => {
                     />
                 }
                 eyebrow="Inventory"
-                subtitle="Workspace groups are derived from local Qoder history and checkpoint storage."
+                subtitle="Workspace groups are derived from local Qoder history and workspace data."
                 title="Qoder"
             />
 

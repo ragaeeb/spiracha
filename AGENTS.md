@@ -4,10 +4,11 @@
 
 This repo is a Bun-first local app for browsing, exporting, and exposing agent conversation history from Codex, Claude Code, Kiro, Qoder, Cursor, Antigravity, and OpenCode.
 
-The command-line exporter, MCP server, and Codex plugin were removed in the 2.0 hard cut. Do not add bridge commands, compatibility aliases, or deprecated entrypoints back. New client workflows should use the stable data API exposed by the UI server.
+The command-line exporter, MCP server, and Codex plugin were removed in the 2.0 hard cut. Do not add bridge commands, compatibility aliases, or deprecated entrypoints back. New client workflows should use the stable HTTP API exposed by the UI server or the stable `spiracha/client` package export.
 
 Main entrypoints:
-- `rtk bun run ui:dev` for local development
+- `bunx spiracha` for running the packaged UI app
+- `rtk bun start` for local development
 - `rtk bun run ui:preview` after a UI build
 - `rtk bun test`, `rtk bun run lint`, and `rtk bun run typecheck` for verification
 
@@ -30,6 +31,8 @@ Main entrypoints:
 ## Architecture
 
 Stable conversation API:
+- `src/client.ts`
+  - public Bun/Node client export for local serverless access and HTTP access to the same normalized conversation DTOs
 - `src/lib/conversation-api.ts`
   - HTTP request handler shared by TanStack API routes and root tests
   - owns response envelopes, validation errors, route dispatch, and default selector behavior
@@ -89,6 +92,13 @@ UI package:
 
 ## Stable API Contract
 
+The package exposes:
+- `spiracha/client`
+  - `createConversationClient({ mode: 'local' })` for serverless local access
+  - `createConversationClient({ mode: 'http', baseUrl })` for a running UI server
+- `spiracha/types`
+  - normalized conversation DTO types
+
 The local UI server exposes:
 - `GET /api/v1/sources`
 - `GET /api/v1/conversations?cwd=<absolute-path>&include_messages=true`
@@ -135,7 +145,7 @@ rtk bun run lint
 rtk bun run typecheck
 rtk bun run build
 rtk bun run coverage
-rtk bun run ui:dev
+rtk bun start
 rtk bun run ui:preview
 rtk bun run --cwd apps/ui test
 ```

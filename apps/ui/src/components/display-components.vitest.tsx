@@ -53,8 +53,8 @@ describe('display components', () => {
                 <TextDocumentPanel content={'# Heading\n\nbody'} title="Transcript" />
                 <Breadcrumbs
                     items={[
-                        { label: 'Codex', to: '/projects' },
-                        { label: 'demo', params: { project: 'demo' }, to: '/projects/$project' },
+                        { label: 'Codex', to: '/codex' },
+                        { label: 'demo', params: { project: 'demo' }, to: '/codex/$project' },
                         { label: 'Current thread' },
                     ]}
                 />
@@ -68,8 +68,8 @@ describe('display components', () => {
         expect(screen.getByText('Across all threads')).toBeTruthy();
         expect(screen.getByRole('heading', { name: 'Transcript' })).toBeTruthy();
         expect(screen.getByText((content) => content.includes('# Heading'))).toBeTruthy();
-        expect(screen.getByRole('link', { name: 'Codex' }).getAttribute('href')).toBe('/projects');
-        expect(screen.getByRole('link', { name: 'demo' }).getAttribute('href')).toBe('/projects/demo');
+        expect(screen.getByRole('link', { name: 'Codex' }).getAttribute('href')).toBe('/codex');
+        expect(screen.getByRole('link', { name: 'demo' }).getAttribute('href')).toBe('/codex/demo');
         expect(screen.getByText('Current thread').getAttribute('aria-current')).toBe('page');
     });
 
@@ -103,7 +103,7 @@ describe('display components', () => {
 
         render(
             <Breadcrumbs
-                items={[{ label: 'Codex', to: '/projects' }, { label: 'Codex', to: '/projects' }, { label: 'Codex' }]}
+                items={[{ label: 'Codex', to: '/codex' }, { label: 'Codex', to: '/codex' }, { label: 'Codex' }]}
             />,
         );
 

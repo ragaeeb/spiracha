@@ -13,12 +13,22 @@ The legacy CLI, MCP server, and Codex plugin surfaces have been removed in the 2
 
 ## Quick Start
 
+To run the packaged app:
+
 ```bash
-rtk bun install
-rtk bun run ui:dev
+bunx spiracha
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Spiracha asks Vite for port 3000 and automatically uses the next available port when 3000 is occupied.
+
+For repository development:
+
+```bash
+rtk bun install
+rtk bun start
+```
+
+Open the local URL printed by Vite.
 
 ## What It Does
 
@@ -33,7 +43,7 @@ Open [http://localhost:3000](http://localhost:3000).
 The API is served by the local UI server under `/api/v1`.
 
 ```bash
-rtk bun run ui:dev
+bunx spiracha
 ```
 
 Common read endpoints:
@@ -86,7 +96,18 @@ Response envelope:
 }
 ```
 
-More detail lives in [STABLE_DATA_API.md](STABLE_DATA_API.md).
+For serverless access from Bun, use the public client export:
+
+```ts
+import { createConversationClient } from "spiracha/client";
+
+const client = createConversationClient({ mode: "local" });
+const page = await client.listConversations({
+  cwd: process.cwd(),
+  includeMessages: true,
+  messageSelector: "last_final_answer",
+});
+```
 
 ## Source Locations
 
@@ -103,7 +124,7 @@ More detail lives in [STABLE_DATA_API.md](STABLE_DATA_API.md).
 
 ## UI Routes
 
-- `/projects` and `/projects/$project` for Codex inventory and project threads.
+- `/codex` and `/codex/$project` for Codex inventory and project threads.
 - `/threads/$threadId` for Codex thread detail.
 - `/claude-code`, `/kiro`, `/qoder`, `/cursor`, `/antigravity`, and `/opencode` for source inventories.
 - Source detail routes include `/claude-code-sessions/$sessionId`, `/kiro-sessions/$sessionId`, `/qoder-sessions/$sessionId`, `/cursor-threads/$composerId`, `/antigravity-conversations/$conversationId`, and `/opencode-sessions/$sessionId`.
@@ -117,7 +138,7 @@ rtk bun run lint
 rtk bun run typecheck
 rtk bun run build
 rtk bun run coverage
-rtk bun run ui:dev
+rtk bun start
 rtk bun run --cwd apps/ui test
 ```
 
@@ -127,7 +148,7 @@ The UI package runs Vite through `bun --bun` because server functions import Bun
 
 - No `bin` entries are published.
 - No `spiracha`, `codex-chats`, or `codex-chats-claude` command remains.
-- No repo-local `bun start` export flow remains.
+- No repo-local CLI export flow remains.
 - No standalone Claude or Cursor export CLI remains.
 - No MCP server or local Codex plugin remains.
-- Programmatic consumers should call the stable local API or import `spiracha/conversation-data` from Bun.
+- Programmatic consumers should call the stable local HTTP API or import `spiracha/client` from Bun.

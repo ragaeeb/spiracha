@@ -50,6 +50,10 @@ const columns = (onExportSession: (session: QoderSessionSummary) => void) =>
             cell: (info) => <span className="font-mono text-sm">{info.getValue() ?? 'unknown'}</span>,
             header: 'Status',
         }),
+        columnHelper.accessor('model', {
+            cell: (info) => <span className="font-mono text-sm">{info.getValue() ?? 'unknown'}</span>,
+            header: 'Model',
+        }),
         columnHelper.accessor('messageCount', {
             cell: (info) => <span className="font-mono text-sm">{formatNumber(info.getValue())}</span>,
             header: 'Prompts',

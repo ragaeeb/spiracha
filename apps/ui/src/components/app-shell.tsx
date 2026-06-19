@@ -25,7 +25,7 @@ type NavItem = {
 
 const navItems: readonly NavItem[] = [
     { icon: LayoutDashboard, label: 'Dashboard', to: '/' },
-    { activePrefixes: ['/projects', '/threads'], icon: FolderOpen, label: 'Codex', to: '/projects' },
+    { activePrefixes: ['/codex', '/threads'], icon: FolderOpen, label: 'Codex', to: '/codex' },
     {
         activePrefixes: ['/claude-code', '/claude-code-sessions'],
         icon: Bot,

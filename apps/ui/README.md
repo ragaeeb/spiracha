@@ -104,9 +104,9 @@ Transcript detail pages expose the same display controls across sources: user me
 
 - `/`
   - dashboard
-- `/projects`
+- `/codex`
   - Codex inventory and search, with `q` as the route search param
-- `/projects/$project`
+- `/codex/$project`
   - Codex project thread listing, with `q` as the route search param
 - `/claude-code`
   - Claude Code workspace inventory and search
