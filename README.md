@@ -117,8 +117,8 @@ const page = await client.listConversations({
 | Claude Code | `~/.claude/projects` | `SPIRACHA_CLAUDE_CODE_PROJECTS_DIR` |
 | Kiro | `~/Library/Application Support/Kiro/User/globalStorage/kiro.kiroagent/workspace-sessions` | `SPIRACHA_KIRO_WORKSPACE_SESSIONS_DIR` |
 | Qoder | `~/Library/Application Support/Qoder/User/globalStorage/state.vscdb` and `~/Library/Application Support/Qoder/User/workspaceStorage` | `SPIRACHA_QODER_GLOBAL_STATE_DB`, `SPIRACHA_QODER_WORKSPACE_STORAGE_DIR` |
-| Cursor | `~/Library/Application Support/Cursor/User` on macOS | `SPIRACHA_CURSOR_USER_DIR` |
-| Antigravity | known Antigravity workspace roots | source helper defaults |
+| Cursor | `~/Library/Application Support/Cursor/User` on macOS | `SPIRACHA_CURSOR_USER_DIR`, `SPIRACHA_CURSOR_PROJECTS_DIR` |
+| Antigravity | `~/.gemini/antigravity-ide` and `~/.gemini/antigravity` | `SPIRACHA_ANTIGRAVITY_DIRS`, `SPIRACHA_ANTIGRAVITY_DIR` |
 | OpenCode | `${XDG_DATA_HOME:-~/.local/share}/opencode/opencode.db` | `SPIRACHA_OPENCODE_DB` |
 | UI exports | OS temp directory under `spiracha-ui-exports` | `SPIRACHA_UI_EXPORT_DIR` |
 
@@ -146,8 +146,8 @@ The UI package runs Vite through `bun --bun` because server functions import Bun
 
 ## Breaking Consequences
 
-- No `bin` entries are published.
-- No `spiracha`, `codex-chats`, or `codex-chats-claude` command remains.
+- The only published `bin` entry is `spiracha`, and it only launches the local UI server.
+- No `codex-chats`, `codex-chats-claude`, or legacy export command remains.
 - No repo-local CLI export flow remains.
 - No standalone Claude or Cursor export CLI remains.
 - No MCP server or local Codex plugin remains.

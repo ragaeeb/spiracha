@@ -11,9 +11,11 @@ type DateTimeFormatterSet = {
 };
 
 const DATE_TIME_FORMATTERS = new Map<string, DateTimeFormatterSet>();
+const DEFAULT_TIME_ZONE = 'UTC';
 
 const getDateTimeFormatters = (timeZone?: string): DateTimeFormatterSet => {
-    const cacheKey = timeZone ?? 'local';
+    const resolvedTimeZone = timeZone ?? DEFAULT_TIME_ZONE;
+    const cacheKey = resolvedTimeZone;
     const cached = DATE_TIME_FORMATTERS.get(cacheKey);
     if (cached) {
         return cached;
@@ -23,7 +25,7 @@ const getDateTimeFormatters = (timeZone?: string): DateTimeFormatterSet => {
         dayKeyFormatter: new Intl.DateTimeFormat('en-CA', {
             day: '2-digit',
             month: '2-digit',
-            timeZone,
+            timeZone: resolvedTimeZone,
             year: 'numeric',
         }),
         timePartsFormatter: new Intl.DateTimeFormat('en-US', {
@@ -32,7 +34,7 @@ const getDateTimeFormatters = (timeZone?: string): DateTimeFormatterSet => {
             hour12: true,
             minute: '2-digit',
             month: 'short',
-            timeZone,
+            timeZone: resolvedTimeZone,
             year: 'numeric',
         }),
     };

@@ -350,7 +350,9 @@ describe('codex transcript renderer helpers', () => {
         );
 
         expect(saved).toBe(true);
-        expect(await Bun.file(outputPath).text()).toContain('Final transformed **answer**');
+        const savedContent = await Bun.file(outputPath).text();
+        expect(savedContent).toContain('Test export\n===========');
+        expect(savedContent).toContain('Final transformed **answer**');
     });
 
     it('should clean up temporary files in writeCodexSessionFileExport when an error occurs', async () => {

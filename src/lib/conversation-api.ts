@@ -600,7 +600,7 @@ const normalizeJsonListOptions = (body: unknown): ParseResult<ListConversationsF
 };
 
 const validateListQueryOptions = (options: ListConversationsForPathOptions): Response | null => {
-    if (!options.cwd?.trim()) {
+    if (typeof options.cwd !== 'string' || !options.cwd.trim()) {
         return errorResponse('validation_error', '`cwd` is required.', 400, { field: 'cwd' });
     }
 

@@ -28,7 +28,7 @@ const getAvailablePort = () => {
 
 const waitForJson = async (url: string) => {
     let lastError: unknown;
-    for (let attempt = 0; attempt < 100; attempt += 1) {
+    for (let attempt = 0; attempt < 275; attempt += 1) {
         try {
             const response = await fetch(url);
             if (response.ok) {

@@ -20,6 +20,17 @@ const makeTempRoot = async () => {
     return tempRoot;
 };
 
+const closeServer = (server: net.Server) =>
+    new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+            if (error) {
+                reject(error);
+                return;
+            }
+            resolve();
+        });
+    });
+
 const writeGlobalStateDb = async (dbPath: string, entries: Record<string, unknown>) => {
     await mkdir(path.dirname(dbPath), { recursive: true });
     const db = new Database(dbPath, { create: true, strict: true });
@@ -577,7 +588,7 @@ describe('qoder workspace discovery', () => {
                 enableAcp: true,
             },
         );
-        server.close();
+        await closeServer(server);
 
         expect(transcript?.session).toMatchObject({
             assistantMessageCount: 2,

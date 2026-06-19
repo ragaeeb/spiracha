@@ -1,5 +1,5 @@
 import { getThreadBrowseData, listScopedThreads, resolveCodexThreadDbPath } from '../codex-browser-db';
-import type { MessageEvent, ThreadEvent } from '../codex-browser-types';
+import type { MessageEvent, ThreadBrowseData, ThreadEvent } from '../codex-browser-types';
 import { parseCodexTranscriptFile } from '../codex-thread-parser';
 import type { ThreadRow } from '../codex-thread-types';
 import { cleanInlineTitle } from '../shared';
@@ -221,12 +221,9 @@ const listCodexConversationsForPath = async (
 
 const getCodexConversation = async (options: GetConversationOptions): Promise<ConversationDetail | null> => {
     const dbPath = getCodexDbPath(options);
+    let browseData: ThreadBrowseData;
     try {
-        const browseData = getThreadBrowseData(dbPath, options.id);
-        return buildCodexConversation(browseData.thread, [], {
-            includeMessages: true,
-            messageSelector: options.messageSelector ?? 'all',
-        });
+        browseData = getThreadBrowseData(dbPath, options.id);
     } catch (error) {
         if (error instanceof Error && /not found/i.test(error.message)) {
             return null;
@@ -234,6 +231,11 @@ const getCodexConversation = async (options: GetConversationOptions): Promise<Co
 
         throw error;
     }
+
+    return buildCodexConversation(browseData.thread, [], {
+        includeMessages: true,
+        messageSelector: options.messageSelector ?? 'all',
+    });
 };
 
 export const codexConversationAdapter: ConversationAdapter = {

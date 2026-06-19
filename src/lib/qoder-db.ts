@@ -1545,7 +1545,9 @@ const buildTranscriptEntries = async (
         globalStateDb,
         workspaceStorageDir,
     );
-    const transcriptEntries = cliTranscript.entries.length > 0 ? cliTranscript.entries : acpTranscript.entries;
+    const transcriptEntries = cliTranscript.entries.some((entry) => entry.role === 'assistant')
+        ? cliTranscript.entries
+        : acpTranscript.entries;
     const shouldIncludeHistory = !transcriptEntries.some((entry) => entry.role === 'user');
 
     return {

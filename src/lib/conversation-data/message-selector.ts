@@ -1,7 +1,13 @@
 import type { ConversationMessage, ConversationMessageSelector } from './types';
 
 const latestByOrder = (messages: ConversationMessage[]) => {
-    return [...messages].sort((left, right) => right.order - left.order)[0] ?? null;
+    let latest: ConversationMessage | null = null;
+    for (const message of messages) {
+        if (!latest || message.order > latest.order) {
+            latest = message;
+        }
+    }
+    return latest;
 };
 
 const selectLastAssistantMessage = (messages: ConversationMessage[]) => {

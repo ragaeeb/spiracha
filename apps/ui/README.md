@@ -82,6 +82,15 @@ Runtime configuration is intentionally small:
 - `SPIRACHA_OPENCODE_DB`
   - Optional absolute path to the OpenCode SQLite database.
   - If unset, Spiracha reads `${SPIRACHA_OPENCODE_DATA_DIR:-${XDG_DATA_HOME:-~/.local/share}/opencode}/opencode.db`. `SPIRACHA_OPENCODE_DIR` is also accepted as an OpenCode data-directory alias.
+- `SPIRACHA_CURSOR_USER_DIR`
+  - Optional absolute path to Cursor's `User` directory.
+  - If unset, Spiracha reads the platform default Cursor user-data directory.
+- `SPIRACHA_CURSOR_PROJECTS_DIR`
+  - Optional absolute path to Cursor's project transcript directory.
+  - If unset, Spiracha infers `.cursor/projects` from the Cursor user directory when possible.
+- `SPIRACHA_ANTIGRAVITY_DIRS`
+  - Optional path-list of Antigravity roots.
+  - If unset, Spiracha reads `~/.gemini/antigravity-ide` and `~/.gemini/antigravity`. `SPIRACHA_ANTIGRAVITY_DIR` is accepted as a single-root alias.
 
 Export artifacts are served through the UI as attachment downloads from `/__exports/*`. The local dev and preview servers use the same export-directory contract.
 
@@ -92,7 +101,9 @@ Default source locations:
 | Codex | shared Codex DB probe list | `SPIRACHA_CODEX_DB` |
 | Claude Code | `~/.claude/projects` | `SPIRACHA_CLAUDE_CODE_PROJECTS_DIR` |
 | Kiro | `~/Library/Application Support/Kiro/User/globalStorage/kiro.kiroagent/workspace-sessions` | `SPIRACHA_KIRO_WORKSPACE_SESSIONS_DIR` |
-| Qoder | `~/Library/Application Support/Qoder/User/globalStorage/state.vscdb` + `~/Library/Application Support/Qoder/User/workspaceStorage` | `SPIRACHA_QODER_GLOBAL_STATE_DB` |
+| Qoder | `~/Library/Application Support/Qoder/User/globalStorage/state.vscdb` + `~/Library/Application Support/Qoder/User/workspaceStorage` | `SPIRACHA_QODER_GLOBAL_STATE_DB`, `SPIRACHA_QODER_WORKSPACE_STORAGE_DIR` |
+| Cursor | `~/Library/Application Support/Cursor/User` on macOS | `SPIRACHA_CURSOR_USER_DIR`, `SPIRACHA_CURSOR_PROJECTS_DIR` |
+| Antigravity | `~/.gemini/antigravity-ide` + `~/.gemini/antigravity` | `SPIRACHA_ANTIGRAVITY_DIRS`, `SPIRACHA_ANTIGRAVITY_DIR` |
 | OpenCode | `${XDG_DATA_HOME:-~/.local/share}/opencode/opencode.db` | `SPIRACHA_OPENCODE_DB` |
 | Export downloads | OS temp directory under `spiracha-ui-exports` | `SPIRACHA_UI_EXPORT_DIR` |
 

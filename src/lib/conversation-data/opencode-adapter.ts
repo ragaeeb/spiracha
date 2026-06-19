@@ -105,8 +105,11 @@ const buildConversation = async (
     dbPath: string,
     matches: ConversationPathMatch[],
     options: Pick<ListConversationsForPathOptions, 'includeMessages' | 'messageSelector'>,
+    loadedTranscript: OpenCodeSessionTranscript | null = null,
 ): Promise<ConversationDetail> => {
-    const transcript = options.includeMessages ? await readOpenCodeSessionTranscript(dbPath, session.sessionId) : null;
+    const transcript =
+        loadedTranscript ??
+        (options.includeMessages ? await readOpenCodeSessionTranscript(dbPath, session.sessionId) : null);
     const allMessages = transcript ? transcriptToMessages(transcript) : [];
     const messages = options.includeMessages
         ? selectConversationMessages(allMessages, options.messageSelector ?? 'last_final_answer')
@@ -157,10 +160,16 @@ const getOpenCodeConversation = async (options: GetConversationOptions): Promise
     const dbPath = getDbPath(options);
     const transcript = await readOpenCodeSessionTranscript(dbPath, options.id);
     return transcript
-        ? buildConversation(transcript.session, dbPath, [], {
-              includeMessages: true,
-              messageSelector: options.messageSelector ?? 'all',
-          })
+        ? buildConversation(
+              transcript.session,
+              dbPath,
+              [],
+              {
+                  includeMessages: true,
+                  messageSelector: options.messageSelector ?? 'all',
+              },
+              transcript,
+          )
         : null;
 };
 

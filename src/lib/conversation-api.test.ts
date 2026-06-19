@@ -205,6 +205,28 @@ describe('conversation API handler', () => {
         });
     });
 
+    it('should reject non-string JSON cwd options without throwing', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversation-query', {
+                body: JSON.stringify({
+                    cwd: { path: '/repo' },
+                }),
+                method: 'POST',
+            }),
+            {},
+        );
+
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toMatchObject({
+            error: {
+                code: 'validation_error',
+                details: {
+                    field: 'cwd',
+                },
+            },
+        });
+    });
+
     it('should reject malformed numeric query options', async () => {
         const response = await handleConversationApiRequest(
             createRequest('/api/v1/conversations?cwd=/repo&limit=abc'),

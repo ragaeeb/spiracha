@@ -80,12 +80,6 @@ const decodeProjectParam = (project: string) => {
 export const Route = createFileRoute('/codex/$project')({
     component: ProjectDetailPage,
     errorComponent: ProjectDetailErrorComponent,
-    pendingComponent: () => (
-        <LoadingPanel
-            description="Loading project threads. Large projects can take a moment."
-            title="Loading project"
-        />
-    ),
     validateSearch: parseTextQuerySearch,
 });
 

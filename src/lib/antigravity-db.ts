@@ -571,7 +571,7 @@ const readTranscriptFileCandidate = async (
         const modelSourcePath = hasFullTranscript ? fullPath : transcriptPath;
         return {
             bytes: info.size,
-            entryCount: await countJsonlEntries(transcriptPath),
+            entryCount: await countJsonlEntries(modelSourcePath),
             fullPath: hasFullTranscript ? fullPath : null,
             model: await extractTranscriptModel(modelSourcePath),
             mtimeMs: info.mtimeMs,
@@ -1058,8 +1058,12 @@ export const readAntigravityConversationMessages = async (
         return [];
     }
 
-    const entries = parseLogEntries(await Bun.file(conversation.transcriptPath).text());
-    return entries.flatMap(logEntryToMessages);
+    try {
+        const entries = parseLogEntries(await Bun.file(conversation.transcriptPath).text());
+        return entries.flatMap(logEntryToMessages);
+    } catch {
+        return [];
+    }
 };
 
 const renderAntigravityTranscriptMarkdown = async (conversation: AntigravityConversation): Promise<string | null> => {

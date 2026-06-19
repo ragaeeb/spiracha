@@ -29,9 +29,15 @@ export const decodeFileUri = (value: string | null | undefined): string | null =
     }
 
     try {
-        return decodeURIComponent(new URL(value).pathname);
+        const url = new URL(value);
+        const pathname = decodeURIComponent(url.pathname);
+        if (url.hostname) {
+            return `//${url.hostname}${pathname}`;
+        }
+        return pathname.replace(/^\/([A-Za-z]:)/u, '$1');
     } catch {
-        return decodeURIComponent(value.slice('file://'.length));
+        const pathValue = decodeURIComponent(value.slice('file://'.length));
+        return pathValue.replace(/^\/([A-Za-z]:)/u, '$1');
     }
 };
 

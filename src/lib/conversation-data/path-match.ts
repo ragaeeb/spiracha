@@ -50,7 +50,10 @@ export const getConversationPathMatch = async (
         };
     }
 
-    if (candidate.startsWith(`${requested}/`)) {
+    if (
+        (requested === '/' && candidate !== '/' && candidate.startsWith('/')) ||
+        candidate.startsWith(`${requested}/`)
+    ) {
         return {
             candidatePath: candidate,
             kind: 'descendant',

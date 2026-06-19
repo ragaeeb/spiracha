@@ -40,6 +40,7 @@ const FALLBACK_STATS_HEAD_READ_LIMIT_BYTES = 512 * 1024;
 const FALLBACK_STATS_TAIL_READ_LIMIT_BYTES = 512 * 1024;
 const FALLBACK_STATS_RECORD_PATTERN = /"type"\s*:\s*"(?:agent_message|message|token_count|turn_context)"/u;
 const THREAD_ID_PATTERN = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/iu;
+let sessionIndexMutationQueue = Promise.resolve();
 
 type SessionIndexEntry = {
     id: string;
@@ -1036,20 +1037,9 @@ const getSessionFilesForThreadIds = (dbPath: string, threadIds: string[]) => {
         .filter((value): value is string => Boolean(value));
 };
 
-const removeSessionIndexEntries = async (codexDir: string, threadIds: string[]) => {
-    const uniqueThreadIds = new Set(threadIds);
-    if (uniqueThreadIds.size === 0) {
-        return [];
-    }
-
-    const sessionIndexPath = path.join(codexDir, 'session_index.jsonl');
-    if (!(await Bun.file(sessionIndexPath).exists())) {
-        return [];
-    }
-
+const filterSessionIndexLines = (lines: string[], threadIds: Set<string>) => {
     const removedThreadIds: string[] = [];
     const retainedLines: string[] = [];
-    const lines = (await Bun.file(sessionIndexPath).text()).split(/\r?\n/u);
 
     for (const line of lines) {
         const trimmed = line.trim();
@@ -1058,7 +1048,7 @@ const removeSessionIndexEntries = async (codexDir: string, threadIds: string[]) 
         }
 
         const entry = parseJsonlObject<SessionIndexEntry>(trimmed);
-        if (entry?.id && uniqueThreadIds.has(entry.id)) {
+        if (entry?.id && threadIds.has(entry.id)) {
             removedThreadIds.push(entry.id);
             continue;
         }
@@ -1066,10 +1056,10 @@ const removeSessionIndexEntries = async (codexDir: string, threadIds: string[]) 
         retainedLines.push(trimmed);
     }
 
-    if (removedThreadIds.length === 0) {
-        return [];
-    }
+    return { removedThreadIds, retainedLines };
+};
 
+const writeSessionIndexLines = async (sessionIndexPath: string, codexDir: string, retainedLines: string[]) => {
     const tempSessionIndexPath = path.join(
         codexDir,
         `.session_index.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`,
@@ -1081,7 +1071,37 @@ const removeSessionIndexEntries = async (codexDir: string, threadIds: string[]) 
         await rm(tempSessionIndexPath, { force: true });
         throw error;
     }
-    return uniqueValues(removedThreadIds);
+};
+
+const removeSessionIndexEntries = async (codexDir: string, threadIds: string[]) => {
+    const runMutation = async () => {
+        const uniqueThreadIds = new Set(threadIds);
+        if (uniqueThreadIds.size === 0) {
+            return [];
+        }
+
+        const sessionIndexPath = path.join(codexDir, 'session_index.jsonl');
+        if (!(await Bun.file(sessionIndexPath).exists())) {
+            return [];
+        }
+
+        const lines = (await Bun.file(sessionIndexPath).text()).split(/\r?\n/u);
+        const { removedThreadIds, retainedLines } = filterSessionIndexLines(lines, uniqueThreadIds);
+
+        if (removedThreadIds.length === 0) {
+            return [];
+        }
+
+        await writeSessionIndexLines(sessionIndexPath, codexDir, retainedLines);
+        return uniqueValues(removedThreadIds);
+    };
+
+    const mutation = sessionIndexMutationQueue.then(runMutation, runMutation);
+    sessionIndexMutationQueue = mutation.then(
+        () => undefined,
+        () => undefined,
+    );
+    return mutation;
 };
 
 const listFallbackThreadIdsForProject = (dbPath: string, existingThreadIds: Set<string>, projectName: string) => {

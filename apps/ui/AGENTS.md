@@ -17,7 +17,7 @@ rtk bun run coverage
 Important:
 
 - `dev`, `build`, and `preview` run through `bun --bun ...` on purpose. Do not switch them back to plain `vite` or Node execution, because the server functions import Bun-only modules such as `bun:sqlite`.
-- The root package no longer mirrors UI runtime dependencies for a packaged launcher. Keep browser/runtime dependency changes scoped to this workspace unless root code imports the package directly.
+- The root package mirrors UI runtime dependencies needed by the packaged `bunx spiracha` launcher. Keep `apps/ui/package.json` and the root `dependencies` aligned when browser/runtime dependencies change.
 
 ## Routing
 

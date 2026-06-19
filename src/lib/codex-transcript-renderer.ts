@@ -197,11 +197,11 @@ const buildStreamExportPrefix = (
     sessionMeta: SessionMeta,
     options: CodexTranscriptRenderOptions,
 ) => {
+    const title = getTitle(target, sessionMeta);
     if (!options.includeMetadata) {
-        return '';
+        return `${renderDocumentTitle(title, options.outputFormat)}\n`;
     }
 
-    const title = getTitle(target, sessionMeta);
     const parts = [
         renderDocumentTitle(title, options.outputFormat),
         '',

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import os from 'node:os';
 import path from 'node:path';
 import { getConversationPathMatch } from './path-match';
 
@@ -30,9 +31,15 @@ describe('conversation path matching', () => {
 
     it('should normalize trailing separators and home-prefixed paths', async () => {
         const requested = path.join('~', 'workspace', 'fgh');
-        const candidate = path.join(process.env.HOME ?? '/Users/example', 'workspace', 'fgh', 'reviews');
+        const candidate = path.join(os.homedir(), 'workspace', 'fgh', 'reviews');
 
         await expect(getConversationPathMatch(requested, candidate)).resolves.toMatchObject({
+            kind: 'descendant',
+        });
+    });
+
+    it('should match descendants of the filesystem root', async () => {
+        await expect(getConversationPathMatch('/', '/Users/example/workspace/fgh')).resolves.toMatchObject({
             kind: 'descendant',
         });
     });

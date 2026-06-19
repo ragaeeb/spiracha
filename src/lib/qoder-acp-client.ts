@@ -183,7 +183,7 @@ export const loadQoderAcpSession = async (
             }
 
             drainTimer = setTimeout(() => {
-                finish({ events, socketPath });
+                finish(events.length > 0 ? { events, socketPath } : null);
             }, drainMs);
         };
 
