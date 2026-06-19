@@ -196,6 +196,10 @@ export const loadQoderAcpSession = async (
             if (events.length < requestLimit) {
                 events.push(update);
             }
+            if (loadCompleted && events.length >= requestLimit) {
+                finish({ events, socketPath });
+                return true;
+            }
             if (loadCompleted) {
                 scheduleDrain();
             }
@@ -208,6 +212,10 @@ export const loadQoderAcpSession = async (
             }
 
             loadCompleted = true;
+            if (events.length >= requestLimit) {
+                finish({ events, socketPath });
+                return true;
+            }
             scheduleDrain();
             return true;
         };

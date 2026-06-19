@@ -344,4 +344,41 @@ describe('loadQoderAcpSession', () => {
 
         expect(result?.events.map((event) => event.update.content)).toEqual([{ text: 'one' }, { text: 'two' }]);
     });
+
+    it('should finish immediately when the requested update limit is reached after load completion', async () => {
+        const tempRoot = await makeTempRoot();
+        const socketPath = path.join(tempRoot, 'qoder.sock');
+        const server = net.createServer((socket) => {
+            let buffer: Buffer<ArrayBufferLike> = Buffer.alloc(0);
+            socket.on('data', (chunk) => {
+                const parsed = parseMessages(appendSocketChunk(buffer, chunk));
+                buffer = parsed.rest;
+                for (const message of parsed.messages) {
+                    if (message.method === 'initialize') {
+                        writeInitializeResponse(socket, message);
+                    }
+                    if (message.method === 'session/load') {
+                        writeLoadResponse(socket, message);
+                        writeAgentMessageUpdates(socket, ['one', 'two', 'three']);
+                    }
+                }
+            });
+        });
+        await listen(server, socketPath);
+
+        const start = performance.now();
+        const result = await loadQoderAcpSession({
+            cwd: '/workspace/project',
+            drainMs: 2_000,
+            requestLimit: 2,
+            sessionId: 'task-a.session.execution',
+            socketPath,
+            timeoutMs: 2_000,
+        });
+        const elapsedMs = performance.now() - start;
+        await closeServer(server);
+
+        expect(result?.events.map((event) => event.update.content)).toEqual([{ text: 'one' }, { text: 'two' }]);
+        expect(elapsedMs).toBeLessThan(500);
+    });
 });

@@ -40,6 +40,7 @@ const FALLBACK_STATS_HEAD_READ_LIMIT_BYTES = 512 * 1024;
 const FALLBACK_STATS_TAIL_READ_LIMIT_BYTES = 512 * 1024;
 const FALLBACK_STATS_RECORD_PATTERN = /"type"\s*:\s*"(?:agent_message|message|token_count|turn_context)"/u;
 const THREAD_ID_PATTERN = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/iu;
+const sessionFileIndexCache = new Map<string, Map<string, string>>();
 let sessionIndexMutationQueue = Promise.resolve();
 
 type SessionIndexEntry = {
@@ -340,37 +341,28 @@ const collectSessionFilesByThreadId = (sessionsDir: string): Map<string, string>
 };
 
 const findSessionFileByThreadId = (sessionsDir: string, threadId: string): string | null => {
-    const visit = (directory: string): string | null => {
-        const entries = (() => {
-            try {
-                return readdirSync(directory, { withFileTypes: true });
-            } catch {
-                return null;
-            }
-        })();
-        if (!entries) {
+    const lookup = (sessionFilesByThreadId: Map<string, string>) => {
+        const sessionFile = sessionFilesByThreadId.get(threadId);
+        if (!sessionFile) {
             return null;
         }
 
-        for (const entry of entries) {
-            const entryPath = path.join(directory, entry.name);
-            if (entry.isDirectory()) {
-                const match = visit(entryPath);
-                if (match) {
-                    return match;
-                }
-                continue;
-            }
-
-            if (entry.isFile() && THREAD_ID_PATTERN.exec(entry.name)?.[1] === threadId) {
-                return entryPath;
-            }
+        try {
+            return statSync(sessionFile).isFile() ? sessionFile : null;
+        } catch {
+            return null;
         }
-
-        return null;
     };
 
-    return visit(sessionsDir);
+    const cached = sessionFileIndexCache.get(sessionsDir);
+    const cachedMatch = cached ? lookup(cached) : null;
+    if (cachedMatch) {
+        return cachedMatch;
+    }
+
+    const refreshed = collectSessionFilesByThreadId(sessionsDir);
+    sessionFileIndexCache.set(sessionsDir, refreshed);
+    return lookup(refreshed);
 };
 
 const readSessionMetaLine = (sessionFile: string): string | null => {

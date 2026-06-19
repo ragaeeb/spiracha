@@ -32,7 +32,7 @@ Main entrypoints:
 
 Stable conversation API:
 - `src/client.ts`
-  - public Bun/Node client export for local serverless access and HTTP access to the same normalized conversation DTOs
+  - public Bun client export for local serverless access and HTTP access to the same normalized conversation DTOs
 - `src/lib/conversation-api.ts`
   - HTTP request handler shared by TanStack API routes and root tests
   - owns response envelopes, validation errors, route dispatch, and default selector behavior
