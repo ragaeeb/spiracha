@@ -34,6 +34,21 @@ const transcript: QoderSessionTranscript = {
             role: 'tool',
             timestamp: null,
         },
+        {
+            entryId: 'tool-output-1',
+            entryType: 'tool_output',
+            parts: [
+                {
+                    raw: { toolCallId: 'call-1', toolName: 'Read', type: 'tool_result' },
+                    text: 'const value = 1;',
+                    type: 'text',
+                },
+            ],
+            raw: { type: 'tool_result' },
+            requestId: 'request-a',
+            role: 'tool',
+            timestamp: null,
+        },
     ],
     rawSession: { sourceStatePath: '/tmp/state.json' },
     renderablePartCount: 2,
@@ -48,6 +63,7 @@ const transcript: QoderSessionTranscript = {
         lastActiveAtIso: '2026-06-01T10:00:02.000Z',
         lastActiveAtMs: 1_780_307_202_000,
         messageCount: 1,
+        model: 'qwen-3.7-max',
         query: 'Review wizard step 9',
         renderablePartCount: 2,
         requestId: 'request-a',
@@ -78,10 +94,13 @@ describe('renderQoderTranscript', () => {
         expect(rendered).toContain('# Wizard Step 9 Split');
         expect(rendered).toContain('exported_from: "qoder_local_history"');
         expect(rendered).toContain('task_id: "task-a"');
+        expect(rendered).toContain('model: "qwen-3.7-max"');
         expect(rendered).toContain('## User');
         expect(rendered).toContain('Review wizard step 9');
         expect(rendered).toContain('## Tool call');
         expect(rendered).toContain('Edit file: /workspace/project/src/index.ts');
+        expect(rendered).toContain('## Tool output');
+        expect(rendered).toContain('const value = 1;');
     });
 
     it('should omit optional metadata and tool calls', () => {
@@ -94,6 +113,7 @@ describe('renderQoderTranscript', () => {
 
         expect(rendered).not.toContain('exported_from');
         expect(rendered).not.toContain('Edit file:');
+        expect(rendered).not.toContain('const value = 1;');
         expect(rendered).toContain('Review wizard step 9');
     });
 
@@ -107,6 +127,7 @@ describe('renderQoderTranscript', () => {
 
         expect(rendered).toContain('Wizard Step 9 Split\n===================');
         expect(rendered).toContain('Tool call\n---------');
+        expect(rendered).toContain('Tool output\n-----------');
         expect(rendered).not.toContain('```');
     });
 });

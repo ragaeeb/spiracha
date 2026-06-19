@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { getThreadBrowseData } from './codex-browser-db';
-import { convertSessionFile, writeSessionFileExport } from './codex-exporter-transcript';
-import type { CodexCliOptions } from './codex-exporter-types';
+import type { CodexTranscriptRenderOptions } from './codex-thread-types';
+import { renderCodexSessionFile, writeCodexSessionFileExport } from './codex-transcript-renderer';
 import { applyPathTransforms, type PathDisplaySettings } from './path-transforms';
 import { type ExportFormat, getPortablePathBasename } from './shared';
 import { getExportMimeType, sanitizeExportFileName, zipExportDirectory, zipExportFile } from './ui-export-archive';
@@ -89,19 +89,12 @@ type RolloutSnapshot = {
     sizeBytes: number;
 };
 
-const toDownloadOptions = (input: RenderCodexThreadDownloadInput): CodexCliOptions => {
+const toDownloadOptions = (input: RenderCodexThreadDownloadInput): CodexTranscriptRenderOptions => {
     return {
-        cwdFilter: null,
-        dbPath: input.dbPath,
-        flat: false,
         includeCommentary: input.includeCommentary,
         includeMetadata: input.includeMetadata,
         includeTools: input.includeTools,
-        inputDir: '',
-        outputDir: '',
         outputFormat: input.outputFormat,
-        projectFilter: null,
-        threadIds: [input.threadId],
     };
 };
 
@@ -214,7 +207,7 @@ export const renderCodexThreadDownload = async (
             const savedPath = path.join(workspaceDir, `${exportBaseName}.${extension}`);
             const zipPath = buildUniqueArchivePath(exportDir, exportBaseName);
             try {
-                const saved = await writeSessionFileExport(
+                const saved = await writeCodexSessionFileExport(
                     {
                         fallbackReason: null,
                         outputRelativePath: fileName,
@@ -257,7 +250,7 @@ export const renderCodexThreadDownload = async (
             };
         }
 
-        const content = await convertSessionFile(
+        const content = await renderCodexSessionFile(
             {
                 fallbackReason: null,
                 outputRelativePath: fileName,
@@ -349,7 +342,7 @@ export const renderCodexThreadsDownload = async (
                 });
             }
 
-            const saved = await writeSessionFileExport(
+            const saved = await writeCodexSessionFileExport(
                 {
                     fallbackReason: null,
                     outputRelativePath: relativeFileName,
@@ -362,7 +355,6 @@ export const renderCodexThreadsDownload = async (
                         ...input,
                         threadId: entry.thread.id,
                     }),
-                    threadIds: [entry.thread.id],
                 },
                 savedPath,
                 transform,

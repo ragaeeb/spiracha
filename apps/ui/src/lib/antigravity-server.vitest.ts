@@ -44,6 +44,7 @@ const makeConversation = (overrides: Partial<AntigravityConversation> = {}): Ant
     createdAtMs: 1_700_000_000_000,
     indexedItemCount: 3,
     lastUpdatedAtMs: 1_700_000_100_000,
+    model: null,
     sourceRoot: '/tmp/root',
     summaryPath: '/tmp/summary.pb',
     title: 'Conversation one',

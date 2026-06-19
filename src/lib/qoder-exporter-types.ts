@@ -26,6 +26,13 @@ export const resolveQoderWorkspaceStorageDir = (): string => {
     return configured ? configured : path.join(resolveQoderUserDir(), 'workspaceStorage');
 };
 
+export const resolveQoderCliProjectsDir = (): string => {
+    const configured = process.env.SPIRACHA_QODER_CLI_PROJECTS_DIR?.trim();
+    return configured
+        ? configured
+        : path.join(path.dirname(resolveQoderUserDir()), 'SharedClientCache', 'cli', 'projects');
+};
+
 export type QoderWorkspaceGroup = {
     assistantMessageCount: number;
     fileOperationCount: number;
@@ -54,6 +61,7 @@ export type QoderSessionSummary = {
     lastActiveAtIso: string | null;
     lastActiveAtMs: number | null;
     messageCount: number;
+    model: string | null;
     query: string | null;
     renderablePartCount: number;
     requestId: string | null;
@@ -79,7 +87,7 @@ export type QoderTranscriptPart = {
     type: QoderPartType;
 };
 
-export type QoderTranscriptEntryType = 'message' | 'tool_call';
+export type QoderTranscriptEntryType = 'message' | 'tool_call' | 'tool_output';
 
 export type QoderTranscriptEntry = {
     entryId: string;

@@ -31,6 +31,7 @@ const buildMetadataEntries = (session: QoderSessionSummary): MetadataEntry[] => 
     { key: 'workspace_storage_id', value: session.workspaceStorageId },
     { key: 'source_state_path', value: session.sourceStatePath },
     { key: 'agent_class', value: session.agentClass },
+    { key: 'model', value: session.model },
     { key: 'execution_mode', value: session.executionMode },
     { key: 'created_at_iso', value: session.createdAtIso },
     { key: 'last_active_at_iso', value: session.lastActiveAtIso },
@@ -68,6 +69,10 @@ const renderPart = (
 ): string => {
     if (entry.entryType === 'tool_call') {
         return options.includeTools && part.type === 'text' ? renderTextPart(part, 'Tool call', options) : '';
+    }
+
+    if (entry.entryType === 'tool_output') {
+        return options.includeTools && part.type === 'text' ? renderTextPart(part, 'Tool output', options) : '';
     }
 
     if (getQoderMessagePhase(entry, finalAssistantMessageEntryIds) === 'commentary' && !options.includeCommentary) {

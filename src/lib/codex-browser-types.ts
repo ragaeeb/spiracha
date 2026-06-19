@@ -1,4 +1,4 @@
-import type { SessionMeta, ThreadRelations, ThreadRow } from './codex-exporter-types';
+import type { SessionMeta, ThreadRelations, ThreadRow } from './codex-thread-types';
 import type { JsonValue } from './shared';
 
 export type DynamicToolDefinition = {

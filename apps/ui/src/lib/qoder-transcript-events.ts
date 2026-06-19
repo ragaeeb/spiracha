@@ -23,6 +23,7 @@ const buildRaw = (
 });
 
 const buildMessageEvent = (
+    transcript: QoderSessionTranscript,
     entry: QoderTranscriptEntry,
     part: QoderTranscriptPart,
     sequence: number,
@@ -32,7 +33,7 @@ const buildMessageEvent = (
     isHiddenByDefault: entry.role !== 'assistant' && entry.role !== 'user',
     kind: 'message',
     memoryCitation: null,
-    model: 'Qoder',
+    model: transcript.session.model ?? 'Qoder',
     phase,
     raw: buildRaw(entry, part, 'message'),
     role: entry.role,
@@ -66,6 +67,23 @@ const buildToolCallEvent = (
     workdir: transcript.session.worktree,
 });
 
+const buildToolOutputEvent = (
+    entry: QoderTranscriptEntry,
+    part: QoderTranscriptPart,
+    sequence: number,
+    outputText: string,
+): ThreadEvent => ({
+    callId: getPartString(part, 'toolCallId'),
+    exitCode: null,
+    kind: 'tool_output',
+    outputText,
+    raw: buildRaw(entry, part, 'tool_output'),
+    sequence,
+    summary: outputText,
+    timestamp: entry.timestamp,
+    wallTime: null,
+});
+
 const partToEvents = (
     transcript: QoderSessionTranscript,
     entry: QoderTranscriptEntry,
@@ -78,11 +96,17 @@ const partToEvents = (
         return command ? [buildToolCallEvent(transcript, entry, part, sequence, command)] : [];
     }
 
+    if (entry.entryType === 'tool_output' && part.type === 'text') {
+        const outputText = part.text?.trim();
+        return outputText ? [buildToolOutputEvent(entry, part, sequence, outputText)] : [];
+    }
+
     if (part.type === 'text') {
         const text = part.text?.trim();
         return text
             ? [
                   buildMessageEvent(
+                      transcript,
                       entry,
                       part,
                       sequence,

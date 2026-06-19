@@ -34,6 +34,12 @@ import { Route as ClaudeCodeWorkspaceKeyRouteImport } from './routes/claude-code
 import { Route as ClaudeCodeSessionsSessionIdRouteImport } from './routes/claude-code-sessions.$sessionId'
 import { Route as AntigravityWorkspaceKeyRouteImport } from './routes/antigravity.$workspaceKey'
 import { Route as AntigravityConversationsConversationIdRouteImport } from './routes/antigravity-conversations.$conversationId'
+import { Route as ApiV1SourcesRouteImport } from './routes/api.v1.sources'
+import { Route as ApiV1ResolveRouteImport } from './routes/api.v1.resolve'
+import { Route as ApiV1ConversationsRouteImport } from './routes/api.v1.conversations'
+import { Route as ApiV1ConversationQueryRouteImport } from './routes/api.v1.conversation-query'
+import { Route as ApiV1ConversationsSourceIdRouteImport } from './routes/api.v1.conversations.$source.$id'
+import { Route as ApiV1ConversationsSourceIdExportRouteImport } from './routes/api.v1.conversations.$source.$id.export'
 
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
@@ -163,6 +169,38 @@ const AntigravityConversationsConversationIdRoute =
     path: '/antigravity-conversations/$conversationId',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiV1SourcesRoute = ApiV1SourcesRouteImport.update({
+  id: '/api/v1/sources',
+  path: '/api/v1/sources',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiV1ResolveRoute = ApiV1ResolveRouteImport.update({
+  id: '/api/v1/resolve',
+  path: '/api/v1/resolve',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiV1ConversationsRoute = ApiV1ConversationsRouteImport.update({
+  id: '/api/v1/conversations',
+  path: '/api/v1/conversations',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiV1ConversationQueryRoute = ApiV1ConversationQueryRouteImport.update({
+  id: '/api/v1/conversation-query',
+  path: '/api/v1/conversation-query',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiV1ConversationsSourceIdRoute =
+  ApiV1ConversationsSourceIdRouteImport.update({
+    id: '/$source/$id',
+    path: '/$source/$id',
+    getParentRoute: () => ApiV1ConversationsRoute,
+  } as any)
+const ApiV1ConversationsSourceIdExportRoute =
+  ApiV1ConversationsSourceIdExportRouteImport.update({
+    id: '/export',
+    path: '/export',
+    getParentRoute: () => ApiV1ConversationsSourceIdRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -190,6 +228,12 @@ export interface FileRoutesByFullPath {
   '/opencode/': typeof OpencodeIndexRoute
   '/projects/': typeof ProjectsIndexRoute
   '/qoder/': typeof QoderIndexRoute
+  '/api/v1/conversation-query': typeof ApiV1ConversationQueryRoute
+  '/api/v1/conversations': typeof ApiV1ConversationsRouteWithChildren
+  '/api/v1/resolve': typeof ApiV1ResolveRoute
+  '/api/v1/sources': typeof ApiV1SourcesRoute
+  '/api/v1/conversations/$source/$id': typeof ApiV1ConversationsSourceIdRouteWithChildren
+  '/api/v1/conversations/$source/$id/export': typeof ApiV1ConversationsSourceIdExportRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -217,6 +261,12 @@ export interface FileRoutesByTo {
   '/opencode': typeof OpencodeIndexRoute
   '/projects': typeof ProjectsIndexRoute
   '/qoder': typeof QoderIndexRoute
+  '/api/v1/conversation-query': typeof ApiV1ConversationQueryRoute
+  '/api/v1/conversations': typeof ApiV1ConversationsRouteWithChildren
+  '/api/v1/resolve': typeof ApiV1ResolveRoute
+  '/api/v1/sources': typeof ApiV1SourcesRoute
+  '/api/v1/conversations/$source/$id': typeof ApiV1ConversationsSourceIdRouteWithChildren
+  '/api/v1/conversations/$source/$id/export': typeof ApiV1ConversationsSourceIdExportRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -245,6 +295,12 @@ export interface FileRoutesById {
   '/opencode/': typeof OpencodeIndexRoute
   '/projects/': typeof ProjectsIndexRoute
   '/qoder/': typeof QoderIndexRoute
+  '/api/v1/conversation-query': typeof ApiV1ConversationQueryRoute
+  '/api/v1/conversations': typeof ApiV1ConversationsRouteWithChildren
+  '/api/v1/resolve': typeof ApiV1ResolveRoute
+  '/api/v1/sources': typeof ApiV1SourcesRoute
+  '/api/v1/conversations/$source/$id': typeof ApiV1ConversationsSourceIdRouteWithChildren
+  '/api/v1/conversations/$source/$id/export': typeof ApiV1ConversationsSourceIdExportRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -274,6 +330,12 @@ export interface FileRouteTypes {
     | '/opencode/'
     | '/projects/'
     | '/qoder/'
+    | '/api/v1/conversation-query'
+    | '/api/v1/conversations'
+    | '/api/v1/resolve'
+    | '/api/v1/sources'
+    | '/api/v1/conversations/$source/$id'
+    | '/api/v1/conversations/$source/$id/export'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -301,6 +363,12 @@ export interface FileRouteTypes {
     | '/opencode'
     | '/projects'
     | '/qoder'
+    | '/api/v1/conversation-query'
+    | '/api/v1/conversations'
+    | '/api/v1/resolve'
+    | '/api/v1/sources'
+    | '/api/v1/conversations/$source/$id'
+    | '/api/v1/conversations/$source/$id/export'
   id:
     | '__root__'
     | '/'
@@ -328,6 +396,12 @@ export interface FileRouteTypes {
     | '/opencode/'
     | '/projects/'
     | '/qoder/'
+    | '/api/v1/conversation-query'
+    | '/api/v1/conversations'
+    | '/api/v1/resolve'
+    | '/api/v1/sources'
+    | '/api/v1/conversations/$source/$id'
+    | '/api/v1/conversations/$source/$id/export'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -356,6 +430,10 @@ export interface RootRouteChildren {
   OpencodeIndexRoute: typeof OpencodeIndexRoute
   ProjectsIndexRoute: typeof ProjectsIndexRoute
   QoderIndexRoute: typeof QoderIndexRoute
+  ApiV1ConversationQueryRoute: typeof ApiV1ConversationQueryRoute
+  ApiV1ConversationsRoute: typeof ApiV1ConversationsRouteWithChildren
+  ApiV1ResolveRoute: typeof ApiV1ResolveRoute
+  ApiV1SourcesRoute: typeof ApiV1SourcesRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -535,8 +613,76 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AntigravityConversationsConversationIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/v1/sources': {
+      id: '/api/v1/sources'
+      path: '/api/v1/sources'
+      fullPath: '/api/v1/sources'
+      preLoaderRoute: typeof ApiV1SourcesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/resolve': {
+      id: '/api/v1/resolve'
+      path: '/api/v1/resolve'
+      fullPath: '/api/v1/resolve'
+      preLoaderRoute: typeof ApiV1ResolveRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/conversations': {
+      id: '/api/v1/conversations'
+      path: '/api/v1/conversations'
+      fullPath: '/api/v1/conversations'
+      preLoaderRoute: typeof ApiV1ConversationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/conversation-query': {
+      id: '/api/v1/conversation-query'
+      path: '/api/v1/conversation-query'
+      fullPath: '/api/v1/conversation-query'
+      preLoaderRoute: typeof ApiV1ConversationQueryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/conversations/$source/$id': {
+      id: '/api/v1/conversations/$source/$id'
+      path: '/$source/$id'
+      fullPath: '/api/v1/conversations/$source/$id'
+      preLoaderRoute: typeof ApiV1ConversationsSourceIdRouteImport
+      parentRoute: typeof ApiV1ConversationsRoute
+    }
+    '/api/v1/conversations/$source/$id/export': {
+      id: '/api/v1/conversations/$source/$id/export'
+      path: '/export'
+      fullPath: '/api/v1/conversations/$source/$id/export'
+      preLoaderRoute: typeof ApiV1ConversationsSourceIdExportRouteImport
+      parentRoute: typeof ApiV1ConversationsSourceIdRoute
+    }
   }
 }
+
+interface ApiV1ConversationsSourceIdRouteChildren {
+  ApiV1ConversationsSourceIdExportRoute: typeof ApiV1ConversationsSourceIdExportRoute
+}
+
+const ApiV1ConversationsSourceIdRouteChildren: ApiV1ConversationsSourceIdRouteChildren =
+  {
+    ApiV1ConversationsSourceIdExportRoute:
+      ApiV1ConversationsSourceIdExportRoute,
+  }
+
+const ApiV1ConversationsSourceIdRouteWithChildren =
+  ApiV1ConversationsSourceIdRoute._addFileChildren(
+    ApiV1ConversationsSourceIdRouteChildren,
+  )
+
+interface ApiV1ConversationsRouteChildren {
+  ApiV1ConversationsSourceIdRoute: typeof ApiV1ConversationsSourceIdRouteWithChildren
+}
+
+const ApiV1ConversationsRouteChildren: ApiV1ConversationsRouteChildren = {
+  ApiV1ConversationsSourceIdRoute: ApiV1ConversationsSourceIdRouteWithChildren,
+}
+
+const ApiV1ConversationsRouteWithChildren =
+  ApiV1ConversationsRoute._addFileChildren(ApiV1ConversationsRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
@@ -565,6 +711,10 @@ const rootRouteChildren: RootRouteChildren = {
   OpencodeIndexRoute: OpencodeIndexRoute,
   ProjectsIndexRoute: ProjectsIndexRoute,
   QoderIndexRoute: QoderIndexRoute,
+  ApiV1ConversationQueryRoute: ApiV1ConversationQueryRoute,
+  ApiV1ConversationsRoute: ApiV1ConversationsRouteWithChildren,
+  ApiV1ResolveRoute: ApiV1ResolveRoute,
+  ApiV1SourcesRoute: ApiV1SourcesRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

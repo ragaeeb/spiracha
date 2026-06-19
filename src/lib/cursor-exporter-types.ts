@@ -152,25 +152,6 @@ export type CursorExportOptions = {
     outputFormat: ExportFormat;
 };
 
-export type CursorCliOptions = CursorExportOptions & {
-    userDir: string;
-    workspaceQuery: string | null;
-    threadIds: string[];
-    outputDir: string | null;
-};
-
-export type CursorExportedFile = {
-    composerId: string;
-    outputPath: string;
-};
-
-export type CursorExportRunResult = {
-    outputDir: string;
-    exportedCount: number;
-    files: CursorExportedFile[];
-    missingThreadIds: string[];
-};
-
 export type CursorRecoverResult = {
     workspaceKey: string;
     activeBucketId: string;

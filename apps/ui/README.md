@@ -83,7 +83,7 @@ Runtime configuration is intentionally small:
   - Optional absolute path to the OpenCode SQLite database.
   - If unset, Spiracha reads `${SPIRACHA_OPENCODE_DATA_DIR:-${XDG_DATA_HOME:-~/.local/share}/opencode}/opencode.db`. `SPIRACHA_OPENCODE_DIR` is also accepted as an OpenCode data-directory alias.
 
-Export artifacts are served through the UI as attachment downloads from `/__exports/*`. The packaged `spiracha ui` launcher and the local dev server both use the same export-directory contract.
+Export artifacts are served through the UI as attachment downloads from `/__exports/*`. The local dev and preview servers use the same export-directory contract.
 
 Default source locations:
 

@@ -14,9 +14,9 @@ import type {
     ThreadBrowseData,
     ThreadListEntry,
 } from './codex-browser-types';
-import type { ThreadRelations, ThreadRow } from './codex-exporter-types';
-import { DEFAULT_CODEX_DIR, DEFAULT_DB_PATH } from './codex-exporter-types';
 import { getCachedParsedCodexTranscript, getThreadRolloutLoadState } from './codex-thread-cache';
+import type { ThreadRelations, ThreadRow } from './codex-thread-types';
+import { DEFAULT_CODEX_DIR, DEFAULT_DB_PATH } from './codex-thread-types';
 import { mapWithConcurrency } from './concurrency';
 import { cleanInlineTitle, getPortablePathBasename } from './shared';
 import { runWithSqliteRetry } from './sqlite-retry';

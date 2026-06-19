@@ -7,7 +7,13 @@ const transcript: QoderSessionTranscript = {
         {
             entryId: 'history-1',
             entryType: 'message',
-            parts: [{ raw: { title: 'Review this code' }, text: 'Review this code', type: 'text' }],
+            parts: [
+                {
+                    raw: { title: 'Review this code\\n/workspace/project/src/index.ts' },
+                    text: 'Review this code\n/workspace/project/src/index.ts',
+                    type: 'text',
+                },
+            ],
             raw: { id: 'history-1' },
             requestId: null,
             role: 'user',
@@ -43,6 +49,21 @@ const transcript: QoderSessionTranscript = {
             role: 'tool',
             timestamp: null,
         },
+        {
+            entryId: 'tool-output-1',
+            entryType: 'tool_output',
+            parts: [
+                {
+                    raw: { toolCallId: 'call-1', toolName: 'Read', type: 'tool_result' },
+                    text: 'const value = 1;',
+                    type: 'text',
+                },
+            ],
+            raw: { type: 'tool_result' },
+            requestId: 'request-a',
+            role: 'tool',
+            timestamp: '2026-06-01T10:00:01.000Z',
+        },
     ],
     rawSession: { sourceStatePath: '/tmp/state.json' },
     renderablePartCount: 3,
@@ -57,6 +78,7 @@ const transcript: QoderSessionTranscript = {
         lastActiveAtIso: '2026-06-01T10:00:02.000Z',
         lastActiveAtMs: 1_780_307_202_000,
         messageCount: 1,
+        model: 'qwen-3.7-max',
         query: 'Review this code',
         renderablePartCount: 3,
         requestId: 'request-a',
@@ -79,13 +101,13 @@ describe('qoderTranscriptToThreadEvents', () => {
     it('should adapt Qoder prompt and file-operation entries', () => {
         const events = qoderTranscriptToThreadEvents(transcript);
 
-        expect(events.map((event) => event.kind)).toEqual(['message', 'tool_call', 'tool_call']);
+        expect(events.map((event) => event.kind)).toEqual(['message', 'tool_call', 'tool_call', 'tool_output']);
         expect(events[0]).toMatchObject({
             kind: 'message',
-            model: 'Qoder',
+            model: 'qwen-3.7-max',
             phase: null,
             role: 'user',
-            text: 'Review this code',
+            text: 'Review this code\n/workspace/project/src/index.ts',
         });
         expect(events[1]).toMatchObject({
             command: 'Create file: /workspace/project/src/index.ts',
@@ -98,12 +120,18 @@ describe('qoderTranscriptToThreadEvents', () => {
             kind: 'tool_call',
             name: 'edit_file',
         });
+        expect(events[3]).toMatchObject({
+            callId: 'call-1',
+            kind: 'tool_output',
+            outputText: 'const value = 1;',
+        });
         expect(getQoderThreadTranscriptStats(events)).toMatchObject({
             assistantMessageCount: 0,
             execCommandCount: 0,
             finalAnswerCount: 0,
             messageCount: 1,
             toolCallCount: 2,
+            toolOutputCount: 1,
             userMessageCount: 1,
         });
     });

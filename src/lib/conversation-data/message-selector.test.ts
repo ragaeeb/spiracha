@@ -1,0 +1,44 @@
+import { describe, expect, it } from 'bun:test';
+import { selectConversationMessages } from './message-selector';
+import type { ConversationMessage } from './types';
+
+const baseMessage = (overrides: Partial<ConversationMessage>): ConversationMessage => ({
+    createdAtMs: null,
+    id: 'message',
+    metadata: {},
+    order: 0,
+    phase: 'unknown',
+    role: 'unknown',
+    text: 'text',
+    ...overrides,
+});
+
+describe('conversation message selection', () => {
+    it('should return all messages when requested', () => {
+        const messages = [
+            baseMessage({ id: 'user-1', role: 'user', text: 'request' }),
+            baseMessage({ id: 'assistant-1', role: 'assistant', text: 'answer' }),
+        ];
+
+        expect(selectConversationMessages(messages, 'all')).toEqual(messages);
+    });
+
+    it('should select the last assistant final answer for review collection', () => {
+        const messages = [
+            baseMessage({ id: 'assistant-1', order: 1, phase: 'commentary', role: 'assistant', text: 'working' }),
+            baseMessage({ id: 'assistant-2', order: 2, phase: 'final_answer', role: 'assistant', text: 'final' }),
+            baseMessage({ id: 'tool-1', order: 3, role: 'tool', text: 'output' }),
+        ];
+
+        expect(selectConversationMessages(messages, 'last_final_answer')).toEqual([messages[1]]);
+    });
+
+    it('should fall back to the last assistant message when no final answer exists', () => {
+        const messages = [
+            baseMessage({ id: 'assistant-1', order: 1, phase: 'commentary', role: 'assistant', text: 'first' }),
+            baseMessage({ id: 'assistant-2', order: 2, phase: 'commentary', role: 'assistant', text: 'second' }),
+        ];
+
+        expect(selectConversationMessages(messages, 'last_final_answer')).toEqual([messages[1]]);
+    });
+});
