@@ -4,14 +4,30 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import packageJsonRaw from '../../../../package.json?raw';
 
 const useRouterStateMock = vi.fn();
+const linkActiveOptionsMock = vi.fn();
 const packageJson = JSON.parse(packageJsonRaw) as { homepage: string; version: string };
 
 vi.mock('@tanstack/react-router', () => ({
-    Link: ({ children, className, to }: { children: ReactNode; className: string; to: string }) => (
-        <a className={className} href={to}>
-            {children}
-        </a>
-    ),
+    Link: ({
+        activeOptions,
+        children,
+        className,
+        to,
+        ...props
+    }: {
+        'aria-current'?: 'page';
+        activeOptions?: { includeSearch?: boolean };
+        children: ReactNode;
+        className: string;
+        to: string;
+    }) => {
+        linkActiveOptionsMock(to, activeOptions);
+        return (
+            <a className={className} href={to} {...props}>
+                {children}
+            </a>
+        );
+    },
     useRouterState: (input: { select: (state: { location: { pathname: string } }) => string }) =>
         input.select({ location: { pathname: useRouterStateMock() } }),
 }));
@@ -25,10 +41,11 @@ import { AppShell } from './app-shell';
 describe('AppShell', () => {
     afterEach(() => {
         cleanup();
+        vi.clearAllMocks();
     });
 
     it('should render navigation items and highlight the active section', () => {
-        useRouterStateMock.mockReturnValue('/projects/ushman');
+        useRouterStateMock.mockReturnValue('/codex/ushman');
 
         render(
             <AppShell>
@@ -44,6 +61,8 @@ describe('AppShell', () => {
         expect(screen.getByText('Theme switcher')).toBeTruthy();
         expect(screen.getByText('Content area')).toBeTruthy();
         expect(screen.getByRole('link', { name: /Codex/i }).className).toContain('bg-[var(--accent-muted)]');
+        expect(screen.getByRole('link', { name: /Codex/i }).getAttribute('aria-current')).toBe('page');
+        expect(linkActiveOptionsMock).toHaveBeenCalledWith('/codex', { includeSearch: false });
         expect(screen.getByRole('link', { name: /Dashboard/i }).className).toContain(
             'hover:bg-[var(--panel-secondary)]',
         );
@@ -57,6 +76,7 @@ describe('AppShell', () => {
             'Codex',
             'Claude Code',
             'Kiro',
+            'Qoder',
             'Antigravity',
             'Cursor',
             'OpenCode',
@@ -87,6 +107,18 @@ describe('AppShell', () => {
         );
 
         expect(screen.getByRole('link', { name: 'Kiro' }).className).toContain('bg-[var(--accent-muted)]');
+    });
+
+    it('should keep Qoder active on standalone session detail routes', () => {
+        useRouterStateMock.mockReturnValue('/qoder-sessions/session-1');
+
+        render(
+            <AppShell>
+                <div>Content area</div>
+            </AppShell>,
+        );
+
+        expect(screen.getByRole('link', { name: 'Qoder' }).className).toContain('bg-[var(--accent-muted)]');
     });
 
     it('should keep Cursor active on standalone thread detail routes', () => {

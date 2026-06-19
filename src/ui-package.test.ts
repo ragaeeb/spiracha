@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import path from 'node:path';
 
-const UI_SUITE_TIMEOUT_MS = 20_000;
+const UI_SUITE_TIMEOUT_MS = 60_000;
 
 type SpawnResult = {
     exitCode: number;

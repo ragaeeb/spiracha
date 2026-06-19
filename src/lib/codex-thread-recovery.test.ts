@@ -3,8 +3,8 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, rm, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { ThreadRow } from './codex-exporter-types';
 import { recoverCodexProjectThreads } from './codex-thread-recovery';
+import type { ThreadRow } from './codex-thread-types';
 
 const tempPaths: string[] = [];
 

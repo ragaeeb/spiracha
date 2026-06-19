@@ -31,7 +31,7 @@ export function RecentThreadsList({ threads }: RecentThreadsListProps) {
                             <Link
                                 className="max-w-[14rem] truncate font-medium text-[var(--accent)] underline-offset-2 hover:underline"
                                 params={{ project }}
-                                to="/projects/$project"
+                                to="/codex/$project"
                             >
                                 {project}
                             </Link>

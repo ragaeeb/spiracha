@@ -48,10 +48,21 @@ const isSafeConversationId = (value: string) => SAFE_CONVERSATION_ID_PATTERN.tes
 type TranscriptFile = {
     bytes: number;
     entryCount: number;
+    fullPath: string | null;
     mtimeMs: number;
+    model: string | null;
     path: string;
     root: string;
     source: Exclude<AntigravityTranscriptSource, 'safe-storage'>;
+};
+
+export type AntigravityConversationMessage = {
+    createdAtMs: number | null;
+    metadata: Record<string, unknown>;
+    order: number;
+    phase: 'final_answer' | 'reasoning' | 'tool_call' | 'tool_output' | 'unknown';
+    role: 'assistant' | 'system' | 'tool' | 'unknown' | 'user';
+    text: string;
 };
 
 type WorkspaceInfo = Pick<SummaryEntry, 'workspaceFolder' | 'workspaceKey' | 'workspaceLabel' | 'workspaceUri'>;
@@ -489,6 +500,44 @@ const countJsonlEntries = async (filePath: string): Promise<number> => {
     }
 };
 
+const stripModelQualifier = (value: string): string => value.replace(/\s*\([^)]*\)\s*$/u, '').trim();
+
+const extractModelSelection = (content: string): string | null => {
+    const marker = '`Model Selection`';
+    const markerIndex = content.indexOf(marker);
+    if (markerIndex < 0) {
+        return null;
+    }
+
+    const toIndex = content.indexOf(' to ', markerIndex + marker.length);
+    if (toIndex < 0) {
+        return null;
+    }
+
+    const candidate = content.slice(toIndex + ' to '.length);
+    const endMarkers = ['. No need', '. If reporting', '</USER_SETTINGS_CHANGE>', '\n'];
+    const endIndex = endMarkers.reduce<number | null>((earliest, endMarker) => {
+        const index = candidate.indexOf(endMarker);
+        return index < 0 || (earliest !== null && index >= earliest) ? earliest : index;
+    }, null);
+    const rawModel = (endIndex === null ? candidate : candidate.slice(0, endIndex)).trim();
+    return rawModel ? stripModelQualifier(rawModel) : null;
+};
+
+const extractTranscriptModel = async (filePath: string): Promise<string | null> => {
+    const text = await Bun.file(filePath)
+        .text()
+        .catch(() => '');
+    for (const entry of parseLogEntries(text)) {
+        const model = extractModelSelection(getString(entry.content) ?? '');
+        if (model) {
+            return model;
+        }
+    }
+
+    return null;
+};
+
 const preferTranscriptFile = (current: TranscriptFile | undefined, candidate: TranscriptFile): TranscriptFile => {
     if (!current) {
         return candidate;
@@ -503,6 +552,36 @@ const preferTranscriptFile = (current: TranscriptFile | undefined, candidate: Tr
     }
 
     return candidate.entryCount > current.entryCount ? candidate : current;
+};
+
+const readTranscriptFileCandidate = async (
+    root: string,
+    logsDir: string,
+    candidate: { name: string; source: TranscriptFile['source'] },
+): Promise<TranscriptFile | null> => {
+    const transcriptPath = path.join(logsDir, candidate.name);
+    try {
+        const info = await stat(transcriptPath);
+        if (!info.isFile()) {
+            return null;
+        }
+
+        const fullPath = path.join(logsDir, 'transcript_full.jsonl');
+        const hasFullTranscript = await pathExists(fullPath);
+        const modelSourcePath = hasFullTranscript ? fullPath : transcriptPath;
+        return {
+            bytes: info.size,
+            entryCount: await countJsonlEntries(modelSourcePath),
+            fullPath: hasFullTranscript ? fullPath : null,
+            model: await extractTranscriptModel(modelSourcePath),
+            mtimeMs: info.mtimeMs,
+            path: transcriptPath,
+            root,
+            source: candidate.source,
+        };
+    } catch {
+        return null;
+    }
 };
 
 const readTranscriptFilesForRoot = async (root: string): Promise<Map<string, TranscriptFile>> => {
@@ -525,25 +604,10 @@ const readTranscriptFilesForRoot = async (root: string): Promise<Map<string, Tra
             { name: 'overview.txt', source: 'overview' as const },
             { name: 'transcript.jsonl', source: 'transcript' as const },
         ]) {
-            const transcriptPath = path.join(logsDir, candidate.name);
-            try {
-                const info = await stat(transcriptPath);
-                if (!info.isFile()) {
-                    continue;
-                }
-
-                transcripts.set(
-                    entry.name,
-                    preferTranscriptFile(transcripts.get(entry.name), {
-                        bytes: info.size,
-                        entryCount: await countJsonlEntries(transcriptPath),
-                        mtimeMs: info.mtimeMs,
-                        path: transcriptPath,
-                        root,
-                        source: candidate.source,
-                    }),
-                );
-            } catch {}
+            const transcript = await readTranscriptFileCandidate(root, logsDir, candidate);
+            if (transcript) {
+                transcripts.set(entry.name, preferTranscriptFile(transcripts.get(entry.name), transcript));
+            }
         }
     }
 
@@ -640,6 +704,7 @@ const toConversation = (
         createdAtMs: summary?.createdAtMs ?? null,
         indexedItemCount: summary?.indexedItemCount ?? null,
         lastUpdatedAtMs,
+        model: transcript?.model ?? null,
         sourceRoot,
         summaryPath: summary?.summaryPath ?? null,
         title: summary?.title ?? cleanTitle(fallbackTitle, conversationId),
@@ -870,6 +935,135 @@ const renderLogEntry = (entry: AntigravityLogEntry): string[] => {
 
     parts.push(...renderToolCalls(entry.tool_calls));
     return parts;
+};
+
+const logEntryCreatedAtMs = (entry: AntigravityLogEntry): number | null => {
+    const timestamp = getString(entry.created_at);
+    if (!timestamp) {
+        return null;
+    }
+
+    const parsed = Date.parse(timestamp);
+    return Number.isFinite(parsed) ? parsed : null;
+};
+
+const logEntryOrder = (entry: AntigravityLogEntry, fallback: number): number => {
+    return typeof entry.step_index === 'number' && Number.isFinite(entry.step_index) ? entry.step_index : fallback;
+};
+
+const isAssistantLogEntry = (entry: AntigravityLogEntry): boolean => {
+    return getString(entry.source) === 'MODEL' && getString(entry.type) === 'PLANNER_RESPONSE';
+};
+
+const logEntryRole = (entry: AntigravityLogEntry): AntigravityConversationMessage['role'] => {
+    const source = getString(entry.source);
+    if (source?.startsWith('USER')) {
+        return 'user';
+    }
+    if (isAssistantLogEntry(entry)) {
+        return 'assistant';
+    }
+    if (source === 'SYSTEM') {
+        return 'system';
+    }
+    if (source === 'MODEL') {
+        return 'tool';
+    }
+    return 'unknown';
+};
+
+const logEntryPhase = (entry: AntigravityLogEntry): AntigravityConversationMessage['phase'] => {
+    const role = logEntryRole(entry);
+    if (role === 'assistant') {
+        return 'final_answer';
+    }
+    if (role === 'tool') {
+        return 'tool_output';
+    }
+    return 'unknown';
+};
+
+const logEntryMetadata = (entry: AntigravityLogEntry): Record<string, unknown> => ({
+    source: getString(entry.source),
+    status: getString(entry.status),
+    type: getString(entry.type),
+});
+
+const toolCallsText = (toolCalls: unknown): string => {
+    if (!Array.isArray(toolCalls)) {
+        return '';
+    }
+
+    return toolCalls
+        .flatMap((call) => {
+            if (!call || typeof call !== 'object') {
+                return [];
+            }
+            const { args, name } = call as { args?: unknown; name?: unknown };
+            return [JSON.stringify({ args, name: typeof name === 'string' ? name : 'unknown' })];
+        })
+        .join('\n');
+};
+
+const logEntryToMessages = (entry: AntigravityLogEntry, index: number): AntigravityConversationMessage[] => {
+    const order = logEntryOrder(entry, index);
+    const createdAtMs = logEntryCreatedAtMs(entry);
+    const role = logEntryRole(entry);
+    const phase = logEntryPhase(entry);
+    const metadata = logEntryMetadata(entry);
+    const messages: AntigravityConversationMessage[] = [];
+    const thinking = getString(entry.thinking)?.trim();
+    if (thinking && role === 'assistant') {
+        messages.push({
+            createdAtMs,
+            metadata,
+            order,
+            phase: 'reasoning',
+            role: 'assistant',
+            text: thinking,
+        });
+    }
+
+    const content = cleanLogContent(entry);
+    if (content) {
+        messages.push({
+            createdAtMs,
+            metadata,
+            order,
+            phase,
+            role,
+            text: content,
+        });
+    }
+
+    const calls = toolCallsText(entry.tool_calls);
+    if (calls) {
+        messages.push({
+            createdAtMs,
+            metadata,
+            order,
+            phase: 'tool_call',
+            role: 'tool',
+            text: calls,
+        });
+    }
+
+    return messages;
+};
+
+export const readAntigravityConversationMessages = async (
+    conversation: AntigravityConversation,
+): Promise<AntigravityConversationMessage[]> => {
+    if (!conversation.transcriptPath || !conversation.transcriptSource) {
+        return [];
+    }
+
+    try {
+        const entries = parseLogEntries(await Bun.file(conversation.transcriptPath).text());
+        return entries.flatMap(logEntryToMessages);
+    } catch {
+        return [];
+    }
 };
 
 const renderAntigravityTranscriptMarkdown = async (conversation: AntigravityConversation): Promise<string | null> => {

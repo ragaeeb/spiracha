@@ -130,7 +130,7 @@ describe('TranscriptView', () => {
                     {
                         ...toolEvent,
                         command:
-                            'rtk rg -n "' + 'very-long-token|'.repeat(40) + '" src/lib/codex-exporter-transcript.ts',
+                            'rtk rg -n "' + 'very-long-token|'.repeat(40) + '" src/lib/codex-transcript-renderer.ts',
                         sequence: 3,
                     },
                 ]}

@@ -360,8 +360,11 @@ export const groupCursorBuckets = (buckets: CursorWorkspaceBucket[]): CursorWork
     return groups.sort((a, b) => b.lastActiveMs - a.lastActiveMs);
 };
 
-export const listCursorWorkspaceGroups = async (userDir = resolveCursorUserDir()): Promise<CursorWorkspaceGroup[]> => {
-    return (await discoverCursorWorkspaces(userDir)).groups;
+export const listCursorWorkspaceGroups = async (
+    userDir = resolveCursorUserDir(),
+    options: CursorDiscoveryOptions = {},
+): Promise<CursorWorkspaceGroup[]> => {
+    return (await discoverCursorWorkspaces(userDir, options)).groups;
 };
 
 export const cursorBucketMatchesQuery = (bucket: CursorWorkspaceBucket, query: string): boolean => {
@@ -462,6 +465,7 @@ export const findCursorTranscriptDirs = async (
 
 export type ListCursorThreadsOptions = {
     includeTranscriptDirs?: boolean;
+    updatedAfterMs?: number;
 };
 
 export const listCursorThreadsForGroup = async (
@@ -469,7 +473,7 @@ export const listCursorThreadsForGroup = async (
     userDir = resolveCursorUserDir(),
     options: ListCursorThreadsOptions = {},
 ): Promise<CursorThreadSummary[]> => {
-    const discovery = await discoverCursorWorkspaces(userDir);
+    const discovery = await discoverCursorWorkspaces(userDir, options);
     const threads = discovery.threadsByKey.get(group.key) ?? [];
 
     if (options.includeTranscriptDirs === false) {
@@ -503,6 +507,10 @@ type BubbleStat = { count: number; bytes: number };
 type CursorDiscovery = {
     groups: CursorWorkspaceGroup[];
     threadsByKey: Map<string, CursorThreadSummary[]>;
+};
+
+type CursorDiscoveryOptions = {
+    updatedAfterMs?: number;
 };
 
 // Discovery does a full scan of the (potentially multi-GB) global DB, so cache it briefly. Writes
@@ -662,7 +670,20 @@ const inferFolderFromBubbles = (db: Database, composerId: string): string | null
     return inferFolderFromPaths(paths);
 };
 
-const readAllHeads = (db: Database): Map<string, GlobalHead> => {
+const readAllHeads = (db: Database, options: CursorDiscoveryOptions = {}): Map<string, GlobalHead> => {
+    if (options.updatedAfterMs !== undefined) {
+        const rows = db
+            .query(
+                `SELECT substr(key, 14) AS id, value
+                 FROM cursorDiskKV
+                 WHERE key LIKE 'composerData:%'
+                    AND COALESCE(json_extract(value, '$.lastUpdatedAt'), 0) >= ?`,
+            )
+            .all(options.updatedAfterMs) as Array<{ id: string; value: string }>;
+
+        return new Map(rows.map((row) => [row.id, parseGlobalHead(row.value)]));
+    }
+
     const rows = db
         .query(`SELECT substr(key, 14) AS id, value FROM cursorDiskKV WHERE key LIKE 'composerData:%'`)
         .all() as Array<{ id: string; value: string }>;
@@ -693,17 +714,28 @@ const parseGlobalHead = (value: string): GlobalHead => {
     };
 };
 
-const readBubbleStats = (db: Database): Map<string, BubbleStat> => {
+const readBubbleStats = (db: Database, composerIds?: Iterable<string>): Map<string, BubbleStat> => {
+    const ids = composerIds ? [...composerIds] : null;
+    if (ids?.length === 0) {
+        return new Map();
+    }
+
     // Keys are `bubbleId:<composerId>:<bubbleId>`; composer ids contain no colon, so slice up to the
     // next ':' rather than assuming a fixed UUID length (keeps tests and any id format working).
-    const rows = db
-        .query(
-            `SELECT substr(key, 10, instr(substr(key, 10), ':') - 1) AS id,
+    const query =
+        ids === null
+            ? `SELECT substr(key, 10, instr(substr(key, 10), ':') - 1) AS id,
                     COUNT(*) AS count,
                     COALESCE(SUM(length(value)), 0) AS bytes
-             FROM cursorDiskKV WHERE key GLOB 'bubbleId:*:*' GROUP BY id`,
-        )
-        .all() as Array<{ id: string; count: number; bytes: number }>;
+             FROM cursorDiskKV WHERE key GLOB 'bubbleId:*:*' GROUP BY id`
+            : `SELECT substr(key, 10, instr(substr(key, 10), ':') - 1) AS id,
+                    COUNT(*) AS count,
+                    COALESCE(SUM(length(value)), 0) AS bytes
+             FROM cursorDiskKV
+             WHERE key GLOB 'bubbleId:*:*'
+                AND substr(key, 10, instr(substr(key, 10), ':') - 1) IN (${ids.map(() => '?').join(',')})
+             GROUP BY id`;
+    const rows = db.query(query).all(...(ids ?? [])) as Array<{ id: string; count: number; bytes: number }>;
 
     return new Map(rows.map((row) => [row.id, { bytes: row.bytes, count: row.count }]));
 };
@@ -936,14 +968,13 @@ const buildDiscoveryGroups = (
     return groups.sort((a, b) => b.lastActiveMs - a.lastActiveMs);
 };
 
-const buildDiscovery = async (userDir: string): Promise<CursorDiscovery> => {
+const buildDiscovery = async (userDir: string, options: CursorDiscoveryOptions = {}): Promise<CursorDiscovery> => {
     const buckets = await loadCursorBuckets(userDir);
     const bucketGroups = groupCursorBuckets(buckets);
-    const fileHistoryActivity = await readCursorFileHistoryProjectActivity(userDir);
     const globalDbPath = getCursorGlobalDbPath(userDir);
 
     if (!(await pathExists(globalDbPath))) {
-        return assembleDiscovery([], bucketGroups, fileHistoryActivity);
+        return assembleDiscovery([], bucketGroups, new Map());
     }
 
     const bucketIdToGroupKey = new Map<string, string>();
@@ -955,14 +986,20 @@ const buildDiscovery = async (userDir: string): Promise<CursorDiscovery> => {
         }
     }
 
-    const headerInfo = readHeaderInfo(globalDbPath);
-    const bucketComposerIds = collectBucketComposerIds(buckets);
-
     const db = openCursorReadonlyDb(globalDbPath);
     try {
-        const heads = readAllHeads(db);
-        const stats = readBubbleStats(db);
-        const universe = new Set<string>([...heads.keys(), ...headerInfo.keys(), ...bucketComposerIds.keys()]);
+        const heads = readAllHeads(db, options);
+        if (options.updatedAfterMs !== undefined && heads.size === 0) {
+            return assembleDiscovery([], bucketGroups, new Map());
+        }
+
+        const headerInfo = readHeaderInfo(globalDbPath);
+        const bucketComposerIds = options.updatedAfterMs === undefined ? collectBucketComposerIds(buckets) : new Map();
+        const stats = readBubbleStats(db, options.updatedAfterMs === undefined ? undefined : heads.keys());
+        const universe =
+            options.updatedAfterMs === undefined
+                ? new Set<string>([...heads.keys(), ...headerInfo.keys(), ...bucketComposerIds.keys()])
+                : new Set<string>(heads.keys());
         const resolved: ResolvedThread[] = [];
 
         for (const composerId of universe) {
@@ -980,13 +1017,22 @@ const buildDiscovery = async (userDir: string): Promise<CursorDiscovery> => {
             );
         }
 
+        const fileHistoryActivity =
+            options.updatedAfterMs === undefined ? await readCursorFileHistoryProjectActivity(userDir) : new Map();
         return assembleDiscovery(resolved, bucketGroups, fileHistoryActivity);
     } finally {
         db.close();
     }
 };
 
-const discoverCursorWorkspaces = async (userDir: string): Promise<CursorDiscovery> => {
+const discoverCursorWorkspaces = async (
+    userDir: string,
+    options: CursorDiscoveryOptions = {},
+): Promise<CursorDiscovery> => {
+    if (options.updatedAfterMs !== undefined) {
+        return await buildDiscovery(userDir, options);
+    }
+
     const now = Date.now();
     if (discoveryCache && discoveryCache.userDir === userDir && now - discoveryCache.at < DISCOVERY_TTL_MS) {
         return discoveryCache.value;

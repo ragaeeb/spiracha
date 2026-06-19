@@ -122,6 +122,7 @@ const conversation: AntigravityConversation = {
     createdAtMs: 1_700_000_000_000,
     indexedItemCount: 7,
     lastUpdatedAtMs: 1_700_000_100_000,
+    model: null,
     sourceRoot: '/Users/user/.gemini/antigravity',
     summaryPath: '/tmp/summary.pb',
     title: 'Investigate flaky workspace sync',

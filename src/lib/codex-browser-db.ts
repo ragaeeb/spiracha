@@ -1,6 +1,6 @@
 import { constants, Database } from 'bun:sqlite';
-import { closeSync, openSync, readdirSync, readSync, statSync } from 'node:fs';
-import { rm } from 'node:fs/promises';
+import { closeSync, openSync, readdirSync, readSync, type Stats, statSync } from 'node:fs';
+import { rename, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
@@ -14,9 +14,9 @@ import type {
     ThreadBrowseData,
     ThreadListEntry,
 } from './codex-browser-types';
-import type { ThreadRelations, ThreadRow } from './codex-exporter-types';
-import { DEFAULT_CODEX_DIR, DEFAULT_DB_PATH } from './codex-exporter-types';
 import { getCachedParsedCodexTranscript, getThreadRolloutLoadState } from './codex-thread-cache';
+import type { ThreadRelations, ThreadRow } from './codex-thread-types';
+import { DEFAULT_CODEX_DIR, DEFAULT_DB_PATH } from './codex-thread-types';
 import { mapWithConcurrency } from './concurrency';
 import { cleanInlineTitle, getPortablePathBasename } from './shared';
 import { runWithSqliteRetry } from './sqlite-retry';
@@ -36,7 +36,12 @@ const THREAD_LIST_IO_CONCURRENCY = 8;
 const CODEX_READONLY_DB_OPEN_FLAGS = constants.SQLITE_OPEN_READONLY | constants.SQLITE_OPEN_URI;
 const JSONL_READ_CHUNK_BYTES = 64 * 1024;
 const SESSION_META_READ_LIMIT_BYTES = 4 * 1024 * 1024;
+const FALLBACK_STATS_HEAD_READ_LIMIT_BYTES = 512 * 1024;
+const FALLBACK_STATS_TAIL_READ_LIMIT_BYTES = 512 * 1024;
+const FALLBACK_STATS_RECORD_PATTERN = /"type"\s*:\s*"(?:agent_message|message|token_count|turn_context)"/u;
 const THREAD_ID_PATTERN = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/iu;
+const sessionFileIndexCache = new Map<string, Map<string, string>>();
+let sessionIndexMutationQueue = Promise.resolve();
 
 type SessionIndexEntry = {
     id: string;
@@ -68,9 +73,15 @@ type FallbackRolloutStats = {
     tokensUsed: number;
 };
 
+type FallbackThreadRowOptions = ReadFallbackThreadRowsOptions & {
+    projectName?: string | null;
+};
+
 const isSqliteCantOpenError = (error: unknown) => {
     return (error as { code?: unknown }).code === 'SQLITE_CANTOPEN';
 };
+
+const uniqueValues = <T>(values: T[]) => [...new Set(values)];
 
 const chunkValues = <T>(values: T[], chunkSize: number) => {
     const chunks: T[][] = [];
@@ -329,6 +340,31 @@ const collectSessionFilesByThreadId = (sessionsDir: string): Map<string, string>
     return sessionFiles;
 };
 
+const findSessionFileByThreadId = (sessionsDir: string, threadId: string): string | null => {
+    const lookup = (sessionFilesByThreadId: Map<string, string>) => {
+        const sessionFile = sessionFilesByThreadId.get(threadId);
+        if (!sessionFile) {
+            return null;
+        }
+
+        try {
+            return statSync(sessionFile).isFile() ? sessionFile : null;
+        } catch {
+            return null;
+        }
+    };
+
+    const cached = sessionFileIndexCache.get(sessionsDir);
+    const cachedMatch = cached ? lookup(cached) : null;
+    if (cachedMatch) {
+        return cachedMatch;
+    }
+
+    const refreshed = collectSessionFilesByThreadId(sessionsDir);
+    sessionFileIndexCache.set(sessionsDir, refreshed);
+    return lookup(refreshed);
+};
+
 const readSessionMetaLine = (sessionFile: string): string | null => {
     let descriptor: number | null = null;
     try {
@@ -402,40 +438,183 @@ const isFallbackSubagent = (sessionMeta: FallbackSessionMeta) => {
     );
 };
 
+const updateFallbackRolloutStatsFromRecord = (record: Record<string, unknown>, stats: FallbackRolloutStats): void => {
+    const payload = objectOrNull(record.payload);
+    if (!payload) {
+        return;
+    }
+
+    if (record.type === 'turn_context') {
+        stats.model = stringOrNull(payload.model) ?? stats.model;
+        return;
+    }
+
+    const payloadType = stringOrNull(payload.type);
+    if (payloadType === 'message' || payloadType === 'agent_message') {
+        stats.model = stringOrNull(payload.model) ?? stats.model;
+        return;
+    }
+
+    if (payloadType !== 'token_count') {
+        return;
+    }
+
+    const info = objectOrNull(payload.info);
+    const totalTokenUsage = objectOrNull(info?.total_token_usage);
+    stats.tokensUsed = numberOrNull(totalTokenUsage?.total_tokens) ?? stats.tokensUsed;
+};
+
+const readFallbackStatsLine = (line: string, stats: FallbackRolloutStats) => {
+    const trimmed = line.trim();
+    if (!trimmed || !FALLBACK_STATS_RECORD_PATTERN.test(trimmed)) {
+        return;
+    }
+
+    const record = parseJsonlObject<Record<string, unknown>>(trimmed);
+    if (record) {
+        updateFallbackRolloutStatsFromRecord(record, stats);
+    }
+};
+
+const emitCompleteFallbackStatsLines = (text: string, stats: FallbackRolloutStats): string => {
+    const lines = text.split(/\r?\n/u);
+    const pending = lines.pop() ?? '';
+    for (const line of lines) {
+        readFallbackStatsLine(line, stats);
+    }
+    return pending;
+};
+
+const readFallbackRolloutStatsHead = (sessionFile: string, stats: FallbackRolloutStats, fileStats: Stats) => {
+    let descriptor: number | null = null;
+    try {
+        if (!fileStats.isFile()) {
+            return 0;
+        }
+
+        descriptor = openSync(sessionFile, 'r');
+        const buffer = Buffer.alloc(JSONL_READ_CHUNK_BYTES);
+        const decoder = new StringDecoder('utf8');
+        const readLimitBytes = Math.min(fileStats.size, FALLBACK_STATS_HEAD_READ_LIMIT_BYTES);
+        let position = 0;
+        let pending = '';
+
+        while (position < readLimitBytes) {
+            const bytesRead = readSync(
+                descriptor,
+                buffer,
+                0,
+                Math.min(buffer.length, readLimitBytes - position),
+                position,
+            );
+            if (bytesRead === 0) {
+                break;
+            }
+
+            position += bytesRead;
+            pending += decoder.write(buffer.subarray(0, bytesRead));
+            pending = emitCompleteFallbackStatsLines(pending, stats);
+        }
+
+        if (position >= fileStats.size) {
+            readFallbackStatsLine(pending + decoder.end(), stats);
+            return position;
+        }
+
+        decoder.end();
+        return position;
+    } catch {
+        return 0;
+    } finally {
+        if (descriptor !== null) {
+            closeSync(descriptor);
+        }
+    }
+};
+
+const trimPartialLeadingJsonlLine = (text: string) => {
+    if (text.startsWith('\r\n')) {
+        return text.slice(2);
+    }
+
+    if (text.startsWith('\n')) {
+        return text.slice(1);
+    }
+
+    const match = /\r?\n/u.exec(text);
+    return match ? text.slice(match.index + match[0].length) : '';
+};
+
+const readFallbackRolloutStatsTail = (
+    sessionFile: string,
+    stats: FallbackRolloutStats,
+    fileStats: Stats,
+    coveredPrefixBytes: number,
+) => {
+    let descriptor: number | null = null;
+    try {
+        if (!fileStats.isFile() || fileStats.size === 0) {
+            return;
+        }
+
+        const suffixStart = Math.max(coveredPrefixBytes, fileStats.size - FALLBACK_STATS_TAIL_READ_LIMIT_BYTES);
+        if (suffixStart >= fileStats.size) {
+            return;
+        }
+
+        const readStart = suffixStart > 0 ? suffixStart - 1 : 0;
+        const readLimitBytes = fileStats.size - readStart;
+        descriptor = openSync(sessionFile, 'r');
+        const buffer = Buffer.alloc(JSONL_READ_CHUNK_BYTES);
+        const decoder = new StringDecoder('utf8');
+        let position = readStart;
+        let remainingBytes = readLimitBytes;
+        let text = '';
+
+        while (remainingBytes > 0) {
+            const bytesRead = readSync(descriptor, buffer, 0, Math.min(buffer.length, remainingBytes), position);
+            if (bytesRead === 0) {
+                break;
+            }
+
+            position += bytesRead;
+            remainingBytes -= bytesRead;
+            text += decoder.write(buffer.subarray(0, bytesRead));
+        }
+
+        text += decoder.end();
+        const completeText = readStart > 0 ? trimPartialLeadingJsonlLine(text) : text;
+        for (const line of completeText.split(/\r?\n/u)) {
+            readFallbackStatsLine(line, stats);
+        }
+    } catch {
+        return;
+    } finally {
+        if (descriptor !== null) {
+            closeSync(descriptor);
+        }
+    }
+};
+
 const readFallbackRolloutStats = (sessionFile: string): FallbackRolloutStats => {
-    let model: string | null = null;
-    let tokensUsed = 0;
-
-    readJsonlObjects<Record<string, unknown>>(sessionFile, (record) => {
-        const payload = objectOrNull(record.payload);
-        if (!payload) {
-            return;
-        }
-
-        if (record.type === 'turn_context') {
-            model = stringOrNull(payload.model) ?? model;
-            return;
-        }
-
-        const payloadType = stringOrNull(payload.type);
-        if (payloadType === 'message' || payloadType === 'agent_message') {
-            model = stringOrNull(payload.model) ?? model;
-            return;
-        }
-
-        if (payloadType !== 'token_count') {
-            return;
-        }
-
-        const info = objectOrNull(payload.info);
-        const totalTokenUsage = objectOrNull(info?.total_token_usage);
-        tokensUsed = numberOrNull(totalTokenUsage?.total_tokens) ?? tokensUsed;
-    });
-
-    return {
-        model,
-        tokensUsed,
+    const stats: FallbackRolloutStats = {
+        model: null,
+        tokensUsed: 0,
     };
+
+    try {
+        const fileStats = statSync(sessionFile);
+        if (!fileStats.isFile()) {
+            return stats;
+        }
+
+        const coveredPrefixBytes = readFallbackRolloutStatsHead(sessionFile, stats, fileStats);
+        readFallbackRolloutStatsTail(sessionFile, stats, fileStats, coveredPrefixBytes);
+    } catch {
+        return stats;
+    }
+
+    return stats;
 };
 
 const buildFallbackThreadRow = (
@@ -492,6 +671,28 @@ const buildFallbackThreadRow = (
     };
 };
 
+const readFallbackThreadRow = (
+    entry: SessionIndexEntry,
+    sessionFile: string,
+    options: FallbackThreadRowOptions = {},
+): ThreadRow | null => {
+    const sessionMeta = readFallbackSessionMeta(sessionFile);
+    if (!sessionMeta) {
+        return null;
+    }
+
+    if (!options.includeSubagents && isFallbackSubagent(sessionMeta)) {
+        return null;
+    }
+
+    const cwd = stringOrNull(sessionMeta.cwd);
+    if (!cwd || (options.projectName && getPortablePathBasename(cwd) !== options.projectName)) {
+        return null;
+    }
+
+    return buildFallbackThreadRow(entry, sessionFile, sessionMeta, readFallbackRolloutStats(sessionFile));
+};
+
 const readFallbackThreadRows = (
     dbPath: string,
     existingThreadIds: Set<string>,
@@ -512,22 +713,11 @@ const readFallbackThreadRows = (
             continue;
         }
 
-        const sessionMeta = readFallbackSessionMeta(sessionFile);
-        if (!sessionMeta) {
-            continue;
-        }
-
-        if (!options.includeSubagents && isFallbackSubagent(sessionMeta)) {
-            continue;
-        }
-
-        const fallbackThread = buildFallbackThreadRow(
-            entry,
-            sessionFile,
-            sessionMeta,
-            readFallbackRolloutStats(sessionFile),
-        );
-        if (!fallbackThread || (projectName && getPortablePathBasename(fallbackThread.cwd) !== projectName)) {
+        const fallbackThread = readFallbackThreadRow(entry, sessionFile, {
+            ...options,
+            projectName,
+        });
+        if (!fallbackThread) {
             continue;
         }
 
@@ -535,6 +725,25 @@ const readFallbackThreadRows = (
     }
 
     return fallbackThreads;
+};
+
+const readFallbackThreadRowById = (
+    dbPath: string,
+    threadId: string,
+    options: ReadFallbackThreadRowsOptions = {},
+): ThreadRow | null => {
+    const codexDir = resolveCodexDirFromDbPath(dbPath);
+    const entry = readSessionIndexEntries(codexDir).find((candidate) => candidate.id === threadId);
+    if (!entry) {
+        return null;
+    }
+
+    const sessionFile = findSessionFileByThreadId(path.join(codexDir, 'sessions'), threadId);
+    if (!sessionFile) {
+        return null;
+    }
+
+    return readFallbackThreadRow(entry, sessionFile, options);
 };
 
 const mergeFallbackThreadRows = (dbPath: string, threads: ThreadRow[], projectName: string | null = null) => {
@@ -803,6 +1012,132 @@ const deleteThreadSessionFiles = async (sessionFiles: string[]) => {
     return uniqueSessionFiles;
 };
 
+const getSessionFilesForThreadIds = (dbPath: string, threadIds: string[]) => {
+    if (threadIds.length === 0) {
+        return [];
+    }
+
+    const codexDir = resolveCodexDirFromDbPath(dbPath);
+    if (threadIds.length === 1) {
+        const sessionFile = findSessionFileByThreadId(path.join(codexDir, 'sessions'), threadIds[0]!);
+        return sessionFile ? [sessionFile] : [];
+    }
+
+    const sessionFilesByThreadId = collectSessionFilesByThreadId(path.join(codexDir, 'sessions'));
+    return threadIds
+        .map((threadId) => sessionFilesByThreadId.get(threadId))
+        .filter((value): value is string => Boolean(value));
+};
+
+const filterSessionIndexLines = (lines: string[], threadIds: Set<string>) => {
+    const removedThreadIds: string[] = [];
+    const retainedLines: string[] = [];
+
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) {
+            continue;
+        }
+
+        const entry = parseJsonlObject<SessionIndexEntry>(trimmed);
+        if (entry?.id && threadIds.has(entry.id)) {
+            removedThreadIds.push(entry.id);
+            continue;
+        }
+
+        retainedLines.push(trimmed);
+    }
+
+    return { removedThreadIds, retainedLines };
+};
+
+const writeSessionIndexLines = async (sessionIndexPath: string, codexDir: string, retainedLines: string[]) => {
+    const tempSessionIndexPath = path.join(
+        codexDir,
+        `.session_index.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`,
+    );
+    try {
+        await Bun.write(tempSessionIndexPath, retainedLines.length > 0 ? `${retainedLines.join('\n')}\n` : '');
+        await rename(tempSessionIndexPath, sessionIndexPath);
+    } catch (error) {
+        await rm(tempSessionIndexPath, { force: true });
+        throw error;
+    }
+};
+
+const removeSessionIndexEntries = async (codexDir: string, threadIds: string[]) => {
+    const runMutation = async () => {
+        const uniqueThreadIds = new Set(threadIds);
+        if (uniqueThreadIds.size === 0) {
+            return [];
+        }
+
+        const sessionIndexPath = path.join(codexDir, 'session_index.jsonl');
+        if (!(await Bun.file(sessionIndexPath).exists())) {
+            return [];
+        }
+
+        const lines = (await Bun.file(sessionIndexPath).text()).split(/\r?\n/u);
+        const { removedThreadIds, retainedLines } = filterSessionIndexLines(lines, uniqueThreadIds);
+
+        if (removedThreadIds.length === 0) {
+            return [];
+        }
+
+        await writeSessionIndexLines(sessionIndexPath, codexDir, retainedLines);
+        return uniqueValues(removedThreadIds);
+    };
+
+    const mutation = sessionIndexMutationQueue.then(runMutation, runMutation);
+    sessionIndexMutationQueue = mutation.then(
+        () => undefined,
+        () => undefined,
+    );
+    return mutation;
+};
+
+const listFallbackThreadIdsForProject = (dbPath: string, existingThreadIds: Set<string>, projectName: string) => {
+    const codexDir = resolveCodexDirFromDbPath(dbPath);
+    const sessionFilesByThreadId = collectSessionFilesByThreadId(path.join(codexDir, 'sessions'));
+    const fallbackThreadIds: string[] = [];
+
+    for (const entry of readSessionIndexEntries(codexDir)) {
+        if (existingThreadIds.has(entry.id) || !sessionFilesByThreadId.has(entry.id)) {
+            continue;
+        }
+
+        const sessionMeta = readFallbackSessionMeta(sessionFilesByThreadId.get(entry.id)!);
+        if (!sessionMeta || isFallbackSubagent(sessionMeta)) {
+            continue;
+        }
+
+        const cwd = stringOrNull(sessionMeta.cwd);
+        if (cwd && getPortablePathBasename(cwd) === projectName) {
+            fallbackThreadIds.push(entry.id);
+        }
+    }
+
+    return fallbackThreadIds;
+};
+
+const deleteSessionIndexEntriesForThreads = async (
+    dbPath: string,
+    threadIds: string[],
+    dbDeletedSessionFiles: string[],
+    deleteSessionFiles: boolean,
+) => {
+    const codexDir = resolveCodexDirFromDbPath(dbPath);
+    const removedThreadIds = await removeSessionIndexEntries(codexDir, threadIds);
+    const fallbackSessionFiles = deleteSessionFiles ? getSessionFilesForThreadIds(dbPath, removedThreadIds) : [];
+
+    return {
+        deletedSessionFiles: deleteSessionFiles
+            ? await deleteThreadSessionFiles([...dbDeletedSessionFiles, ...fallbackSessionFiles])
+            : [],
+        deletedThreadIds: removedThreadIds,
+    };
+};
+
 export const listCodexProjects = (dbPath: string): ProjectSummary[] => {
     return mapProjectSummaries(
         buildProjectSummaryMap(applyRolloutActivityTimestamps(mergeFallbackThreadRows(dbPath, readAllThreads(dbPath)))),
@@ -810,6 +1145,7 @@ export const listCodexProjects = (dbPath: string): ProjectSummary[] => {
 };
 
 type ListProjectThreadsOptions = {
+    includeTranscriptStats?: boolean;
     largeTranscriptThresholdBytes?: number;
 };
 
@@ -849,7 +1185,7 @@ export const listProjectThreads = async (
             };
         }
 
-        if (rollout.shouldDeferTranscriptLoad) {
+        if (rollout.shouldDeferTranscriptLoad || options.includeTranscriptStats === false) {
             return {
                 project: projectName,
                 rolloutSizeBytes: rollout.fileSizeBytes,
@@ -885,12 +1221,7 @@ export const getThreadBrowseData = (dbPath: string, threadId: string): ThreadBro
     return withReadonlyDb(dbPath, (db) => {
         const existingTableNames = getExistingTableNames(db);
         const dbThread = db.query('SELECT * FROM threads WHERE id = ? LIMIT 1').get(threadId) as ThreadRow | null;
-        const thread =
-            dbThread ??
-            readFallbackThreadRows(dbPath, new Set(), null, { includeSubagents: true }).find(
-                (fallbackThread) => fallbackThread.id === threadId,
-            ) ??
-            null;
+        const thread = dbThread ?? readFallbackThreadRowById(dbPath, threadId, { includeSubagents: true }) ?? null;
         if (!thread) {
             throw new Error(`Thread not found: ${threadId}`);
         }
@@ -955,21 +1286,22 @@ export const deleteCodexThread = async (
     threadId: string,
     options: DeleteThreadOptions = {},
 ): Promise<DeleteThreadsResult> => {
+    const threadIds = [threadId];
     const result = withWritableDb(dbPath, (db) => {
-        return deleteThreadIds(db, [threadId]);
+        return deleteThreadIds(db, threadIds);
     });
 
     try {
-        if (options.deleteSessionFiles) {
-            return {
-                ...result,
-                deletedSessionFiles: await deleteThreadSessionFiles(result.deletedSessionFiles),
-            };
-        }
+        const sessionIndexResult = await deleteSessionIndexEntriesForThreads(
+            dbPath,
+            threadIds,
+            result.deletedSessionFiles,
+            Boolean(options.deleteSessionFiles),
+        );
 
         return {
-            ...result,
-            deletedSessionFiles: [],
+            deletedSessionFiles: sessionIndexResult.deletedSessionFiles,
+            deletedThreadIds: uniqueValues([...result.deletedThreadIds, ...sessionIndexResult.deletedThreadIds]),
         };
     } finally {
         await invalidateCodexUiCaches();
@@ -981,21 +1313,22 @@ export const deleteCodexThreads = async (
     threadIds: string[],
     options: DeleteThreadOptions = {},
 ): Promise<DeleteThreadsResult> => {
+    const uniqueThreadIds = uniqueValues(threadIds);
     const result = withWritableDb(dbPath, (db) => {
-        return deleteThreadIds(db, threadIds);
+        return deleteThreadIds(db, uniqueThreadIds);
     });
 
     try {
-        if (options.deleteSessionFiles) {
-            return {
-                ...result,
-                deletedSessionFiles: await deleteThreadSessionFiles(result.deletedSessionFiles),
-            };
-        }
+        const sessionIndexResult = await deleteSessionIndexEntriesForThreads(
+            dbPath,
+            uniqueThreadIds,
+            result.deletedSessionFiles,
+            Boolean(options.deleteSessionFiles),
+        );
 
         return {
-            ...result,
-            deletedSessionFiles: [],
+            deletedSessionFiles: sessionIndexResult.deletedSessionFiles,
+            deletedThreadIds: uniqueValues([...result.deletedThreadIds, ...sessionIndexResult.deletedThreadIds]),
         };
     } finally {
         await invalidateCodexUiCaches();
@@ -1007,6 +1340,8 @@ export const deleteCodexProject = async (
     projectName: string,
     options: DeleteProjectOptions = {},
 ): Promise<DeleteProjectResult> => {
+    const existingThreadIds = new Set(readAllThreads(dbPath).map((thread) => thread.id));
+    const fallbackThreadIds = listFallbackThreadIdsForProject(dbPath, existingThreadIds, projectName);
     const result = withWritableDb(dbPath, (db) => {
         const threads = db.query('SELECT id, cwd FROM threads').all() as Array<{ cwd: string; id: string }>;
         const threadIds = threads
@@ -1021,16 +1356,17 @@ export const deleteCodexProject = async (
     });
 
     try {
-        if (options.deleteSessionFiles) {
-            return {
-                ...result,
-                deletedSessionFiles: await deleteThreadSessionFiles(result.deletedSessionFiles),
-            };
-        }
+        const sessionIndexResult = await deleteSessionIndexEntriesForThreads(
+            dbPath,
+            [...result.deletedThreadIds, ...fallbackThreadIds],
+            result.deletedSessionFiles,
+            Boolean(options.deleteSessionFiles),
+        );
 
         return {
             ...result,
-            deletedSessionFiles: [],
+            deletedSessionFiles: sessionIndexResult.deletedSessionFiles,
+            deletedThreadIds: uniqueValues([...result.deletedThreadIds, ...sessionIndexResult.deletedThreadIds]),
         };
     } finally {
         await invalidateCodexUiCaches();
@@ -1042,5 +1378,5 @@ export const listScopedThreads = (dbPath: string, projectName: string | null): T
 };
 
 export const invalidateCodexUiCaches = async () => {
-    await invalidateCacheByPrefix('analytics-', 'thread-');
+    await invalidateCacheByPrefix('analytics-', 'thread-', 'thread-preview-');
 };

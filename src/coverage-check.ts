@@ -32,15 +32,7 @@ type CoverageSummary = {
 
 const COVERAGE_PROFILES: Record<CoverageProfileName, CoverageProfile> = {
     root: {
-        excludeSubstrings: [
-            'src/coverage-check.ts',
-            'src/lib/codex-test-helpers.ts',
-            'src/lib/interactive-cli.ts',
-            'src/lib/native-open.ts',
-            'src/package-ui-smoke.ts',
-            'src/spiracha.ts',
-            'src/ui-cli.ts',
-        ],
+        excludeSubstrings: ['src/coverage-check.ts', 'src/lib/codex-test-helpers.ts'],
         lcovPath: 'coverage/lcov.info',
         minimumLineCoverage: 90,
     },

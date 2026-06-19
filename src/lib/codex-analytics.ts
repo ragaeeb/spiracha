@@ -1,6 +1,6 @@
 import { listScopedThreads } from './codex-browser-db';
 import type { CodexAnalytics, DistributionItem, ModelTokenSummary } from './codex-browser-types';
-import type { ThreadRow } from './codex-exporter-types';
+import type { ThreadRow } from './codex-thread-types';
 import { mapWithConcurrency } from './concurrency';
 import { asObject, asString, getPortablePathBasename, readJsonlObjects } from './shared';
 import { hashCacheKeyParts, hashCacheKeyPartsIterable, withCachedJson } from './ui-cache';

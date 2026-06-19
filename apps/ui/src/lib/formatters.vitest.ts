@@ -15,7 +15,8 @@ describe('formatters', () => {
         vi.setSystemTime(new Date('2026-05-24T12:00:00.000Z'));
     });
 
-    it('should format dates in the user timezone instead of UTC', () => {
+    it('should format dates deterministically by default and support explicit user timezones', () => {
+        expect(formatDateTime('2026-05-24T12:30:00.000Z')).toBe('12:30 PM');
         expect(
             formatDateTime('2026-05-24T12:30:00.000Z', {
                 now: new Date('2026-05-24T12:00:00.000Z'),

@@ -72,7 +72,7 @@ function DashboardPage() {
                                 Most recently updated threads across the local Codex database.
                             </p>
                         </div>
-                        <Link className="shrink-0 font-medium text-[var(--accent)] text-sm" to="/projects">
+                        <Link className="shrink-0 font-medium text-[var(--accent)] text-sm" to="/codex">
                             View Codex
                         </Link>
                     </div>
@@ -88,7 +88,7 @@ function DashboardPage() {
                                     key={project.name}
                                     className="flex items-center justify-between gap-3 rounded-lg border border-[var(--border)] bg-[var(--panel-secondary)] px-3.5 py-2.5 text-sm"
                                     params={{ project: project.name }}
-                                    to="/projects/$project"
+                                    to="/codex/$project"
                                 >
                                     <span className="truncate">{project.name}</span>
                                     <span className="shrink-0 font-mono text-[var(--muted-foreground)]">
@@ -107,7 +107,7 @@ function DashboardPage() {
                                     key={project.name}
                                     className="flex items-center justify-between gap-3 rounded-lg border border-[var(--border)] bg-[var(--panel-secondary)] px-3.5 py-2.5 text-sm"
                                     params={{ project: project.name }}
-                                    to="/projects/$project"
+                                    to="/codex/$project"
                                 >
                                     <span className="truncate">{project.name}</span>
                                     <span className="shrink-0 font-mono text-[var(--muted-foreground)]">

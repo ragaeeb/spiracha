@@ -26,7 +26,7 @@ const columns = (onDeleteProject: (project: ProjectSummary) => void) =>
                 <Link
                     className="block w-[14rem] max-w-[18rem] space-y-1 rounded-md outline-none transition hover:opacity-80 focus-visible:ring-2 focus-visible:ring-[var(--accent)] lg:w-auto"
                     params={{ project: info.row.original.name }}
-                    to="/projects/$project"
+                    to="/codex/$project"
                 >
                     <p className="font-medium underline-offset-2 hover:underline">{info.getValue()}</p>
                     <p className="text-[var(--muted-foreground)] text-xs">

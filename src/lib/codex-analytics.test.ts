@@ -8,8 +8,8 @@ import {
     getCodexAnalytics,
     resolveAnalyticsTranscriptConcurrency,
 } from './codex-analytics';
-import type { ThreadRow } from './codex-exporter-types';
 import { createCodexBrowserFixture } from './codex-test-helpers';
+import type { ThreadRow } from './codex-thread-types';
 
 const tempPaths: string[] = [];
 

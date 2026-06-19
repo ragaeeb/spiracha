@@ -469,7 +469,7 @@ function ThreadDetailPage() {
                 params: {
                     project: snapshot.project,
                 },
-                to: '/projects/$project',
+                to: '/codex/$project',
             });
         },
     });
@@ -496,11 +496,11 @@ function ThreadDetailPage() {
                 breadcrumb={
                     <Breadcrumbs
                         items={[
-                            { label: 'Codex', to: '/projects' },
+                            { label: 'Codex', to: '/codex' },
                             {
                                 label: snapshot.project,
                                 params: { project: snapshot.project },
-                                to: '/projects/$project',
+                                to: '/codex/$project',
                             },
                             { label: snapshot.thread.title },
                         ]}
