@@ -1,21 +1,3 @@
-import { getCodexAnalytics } from '@spiracha/lib/codex-analytics';
-import {
-    deleteCodexProject,
-    deleteCodexThread,
-    deleteCodexThreads,
-    getCodexDashboardSummary,
-    getThreadBrowseData,
-    listCodexProjects,
-    listProjectThreads,
-    resolveCodexThreadDbPath,
-} from '@spiracha/lib/codex-browser-db';
-import { renderCodexThreadDownload, renderCodexThreadsDownload } from '@spiracha/lib/codex-browser-export';
-import {
-    getCachedParsedCodexTranscript,
-    getCachedThreadTranscriptPreview,
-    getThreadRolloutLoadState,
-} from '@spiracha/lib/codex-thread-cache';
-import { recoverCodexProjectThreads } from '@spiracha/lib/codex-thread-recovery';
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
 
@@ -68,24 +50,35 @@ const exportThreadsSchema = z.object({
     zipArchive: z.boolean().default(true),
 });
 
-const getDbPath = () => process.env.SPIRACHA_CODEX_DB?.trim() || resolveCodexThreadDbPath();
+const getDbPath = async () => {
+    const configuredDbPath = process.env.SPIRACHA_CODEX_DB?.trim();
+    if (configuredDbPath) {
+        return configuredDbPath;
+    }
+
+    const { resolveCodexThreadDbPath } = await import('@spiracha/lib/codex-browser-db');
+    return resolveCodexThreadDbPath();
+};
 
 const isMissingFileError = (error: unknown) => {
     return error instanceof Error && /ENOENT|no such file/i.test(error.message);
 };
 
 export const getDashboardSummaryFn = createServerFn({ method: 'GET' }).handler(async () => {
-    return getCodexDashboardSummary(getDbPath());
+    const { getCodexDashboardSummary } = await import('@spiracha/lib/codex-browser-db');
+    return getCodexDashboardSummary(await getDbPath());
 });
 
 export const listProjectsFn = createServerFn({ method: 'GET' }).handler(async () => {
-    return listCodexProjects(getDbPath());
+    const { listCodexProjects } = await import('@spiracha/lib/codex-browser-db');
+    return listCodexProjects(await getDbPath());
 });
 
 export const listProjectThreadsFn = createServerFn({ method: 'GET' })
     .validator(projectSchema)
     .handler(async ({ data }) => {
-        return listProjectThreads(getDbPath(), data.project, {
+        const { listProjectThreads } = await import('@spiracha/lib/codex-browser-db');
+        return listProjectThreads(await getDbPath(), data.project, {
             includeTranscriptStats: false,
         });
     });
@@ -93,7 +86,9 @@ export const listProjectThreadsFn = createServerFn({ method: 'GET' })
 export const getThreadSnapshotFn = createServerFn({ method: 'GET' })
     .validator(threadSchema)
     .handler(async ({ data }) => {
-        const dbPath = getDbPath();
+        const [{ getThreadBrowseData }, { getCachedParsedCodexTranscript, getThreadRolloutLoadState }] =
+            await Promise.all([import('@spiracha/lib/codex-browser-db'), import('@spiracha/lib/codex-thread-cache')]);
+        const dbPath = await getDbPath();
         const browseData = getThreadBrowseData(dbPath, data.threadId);
         const rollout = await getThreadRolloutLoadState(browseData.thread.rollout_path);
         let transcript = null;
@@ -125,19 +120,28 @@ export const getThreadSnapshotFn = createServerFn({ method: 'GET' })
         };
     });
 
+export const loadThreadTranscript = async (threadId: string) => {
+    const [{ getThreadBrowseData }, { getCachedParsedCodexTranscript }] = await Promise.all([
+        import('@spiracha/lib/codex-browser-db'),
+        import('@spiracha/lib/codex-thread-cache'),
+    ]);
+    const dbPath = await getDbPath();
+    const browseData = getThreadBrowseData(dbPath, threadId);
+    return getCachedParsedCodexTranscript(browseData.thread.rollout_path);
+};
+
 export const getThreadTranscriptFn = createServerFn({ method: 'GET' })
     .validator(threadSchema)
     .handler(async ({ data }) => {
-        const dbPath = getDbPath();
-        const browseData = getThreadBrowseData(dbPath, data.threadId);
-        return getCachedThreadTranscriptPreview(browseData.thread.rollout_path);
+        return loadThreadTranscript(data.threadId);
     });
 
 export const getAnalyticsFn = createServerFn({ method: 'GET' })
     .validator(analyticsSchema)
     .handler(async ({ data }) => {
+        const { getCodexAnalytics } = await import('@spiracha/lib/codex-analytics');
         return getCodexAnalytics({
-            dbPath: getDbPath(),
+            dbPath: await getDbPath(),
             project: data.project,
         });
     });
@@ -145,8 +149,9 @@ export const getAnalyticsFn = createServerFn({ method: 'GET' })
 export const exportThreadFn = createServerFn({ method: 'POST' })
     .validator(exportSchema)
     .handler(async ({ data }) => {
+        const { renderCodexThreadDownload } = await import('@spiracha/lib/codex-browser-export');
         return renderCodexThreadDownload({
-            dbPath: getDbPath(),
+            dbPath: await getDbPath(),
             includeCommentary: data.includeCommentary,
             includeMetadata: data.includeMetadata,
             includeTools: data.includeTools,
@@ -163,8 +168,9 @@ export const exportThreadFn = createServerFn({ method: 'POST' })
 export const exportThreadsFn = createServerFn({ method: 'POST' })
     .validator(exportThreadsSchema)
     .handler(async ({ data }) => {
+        const { renderCodexThreadsDownload } = await import('@spiracha/lib/codex-browser-export');
         return renderCodexThreadsDownload({
-            dbPath: getDbPath(),
+            dbPath: await getDbPath(),
             includeCommentary: data.includeCommentary,
             includeMetadata: data.includeMetadata,
             includeTools: data.includeTools,
@@ -181,7 +187,8 @@ export const exportThreadsFn = createServerFn({ method: 'POST' })
 export const deleteThreadFn = createServerFn({ method: 'POST' })
     .validator(deleteThreadSchema)
     .handler(async ({ data }) => {
-        return deleteCodexThread(getDbPath(), data.threadId, {
+        const { deleteCodexThread } = await import('@spiracha/lib/codex-browser-db');
+        return deleteCodexThread(await getDbPath(), data.threadId, {
             deleteSessionFiles: data.deleteSessionFiles,
         });
     });
@@ -189,7 +196,8 @@ export const deleteThreadFn = createServerFn({ method: 'POST' })
 export const deleteThreadsFn = createServerFn({ method: 'POST' })
     .validator(deleteThreadsSchema)
     .handler(async ({ data }) => {
-        return deleteCodexThreads(getDbPath(), data.threadIds, {
+        const { deleteCodexThreads } = await import('@spiracha/lib/codex-browser-db');
+        return deleteCodexThreads(await getDbPath(), data.threadIds, {
             deleteSessionFiles: data.deleteSessionFiles,
         });
     });
@@ -197,7 +205,8 @@ export const deleteThreadsFn = createServerFn({ method: 'POST' })
 export const deleteProjectFn = createServerFn({ method: 'POST' })
     .validator(deleteProjectSchema)
     .handler(async ({ data }) => {
-        return deleteCodexProject(getDbPath(), data.project, {
+        const { deleteCodexProject } = await import('@spiracha/lib/codex-browser-db');
+        return deleteCodexProject(await getDbPath(), data.project, {
             deleteSessionFiles: data.deleteSessionFiles,
         });
     });
@@ -205,5 +214,6 @@ export const deleteProjectFn = createServerFn({ method: 'POST' })
 export const recoverProjectThreadsFn = createServerFn({ method: 'POST' })
     .validator(projectSchema)
     .handler(async ({ data }) => {
-        return recoverCodexProjectThreads(getDbPath(), data.project);
+        const { recoverCodexProjectThreads } = await import('@spiracha/lib/codex-thread-recovery');
+        return recoverCodexProjectThreads(await getDbPath(), data.project);
     });

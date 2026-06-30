@@ -5,10 +5,12 @@ type PageHeaderProps = {
     breadcrumb?: ReactNode;
     eyebrow?: string;
     subtitle?: string;
-    title: string;
+    title?: string;
 };
 
 export function PageHeader({ actions, breadcrumb, eyebrow, subtitle, title }: PageHeaderProps) {
+    const hasHeading = Boolean(title || subtitle);
+
     return (
         <div className="flex flex-col gap-4 border-[var(--border)] border-b pb-5 sm:flex-row sm:items-end sm:justify-between">
             <div className="space-y-2">
@@ -18,14 +20,18 @@ export function PageHeader({ actions, breadcrumb, eyebrow, subtitle, title }: Pa
                         {eyebrow}
                     </p>
                 ) : null}
-                <div>
-                    <h2 className="font-semibold text-2xl tracking-[-0.03em] sm:text-[2rem]">{title}</h2>
-                    {subtitle ? (
-                        <p className="mt-2 max-w-[60rem] whitespace-pre-wrap break-words text-[var(--muted-foreground)] text-sm">
-                            {subtitle}
-                        </p>
-                    ) : null}
-                </div>
+                {hasHeading ? (
+                    <div>
+                        {title ? (
+                            <h2 className="font-semibold text-2xl tracking-[-0.03em] sm:text-[2rem]">{title}</h2>
+                        ) : null}
+                        {subtitle ? (
+                            <p className="mt-2 max-w-[60rem] whitespace-pre-wrap break-words text-[var(--muted-foreground)] text-sm">
+                                {subtitle}
+                            </p>
+                        ) : null}
+                    </div>
+                ) : null}
             </div>
             {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
         </div>

@@ -3,7 +3,11 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createCodexBrowserFixture } from './codex-test-helpers';
-import { getCachedThreadTranscriptPreview, getThreadRolloutLoadState } from './codex-thread-cache';
+import {
+    getCachedThreadTranscriptPreview,
+    getThreadRolloutLoadState,
+    LARGE_THREAD_SIZE_BYTES,
+} from './codex-thread-cache';
 
 const tempPaths: string[] = [];
 
@@ -52,5 +56,22 @@ describe('getCachedThreadTranscriptPreview', () => {
         expect(transcript.rawIncluded).toBe(false);
         expect(transcript.statsArePartial).toBe(true);
         expect(transcript.sourceFileSizeBytes).toBeGreaterThan(1);
+    });
+
+    it('should switch to preview mode when a rollout exceeds the default size threshold', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-cache-default-large-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const originalContent = await Bun.file(fixture.threads[0]!.sessionFile).text();
+
+        await Bun.write(fixture.threads[0]!.sessionFile, `${originalContent}\n${' '.repeat(LARGE_THREAD_SIZE_BYTES)}`);
+
+        const state = await getThreadRolloutLoadState(fixture.threads[0]!.sessionFile);
+        const transcript = await getCachedThreadTranscriptPreview(fixture.threads[0]!.sessionFile);
+
+        expect(state.shouldDeferTranscriptLoad).toBe(true);
+        expect(transcript.isPartial).toBe(true);
+        expect(transcript.rawIncluded).toBe(false);
+        expect(transcript.sourceFileSizeBytes).toBeGreaterThan(LARGE_THREAD_SIZE_BYTES);
     });
 });

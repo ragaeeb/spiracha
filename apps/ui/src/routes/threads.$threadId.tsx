@@ -162,7 +162,7 @@ const buildTranscriptStatsItems = (snapshot: ThreadSnapshot) => {
         return [
             { label: 'Transcript load', value: 'Deferred for oversized rollout' },
             { label: 'Rollout size', value: formatBytes(snapshot.rollout.fileSizeBytes) },
-            { label: 'Preview mode', value: 'Load the transcript manually to inspect it.' },
+            { label: 'Deferred load', value: 'Load the transcript manually to inspect it.' },
         ];
     }
 
@@ -319,12 +319,12 @@ function DeferredTranscriptNotice({
             <p className="mt-2 text-[var(--muted-foreground)] text-sm leading-6">
                 {missing
                     ? 'The rollout JSONL referenced by this thread is no longer present on disk. Export may still work if the file is restored, but transcript browsing is unavailable right now.'
-                    : `Spiracha skipped loading the transcript automatically because the rollout file is ${formatBytes(fileSizeBytes)}. Export still works immediately. If you need to inspect the thread here, load a bounded preview manually.`}
+                    : `Spiracha skipped loading the transcript automatically because the rollout file is ${formatBytes(fileSizeBytes)}. Export still works immediately. Load the full transcript when you need to inspect it here.`}
             </p>
             {missing ? null : (
                 <div className="mt-4">
                     <Button disabled={pending} variant="outline" onClick={onLoad}>
-                        {pending ? 'Loading preview...' : 'Load transcript preview'}
+                        {pending ? 'Loading transcript...' : 'Load full transcript'}
                     </Button>
                 </div>
             )}
@@ -387,7 +387,7 @@ function ThreadDetailPage() {
     const [showCommentary, setShowCommentary] = useState(false);
     const [showExtraEvents, setShowExtraEvents] = useState(false);
     const [showRawJson, setShowRawJson] = useState(false);
-    const [showUserMessages, setShowUserMessages] = useState(true);
+    const [showUserMessages, setShowUserMessages] = useState(false);
     const [exportOpen, setExportOpen] = useState(false);
     const [deleteOpen, setDeleteOpen] = useState(false);
     const transcriptQuery = useQuery({
@@ -502,13 +502,10 @@ function ThreadDetailPage() {
                                 params: { project: snapshot.project },
                                 to: '/codex/$project',
                             },
-                            { label: snapshot.thread.title },
+                            { label: snapshot.thread.title, title: snapshot.thread.title, truncate: true },
                         ]}
                     />
                 }
-                eyebrow={snapshot.project}
-                subtitle={snapshot.thread.preview}
-                title={snapshot.thread.title}
             />
 
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">

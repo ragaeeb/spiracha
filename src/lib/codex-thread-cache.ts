@@ -4,7 +4,8 @@ import type { ParsedCodexTranscript } from './codex-browser-types';
 import { parseCodexTranscriptFile } from './codex-thread-parser';
 import { getFileFingerprint, hashCacheKeyParts, withCachedJson } from './ui-cache';
 
-export const LARGE_THREAD_SIZE_BYTES = 100 * 1024 * 1024;
+// Keep initial thread payloads below sizes that make TanStack Start SSR responses unreliable.
+export const LARGE_THREAD_SIZE_BYTES = 8 * 1024 * 1024;
 export const LARGE_THREAD_PREVIEW_EVENT_LIMIT = 200;
 
 const isMissingFileError = (error: unknown) => {
