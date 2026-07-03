@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as settingsStore from '#/lib/settings-store';
 
 const virtualizerCalls: Array<Record<string, unknown>> = [];
+const virtualizerScrollCalls: Array<[number, { align?: string } | undefined]> = [];
 
 vi.mock('@tanstack/react-virtual', () => ({
     useVirtualizer: (options: Record<string, unknown>) => {
@@ -20,11 +21,14 @@ vi.mock('@tanstack/react-virtual', () => ({
                     start: index * 160,
                 })),
             measureElement: vi.fn(),
+            scrollToIndex: (index: number, options?: { align?: string }) => {
+                virtualizerScrollCalls.push([index, options]);
+            },
         };
     },
 }));
 
-import { TranscriptView } from './transcript-view';
+import { getTranscriptEventKey, TranscriptView } from './transcript-view';
 
 const messageEvent: Extract<ThreadEvent, { kind: 'message' }> = {
     isHiddenByDefault: false,
@@ -60,6 +64,7 @@ describe('TranscriptView', () => {
 
     beforeEach(() => {
         virtualizerCalls.length = 0;
+        virtualizerScrollCalls.length = 0;
         vi.restoreAllMocks();
     });
 
@@ -167,6 +172,61 @@ describe('TranscriptView', () => {
 
         const latestCall = virtualizerCalls.at(-1);
         expect(latestCall?.measureElement).toBeTypeOf('function');
+    });
+
+    it('should scroll to and mark the requested event in non-virtualized transcript lists', () => {
+        const scrollIntoView = vi.fn();
+        Object.assign(window.HTMLElement.prototype, { scrollIntoView });
+
+        const secondMessage = {
+            ...messageEvent,
+            sequence: 2,
+            text: 'Second matching answer',
+        };
+
+        render(
+            <TranscriptView
+                activeEventJumpSignal={1}
+                activeEventKey={getTranscriptEventKey(secondMessage, 1)}
+                assistantModel={null}
+                events={[messageEvent, secondMessage]}
+                projectPath="/Users/example/workspace/spiracha"
+                showCommentary
+                showExtraEvents={false}
+                showRawJson={false}
+                showToolCalls={false}
+            />,
+        );
+
+        expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'center' });
+        expect(screen.getByText('Second matching answer').closest('article')?.getAttribute('aria-current')).toBe(
+            'location',
+        );
+    });
+
+    it('should scroll virtualized transcript lists to the requested event index', () => {
+        const events = Array.from({ length: 41 }, (_, index) => ({
+            ...messageEvent,
+            raw: { index, type: 'message' },
+            sequence: index,
+            text: `Message ${index}`,
+        }));
+
+        render(
+            <TranscriptView
+                activeEventJumpSignal={1}
+                activeEventKey={getTranscriptEventKey(events[25]!, 25)}
+                assistantModel={null}
+                events={events}
+                projectPath="/Users/example/workspace/spiracha"
+                showCommentary
+                showExtraEvents={false}
+                showRawJson={false}
+                showToolCalls={false}
+            />,
+        );
+
+        expect(virtualizerScrollCalls.at(-1)).toEqual([25, { align: 'center' }]);
     });
 
     it('should hide and show commentary messages independently of final assistant answers', () => {

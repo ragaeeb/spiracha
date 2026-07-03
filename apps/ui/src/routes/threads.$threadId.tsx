@@ -1,7 +1,9 @@
+import type { MessageEvent, ThreadEvent } from '@spiracha/lib/codex-browser-types';
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
-import { Download, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { ChevronDown, ChevronUp, Download, Search, Trash2 } from 'lucide-react';
+import type { KeyboardEvent } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Breadcrumbs } from '#/components/breadcrumbs';
 import { DeleteConfirmDialog } from '#/components/delete-confirm-dialog';
 import { ExportDialog } from '#/components/export-dialog';
@@ -10,18 +12,133 @@ import { LoadingPanel } from '#/components/loading-panel';
 import { MetadataSection } from '#/components/metadata-section';
 import { MetricCard } from '#/components/metric-card';
 import { PageHeader } from '#/components/page-header';
-import { TranscriptView } from '#/components/transcript-view';
+import { getTranscriptEventKey, shouldShowEvent, TranscriptView } from '#/components/transcript-view';
 import { Badge } from '#/components/ui/badge';
 import { Button } from '#/components/ui/button';
 import { Checkbox } from '#/components/ui/checkbox';
+import { Input } from '#/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
 import { threadSnapshotQueryOptions, threadTranscriptQueryOptions } from '#/lib/codex-queries';
 import { deleteThreadFn, exportThreadFn, type getThreadSnapshotFn } from '#/lib/codex-server';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
-import { formatBooleanLabel, formatBytes, formatDateTime, formatList, formatTokens } from '#/lib/formatters';
+import {
+    formatBooleanLabel,
+    formatBytes,
+    formatDateTime,
+    formatList,
+    formatModelLabel,
+    formatTokens,
+} from '#/lib/formatters';
+import { applyPathTransforms } from '#/lib/path-utils';
 import { useSettings } from '#/lib/settings-store';
 
 type ThreadSnapshot = Awaited<ReturnType<typeof getThreadSnapshotFn>>;
+
+type TranscriptSearchResult = {
+    event: MessageEvent;
+    eventIndex: number;
+    eventKey: string;
+    messageNumber: number;
+    phase: string | null;
+    roleLabel: string;
+    snippet: string;
+};
+
+type TranscriptSearchPanelProps = {
+    activeResultIndex: number;
+    query: string;
+    results: TranscriptSearchResult[];
+    onJumpToResult: (index: number) => void;
+    onQueryChange: (value: string) => void;
+};
+
+type TranscriptSearchFilters = {
+    showCommentary: boolean;
+    showExtraEvents: boolean;
+    showToolCalls: boolean;
+    showUserMessages: boolean;
+};
+
+const SEARCH_SNIPPET_RADIUS = 72;
+
+const normalizeTranscriptSearchText = (value: string) => value.replace(/\s+/gu, ' ').trim();
+
+const getTranscriptSearchRoleLabel = (event: MessageEvent, assistantModel: string | null) => {
+    if (event.role === 'assistant') {
+        return formatModelLabel(event.model ?? assistantModel);
+    }
+
+    return event.role === 'system' ? 'System' : 'User';
+};
+
+const buildTranscriptSearchSnippet = (text: string, query: string) => {
+    const normalizedText = normalizeTranscriptSearchText(text);
+    const normalizedQuery = normalizeTranscriptSearchText(query).toLowerCase();
+    const matchIndex = normalizedText.toLowerCase().indexOf(normalizedQuery);
+
+    if (matchIndex < 0) {
+        return normalizedText.slice(0, SEARCH_SNIPPET_RADIUS * 2);
+    }
+
+    const start = Math.max(0, matchIndex - SEARCH_SNIPPET_RADIUS);
+    const end = Math.min(normalizedText.length, matchIndex + normalizedQuery.length + SEARCH_SNIPPET_RADIUS);
+    const prefix = start > 0 ? '...' : '';
+    const suffix = end < normalizedText.length ? '...' : '';
+
+    return `${prefix}${normalizedText.slice(start, end)}${suffix}`;
+};
+
+const buildTranscriptSearchResults = (
+    events: ThreadEvent[],
+    query: string,
+    assistantModel: string | null,
+    filters: TranscriptSearchFilters,
+    transform: (text: string) => string,
+): TranscriptSearchResult[] => {
+    const normalizedQuery = normalizeTranscriptSearchText(query).toLowerCase();
+    if (!normalizedQuery) {
+        return [];
+    }
+
+    const results: TranscriptSearchResult[] = [];
+    let messageNumber = 0;
+
+    events.forEach((event, index) => {
+        if (event.kind !== 'message') {
+            return;
+        }
+
+        if (
+            !shouldShowEvent(
+                event,
+                filters.showToolCalls,
+                filters.showExtraEvents,
+                filters.showCommentary,
+                filters.showUserMessages,
+            )
+        ) {
+            return;
+        }
+
+        messageNumber += 1;
+        const searchText = normalizeTranscriptSearchText(transform(event.text));
+        if (!searchText.toLowerCase().includes(normalizedQuery)) {
+            return;
+        }
+
+        results.push({
+            event,
+            eventIndex: index,
+            eventKey: getTranscriptEventKey(event, index),
+            messageNumber,
+            phase: event.phase,
+            roleLabel: getTranscriptSearchRoleLabel(event, assistantModel),
+            snippet: buildTranscriptSearchSnippet(searchText, query),
+        });
+    });
+
+    return results;
+};
 
 type TranscriptControlsProps = {
     rawJsonDisabled?: boolean;
@@ -240,6 +357,98 @@ function TranscriptControls({
     );
 }
 
+function TranscriptSearchPanel({
+    activeResultIndex,
+    query,
+    results,
+    onJumpToResult,
+    onQueryChange,
+}: TranscriptSearchPanelProps) {
+    const hasQuery = normalizeTranscriptSearchText(query).length > 0;
+    const hasResults = results.length > 0;
+    const statusLabel = hasQuery
+        ? hasResults
+            ? `${activeResultIndex + 1} / ${results.length}`
+            : 'No matches'
+        : 'Search';
+
+    const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+        if (event.key !== 'Enter' || !hasResults) {
+            return;
+        }
+
+        event.preventDefault();
+        onJumpToResult(event.shiftKey ? activeResultIndex - 1 : activeResultIndex);
+    };
+
+    return (
+        <section className="rounded-xl border border-[var(--border)] bg-[var(--panel)] px-4 py-3 shadow-[var(--panel-shadow)]">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+                <div className="relative min-w-0 flex-1">
+                    <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-[var(--muted-foreground)]" />
+                    <Input
+                        aria-label="Search transcript messages"
+                        className="h-10 rounded-full border-[var(--border)] bg-[var(--panel-secondary)] pr-4 pl-9"
+                        placeholder="Search transcript messages"
+                        value={query}
+                        onChange={(event) => onQueryChange(event.target.value)}
+                        onKeyDown={handleKeyDown}
+                    />
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                    <span className="min-w-20 text-right text-[var(--muted-foreground)] text-sm">{statusLabel}</span>
+                    <Button
+                        className="rounded-full"
+                        disabled={!hasResults}
+                        size="sm"
+                        type="button"
+                        variant="outline"
+                        onClick={() => onJumpToResult(activeResultIndex - 1)}
+                    >
+                        <ChevronUp className="size-4" />
+                        Prev
+                    </Button>
+                    <Button
+                        className="rounded-full"
+                        disabled={!hasResults}
+                        size="sm"
+                        type="button"
+                        variant="outline"
+                        onClick={() => onJumpToResult(activeResultIndex + 1)}
+                    >
+                        <ChevronDown className="size-4" />
+                        Next
+                    </Button>
+                </div>
+            </div>
+
+            {hasQuery && hasResults ? (
+                <div className="mt-3 max-h-72 overflow-auto rounded-xl border border-[var(--border)] bg-[var(--panel-secondary)]">
+                    {results.map((result, index) => (
+                        <button
+                            key={result.eventKey}
+                            aria-current={index === activeResultIndex ? 'true' : undefined}
+                            className="block w-full border-[var(--border)] border-b px-3 py-2.5 text-left transition last:border-b-0 hover:bg-[var(--panel)] aria-current:bg-[var(--panel)]"
+                            type="button"
+                            onClick={() => onJumpToResult(index)}
+                        >
+                            <span className="flex flex-wrap items-center gap-2">
+                                <span className="font-medium text-sm">Message {result.messageNumber}</span>
+                                <Badge variant="outline">{result.roleLabel}</Badge>
+                                {result.phase ? <Badge variant="outline">{result.phase}</Badge> : null}
+                            </span>
+                            <span className="mt-1 block min-w-0 break-words text-[var(--muted-foreground)] text-sm leading-5 [overflow-wrap:anywhere]">
+                                {result.snippet}
+                            </span>
+                        </button>
+                    ))}
+                </div>
+            ) : null}
+        </section>
+    );
+}
+
 function ThreadMetadataPanels({ snapshot }: ThreadMetadataProps) {
     return (
         <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
@@ -388,6 +597,10 @@ function ThreadDetailPage() {
     const [showExtraEvents, setShowExtraEvents] = useState(false);
     const [showRawJson, setShowRawJson] = useState(false);
     const [showUserMessages, setShowUserMessages] = useState(false);
+    const [transcriptSearchInput, setTranscriptSearchInput] = useState('');
+    const [activeSearchResultIndex, setActiveSearchResultIndex] = useState(0);
+    const [activeTranscriptEventKey, setActiveTranscriptEventKey] = useState<string | null>(null);
+    const [activeEventJumpSignal, setActiveEventJumpSignal] = useState(0);
     const [exportOpen, setExportOpen] = useState(false);
     const [deleteOpen, setDeleteOpen] = useState(false);
     const transcriptQuery = useQuery({
@@ -396,6 +609,64 @@ function ThreadDetailPage() {
     });
     const transcript = snapshot.transcript ?? transcriptQuery.data ?? null;
     const viewSnapshot = { ...snapshot, transcript };
+    const transcriptSearchResults = useMemo(
+        () =>
+            transcript
+                ? buildTranscriptSearchResults(
+                      transcript.events,
+                      transcriptSearchInput,
+                      snapshot.thread.model,
+                      {
+                          showCommentary,
+                          showExtraEvents,
+                          showToolCalls,
+                          showUserMessages,
+                      },
+                      (text) => applyPathTransforms(text, settings, snapshot.thread.cwd),
+                  )
+                : [],
+        [
+            transcript,
+            transcriptSearchInput,
+            snapshot.thread.model,
+            showCommentary,
+            showExtraEvents,
+            showToolCalls,
+            showUserMessages,
+            snapshot.thread.cwd,
+            settings,
+        ],
+    );
+
+    useEffect(() => {
+        setActiveSearchResultIndex((current) =>
+            transcriptSearchResults.length === 0 ? 0 : Math.min(current, transcriptSearchResults.length - 1),
+        );
+        setActiveTranscriptEventKey((current) =>
+            current && transcriptSearchResults.some((result) => result.eventKey === current) ? current : null,
+        );
+    }, [transcriptSearchResults]);
+
+    const updateTranscriptSearchInput = (value: string) => {
+        setTranscriptSearchInput(value);
+        setActiveSearchResultIndex(0);
+        setActiveTranscriptEventKey(null);
+    };
+
+    const jumpToTranscriptSearchResult = (index: number) => {
+        if (transcriptSearchResults.length === 0) {
+            return;
+        }
+
+        const wrappedIndex =
+            ((index % transcriptSearchResults.length) + transcriptSearchResults.length) %
+            transcriptSearchResults.length;
+        const result = transcriptSearchResults[wrappedIndex]!;
+
+        setActiveSearchResultIndex(wrappedIndex);
+        setActiveTranscriptEventKey(result.eventKey);
+        setActiveEventJumpSignal((current) => current + 1);
+    };
 
     const exportThreadMutation = useMutation({
         mutationFn: async (options: {
@@ -553,7 +824,18 @@ function ThreadDetailPage() {
                         onShowUserMessagesChange={setShowUserMessages}
                     />
                     {transcript ? (
+                        <TranscriptSearchPanel
+                            activeResultIndex={activeSearchResultIndex}
+                            query={transcriptSearchInput}
+                            results={transcriptSearchResults}
+                            onJumpToResult={jumpToTranscriptSearchResult}
+                            onQueryChange={updateTranscriptSearchInput}
+                        />
+                    ) : null}
+                    {transcript ? (
                         <TranscriptView
+                            activeEventJumpSignal={activeEventJumpSignal}
+                            activeEventKey={activeTranscriptEventKey}
                             assistantModel={snapshot.thread.model}
                             events={transcript.events}
                             projectPath={snapshot.thread.cwd}

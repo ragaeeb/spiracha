@@ -11,6 +11,8 @@ import { useSettings } from '#/lib/settings-store';
 import { cn } from '#/lib/utils';
 
 type TranscriptViewProps = {
+    activeEventJumpSignal?: number;
+    activeEventKey?: string | null;
     assistantModel: string | null;
     events: ThreadEvent[];
     projectPath: string | null;
@@ -24,7 +26,7 @@ type TranscriptViewProps = {
 const isCommentaryMessage = (event: ThreadEvent) =>
     event.kind === 'message' && event.role === 'assistant' && event.phase === 'commentary';
 
-const shouldShowEvent = (
+export const shouldShowEvent = (
     event: ThreadEvent,
     showToolCalls: boolean,
     showExtraEvents: boolean,
@@ -153,7 +155,7 @@ const getEventMarkdownBody = (event: ThreadEvent, transform: Transform) => {
 const getEventMarkdown = (event: ThreadEvent, assistantModel: string | null, transform: Transform) =>
     `## ${getEventTitle(event, assistantModel)}\n\n${getEventMarkdownBody(event, transform)}`;
 
-const buildEventKey = (event: ThreadEvent, index: number) => {
+export const getTranscriptEventKey = (event: ThreadEvent, index: number) => {
     if (event.kind === 'tool_call') {
         return `${event.kind}-${event.sequence}-${event.callId ?? event.timestamp ?? event.name}-${index}`;
     }
@@ -248,9 +250,12 @@ type TranscriptEventCardProps = {
     assistantModel: string | null;
     copied: boolean;
     event: ThreadEvent;
+    eventKey: string;
+    isActive: boolean;
     isSelected: boolean;
     showRawJson: boolean;
     transform: Transform;
+    onCardElement: (eventKey: string, element: HTMLElement | null) => void;
     onCopy: (event: ThreadEvent) => void;
     onSelectionChange: (event: ThreadEvent, checked: boolean) => void;
 };
@@ -259,19 +264,26 @@ function TranscriptEventCard({
     assistantModel,
     copied,
     event,
+    eventKey,
+    isActive,
     isSelected,
     showRawJson,
     transform,
+    onCardElement,
     onCopy,
     onSelectionChange,
 }: TranscriptEventCardProps) {
     return (
         <article
+            ref={(element) => onCardElement(eventKey, element)}
+            aria-current={isActive ? 'location' : undefined}
             className={cn(
-                'min-w-0 overflow-hidden rounded-xl border p-3.5 shadow-[var(--panel-shadow)]',
+                'min-w-0 scroll-mt-24 overflow-hidden rounded-xl border p-3.5 shadow-[var(--panel-shadow)]',
                 isSelected && 'ring-2 ring-[var(--accent)]/35',
+                isActive && 'ring-2 ring-[var(--accent)]',
                 getEventTone(event),
             )}
+            data-transcript-event-key={eventKey}
         >
             <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
@@ -316,6 +328,8 @@ function TranscriptEventCard({
 }
 
 export function TranscriptView({
+    activeEventJumpSignal = 0,
+    activeEventKey = null,
     assistantModel,
     events,
     projectPath,
@@ -337,20 +351,25 @@ export function TranscriptView({
     const [copiedSelection, setCopiedSelection] = useState(false);
     const [copyErrorMessage, setCopyErrorMessage] = useState<string | null>(null);
     const [selectedEventKeys, setSelectedEventKeys] = useState<string[]>([]);
+    const eventElementByKeyRef = useRef(new Map<string, HTMLElement>());
     const parentRef = useRef<HTMLDivElement | null>(null);
     const timeoutIdsRef = useRef<number[]>([]);
     const useVirtualList = visibleEvents.length > 40;
     const eventKeyByEvent = useMemo(
-        () => new Map(events.map((event, index) => [event, buildEventKey(event, index)])),
+        () => new Map(events.map((event, index) => [event, getTranscriptEventKey(event, index)])),
         [events],
     );
-    const getEventKey = (event: ThreadEvent) => eventKeyByEvent.get(event) ?? buildEventKey(event, -1);
+    const getEventKey = (event: ThreadEvent) => eventKeyByEvent.get(event) ?? getTranscriptEventKey(event, -1);
     const transform = (text: string) => applyPathTransforms(text, settings, projectPath);
     const visibleEventKeys = useMemo(
-        () => visibleEvents.map((event) => eventKeyByEvent.get(event) ?? buildEventKey(event, -1)),
+        () => visibleEvents.map((event) => eventKeyByEvent.get(event) ?? getTranscriptEventKey(event, -1)),
         [visibleEvents, eventKeyByEvent],
     );
     const visibleEventKeySet = useMemo(() => new Set(visibleEventKeys), [visibleEventKeys]);
+    const activeVisibleEventIndex = useMemo(
+        () => (activeEventKey ? visibleEventKeys.indexOf(activeEventKey) : -1),
+        [activeEventKey, visibleEventKeys],
+    );
     const selectedEventKeySet = useMemo(() => new Set(selectedEventKeys), [selectedEventKeys]);
     const virtualizer = useVirtualizer({
         count: useVirtualList ? visibleEvents.length : 0,
@@ -360,6 +379,15 @@ export function TranscriptView({
         measureElement: (element) => element.getBoundingClientRect().height,
         overscan: 8,
     });
+
+    const handleCardElement = (eventKey: string, element: HTMLElement | null) => {
+        if (element) {
+            eventElementByKeyRef.current.set(eventKey, element);
+            return;
+        }
+
+        eventElementByKeyRef.current.delete(eventKey);
+    };
 
     useEffect(() => {
         return () => {
@@ -376,6 +404,19 @@ export function TranscriptView({
             return next.length === current.length ? current : next;
         });
     }, [visibleEventKeySet]);
+
+    useEffect(() => {
+        if (!Number.isFinite(activeEventJumpSignal) || !activeEventKey || activeVisibleEventIndex < 0) {
+            return;
+        }
+
+        if (useVirtualList) {
+            virtualizer.scrollToIndex(activeVisibleEventIndex, { align: 'center' });
+            return;
+        }
+
+        eventElementByKeyRef.current.get(activeEventKey)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, [activeEventJumpSignal, activeEventKey, activeVisibleEventIndex, useVirtualList, virtualizer]);
 
     const scheduleTimeout = (callback: () => void, delayMs: number) => {
         const timeoutId = window.setTimeout(() => {
@@ -493,9 +534,12 @@ export function TranscriptView({
                                 assistantModel={assistantModel}
                                 copied={copiedEventKeys.includes(getEventKey(visibleEvents[item.index]!))}
                                 event={visibleEvents[item.index]!}
+                                eventKey={getEventKey(visibleEvents[item.index]!)}
+                                isActive={activeEventKey === getEventKey(visibleEvents[item.index]!)}
                                 isSelected={selectedEventKeySet.has(getEventKey(visibleEvents[item.index]!))}
                                 showRawJson={showRawJson}
                                 transform={transform}
+                                onCardElement={handleCardElement}
                                 onCopy={(event) => void handleCopyEvent(event)}
                                 onSelectionChange={handleSelectionChange}
                             />
@@ -538,11 +582,14 @@ export function TranscriptView({
                 <TranscriptEventCard
                     assistantModel={assistantModel}
                     copied={copiedEventKeys.includes(getEventKey(event))}
-                    key={getEventKey(event)}
                     event={event}
+                    eventKey={getEventKey(event)}
+                    key={getEventKey(event)}
+                    isActive={activeEventKey === getEventKey(event)}
                     isSelected={selectedEventKeySet.has(getEventKey(event))}
                     showRawJson={showRawJson}
                     transform={transform}
+                    onCardElement={handleCardElement}
                     onCopy={(selectedEvent) => void handleCopyEvent(selectedEvent)}
                     onSelectionChange={handleSelectionChange}
                 />
