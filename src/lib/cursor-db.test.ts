@@ -320,6 +320,32 @@ describe('cursor-db workspace discovery', () => {
 
         expect(group?.folders).toEqual([path.join(userDir, 'packages/app')]);
     });
+
+    it('should ignore stale code-workspace references without warning', async () => {
+        const userDir = await makeUserDir();
+        const workspaceFilePath = path.join(userDir, 'missing.code-workspace');
+        await createCursorFixture(userDir, {
+            buckets: [
+                {
+                    bucketId: 'stale-workspace-bucket',
+                    workspace: `file://${workspaceFilePath}`,
+                },
+            ],
+            threads: [],
+        });
+        const warn = console.warn;
+        const warnings: unknown[][] = [];
+        console.warn = (...args: unknown[]) => warnings.push(args);
+
+        try {
+            const [group] = await listCursorWorkspaceGroups(userDir);
+
+            expect(group?.folders).toEqual([]);
+            expect(warnings).toEqual([]);
+        } finally {
+            console.warn = warn;
+        }
+    });
 });
 
 describe('cursor-db transcript reads', () => {

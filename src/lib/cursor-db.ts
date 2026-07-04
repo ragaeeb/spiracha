@@ -126,6 +126,11 @@ const parseCodeWorkspaceJson = (text: string): { folders?: Array<{ path?: string
     }
 };
 
+const isMissingCodeWorkspaceFileError = (error: unknown): boolean => {
+    const code = (error as { code?: unknown }).code;
+    return code === 'ENOENT' || code === 'ENOTDIR';
+};
+
 const parseCodeWorkspaceFolders = async (workspaceFilePath: string): Promise<string[]> => {
     if (!workspaceFilePath.endsWith('.code-workspace')) {
         return [];
@@ -149,6 +154,10 @@ const parseCodeWorkspaceFolders = async (workspaceFilePath: string): Promise<str
 
         return folders;
     } catch (error) {
+        if (isMissingCodeWorkspaceFileError(error)) {
+            return [];
+        }
+
         warnCursorDataIssue('invalid_code_workspace_json', {
             error: error instanceof Error ? error.message : String(error),
             workspaceFilePath,
