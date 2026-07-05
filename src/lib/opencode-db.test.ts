@@ -1,8 +1,10 @@
+import { Database } from 'bun:sqlite';
 import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
+    deleteOpenCodeSession,
     findOpenCodeWorkspaceGroups,
     getDefaultOpenCodeDataDir,
     getOpenCodeReadonlyDbUri,
@@ -234,5 +236,24 @@ describe('opencode db helpers', () => {
             toolName: 'read',
             type: 'tool',
         });
+    });
+
+    it('should delete an OpenCode top-level session with child sessions and transcript rows', async () => {
+        const dbPath = await createFixtureDb();
+
+        const result = await deleteOpenCodeSession(dbPath, 'ses_main');
+
+        expect(result.deletedSessionIds.sort()).toEqual(['ses_child', 'ses_main']);
+        expect(await listOpenCodeSessionsForGroup('project:pro_demo', dbPath)).toEqual([]);
+        expect(await readOpenCodeSessionTranscript(dbPath, 'ses_main')).toBeNull();
+
+        const db = new Database(dbPath);
+        try {
+            expect(db.query('SELECT COUNT(*) AS count FROM session').get()).toEqual({ count: 0 });
+            expect(db.query('SELECT COUNT(*) AS count FROM message').get()).toEqual({ count: 0 });
+            expect(db.query('SELECT COUNT(*) AS count FROM part').get()).toEqual({ count: 0 });
+        } finally {
+            db.close();
+        }
     });
 });

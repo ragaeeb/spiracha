@@ -1,7 +1,8 @@
 import type { KiroSessionSummary, KiroWorkspaceGroup } from '@spiracha/lib/kiro-exporter-types';
-import { useMutation, useSuspenseQuery } from '@tanstack/react-query';
+import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import { useDeferredValue, useState } from 'react';
+import { DeleteConfirmDialog } from '#/components/delete-confirm-dialog';
 import { ExportDialog } from '#/components/export-dialog';
 import { KiroSessionsTable } from '#/components/kiro-sessions-table';
 import { ListSearchInput } from '#/components/list-search-input';
@@ -10,7 +11,7 @@ import { PageHeader } from '#/components/page-header';
 import { ReloadErrorPanel } from '#/components/reload-error-panel';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import { kiroSessionsQueryOptions, kiroWorkspacesQueryOptions } from '#/lib/kiro-queries';
-import { exportKiroSessionFn } from '#/lib/kiro-server';
+import { deleteKiroSessionFn, exportKiroSessionFn } from '#/lib/kiro-server';
 import { matchesTextQuery } from '#/lib/text-filter';
 
 type ExportDialogOptions = {
@@ -36,10 +37,12 @@ const KiroWorkspaceErrorComponent = ({ error }: { error: Error }) => {
 
 const KiroWorkspacePage = () => {
     const params = Route.useParams();
+    const queryClient = useQueryClient();
     const workspaces = useSuspenseQuery(kiroWorkspacesQueryOptions()).data;
     const workspace = findWorkspaceOrThrow(workspaces, params.workspaceKey);
     const sessions = useSuspenseQuery(kiroSessionsQueryOptions(workspace.key)).data;
     const [searchInput, setSearchInput] = useState('');
+    const [pendingDelete, setPendingDelete] = useState<KiroSessionSummary | null>(null);
     const [pendingExport, setPendingExport] = useState<KiroSessionSummary | null>(null);
     const deferredSearch = useDeferredValue(searchInput);
 
@@ -71,6 +74,21 @@ const KiroWorkspacePage = () => {
         },
     });
 
+    const deleteMutation = useMutation({
+        mutationFn: async (session: KiroSessionSummary) =>
+            deleteKiroSessionFn({ data: { sessionId: session.sessionId } }),
+        onSuccess: async () => {
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ['kiro-workspaces'] }),
+                queryClient.invalidateQueries({ queryKey: ['kiro-sessions', workspace.key] }),
+                pendingDelete
+                    ? queryClient.invalidateQueries({ queryKey: ['kiro-session', pendingDelete.sessionId] })
+                    : Promise.resolve(),
+            ]);
+            setPendingDelete(null);
+        },
+    });
+
     const visibleSessions = sessions.filter((session) =>
         matchesTextQuery(deferredSearch, [
             session.title,
@@ -98,7 +116,11 @@ const KiroWorkspacePage = () => {
                 title={workspace.label}
             />
 
-            <KiroSessionsTable sessions={visibleSessions} onExportSession={setPendingExport} />
+            <KiroSessionsTable
+                sessions={visibleSessions}
+                onDeleteSession={setPendingDelete}
+                onExportSession={setPendingExport}
+            />
 
             <ExportDialog
                 open={pendingExport !== null}
@@ -118,6 +140,35 @@ const KiroWorkspacePage = () => {
                     {exportMutation.error instanceof Error ? exportMutation.error.message : 'Session export failed'}
                 </p>
             ) : null}
+
+            <DeleteConfirmDialog
+                confirmLabel={deleteMutation.isPending ? 'Deleting...' : 'Delete session'}
+                description={
+                    pendingDelete
+                        ? `Permanently delete "${pendingDelete.title}" from Kiro history. This removes the session JSON file and matching execution files from disk.`
+                        : 'Permanently delete this Kiro session from disk.'
+                }
+                errorMessage={
+                    deleteMutation.isError
+                        ? deleteMutation.error instanceof Error
+                            ? deleteMutation.error.message
+                            : 'Session delete failed'
+                        : null
+                }
+                open={pendingDelete !== null}
+                title="Delete this Kiro session?"
+                onConfirm={() => {
+                    if (pendingDelete) {
+                        deleteMutation.mutate(pendingDelete);
+                    }
+                }}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        setPendingDelete(null);
+                        deleteMutation.reset();
+                    }
+                }}
+            />
         </div>
     );
 };

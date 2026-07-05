@@ -1,9 +1,10 @@
-import { useMutation, useSuspenseQuery } from '@tanstack/react-query';
-import { createFileRoute, Link } from '@tanstack/react-router';
-import { Download, ScrollText } from 'lucide-react';
+import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
+import { Download, ScrollText, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { AntigravityKeychainPanel } from '#/components/antigravity-keychain-panel';
 import { Breadcrumbs } from '#/components/breadcrumbs';
+import { DeleteConfirmDialog } from '#/components/delete-confirm-dialog';
 import { JsonPanel } from '#/components/json-panel';
 import { LoadingPanel } from '#/components/loading-panel';
 import { MetadataSection } from '#/components/metadata-section';
@@ -21,6 +22,7 @@ import {
     antigravityDecryptionQueryOptions,
 } from '#/lib/antigravity-queries';
 import {
+    deleteAntigravityConversationFn,
     exportAntigravityArtifactsFn,
     exportAntigravityConversationFn,
     type getAntigravityConversationDetailFn,
@@ -133,6 +135,7 @@ function AntigravityConversationHeaderActions({
     exportArtifactsPending,
     exportConversationPending,
     showConversationExport,
+    onDeleteConversation,
     onExportArtifacts,
     onExportConversation,
 }: {
@@ -141,6 +144,7 @@ function AntigravityConversationHeaderActions({
     exportArtifactsPending: boolean;
     exportConversationPending: boolean;
     showConversationExport: boolean;
+    onDeleteConversation: () => void;
     onExportArtifacts: () => void;
     onExportConversation: () => void;
 }) {
@@ -170,6 +174,15 @@ function AntigravityConversationHeaderActions({
                     Export artifacts
                 </Button>
             ) : null}
+            <Button
+                className="rounded-full border-[var(--destructive)]/20 text-[var(--destructive)]"
+                type="button"
+                variant="outline"
+                onClick={onDeleteConversation}
+            >
+                <Trash2 className="mr-2 size-4" />
+                Delete
+            </Button>
         </div>
     );
 }
@@ -281,8 +294,11 @@ function AntigravityRawPanels({
 }
 
 function AntigravityConversationDetailPage() {
+    const navigate = useNavigate();
+    const queryClient = useQueryClient();
     const decryptionState = useSuspenseQuery(antigravityDecryptionQueryOptions()).data;
     const detail = useSuspenseQuery(antigravityConversationDetailQueryOptions(Route.useParams().conversationId)).data;
+    const [deleteOpen, setDeleteOpen] = useState(false);
     const [showToolCalls, setShowToolCalls] = useState(false);
     const [showCommentary, setShowCommentary] = useState(false);
     const [showExtraEvents, setShowExtraEvents] = useState(false);
@@ -315,6 +331,26 @@ function AntigravityConversationDetailPage() {
         },
     });
 
+    const deleteConversationMutation = useMutation({
+        mutationFn: () =>
+            deleteAntigravityConversationFn({ data: { conversationId: detail.conversation.conversationId } }),
+        onSuccess: async () => {
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ['antigravity-workspaces'] }),
+                queryClient.invalidateQueries({
+                    queryKey: ['antigravity-conversations', detail.conversation.workspaceKey],
+                }),
+                queryClient.invalidateQueries({
+                    queryKey: ['antigravity-conversation', detail.conversation.conversationId],
+                }),
+            ]);
+            navigate({
+                params: { workspaceKey: detail.conversation.workspaceKey },
+                to: '/antigravity/$workspaceKey',
+            });
+        },
+    });
+
     return (
         <div className="space-y-6">
             <PageHeader
@@ -325,6 +361,7 @@ function AntigravityConversationDetailPage() {
                         exportArtifactsPending={exportArtifactsMutation.isPending}
                         exportConversationPending={exportConversationMutation.isPending}
                         showConversationExport={showConversationExport}
+                        onDeleteConversation={() => setDeleteOpen(true)}
                         onExportArtifacts={() => exportArtifactsMutation.mutate()}
                         onExportConversation={() => exportConversationMutation.mutate()}
                     />
@@ -433,6 +470,27 @@ function AntigravityConversationDetailPage() {
                         : 'Artifact export failed'}
                 </p>
             ) : null}
+
+            <DeleteConfirmDialog
+                confirmLabel={deleteConversationMutation.isPending ? 'Deleting...' : 'Delete conversation'}
+                description="Permanently delete this Antigravity conversation from disk. This removes its summary entry, conversation file, transcript logs, and generated artifacts."
+                errorMessage={
+                    deleteConversationMutation.isError
+                        ? deleteConversationMutation.error instanceof Error
+                            ? deleteConversationMutation.error.message
+                            : 'Conversation delete failed'
+                        : null
+                }
+                open={deleteOpen}
+                title="Delete this Antigravity conversation?"
+                onConfirm={() => deleteConversationMutation.mutate()}
+                onOpenChange={(open) => {
+                    setDeleteOpen(open);
+                    if (!open) {
+                        deleteConversationMutation.reset();
+                    }
+                }}
+            />
         </div>
     );
 }

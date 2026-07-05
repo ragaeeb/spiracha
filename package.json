@@ -37,7 +37,7 @@
         "vite": "8.0.16",
         "zod": "4.4.3"
     },
-    "description": "Browse and expose local Codex, Claude Code, Kiro, Qoder, Cursor, Antigravity, and OpenCode conversation history through a local UI and stable data API.",
+    "description": "Browse and expose local Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, and OpenCode conversation history through a local UI and stable data API.",
     "devDependencies": {
         "@types/bun": "^1.3.14",
         "@types/node": "^25.9.3",
@@ -81,6 +81,7 @@
     "keywords": [
         "codex",
         "claude",
+        "grok",
         "kiro",
         "qoder",
         "cursor",

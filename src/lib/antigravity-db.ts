@@ -1,4 +1,4 @@
-import { readdir, stat } from 'node:fs/promises';
+import { readdir, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import {
     type AntigravityArtifact,
@@ -31,6 +31,11 @@ type SummaryEntry = {
     workspaceKey: string;
     workspaceLabel: string;
     workspaceUri: string | null;
+};
+
+export type DeleteAntigravityConversationResult = {
+    deletedConversationIds: string[];
+    deletedPaths: string[];
 };
 
 type ConversationFile = {
@@ -316,6 +321,84 @@ export const readAntigravitySummaryIndex = async (summaryPath: string): Promise<
     } catch {
         return [];
     }
+};
+
+const getFieldBounds = (
+    buffer: Uint8Array,
+    start: number,
+): {
+    end: number;
+    fieldNumber: number;
+    payloadEnd: number;
+    payloadStart: number;
+    wireType: number;
+} => {
+    const key = readVarint(buffer, start, buffer.length);
+    const fieldNumber = key.value >> 3;
+    const wireType = key.value & 7;
+    let index = key.next;
+
+    if (wireType === 0) {
+        const value = readVarint(buffer, index, buffer.length);
+        return { end: value.next, fieldNumber, payloadEnd: value.next, payloadStart: index, wireType };
+    }
+
+    if (wireType === 1) {
+        return { end: index + 8, fieldNumber, payloadEnd: index + 8, payloadStart: index, wireType };
+    }
+
+    if (wireType === 2) {
+        const length = readVarint(buffer, index, buffer.length);
+        index = length.next;
+        return {
+            end: index + length.value,
+            fieldNumber,
+            payloadEnd: index + length.value,
+            payloadStart: index,
+            wireType,
+        };
+    }
+
+    if (wireType === 5) {
+        return { end: index + 4, fieldNumber, payloadEnd: index + 4, payloadStart: index, wireType };
+    }
+
+    throw new Error(`Unsupported protobuf wire type: ${wireType}`);
+};
+
+const removeConversationFromSummaryIndex = async (summaryPath: string, conversationId: string): Promise<boolean> => {
+    if (!(await pathExists(summaryPath))) {
+        return false;
+    }
+
+    const buffer = new Uint8Array(await Bun.file(summaryPath).arrayBuffer());
+    const retained: Uint8Array[] = [];
+    let removed = false;
+    let index = 0;
+
+    while (index < buffer.length) {
+        const bounds = getFieldBounds(buffer, index);
+        const fieldBytes = buffer.slice(index, bounds.end);
+        const shouldRemove =
+            bounds.fieldNumber === 1 &&
+            bounds.wireType === 2 &&
+            fieldString(parseProtoFields(buffer, bounds.payloadStart, bounds.payloadEnd), 1) === conversationId;
+
+        if (shouldRemove) {
+            removed = true;
+        } else {
+            retained.push(fieldBytes);
+        }
+
+        index = bounds.end;
+    }
+
+    if (!removed) {
+        return false;
+    }
+
+    await Bun.write(summaryPath, Buffer.concat(retained));
+    return true;
 };
 
 const preferConversationFile = (
@@ -787,6 +870,50 @@ export const listAntigravityConversationsForGroup = async (
     return (await listAntigravityConversations(roots)).filter(
         (conversation) => conversation.workspaceKey === workspaceKey,
     );
+};
+
+const existingAntigravityDeletePaths = async (root: string, conversationId: string): Promise<string[]> => {
+    const conversationPath = path.join(getAntigravityConversationDir(root), `${conversationId}.pb`);
+    const artifactDir = path.join(getAntigravityBrainDir(root), conversationId);
+    const logsDir = path.join(artifactDir, '.system_generated', 'logs');
+    const candidates = [
+        conversationPath,
+        path.join(logsDir, 'overview.txt'),
+        path.join(logsDir, 'transcript.jsonl'),
+        path.join(logsDir, 'transcript_full.jsonl'),
+        artifactDir,
+    ];
+    const exists = await Promise.all(candidates.map(pathExists));
+    return candidates.filter((_, index) => exists[index]);
+};
+
+export const deleteAntigravityConversation = async (
+    roots: string[],
+    conversationId: string,
+): Promise<DeleteAntigravityConversationResult> => {
+    if (!isSafeConversationId(conversationId)) {
+        return { deletedConversationIds: [], deletedPaths: [] };
+    }
+
+    const deletedPaths: string[] = [];
+    let deletedSummary = false;
+
+    for (const root of roots) {
+        deletedSummary =
+            (await removeConversationFromSummaryIndex(getAntigravitySummaryIndexPath(root), conversationId)) ||
+            deletedSummary;
+
+        const rootPaths = await existingAntigravityDeletePaths(root, conversationId);
+        deletedPaths.push(...rootPaths);
+
+        await rm(path.join(getAntigravityConversationDir(root), `${conversationId}.pb`), { force: true });
+        await rm(path.join(getAntigravityBrainDir(root), conversationId), { force: true, recursive: true });
+    }
+
+    return {
+        deletedConversationIds: deletedSummary || deletedPaths.length > 0 ? [conversationId] : [],
+        deletedPaths: [...new Set(deletedPaths)],
+    };
 };
 
 export const renderAntigravityArtifactsMarkdown = async (

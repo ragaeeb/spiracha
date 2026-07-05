@@ -2,6 +2,7 @@ import { antigravityConversationAdapter } from './antigravity-adapter';
 import { claudeCodeConversationAdapter } from './claude-code-adapter';
 import { codexConversationAdapter } from './codex-adapter';
 import { cursorConversationAdapter } from './cursor-adapter';
+import { grokConversationAdapter } from './grok-adapter';
 import { kiroConversationAdapter } from './kiro-adapter';
 import { selectConversationMessages } from './message-selector';
 import { opencodeConversationAdapter } from './opencode-adapter';
@@ -14,6 +15,8 @@ import {
     type ConversationPage,
     type ConversationSource,
     type ConversationSourceInfo,
+    type DeleteConversationOptions,
+    type DeleteConversationResult,
     type GetConversationOptions,
     type ListConversationsForPathOptions,
     type ResolvedConversationRef,
@@ -35,6 +38,8 @@ export {
     type ConversationPathMatch,
     type ConversationSource,
     type ConversationSourceInfo,
+    type DeleteConversationOptions,
+    type DeleteConversationResult,
     type GetConversationOptions,
     type ListConversationsForPathOptions,
     type ResolvedConversationRef,
@@ -45,6 +50,7 @@ const SOURCE_LABELS: Record<ConversationSource, string> = {
     'claude-code': 'Claude Code',
     codex: 'Codex',
     cursor: 'Cursor',
+    grok: 'Grok',
     kiro: 'Kiro',
     opencode: 'OpenCode',
     qoder: 'Qoder',
@@ -64,6 +70,7 @@ const ADAPTERS: Partial<Record<ConversationSource, ConversationAdapter>> = {
     'claude-code': claudeCodeConversationAdapter,
     codex: codexConversationAdapter,
     cursor: cursorConversationAdapter,
+    grok: grokConversationAdapter,
     kiro: kiroConversationAdapter,
     opencode: opencodeConversationAdapter,
     qoder: qoderConversationAdapter,
@@ -181,9 +188,18 @@ export const getConversation = async (options: GetConversationOptions) => {
     return getAdapter(options.source)?.getConversation(options) ?? null;
 };
 
+export const deleteConversation = async (
+    options: DeleteConversationOptions,
+): Promise<DeleteConversationResult | null> => {
+    return (await getAdapter(options.source)?.deleteConversation?.(options)) ?? null;
+};
+
 const sourceFromSessionRoute = (segment: string): ConversationSource | null => {
     if (segment === 'claude-code-sessions') {
         return 'claude-code';
+    }
+    if (segment === 'grok-sessions') {
+        return 'grok';
     }
     if (segment === 'kiro-sessions') {
         return 'kiro';

@@ -1,4 +1,4 @@
-import type { ClaudeCodeSessionSummary } from '@spiracha/lib/claude-code-exporter-types';
+import type { GrokSessionSummary } from '@spiracha/lib/grok-exporter-types';
 import { Link } from '@tanstack/react-router';
 import type { SortingState } from '@tanstack/react-table';
 import { createColumnHelper } from '@tanstack/react-table';
@@ -12,20 +12,20 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu';
-import { formatDateTime, formatNumber, formatTokens } from '#/lib/formatters';
+import { formatDateTime, formatNumber } from '#/lib/formatters';
 
-type ClaudeCodeSessionsTableProps = {
-    onDeleteSession: (session: ClaudeCodeSessionSummary) => void;
-    onExportSession: (session: ClaudeCodeSessionSummary) => void;
-    sessions: ClaudeCodeSessionSummary[];
+type GrokSessionsTableProps = {
+    onDeleteSession: (session: GrokSessionSummary) => void;
+    onExportSession: (session: GrokSessionSummary) => void;
+    sessions: GrokSessionSummary[];
 };
 
-const columnHelper = createColumnHelper<ClaudeCodeSessionSummary>();
+const columnHelper = createColumnHelper<GrokSessionSummary>();
 const defaultSorting: SortingState = [{ desc: true, id: 'lastActive' }];
 
 const columns = (
-    onDeleteSession: (session: ClaudeCodeSessionSummary) => void,
-    onExportSession: (session: ClaudeCodeSessionSummary) => void,
+    onDeleteSession: (session: GrokSessionSummary) => void,
+    onExportSession: (session: GrokSessionSummary) => void,
 ) =>
     [
         columnHelper.accessor('title', {
@@ -33,7 +33,7 @@ const columns = (
                 <Link
                     className="block w-[16rem] max-w-[22rem] space-y-1 rounded-md outline-none transition hover:opacity-80 focus-visible:ring-2 focus-visible:ring-[var(--accent)] lg:w-auto"
                     params={{ sessionId: info.row.original.sessionId }}
-                    to="/claude-code-sessions/$sessionId"
+                    to="/grok-sessions/$sessionId"
                 >
                     <p className="truncate font-medium underline-offset-2 hover:underline">{info.getValue()}</p>
                     <p className="truncate text-[var(--muted-foreground)] text-xs">{info.row.original.sessionId}</p>
@@ -43,16 +43,22 @@ const columns = (
         }),
         columnHelper.accessor('lastActiveAtMs', {
             cell: (info) => (
-                <span className="whitespace-nowrap text-sm">
-                    {formatDateTime(info.getValue(), { timeZone: 'UTC' })}
+                <span className="whitespace-nowrap text-sm" suppressHydrationWarning>
+                    {formatDateTime(info.getValue())}
                 </span>
             ),
             header: 'Updated',
             id: 'lastActive',
         }),
-        columnHelper.accessor('model', {
-            cell: (info) => <span className="text-sm">{info.getValue() ?? 'unknown'}</span>,
+        columnHelper.accessor('modelLabel', {
+            cell: (info) => (
+                <span className="text-sm">{info.getValue() ?? info.row.original.currentModelId ?? 'unknown'}</span>
+            ),
             header: 'Model',
+        }),
+        columnHelper.accessor('agentName', {
+            cell: (info) => <span className="font-mono text-sm">{info.getValue() ?? 'unknown'}</span>,
+            header: 'Agent',
         }),
         columnHelper.accessor('messageCount', {
             cell: (info) => <span className="font-mono text-sm">{formatNumber(info.getValue())}</span>,
@@ -61,16 +67,6 @@ const columns = (
         columnHelper.accessor('toolCallCount', {
             cell: (info) => <span className="font-mono text-sm">{formatNumber(info.getValue())}</span>,
             header: 'Tools',
-        }),
-        columnHelper.accessor('totalTokens', {
-            cell: (info) => (
-                <span className="whitespace-nowrap font-mono text-sm">{formatTokens(info.getValue())}</span>
-            ),
-            header: 'Tokens',
-        }),
-        columnHelper.accessor('version', {
-            cell: (info) => <span className="font-mono text-sm">{info.getValue() ?? 'unknown'}</span>,
-            header: 'Version',
         }),
         columnHelper.display({
             cell: (info) => (
@@ -108,15 +104,15 @@ const columns = (
         }),
     ] as const;
 
-export function ClaudeCodeSessionsTable({ onDeleteSession, onExportSession, sessions }: ClaudeCodeSessionsTableProps) {
+export const GrokSessionsTable = ({ onDeleteSession, onExportSession, sessions }: GrokSessionsTableProps) => {
     const tableColumns = useMemo(() => columns(onDeleteSession, onExportSession), [onDeleteSession, onExportSession]);
 
     return (
         <DataTable
             columns={tableColumns}
             data={sessions}
-            emptyMessage="No Claude Code sessions match the current workspace filter."
+            emptyMessage="No Grok sessions match the current workspace filter."
             initialSorting={defaultSorting}
         />
     );
-}
+};

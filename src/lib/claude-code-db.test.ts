@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
+    deleteClaudeCodeSession,
     findClaudeCodeWorkspaceGroups,
     getDefaultClaudeCodeDataDir,
     listClaudeCodeSessionsForGroup,
@@ -186,6 +187,27 @@ describe('claude code workspace discovery', () => {
             type: 'tool_result',
         });
         expect(transcript?.rawEvents).toHaveLength(3);
+    });
+
+    it('should delete a Claude Code session JSONL file', async () => {
+        const projectsDir = await makeTempRoot();
+        const sessionPath = path.join(projectsDir, '-Users-rhaq-workspace-ushman-corpus', 'session-delete.jsonl');
+        await writeSession(
+            projectsDir,
+            '-Users-rhaq-workspace-ushman-corpus',
+            'session-delete',
+            buildSessionRecords('session-delete', corpusCwd),
+        );
+
+        const result = await deleteClaudeCodeSession(projectsDir, 'session-delete');
+
+        expect(result.deletedSessionIds).toEqual(['session-delete']);
+        expect(result.deletedFiles).toEqual([sessionPath]);
+        expect(await Bun.file(sessionPath).exists()).toBe(false);
+        expect(await readClaudeCodeSessionTranscript(projectsDir, 'session-delete')).toBeNull();
+        expect(
+            await listClaudeCodeSessionsForGroup('project:-Users-rhaq-workspace-ushman-corpus', projectsDir),
+        ).toEqual([]);
     });
 
     it('should parse numeric Claude Code timestamps as epoch milliseconds', async () => {

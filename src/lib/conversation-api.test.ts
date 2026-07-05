@@ -307,4 +307,30 @@ describe('conversation API handler', () => {
             data: { id: 'thread-1', source: 'codex' },
         });
     });
+
+    it('should delete supported conversations through the public API', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/grok/session%2Fencoded', { method: 'DELETE' }),
+            {
+                deleteConversation: async (options) => {
+                    expect(options).toEqual({
+                        id: 'session/encoded',
+                        source: 'grok',
+                    });
+                    return {
+                        deletedFiles: ['/Users/user/.grok/sessions/project/session/chat_history.jsonl'],
+                        deletedIds: ['session/encoded'],
+                    };
+                },
+            },
+        );
+
+        expect(response.status).toBe(200);
+        await expect(response.json()).resolves.toEqual({
+            data: {
+                deletedFiles: ['/Users/user/.grok/sessions/project/session/chat_history.jsonl'],
+                deletedIds: ['session/encoded'],
+            },
+        });
+    });
 });

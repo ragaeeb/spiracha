@@ -73,3 +73,10 @@ export const exportClaudeCodeSessionFn = createServerFn({ method: 'POST' })
             zipArchive: data.zipArchive,
         });
     });
+
+export const deleteClaudeCodeSessionFn = createServerFn({ method: 'POST' })
+    .validator(sessionSchema)
+    .handler(async ({ data }) => {
+        const { deleteClaudeCodeSession, resolveClaudeCodeProjectsDir } = await import('@spiracha/lib/claude-code-db');
+        return deleteClaudeCodeSession(resolveClaudeCodeProjectsDir(), data.sessionId);
+    });

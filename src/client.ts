@@ -1,4 +1,5 @@
 import {
+    deleteConversation as deleteLocalConversation,
     getConversation as getLocalConversation,
     listConversationSources as listLocalConversationSources,
     listConversationsForPath as listLocalConversationsForPath,
@@ -11,6 +12,8 @@ import type {
     ConversationMessageSelector,
     ConversationPage,
     ConversationSourceInfo,
+    DeleteConversationOptions,
+    DeleteConversationResult,
     GetConversationOptions,
     ListConversationsForPathOptions,
     ResolvedConversationRef,
@@ -28,6 +31,8 @@ export type {
     ConversationPathMatch,
     ConversationSource,
     ConversationSourceInfo,
+    DeleteConversationOptions,
+    DeleteConversationResult,
     GetConversationOptions,
     ListConversationsForPathOptions,
     ResolvedConversationRef,
@@ -70,6 +75,7 @@ export type CreateConversationClientOptions = HttpConversationClientOptions | Lo
 export type ExportConversationMarkdownOptions = GetConversationOptions;
 
 export type ConversationClient = {
+    deleteConversation: (options: DeleteConversationOptions) => Promise<DeleteConversationResult | null>;
     exportConversationMarkdown: (options: ExportConversationMarkdownOptions) => Promise<string | null>;
     getConversation: (options: GetConversationOptions) => Promise<ConversationDetail | null>;
     listConversations: (options: ListConversationsForPathOptions) => Promise<ConversationPage>;
@@ -230,6 +236,8 @@ const rejectHttpLocations = (locations: ConversationDataLocations | undefined): 
 };
 
 const makeLocalClient = (options: LocalConversationClientOptions): ConversationClient => ({
+    deleteConversation: (deleteOptions) =>
+        deleteLocalConversation(withDefaultLocations(deleteOptions, options.locations)),
     exportConversationMarkdown: async (getOptions) => {
         const conversation = await getLocalConversation(withDefaultLocations(getOptions, options.locations));
         return conversation ? renderLocalConversationMarkdown(conversation) : null;
@@ -245,6 +253,16 @@ const makeHttpClient = (options: HttpConversationClientOptions): ConversationCli
     const baseUrl = normalizeBaseUrl(options.baseUrl);
 
     return {
+        deleteConversation: async (deleteOptions) => {
+            rejectHttpLocations(deleteOptions.locations);
+            const { id, source } = deleteOptions;
+            const url = makeHttpUrl(baseUrl, `/api/v1/conversations/${source}/${encodeURIComponent(id)}`);
+            const envelope = await fetchJsonOrNull<DeleteConversationResult>(url, { method: 'DELETE' });
+            if (!envelope) {
+                return null;
+            }
+            return requireData(envelope, 'a delete result');
+        },
         exportConversationMarkdown: async (getOptions) => {
             rejectHttpLocations(getOptions.locations);
             const { id, messageSelector, source } = getOptions;

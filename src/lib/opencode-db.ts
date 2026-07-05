@@ -28,6 +28,10 @@ export { getDefaultOpenCodeDataDir, resolveOpenCodeDbPath };
 
 export const OPENCODE_READONLY_DB_OPEN_FLAGS = constants.SQLITE_OPEN_READONLY | constants.SQLITE_OPEN_URI;
 
+export type DeleteOpenCodeSessionResult = {
+    deletedSessionIds: string[];
+};
+
 type WorkspaceRow = {
     archivedSessionCount: number;
     lastActiveMs: number;
@@ -402,6 +406,50 @@ export const listOpenCodeSessionsForGroup = async (
 
 const readOpenCodeSessionSummary = (db: Database, sessionId: string): OpenCodeSessionSummary | null => {
     return readSessionSummaries(db, `s.id = ? AND ${MAIN_SESSION_FILTER}`, [sessionId])[0] ?? null;
+};
+
+const readOpenCodeSessionTreeIds = (db: Database, sessionId: string): string[] => {
+    const rows = db
+        .query(
+            `WITH RECURSIVE session_tree(id) AS (
+                SELECT id FROM session WHERE id = ?
+                UNION ALL
+                SELECT child.id
+                FROM session child
+                JOIN session_tree parent ON child.parent_id = parent.id
+            )
+            SELECT id FROM session_tree`,
+        )
+        .all(sessionId) as Array<{ id: string }>;
+    return rows.map((row) => row.id);
+};
+
+export const deleteOpenCodeSession = async (
+    dbPath: string,
+    sessionId: string,
+): Promise<DeleteOpenCodeSessionResult> => {
+    if (!(await pathExists(dbPath))) {
+        return { deletedSessionIds: [] };
+    }
+
+    const db = new Database(dbPath);
+    try {
+        const sessionIds = readOpenCodeSessionTreeIds(db, sessionId);
+        if (sessionIds.length === 0) {
+            return { deletedSessionIds: [] };
+        }
+
+        const placeholders = sessionIds.map(() => '?').join(', ');
+        db.transaction(() => {
+            db.query(`DELETE FROM part WHERE session_id IN (${placeholders})`).run(...sessionIds);
+            db.query(`DELETE FROM message WHERE session_id IN (${placeholders})`).run(...sessionIds);
+            db.query(`DELETE FROM session WHERE id IN (${placeholders})`).run(...sessionIds);
+        })();
+
+        return { deletedSessionIds: sessionIds };
+    } finally {
+        db.close();
+    }
 };
 
 const getMessageRole = (raw: Record<string, JsonValue>): string => asString(raw.role ?? null) ?? 'unknown';

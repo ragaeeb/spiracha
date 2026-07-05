@@ -3,6 +3,7 @@ import { mkdir, utimes } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
+    deleteAntigravityConversation,
     groupAntigravityConversations,
     listAntigravityConversations,
     renderAntigravityArtifactsMarkdown,
@@ -335,5 +336,43 @@ describe('antigravity db discovery', () => {
         const markdown = await renderAntigravityConversationMarkdown(conversation!);
 
         expect(markdown).toBeNull();
+    });
+
+    it('should delete an Antigravity conversation from summaries, protobufs, transcripts, and artifacts', async () => {
+        const root = await makeRoot();
+        const deletedId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        const retainedId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+        const deletedArtifactDir = path.join(root, 'brain', deletedId);
+        const deletedLogsDir = path.join(deletedArtifactDir, '.system_generated', 'logs');
+        const deletedConversationPath = path.join(root, 'conversations', `${deletedId}.pb`);
+        const deletedTranscriptPath = path.join(deletedLogsDir, 'overview.txt');
+        const deletedFullTranscriptPath = path.join(deletedLogsDir, 'transcript_full.jsonl');
+        await mkdir(deletedLogsDir, { recursive: true });
+        await Bun.write(
+            path.join(root, 'agyhub_summaries_proto.pb'),
+            encodeSummaryIndex([
+                { id: deletedId, title: 'Delete me', workspaceUri: 'file:///tmp/delete-me' },
+                { id: retainedId, title: 'Keep me', workspaceUri: 'file:///tmp/keep-me' },
+            ]),
+        );
+        await Bun.write(deletedConversationPath, new Uint8Array([1, 2, 3]));
+        await Bun.write(deletedTranscriptPath, '{}\n');
+        await Bun.write(deletedFullTranscriptPath, '{}\n');
+        await Bun.write(path.join(deletedArtifactDir, 'artifact.md'), 'Generated artifact.\n');
+        await Bun.write(path.join(root, 'conversations', `${retainedId}.pb`), new Uint8Array([4, 5]));
+
+        const result = await deleteAntigravityConversation([root], deletedId);
+
+        expect(result.deletedConversationIds).toEqual([deletedId]);
+        expect(result.deletedPaths.sort()).toEqual(
+            [deletedArtifactDir, deletedConversationPath, deletedFullTranscriptPath, deletedTranscriptPath].sort(),
+        );
+        expect(await Bun.file(deletedConversationPath).exists()).toBe(false);
+        expect(await Bun.file(deletedTranscriptPath).exists()).toBe(false);
+        expect(await Bun.file(deletedFullTranscriptPath).exists()).toBe(false);
+        expect(await Bun.file(path.join(deletedArtifactDir, 'artifact.md')).exists()).toBe(false);
+
+        const conversations = await listAntigravityConversations([root]);
+        expect(conversations.map((conversation) => conversation.conversationId)).toEqual([retainedId]);
     });
 });

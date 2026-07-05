@@ -2,7 +2,7 @@ import type { KiroSessionSummary } from '@spiracha/lib/kiro-exporter-types';
 import { Link } from '@tanstack/react-router';
 import type { SortingState } from '@tanstack/react-table';
 import { createColumnHelper } from '@tanstack/react-table';
-import { Download, MoreHorizontal } from 'lucide-react';
+import { Download, MoreHorizontal, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
 import { Button } from '#/components/ui/button';
@@ -15,6 +15,7 @@ import {
 import { formatDateTime, formatNumber } from '#/lib/formatters';
 
 type KiroSessionsTableProps = {
+    onDeleteSession: (session: KiroSessionSummary) => void;
     onExportSession: (session: KiroSessionSummary) => void;
     sessions: KiroSessionSummary[];
 };
@@ -22,7 +23,10 @@ type KiroSessionsTableProps = {
 const columnHelper = createColumnHelper<KiroSessionSummary>();
 const defaultSorting: SortingState = [{ desc: true, id: 'lastActive' }];
 
-const columns = (onExportSession: (session: KiroSessionSummary) => void) =>
+const columns = (
+    onDeleteSession: (session: KiroSessionSummary) => void,
+    onExportSession: (session: KiroSessionSummary) => void,
+) =>
     [
         columnHelper.accessor('title', {
             cell: (info) => (
@@ -89,6 +93,10 @@ const columns = (onExportSession: (session: KiroSessionSummary) => void) =>
                             <Download className="mr-2 size-4" />
                             Export session
                         </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => onDeleteSession(info.row.original)}>
+                            <Trash2 className="mr-2 size-4" />
+                            Delete session
+                        </DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>
             ),
@@ -98,8 +106,8 @@ const columns = (onExportSession: (session: KiroSessionSummary) => void) =>
         }),
     ] as const;
 
-export const KiroSessionsTable = ({ onExportSession, sessions }: KiroSessionsTableProps) => {
-    const tableColumns = useMemo(() => columns(onExportSession), [onExportSession]);
+export const KiroSessionsTable = ({ onDeleteSession, onExportSession, sessions }: KiroSessionsTableProps) => {
+    const tableColumns = useMemo(() => columns(onDeleteSession, onExportSession), [onDeleteSession, onExportSession]);
 
     return (
         <DataTable

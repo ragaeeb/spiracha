@@ -2,7 +2,7 @@ import type { AntigravityConversation } from '@spiracha/lib/antigravity-exporter
 import type { AntigravityDecryptionState } from '@spiracha/lib/antigravity-keychain';
 import { Link } from '@tanstack/react-router';
 import { createColumnHelper } from '@tanstack/react-table';
-import { Download, LockKeyhole, MoreHorizontal, ScrollText } from 'lucide-react';
+import { Download, LockKeyhole, MoreHorizontal, ScrollText, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
 import { Badge } from '#/components/ui/badge';
@@ -24,6 +24,7 @@ import { formatBytes, formatDateTime, formatNumber } from '#/lib/formatters';
 type AntigravityConversationsTableProps = {
     conversations: AntigravityConversation[];
     decryptionState: AntigravityDecryptionState | null;
+    onDeleteConversation: (conversation: AntigravityConversation) => void;
     onExportArtifacts: (conversation: AntigravityConversation) => void;
     onExportConversation: (conversation: AntigravityConversation) => void;
 };
@@ -34,7 +35,6 @@ type ConversationExportState = {
     hasTranscript: boolean;
     lockedTranscript: boolean;
     showConversationAction: boolean;
-    showActions: boolean;
 };
 
 const columnHelper = createColumnHelper<AntigravityConversation>();
@@ -56,7 +56,6 @@ const getConversationExportState = (
         hasArtifacts,
         hasTranscript,
         lockedTranscript,
-        showActions: showConversationAction || hasArtifacts,
         showConversationAction,
     };
 };
@@ -76,6 +75,7 @@ const getTranscriptLabel = (
 
 const columns = (
     decryptionState: AntigravityDecryptionState | null,
+    onDeleteConversation: (conversation: AntigravityConversation) => void,
     onExportConversation: (conversation: AntigravityConversation) => void,
     onExportArtifacts: (conversation: AntigravityConversation) => void,
 ) =>
@@ -137,10 +137,6 @@ const columns = (
         columnHelper.display({
             cell: (info) => {
                 const exportState = getConversationExportState(info.row.original, decryptionState);
-                if (!exportState.showActions) {
-                    return <span className="text-[var(--muted-foreground)] text-sm">No export</span>;
-                }
-
                 return (
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -176,6 +172,10 @@ const columns = (
                                     Export artifacts
                                 </DropdownMenuItem>
                             ) : null}
+                            <DropdownMenuItem onClick={() => onDeleteConversation(info.row.original)}>
+                                <Trash2 className="mr-2 size-4" />
+                                Delete conversation
+                            </DropdownMenuItem>
                         </DropdownMenuContent>
                     </DropdownMenu>
                 );
@@ -188,12 +188,13 @@ const columns = (
 export function AntigravityConversationsTable({
     conversations,
     decryptionState,
+    onDeleteConversation,
     onExportArtifacts,
     onExportConversation,
 }: AntigravityConversationsTableProps) {
     const tableColumns = useMemo(
-        () => columns(decryptionState, onExportConversation, onExportArtifacts),
-        [decryptionState, onExportArtifacts, onExportConversation],
+        () => columns(decryptionState, onDeleteConversation, onExportConversation, onExportArtifacts),
+        [decryptionState, onDeleteConversation, onExportArtifacts, onExportConversation],
     );
 
     return (

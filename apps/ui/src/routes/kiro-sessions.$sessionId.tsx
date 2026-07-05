@@ -1,10 +1,11 @@
 import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/codex-browser-types';
 import type { KiroSessionTranscript } from '@spiracha/lib/kiro-exporter-types';
-import { useMutation, useSuspenseQuery } from '@tanstack/react-query';
-import { createFileRoute, Link } from '@tanstack/react-router';
-import { Download } from 'lucide-react';
+import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
+import { Download, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Breadcrumbs } from '#/components/breadcrumbs';
+import { DeleteConfirmDialog } from '#/components/delete-confirm-dialog';
 import { ExportDialog } from '#/components/export-dialog';
 import { JsonPanel } from '#/components/json-panel';
 import { LoadingPanel } from '#/components/loading-panel';
@@ -19,7 +20,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import { formatDateTime, formatList, formatNumber } from '#/lib/formatters';
 import { kiroSessionDetailQueryOptions } from '#/lib/kiro-queries';
-import { exportKiroSessionFn } from '#/lib/kiro-server';
+import { deleteKiroSessionFn, exportKiroSessionFn } from '#/lib/kiro-server';
 import { getKiroThreadTranscriptStats, kiroTranscriptToThreadEvents } from '#/lib/kiro-transcript-events';
 
 type ExportDialogOptions = {
@@ -169,7 +170,10 @@ const KiroRawPanels = ({ detail, events }: { detail: KiroSessionTranscript; even
 };
 
 const KiroSessionDetailPage = () => {
+    const navigate = useNavigate();
+    const queryClient = useQueryClient();
     const detail = useSuspenseQuery(kiroSessionDetailQueryOptions(Route.useParams().sessionId)).data;
+    const [deleteOpen, setDeleteOpen] = useState(false);
     const [pendingExport, setPendingExport] = useState(false);
     const [showToolCalls, setShowToolCalls] = useState(false);
     const [showCommentary, setShowCommentary] = useState(false);
@@ -204,19 +208,45 @@ const KiroSessionDetailPage = () => {
         },
     });
 
+    const deleteSessionMutation = useMutation({
+        mutationFn: () => deleteKiroSessionFn({ data: { sessionId: detail.session.sessionId } }),
+        onSuccess: async () => {
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ['kiro-workspaces'] }),
+                queryClient.invalidateQueries({ queryKey: ['kiro-sessions', detail.session.workspaceKey] }),
+                queryClient.invalidateQueries({ queryKey: ['kiro-session', detail.session.sessionId] }),
+            ]);
+            navigate({
+                params: { workspaceKey: detail.session.workspaceKey },
+                to: '/kiro/$workspaceKey',
+            });
+        },
+    });
+
     return (
         <div className="space-y-6">
             <PageHeader
                 actions={
-                    <Button
-                        className="rounded-full"
-                        type="button"
-                        variant="outline"
-                        onClick={() => setPendingExport(true)}
-                    >
-                        <Download className="mr-2 size-4" />
-                        Export
-                    </Button>
+                    <>
+                        <Button
+                            className="rounded-full"
+                            type="button"
+                            variant="outline"
+                            onClick={() => setPendingExport(true)}
+                        >
+                            <Download className="mr-2 size-4" />
+                            Export
+                        </Button>
+                        <Button
+                            className="rounded-full border-[var(--destructive)]/20 text-[var(--destructive)]"
+                            type="button"
+                            variant="outline"
+                            onClick={() => setDeleteOpen(true)}
+                        >
+                            <Trash2 className="mr-2 size-4" />
+                            Delete
+                        </Button>
+                    </>
                 }
                 breadcrumb={
                     <Breadcrumbs
@@ -324,6 +354,27 @@ const KiroSessionDetailPage = () => {
                     setPendingExport(open);
                     if (!open) {
                         exportSessionMutation.reset();
+                    }
+                }}
+            />
+
+            <DeleteConfirmDialog
+                confirmLabel={deleteSessionMutation.isPending ? 'Deleting...' : 'Delete session'}
+                description="Permanently delete this Kiro session from disk. This removes the session JSON file and matching execution files."
+                errorMessage={
+                    deleteSessionMutation.isError
+                        ? deleteSessionMutation.error instanceof Error
+                            ? deleteSessionMutation.error.message
+                            : 'Session delete failed'
+                        : null
+                }
+                open={deleteOpen}
+                title="Delete this Kiro session?"
+                onConfirm={() => deleteSessionMutation.mutate()}
+                onOpenChange={(open) => {
+                    setDeleteOpen(open);
+                    if (!open) {
+                        deleteSessionMutation.reset();
                     }
                 }}
             />

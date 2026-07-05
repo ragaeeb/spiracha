@@ -71,3 +71,10 @@ export const exportOpenCodeSessionFn = createServerFn({ method: 'POST' })
             zipArchive: data.zipArchive,
         });
     });
+
+export const deleteOpenCodeSessionFn = createServerFn({ method: 'POST' })
+    .validator(sessionSchema)
+    .handler(async ({ data }) => {
+        const { deleteOpenCodeSession, resolveOpenCodeDbPath } = await import('@spiracha/lib/opencode-db');
+        return deleteOpenCodeSession(resolveOpenCodeDbPath(), data.sessionId);
+    });

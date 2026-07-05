@@ -1,4 +1,4 @@
-import { readdir, stat } from 'node:fs/promises';
+import { readdir, stat, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import {
     type ClaudeCodeSessionSummary,
@@ -36,6 +36,11 @@ type TranscriptFile = {
 
 type ParsedTranscriptFile = {
     transcript: ClaudeCodeSessionTranscript;
+};
+
+export type DeleteClaudeCodeSessionResult = {
+    deletedFiles: string[];
+    deletedSessionIds: string[];
 };
 
 type SessionStats = {
@@ -652,4 +657,24 @@ export const readClaudeCodeSessionTranscript = async (
     }
 
     return (await readTranscriptFile(file))?.transcript ?? null;
+};
+
+export const deleteClaudeCodeSession = async (
+    projectsDir: string,
+    sessionId: string,
+): Promise<DeleteClaudeCodeSessionResult> => {
+    if (!(await pathExists(projectsDir))) {
+        return { deletedFiles: [], deletedSessionIds: [] };
+    }
+
+    const file = await locateSessionFile(projectsDir, sessionId);
+    if (!file) {
+        return { deletedFiles: [], deletedSessionIds: [] };
+    }
+
+    await unlink(file.filePath);
+    return {
+        deletedFiles: [file.filePath],
+        deletedSessionIds: [sessionId],
+    };
 };

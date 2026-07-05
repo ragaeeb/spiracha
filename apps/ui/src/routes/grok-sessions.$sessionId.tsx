@@ -1,5 +1,5 @@
 import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/codex-browser-types';
-import type { OpenCodeSessionTranscript } from '@spiracha/lib/opencode-exporter-types';
+import type { GrokSessionTranscript } from '@spiracha/lib/grok-exporter-types';
 import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { Download, Trash2 } from 'lucide-react';
@@ -18,10 +18,10 @@ import { Button } from '#/components/ui/button';
 import { Checkbox } from '#/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
-import { formatDateTime, formatList, formatNumber, formatTokens } from '#/lib/formatters';
-import { openCodeSessionDetailQueryOptions } from '#/lib/opencode-queries';
-import { deleteOpenCodeSessionFn, exportOpenCodeSessionFn } from '#/lib/opencode-server';
-import { getOpenCodeThreadTranscriptStats, openCodeTranscriptToThreadEvents } from '#/lib/opencode-transcript-events';
+import { formatDateTime, formatList, formatNumber } from '#/lib/formatters';
+import { grokSessionDetailQueryOptions } from '#/lib/grok-queries';
+import { deleteGrokSessionFn, exportGrokSessionFn } from '#/lib/grok-server';
+import { getGrokThreadTranscriptStats, grokTranscriptToThreadEvents } from '#/lib/grok-transcript-events';
 
 type ExportDialogOptions = {
     includeCommentary: boolean;
@@ -45,11 +45,11 @@ type TranscriptControlsProps = {
     onShowUserMessagesChange: (checked: boolean) => void;
 };
 
-const OpenCodeSessionDetailErrorComponent = ({ error }: { error: Error }) => {
-    return <ReloadErrorPanel description={error.message} title="Failed to load OpenCode session" />;
+const GrokSessionDetailErrorComponent = ({ error }: { error: Error }) => {
+    return <ReloadErrorPanel description={error.message} title="Failed to load Grok session" />;
 };
 
-const buildSessionMetadata = (detail: OpenCodeSessionTranscript) => [
+const buildSessionMetadata = (detail: GrokSessionTranscript) => [
     { label: 'Session ID', value: <span data-mono="true">{detail.session.sessionId}</span> },
     {
         label: 'Workspace',
@@ -57,24 +57,24 @@ const buildSessionMetadata = (detail: OpenCodeSessionTranscript) => [
             <Link
                 className="text-[var(--accent)]"
                 params={{ workspaceKey: detail.session.workspaceKey }}
-                to="/opencode/$workspaceKey"
+                to="/grok/$workspaceKey"
             >
                 {detail.session.workspaceLabel}
             </Link>
         ),
     },
     { label: 'Worktree', value: detail.session.worktree },
-    { label: 'Directory', value: detail.session.directory },
-    { label: 'Slug', value: detail.session.slug },
-    { label: 'Agent', value: detail.session.agent ?? 'unknown' },
-    { label: 'Model', value: detail.session.modelLabel ?? 'unknown' },
+    { label: 'Session directory', value: detail.session.sessionDir },
+    { label: 'Agent', value: detail.session.agentName ?? 'unknown' },
+    { label: 'Model', value: detail.session.modelLabel ?? detail.session.currentModelId ?? 'unknown' },
+    { label: 'Git branch', value: detail.session.gitBranch ?? 'unknown' },
+    { label: 'Head commit', value: detail.session.headCommit ?? 'unknown' },
     { label: 'Created', value: <span suppressHydrationWarning>{formatDateTime(detail.session.createdAtMs)}</span> },
-    { label: 'Updated', value: <span suppressHydrationWarning>{formatDateTime(detail.session.lastUpdatedAtMs)}</span> },
-    { label: 'Archived', value: <span suppressHydrationWarning>{formatDateTime(detail.session.archivedAtMs)}</span> },
+    { label: 'Updated', value: <span suppressHydrationWarning>{formatDateTime(detail.session.lastActiveAtMs)}</span> },
 ];
 
 const buildTranscriptStatsItems = (
-    detail: OpenCodeSessionTranscript,
+    detail: GrokSessionTranscript,
     events: ThreadEvent[],
     stats: ThreadTranscriptStats,
 ) => [
@@ -89,7 +89,7 @@ const buildTranscriptStatsItems = (
     { label: 'Renderable parts', value: formatNumber(detail.renderablePartCount) },
 ];
 
-const OpenCodeTranscriptControls = ({
+const GrokTranscriptControls = ({
     rawJsonDisabled = false,
     showCommentary,
     showExtraEvents,
@@ -107,62 +107,62 @@ const OpenCodeTranscriptControls = ({
             <div className="flex items-center gap-2 text-sm">
                 <Checkbox
                     checked={showToolCalls}
-                    id="opencode-transcript-show-tool-calls"
+                    id="grok-transcript-show-tool-calls"
                     onCheckedChange={(checked) => onShowToolCallsChange(checked === true)}
                 />
-                <label htmlFor="opencode-transcript-show-tool-calls">Show tool calls</label>
+                <label htmlFor="grok-transcript-show-tool-calls">Show tool calls</label>
             </div>
             <div className="flex items-center gap-2 text-sm">
                 <Checkbox
                     checked={showCommentary}
-                    id="opencode-transcript-show-commentary"
+                    id="grok-transcript-show-commentary"
                     onCheckedChange={(checked) => onShowCommentaryChange(checked === true)}
                 />
-                <label htmlFor="opencode-transcript-show-commentary">Show commentary</label>
+                <label htmlFor="grok-transcript-show-commentary">Show commentary</label>
             </div>
             <div className="flex items-center gap-2 text-sm">
                 <Checkbox
                     checked={showExtraEvents}
-                    id="opencode-transcript-show-extra-events"
+                    id="grok-transcript-show-extra-events"
                     onCheckedChange={(checked) => onShowExtraEventsChange(checked === true)}
                 />
-                <label htmlFor="opencode-transcript-show-extra-events">Show extra events</label>
+                <label htmlFor="grok-transcript-show-extra-events">Show extra events</label>
             </div>
             <div className="flex items-center gap-2 text-sm">
                 <Checkbox
                     checked={showRawJson}
                     disabled={rawJsonDisabled}
-                    id="opencode-transcript-show-raw-json"
+                    id="grok-transcript-show-raw-json"
                     onCheckedChange={(checked) => onShowRawJsonChange(checked === true)}
                 />
-                <label htmlFor="opencode-transcript-show-raw-json">Raw JSON</label>
+                <label htmlFor="grok-transcript-show-raw-json">Raw JSON</label>
             </div>
             <div className="flex items-center gap-2 text-sm">
                 <Checkbox
                     checked={showUserMessages}
-                    id="opencode-transcript-show-user-messages"
+                    id="grok-transcript-show-user-messages"
                     onCheckedChange={(checked) => onShowUserMessagesChange(checked === true)}
                 />
-                <label htmlFor="opencode-transcript-show-user-messages">User</label>
+                <label htmlFor="grok-transcript-show-user-messages">User</label>
             </div>
         </div>
     );
 };
 
-const OpenCodeRawPanels = ({ detail, events }: { detail: OpenCodeSessionTranscript; events: ThreadEvent[] }) => {
+const GrokRawPanels = ({ detail, events }: { detail: GrokSessionTranscript; events: ThreadEvent[] }) => {
     return (
         <div className="space-y-4">
             <JsonPanel title="Session summary" value={detail.session} />
-            <JsonPanel title="OpenCode messages" value={detail.messages} />
+            <JsonPanel title="Grok transcript entries" value={detail.entries} />
             <JsonPanel title="Transcript events" value={events} />
         </div>
     );
 };
 
-const OpenCodeSessionDetailPage = () => {
+const GrokSessionDetailPage = () => {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
-    const detail = useSuspenseQuery(openCodeSessionDetailQueryOptions(Route.useParams().sessionId)).data;
+    const detail = useSuspenseQuery(grokSessionDetailQueryOptions(Route.useParams().sessionId)).data;
     const [deleteOpen, setDeleteOpen] = useState(false);
     const [pendingExport, setPendingExport] = useState(false);
     const [showToolCalls, setShowToolCalls] = useState(false);
@@ -170,12 +170,12 @@ const OpenCodeSessionDetailPage = () => {
     const [showExtraEvents, setShowExtraEvents] = useState(false);
     const [showRawJson, setShowRawJson] = useState(false);
     const [showUserMessages, setShowUserMessages] = useState(true);
-    const transcriptEvents = useMemo(() => openCodeTranscriptToThreadEvents(detail), [detail]);
-    const transcriptStats = useMemo(() => getOpenCodeThreadTranscriptStats(transcriptEvents), [transcriptEvents]);
+    const transcriptEvents = useMemo(() => grokTranscriptToThreadEvents(detail), [detail]);
+    const transcriptStats = useMemo(() => getGrokThreadTranscriptStats(transcriptEvents), [transcriptEvents]);
 
     const exportSessionMutation = useMutation({
         mutationFn: async (options: ExportDialogOptions) => {
-            const download = await exportOpenCodeSessionFn({
+            const download = await exportGrokSessionFn({
                 data: {
                     includeCommentary: options.includeCommentary,
                     includeMetadata: options.includeMetadata,
@@ -198,16 +198,16 @@ const OpenCodeSessionDetailPage = () => {
     });
 
     const deleteSessionMutation = useMutation({
-        mutationFn: () => deleteOpenCodeSessionFn({ data: { sessionId: detail.session.sessionId } }),
+        mutationFn: () => deleteGrokSessionFn({ data: { sessionId: detail.session.sessionId } }),
         onSuccess: async () => {
             await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['opencode-workspaces'] }),
-                queryClient.invalidateQueries({ queryKey: ['opencode-sessions', detail.session.workspaceKey] }),
-                queryClient.invalidateQueries({ queryKey: ['opencode-session', detail.session.sessionId] }),
+                queryClient.invalidateQueries({ queryKey: ['grok-workspaces'] }),
+                queryClient.invalidateQueries({ queryKey: ['grok-sessions', detail.session.workspaceKey] }),
+                queryClient.invalidateQueries({ queryKey: ['grok-session', detail.session.sessionId] }),
             ]);
             navigate({
                 params: { workspaceKey: detail.session.workspaceKey },
-                to: '/opencode/$workspaceKey',
+                to: '/grok/$workspaceKey',
             });
         },
     });
@@ -240,26 +240,26 @@ const OpenCodeSessionDetailPage = () => {
                 breadcrumb={
                     <Breadcrumbs
                         items={[
-                            { label: 'OpenCode', to: '/opencode' },
+                            { label: 'Grok', to: '/grok' },
                             {
                                 label: detail.session.workspaceLabel,
                                 params: { workspaceKey: detail.session.workspaceKey },
-                                to: '/opencode/$workspaceKey',
+                                to: '/grok/$workspaceKey',
                             },
                             { label: detail.session.title },
                         ]}
                     />
                 }
-                eyebrow="OpenCode session"
-                subtitle="Session detail for the selected OpenCode project conversation."
+                eyebrow="Grok session"
+                subtitle="Session detail for the selected local Grok CLI conversation."
                 title={detail.session.title}
             />
 
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <MetricCard label="Messages" value={formatNumber(detail.session.messageCount)} />
-                <MetricCard label="Parts" value={formatNumber(detail.partCount)} />
-                <MetricCard label="Tool calls" value={formatNumber(detail.session.toolPartCount)} />
-                <MetricCard label="Tokens" value={formatTokens(detail.session.totalTokens)} />
+                <MetricCard label="Tool calls" value={formatNumber(detail.session.toolCallCount)} />
+                <MetricCard label="Reasoning" value={formatNumber(detail.session.reasoningCount)} />
+                <MetricCard label="Renderable parts" value={formatNumber(detail.renderablePartCount)} />
             </div>
 
             <Tabs className="space-y-4" defaultValue="transcript">
@@ -276,7 +276,7 @@ const OpenCodeSessionDetailPage = () => {
                 </TabsList>
 
                 <TabsContent className="space-y-3" value="transcript">
-                    <OpenCodeTranscriptControls
+                    <GrokTranscriptControls
                         rawJsonDisabled={transcriptEvents.length === 0}
                         showCommentary={showCommentary}
                         showExtraEvents={showExtraEvents}
@@ -291,7 +291,7 @@ const OpenCodeSessionDetailPage = () => {
                     />
                     {transcriptEvents.length > 0 ? (
                         <TranscriptView
-                            assistantModel={detail.session.modelLabel}
+                            assistantModel={detail.session.modelLabel ?? detail.session.currentModelId}
                             events={transcriptEvents}
                             projectPath={detail.session.worktree}
                             showCommentary={showCommentary}
@@ -306,7 +306,7 @@ const OpenCodeSessionDetailPage = () => {
                                 Transcript
                             </h3>
                             <p className="mt-4 text-[var(--muted-foreground)] text-sm">
-                                No renderable OpenCode transcript content was found for this session.
+                                No renderable Grok transcript content was found for this session.
                             </p>
                         </section>
                     )}
@@ -323,7 +323,7 @@ const OpenCodeSessionDetailPage = () => {
                 </TabsContent>
 
                 <TabsContent value="raw">
-                    <OpenCodeRawPanels detail={detail} events={transcriptEvents} />
+                    <GrokRawPanels detail={detail} events={transcriptEvents} />
                 </TabsContent>
             </Tabs>
 
@@ -349,7 +349,7 @@ const OpenCodeSessionDetailPage = () => {
 
             <DeleteConfirmDialog
                 confirmLabel={deleteSessionMutation.isPending ? 'Deleting...' : 'Delete session'}
-                description="Permanently delete this OpenCode session from the database. This removes the session, child sessions, messages, and parts."
+                description="Permanently delete this Grok session from local history. This removes the session directory and transcript files."
                 errorMessage={
                     deleteSessionMutation.isError
                         ? deleteSessionMutation.error instanceof Error
@@ -358,7 +358,7 @@ const OpenCodeSessionDetailPage = () => {
                         : null
                 }
                 open={deleteOpen}
-                title="Delete this OpenCode session?"
+                title="Delete this Grok session?"
                 onConfirm={() => deleteSessionMutation.mutate()}
                 onOpenChange={(open) => {
                     setDeleteOpen(open);
@@ -371,15 +371,12 @@ const OpenCodeSessionDetailPage = () => {
     );
 };
 
-export const Route = createFileRoute('/opencode-sessions/$sessionId')({
-    component: OpenCodeSessionDetailPage,
-    errorComponent: OpenCodeSessionDetailErrorComponent,
+export const Route = createFileRoute('/grok-sessions/$sessionId')({
+    component: GrokSessionDetailPage,
+    errorComponent: GrokSessionDetailErrorComponent,
     loader: ({ context, params }) =>
-        context.queryClient.ensureQueryData(openCodeSessionDetailQueryOptions(params.sessionId)),
+        context.queryClient.ensureQueryData(grokSessionDetailQueryOptions(params.sessionId)),
     pendingComponent: () => (
-        <LoadingPanel
-            description="Loading the OpenCode transcript, parts, and session metadata."
-            title="Loading session"
-        />
+        <LoadingPanel description="Loading the Grok transcript and session metadata." title="Loading session" />
     ),
 });

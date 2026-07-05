@@ -126,3 +126,11 @@ export const exportAntigravityConversationFn = createServerFn({ method: 'POST' }
     .handler(async ({ data }) => {
         return loadAntigravityConversationExport(data.conversationId);
     });
+
+export const deleteAntigravityConversationFn = createServerFn({ method: 'POST' })
+    .validator(conversationSchema)
+    .handler(async ({ data }) => {
+        const { deleteAntigravityConversation } = await import('@spiracha/lib/antigravity-db');
+        const { resolveAntigravityRoots } = await import('@spiracha/lib/antigravity-exporter-types');
+        return deleteAntigravityConversation(resolveAntigravityRoots(), data.conversationId);
+    });

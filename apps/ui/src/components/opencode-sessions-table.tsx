@@ -2,7 +2,7 @@ import type { OpenCodeSessionSummary } from '@spiracha/lib/opencode-exporter-typ
 import { Link } from '@tanstack/react-router';
 import type { SortingState } from '@tanstack/react-table';
 import { createColumnHelper } from '@tanstack/react-table';
-import { Download, MoreHorizontal } from 'lucide-react';
+import { Download, MoreHorizontal, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
 import { Badge } from '#/components/ui/badge';
@@ -16,6 +16,7 @@ import {
 import { formatDateTime, formatNumber, formatTokens } from '#/lib/formatters';
 
 type OpenCodeSessionsTableProps = {
+    onDeleteSession: (session: OpenCodeSessionSummary) => void;
     onExportSession: (session: OpenCodeSessionSummary) => void;
     sessions: OpenCodeSessionSummary[];
 };
@@ -31,7 +32,10 @@ const formatCost = (value: number) => {
     return `$${value.toFixed(value < 0.01 ? 4 : 2)}`;
 };
 
-const columns = (onExportSession: (session: OpenCodeSessionSummary) => void) =>
+const columns = (
+    onDeleteSession: (session: OpenCodeSessionSummary) => void,
+    onExportSession: (session: OpenCodeSessionSummary) => void,
+) =>
     [
         columnHelper.accessor('title', {
             cell: (info) => (
@@ -105,6 +109,10 @@ const columns = (onExportSession: (session: OpenCodeSessionSummary) => void) =>
                             <Download className="mr-2 size-4" />
                             Export session
                         </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => onDeleteSession(info.row.original)}>
+                            <Trash2 className="mr-2 size-4" />
+                            Delete session
+                        </DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>
             ),
@@ -114,8 +122,8 @@ const columns = (onExportSession: (session: OpenCodeSessionSummary) => void) =>
         }),
     ] as const;
 
-export const OpenCodeSessionsTable = ({ onExportSession, sessions }: OpenCodeSessionsTableProps) => {
-    const tableColumns = useMemo(() => columns(onExportSession), [onExportSession]);
+export const OpenCodeSessionsTable = ({ onDeleteSession, onExportSession, sessions }: OpenCodeSessionsTableProps) => {
+    const tableColumns = useMemo(() => columns(onDeleteSession, onExportSession), [onDeleteSession, onExportSession]);
 
     return (
         <DataTable

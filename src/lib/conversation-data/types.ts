@@ -1,6 +1,7 @@
 export const CONVERSATION_SOURCES = [
     'codex',
     'claude-code',
+    'grok',
     'kiro',
     'qoder',
     'cursor',
@@ -77,6 +78,7 @@ export type ConversationDataLocations = {
     claudeCodeProjectsDir?: string;
     codexDbPath?: string;
     cursorUserDir?: string;
+    grokSessionsDir?: string;
     kiroWorkspaceSessionsDir?: string;
     opencodeDbPath?: string;
     qoderAcpSocketPath?: string;
@@ -104,12 +106,24 @@ export type GetConversationOptions = {
     source: ConversationSource;
 };
 
+export type DeleteConversationOptions = {
+    id: string;
+    locations?: ConversationDataLocations;
+    source: ConversationSource;
+};
+
+export type DeleteConversationResult = {
+    deletedFiles: string[];
+    deletedIds: string[];
+};
+
 export type ResolvedConversationRef = {
     id: string;
     source: ConversationSource;
 };
 
 export type ConversationAdapter = {
+    deleteConversation?: (options: DeleteConversationOptions) => Promise<DeleteConversationResult>;
     getConversation: (options: GetConversationOptions) => Promise<ConversationDetail | null>;
     listConversationsForPath: (options: ListConversationsForPathOptions) => Promise<ConversationDetail[]>;
     source: ConversationSource;

@@ -71,3 +71,10 @@ export const exportKiroSessionFn = createServerFn({ method: 'POST' })
             zipArchive: data.zipArchive,
         });
     });
+
+export const deleteKiroSessionFn = createServerFn({ method: 'POST' })
+    .validator(sessionSchema)
+    .handler(async ({ data }) => {
+        const { deleteKiroSession, resolveKiroWorkspaceSessionsDir } = await import('@spiracha/lib/kiro-db');
+        return deleteKiroSession(resolveKiroWorkspaceSessionsDir(), data.sessionId);
+    });

@@ -16,6 +16,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as QoderIndexRouteImport } from './routes/qoder.index'
 import { Route as OpencodeIndexRouteImport } from './routes/opencode.index'
 import { Route as KiroIndexRouteImport } from './routes/kiro.index'
+import { Route as GrokIndexRouteImport } from './routes/grok.index'
 import { Route as CursorIndexRouteImport } from './routes/cursor.index'
 import { Route as CodexIndexRouteImport } from './routes/codex.index'
 import { Route as ClaudeCodeIndexRouteImport } from './routes/claude-code.index'
@@ -27,6 +28,8 @@ import { Route as OpencodeWorkspaceKeyRouteImport } from './routes/opencode.$wor
 import { Route as OpencodeSessionsSessionIdRouteImport } from './routes/opencode-sessions.$sessionId'
 import { Route as KiroWorkspaceKeyRouteImport } from './routes/kiro.$workspaceKey'
 import { Route as KiroSessionsSessionIdRouteImport } from './routes/kiro-sessions.$sessionId'
+import { Route as GrokWorkspaceKeyRouteImport } from './routes/grok.$workspaceKey'
+import { Route as GrokSessionsSessionIdRouteImport } from './routes/grok-sessions.$sessionId'
 import { Route as CursorWorkspaceKeyRouteImport } from './routes/cursor.$workspaceKey'
 import { Route as CursorThreadsComposerIdRouteImport } from './routes/cursor-threads.$composerId'
 import { Route as CodexProjectRouteImport } from './routes/codex.$project'
@@ -74,6 +77,11 @@ const OpencodeIndexRoute = OpencodeIndexRouteImport.update({
 const KiroIndexRoute = KiroIndexRouteImport.update({
   id: '/kiro/',
   path: '/kiro/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GrokIndexRoute = GrokIndexRouteImport.update({
+  id: '/grok/',
+  path: '/grok/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CursorIndexRoute = CursorIndexRouteImport.update({
@@ -130,6 +138,16 @@ const KiroWorkspaceKeyRoute = KiroWorkspaceKeyRouteImport.update({
 const KiroSessionsSessionIdRoute = KiroSessionsSessionIdRouteImport.update({
   id: '/kiro-sessions/$sessionId',
   path: '/kiro-sessions/$sessionId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GrokWorkspaceKeyRoute = GrokWorkspaceKeyRouteImport.update({
+  id: '/grok/$workspaceKey',
+  path: '/grok/$workspaceKey',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GrokSessionsSessionIdRoute = GrokSessionsSessionIdRouteImport.update({
+  id: '/grok-sessions/$sessionId',
+  path: '/grok-sessions/$sessionId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CursorWorkspaceKeyRoute = CursorWorkspaceKeyRouteImport.update({
@@ -214,6 +232,8 @@ export interface FileRoutesByFullPath {
   '/codex/$project': typeof CodexProjectRoute
   '/cursor-threads/$composerId': typeof CursorThreadsComposerIdRoute
   '/cursor/$workspaceKey': typeof CursorWorkspaceKeyRoute
+  '/grok-sessions/$sessionId': typeof GrokSessionsSessionIdRoute
+  '/grok/$workspaceKey': typeof GrokWorkspaceKeyRoute
   '/kiro-sessions/$sessionId': typeof KiroSessionsSessionIdRoute
   '/kiro/$workspaceKey': typeof KiroWorkspaceKeyRoute
   '/opencode-sessions/$sessionId': typeof OpencodeSessionsSessionIdRoute
@@ -225,6 +245,7 @@ export interface FileRoutesByFullPath {
   '/claude-code/': typeof ClaudeCodeIndexRoute
   '/codex/': typeof CodexIndexRoute
   '/cursor/': typeof CursorIndexRoute
+  '/grok/': typeof GrokIndexRoute
   '/kiro/': typeof KiroIndexRoute
   '/opencode/': typeof OpencodeIndexRoute
   '/qoder/': typeof QoderIndexRoute
@@ -247,6 +268,8 @@ export interface FileRoutesByTo {
   '/codex/$project': typeof CodexProjectRoute
   '/cursor-threads/$composerId': typeof CursorThreadsComposerIdRoute
   '/cursor/$workspaceKey': typeof CursorWorkspaceKeyRoute
+  '/grok-sessions/$sessionId': typeof GrokSessionsSessionIdRoute
+  '/grok/$workspaceKey': typeof GrokWorkspaceKeyRoute
   '/kiro-sessions/$sessionId': typeof KiroSessionsSessionIdRoute
   '/kiro/$workspaceKey': typeof KiroWorkspaceKeyRoute
   '/opencode-sessions/$sessionId': typeof OpencodeSessionsSessionIdRoute
@@ -258,6 +281,7 @@ export interface FileRoutesByTo {
   '/claude-code': typeof ClaudeCodeIndexRoute
   '/codex': typeof CodexIndexRoute
   '/cursor': typeof CursorIndexRoute
+  '/grok': typeof GrokIndexRoute
   '/kiro': typeof KiroIndexRoute
   '/opencode': typeof OpencodeIndexRoute
   '/qoder': typeof QoderIndexRoute
@@ -281,6 +305,8 @@ export interface FileRoutesById {
   '/codex/$project': typeof CodexProjectRoute
   '/cursor-threads/$composerId': typeof CursorThreadsComposerIdRoute
   '/cursor/$workspaceKey': typeof CursorWorkspaceKeyRoute
+  '/grok-sessions/$sessionId': typeof GrokSessionsSessionIdRoute
+  '/grok/$workspaceKey': typeof GrokWorkspaceKeyRoute
   '/kiro-sessions/$sessionId': typeof KiroSessionsSessionIdRoute
   '/kiro/$workspaceKey': typeof KiroWorkspaceKeyRoute
   '/opencode-sessions/$sessionId': typeof OpencodeSessionsSessionIdRoute
@@ -292,6 +318,7 @@ export interface FileRoutesById {
   '/claude-code/': typeof ClaudeCodeIndexRoute
   '/codex/': typeof CodexIndexRoute
   '/cursor/': typeof CursorIndexRoute
+  '/grok/': typeof GrokIndexRoute
   '/kiro/': typeof KiroIndexRoute
   '/opencode/': typeof OpencodeIndexRoute
   '/qoder/': typeof QoderIndexRoute
@@ -316,6 +343,8 @@ export interface FileRouteTypes {
     | '/codex/$project'
     | '/cursor-threads/$composerId'
     | '/cursor/$workspaceKey'
+    | '/grok-sessions/$sessionId'
+    | '/grok/$workspaceKey'
     | '/kiro-sessions/$sessionId'
     | '/kiro/$workspaceKey'
     | '/opencode-sessions/$sessionId'
@@ -327,6 +356,7 @@ export interface FileRouteTypes {
     | '/claude-code/'
     | '/codex/'
     | '/cursor/'
+    | '/grok/'
     | '/kiro/'
     | '/opencode/'
     | '/qoder/'
@@ -349,6 +379,8 @@ export interface FileRouteTypes {
     | '/codex/$project'
     | '/cursor-threads/$composerId'
     | '/cursor/$workspaceKey'
+    | '/grok-sessions/$sessionId'
+    | '/grok/$workspaceKey'
     | '/kiro-sessions/$sessionId'
     | '/kiro/$workspaceKey'
     | '/opencode-sessions/$sessionId'
@@ -360,6 +392,7 @@ export interface FileRouteTypes {
     | '/claude-code'
     | '/codex'
     | '/cursor'
+    | '/grok'
     | '/kiro'
     | '/opencode'
     | '/qoder'
@@ -382,6 +415,8 @@ export interface FileRouteTypes {
     | '/codex/$project'
     | '/cursor-threads/$composerId'
     | '/cursor/$workspaceKey'
+    | '/grok-sessions/$sessionId'
+    | '/grok/$workspaceKey'
     | '/kiro-sessions/$sessionId'
     | '/kiro/$workspaceKey'
     | '/opencode-sessions/$sessionId'
@@ -393,6 +428,7 @@ export interface FileRouteTypes {
     | '/claude-code/'
     | '/codex/'
     | '/cursor/'
+    | '/grok/'
     | '/kiro/'
     | '/opencode/'
     | '/qoder/'
@@ -416,6 +452,8 @@ export interface RootRouteChildren {
   CodexProjectRoute: typeof CodexProjectRoute
   CursorThreadsComposerIdRoute: typeof CursorThreadsComposerIdRoute
   CursorWorkspaceKeyRoute: typeof CursorWorkspaceKeyRoute
+  GrokSessionsSessionIdRoute: typeof GrokSessionsSessionIdRoute
+  GrokWorkspaceKeyRoute: typeof GrokWorkspaceKeyRoute
   KiroSessionsSessionIdRoute: typeof KiroSessionsSessionIdRoute
   KiroWorkspaceKeyRoute: typeof KiroWorkspaceKeyRoute
   OpencodeSessionsSessionIdRoute: typeof OpencodeSessionsSessionIdRoute
@@ -427,6 +465,7 @@ export interface RootRouteChildren {
   ClaudeCodeIndexRoute: typeof ClaudeCodeIndexRoute
   CodexIndexRoute: typeof CodexIndexRoute
   CursorIndexRoute: typeof CursorIndexRoute
+  GrokIndexRoute: typeof GrokIndexRoute
   KiroIndexRoute: typeof KiroIndexRoute
   OpencodeIndexRoute: typeof OpencodeIndexRoute
   QoderIndexRoute: typeof QoderIndexRoute
@@ -485,6 +524,13 @@ declare module '@tanstack/react-router' {
       path: '/kiro'
       fullPath: '/kiro/'
       preLoaderRoute: typeof KiroIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/grok/': {
+      id: '/grok/'
+      path: '/grok'
+      fullPath: '/grok/'
+      preLoaderRoute: typeof GrokIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/cursor/': {
@@ -562,6 +608,20 @@ declare module '@tanstack/react-router' {
       path: '/kiro-sessions/$sessionId'
       fullPath: '/kiro-sessions/$sessionId'
       preLoaderRoute: typeof KiroSessionsSessionIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/grok/$workspaceKey': {
+      id: '/grok/$workspaceKey'
+      path: '/grok/$workspaceKey'
+      fullPath: '/grok/$workspaceKey'
+      preLoaderRoute: typeof GrokWorkspaceKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/grok-sessions/$sessionId': {
+      id: '/grok-sessions/$sessionId'
+      path: '/grok-sessions/$sessionId'
+      fullPath: '/grok-sessions/$sessionId'
+      preLoaderRoute: typeof GrokSessionsSessionIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/cursor/$workspaceKey': {
@@ -697,6 +757,8 @@ const rootRouteChildren: RootRouteChildren = {
   CodexProjectRoute: CodexProjectRoute,
   CursorThreadsComposerIdRoute: CursorThreadsComposerIdRoute,
   CursorWorkspaceKeyRoute: CursorWorkspaceKeyRoute,
+  GrokSessionsSessionIdRoute: GrokSessionsSessionIdRoute,
+  GrokWorkspaceKeyRoute: GrokWorkspaceKeyRoute,
   KiroSessionsSessionIdRoute: KiroSessionsSessionIdRoute,
   KiroWorkspaceKeyRoute: KiroWorkspaceKeyRoute,
   OpencodeSessionsSessionIdRoute: OpencodeSessionsSessionIdRoute,
@@ -708,6 +770,7 @@ const rootRouteChildren: RootRouteChildren = {
   ClaudeCodeIndexRoute: ClaudeCodeIndexRoute,
   CodexIndexRoute: CodexIndexRoute,
   CursorIndexRoute: CursorIndexRoute,
+  GrokIndexRoute: GrokIndexRoute,
   KiroIndexRoute: KiroIndexRoute,
   OpencodeIndexRoute: OpencodeIndexRoute,
   QoderIndexRoute: QoderIndexRoute,

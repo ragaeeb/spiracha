@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, rm, utimes } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
+    deleteKiroSession,
     findKiroWorkspaceGroups,
     getDefaultKiroDataDir,
     listKiroSessionsForGroup,
@@ -225,6 +226,41 @@ describe('kiro workspace discovery', () => {
             type: 'text',
         });
         expect(transcript?.rawSession.sessionId).toBe('session-a');
+    });
+
+    it('should delete a Kiro session file, index entry, and matching execution files', async () => {
+        const sessionsDir = await makeTempRoot();
+        const workspacePath = corpusCwd;
+        const sessionId = 'session-delete';
+        await writeSession({
+            createdAtMs: 1_781_212_901_555,
+            sessionId,
+            sessionsDir,
+            title: 'Delete this session',
+            updatedAtMs: 1_781_212_904_000,
+            workspacePath,
+        });
+        const workspaceDir = path.join(sessionsDir, encodeKiroWorkspaceDirectoryName(workspacePath));
+        const sessionPath = path.join(workspaceDir, `${sessionId}.json`);
+        const executionPath = path.join(sessionsDir, getKiroWorkspaceHash(workspacePath), 'execution', 'delete.json');
+        await mkdir(path.dirname(executionPath), { recursive: true });
+        await Bun.write(
+            executionPath,
+            JSON.stringify({
+                actions: [],
+                chatSessionId: sessionId,
+                executionId: 'delete-execution',
+            }),
+        );
+
+        const result = await deleteKiroSession(sessionsDir, sessionId);
+
+        expect(result.deletedSessionIds).toEqual([sessionId]);
+        expect(result.deletedFiles.sort()).toEqual([executionPath, sessionPath].sort());
+        expect(await Bun.file(sessionPath).exists()).toBe(false);
+        expect(await Bun.file(executionPath).exists()).toBe(false);
+        expect(await Bun.file(path.join(workspaceDir, 'sessions.json')).json()).toEqual([]);
+        expect(await readKiroSessionTranscript(sessionsDir, sessionId)).toBeNull();
     });
 
     it('should keep Kiro text blocks in one user entry and append execution assistant messages', async () => {

@@ -162,6 +162,7 @@ describe('AntigravityConversationsTable', () => {
             <AntigravityConversationsTable
                 conversations={[conversation]}
                 decryptionState={lockedState}
+                onDeleteConversation={vi.fn()}
                 onExportArtifacts={vi.fn()}
                 onExportConversation={vi.fn()}
             />,
@@ -184,6 +185,7 @@ describe('AntigravityConversationsTable', () => {
                     },
                 ]}
                 decryptionState={lockedState}
+                onDeleteConversation={vi.fn()}
                 onExportArtifacts={vi.fn()}
                 onExportConversation={vi.fn()}
             />,
@@ -209,6 +211,7 @@ describe('AntigravityConversationsTable', () => {
             <AntigravityConversationsTable
                 conversations={[conversation]}
                 decryptionState={lockedState}
+                onDeleteConversation={vi.fn()}
                 onExportArtifacts={vi.fn()}
                 onExportConversation={onExportConversation}
             />,
@@ -242,6 +245,7 @@ describe('AntigravityConversationsTable', () => {
                     },
                 ]}
                 decryptionState={unlockedState}
+                onDeleteConversation={vi.fn()}
                 onExportArtifacts={vi.fn()}
                 onExportConversation={vi.fn()}
             />,
@@ -268,6 +272,7 @@ describe('AntigravityConversationsTable', () => {
             <AntigravityConversationsTable
                 conversations={[conversation]}
                 decryptionState={unlockedState}
+                onDeleteConversation={vi.fn()}
                 onExportArtifacts={onExportArtifacts}
                 onExportConversation={onExportConversation}
             />,
@@ -287,5 +292,31 @@ describe('AntigravityConversationsTable', () => {
 
         expect(onExportConversation).toHaveBeenCalledWith(conversation);
         expect(onExportArtifacts).toHaveBeenCalledWith(conversation);
+    });
+
+    it('should trigger conversation delete from the row actions', async () => {
+        const onDeleteConversation = vi.fn();
+
+        render(
+            <AntigravityConversationsTable
+                conversations={[conversation]}
+                decryptionState={unlockedState}
+                onDeleteConversation={onDeleteConversation}
+                onExportArtifacts={vi.fn()}
+                onExportConversation={vi.fn()}
+            />,
+        );
+
+        const menuTrigger = screen
+            .getAllByRole('button')
+            .find((button) => button.getAttribute('aria-haspopup') === 'menu');
+        if (!menuTrigger) {
+            throw new Error('expected a row action menu trigger');
+        }
+
+        fireEvent.click(menuTrigger);
+        fireEvent.click(await screen.findByText('Delete conversation'));
+
+        expect(onDeleteConversation).toHaveBeenCalledWith(conversation);
     });
 });

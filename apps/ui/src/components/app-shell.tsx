@@ -32,6 +32,7 @@ const navItems: readonly NavItem[] = [
         label: 'Claude Code',
         to: '/claude-code',
     },
+    { activePrefixes: ['/grok', '/grok-sessions'], icon: Bot, label: 'Grok', to: '/grok' },
     { activePrefixes: ['/kiro', '/kiro-sessions'], icon: BrainCircuit, label: 'Kiro', to: '/kiro' },
     { activePrefixes: ['/qoder', '/qoder-sessions'], icon: Workflow, label: 'Qoder', to: '/qoder' },
     {

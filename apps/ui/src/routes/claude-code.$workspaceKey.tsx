@@ -1,15 +1,16 @@
 import type { ClaudeCodeSessionSummary, ClaudeCodeWorkspaceGroup } from '@spiracha/lib/claude-code-exporter-types';
-import { useMutation, useSuspenseQuery } from '@tanstack/react-query';
+import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import { useDeferredValue, useState } from 'react';
 import { ClaudeCodeSessionsTable } from '#/components/claude-code-sessions-table';
+import { DeleteConfirmDialog } from '#/components/delete-confirm-dialog';
 import { ExportDialog } from '#/components/export-dialog';
 import { ListSearchInput } from '#/components/list-search-input';
 import { LoadingPanel } from '#/components/loading-panel';
 import { PageHeader } from '#/components/page-header';
 import { ReloadErrorPanel } from '#/components/reload-error-panel';
 import { claudeCodeSessionsQueryOptions, claudeCodeWorkspacesQueryOptions } from '#/lib/claude-code-queries';
-import { exportClaudeCodeSessionFn } from '#/lib/claude-code-server';
+import { deleteClaudeCodeSessionFn, exportClaudeCodeSessionFn } from '#/lib/claude-code-server';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import { matchesTextQuery } from '#/lib/text-filter';
 
@@ -49,10 +50,12 @@ function ClaudeCodeWorkspaceErrorComponent({ error }: { error: Error }) {
 
 function ClaudeCodeWorkspacePage() {
     const params = Route.useParams();
+    const queryClient = useQueryClient();
     const workspaces = useSuspenseQuery(claudeCodeWorkspacesQueryOptions()).data;
     const workspace = findWorkspaceOrThrow(workspaces, params.workspaceKey);
     const sessions = useSuspenseQuery(claudeCodeSessionsQueryOptions(workspace.key)).data;
     const [searchInput, setSearchInput] = useState('');
+    const [pendingDelete, setPendingDelete] = useState<ClaudeCodeSessionSummary | null>(null);
     const [pendingExport, setPendingExport] = useState<ClaudeCodeSessionSummary | null>(null);
     const deferredSearch = useDeferredValue(searchInput);
 
@@ -84,6 +87,21 @@ function ClaudeCodeWorkspacePage() {
         },
     });
 
+    const deleteMutation = useMutation({
+        mutationFn: async (session: ClaudeCodeSessionSummary) =>
+            deleteClaudeCodeSessionFn({ data: { sessionId: session.sessionId } }),
+        onSuccess: async () => {
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ['claude-code-workspaces'] }),
+                queryClient.invalidateQueries({ queryKey: ['claude-code-sessions', workspace.key] }),
+                pendingDelete
+                    ? queryClient.invalidateQueries({ queryKey: ['claude-code-session', pendingDelete.sessionId] })
+                    : Promise.resolve(),
+            ]);
+            setPendingDelete(null);
+        },
+    });
+
     const visibleSessions = sessions.filter((session) =>
         matchesTextQuery(deferredSearch, [
             session.title,
@@ -110,7 +128,11 @@ function ClaudeCodeWorkspacePage() {
                 title={workspace.label}
             />
 
-            <ClaudeCodeSessionsTable sessions={visibleSessions} onExportSession={setPendingExport} />
+            <ClaudeCodeSessionsTable
+                sessions={visibleSessions}
+                onDeleteSession={setPendingDelete}
+                onExportSession={setPendingExport}
+            />
 
             <ExportDialog
                 open={pendingExport !== null}
@@ -130,6 +152,35 @@ function ClaudeCodeWorkspacePage() {
                     {exportMutation.error instanceof Error ? exportMutation.error.message : 'Session export failed'}
                 </p>
             ) : null}
+
+            <DeleteConfirmDialog
+                confirmLabel={deleteMutation.isPending ? 'Deleting...' : 'Delete session'}
+                description={
+                    pendingDelete
+                        ? `Permanently delete "${pendingDelete.title}" from Claude Code history. This removes the session JSONL file from disk.`
+                        : 'Permanently delete this Claude Code session from disk.'
+                }
+                errorMessage={
+                    deleteMutation.isError
+                        ? deleteMutation.error instanceof Error
+                            ? deleteMutation.error.message
+                            : 'Session delete failed'
+                        : null
+                }
+                open={pendingDelete !== null}
+                title="Delete this Claude Code session?"
+                onConfirm={() => {
+                    if (pendingDelete) {
+                        deleteMutation.mutate(pendingDelete);
+                    }
+                }}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        setPendingDelete(null);
+                        deleteMutation.reset();
+                    }
+                }}
+            />
         </div>
     );
 }

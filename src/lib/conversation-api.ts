@@ -1,6 +1,8 @@
 import {
     type ConversationMessageSelector,
     type ConversationSource,
+    type DeleteConversationOptions,
+    deleteConversation,
     type GetConversationOptions,
     getConversation,
     isConversationSource,
@@ -12,6 +14,7 @@ import {
 } from './conversation-data';
 
 type ConversationApiDependencies = {
+    deleteConversation?: typeof deleteConversation;
     getConversation?: typeof getConversation;
     listConversationSources?: typeof listConversationSources;
     listConversationsForPath?: typeof listConversationsForPath;
@@ -19,7 +22,12 @@ type ConversationApiDependencies = {
     resolveConversationRef?: typeof resolveConversationRef;
 };
 
-type ApiErrorCode = 'conversation_not_found' | 'method_not_allowed' | 'not_found' | 'validation_error';
+type ApiErrorCode =
+    | 'conversation_not_found'
+    | 'method_not_allowed'
+    | 'not_found'
+    | 'unsupported_operation'
+    | 'validation_error';
 type ParseResult<T> = { error: Response } | { value: T };
 
 const MAX_CURSOR_OFFSET = 1_000_000;
@@ -256,6 +264,7 @@ const normalizeMeta = (meta: { hasNext: boolean; nextCursor: string | null }) =>
 });
 
 const getDeps = (dependencies: ConversationApiDependencies) => ({
+    deleteConversation: dependencies.deleteConversation ?? deleteConversation,
     getConversation: dependencies.getConversation ?? getConversation,
     listConversationSources: dependencies.listConversationSources ?? listConversationSources,
     listConversationsForPath: dependencies.listConversationsForPath ?? listConversationsForPath,
@@ -319,6 +328,36 @@ const buildGetConversationOptions = (
     };
 };
 
+const buildDeleteConversationOptions = (
+    source: string | undefined,
+    id: string | undefined,
+): ParseResult<DeleteConversationOptions> => {
+    if (!source || !id) {
+        return { error: errorResponse('validation_error', 'Conversation source and id are required.', 400) };
+    }
+
+    if (!isConversationSource(source)) {
+        return { error: invalidSourceResponse(source) };
+    }
+
+    let decodedId: string;
+    try {
+        decodedId = decodeURIComponent(id);
+    } catch {
+        return { error: invalidFieldResponse('id', id, 'Conversation id must be URL encoded.') };
+    }
+    if (!decodedId.trim() || decodedId.length > MAX_ID_LENGTH) {
+        return { error: invalidFieldResponse('id', decodedId.length, 'Conversation id is invalid.') };
+    }
+
+    return {
+        value: {
+            id: decodedId,
+            source,
+        },
+    };
+};
+
 const handleGetConversation = async (
     source: string | undefined,
     id: string | undefined,
@@ -367,6 +406,38 @@ const handleExportConversation = async (
             'X-Content-Type-Options': 'nosniff',
         },
     });
+};
+
+const handleDeleteConversation = async (
+    source: string | undefined,
+    id: string | undefined,
+    dependencies: ReturnType<typeof getDeps>,
+) => {
+    const result = buildDeleteConversationOptions(source, id);
+    if ('error' in result) {
+        return result.error;
+    }
+
+    const deleteResult = await dependencies.deleteConversation(result.value);
+    if (!deleteResult) {
+        return errorResponse(
+            'unsupported_operation',
+            `Deleting ${result.value.source} conversations is not supported by the stable API.`,
+            405,
+            {
+                source: result.value.source,
+            },
+        );
+    }
+
+    if (deleteResult.deletedIds.length === 0) {
+        return errorResponse('conversation_not_found', 'No conversation exists for that source and id.', 404, {
+            id: result.value.id,
+            source: result.value.source,
+        });
+    }
+
+    return jsonResponse({ data: deleteResult });
 };
 
 const handleResolve = async (url: URL, dependencies: ReturnType<typeof getDeps>) => {
@@ -683,6 +754,12 @@ const API_ROUTES: ApiRoute[] = [
         handle: ({ dependencies, id, source, url }) => handleExportConversation(source, id, url, dependencies),
         matches: ({ action, id, source }) => Boolean(source && id && action === 'export'),
         method: 'GET',
+        resource: 'conversations',
+    },
+    {
+        handle: ({ dependencies, id, source }) => handleDeleteConversation(source, id, dependencies),
+        matches: ({ action, id, source }) => Boolean(source && id && !action),
+        method: 'DELETE',
         resource: 'conversations',
     },
     {
