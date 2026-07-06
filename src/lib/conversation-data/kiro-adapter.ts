@@ -1,4 +1,9 @@
-import { listKiroSessionsForGroup, listKiroWorkspaceGroups, readKiroSessionTranscript } from '../kiro-db';
+import {
+    deleteKiroSession,
+    listKiroSessionsForGroup,
+    listKiroWorkspaceGroups,
+    readKiroSessionTranscript,
+} from '../kiro-db';
 import type {
     KiroSessionSummary,
     KiroSessionTranscript,
@@ -23,6 +28,7 @@ import type {
     ConversationDetail,
     ConversationMessage,
     ConversationPathMatch,
+    DeleteConversationOptions,
     GetConversationOptions,
     ListConversationsForPathOptions,
 } from './types';
@@ -133,7 +139,16 @@ const getKiroConversation = async (options: GetConversationOptions): Promise<Con
         : null;
 };
 
+const deleteKiroConversation = async (options: DeleteConversationOptions) => {
+    const result = await deleteKiroSession(getSessionsDir(options), options.id);
+    return {
+        deletedFiles: result.deletedFiles,
+        deletedIds: result.deletedSessionIds,
+    };
+};
+
 export const kiroConversationAdapter: ConversationAdapter = {
+    deleteConversation: deleteKiroConversation,
     getConversation: getKiroConversation,
     listConversationsForPath: listKiroConversationsForPath,
     source: 'kiro',

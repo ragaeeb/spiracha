@@ -90,4 +90,65 @@ describe('parseCodexTranscriptFile', () => {
         expect(toolCall?.kind).toBe('tool_call');
         expect(toolCall && 'argumentsParseFailed' in toolCall ? toolCall.argumentsParseFailed : null).toBe(true);
     });
+
+    it('should strip Codex memory citation XML from visible message text', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-parser-memory-citation-test-'));
+        tempPaths.push(tempRoot);
+        const sessionFile = path.join(tempRoot, 'memory-citation.jsonl');
+        const memoryCitation = `<oai-mem-citation>
+<citation_entries>
+MEMORY.md:439-441|note=[corpus fixture source of truth and validation guidance]
+MEMORY.md:609-611|note=[ushman e2e fixture and validation guidance]
+</citation_entries>
+</oai-mem-citation>`;
+        const memoryCitationWithRollouts = `<oai-mem-citation>
+<citation_entries>
+MEMORY.md:1-2|note=[project guidance]
+</citation_entries>
+<rollout_ids>
+019c6e27-e55b-73d1-87d8-4e01f1f75043
+</rollout_ids>
+</oai-mem-citation>`;
+        await Bun.write(
+            sessionFile,
+            [
+                JSON.stringify({
+                    payload: {
+                        message: `Implemented the requested fix.\n\n${memoryCitationWithRollouts}`,
+                        type: 'agent_message',
+                    },
+                    timestamp: '2026-07-06T12:00:00.000Z',
+                    type: 'response_item',
+                }),
+                JSON.stringify({
+                    payload: {
+                        content: [
+                            {
+                                text: memoryCitation,
+                                type: 'text',
+                            },
+                        ],
+                        role: 'assistant',
+                        type: 'message',
+                    },
+                    timestamp: '2026-07-06T12:00:01.000Z',
+                    type: 'response_item',
+                }),
+            ].join('\n'),
+        );
+
+        const transcript = await parseCodexTranscriptFile(sessionFile);
+
+        expect(transcript.events[0]).toMatchObject({
+            kind: 'message',
+            role: 'assistant',
+            text: 'Implemented the requested fix.',
+        });
+        expect(transcript.events[1]).toMatchObject({
+            isHiddenByDefault: true,
+            kind: 'message',
+            role: 'assistant',
+            text: '',
+        });
+    });
 });

@@ -352,6 +352,7 @@ export function TranscriptView({
     const [copyErrorMessage, setCopyErrorMessage] = useState<string | null>(null);
     const [selectedEventKeys, setSelectedEventKeys] = useState<string[]>([]);
     const eventElementByKeyRef = useRef(new Map<string, HTMLElement>());
+    const lastHandledJumpSignalRef = useRef<number | null>(null);
     const parentRef = useRef<HTMLDivElement | null>(null);
     const timeoutIdsRef = useRef<number[]>([]);
     const useVirtualList = visibleEvents.length > 40;
@@ -410,12 +411,17 @@ export function TranscriptView({
             return;
         }
 
+        if (lastHandledJumpSignalRef.current === activeEventJumpSignal) {
+            return;
+        }
+        lastHandledJumpSignalRef.current = activeEventJumpSignal;
+
         if (useVirtualList) {
-            virtualizer.scrollToIndex(activeVisibleEventIndex, { align: 'center' });
+            virtualizer.scrollToIndex(activeVisibleEventIndex, { align: 'start' });
             return;
         }
 
-        eventElementByKeyRef.current.get(activeEventKey)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        eventElementByKeyRef.current.get(activeEventKey)?.scrollIntoView({ behavior: 'auto', block: 'start' });
     }, [activeEventJumpSignal, activeEventKey, activeVisibleEventIndex, useVirtualList, virtualizer]);
 
     const scheduleTimeout = (callback: () => void, delayMs: number) => {

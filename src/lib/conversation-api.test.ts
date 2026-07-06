@@ -310,11 +310,11 @@ describe('conversation API handler', () => {
 
     it('should delete supported conversations through the public API', async () => {
         const response = await handleConversationApiRequest(
-            createRequest('/api/v1/conversations/grok/session%2Fencoded', { method: 'DELETE' }),
+            createRequest('/api/v1/conversations/grok/019f2e0a-a16c-7120-97da-8fae66e36731', { method: 'DELETE' }),
             {
                 deleteConversation: async (options) => {
                     expect(options).toEqual({
-                        id: 'session/encoded',
+                        id: '019f2e0a-a16c-7120-97da-8fae66e36731',
                         source: 'grok',
                     });
                     return {
@@ -330,6 +330,64 @@ describe('conversation API handler', () => {
             data: {
                 deletedFiles: ['/Users/user/.grok/sessions/project/session/chat_history.jsonl'],
                 deletedIds: ['session/encoded'],
+            },
+        });
+    });
+
+    it('should reject unsafe destructive ids before reaching delete handlers', async () => {
+        let called = false;
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/cursor/thread%25wildcard', { method: 'DELETE' }),
+            {
+                deleteConversation: async () => {
+                    called = true;
+                    return { deletedFiles: [], deletedIds: ['thread%wildcard'] };
+                },
+            },
+        );
+
+        expect(response.status).toBe(400);
+        expect(called).toBe(false);
+        await expect(response.json()).resolves.toMatchObject({
+            error: {
+                code: 'validation_error',
+                details: {
+                    field: 'id',
+                },
+            },
+        });
+    });
+
+    it('should report unsupported and missing deletes without deleting anything else', async () => {
+        const unsupported = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/qoder/session-delete', { method: 'DELETE' }),
+            {
+                deleteConversation: async (options) => {
+                    expect(options).toEqual({ id: 'session-delete', source: 'qoder' });
+                    return null;
+                },
+            },
+        );
+        const missing = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/claude-code/missing-session', { method: 'DELETE' }),
+            {
+                deleteConversation: async () => ({ deletedFiles: [], deletedIds: [] }),
+            },
+        );
+
+        expect(unsupported.status).toBe(405);
+        await expect(unsupported.json()).resolves.toMatchObject({
+            error: {
+                code: 'unsupported_operation',
+                details: {
+                    source: 'qoder',
+                },
+            },
+        });
+        expect(missing.status).toBe(404);
+        await expect(missing.json()).resolves.toMatchObject({
+            error: {
+                code: 'conversation_not_found',
             },
         });
     });

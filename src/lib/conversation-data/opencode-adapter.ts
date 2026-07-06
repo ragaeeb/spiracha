@@ -1,4 +1,5 @@
 import {
+    deleteOpenCodeSession,
     listOpenCodeSessionsForGroup,
     listOpenCodeWorkspaceGroups,
     readOpenCodeSessionTranscript,
@@ -26,6 +27,7 @@ import type {
     ConversationDetail,
     ConversationMessage,
     ConversationPathMatch,
+    DeleteConversationOptions,
     GetConversationOptions,
     ListConversationsForPathOptions,
 } from './types';
@@ -173,7 +175,16 @@ const getOpenCodeConversation = async (options: GetConversationOptions): Promise
         : null;
 };
 
+const deleteOpenCodeConversation = async (options: DeleteConversationOptions) => {
+    const result = await deleteOpenCodeSession(getDbPath(options), options.id);
+    return {
+        deletedFiles: [],
+        deletedIds: result.deletedSessionIds,
+    };
+};
+
 export const opencodeConversationAdapter: ConversationAdapter = {
+    deleteConversation: deleteOpenCodeConversation,
     getConversation: getOpenCodeConversation,
     listConversationsForPath: listOpenCodeConversationsForPath,
     source: 'opencode',

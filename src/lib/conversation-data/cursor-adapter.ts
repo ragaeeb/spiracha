@@ -11,6 +11,7 @@ import type {
     CursorWorkspaceGroup,
 } from '../cursor-exporter-types';
 import { getCursorGlobalDbPath, resolveCursorUserDir } from '../cursor-exporter-types';
+import { collectCursorThreadsForDeletion, isCursorRunning, pruneCursorThreads } from '../cursor-recovery';
 import { cleanInlineTitle } from '../shared';
 import { createDeepLinks, createTextMessage, finalizeMessages } from './adapter-helpers';
 import { selectConversationMessages } from './message-selector';
@@ -20,6 +21,7 @@ import type {
     ConversationDetail,
     ConversationMessage,
     ConversationPathMatch,
+    DeleteConversationOptions,
     GetConversationOptions,
     ListConversationsForPathOptions,
 } from './types';
@@ -164,7 +166,30 @@ const getCursorConversation = async (options: GetConversationOptions): Promise<C
     return null;
 };
 
+const deleteCursorConversation = async (options: DeleteConversationOptions) => {
+    const userDir = getUserDir(options);
+    if (!options.locations?.cursorUserDir && (await isCursorRunning())) {
+        throw new Error(
+            'Quit Cursor before deleting. It rewrites chat history on exit, which can resurrect deleted threads.',
+        );
+    }
+
+    const existing = await getCursorConversation(options);
+    if (!existing) {
+        return { deletedFiles: [], deletedIds: [] };
+    }
+
+    const threads = await collectCursorThreadsForDeletion([options.id], userDir);
+    const deletedFiles = threads.flatMap((thread) => thread.transcriptDirs);
+    const result = await pruneCursorThreads(threads, true, userDir);
+    return {
+        deletedFiles,
+        deletedIds: result.composerIds,
+    };
+};
+
 export const cursorConversationAdapter: ConversationAdapter = {
+    deleteConversation: deleteCursorConversation,
     getConversation: getCursorConversation,
     listConversationsForPath: listCursorConversationsForPath,
     source: 'cursor',

@@ -1,4 +1,8 @@
-import { listAntigravityConversations, readAntigravityConversationMessages } from '../antigravity-db';
+import {
+    deleteAntigravityConversation,
+    listAntigravityConversations,
+    readAntigravityConversationMessages,
+} from '../antigravity-db';
 import type { AntigravityConversation } from '../antigravity-exporter-types';
 import { resolveAntigravityRoots } from '../antigravity-exporter-types';
 import { cleanInlineTitle } from '../shared';
@@ -10,6 +14,7 @@ import type {
     ConversationDetail,
     ConversationMessage,
     ConversationPathMatch,
+    DeleteConversationOptions,
     GetConversationOptions,
     ListConversationsForPathOptions,
 } from './types';
@@ -141,7 +146,16 @@ const getAntigravityConversation = async (options: GetConversationOptions): Prom
         : null;
 };
 
+const deleteAntigravityConversationById = async (options: DeleteConversationOptions) => {
+    const result = await deleteAntigravityConversation(getRoots(options), options.id);
+    return {
+        deletedFiles: result.deletedPaths,
+        deletedIds: result.deletedConversationIds,
+    };
+};
+
 export const antigravityConversationAdapter: ConversationAdapter = {
+    deleteConversation: deleteAntigravityConversationById,
     getConversation: getAntigravityConversation,
     listConversationsForPath: listAntigravityConversationsForPath,
     source: 'antigravity',

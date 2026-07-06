@@ -1,4 +1,5 @@
 import {
+    deleteClaudeCodeSession,
     listClaudeCodeSessionsForGroup,
     listClaudeCodeWorkspaceGroups,
     readClaudeCodeSessionTranscript,
@@ -26,6 +27,7 @@ import type {
     ConversationDetail,
     ConversationMessage,
     ConversationPathMatch,
+    DeleteConversationOptions,
     GetConversationOptions,
     ListConversationsForPathOptions,
 } from './types';
@@ -168,7 +170,16 @@ const getClaudeConversation = async (options: GetConversationOptions): Promise<C
     });
 };
 
+const deleteClaudeConversation = async (options: DeleteConversationOptions) => {
+    const result = await deleteClaudeCodeSession(getProjectsDir(options), options.id);
+    return {
+        deletedFiles: result.deletedFiles,
+        deletedIds: result.deletedSessionIds,
+    };
+};
+
 export const claudeCodeConversationAdapter: ConversationAdapter = {
+    deleteConversation: deleteClaudeConversation,
     getConversation: getClaudeConversation,
     listConversationsForPath: listClaudeConversationsForPath,
     source: 'claude-code',

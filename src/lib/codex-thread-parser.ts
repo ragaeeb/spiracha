@@ -261,12 +261,13 @@ const createMessageEvent = (
 ): MessageEvent | null => {
     const role = asString(payload.role);
     const content = payload.content;
+    const text = extractText(content);
     if (!role || content === undefined) {
         return null;
     }
 
     return {
-        isHiddenByDefault: shouldHideTranscriptText(role, extractText(content)),
+        isHiddenByDefault: shouldHideTranscriptText(role, text),
         kind: 'message',
         memoryCitation: null,
         model: asString(payload.model),
@@ -274,7 +275,7 @@ const createMessageEvent = (
         raw,
         role,
         sequence,
-        text: extractText(content),
+        text,
         timestamp,
         variant: 'message',
     };
@@ -286,8 +287,9 @@ const createUserMessageEvent = (
     sequence: number,
     timestamp: string | null,
 ): MessageEvent => {
+    const text = stripMemoryCitationBlocks(asString(payload.message) ?? '');
     return {
-        isHiddenByDefault: shouldHideTranscriptText('user', asString(payload.message)?.trim() ?? ''),
+        isHiddenByDefault: shouldHideTranscriptText('user', text),
         kind: 'message',
         memoryCitation: null,
         model: null,
@@ -295,7 +297,7 @@ const createUserMessageEvent = (
         raw,
         role: 'user',
         sequence,
-        text: asString(payload.message)?.trim() ?? '',
+        text,
         timestamp,
         variant: 'user_message',
     };
@@ -307,8 +309,9 @@ const createAgentMessageEvent = (
     sequence: number,
     timestamp: string | null,
 ): MessageEvent => {
+    const text = stripMemoryCitationBlocks(asString(payload.message) ?? '');
     return {
-        isHiddenByDefault: false,
+        isHiddenByDefault: shouldHideTranscriptText('assistant', text),
         kind: 'message',
         memoryCitation: payload.memory_citation ?? null,
         model: asString(payload.model),
@@ -316,7 +319,7 @@ const createAgentMessageEvent = (
         raw,
         role: 'assistant',
         sequence,
-        text: asString(payload.message)?.trim() ?? '',
+        text,
         timestamp,
         variant: 'agent_message',
     };
@@ -548,22 +551,27 @@ const parseExecCommandArguments = (argumentsText: string | null) => {
 
 const extractText = (content: JsonValue): string => {
     if (typeof content === 'string') {
-        return content.trim();
+        return stripMemoryCitationBlocks(content);
     }
 
     if (Array.isArray(content)) {
-        return content
-            .map((entry) => extractTextPart(entry))
-            .filter(Boolean)
-            .join('\n\n')
-            .trim();
+        return stripMemoryCitationBlocks(
+            content
+                .map((entry) => extractTextPart(entry))
+                .filter(Boolean)
+                .join('\n\n'),
+        );
     }
 
     if (content && typeof content === 'object') {
-        return asString((content as Record<string, JsonValue>).text)?.trim() ?? '';
+        return stripMemoryCitationBlocks(asString((content as Record<string, JsonValue>).text) ?? '');
     }
 
     return '';
+};
+
+const stripMemoryCitationBlocks = (text: string): string => {
+    return text.replace(/<oai-mem-citation>[\s\S]*?<\/oai-mem-citation>/gu, '').trim();
 };
 
 const extractTextPart = (entry: JsonValue): string => {

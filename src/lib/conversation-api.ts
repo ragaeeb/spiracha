@@ -169,6 +169,16 @@ const validateTimestamp = (field: string, value: number | undefined): Response |
         : invalidFieldResponse(field, value, `\`${field}\` must be a non-negative epoch millisecond timestamp.`);
 };
 
+const validateDeleteId = (id: string): Response | null => {
+    return /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u.test(id)
+        ? null
+        : invalidFieldResponse(
+              'id',
+              id,
+              'Conversation id contains characters that are not allowed for destructive requests.',
+          );
+};
+
 const parseListLimitParam = (value: string | null): ParseResult<number | undefined> => {
     if (!value) {
         return { value: undefined };
@@ -348,6 +358,10 @@ const buildDeleteConversationOptions = (
     }
     if (!decodedId.trim() || decodedId.length > MAX_ID_LENGTH) {
         return { error: invalidFieldResponse('id', decodedId.length, 'Conversation id is invalid.') };
+    }
+    const deleteIdError = validateDeleteId(decodedId);
+    if (deleteIdError) {
+        return { error: deleteIdError };
     }
 
     return {

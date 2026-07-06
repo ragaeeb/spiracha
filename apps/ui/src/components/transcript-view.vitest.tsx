@@ -198,7 +198,7 @@ describe('TranscriptView', () => {
             />,
         );
 
-        expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'center' });
+        expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'auto', block: 'start' });
         expect(screen.getByText('Second matching answer').closest('article')?.getAttribute('aria-current')).toBe(
             'location',
         );
@@ -226,7 +226,7 @@ describe('TranscriptView', () => {
             />,
         );
 
-        expect(virtualizerScrollCalls.at(-1)).toEqual([25, { align: 'center' }]);
+        expect(virtualizerScrollCalls.at(-1)).toEqual([25, { align: 'start' }]);
     });
 
     it('should hide and show commentary messages independently of final assistant answers', () => {
@@ -456,6 +456,55 @@ describe('TranscriptView', () => {
                 '## Tool call: exec_command\n\nrtk bun test\n\n/Users/example/workspace/spiracha',
             ].join('\n\n'),
         );
+    });
+
+    it('should show individual message checkbox selection immediately', () => {
+        render(
+            <TranscriptView
+                assistantModel={null}
+                events={[messageEvent, { ...messageEvent, sequence: 2, text: 'Second user message' }]}
+                projectPath="/Users/example/workspace/spiracha"
+                showCommentary
+                showExtraEvents={false}
+                showRawJson={false}
+                showToolCalls={false}
+            />,
+        );
+
+        const messageCheckbox = screen.getAllByRole('checkbox', { name: 'Select User' })[0]!;
+        fireEvent.click(messageCheckbox);
+
+        expect(messageCheckbox.getAttribute('aria-checked')).toBe('true');
+        expect(screen.getByText('1 selected')).toBeTruthy();
+        expect(screen.getByText('Build the UI').closest('article')?.className).toContain('ring-2');
+    });
+
+    it('should preserve message checkbox selection after a search result jump is active', () => {
+        const scrollIntoView = vi.fn();
+        Object.assign(window.HTMLElement.prototype, { scrollIntoView });
+        const secondMessage = { ...messageEvent, sequence: 2, text: 'Second matching answer' };
+
+        render(
+            <TranscriptView
+                activeEventJumpSignal={1}
+                activeEventKey={getTranscriptEventKey(secondMessage, 1)}
+                assistantModel={null}
+                events={[messageEvent, secondMessage]}
+                projectPath="/Users/example/workspace/spiracha"
+                showCommentary
+                showExtraEvents={false}
+                showRawJson={false}
+                showToolCalls={false}
+            />,
+        );
+
+        const activeMessageCheckbox = screen.getAllByRole('checkbox', { name: 'Select User' })[1]!;
+        fireEvent.click(activeMessageCheckbox);
+
+        expect(activeMessageCheckbox.getAttribute('aria-checked')).toBe('true');
+        expect(screen.getByText('1 selected')).toBeTruthy();
+        expect(screen.getByText('Second matching answer').closest('article')?.className).toContain('ring-2');
+        expect(scrollIntoView).toHaveBeenCalledTimes(1);
     });
 
     it('should keep selection keys distinct for duplicate tool-call metadata', async () => {
