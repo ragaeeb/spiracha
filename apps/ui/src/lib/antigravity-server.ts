@@ -12,6 +12,8 @@ const conversationSchema = z.object({
 
 const exportSchema = z.object({
     conversationId: z.string().min(1),
+    headroomArchiveDir: z.string().optional(),
+    rehydrateHeadroom: z.boolean().optional(),
 });
 
 export const listAntigravityWorkspacesFn = createServerFn({ method: 'GET' }).handler(async () => {
@@ -72,7 +74,10 @@ export const loadAntigravityConversationDetail = async (conversationId: string) 
     };
 };
 
-export const loadAntigravityConversationExport = async (conversationId: string) => {
+export const loadAntigravityConversationExport = async (
+    conversationId: string,
+    options: { headroomArchiveDir?: string; rehydrateHeadroom?: boolean } = {},
+) => {
     const { renderAntigravityConversationMarkdown } = await import('@spiracha/lib/antigravity-db');
     const { getCachedAntigravityKeychainSecret } = await import('@spiracha/lib/antigravity-keychain');
     const conversation = await findAntigravityConversationById(conversationId);
@@ -87,7 +92,11 @@ export const loadAntigravityConversationExport = async (conversationId: string) 
         throw new Error(`No exportable Antigravity transcript found for conversation: ${conversationId}`);
     }
 
-    const content = await renderAntigravityConversationMarkdown(conversation, { keychainSecret });
+    const content = await renderAntigravityConversationMarkdown(conversation, {
+        archiveDir: options.headroomArchiveDir,
+        keychainSecret,
+        rehydrateHeadroom: options.rehydrateHeadroom,
+    });
     if (!content) {
         throw new Error(`No exportable Antigravity transcript found for conversation: ${conversationId}`);
     }
@@ -124,7 +133,10 @@ export const exportAntigravityArtifactsFn = createServerFn({ method: 'POST' })
 export const exportAntigravityConversationFn = createServerFn({ method: 'POST' })
     .validator(exportSchema)
     .handler(async ({ data }) => {
-        return loadAntigravityConversationExport(data.conversationId);
+        return loadAntigravityConversationExport(data.conversationId, {
+            headroomArchiveDir: data.headroomArchiveDir,
+            rehydrateHeadroom: data.rehydrateHeadroom,
+        });
     });
 
 export const deleteAntigravityConversationFn = createServerFn({ method: 'POST' })

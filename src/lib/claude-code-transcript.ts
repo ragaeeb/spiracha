@@ -7,6 +7,11 @@ import type {
 } from './claude-code-exporter-types';
 import { getClaudeCodeAssistantMessagePhase } from './claude-code-transcript-phase';
 import {
+    buildHeadroomMetadataEntries,
+    type HeadroomRehydrator,
+    resolveHeadroomRehydrator,
+} from './headroom-transcript-rehydration';
+import {
     cleanExtractedText,
     cleanInlineTitle,
     formatInlineLiteral,
@@ -23,7 +28,10 @@ const getSessionTitle = (session: ClaudeCodeSessionSummary): string => {
     return cleanInlineTitle(session.title || session.sessionId);
 };
 
-const buildMetadataEntries = (session: ClaudeCodeSessionSummary): MetadataEntry[] => [
+const buildMetadataEntries = (
+    session: ClaudeCodeSessionSummary,
+    rehydrator: HeadroomRehydrator | null,
+): MetadataEntry[] => [
     { key: 'exported_from', value: 'claude_code_local_jsonl' },
     { key: 'session_id', value: session.sessionId },
     { key: 'title', value: session.title },
@@ -40,6 +48,7 @@ const buildMetadataEntries = (session: ClaudeCodeSessionSummary): MetadataEntry[
     { key: 'tool_call_count', value: session.toolCallCount },
     { key: 'tool_result_count', value: session.toolResultCount },
     { key: 'total_tokens', value: session.totalTokens },
+    ...buildHeadroomMetadataEntries(rehydrator),
 ];
 
 const roleTitle = (role: string): string => {
@@ -66,17 +75,45 @@ const truncateOutput = (text: string): string => {
     return `${text.slice(0, TOOL_OUTPUT_PREVIEW_LIMIT)}\n... (truncated)`;
 };
 
-const renderTextPart = (part: ClaudeCodeTranscriptPart, role: string, options: ClaudeCodeExportOptions): string => {
-    const text = cleanExtractedText(part.text ?? '').trim();
+const rehydrateClaudeText = (
+    text: string,
+    entry: ClaudeCodeTranscriptEntry,
+    options: ClaudeCodeExportOptions,
+    sessionId: string,
+): string => {
+    const rehydrator = options.headroomRehydrator;
+    return (
+        rehydrator?.rehydrateText(text, {
+            client: 'claude-code',
+            model: entry.model ?? null,
+            provider: 'anthropic',
+            sessionId,
+        }) ?? text
+    );
+};
+
+const renderTextPart = (
+    entry: ClaudeCodeTranscriptEntry,
+    part: ClaudeCodeTranscriptPart,
+    role: string,
+    options: ClaudeCodeExportOptions,
+    sessionId: string,
+): string => {
+    const text = cleanExtractedText(rehydrateClaudeText(part.text ?? '', entry, options, sessionId)).trim();
     return text ? renderSection(roleTitle(role), text, options.outputFormat) : '';
 };
 
-const renderThinkingPart = (part: ClaudeCodeTranscriptPart, options: ClaudeCodeExportOptions): string => {
+const renderThinkingPart = (
+    entry: ClaudeCodeTranscriptEntry,
+    part: ClaudeCodeTranscriptPart,
+    options: ClaudeCodeExportOptions,
+    sessionId: string,
+): string => {
     if (!options.includeCommentary) {
         return '';
     }
 
-    const text = cleanExtractedText(part.text ?? '').trim();
+    const text = cleanExtractedText(rehydrateClaudeText(part.text ?? '', entry, options, sessionId)).trim();
     return text ? renderSection('Reasoning', text, options.outputFormat) : '';
 };
 
@@ -97,12 +134,17 @@ const renderToolUsePart = (part: ClaudeCodeTranscriptPart, options: ClaudeCodeEx
     return renderSection('Tool Call', lines.join('\n'), options.outputFormat);
 };
 
-const renderToolResultPart = (part: ClaudeCodeTranscriptPart, options: ClaudeCodeExportOptions): string => {
+const renderToolResultPart = (
+    entry: ClaudeCodeTranscriptEntry,
+    part: ClaudeCodeTranscriptPart,
+    options: ClaudeCodeExportOptions,
+    sessionId: string,
+): string => {
     if (!options.includeTools) {
         return '';
     }
 
-    const outputText = part.outputText?.trim();
+    const outputText = rehydrateClaudeText(part.outputText ?? '', entry, options, sessionId).trim();
     if (!outputText) {
         return '';
     }
@@ -118,12 +160,17 @@ const renderToolResultPart = (part: ClaudeCodeTranscriptPart, options: ClaudeCod
     return renderSection('Tool Output', lines.join('\n'), options.outputFormat);
 };
 
-const renderAttachmentPart = (part: ClaudeCodeTranscriptPart, options: ClaudeCodeExportOptions): string => {
+const renderAttachmentPart = (
+    entry: ClaudeCodeTranscriptEntry,
+    part: ClaudeCodeTranscriptPart,
+    options: ClaudeCodeExportOptions,
+    sessionId: string,
+): string => {
     if (!options.includeCommentary) {
         return '';
     }
 
-    const text = cleanExtractedText(part.text ?? '').trim();
+    const text = cleanExtractedText(rehydrateClaudeText(part.text ?? '', entry, options, sessionId)).trim();
     if (!text) {
         return '';
     }
@@ -136,21 +183,22 @@ const renderPart = (
     entry: ClaudeCodeTranscriptEntry,
     part: ClaudeCodeTranscriptPart,
     options: ClaudeCodeExportOptions,
+    sessionId: string,
 ): string => {
     switch (part.type) {
         case 'text':
             if (getClaudeCodeAssistantMessagePhase(entry) === 'commentary' && !options.includeCommentary) {
                 return '';
             }
-            return renderTextPart(part, entry.role, options);
+            return renderTextPart(entry, part, entry.role, options, sessionId);
         case 'thinking':
-            return renderThinkingPart(part, options);
+            return renderThinkingPart(entry, part, options, sessionId);
         case 'tool_use':
             return renderToolUsePart(part, options);
         case 'tool_result':
-            return renderToolResultPart(part, options);
+            return renderToolResultPart(entry, part, options, sessionId);
         case 'attachment':
-            return renderAttachmentPart(part, options);
+            return renderAttachmentPart(entry, part, options, sessionId);
         case 'unknown':
             return '';
     }
@@ -160,8 +208,10 @@ export const renderClaudeCodeTranscript = (
     transcript: ClaudeCodeSessionTranscript,
     options: ClaudeCodeExportOptions,
 ): string | null => {
+    const rehydrator = options.headroomRehydrator ?? resolveHeadroomRehydrator(options);
+    const renderOptions = { ...options, headroomRehydrator: rehydrator };
     const sections = transcript.entries.flatMap((entry) =>
-        entry.parts.map((part) => renderPart(entry, part, options)).filter(Boolean),
+        entry.parts.map((part) => renderPart(entry, part, renderOptions, transcript.session.sessionId)).filter(Boolean),
     );
     if (sections.length === 0) {
         return null;
@@ -171,7 +221,7 @@ export const renderClaudeCodeTranscript = (
         renderDocumentTitle(getSessionTitle(transcript.session), options.outputFormat),
         '',
         options.includeMetadata
-            ? renderMetadataBlock(buildMetadataEntries(transcript.session), options.outputFormat)
+            ? renderMetadataBlock(buildMetadataEntries(transcript.session, rehydrator), options.outputFormat)
             : '',
         ...sections,
     ].filter(Boolean);

@@ -1,5 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
+import type { HeadroomRehydrationOptions, HeadroomRehydrator } from './headroom-transcript-rehydration';
 import type { ExportFormat, JsonValue } from './shared';
 
 export const getDefaultOpenCodeDataDir = (env: NodeJS.ProcessEnv = process.env, homeDir = os.homedir()): string => {
@@ -121,7 +122,8 @@ export type OpenCodeSessionTranscript = {
     session: OpenCodeSessionSummary;
 };
 
-export type OpenCodeExportOptions = {
+export type OpenCodeExportOptions = HeadroomRehydrationOptions & {
+    headroomRehydrator?: HeadroomRehydrator | null;
     includeCommentary: boolean;
     includeMetadata: boolean;
     includeTools: boolean;

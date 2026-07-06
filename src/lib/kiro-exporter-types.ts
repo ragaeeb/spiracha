@@ -1,5 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
+import type { HeadroomRehydrationOptions, HeadroomRehydrator } from './headroom-transcript-rehydration';
 import type { ExportFormat, JsonValue } from './shared';
 
 export const getDefaultKiroDataDir = (_env: NodeJS.ProcessEnv = process.env, homeDir = os.homedir()): string => {
@@ -92,7 +93,8 @@ export type KiroSessionTranscript = {
     session: KiroSessionSummary;
 };
 
-export type KiroExportOptions = {
+export type KiroExportOptions = HeadroomRehydrationOptions & {
+    headroomRehydrator?: HeadroomRehydrator | null;
     includeCommentary: boolean;
     includeMetadata: boolean;
     includeTools: boolean;

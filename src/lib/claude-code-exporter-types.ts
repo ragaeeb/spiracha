@@ -1,5 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
+import type { HeadroomRehydrationOptions, HeadroomRehydrator } from './headroom-transcript-rehydration';
 import type { ExportFormat, JsonValue } from './shared';
 
 export type { ClaudeCodeAssistantMessagePhase } from './claude-code-transcript-phase';
@@ -102,7 +103,8 @@ export type ClaudeCodeSessionTranscript = {
     session: ClaudeCodeSessionSummary;
 };
 
-export type ClaudeCodeExportOptions = {
+export type ClaudeCodeExportOptions = HeadroomRehydrationOptions & {
+    headroomRehydrator?: HeadroomRehydrator | null;
     includeCommentary: boolean;
     includeMetadata: boolean;
     includeTools: boolean;

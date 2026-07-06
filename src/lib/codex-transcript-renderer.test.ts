@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import { access, mkdtemp, rm } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { access, mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { getThreadBrowseData } from './codex-browser-db';
@@ -12,6 +13,39 @@ import {
 } from './codex-transcript-renderer';
 
 const tempPaths: string[] = [];
+
+const sha256 = (text: string): string => createHash('sha256').update(text, 'utf8').digest('hex');
+
+const writeHeadroomReplacementArchive = async (
+    archiveDir: string,
+    replacement: { client: string; originalText: string; rewrittenText: string; sessionId: string },
+) => {
+    await mkdir(archiveDir, { recursive: true });
+    await Bun.write(
+        path.join(archiveDir, '2026-07-06.jsonl'),
+        `${JSON.stringify({
+            archive_id: 'codex-replacement',
+            client: replacement.client,
+            endpoint: '/v1/responses',
+            event_type: 'replacement',
+            model: null,
+            original_text: replacement.originalText,
+            original_text_sha256: sha256(replacement.originalText),
+            path: '$."input"[0]."content"',
+            provider: null,
+            request_id: null,
+            rewritten_text: replacement.rewrittenText,
+            rewritten_text_sha256: sha256(replacement.rewrittenText),
+            schema_version: 1,
+            session_id: replacement.sessionId,
+            timestamp: '2026-07-06T12:00:00+0000',
+            timestamp_unix: 1_783_340_800,
+            tokens_saved: 18,
+            transforms: ['markdown'],
+            transport: 'http',
+        })}\n`,
+    );
+};
 
 afterEach(async () => {
     await Promise.all(tempPaths.splice(0).map((targetPath) => rm(targetPath, { force: true, recursive: true })));
@@ -117,6 +151,69 @@ describe('codex transcript renderer helpers', () => {
 
         expect(content).toContain('## GPT 5.4');
         expect(content).not.toContain('## Assistant');
+    });
+
+    it('should rehydrate Headroom-compressed Codex markdown during export', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-headroom-rehydration-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexFixture(tempRoot);
+        const archiveDir = path.join(tempRoot, 'headroom');
+        const compressedText = 'Original request: inspect files; run tests.';
+        const originalMarkdown = '# Original request\n\n- inspect files\n- run tests';
+
+        await writeHeadroomReplacementArchive(archiveDir, {
+            client: 'codex_cli_rs',
+            originalText: originalMarkdown,
+            rewrittenText: compressedText,
+            sessionId: fixture.threadId,
+        });
+        await Bun.write(
+            fixture.sessionFile,
+            [
+                JSON.stringify({
+                    payload: {
+                        cli_version: '0.1.0',
+                        cwd: fixture.cwd,
+                        id: fixture.threadId,
+                        originator: 'codex_cli_rs',
+                        source: 'vscode',
+                        timestamp: '2026-04-23T10:00:00.000Z',
+                    },
+                    type: 'session_meta',
+                }),
+                JSON.stringify({
+                    payload: {
+                        message: compressedText,
+                        type: 'user_message',
+                    },
+                    type: 'response_item',
+                }),
+            ].join('\n'),
+        );
+
+        const content = await renderCodexSessionFile(
+            {
+                fallbackReason: null,
+                outputRelativePath: 'Test export.md',
+                relations: {
+                    childEdges: [],
+                    parentThreadId: null,
+                },
+                sessionFile: fixture.sessionFile,
+                thread: null,
+            },
+            {
+                archiveDir,
+                includeCommentary: true,
+                includeMetadata: true,
+                includeTools: false,
+                outputFormat: 'md',
+            },
+        );
+
+        expect(content).toContain(originalMarkdown);
+        expect(content).not.toContain(compressedText);
+        expect(content).toContain('headroom_rehydrated: true');
     });
 
     it('should omit hidden messages, unsupported tools, and commentary when exporting a rich transcript', async () => {

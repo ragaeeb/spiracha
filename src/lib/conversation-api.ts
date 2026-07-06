@@ -67,6 +67,22 @@ const errorResponse = (
 
 const parseBoolean = (value: string | null) => value === 'true' || value === '1';
 
+const parseOptionalBoolean = (field: string, value: string | null): ParseResult<boolean | undefined> => {
+    if (value === null || value === '') {
+        return { value: undefined };
+    }
+
+    if (value === 'true' || value === '1') {
+        return { value: true };
+    }
+
+    if (value === 'false' || value === '0') {
+        return { value: false };
+    }
+
+    return { error: invalidFieldResponse(field, value, `\`${field}\` must be a boolean.`) };
+};
+
 const isMessageSelector = (value: unknown): value is ConversationMessageSelector => {
     return value === 'all' || value === 'last_assistant' || value === 'last_final_answer';
 };
@@ -413,13 +429,25 @@ const handleExportConversation = async (
         });
     }
 
-    return new Response(dependencies.renderConversationMarkdown(conversation), {
-        headers: {
-            'Cache-Control': 'no-store',
-            'Content-Type': 'text/markdown; charset=utf-8',
-            'X-Content-Type-Options': 'nosniff',
+    const rehydrateHeadroom = parseOptionalBoolean('rehydrate_headroom', url.searchParams.get('rehydrate_headroom'));
+    if ('error' in rehydrateHeadroom) {
+        return rehydrateHeadroom.error;
+    }
+
+    return new Response(
+        dependencies.renderConversationMarkdown(conversation, {
+            headroomArchiveDir: url.searchParams.get('headroom_archive_dir'),
+            messageSelector: result.value.messageSelector,
+            rehydrateHeadroom: rehydrateHeadroom.value,
+        }),
+        {
+            headers: {
+                'Cache-Control': 'no-store',
+                'Content-Type': 'text/markdown; charset=utf-8',
+                'X-Content-Type-Options': 'nosniff',
+            },
         },
-    });
+    );
 };
 
 const handleDeleteConversation = async (

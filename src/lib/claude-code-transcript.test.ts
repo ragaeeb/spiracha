@@ -1,6 +1,43 @@
 import { describe, expect, it } from 'bun:test';
+import { createHash } from 'node:crypto';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import type { ClaudeCodeSessionTranscript } from './claude-code-exporter-types';
 import { renderClaudeCodeTranscript } from './claude-code-transcript';
+
+const sha256 = (text: string): string => createHash('sha256').update(text, 'utf8').digest('hex');
+
+const writeHeadroomReplacementArchive = async (
+    archiveDir: string,
+    replacement: { originalText: string; rewrittenText: string; sessionId: string },
+) => {
+    await mkdir(archiveDir, { recursive: true });
+    await Bun.write(
+        path.join(archiveDir, '2026-07-06.jsonl'),
+        `${JSON.stringify({
+            archive_id: 'claude-replacement',
+            client: 'claude-code',
+            endpoint: '/v1/messages',
+            event_type: 'replacement',
+            model: 'claude-sonnet-4-5',
+            original_text: replacement.originalText,
+            original_text_sha256: sha256(replacement.originalText),
+            path: '$."messages"[0]."content"',
+            provider: 'anthropic',
+            request_id: null,
+            rewritten_text: replacement.rewrittenText,
+            rewritten_text_sha256: sha256(replacement.rewrittenText),
+            schema_version: 1,
+            session_id: replacement.sessionId,
+            timestamp: '2026-07-06T12:00:00+0000',
+            timestamp_unix: 1_783_340_800,
+            tokens_saved: 21,
+            transforms: ['markdown'],
+            transport: 'http',
+        })}\n`,
+    );
+};
 
 const transcript: ClaudeCodeSessionTranscript = {
     entries: [
@@ -206,5 +243,55 @@ describe('renderClaudeCodeTranscript', () => {
         expect(rendered).not.toContain("I'll start by reading the roadmap");
         expect(rendered).not.toContain('Tool:');
         expect(rendered).toContain('All four proposals are written...');
+    });
+
+    it('should rehydrate Headroom-compressed Claude markdown during export', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'claude-headroom-rehydration-test-'));
+        try {
+            const archiveDir = path.join(tempRoot, 'headroom');
+            const compressedText = 'Original review request: check vendor detection and summarize.';
+            const originalMarkdown = '# Original review request\n\n- check vendor detection\n- summarize findings';
+            await writeHeadroomReplacementArchive(archiveDir, {
+                originalText: originalMarkdown,
+                rewrittenText: compressedText,
+                sessionId: transcript.session.sessionId,
+            });
+
+            const rendered = renderClaudeCodeTranscript(
+                {
+                    ...transcript,
+                    entries: [
+                        {
+                            cwd: transcript.session.cwd,
+                            entryId: 'u-headroom',
+                            parts: [
+                                {
+                                    raw: { text: compressedText },
+                                    text: compressedText,
+                                    type: 'text',
+                                },
+                            ],
+                            raw: { type: 'user' },
+                            role: 'user',
+                            timestamp: '2026-06-01T10:00:00.000Z',
+                            type: 'user',
+                        },
+                    ],
+                },
+                {
+                    archiveDir,
+                    includeCommentary: true,
+                    includeMetadata: true,
+                    includeTools: true,
+                    outputFormat: 'md',
+                },
+            );
+
+            expect(rendered).toContain(originalMarkdown);
+            expect(rendered).not.toContain(compressedText);
+            expect(rendered).toContain('headroom_rehydrated: true');
+        } finally {
+            await rm(tempRoot, { force: true, recursive: true });
+        }
     });
 });

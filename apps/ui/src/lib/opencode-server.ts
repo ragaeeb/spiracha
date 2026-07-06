@@ -11,10 +11,12 @@ const sessionSchema = z.object({
 });
 
 const exportSessionSchema = z.object({
+    headroomArchiveDir: z.string().optional(),
     includeCommentary: z.boolean().default(true),
     includeMetadata: z.boolean().default(true),
     includeTools: z.boolean().default(true),
     outputFormat: z.enum(['md', 'txt']).default('md'),
+    rehydrateHeadroom: z.boolean().optional(),
     sessionId: z.string().min(1),
     zipArchive: z.boolean().default(false),
 });
@@ -53,10 +55,12 @@ export const exportOpenCodeSessionFn = createServerFn({ method: 'POST' })
         const { renderOpenCodeTranscript } = await import('@spiracha/lib/opencode-transcript');
         const transcript = await loadOpenCodeSessionTranscript(data.sessionId);
         const content = renderOpenCodeTranscript(transcript, {
+            archiveDir: data.headroomArchiveDir,
             includeCommentary: data.includeCommentary,
             includeMetadata: data.includeMetadata,
             includeTools: data.includeTools,
             outputFormat: data.outputFormat,
+            rehydrateHeadroom: data.rehydrateHeadroom,
         });
 
         if (!content) {

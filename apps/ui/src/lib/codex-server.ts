@@ -30,22 +30,26 @@ const analyticsSchema = z.object({
 
 const exportSchema = z.object({
     convertToProjectRoot: z.boolean(),
+    headroomArchiveDir: z.string().optional(),
     includeCommentary: z.boolean(),
     includeMetadata: z.boolean(),
     includeTools: z.boolean(),
     outputFormat: z.enum(['md', 'txt']),
     redactUsername: z.boolean(),
+    rehydrateHeadroom: z.boolean().optional(),
     threadId: z.string().min(1),
     zipArchive: z.boolean().default(false),
 });
 
 const exportThreadsSchema = z.object({
     convertToProjectRoot: z.boolean(),
+    headroomArchiveDir: z.string().optional(),
     includeCommentary: z.boolean(),
     includeMetadata: z.boolean(),
     includeTools: z.boolean(),
     outputFormat: z.enum(['md', 'txt']),
     redactUsername: z.boolean(),
+    rehydrateHeadroom: z.boolean().optional(),
     threadIds: z.array(z.string().min(1)).min(1),
     zipArchive: z.boolean().default(true),
 });
@@ -152,6 +156,7 @@ export const exportThreadFn = createServerFn({ method: 'POST' })
         const { renderCodexThreadDownload } = await import('@spiracha/lib/codex-browser-export');
         return renderCodexThreadDownload({
             dbPath: await getDbPath(),
+            headroomArchiveDir: data.headroomArchiveDir,
             includeCommentary: data.includeCommentary,
             includeMetadata: data.includeMetadata,
             includeTools: data.includeTools,
@@ -160,6 +165,7 @@ export const exportThreadFn = createServerFn({ method: 'POST' })
                 convertToProjectRoot: data.convertToProjectRoot,
                 redactUsername: data.redactUsername,
             },
+            rehydrateHeadroom: data.rehydrateHeadroom,
             threadId: data.threadId,
             zipArchive: data.zipArchive,
         });
@@ -171,6 +177,7 @@ export const exportThreadsFn = createServerFn({ method: 'POST' })
         const { renderCodexThreadsDownload } = await import('@spiracha/lib/codex-browser-export');
         return renderCodexThreadsDownload({
             dbPath: await getDbPath(),
+            headroomArchiveDir: data.headroomArchiveDir,
             includeCommentary: data.includeCommentary,
             includeMetadata: data.includeMetadata,
             includeTools: data.includeTools,
@@ -179,6 +186,7 @@ export const exportThreadsFn = createServerFn({ method: 'POST' })
                 convertToProjectRoot: data.convertToProjectRoot,
                 redactUsername: data.redactUsername,
             },
+            rehydrateHeadroom: data.rehydrateHeadroom,
             threadIds: data.threadIds,
             zipArchive: data.zipArchive,
         });
