@@ -189,6 +189,35 @@ describe('claude code workspace discovery', () => {
         expect(transcript?.rawEvents).toHaveLength(3);
     });
 
+    it('should omit raw payloads when requested for large UI responses', async () => {
+        const projectsDir = await makeTempRoot();
+        await writeSession(
+            projectsDir,
+            '-Users-rhaq-workspace-ushman-corpus',
+            'session-a',
+            buildSessionRecords('session-a', corpusCwd),
+        );
+
+        const transcript = await readClaudeCodeSessionTranscript(projectsDir, 'session-a', {
+            includeRawPayloads: false,
+        });
+
+        expect(transcript?.rawPayloadsOmitted).toBe(true);
+        expect(transcript?.rawEvents).toEqual([]);
+        expect(transcript?.entries).toHaveLength(3);
+        expect(transcript?.entries[0]?.raw).toEqual({});
+        expect(transcript?.entries[1]?.parts[0]?.raw).toEqual({});
+        expect(transcript?.entries[1]?.parts[0]).toMatchObject({
+            text: 'Need inspect the vendor detection path.',
+            type: 'thinking',
+        });
+        expect(transcript?.session).toMatchObject({
+            messageCount: 3,
+            sessionId: 'session-a',
+            toolCallCount: 1,
+        });
+    });
+
     it('should delete a Claude Code session JSONL file', async () => {
         const projectsDir = await makeTempRoot();
         const sessionPath = path.join(projectsDir, '-Users-rhaq-workspace-ushman-corpus', 'session-delete.jsonl');

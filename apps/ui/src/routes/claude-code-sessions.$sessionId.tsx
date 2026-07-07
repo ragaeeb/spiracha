@@ -170,6 +170,20 @@ const ClaudeCodeTranscriptControls = ({
 };
 
 function ClaudeCodeRawPanels({ detail, events }: { detail: ClaudeCodeSessionTranscript; events: ThreadEvent[] }) {
+    if (detail.rawPayloadsOmitted) {
+        return (
+            <section className="rounded-[1.6rem] border border-[var(--border)] bg-[var(--panel)] p-5 shadow-[var(--panel-shadow)]">
+                <h3 className="font-semibold text-[var(--muted-foreground)] text-sm uppercase tracking-[0.18em]">
+                    Raw payloads omitted
+                </h3>
+                <p className="mt-4 text-[var(--muted-foreground)] text-sm">
+                    This Claude Code session is large, so raw JSON payload copies were omitted from the browser detail
+                    response. Export still reads the full source session from disk.
+                </p>
+            </section>
+        );
+    }
+
     return (
         <div className="space-y-4">
             <JsonPanel title="Session summary" value={detail.session} />

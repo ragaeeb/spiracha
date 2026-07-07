@@ -98,6 +98,7 @@ export type ClaudeCodeTranscriptEntry = {
 
 export type ClaudeCodeSessionTranscript = {
     entries: ClaudeCodeTranscriptEntry[];
+    rawPayloadsOmitted?: boolean;
     rawEvents: Record<string, JsonValue>[];
     renderablePartCount: number;
     session: ClaudeCodeSessionSummary;

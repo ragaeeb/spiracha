@@ -38,6 +38,12 @@ type ParsedTranscriptFile = {
     transcript: ClaudeCodeSessionTranscript;
 };
 
+type ReadTranscriptFileOptions = {
+    includeRawPayloads?: boolean;
+};
+
+export type ReadClaudeCodeSessionTranscriptOptions = ReadTranscriptFileOptions;
+
 export type DeleteClaudeCodeSessionResult = {
     deletedFiles: string[];
     deletedSessionIds: string[];
@@ -455,7 +461,19 @@ const isRenderablePart = (part: ClaudeCodeTranscriptPart): boolean => {
     return false;
 };
 
-const readTranscriptFile = async (file: TranscriptFile): Promise<ParsedTranscriptFile | null> => {
+const stripEntryRawPayloads = (entry: ClaudeCodeTranscriptEntry): ClaudeCodeTranscriptEntry => {
+    return {
+        ...entry,
+        parts: entry.parts.map((part) => ({ ...part, raw: {} })),
+        raw: {},
+    };
+};
+
+const readTranscriptFile = async (
+    file: TranscriptFile,
+    options: ReadTranscriptFileOptions = {},
+): Promise<ParsedTranscriptFile | null> => {
+    const includeRawPayloads = options.includeRawPayloads ?? true;
     const fallbackMtimeMs = await stat(file.filePath)
         .then((stats) => stats.mtimeMs)
         .catch(() => null);
@@ -474,7 +492,9 @@ const readTranscriptFile = async (file: TranscriptFile): Promise<ParsedTranscrip
     const rawEvents: Record<string, JsonValue>[] = [];
 
     for await (const raw of readJsonlObjects(file.filePath)) {
-        rawEvents.push(raw);
+        if (includeRawPayloads) {
+            rawEvents.push(raw);
+        }
         updateTimeline(timeline, raw);
         updateIdentityFromRaw(identity, raw);
 
@@ -483,7 +503,7 @@ const readTranscriptFile = async (file: TranscriptFile): Promise<ParsedTranscrip
             continue;
         }
 
-        entries.push(entry);
+        entries.push(includeRawPayloads ? entry : stripEntryRawPayloads(entry));
         updateStatsFromEntry(stats, entry);
         updateIdentityFromEntry(identity, entry);
     }
@@ -493,6 +513,7 @@ const readTranscriptFile = async (file: TranscriptFile): Promise<ParsedTranscrip
         transcript: {
             entries,
             rawEvents,
+            rawPayloadsOmitted: includeRawPayloads ? undefined : true,
             renderablePartCount: stats.renderablePartCount,
             session,
         },
@@ -526,7 +547,7 @@ const listTranscriptFiles = async (projectsDir: string): Promise<TranscriptFile[
 };
 
 const readTranscriptFiles = async (files: TranscriptFile[]): Promise<ClaudeCodeSessionTranscript[]> => {
-    const parsed = await mapWithConcurrency(files, READ_CONCURRENCY, readTranscriptFile);
+    const parsed = await mapWithConcurrency(files, READ_CONCURRENCY, (file) => readTranscriptFile(file));
     return parsed.flatMap((item) => (item ? [item.transcript] : []));
 };
 
@@ -646,6 +667,7 @@ const locateSessionFile = async (projectsDir: string, sessionId: string): Promis
 export const readClaudeCodeSessionTranscript = async (
     projectsDir: string,
     sessionId: string,
+    options: ReadClaudeCodeSessionTranscriptOptions = {},
 ): Promise<ClaudeCodeSessionTranscript | null> => {
     if (!(await pathExists(projectsDir))) {
         return null;
@@ -656,7 +678,7 @@ export const readClaudeCodeSessionTranscript = async (
         return null;
     }
 
-    return (await readTranscriptFile(file))?.transcript ?? null;
+    return (await readTranscriptFile(file, options))?.transcript ?? null;
 };
 
 export const deleteClaudeCodeSession = async (

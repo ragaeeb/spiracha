@@ -2,6 +2,8 @@ import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
 import { renderSourceSessionDownload } from './source-session-export-server';
 
+const LARGE_CLAUDE_CODE_SESSION_SIZE_BYTES = 8 * 1024 * 1024;
+
 const workspaceSchema = z.object({
     workspaceKey: z.string().min(1),
 });
@@ -45,10 +47,34 @@ const loadClaudeCodeSessionTranscript = async (sessionId: string) => {
     return transcript;
 };
 
+const loadClaudeCodeSessionDetail = async (sessionId: string) => {
+    const { stat } = await import('node:fs/promises');
+    const { readClaudeCodeSessionTranscript, resolveClaudeCodeProjectsDir } = await import(
+        '@spiracha/lib/claude-code-db'
+    );
+    const projectsDir = resolveClaudeCodeProjectsDir();
+    const fullTranscript = await readClaudeCodeSessionTranscript(projectsDir, sessionId, {
+        includeRawPayloads: false,
+    });
+    if (!fullTranscript) {
+        throw new Error(`Claude Code session not found: ${sessionId}`);
+    }
+
+    const fileSizeBytes = await stat(fullTranscript.session.filePath)
+        .then((stats) => stats.size)
+        .catch(() => LARGE_CLAUDE_CODE_SESSION_SIZE_BYTES + 1);
+
+    if (fileSizeBytes > LARGE_CLAUDE_CODE_SESSION_SIZE_BYTES) {
+        return fullTranscript;
+    }
+
+    return (await readClaudeCodeSessionTranscript(projectsDir, sessionId)) ?? fullTranscript;
+};
+
 export const getClaudeCodeSessionDetailFn = createServerFn({ method: 'GET' })
     .validator(sessionSchema)
     .handler(async ({ data }) => {
-        return loadClaudeCodeSessionTranscript(data.sessionId);
+        return loadClaudeCodeSessionDetail(data.sessionId);
     });
 
 export const exportClaudeCodeSessionFn = createServerFn({ method: 'POST' })
