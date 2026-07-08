@@ -233,6 +233,64 @@ describe('codex transcript renderer helpers', () => {
         expect(content).not.toContain('unstructured output');
     });
 
+    it('should omit Codex app directive lines from clean markdown exports', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-transcript-renderer-directives-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexFixture(tempRoot);
+
+        await Bun.write(
+            fixture.sessionFile,
+            [
+                JSON.stringify({
+                    payload: {
+                        cli_version: '0.1.0',
+                        cwd: fixture.cwd,
+                        id: fixture.threadId,
+                        originator: 'codex_cli_rs',
+                        source: 'vscode',
+                        timestamp: '2026-04-23T10:00:00.000Z',
+                    },
+                    type: 'session_meta',
+                }),
+                JSON.stringify({
+                    payload: {
+                        message: [
+                            'Implemented the fix.',
+                            '::git-stage{cwd="."}',
+                            '::git-commit{cwd="."}',
+                            '::git-stage{cwd="~/workspace/ushman-e2e"}',
+                            '::git-commit{cwd="~/workspace/ushman-e2e"}',
+                        ].join('\n'),
+                        phase: 'final_answer',
+                        type: 'agent_message',
+                    },
+                    type: 'response_item',
+                }),
+            ].join('\n'),
+        );
+
+        const browseData = getThreadBrowseData(fixture.dbPath, fixture.threadId);
+        const content = await renderCodexSessionFile(
+            {
+                fallbackReason: null,
+                outputRelativePath: 'Test export.md',
+                relations: browseData.relations,
+                sessionFile: fixture.sessionFile,
+                thread: browseData.thread,
+            },
+            {
+                includeCommentary: false,
+                includeMetadata: false,
+                includeTools: false,
+                outputFormat: 'md',
+            },
+        );
+
+        expect(content).toContain('Implemented the fix.');
+        expect(content).not.toContain('::git-stage');
+        expect(content).not.toContain('::git-commit');
+    });
+
     it('should support metadata-free transcript export and transformed streaming output', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-transcript-renderer-metadata-test-'));
         tempPaths.push(tempRoot);

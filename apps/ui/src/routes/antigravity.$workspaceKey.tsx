@@ -1,6 +1,7 @@
 import type { AntigravityConversation, AntigravityWorkspaceGroup } from '@spiracha/lib/antigravity-exporter-types';
 import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { Trash2 } from 'lucide-react';
 import { useDeferredValue, useMemo, useState } from 'react';
 import { AntigravityConversationsTable } from '#/components/antigravity-conversations-table';
 import { AntigravityKeychainPanel } from '#/components/antigravity-keychain-panel';
@@ -10,6 +11,7 @@ import { ListSearchInput } from '#/components/list-search-input';
 import { LoadingPanel } from '#/components/loading-panel';
 import { PageHeader } from '#/components/page-header';
 import { ReloadErrorPanel } from '#/components/reload-error-panel';
+import { Button } from '#/components/ui/button';
 import {
     antigravityConversationsQueryOptions,
     antigravityDecryptionQueryOptions,
@@ -36,6 +38,7 @@ type ExportDialogOptions = {
 
 type PendingConversationDelete = {
     conversations: AntigravityConversation[];
+    scope: 'all' | 'selected';
 };
 
 type PendingConversationExport = {
@@ -65,12 +68,20 @@ const getDeleteConfirmLabel = (pendingDelete: PendingConversationDelete | null, 
         return 'Deleting...';
     }
 
+    if (pendingDelete?.scope === 'all') {
+        return 'Delete all';
+    }
+
     return pendingDelete && pendingDelete.conversations.length > 1 ? 'Delete conversations' : 'Delete conversation';
 };
 
 const getDeleteDescription = (pendingDelete: PendingConversationDelete | null) => {
     if (!pendingDelete) {
         return 'Permanently delete the selected Antigravity conversations from disk.';
+    }
+
+    if (pendingDelete.scope === 'all') {
+        return `Permanently delete all ${pendingDelete.conversations.length} Antigravity conversations in this workspace from disk. This removes their summaries, conversation files, transcript logs, and generated artifacts.`;
     }
 
     if (pendingDelete.conversations.length === 1) {
@@ -80,10 +91,15 @@ const getDeleteDescription = (pendingDelete: PendingConversationDelete | null) =
     return `Permanently delete ${pendingDelete.conversations.length} selected Antigravity conversations from disk. This removes their summaries, conversation files, transcript logs, and generated artifacts.`;
 };
 
-const getDeleteTitle = (pendingDelete: PendingConversationDelete | null) =>
-    pendingDelete && pendingDelete.conversations.length > 1
+const getDeleteTitle = (pendingDelete: PendingConversationDelete | null) => {
+    if (pendingDelete?.scope === 'all') {
+        return `Delete all ${pendingDelete.conversations.length} Antigravity conversations?`;
+    }
+
+    return pendingDelete && pendingDelete.conversations.length > 1
         ? `Delete ${pendingDelete.conversations.length} Antigravity conversations?`
         : 'Delete this Antigravity conversation?';
+};
 
 const AntigravityWorkspaceErrors = ({
     artifactError,
@@ -246,9 +262,12 @@ function AntigravityWorkspacePage() {
 
         setPendingExport(buildConversationExport(selectedConversations));
     };
-    const openDeleteForConversations = (selectedConversations: AntigravityConversation[]) => {
+    const openDeleteForConversations = (
+        selectedConversations: AntigravityConversation[],
+        scope: PendingConversationDelete['scope'],
+    ) => {
         if (selectedConversations.length > 0) {
-            setPendingDelete({ conversations: selectedConversations });
+            setPendingDelete({ conversations: selectedConversations, scope });
         }
     };
 
@@ -256,11 +275,23 @@ function AntigravityWorkspacePage() {
         <div className="space-y-6">
             <PageHeader
                 actions={
-                    <ListSearchInput
-                        placeholder="Search title, id, or transcript source"
-                        value={searchInput}
-                        onValueChange={setSearchInput}
-                    />
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                        <Button
+                            className="rounded-full"
+                            disabled={deleteMutation.isPending || conversations.length === 0}
+                            type="button"
+                            variant="destructive"
+                            onClick={() => openDeleteForConversations(conversations, 'all')}
+                        >
+                            <Trash2 className="size-4" />
+                            Delete all
+                        </Button>
+                        <ListSearchInput
+                            placeholder="Search title, id, or transcript source"
+                            value={searchInput}
+                            onValueChange={setSearchInput}
+                        />
+                    </div>
                 }
                 eyebrow="Antigravity workspace"
                 subtitle="Inspect conversation coverage across Antigravity transcripts, raw payloads, and generated artifacts."
@@ -272,9 +303,9 @@ function AntigravityWorkspacePage() {
             <AntigravityConversationsTable
                 conversations={visibleConversations}
                 decryptionState={decryptionState}
-                onDeleteConversation={(conversation) => openDeleteForConversations([conversation])}
+                onDeleteConversation={(conversation) => openDeleteForConversations([conversation], 'selected')}
                 onDeleteConversations={(conversationIds) =>
-                    openDeleteForConversations(lookupSelectedConversations(conversationIds))
+                    openDeleteForConversations(lookupSelectedConversations(conversationIds), 'selected')
                 }
                 onExportArtifacts={(conversation) => exportArtifactsMutation.mutate(conversation)}
                 onExportConversation={(conversation) => exportConversationMutation.mutate(conversation)}

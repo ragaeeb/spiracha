@@ -41,6 +41,8 @@ import { Route as ApiV1SourcesRouteImport } from './routes/api.v1.sources'
 import { Route as ApiV1ResolveRouteImport } from './routes/api.v1.resolve'
 import { Route as ApiV1ConversationsRouteImport } from './routes/api.v1.conversations'
 import { Route as ApiV1ConversationQueryRouteImport } from './routes/api.v1.conversation-query'
+import { Route as ApiV1ConversationsExportRouteImport } from './routes/api.v1.conversations.export'
+import { Route as ApiV1ConversationsDeleteRouteImport } from './routes/api.v1.conversations.delete'
 import { Route as ApiV1ConversationsSourceIdRouteImport } from './routes/api.v1.conversations.$source.$id'
 import { Route as ApiV1ConversationsSourceIdExportRouteImport } from './routes/api.v1.conversations.$source.$id.export'
 
@@ -207,6 +209,18 @@ const ApiV1ConversationQueryRoute = ApiV1ConversationQueryRouteImport.update({
   path: '/api/v1/conversation-query',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiV1ConversationsExportRoute =
+  ApiV1ConversationsExportRouteImport.update({
+    id: '/export',
+    path: '/export',
+    getParentRoute: () => ApiV1ConversationsRoute,
+  } as any)
+const ApiV1ConversationsDeleteRoute =
+  ApiV1ConversationsDeleteRouteImport.update({
+    id: '/delete',
+    path: '/delete',
+    getParentRoute: () => ApiV1ConversationsRoute,
+  } as any)
 const ApiV1ConversationsSourceIdRoute =
   ApiV1ConversationsSourceIdRouteImport.update({
     id: '/$source/$id',
@@ -253,6 +267,8 @@ export interface FileRoutesByFullPath {
   '/api/v1/conversations': typeof ApiV1ConversationsRouteWithChildren
   '/api/v1/resolve': typeof ApiV1ResolveRoute
   '/api/v1/sources': typeof ApiV1SourcesRoute
+  '/api/v1/conversations/delete': typeof ApiV1ConversationsDeleteRoute
+  '/api/v1/conversations/export': typeof ApiV1ConversationsExportRoute
   '/api/v1/conversations/$source/$id': typeof ApiV1ConversationsSourceIdRouteWithChildren
   '/api/v1/conversations/$source/$id/export': typeof ApiV1ConversationsSourceIdExportRoute
 }
@@ -289,6 +305,8 @@ export interface FileRoutesByTo {
   '/api/v1/conversations': typeof ApiV1ConversationsRouteWithChildren
   '/api/v1/resolve': typeof ApiV1ResolveRoute
   '/api/v1/sources': typeof ApiV1SourcesRoute
+  '/api/v1/conversations/delete': typeof ApiV1ConversationsDeleteRoute
+  '/api/v1/conversations/export': typeof ApiV1ConversationsExportRoute
   '/api/v1/conversations/$source/$id': typeof ApiV1ConversationsSourceIdRouteWithChildren
   '/api/v1/conversations/$source/$id/export': typeof ApiV1ConversationsSourceIdExportRoute
 }
@@ -326,6 +344,8 @@ export interface FileRoutesById {
   '/api/v1/conversations': typeof ApiV1ConversationsRouteWithChildren
   '/api/v1/resolve': typeof ApiV1ResolveRoute
   '/api/v1/sources': typeof ApiV1SourcesRoute
+  '/api/v1/conversations/delete': typeof ApiV1ConversationsDeleteRoute
+  '/api/v1/conversations/export': typeof ApiV1ConversationsExportRoute
   '/api/v1/conversations/$source/$id': typeof ApiV1ConversationsSourceIdRouteWithChildren
   '/api/v1/conversations/$source/$id/export': typeof ApiV1ConversationsSourceIdExportRoute
 }
@@ -364,6 +384,8 @@ export interface FileRouteTypes {
     | '/api/v1/conversations'
     | '/api/v1/resolve'
     | '/api/v1/sources'
+    | '/api/v1/conversations/delete'
+    | '/api/v1/conversations/export'
     | '/api/v1/conversations/$source/$id'
     | '/api/v1/conversations/$source/$id/export'
   fileRoutesByTo: FileRoutesByTo
@@ -400,6 +422,8 @@ export interface FileRouteTypes {
     | '/api/v1/conversations'
     | '/api/v1/resolve'
     | '/api/v1/sources'
+    | '/api/v1/conversations/delete'
+    | '/api/v1/conversations/export'
     | '/api/v1/conversations/$source/$id'
     | '/api/v1/conversations/$source/$id/export'
   id:
@@ -436,6 +460,8 @@ export interface FileRouteTypes {
     | '/api/v1/conversations'
     | '/api/v1/resolve'
     | '/api/v1/sources'
+    | '/api/v1/conversations/delete'
+    | '/api/v1/conversations/export'
     | '/api/v1/conversations/$source/$id'
     | '/api/v1/conversations/$source/$id/export'
   fileRoutesById: FileRoutesById
@@ -701,6 +727,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiV1ConversationQueryRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/v1/conversations/export': {
+      id: '/api/v1/conversations/export'
+      path: '/export'
+      fullPath: '/api/v1/conversations/export'
+      preLoaderRoute: typeof ApiV1ConversationsExportRouteImport
+      parentRoute: typeof ApiV1ConversationsRoute
+    }
+    '/api/v1/conversations/delete': {
+      id: '/api/v1/conversations/delete'
+      path: '/delete'
+      fullPath: '/api/v1/conversations/delete'
+      preLoaderRoute: typeof ApiV1ConversationsDeleteRouteImport
+      parentRoute: typeof ApiV1ConversationsRoute
+    }
     '/api/v1/conversations/$source/$id': {
       id: '/api/v1/conversations/$source/$id'
       path: '/$source/$id'
@@ -734,10 +774,14 @@ const ApiV1ConversationsSourceIdRouteWithChildren =
   )
 
 interface ApiV1ConversationsRouteChildren {
+  ApiV1ConversationsDeleteRoute: typeof ApiV1ConversationsDeleteRoute
+  ApiV1ConversationsExportRoute: typeof ApiV1ConversationsExportRoute
   ApiV1ConversationsSourceIdRoute: typeof ApiV1ConversationsSourceIdRouteWithChildren
 }
 
 const ApiV1ConversationsRouteChildren: ApiV1ConversationsRouteChildren = {
+  ApiV1ConversationsDeleteRoute: ApiV1ConversationsDeleteRoute,
+  ApiV1ConversationsExportRoute: ApiV1ConversationsExportRoute,
   ApiV1ConversationsSourceIdRoute: ApiV1ConversationsSourceIdRouteWithChildren,
 }
 

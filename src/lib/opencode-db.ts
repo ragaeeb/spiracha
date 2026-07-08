@@ -23,6 +23,7 @@ import {
     type JsonValue,
     workspacePathMatchesQuery,
 } from './shared';
+import { runWithSqliteRetry } from './sqlite-retry';
 
 export { getDefaultOpenCodeDataDir, resolveOpenCodeDbPath };
 
@@ -105,6 +106,32 @@ export const getOpenCodeReadonlyDbUri = (dbPath: string): string => {
 
 export const openOpenCodeReadonlyDb = (dbPath: string): Database => {
     return new Database(getOpenCodeReadonlyDbUri(dbPath), OPENCODE_READONLY_DB_OPEN_FLAGS);
+};
+
+const withOpenCodeReadonlyDb = <T>(dbPath: string, action: (db: Database) => T): T => {
+    return runWithSqliteRetry({
+        action: () => {
+            const db = openOpenCodeReadonlyDb(dbPath);
+            try {
+                return action(db);
+            } finally {
+                db.close();
+            }
+        },
+    });
+};
+
+const withOpenCodeWritableDb = <T>(dbPath: string, action: (db: Database) => T): T => {
+    return runWithSqliteRetry({
+        action: () => {
+            const db = new Database(dbPath);
+            try {
+                return action(db);
+            } finally {
+                db.close();
+            }
+        },
+    });
 };
 
 const parseJsonValue = (value: string | null): JsonValue | string | null => {
@@ -340,15 +367,12 @@ export const listOpenCodeWorkspaceGroups = async (
         return [];
     }
 
-    const db = openOpenCodeReadonlyDb(dbPath);
-    try {
+    return withOpenCodeReadonlyDb(dbPath, (db) => {
         const rows = db
             .query(`${workspaceRowsQuery} ORDER BY lastActiveMs DESC, p.worktree ASC`)
             .all() as WorkspaceRow[];
         return rows.map(toWorkspaceGroup);
-    } finally {
-        db.close();
-    }
+    });
 };
 
 const openCodeWorkspaceMatchesQuery = (workspace: OpenCodeWorkspaceGroup, query: string): boolean => {
@@ -396,12 +420,9 @@ export const listOpenCodeSessionsForGroup = async (
         return [];
     }
 
-    const db = openOpenCodeReadonlyDb(dbPath);
-    try {
+    return withOpenCodeReadonlyDb(dbPath, (db) => {
         return readSessionSummaries(db, `s.project_id = ? AND ${MAIN_SESSION_FILTER}`, [projectId]);
-    } finally {
-        db.close();
-    }
+    });
 };
 
 const readOpenCodeSessionSummary = (db: Database, sessionId: string): OpenCodeSessionSummary | null => {
@@ -432,8 +453,7 @@ export const deleteOpenCodeSession = async (
         return { deletedSessionIds: [] };
     }
 
-    const db = new Database(dbPath);
-    try {
+    return withOpenCodeWritableDb(dbPath, (db) => {
         const sessionIds = readOpenCodeSessionTreeIds(db, sessionId);
         if (sessionIds.length === 0) {
             return { deletedSessionIds: [] };
@@ -447,9 +467,7 @@ export const deleteOpenCodeSession = async (
         })();
 
         return { deletedSessionIds: sessionIds };
-    } finally {
-        db.close();
-    }
+    });
 };
 
 const getMessageRole = (raw: Record<string, JsonValue>): string => asString(raw.role ?? null) ?? 'unknown';
@@ -632,8 +650,7 @@ export const readOpenCodeSessionTranscript = async (
         return null;
     }
 
-    const db = openOpenCodeReadonlyDb(dbPath);
-    try {
+    return withOpenCodeReadonlyDb(dbPath, (db) => {
         const session = readOpenCodeSessionSummary(db, sessionId);
         if (!session) {
             return null;
@@ -652,7 +669,5 @@ export const readOpenCodeSessionTranscript = async (
             renderablePartCount,
             session,
         };
-    } finally {
-        db.close();
-    }
+    });
 };

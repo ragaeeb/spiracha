@@ -108,6 +108,14 @@ const buildTranscriptStatsItems = (
     ];
 };
 
+const getConversationSizeLabel = (detail: AntigravityConversationDetail): string => {
+    if (detail.conversation.totalBytes > 0) {
+        return formatBytes(detail.conversation.totalBytes);
+    }
+
+    return detail.conversation.summaryPath ? 'Summary' : formatBytes(detail.conversation.totalBytes);
+};
+
 export const Route = createFileRoute('/antigravity-conversations/$conversationId')({
     component: AntigravityConversationDetailPage,
     errorComponent: AntigravityConversationDetailErrorComponent,
@@ -389,7 +397,7 @@ function AntigravityConversationDetailPage() {
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <MetricCard label="Transcript entries" value={formatNumber(detail.conversation.transcriptEntryCount)} />
                 <MetricCard label="Artifacts" value={formatNumber(detail.conversation.artifactCount)} />
-                <MetricCard label="Size" value={formatBytes(detail.conversation.conversationBytes)} />
+                <MetricCard label="Size" value={getConversationSizeLabel(detail)} />
                 <MetricCard
                     helper={detail.conversation.transcriptSource ?? 'summary'}
                     label="Indexed items"

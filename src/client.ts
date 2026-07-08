@@ -1,5 +1,6 @@
 import {
     deleteConversation as deleteLocalConversation,
+    deleteConversations as deleteLocalConversations,
     getConversation as getLocalConversation,
     listConversationSources as listLocalConversationSources,
     listConversationsForPath as listLocalConversationsForPath,
@@ -12,12 +13,17 @@ import type {
     ConversationMessageSelector,
     ConversationPage,
     ConversationSourceInfo,
+    ConversationZipDownload,
     DeleteConversationOptions,
     DeleteConversationResult,
+    DeleteConversationsOptions,
+    DeleteConversationsResult,
+    ExportConversationsZipOptions,
     GetConversationOptions,
     ListConversationsForPathOptions,
     ResolvedConversationRef,
 } from './lib/conversation-data/types';
+import { createConversationMarkdownZip } from './lib/conversation-zip-export';
 
 export type {
     ConversationDataLocations,
@@ -31,8 +37,12 @@ export type {
     ConversationPathMatch,
     ConversationSource,
     ConversationSourceInfo,
+    ConversationZipDownload,
     DeleteConversationOptions,
     DeleteConversationResult,
+    DeleteConversationsOptions,
+    DeleteConversationsResult,
+    ExportConversationsZipOptions,
     GetConversationOptions,
     ListConversationsForPathOptions,
     ResolvedConversationRef,
@@ -76,7 +86,9 @@ export type ExportConversationMarkdownOptions = GetConversationOptions;
 
 export type ConversationClient = {
     deleteConversation: (options: DeleteConversationOptions) => Promise<DeleteConversationResult | null>;
+    deleteConversations: (options: DeleteConversationsOptions) => Promise<DeleteConversationsResult | null>;
     exportConversationMarkdown: (options: ExportConversationMarkdownOptions) => Promise<string | null>;
+    exportConversationsZip: (options: ExportConversationsZipOptions) => Promise<ConversationZipDownload | null>;
     getConversation: (options: GetConversationOptions) => Promise<ConversationDetail | null>;
     listConversations: (options: ListConversationsForPathOptions) => Promise<ConversationPage>;
     listSources: () => Promise<ConversationSourceInfo[]>;
@@ -204,6 +216,34 @@ const fetchTextOrNull = async (url: URL, init?: RequestInit): Promise<string | n
     return response.text();
 };
 
+const fileNameFromContentDisposition = (contentDisposition: string | null, fallback: string) => {
+    const encodedMatch = contentDisposition?.match(/filename\*=UTF-8''([^;]+)/iu);
+    if (encodedMatch?.[1]) {
+        try {
+            return decodeURIComponent(encodedMatch[1]);
+        } catch {
+            return fallback;
+        }
+    }
+
+    const quotedMatch = contentDisposition?.match(/filename="([^"]+)"/iu);
+    return quotedMatch?.[1] || fallback;
+};
+
+const fetchZipOrNull = async (url: URL, init?: RequestInit): Promise<ConversationZipDownload | null> => {
+    const response = await fetchResponse(url, init);
+    if (response.status === 404) {
+        return null;
+    }
+
+    await assertOkResponse(response);
+    return {
+        blob: await response.blob(),
+        fileName: fileNameFromContentDisposition(response.headers.get('Content-Disposition'), 'conversations.zip'),
+        mimeType: 'application/zip',
+    };
+};
+
 const requireData = <T>(envelope: HttpEnvelope<T>, label: string): T => {
     if (envelope.data === undefined) {
         throw new SpirachaClientError(`Spiracha API response did not include ${label}.`);
@@ -235,9 +275,53 @@ const rejectHttpLocations = (locations: ConversationDataLocations | undefined): 
     }
 };
 
+const buildBatchBody = ({ ids, messageSelector, outputFormat, source }: ExportConversationsZipOptions) => ({
+    ids,
+    message_selector: messageSelector,
+    output_format: outputFormat,
+    source,
+});
+
+const exportLocalConversationsZip = async (
+    exportOptions: ExportConversationsZipOptions,
+    locations: ConversationDataLocations | undefined,
+) => {
+    const options = withDefaultLocations(exportOptions, locations);
+    const conversations = await Promise.all(
+        options.ids.map((id) =>
+            getLocalConversation({
+                id,
+                locations: options.locations,
+                messageSelector: options.messageSelector ?? 'all',
+                source: options.source,
+            }),
+        ),
+    );
+
+    if (conversations.some((conversation) => conversation === null)) {
+        return null;
+    }
+
+    return createConversationMarkdownZip({
+        entries: conversations.map((conversation, index) => {
+            const resolvedConversation = conversation!;
+            return {
+                fallbackBaseName: `${options.source}-${options.ids[index]}`,
+                markdown: renderLocalConversationMarkdown(resolvedConversation, {
+                    messageSelector: options.messageSelector ?? 'all',
+                }),
+                title: resolvedConversation.title,
+            };
+        }),
+        fileBaseName: `${options.source}-conversations-${options.ids.length}`,
+    });
+};
+
 const makeLocalClient = (options: LocalConversationClientOptions): ConversationClient => ({
     deleteConversation: (deleteOptions) =>
         deleteLocalConversation(withDefaultLocations(deleteOptions, options.locations)),
+    deleteConversations: (deleteOptions) =>
+        deleteLocalConversations(withDefaultLocations(deleteOptions, options.locations)),
     exportConversationMarkdown: async (getOptions) => {
         const conversation = await getLocalConversation(withDefaultLocations(getOptions, options.locations));
         return conversation
@@ -246,6 +330,7 @@ const makeLocalClient = (options: LocalConversationClientOptions): ConversationC
               })
             : null;
     },
+    exportConversationsZip: (exportOptions) => exportLocalConversationsZip(exportOptions, options.locations),
     getConversation: (getOptions) => getLocalConversation(withDefaultLocations(getOptions, options.locations)),
     listConversations: (listOptions) =>
         listLocalConversationsForPath(withDefaultLocations(listOptions, options.locations)),
@@ -267,12 +352,38 @@ const makeHttpClient = (options: HttpConversationClientOptions): ConversationCli
             }
             return requireData(envelope, 'a delete result');
         },
+        deleteConversations: async (deleteOptions) => {
+            rejectHttpLocations(deleteOptions.locations);
+            const envelope = await fetchJsonOrNull<DeleteConversationsResult>(
+                makeHttpUrl(baseUrl, '/api/v1/conversations/delete'),
+                {
+                    body: JSON.stringify({
+                        ids: deleteOptions.ids,
+                        source: deleteOptions.source,
+                    }),
+                    headers: { 'Content-Type': 'application/json' },
+                    method: 'POST',
+                },
+            );
+            if (!envelope) {
+                return null;
+            }
+            return requireData(envelope, 'a delete result');
+        },
         exportConversationMarkdown: async (getOptions) => {
             rejectHttpLocations(getOptions.locations);
             const { id, messageSelector, source } = getOptions;
             const url = makeHttpUrl(baseUrl, `/api/v1/conversations/${source}/${encodeURIComponent(id)}/export`);
             appendMessageSelector(url, messageSelector);
             return fetchTextOrNull(url);
+        },
+        exportConversationsZip: async (exportOptions) => {
+            rejectHttpLocations(exportOptions.locations);
+            return fetchZipOrNull(makeHttpUrl(baseUrl, '/api/v1/conversations/export'), {
+                body: JSON.stringify(buildBatchBody(exportOptions)),
+                headers: { 'Content-Type': 'application/json' },
+                method: 'POST',
+            });
         },
         getConversation: async (getOptions) => {
             rejectHttpLocations(getOptions.locations);

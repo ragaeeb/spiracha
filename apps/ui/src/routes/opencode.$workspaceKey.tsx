@@ -1,6 +1,7 @@
 import type { OpenCodeSessionSummary, OpenCodeWorkspaceGroup } from '@spiracha/lib/opencode-exporter-types';
 import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { Trash2 } from 'lucide-react';
 import { useDeferredValue, useMemo, useState } from 'react';
 import { DeleteConfirmDialog } from '#/components/delete-confirm-dialog';
 import { ExportDialog } from '#/components/export-dialog';
@@ -9,6 +10,7 @@ import { LoadingPanel } from '#/components/loading-panel';
 import { OpenCodeSessionsTable } from '#/components/opencode-sessions-table';
 import { PageHeader } from '#/components/page-header';
 import { ReloadErrorPanel } from '#/components/reload-error-panel';
+import { Button } from '#/components/ui/button';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import { openCodeSessionsQueryOptions, openCodeWorkspacesQueryOptions } from '#/lib/opencode-queries';
 import {
@@ -29,6 +31,7 @@ type ExportDialogOptions = {
 };
 
 type PendingSessionDelete = {
+    scope: 'all' | 'selected';
     sessions: OpenCodeSessionSummary[];
 };
 
@@ -56,12 +59,20 @@ const getDeleteConfirmLabel = (pendingDelete: PendingSessionDelete | null, isPen
         return 'Deleting...';
     }
 
+    if (pendingDelete?.scope === 'all') {
+        return 'Delete all';
+    }
+
     return pendingDelete && pendingDelete.sessions.length > 1 ? 'Delete sessions' : 'Delete session';
 };
 
 const getDeleteDescription = (pendingDelete: PendingSessionDelete | null) => {
     if (!pendingDelete) {
         return 'Permanently delete the selected OpenCode sessions from the database.';
+    }
+
+    if (pendingDelete.scope === 'all') {
+        return `Permanently delete all ${pendingDelete.sessions.length} OpenCode sessions in this workspace from the database, including child sessions, messages, and parts.`;
     }
 
     if (pendingDelete.sessions.length === 1) {
@@ -71,10 +82,15 @@ const getDeleteDescription = (pendingDelete: PendingSessionDelete | null) => {
     return `Permanently delete ${pendingDelete.sessions.length} selected OpenCode sessions from the database, including child sessions, messages, and parts.`;
 };
 
-const getDeleteTitle = (pendingDelete: PendingSessionDelete | null) =>
-    pendingDelete && pendingDelete.sessions.length > 1
+const getDeleteTitle = (pendingDelete: PendingSessionDelete | null) => {
+    if (pendingDelete?.scope === 'all') {
+        return `Delete all ${pendingDelete.sessions.length} OpenCode sessions?`;
+    }
+
+    return pendingDelete && pendingDelete.sessions.length > 1
         ? `Delete ${pendingDelete.sessions.length} OpenCode sessions?`
         : 'Delete this OpenCode session?';
+};
 
 export const Route = createFileRoute('/opencode/$workspaceKey')({
     component: OpenCodeWorkspacePage,
@@ -196,9 +212,12 @@ function OpenCodeWorkspacePage() {
 
         setPendingExport(buildSessionExport(selectedSessions));
     };
-    const openDeleteForSessions = (selectedSessions: OpenCodeSessionSummary[]) => {
+    const openDeleteForSessions = (
+        selectedSessions: OpenCodeSessionSummary[],
+        scope: PendingSessionDelete['scope'],
+    ) => {
         if (selectedSessions.length > 0) {
-            setPendingDelete({ sessions: selectedSessions });
+            setPendingDelete({ scope, sessions: selectedSessions });
         }
     };
 
@@ -206,11 +225,23 @@ function OpenCodeWorkspacePage() {
         <div className="space-y-6">
             <PageHeader
                 actions={
-                    <ListSearchInput
-                        placeholder="Search session title, id, model, or agent"
-                        value={searchInput}
-                        onValueChange={setSearchInput}
-                    />
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                        <Button
+                            className="rounded-full"
+                            disabled={deleteMutation.isPending || sessions.length === 0}
+                            type="button"
+                            variant="destructive"
+                            onClick={() => openDeleteForSessions(sessions, 'all')}
+                        >
+                            <Trash2 className="size-4" />
+                            Delete all
+                        </Button>
+                        <ListSearchInput
+                            placeholder="Search session title, id, model, or agent"
+                            value={searchInput}
+                            onValueChange={setSearchInput}
+                        />
+                    </div>
                 }
                 eyebrow="OpenCode workspace"
                 subtitle="Inspect local OpenCode sessions, transcript parts, tool calls, reasoning, token totals, and exportable conversation text."
@@ -219,8 +250,8 @@ function OpenCodeWorkspacePage() {
 
             <OpenCodeSessionsTable
                 sessions={visibleSessions}
-                onDeleteSession={(session) => openDeleteForSessions([session])}
-                onDeleteSessions={(sessionIds) => openDeleteForSessions(lookupSelectedSessions(sessionIds))}
+                onDeleteSession={(session) => openDeleteForSessions([session], 'selected')}
+                onDeleteSessions={(sessionIds) => openDeleteForSessions(lookupSelectedSessions(sessionIds), 'selected')}
                 onExportSession={(session) => openExportForSessions([session])}
                 onExportSessions={(sessionIds) => openExportForSessions(lookupSelectedSessions(sessionIds))}
             />

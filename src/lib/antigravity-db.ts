@@ -53,7 +53,6 @@ const isSafeConversationId = (value: string) => SAFE_CONVERSATION_ID_PATTERN.tes
 type TranscriptFile = {
     bytes: number;
     entryCount: number;
-    fullPath: string | null;
     mtimeMs: number;
     model: string | null;
     path: string;
@@ -626,15 +625,22 @@ const preferTranscriptFile = (current: TranscriptFile | undefined, candidate: Tr
         return candidate;
     }
 
+    const sourceRank = (source: TranscriptFile['source']) => (source === 'transcript' ? 2 : 1);
+    const candidateRank = sourceRank(candidate.source);
+    const currentRank = sourceRank(current.source);
+    if (candidateRank !== currentRank) {
+        return candidateRank > currentRank ? candidate : current;
+    }
+
     if (candidate.mtimeMs !== current.mtimeMs) {
         return candidate.mtimeMs > current.mtimeMs ? candidate : current;
     }
 
-    if (candidate.source !== current.source) {
-        return candidate.source === 'overview' ? candidate : current;
+    if (candidate.entryCount !== current.entryCount) {
+        return candidate.entryCount > current.entryCount ? candidate : current;
     }
 
-    return candidate.entryCount > current.entryCount ? candidate : current;
+    return candidate.bytes > current.bytes ? candidate : current;
 };
 
 const readTranscriptFileCandidate = async (
@@ -649,14 +655,10 @@ const readTranscriptFileCandidate = async (
             return null;
         }
 
-        const fullPath = path.join(logsDir, 'transcript_full.jsonl');
-        const hasFullTranscript = await pathExists(fullPath);
-        const modelSourcePath = hasFullTranscript ? fullPath : transcriptPath;
         return {
             bytes: info.size,
-            entryCount: await countJsonlEntries(modelSourcePath),
-            fullPath: hasFullTranscript ? fullPath : null,
-            model: await extractTranscriptModel(modelSourcePath),
+            entryCount: await countJsonlEntries(transcriptPath),
+            model: await extractTranscriptModel(transcriptPath),
             mtimeMs: info.mtimeMs,
             path: transcriptPath,
             root,
@@ -684,8 +686,9 @@ const readTranscriptFilesForRoot = async (root: string): Promise<Map<string, Tra
 
         const logsDir = path.join(brainDir, entry.name, '.system_generated', 'logs');
         for (const candidate of [
-            { name: 'overview.txt', source: 'overview' as const },
+            { name: 'transcript_full.jsonl', source: 'transcript' as const },
             { name: 'transcript.jsonl', source: 'transcript' as const },
+            { name: 'overview.txt', source: 'overview' as const },
         ]) {
             const transcript = await readTranscriptFileCandidate(root, logsDir, candidate);
             if (transcript) {
@@ -772,6 +775,8 @@ const toConversation = (
 ): AntigravityConversation => {
     const fallbackTitle = artifacts[0]?.summary ?? conversationId;
     const artifactBytes = artifacts.reduce((total, artifact) => total + artifact.bytes, 0);
+    const conversationBytes = file?.bytes ?? 0;
+    const transcriptBytes = transcript?.bytes ?? 0;
     const workspace = resolveConversationWorkspace(summary, file, transcript, artifacts);
     const lastUpdatedAtMs = resolveConversationLastUpdatedAt(artifacts, file, summary, transcript);
     const sourceRoot = resolveConversationSourceRoot(file, transcript, artifacts);
@@ -780,7 +785,7 @@ const toConversation = (
         artifactBytes,
         artifactCount: artifacts.length,
         artifacts,
-        conversationBytes: file?.bytes ?? 0,
+        conversationBytes,
         conversationId,
         conversationMtimeMs: file?.mtimeMs ?? null,
         conversationPath: file?.path ?? null,
@@ -791,7 +796,8 @@ const toConversation = (
         sourceRoot,
         summaryPath: summary?.summaryPath ?? null,
         title: summary?.title ?? cleanTitle(fallbackTitle, conversationId),
-        transcriptBytes: transcript?.bytes ?? 0,
+        totalBytes: conversationBytes + transcriptBytes + artifactBytes,
+        transcriptBytes,
         transcriptEntryCount: transcript?.entryCount ?? 0,
         transcriptPath: transcript?.path ?? null,
         transcriptSource: resolveConversationTranscriptSource(file, transcript),
@@ -843,6 +849,7 @@ export const groupAntigravityConversations = (
             key: conversation.workspaceKey,
             label: conversation.workspaceLabel,
             lastActiveMs: 0,
+            totalBytes: 0,
             transcriptCount: 0,
             uri: conversation.workspaceUri,
         };
@@ -851,6 +858,7 @@ export const groupAntigravityConversations = (
         current.conversationCount += 1;
         current.lastActiveMs = Math.max(current.lastActiveMs, conversation.lastUpdatedAtMs ?? 0);
         current.transcriptCount += conversation.transcriptEntryCount > 0 ? 1 : 0;
+        current.totalBytes += conversation.totalBytes;
         groups.set(conversation.workspaceKey, current);
     }
 
@@ -1241,6 +1249,32 @@ const renderDecryptedSafeStorageMarkdown = (conversation: AntigravityConversatio
         .join('\n');
 };
 
+const renderAntigravitySummaryMarkdown = (conversation: AntigravityConversation): string | null => {
+    if (conversation.artifactCount > 0) {
+        return null;
+    }
+
+    if (!conversation.summaryPath && conversation.indexedItemCount === null) {
+        return null;
+    }
+
+    return [
+        `# ${conversation.title}`,
+        '',
+        '- exported_from: `antigravity_summary_index`',
+        `- conversation_id: \`${conversation.conversationId}\``,
+        conversation.workspaceUri ? `- workspace: \`${conversation.workspaceUri}\`` : '',
+        conversation.indexedItemCount !== null ? `- indexed_items: \`${conversation.indexedItemCount}\`` : '',
+        conversation.createdAtMs ? `- created_at: \`${new Date(conversation.createdAtMs).toISOString()}\`` : '',
+        conversation.lastUpdatedAtMs ? `- updated_at: \`${new Date(conversation.lastUpdatedAtMs).toISOString()}\`` : '',
+        '',
+        'No local transcript log was found for this Antigravity conversation. The export contains the summary index metadata that Antigravity retained.',
+        '',
+    ]
+        .filter(Boolean)
+        .join('\n');
+};
+
 export const renderAntigravityConversationMarkdown = async (
     conversation: AntigravityConversation,
     options: {
@@ -1260,5 +1294,5 @@ export const renderAntigravityConversationMarkdown = async (
         }
     }
 
-    return null;
+    return renderAntigravitySummaryMarkdown(conversation);
 };

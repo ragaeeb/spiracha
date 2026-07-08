@@ -104,6 +104,44 @@ describe('UI API server routes', () => {
                     source: 'codex',
                 });
 
+                const batchExportResponse = await fetchWithTimeout(
+                    `http://127.0.0.1:${port}/api/v1/conversations/export`,
+                    {
+                        body: JSON.stringify({
+                            ids: [fixture.threads[0]!.threadId, fixture.threads[1]!.threadId],
+                            source: 'codex',
+                        }),
+                        headers: { 'Content-Type': 'application/json' },
+                        method: 'POST',
+                    },
+                );
+                expect(batchExportResponse.status).toBe(200);
+                expect(batchExportResponse.headers.get('Content-Type')).toBe('application/zip');
+                expect(batchExportResponse.headers.get('Content-Disposition')).toContain('codex-conversations-2.zip');
+                const batchExportBytes = new Uint8Array(await batchExportResponse.arrayBuffer());
+                expect(Array.from(batchExportBytes.slice(0, 2))).toEqual([0x50, 0x4b]);
+
+                const batchDeleteResponse = await fetchWithTimeout(
+                    `http://127.0.0.1:${port}/api/v1/conversations/delete`,
+                    {
+                        body: JSON.stringify({
+                            ids: [fixture.threads[1]!.threadId],
+                            source: 'codex',
+                        }),
+                        headers: { 'Content-Type': 'application/json' },
+                        method: 'POST',
+                    },
+                );
+                expect(batchDeleteResponse.status).toBe(200);
+                await expect(batchDeleteResponse.json()).resolves.toMatchObject({
+                    data: {
+                        deletedFiles: [fixture.threads[1]!.sessionFile],
+                        deletedIds: [fixture.threads[1]!.threadId],
+                        missingIds: [],
+                    },
+                });
+                expect(await Bun.file(fixture.threads[1]!.sessionFile).exists()).toBe(false);
+
                 const deleteResponse = await fetchWithTimeout(
                     `http://127.0.0.1:${port}/api/v1/conversations/codex/${fixture.threads[0]!.threadId}`,
                     { method: 'DELETE' },

@@ -86,6 +86,18 @@ export const cleanExtractedText = (text: string): string => {
     return text.replace(/^\s*<\/?image>\s*$/gm, '').replace(/\n{3,}/g, '\n\n');
 };
 
+const CODEX_APP_DIRECTIVE_PATTERN =
+    /^::(?:code-comment|created-thread|git-commit|git-create-branch|git-create-pr|git-push|git-stage)\{.*\}\s*$/u;
+
+export const stripCodexAppDirectiveLines = (text: string): string => {
+    return text
+        .split('\n')
+        .filter((line) => !CODEX_APP_DIRECTIVE_PATTERN.test(line.trim()))
+        .join('\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+};
+
 export const formatModelLabel = formatSharedModelLabel;
 
 export const asObject = (value: JsonValue): Record<string, JsonValue> | null => {

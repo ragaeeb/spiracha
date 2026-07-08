@@ -26,6 +26,7 @@ import {
     renderDocumentTitle,
     renderMetadataBlock,
     renderSection,
+    stripCodexAppDirectiveLines,
 } from './shared';
 
 export const renderCodexSessionFile = async (
@@ -554,7 +555,7 @@ const renderMessageBlock = (
     }
 
     const extractedText = extractText(message.content);
-    const text = cleanExtractedText(stripPreviewBlock(extractedText)).trim();
+    const text = stripCodexAppDirectiveLines(cleanExtractedText(stripPreviewBlock(extractedText)));
     if (!text || shouldSkipMessage(message.role, text)) {
         return '';
     }

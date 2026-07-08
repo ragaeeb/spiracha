@@ -10,6 +10,14 @@ export const hasEncryptedAntigravityConversation = (conversation: AntigravityCon
     return conversation.transcriptSource === 'safe-storage';
 };
 
+export const hasSummaryAntigravityConversation = (conversation: AntigravityConversation): boolean => {
+    return (
+        conversation.artifactCount === 0 &&
+        conversation.transcriptSource === null &&
+        (conversation.summaryPath !== null || conversation.indexedItemCount !== null)
+    );
+};
+
 export const isAntigravityConversationLocked = (
     conversation: AntigravityConversation,
     hasKeychainSecret: boolean,
@@ -21,8 +29,13 @@ export const canExportAntigravityConversation = (
     conversation: AntigravityConversation,
     hasKeychainSecret: boolean,
 ): boolean => {
-    return (
-        hasReadableAntigravityConversation(conversation) ||
-        (hasEncryptedAntigravityConversation(conversation) && hasKeychainSecret)
-    );
+    if (hasReadableAntigravityConversation(conversation)) {
+        return true;
+    }
+
+    if (hasEncryptedAntigravityConversation(conversation)) {
+        return hasKeychainSecret;
+    }
+
+    return hasSummaryAntigravityConversation(conversation);
 };

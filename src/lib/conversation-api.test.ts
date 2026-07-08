@@ -334,6 +334,53 @@ describe('conversation API handler', () => {
         });
     });
 
+    it('should delete an explicit set of conversations through the public API', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/delete', {
+                body: JSON.stringify({
+                    ids: ['session-1', 'session-2'],
+                    source: 'opencode',
+                }),
+                method: 'POST',
+            }),
+            {
+                deleteConversations: async (options) => {
+                    expect(options).toEqual({
+                        ids: ['session-1', 'session-2'],
+                        source: 'opencode',
+                    });
+                    return {
+                        deletedFiles: ['/tmp/opencode.db'],
+                        deletedIds: ['session-1', 'session-2'],
+                        missingIds: [],
+                        results: [
+                            {
+                                deleted: true,
+                                deletedFiles: ['/tmp/opencode.db'],
+                                deletedIds: ['session-1'],
+                                id: 'session-1',
+                            },
+                            {
+                                deleted: true,
+                                deletedFiles: [],
+                                deletedIds: ['session-2'],
+                                id: 'session-2',
+                            },
+                        ],
+                    };
+                },
+            },
+        );
+
+        expect(response.status).toBe(200);
+        await expect(response.json()).resolves.toMatchObject({
+            data: {
+                deletedIds: ['session-1', 'session-2'],
+                missingIds: [],
+            },
+        });
+    });
+
     it('should reject unsafe destructive ids before reaching delete handlers', async () => {
         let called = false;
         const response = await handleConversationApiRequest(
@@ -353,6 +400,95 @@ describe('conversation API handler', () => {
                 code: 'validation_error',
                 details: {
                     field: 'id',
+                },
+            },
+        });
+    });
+
+    it('should reject unsafe destructive ids in batch deletes before reaching delete handlers', async () => {
+        let called = false;
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/delete', {
+                body: JSON.stringify({
+                    ids: ['safe-id', 'thread%wildcard'],
+                    source: 'grok',
+                }),
+                method: 'POST',
+            }),
+            {
+                deleteConversations: async () => {
+                    called = true;
+                    return { deletedFiles: [], deletedIds: [], missingIds: [], results: [] };
+                },
+            },
+        );
+
+        expect(response.status).toBe(400);
+        expect(called).toBe(false);
+        await expect(response.json()).resolves.toMatchObject({
+            error: {
+                code: 'validation_error',
+                details: {
+                    field: 'id',
+                },
+            },
+        });
+    });
+
+    it('should zip an explicit set of conversations through the public API with all messages by default', async () => {
+        const renderedSelectors: Array<string | undefined> = [];
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/export', {
+                body: JSON.stringify({
+                    ids: ['thread-1', 'thread-2'],
+                    source: 'grok',
+                }),
+                method: 'POST',
+            }),
+            {
+                getConversation: async (options) => {
+                    expect(options.messageSelector).toBe('all');
+                    return {
+                        ...conversation,
+                        id: options.id,
+                        source: options.source,
+                        title: options.id,
+                    };
+                },
+                renderConversationMarkdown: (renderedConversation, options) => {
+                    renderedSelectors.push(options?.messageSelector);
+                    return `# ${renderedConversation.title}\n\n## Assistant\n\nExported conversation\n`;
+                },
+            },
+        );
+
+        expect(response.status).toBe(200);
+        expect(response.headers.get('Content-Type')).toBe('application/zip');
+        expect(response.headers.get('Content-Disposition')).toContain('grok-conversations-2.zip');
+        expect(renderedSelectors).toEqual(['all', 'all']);
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        expect(Array.from(bytes.slice(0, 2))).toEqual([0x50, 0x4b]);
+    });
+
+    it('should reject unsupported batch export formats', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/export', {
+                body: JSON.stringify({
+                    ids: ['thread-1'],
+                    output_format: 'txt',
+                    source: 'grok',
+                }),
+                method: 'POST',
+            }),
+            {},
+        );
+
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toMatchObject({
+            error: {
+                code: 'validation_error',
+                details: {
+                    field: 'output_format',
                 },
             },
         });

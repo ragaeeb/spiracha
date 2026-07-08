@@ -126,6 +126,7 @@ const conversation: AntigravityConversation = {
     sourceRoot: '/Users/user/.gemini/antigravity',
     summaryPath: '/tmp/summary.pb',
     title: 'Investigate flaky workspace sync',
+    totalBytes: 7168,
     transcriptBytes: 2048,
     transcriptEntryCount: 12,
     transcriptPath: '/tmp/overview.txt',
@@ -172,6 +173,7 @@ describe('AntigravityConversationsTable', () => {
 
         const link = screen.getByRole('link', { name: /investigate flaky workspace sync/i });
         expect(link.getAttribute('href')).toBe('/antigravity-conversations/conversation-1');
+        expect(screen.getByText('7.0 KB')).toBeTruthy();
     });
 
     it('should show a locked conversation export when only safe-storage content is available', async () => {
@@ -362,5 +364,49 @@ describe('AntigravityConversationsTable', () => {
 
         expect(onExportConversations).toHaveBeenCalledWith(['conversation-1', 'conversation-2']);
         expect(onDeleteConversations).toHaveBeenCalledWith(['conversation-1', 'conversation-2']);
+    });
+
+    it('should keep batch export enabled when selected conversations include summary-only rows', () => {
+        const onExportConversations = vi.fn();
+
+        render(
+            <AntigravityConversationsTable
+                conversations={[
+                    conversation,
+                    {
+                        ...conversation,
+                        artifactBytes: 0,
+                        artifactCount: 0,
+                        conversationBytes: 0,
+                        conversationId: 'conversation-summary',
+                        conversationPath: null,
+                        indexedItemCount: 5,
+                        title: 'Summary only review',
+                        totalBytes: 0,
+                        transcriptBytes: 0,
+                        transcriptEntryCount: 0,
+                        transcriptPath: null,
+                        transcriptSource: null,
+                    },
+                ]}
+                decryptionState={unlockedState}
+                onDeleteConversation={vi.fn()}
+                onDeleteConversations={vi.fn()}
+                onExportArtifacts={vi.fn()}
+                onExportConversation={vi.fn()}
+                onExportConversations={onExportConversations}
+            />,
+        );
+
+        fireEvent.click(screen.getByRole('checkbox', { name: 'Select row conversation-1' }));
+        fireEvent.click(screen.getByRole('checkbox', { name: 'Select row conversation-summary' }));
+
+        const exportButton = screen.getByRole('button', { name: 'Export selected conversations' });
+        expect((exportButton as HTMLButtonElement).disabled).toBe(false);
+        expect(screen.getByText('Summary')).toBeTruthy();
+
+        fireEvent.click(exportButton);
+
+        expect(onExportConversations).toHaveBeenCalledWith(['conversation-1', 'conversation-summary']);
     });
 });

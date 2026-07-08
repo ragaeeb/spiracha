@@ -48,6 +48,7 @@ const makeConversation = (overrides: Partial<AntigravityConversation> = {}): Ant
     sourceRoot: '/tmp/root',
     summaryPath: '/tmp/summary.pb',
     title: 'Conversation one',
+    totalBytes: 640,
     transcriptBytes: 128,
     transcriptEntryCount: 2,
     transcriptPath: '/tmp/overview.txt',

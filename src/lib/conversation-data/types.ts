@@ -117,6 +117,35 @@ export type DeleteConversationResult = {
     deletedIds: string[];
 };
 
+export type ConversationIdSetOptions = {
+    ids: string[];
+    locations?: ConversationDataLocations;
+    source: ConversationSource;
+};
+
+export type DeleteConversationsOptions = ConversationIdSetOptions;
+
+export type DeleteConversationItemResult = DeleteConversationResult & {
+    deleted: boolean;
+    id: string;
+};
+
+export type DeleteConversationsResult = DeleteConversationResult & {
+    missingIds: string[];
+    results: DeleteConversationItemResult[];
+};
+
+export type ExportConversationsZipOptions = ConversationIdSetOptions & {
+    messageSelector?: ConversationMessageSelector;
+    outputFormat?: 'md';
+};
+
+export type ConversationZipDownload = {
+    blob: Blob;
+    fileName: string;
+    mimeType: 'application/zip';
+};
+
 export type ResolvedConversationRef = {
     id: string;
     source: ConversationSource;

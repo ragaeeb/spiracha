@@ -202,6 +202,112 @@ describe('conversation client', () => {
         }
     });
 
+    it('should delete explicit conversation sets through the HTTP API', async () => {
+        const requests: Array<{ body: unknown; method: string; pathname: string }> = [];
+        const server = Bun.serve({
+            async fetch(request) {
+                const url = new URL(request.url);
+                requests.push({
+                    body: await request.json(),
+                    method: request.method,
+                    pathname: url.pathname,
+                });
+
+                return Response.json({
+                    data: {
+                        deletedFiles: ['/tmp/opencode.db'],
+                        deletedIds: ['session-1', 'session-2'],
+                        missingIds: [],
+                        results: [],
+                    },
+                });
+            },
+            port: 0,
+        });
+
+        try {
+            const client = createConversationClient({
+                baseUrl: `http://127.0.0.1:${server.port}`,
+                mode: 'http',
+            });
+
+            await expect(
+                client.deleteConversations({
+                    ids: ['session-1', 'session-2'],
+                    source: 'opencode',
+                }),
+            ).resolves.toEqual({
+                deletedFiles: ['/tmp/opencode.db'],
+                deletedIds: ['session-1', 'session-2'],
+                missingIds: [],
+                results: [],
+            });
+            expect(requests).toEqual([
+                {
+                    body: {
+                        ids: ['session-1', 'session-2'],
+                        source: 'opencode',
+                    },
+                    method: 'POST',
+                    pathname: '/api/v1/conversations/delete',
+                },
+            ]);
+        } finally {
+            server.stop(true);
+        }
+    });
+
+    it('should download explicit conversation export zips through the HTTP API', async () => {
+        const requests: Array<{ body: unknown; method: string; pathname: string }> = [];
+        const server = Bun.serve({
+            async fetch(request) {
+                const url = new URL(request.url);
+                requests.push({
+                    body: await request.json(),
+                    method: request.method,
+                    pathname: url.pathname,
+                });
+
+                return new Response(new Blob(['zip-bytes'], { type: 'application/zip' }), {
+                    headers: {
+                        'Content-Disposition': "attachment; filename*=UTF-8''grok-conversations-2.zip",
+                        'Content-Type': 'application/zip',
+                    },
+                });
+            },
+            port: 0,
+        });
+
+        try {
+            const client = createConversationClient({
+                baseUrl: `http://127.0.0.1:${server.port}`,
+                mode: 'http',
+            });
+
+            const download = await client.exportConversationsZip({
+                ids: ['session-1', 'session-2'],
+                source: 'grok',
+            });
+
+            expect(download).not.toBeNull();
+            expect(download!.fileName).toBe('grok-conversations-2.zip');
+            expect(download!.mimeType).toBe('application/zip');
+            await expect(download!.blob.text()).resolves.toBe('zip-bytes');
+            expect(requests).toEqual([
+                {
+                    body: {
+                        ids: ['session-1', 'session-2'],
+                        source: 'grok',
+                    },
+                    method: 'POST',
+                    pathname: '/api/v1/conversations/export',
+                },
+            ]);
+        } finally {
+            server.stop(true);
+        }
+    });
+
     it('should return null for HTTP conversation deletes that no longer exist', async () => {
         const server = Bun.serve({
             fetch() {

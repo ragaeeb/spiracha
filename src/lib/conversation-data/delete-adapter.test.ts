@@ -7,7 +7,7 @@ import path from 'node:path';
 import { createCodexBrowserFixture } from '../codex-test-helpers';
 import { createCursorFixture } from '../cursor-test-helpers';
 import { createOpenCodeFixture } from '../opencode-test-helpers';
-import { deleteConversation, getConversation, listConversationsForPath } from './index';
+import { deleteConversation, deleteConversations, getConversation, listConversationsForPath } from './index';
 
 const tempRoots: string[] = [];
 
@@ -123,6 +123,34 @@ describe('conversation delete adapters', () => {
         await expect(
             getConversation({ id: thread.threadId, locations: { codexDbPath: fixture.dbPath }, source: 'codex' }),
         ).resolves.toBeNull();
+    });
+
+    it('should delete explicit Codex conversation sets through the stable facade', async () => {
+        const fixture = await createCodexBrowserFixture(await makeTempRoot('conversation-delete-codex-batch-'));
+        const threads = fixture.threads.slice(0, 2);
+
+        const result = await deleteConversations({
+            ids: threads.map((thread) => thread.threadId),
+            locations: { codexDbPath: fixture.dbPath },
+            source: 'codex',
+        });
+
+        expect(result).toEqual({
+            deletedFiles: threads.map((thread) => thread.sessionFile),
+            deletedIds: threads.map((thread) => thread.threadId),
+            missingIds: [],
+            results: threads.map((thread) => ({
+                deleted: true,
+                deletedFiles: [thread.sessionFile],
+                deletedIds: [thread.threadId],
+                id: thread.threadId,
+            })),
+        });
+        await Promise.all(
+            threads.map(async (thread) => {
+                expect(await Bun.file(thread.sessionFile).exists()).toBe(false);
+            }),
+        );
     });
 
     it('should delete Claude Code sessions through the stable facade without treating ids as paths', async () => {

@@ -268,6 +268,66 @@ describe('antigravity db discovery', () => {
         expect(markdown).toContain('`list_dir`');
     });
 
+    it('should prefer full Antigravity JSONL transcripts and include them in total size', async () => {
+        const root = await makeRoot();
+        const conversationId = '66666666-7777-4666-8666-666666666666';
+        const logsDir = path.join(root, 'brain', conversationId, '.system_generated', 'logs');
+        await mkdir(logsDir, { recursive: true });
+        await Bun.write(
+            path.join(root, 'agyhub_summaries_proto.pb'),
+            encodeSummaryIndex([{ id: conversationId, title: 'Full transcript session' }]),
+        );
+        await Bun.write(
+            path.join(logsDir, 'transcript.jsonl'),
+            JSON.stringify({
+                content: 'Short transcript only.',
+                created_at: '2026-05-30T22:10:47Z',
+                source: 'MODEL',
+                status: 'DONE',
+                step_index: 1,
+                type: 'PLANNER_RESPONSE',
+            }),
+        );
+        const fullTranscriptPath = path.join(logsDir, 'transcript_full.jsonl');
+        await Bun.write(
+            fullTranscriptPath,
+            [
+                JSON.stringify({
+                    content: 'Full transcript user message.',
+                    created_at: '2026-05-30T22:10:46Z',
+                    source: 'USER_EXPLICIT',
+                    status: 'DONE',
+                    step_index: 0,
+                    type: 'USER_INPUT',
+                }),
+                JSON.stringify({
+                    content: 'Full transcript assistant answer.',
+                    created_at: '2026-05-30T22:10:47Z',
+                    source: 'MODEL',
+                    status: 'DONE',
+                    step_index: 1,
+                    type: 'PLANNER_RESPONSE',
+                }),
+            ].join('\n'),
+        );
+
+        const [conversation] = await listAntigravityConversations([root]);
+        const markdown = await renderAntigravityConversationMarkdown(conversation!);
+        const [group] = groupAntigravityConversations([conversation!]);
+
+        expect(conversation).toMatchObject({
+            totalBytes: conversation!.transcriptBytes,
+            transcriptEntryCount: 2,
+            transcriptPath: fullTranscriptPath,
+            transcriptSource: 'transcript',
+        });
+        expect(conversation!.transcriptBytes).toBeGreaterThan(0);
+        expect(group?.totalBytes).toBe(conversation!.totalBytes);
+        expect(markdown).toContain('Full transcript user message.');
+        expect(markdown).toContain('Full transcript assistant answer.');
+        expect(markdown).not.toContain('Short transcript only.');
+    });
+
     it('should render Antigravity operation results as tool output sections', async () => {
         const root = await makeRoot();
         const conversationId = '99999999-9999-4999-8999-999999999999';
@@ -336,6 +396,33 @@ describe('antigravity db discovery', () => {
         const markdown = await renderAntigravityConversationMarkdown(conversation!);
 
         expect(markdown).toBeNull();
+    });
+
+    it('should render summary-only Antigravity conversations as exportable metadata', async () => {
+        const root = await makeRoot();
+        const conversationId = '88888888-9999-4888-8888-888888888888';
+        await Bun.write(
+            path.join(root, 'agyhub_summaries_proto.pb'),
+            encodeSummaryIndex([
+                {
+                    id: conversationId,
+                    indexedItemCount: 5,
+                    title: 'Summary only review',
+                    workspaceUri: 'file:///tmp/summary-workspace',
+                },
+            ]),
+        );
+
+        const [conversation] = await listAntigravityConversations([root]);
+        const markdown = await renderAntigravityConversationMarkdown(conversation!);
+
+        expect(conversation).toMatchObject({
+            totalBytes: 0,
+            transcriptSource: null,
+        });
+        expect(markdown).toContain('# Summary only review');
+        expect(markdown).toContain('- exported_from: `antigravity_summary_index`');
+        expect(markdown).toContain('- indexed_items: `5`');
     });
 
     it('should delete an Antigravity conversation from summaries, protobufs, transcripts, and artifacts', async () => {

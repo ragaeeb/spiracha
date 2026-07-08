@@ -41,6 +41,7 @@ import {
     withThreadTranscriptSearch,
 } from '#/lib/route-search';
 import { useSettings } from '#/lib/settings-store';
+import { shouldLoadFullThreadTranscript } from '#/lib/thread-transcript-load';
 
 type ThreadSnapshot = Awaited<ReturnType<typeof getThreadSnapshotFn>>;
 type ThreadTranscript = NonNullable<ThreadSnapshot['transcript']>;
@@ -817,7 +818,11 @@ function ThreadDetailPage() {
     const [deleteOpen, setDeleteOpen] = useState(false);
     const transcriptQuery = useQuery({
         ...threadTranscriptQueryOptions(params.threadId),
-        enabled: shouldLoadTranscript && snapshot.transcript === null && !transcriptMissing,
+        enabled: shouldLoadFullThreadTranscript({
+            shouldLoadTranscript,
+            snapshotTranscript: snapshot.transcript,
+            transcriptMissing,
+        }),
     });
     const transcript = transcriptQuery.data ?? snapshot.transcript ?? null;
     const viewSnapshot = { ...snapshot, transcript };

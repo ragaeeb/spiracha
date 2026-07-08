@@ -205,4 +205,38 @@ MEMORY.md:1-2|note=[project guidance]
             text: '',
         });
     });
+
+    it('should strip Codex app directive lines from visible assistant text', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-parser-directives-test-'));
+        tempPaths.push(tempRoot);
+        const sessionFile = path.join(tempRoot, 'directives.jsonl');
+        await Bun.write(
+            sessionFile,
+            [
+                JSON.stringify({
+                    payload: {
+                        message: [
+                            'Implemented the fix.',
+                            '::git-stage{cwd="."}',
+                            '::git-commit{cwd="."}',
+                            '::git-stage{cwd="~/workspace/ushman-e2e"}',
+                            '::git-commit{cwd="~/workspace/ushman-e2e"}',
+                        ].join('\n'),
+                        phase: 'final_answer',
+                        type: 'agent_message',
+                    },
+                    timestamp: '2026-07-08T12:00:00.000Z',
+                    type: 'response_item',
+                }),
+            ].join('\n'),
+        );
+
+        const transcript = await parseCodexTranscriptFile(sessionFile);
+
+        expect(transcript.events[0]).toMatchObject({
+            kind: 'message',
+            role: 'assistant',
+            text: 'Implemented the fix.',
+        });
+    });
 });

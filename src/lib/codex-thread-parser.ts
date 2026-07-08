@@ -14,7 +14,7 @@ import type {
     TurnContextRecord,
     WebSearchEvent,
 } from './codex-browser-types';
-import { asNumber, asObject, asString, type JsonValue, readJsonlObjects } from './shared';
+import { asNumber, asObject, asString, type JsonValue, readJsonlObjects, stripCodexAppDirectiveLines } from './shared';
 
 type ParseCodexTranscriptOptions = {
     eventFilter?: (event: ThreadEvent) => boolean;
@@ -614,7 +614,7 @@ const extractText = (content: JsonValue): string => {
 };
 
 const stripMemoryCitationBlocks = (text: string): string => {
-    return text.replace(/<oai-mem-citation>[\s\S]*?<\/oai-mem-citation>/gu, '').trim();
+    return stripCodexAppDirectiveLines(text.replace(/<oai-mem-citation>[\s\S]*?<\/oai-mem-citation>/gu, ''));
 };
 
 const extractTextPart = (entry: JsonValue): string => {

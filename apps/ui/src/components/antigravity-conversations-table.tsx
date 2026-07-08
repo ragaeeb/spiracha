@@ -78,6 +78,14 @@ const getTranscriptLabel = (
     return `${source} · ${status}`;
 };
 
+const getConversationSizeLabel = (conversation: AntigravityConversation): string => {
+    if (conversation.totalBytes > 0) {
+        return formatBytes(conversation.totalBytes);
+    }
+
+    return conversation.summaryPath ? 'Summary' : formatBytes(conversation.totalBytes);
+};
+
 const columns = (
     decryptionState: AntigravityDecryptionState | null,
     onDeleteConversation: (conversation: AntigravityConversation) => void,
@@ -136,8 +144,8 @@ const columns = (
             cell: (info) => <span className="font-mono text-sm">{formatNumber(info.getValue())}</span>,
             header: 'Artifacts',
         }),
-        columnHelper.accessor('conversationBytes', {
-            cell: (info) => <span className="font-mono text-sm">{formatBytes(info.getValue())}</span>,
+        columnHelper.accessor('totalBytes', {
+            cell: (info) => <span className="font-mono text-sm">{getConversationSizeLabel(info.row.original)}</span>,
             header: 'Size',
         }),
         columnHelper.display({

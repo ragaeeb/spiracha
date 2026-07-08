@@ -15,8 +15,11 @@ import {
     type ConversationPage,
     type ConversationSource,
     type ConversationSourceInfo,
+    type DeleteConversationItemResult,
     type DeleteConversationOptions,
     type DeleteConversationResult,
+    type DeleteConversationsOptions,
+    type DeleteConversationsResult,
     type GetConversationOptions,
     type ListConversationsForPathOptions,
     type ResolvedConversationRef,
@@ -30,6 +33,7 @@ export {
     type ConversationDataLocations,
     type ConversationDeepLinks,
     type ConversationDetail,
+    type ConversationIdSetOptions,
     type ConversationMessage,
     type ConversationMessagePhase,
     type ConversationMessageRole,
@@ -38,8 +42,13 @@ export {
     type ConversationPathMatch,
     type ConversationSource,
     type ConversationSourceInfo,
+    type ConversationZipDownload,
+    type DeleteConversationItemResult,
     type DeleteConversationOptions,
     type DeleteConversationResult,
+    type DeleteConversationsOptions,
+    type DeleteConversationsResult,
+    type ExportConversationsZipOptions,
     type GetConversationOptions,
     type ListConversationsForPathOptions,
     type ResolvedConversationRef,
@@ -192,6 +201,37 @@ export const deleteConversation = async (
     options: DeleteConversationOptions,
 ): Promise<DeleteConversationResult | null> => {
     return (await getAdapter(options.source)?.deleteConversation?.(options)) ?? null;
+};
+
+export const deleteConversations = async (
+    options: DeleteConversationsOptions,
+): Promise<DeleteConversationsResult | null> => {
+    const adapter = getAdapter(options.source);
+    if (!adapter?.deleteConversation) {
+        return null;
+    }
+
+    const results: DeleteConversationItemResult[] = [];
+    for (const id of options.ids) {
+        const result = await adapter.deleteConversation({
+            id,
+            locations: options.locations,
+            source: options.source,
+        });
+        results.push({
+            deleted: result.deletedIds.length > 0,
+            deletedFiles: result.deletedFiles,
+            deletedIds: result.deletedIds,
+            id,
+        });
+    }
+
+    return {
+        deletedFiles: results.flatMap((result) => result.deletedFiles),
+        deletedIds: results.flatMap((result) => result.deletedIds),
+        missingIds: results.filter((result) => !result.deleted).map((result) => result.id),
+        results,
+    };
 };
 
 const sourceFromSessionRoute = (segment: string): ConversationSource | null => {

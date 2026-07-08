@@ -1,6 +1,7 @@
 import type { KiroSessionSummary, KiroWorkspaceGroup } from '@spiracha/lib/kiro-exporter-types';
 import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { Trash2 } from 'lucide-react';
 import { useDeferredValue, useMemo, useState } from 'react';
 import { DeleteConfirmDialog } from '#/components/delete-confirm-dialog';
 import { ExportDialog } from '#/components/export-dialog';
@@ -9,6 +10,7 @@ import { ListSearchInput } from '#/components/list-search-input';
 import { LoadingPanel } from '#/components/loading-panel';
 import { PageHeader } from '#/components/page-header';
 import { ReloadErrorPanel } from '#/components/reload-error-panel';
+import { Button } from '#/components/ui/button';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import { kiroSessionsQueryOptions, kiroWorkspacesQueryOptions } from '#/lib/kiro-queries';
 import {
@@ -29,6 +31,7 @@ type ExportDialogOptions = {
 };
 
 type PendingSessionDelete = {
+    scope: 'all' | 'selected';
     sessions: KiroSessionSummary[];
 };
 
@@ -56,12 +59,20 @@ const getDeleteConfirmLabel = (pendingDelete: PendingSessionDelete | null, isPen
         return 'Deleting...';
     }
 
+    if (pendingDelete?.scope === 'all') {
+        return 'Delete all';
+    }
+
     return pendingDelete && pendingDelete.sessions.length > 1 ? 'Delete sessions' : 'Delete session';
 };
 
 const getDeleteDescription = (pendingDelete: PendingSessionDelete | null) => {
     if (!pendingDelete) {
         return 'Permanently delete the selected Kiro sessions from disk.';
+    }
+
+    if (pendingDelete.scope === 'all') {
+        return `Permanently delete all ${pendingDelete.sessions.length} Kiro sessions in this workspace from disk. This removes session JSON files and matching execution files.`;
     }
 
     if (pendingDelete.sessions.length === 1) {
@@ -71,10 +82,15 @@ const getDeleteDescription = (pendingDelete: PendingSessionDelete | null) => {
     return `Permanently delete ${pendingDelete.sessions.length} selected Kiro sessions from disk. This removes session JSON files and matching execution files.`;
 };
 
-const getDeleteTitle = (pendingDelete: PendingSessionDelete | null) =>
-    pendingDelete && pendingDelete.sessions.length > 1
+const getDeleteTitle = (pendingDelete: PendingSessionDelete | null) => {
+    if (pendingDelete?.scope === 'all') {
+        return `Delete all ${pendingDelete.sessions.length} Kiro sessions?`;
+    }
+
+    return pendingDelete && pendingDelete.sessions.length > 1
         ? `Delete ${pendingDelete.sessions.length} Kiro sessions?`
         : 'Delete this Kiro session?';
+};
 
 const KiroWorkspaceErrorComponent = ({ error }: { error: Error }) => {
     return <ReloadErrorPanel description={error.message} title="Failed to load Kiro workspace" />;
@@ -184,9 +200,9 @@ const KiroWorkspacePage = () => {
 
         setPendingExport(buildSessionExport(selectedSessions));
     };
-    const openDeleteForSessions = (selectedSessions: KiroSessionSummary[]) => {
+    const openDeleteForSessions = (selectedSessions: KiroSessionSummary[], scope: PendingSessionDelete['scope']) => {
         if (selectedSessions.length > 0) {
-            setPendingDelete({ sessions: selectedSessions });
+            setPendingDelete({ scope, sessions: selectedSessions });
         }
     };
 
@@ -194,11 +210,23 @@ const KiroWorkspacePage = () => {
         <div className="space-y-6">
             <PageHeader
                 actions={
-                    <ListSearchInput
-                        placeholder="Search session title, id, model, or type"
-                        value={searchInput}
-                        onValueChange={setSearchInput}
-                    />
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                        <Button
+                            className="rounded-full"
+                            disabled={deleteMutation.isPending || sessions.length === 0}
+                            type="button"
+                            variant="destructive"
+                            onClick={() => openDeleteForSessions(sessions, 'all')}
+                        >
+                            <Trash2 className="size-4" />
+                            Delete all
+                        </Button>
+                        <ListSearchInput
+                            placeholder="Search session title, id, model, or type"
+                            value={searchInput}
+                            onValueChange={setSearchInput}
+                        />
+                    </div>
                 }
                 eyebrow="Kiro workspace"
                 subtitle="Inspect local Kiro sessions, user prompts, assistant responses, images, and prompt logs."
@@ -207,8 +235,8 @@ const KiroWorkspacePage = () => {
 
             <KiroSessionsTable
                 sessions={visibleSessions}
-                onDeleteSession={(session) => openDeleteForSessions([session])}
-                onDeleteSessions={(sessionIds) => openDeleteForSessions(lookupSelectedSessions(sessionIds))}
+                onDeleteSession={(session) => openDeleteForSessions([session], 'selected')}
+                onDeleteSessions={(sessionIds) => openDeleteForSessions(lookupSelectedSessions(sessionIds), 'selected')}
                 onExportSession={(session) => openExportForSessions([session])}
                 onExportSessions={(sessionIds) => openExportForSessions(lookupSelectedSessions(sessionIds))}
             />

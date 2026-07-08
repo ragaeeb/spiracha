@@ -1,6 +1,6 @@
 import { Database } from 'bun:sqlite';
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -212,6 +212,14 @@ describe('opencode db helpers', () => {
             toolPartCount: 1,
             workspaceLabel: 'demo',
         });
+    });
+
+    it('should surface an unopenable OpenCode db path instead of reporting empty history', async () => {
+        const dbPath = path.join(await mkdtemp(path.join(os.tmpdir(), 'opencode-unopenable-')), 'opencode.db');
+        tempDirs.push(path.dirname(dbPath));
+        await mkdir(dbPath);
+
+        await expect(listOpenCodeWorkspaceGroups(dbPath)).rejects.toThrow(/SQLite operation failed/u);
     });
 
     it('should read a session transcript with parsed parts in message order', async () => {

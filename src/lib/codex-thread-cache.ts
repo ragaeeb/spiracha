@@ -9,6 +9,7 @@ import { getFileFingerprint, hashCacheKeyParts, withCachedJson } from './ui-cach
 // Keep initial thread payloads below sizes that make TanStack Start SSR responses unreliable.
 export const LARGE_THREAD_SIZE_BYTES = 8 * 1024 * 1024;
 export const LARGE_THREAD_PREVIEW_EVENT_LIMIT = 200;
+const CODEX_TRANSCRIPT_CACHE_VERSION = 'v2';
 
 const isMissingFileError = (error: unknown) => {
     return error instanceof Error && 'code' in error && error.code === 'ENOENT';
@@ -16,7 +17,7 @@ const isMissingFileError = (error: unknown) => {
 
 export const getCachedParsedCodexTranscript = async (sessionFile: string): Promise<ParsedCodexTranscript> => {
     const fingerprint = await getFileFingerprint(sessionFile);
-    const key = `thread-${hashCacheKeyParts(path.basename(sessionFile), fingerprint)}`;
+    const key = `thread-${hashCacheKeyParts(CODEX_TRANSCRIPT_CACHE_VERSION, path.basename(sessionFile), fingerprint)}`;
 
     return withCachedJson(key, async () => parseCodexTranscriptFile(sessionFile));
 };
@@ -61,7 +62,7 @@ export const getCachedThreadTranscriptPreview = async (
     const fingerprint = await getFileFingerprint(sessionFile);
     const { fileSizeBytes, shouldDeferTranscriptLoad } = await getThreadRolloutLoadState(sessionFile, threshold);
     const filterKey = filters ? JSON.stringify(filters) : 'all';
-    const key = `thread-preview-${hashCacheKeyParts(path.basename(sessionFile), fingerprint, String(threshold), String(previewEventLimit), filterKey)}`;
+    const key = `thread-preview-${hashCacheKeyParts(CODEX_TRANSCRIPT_CACHE_VERSION, path.basename(sessionFile), fingerprint, String(threshold), String(previewEventLimit), filterKey)}`;
 
     return withCachedJson(key, async () => {
         if (!shouldDeferTranscriptLoad) {

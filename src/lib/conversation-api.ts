@@ -1,8 +1,12 @@
 import {
+    type ConversationDetail,
     type ConversationMessageSelector,
     type ConversationSource,
     type DeleteConversationOptions,
+    type DeleteConversationsOptions,
     deleteConversation,
+    deleteConversations,
+    type ExportConversationsZipOptions,
     type GetConversationOptions,
     getConversation,
     isConversationSource,
@@ -12,9 +16,11 @@ import {
     renderConversationMarkdown,
     resolveConversationRef,
 } from './conversation-data';
+import { createConversationMarkdownZip } from './conversation-zip-export';
 
 type ConversationApiDependencies = {
     deleteConversation?: typeof deleteConversation;
+    deleteConversations?: typeof deleteConversations;
     getConversation?: typeof getConversation;
     listConversationSources?: typeof listConversationSources;
     listConversationsForPath?: typeof listConversationsForPath;
@@ -31,6 +37,7 @@ type ApiErrorCode =
 type ParseResult<T> = { error: Response } | { value: T };
 
 const MAX_CURSOR_OFFSET = 1_000_000;
+const MAX_ID_BATCH_SIZE = 200;
 const MAX_ID_LENGTH = 2048;
 const MAX_LIMIT = 200;
 const MAX_PATH_LENGTH = 4096;
@@ -275,6 +282,7 @@ const normalizeMeta = (meta: { hasNext: boolean; nextCursor: string | null }) =>
 
 const getDeps = (dependencies: ConversationApiDependencies) => ({
     deleteConversation: dependencies.deleteConversation ?? deleteConversation,
+    deleteConversations: dependencies.deleteConversations ?? deleteConversations,
     getConversation: dependencies.getConversation ?? getConversation,
     listConversationSources: dependencies.listConversationSources ?? listConversationSources,
     listConversationsForPath: dependencies.listConversationsForPath ?? listConversationsForPath,
@@ -457,6 +465,254 @@ const handleDeleteConversation = async (
     }
 
     return jsonResponse({ data: deleteResult });
+};
+
+const parseJsonBody = async (request: Request): Promise<ParseResult<Record<string, unknown>>> => {
+    let body: unknown;
+    try {
+        body = await request.json();
+    } catch {
+        return { error: errorResponse('validation_error', 'Request body must be JSON.', 400) };
+    }
+
+    return isRecord(body)
+        ? { value: body }
+        : { error: errorResponse('validation_error', 'Request body must be a JSON object.', 400) };
+};
+
+const parseJsonSourceOption = (body: Record<string, unknown>): ParseResult<ConversationSource> => {
+    const sourceOption = getStringOption(body, 'source', 'source');
+    if ('error' in sourceOption) {
+        return sourceOption;
+    }
+
+    const source = sourceOption.value?.trim();
+    if (!source) {
+        return { error: errorResponse('validation_error', '`source` is required.', 400, { field: 'source' }) };
+    }
+
+    return isConversationSource(source) ? { value: source } : { error: invalidSourceResponse(source) };
+};
+
+const parseJsonIdsOption = (
+    body: Record<string, unknown>,
+    options: { destructive: boolean },
+): ParseResult<string[]> => {
+    const idsValue = getOption(body, 'ids', 'ids');
+    if (!Array.isArray(idsValue) || idsValue.length === 0) {
+        return {
+            error: invalidFieldResponse('ids', idsValue, '`ids` must be a non-empty array of explicit ids.'),
+        };
+    }
+
+    if (idsValue.length > MAX_ID_BATCH_SIZE) {
+        return {
+            error: invalidFieldResponse(
+                'ids',
+                idsValue.length,
+                `\`ids\` cannot include more than ${MAX_ID_BATCH_SIZE} ids.`,
+            ),
+        };
+    }
+
+    const ids: string[] = [];
+    const seenIds = new Set<string>();
+    for (const [index, value] of idsValue.entries()) {
+        if (typeof value !== 'string') {
+            return {
+                error: invalidFieldResponse('ids', value, `\`ids[${index}]\` must be a string.`),
+            };
+        }
+
+        const id = value.trim();
+        if (!id || id.length > MAX_ID_LENGTH) {
+            return {
+                error: invalidFieldResponse('ids', value, `\`ids[${index}]\` is invalid.`),
+            };
+        }
+
+        const deleteIdError = options.destructive ? validateDeleteId(id) : null;
+        if (deleteIdError) {
+            return { error: deleteIdError };
+        }
+
+        if (!seenIds.has(id)) {
+            seenIds.add(id);
+            ids.push(id);
+        }
+    }
+
+    return { value: ids };
+};
+
+const parseJsonExportFormat = (body: Record<string, unknown>): ParseResult<'md'> => {
+    const outputFormat = getStringOption(body, 'outputFormat', 'output_format');
+    if ('error' in outputFormat) {
+        return outputFormat;
+    }
+
+    if (outputFormat.value === undefined || outputFormat.value === 'md') {
+        return { value: 'md' };
+    }
+
+    return { error: invalidFieldResponse('output_format', outputFormat.value, '`output_format` must be "md".') };
+};
+
+const parseJsonExportMessageSelector = (body: Record<string, unknown>): ParseResult<ConversationMessageSelector> => {
+    const messageSelectorValue = getStringOption(body, 'messageSelector', 'message_selector');
+    if ('error' in messageSelectorValue) {
+        return messageSelectorValue;
+    }
+
+    return parseMessageSelector(messageSelectorValue.value ?? null, 'all');
+};
+
+const parseConversationIdSetRecord = (
+    body: Record<string, unknown>,
+    options: { destructive: boolean },
+): ParseResult<DeleteConversationsOptions> => {
+    const source = parseJsonSourceOption(body);
+    if ('error' in source) {
+        return source;
+    }
+
+    const ids = parseJsonIdsOption(body, options);
+    if ('error' in ids) {
+        return ids;
+    }
+
+    return {
+        value: {
+            ids: ids.value,
+            source: source.value,
+        },
+    };
+};
+
+const parseExportConversationsBody = async (request: Request): Promise<ParseResult<ExportConversationsZipOptions>> => {
+    const body = await parseJsonBody(request);
+    if ('error' in body) {
+        return body;
+    }
+
+    const idSet = parseConversationIdSetRecord(body.value, { destructive: false });
+    if ('error' in idSet) {
+        return idSet;
+    }
+
+    const outputFormat = parseJsonExportFormat(body.value);
+    if ('error' in outputFormat) {
+        return outputFormat;
+    }
+
+    const messageSelector = parseJsonExportMessageSelector(body.value);
+    if ('error' in messageSelector) {
+        return messageSelector;
+    }
+
+    return {
+        value: {
+            ids: idSet.value.ids,
+            messageSelector: messageSelector.value,
+            outputFormat: outputFormat.value,
+            source: idSet.value.source,
+        },
+    };
+};
+
+const handleDeleteConversations = async (request: Request, dependencies: ReturnType<typeof getDeps>) => {
+    const body = await parseJsonBody(request);
+    if ('error' in body) {
+        return body.error;
+    }
+
+    const result = parseConversationIdSetRecord(body.value, { destructive: true });
+    if ('error' in result) {
+        return result.error;
+    }
+
+    const deleteResult = await dependencies.deleteConversations(result.value);
+    if (!deleteResult) {
+        return errorResponse(
+            'unsupported_operation',
+            `Deleting ${result.value.source} conversations is not supported by the stable API.`,
+            405,
+            {
+                source: result.value.source,
+            },
+        );
+    }
+
+    if (deleteResult.deletedIds.length === 0) {
+        return errorResponse('conversation_not_found', 'No conversations exist for that source and id set.', 404, {
+            ids: result.value.ids,
+            source: result.value.source,
+        });
+    }
+
+    return jsonResponse({ data: deleteResult });
+};
+
+const getConversationZipEntry = (conversation: ConversationDetail, markdown: string) => ({
+    fallbackBaseName: `${conversation.source}-${conversation.id}`,
+    markdown,
+    title: conversation.title,
+});
+
+const handleExportConversations = async (request: Request, dependencies: ReturnType<typeof getDeps>) => {
+    const result = await parseExportConversationsBody(request);
+    if ('error' in result) {
+        return result.error;
+    }
+
+    const missingIds: string[] = [];
+    const entries = [];
+    for (const id of result.value.ids) {
+        const conversation = await dependencies.getConversation({
+            id,
+            messageSelector: result.value.messageSelector,
+            source: result.value.source,
+        });
+        if (!conversation) {
+            missingIds.push(id);
+            continue;
+        }
+
+        entries.push(
+            getConversationZipEntry(
+                conversation,
+                dependencies.renderConversationMarkdown(conversation, {
+                    messageSelector: result.value.messageSelector,
+                }),
+            ),
+        );
+    }
+
+    if (missingIds.length > 0) {
+        return errorResponse(
+            'conversation_not_found',
+            'Some conversations do not exist for that source and id set.',
+            404,
+            {
+                ids: missingIds,
+                source: result.value.source,
+            },
+        );
+    }
+
+    const zip = await createConversationMarkdownZip({
+        entries,
+        fileBaseName: `${result.value.source}-conversations-${result.value.ids.length}`,
+    });
+
+    return new Response(zip.blob, {
+        headers: {
+            'Cache-Control': 'no-store',
+            'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(zip.fileName)}`,
+            'Content-Type': zip.mimeType,
+            'X-Content-Type-Options': 'nosniff',
+        },
+    });
 };
 
 const handleResolve = async (url: URL, dependencies: ReturnType<typeof getDeps>) => {
@@ -782,6 +1038,18 @@ const API_ROUTES: ApiRoute[] = [
         resource: 'conversations',
     },
     {
+        handle: ({ dependencies, request }) => handleDeleteConversations(request, dependencies),
+        matches: ({ action, source }) => !source && action === 'delete',
+        method: 'POST',
+        resource: 'conversations',
+    },
+    {
+        handle: ({ dependencies, request }) => handleExportConversations(request, dependencies),
+        matches: ({ action, source }) => !source && action === 'export',
+        method: 'POST',
+        resource: 'conversations',
+    },
+    {
         handle: ({ dependencies, url }) => handleResolve(url, dependencies),
         matches: ({ source }) => !source,
         method: 'GET',
@@ -812,6 +1080,22 @@ const allowedMethodsForContext = (context: ApiRouteContext) => {
     ].sort();
 };
 
+const parseConversationApiSegments = (segments: string[], resource: string) => {
+    if (segments.length === 3) {
+        return { action: undefined, id: undefined, resource, source: undefined };
+    }
+    if (segments.length === 4 && (segments[3] === 'delete' || segments[3] === 'export')) {
+        return { action: segments[3], id: undefined, resource, source: undefined };
+    }
+    if (segments.length === 5) {
+        return { action: undefined, id: segments[4], resource, source: segments[3] };
+    }
+    if (segments.length === 6 && segments[5] === 'export') {
+        return { action: 'export', id: segments[4], resource, source: segments[3] };
+    }
+    return { action: '__invalid__', id: undefined, resource, source: undefined };
+};
+
 const parseApiSegments = (segments: string[]) => {
     if (segments.length < 3 || segments[0] !== 'api' || segments[1] !== 'v1') {
         return null;
@@ -823,23 +1107,12 @@ const parseApiSegments = (segments: string[]) => {
     }
 
     if (resource === 'conversations') {
-        if (segments.length === 3) {
-            return { action: undefined, id: undefined, resource, source: undefined };
-        }
-        if (segments.length === 5) {
-            return { action: undefined, id: segments[4], resource, source: segments[3] };
-        }
-        if (segments.length === 6 && segments[5] === 'export') {
-            return { action: 'export', id: segments[4], resource, source: segments[3] };
-        }
-        return { action: '__invalid__', id: undefined, resource, source: undefined };
+        return parseConversationApiSegments(segments, resource);
     }
 
-    if (segments.length === 3) {
-        return { action: undefined, id: undefined, resource, source: undefined };
-    }
-
-    return { action: '__invalid__', id: undefined, resource, source: undefined };
+    return segments.length === 3
+        ? { action: undefined, id: undefined, resource, source: undefined }
+        : { action: '__invalid__', id: undefined, resource, source: undefined };
 };
 
 export const handleConversationApiRequest = async (
