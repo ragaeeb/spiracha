@@ -1,4 +1,3 @@
-import { resolveHeadroomRehydrator } from '../headroom-transcript-rehydration';
 import { antigravityConversationAdapter } from './antigravity-adapter';
 import { claudeCodeConversationAdapter } from './claude-code-adapter';
 import { codexConversationAdapter } from './codex-adapter';
@@ -305,15 +304,9 @@ export const renderConversationMarkdown = (
         title: string | null;
     },
     options: {
-        headroomArchiveDir?: string | null;
         messageSelector?: ConversationMessageSelector;
-        rehydrateHeadroom?: boolean;
     } = {},
 ) => {
-    const rehydrator = resolveHeadroomRehydrator({
-        archiveDir: options.headroomArchiveDir,
-        rehydrateHeadroom: options.rehydrateHeadroom,
-    });
     const selectedMessages = options.messageSelector
         ? selectConversationMessages(conversation.messages, options.messageSelector)
         : conversation.messages;
@@ -326,18 +319,7 @@ export const renderConversationMarkdown = (
         user: 'User',
     };
     const sections = selectedMessages.map((message) => {
-        const text =
-            rehydrator
-                ?.rehydrateText(message.text, {
-                    client: typeof message.metadata.client === 'string' ? message.metadata.client : null,
-                    model: typeof message.metadata.model === 'string' ? message.metadata.model : null,
-                    provider: typeof message.metadata.provider === 'string' ? message.metadata.provider : null,
-                    requestId: typeof message.metadata.request_id === 'string' ? message.metadata.request_id : null,
-                    sessionId: typeof message.metadata.session_id === 'string' ? message.metadata.session_id : null,
-                })
-                .trim() ||
-            message.text.trim() ||
-            '_No message content._';
+        const text = message.text.trim() || '_No message content._';
         return `## ${roleLabels[message.role]}\n\n${text}`;
     });
     if (sections.length === 0) {

@@ -37,9 +37,7 @@ const columns = [
         header: 'Tool calls',
     }),
     columnHelper.accessor('lastActiveAtMs', {
-        cell: (info) => (
-            <span className="whitespace-nowrap text-sm">{formatDateTime(info.getValue(), { timeZone: 'UTC' })}</span>
-        ),
+        cell: (info) => <span className="whitespace-nowrap text-sm">{formatDateTime(info.getValue())}</span>,
         header: 'Last active',
     }),
 ] as const;

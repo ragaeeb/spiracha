@@ -17,10 +17,24 @@ import type {
 import { asNumber, asObject, asString, type JsonValue, readJsonlObjects } from './shared';
 
 type ParseCodexTranscriptOptions = {
+    eventFilter?: (event: ThreadEvent) => boolean;
     includeRaw?: boolean;
     maxEvents?: number;
     maxTurnContexts?: number;
     sourceFileSizeBytes?: number | null;
+    tailEventLimit?: number;
+};
+
+type ParseCodexTranscriptState = {
+    events: ThreadEvent[];
+    eventFilter: (event: ThreadEvent) => boolean;
+    includeRaw: boolean;
+    maxEvents: number;
+    maxTurnContexts: number;
+    sequence: number;
+    shouldStop: boolean;
+    tailEventLimit: number;
+    turnContexts: TurnContextRecord[];
 };
 
 const createEmptyStats = (): ThreadTranscriptStats => {
@@ -64,43 +78,72 @@ export const parseCodexTranscriptFile = async (
     const includeRaw = options.includeRaw ?? true;
     const maxEvents = options.maxEvents ?? Number.POSITIVE_INFINITY;
     const maxTurnContexts = options.maxTurnContexts ?? Number.POSITIVE_INFINITY;
-    let sequence = 0;
+    const tailEventLimit = options.tailEventLimit ?? Number.POSITIVE_INFINITY;
+    const eventFilter = options.eventFilter ?? (() => true);
+    const state: ParseCodexTranscriptState = {
+        eventFilter,
+        events,
+        includeRaw,
+        maxEvents,
+        maxTurnContexts,
+        sequence: 0,
+        shouldStop: false,
+        tailEventLimit,
+        turnContexts,
+    };
 
     for await (const parsed of readJsonlObjects(sessionFile)) {
         captureSessionMeta(parsed, sessionMeta);
-        const topLevelType = asString(parsed.type);
-
-        if (topLevelType === 'turn_context') {
-            if (turnContexts.length < maxTurnContexts) {
-                captureTurnContext(parsed, turnContexts);
-            }
-            continue;
-        }
-
-        const event = toThreadEvent(parsed, sequence, includeRaw);
-        if (!event) {
-            continue;
-        }
-
-        events.push(event);
-        updateTranscriptStats(stats, event);
-        sequence += 1;
-
-        if (events.length >= maxEvents) {
+        captureTranscriptRecord(parsed, state);
+        if (state.shouldStop) {
             break;
         }
     }
 
+    for (const event of events) {
+        updateTranscriptStats(stats, event);
+    }
+
     return {
         events,
-        isPartial: Number.isFinite(maxEvents) || Number.isFinite(maxTurnContexts),
+        isPartial:
+            Number.isFinite(maxEvents) ||
+            Number.isFinite(maxTurnContexts) ||
+            Number.isFinite(tailEventLimit) ||
+            options.eventFilter !== undefined,
         rawIncluded: includeRaw,
         sessionMeta,
         sourceFileSizeBytes: options.sourceFileSizeBytes ?? null,
         stats,
-        statsArePartial: Number.isFinite(maxEvents),
+        statsArePartial:
+            Number.isFinite(maxEvents) || Number.isFinite(tailEventLimit) || options.eventFilter !== undefined,
         turnContexts,
     };
+};
+
+const captureTranscriptRecord = (parsed: Record<string, JsonValue>, state: ParseCodexTranscriptState) => {
+    if (asString(parsed.type) === 'turn_context') {
+        if (state.turnContexts.length < state.maxTurnContexts) {
+            captureTurnContext(parsed, state.turnContexts);
+        }
+        return;
+    }
+
+    const event = toThreadEvent(parsed, state.sequence, state.includeRaw);
+    if (!event) {
+        return;
+    }
+
+    state.sequence += 1;
+    if (!state.eventFilter(event)) {
+        return;
+    }
+
+    state.events.push(event);
+    if (state.events.length > state.tailEventLimit) {
+        state.events.shift();
+    }
+    state.shouldStop = state.events.length >= state.maxEvents;
 };
 
 const captureSessionMeta = (parsed: Record<string, JsonValue>, sessionMeta: SessionMetaExtended) => {

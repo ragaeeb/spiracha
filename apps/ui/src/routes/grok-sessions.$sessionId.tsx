@@ -277,7 +277,7 @@ const GrokSessionDetailPage = () => {
 
                 <TabsContent className="space-y-3" value="transcript">
                     <GrokTranscriptControls
-                        rawJsonDisabled={transcriptEvents.length === 0}
+                        rawJsonDisabled={Boolean(detail.rawPayloadsOmitted) || transcriptEvents.length === 0}
                         showCommentary={showCommentary}
                         showExtraEvents={showExtraEvents}
                         showRawJson={showRawJson}
@@ -296,7 +296,7 @@ const GrokSessionDetailPage = () => {
                             projectPath={detail.session.worktree}
                             showCommentary={showCommentary}
                             showExtraEvents={showExtraEvents}
-                            showRawJson={showRawJson}
+                            showRawJson={showRawJson && !detail.rawPayloadsOmitted}
                             showToolCalls={showToolCalls}
                             showUserMessages={showUserMessages}
                         />
@@ -323,6 +323,12 @@ const GrokSessionDetailPage = () => {
                 </TabsContent>
 
                 <TabsContent value="raw">
+                    {detail.rawPayloadsOmitted ? (
+                        <section className="mb-4 rounded-xl border border-[var(--border)] bg-[var(--panel)] p-4 text-[var(--muted-foreground)] text-sm">
+                            Raw Grok payloads are omitted from the default session view to keep large transcripts
+                            reloadable.
+                        </section>
+                    ) : null}
                     <GrokRawPanels detail={detail} events={transcriptEvents} />
                 </TabsContent>
             </Tabs>

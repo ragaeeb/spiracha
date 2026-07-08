@@ -6,6 +6,22 @@ const transcript: GrokSessionTranscript = {
     entries: [
         {
             createdAtMs: null,
+            entryId: 'context-1',
+            parts: [
+                {
+                    partId: 'context-1:text',
+                    raw: { content: '<user_info>\nOS Version: darwin 25.5.0\n</user_info>' },
+                    text: '<user_info>\nOS Version: darwin 25.5.0\n</user_info>',
+                    type: 'text',
+                },
+            ],
+            raw: { content: '<user_info>\nOS Version: darwin 25.5.0\n</user_info>', type: 'user' },
+            role: 'system',
+            timestamp: null,
+            type: 'user',
+        },
+        {
+            createdAtMs: null,
             entryId: 'user-1',
             parts: [
                 {
@@ -79,6 +95,31 @@ const transcript: GrokSessionTranscript = {
             parts: [
                 {
                     partId: 'assistant-2:text',
+                    raw: { content: 'Implementing the fix.' },
+                    text: 'Implementing the fix.',
+                    type: 'text',
+                },
+                {
+                    argumentsText: '{"cmd":"bun test"}',
+                    partId: 'assistant-2:tool-call:0',
+                    raw: { arguments: '{"cmd":"bun test"}', name: 'Shell' },
+                    toolCallId: 'call-2',
+                    toolName: 'Shell',
+                    type: 'tool_call',
+                },
+            ],
+            raw: { content: 'Implementing the fix.', type: 'assistant' },
+            role: 'assistant',
+            timestamp: null,
+            type: 'assistant',
+        },
+        {
+            createdAtMs: null,
+            entryId: 'assistant-3',
+            modelId: 'grok-composer-2.5-fast',
+            parts: [
+                {
+                    partId: 'assistant-3:text',
                     raw: { content: 'Final answer.' },
                     text: 'Final answer.',
                     type: 'text',
@@ -91,7 +132,7 @@ const transcript: GrokSessionTranscript = {
         },
     ],
     rawEvents: [],
-    renderablePartCount: 5,
+    renderablePartCount: 6,
     session: {
         agentName: 'cursor',
         assistantMessageCount: 1,
@@ -107,10 +148,10 @@ const transcript: GrokSessionTranscript = {
         headCommit: null,
         lastActiveAtIso: null,
         lastActiveAtMs: null,
-        messageCount: 5,
+        messageCount: 6,
         modelLabel: 'Composer 2.5',
         reasoningCount: 1,
-        renderablePartCount: 5,
+        renderablePartCount: 6,
         sandboxProfile: null,
         sessionDir: '/tmp/session',
         sessionId: 'session-1',
@@ -131,10 +172,27 @@ describe('grok transcript events', () => {
         const events = grokTranscriptToThreadEvents(transcript);
 
         expect(events).toEqual([
+            expect.objectContaining({
+                isHiddenByDefault: true,
+                kind: 'message',
+                role: 'system',
+                text: '<user_info>\nOS Version: darwin 25.5.0\n</user_info>',
+            }),
             expect.objectContaining({ kind: 'message', role: 'user', text: 'Review this.' }),
             expect.objectContaining({ content: 'Thinking.', kind: 'reasoning' }),
             expect.objectContaining({ command: 'Grep\n{"pattern":"refresh"}', kind: 'tool_call' }),
             expect.objectContaining({ kind: 'tool_output', outputText: 'found 1 match' }),
+            expect.objectContaining({
+                kind: 'message',
+                model: 'grok-composer-2.5-fast',
+                phase: 'commentary',
+                role: 'assistant',
+                text: 'Implementing the fix.',
+            }),
+            expect.objectContaining({
+                command: 'Shell\n{"cmd":"bun test"}',
+                kind: 'tool_call',
+            }),
             expect.objectContaining({
                 kind: 'message',
                 model: 'grok-composer-2.5-fast',

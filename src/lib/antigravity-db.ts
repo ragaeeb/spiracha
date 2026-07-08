@@ -12,13 +12,6 @@ import {
 } from './antigravity-exporter-types';
 import { decryptAntigravitySafeStoragePayload } from './antigravity-keychain';
 import { mapWithConcurrency } from './concurrency';
-import {
-    buildHeadroomMetadataEntries,
-    type HeadroomRehydrationContext,
-    type HeadroomRehydrationOptions,
-    type HeadroomRehydrator,
-    resolveHeadroomRehydrator,
-} from './headroom-transcript-rehydration';
 
 type ProtoField = {
     bytes?: Uint8Array;
@@ -1048,35 +1041,11 @@ const renderToolCalls = (toolCalls: unknown): string[] => {
     return parts;
 };
 
-const getAntigravityHeadroomContext = (
-    conversation: AntigravityConversation,
-    entry?: AntigravityLogEntry,
-): HeadroomRehydrationContext => ({
-    client: 'antigravity',
-    model: conversation.model,
-    provider: 'google',
-    requestId: entry ? getString((entry as Record<string, unknown>).request_id) : null,
-    sessionId: conversation.conversationId,
-});
-
-const rehydrateAntigravityText = (
-    text: string,
-    rehydrator: HeadroomRehydrator | null,
-    conversation: AntigravityConversation,
-    entry?: AntigravityLogEntry,
-): string => {
-    return rehydrator?.rehydrateText(text, getAntigravityHeadroomContext(conversation, entry)) ?? text;
-};
-
-const renderLogEntry = (
-    entry: AntigravityLogEntry,
-    conversation: AntigravityConversation,
-    rehydrator: HeadroomRehydrator | null,
-): string[] => {
+const renderLogEntry = (entry: AntigravityLogEntry): string[] => {
     const heading = logEntryHeading(entry);
     const timestamp = getString(entry.created_at);
-    const content = rehydrateAntigravityText(cleanLogContent(entry), rehydrator, conversation, entry);
-    const thinking = rehydrateAntigravityText(getString(entry.thinking) ?? '', rehydrator, conversation, entry);
+    const content = cleanLogContent(entry);
+    const thinking = getString(entry.thinking) ?? '';
     const parts = [`## ${heading}`, ''];
 
     if (timestamp) {
@@ -1224,10 +1193,7 @@ export const readAntigravityConversationMessages = async (
     }
 };
 
-const renderAntigravityTranscriptMarkdown = async (
-    conversation: AntigravityConversation,
-    rehydrator: HeadroomRehydrator | null,
-): Promise<string | null> => {
+const renderAntigravityTranscriptMarkdown = async (conversation: AntigravityConversation): Promise<string | null> => {
     if (!conversation.transcriptPath || !conversation.transcriptSource) {
         return null;
     }
@@ -1241,14 +1207,13 @@ const renderAntigravityTranscriptMarkdown = async (
         conversation.transcriptSource === 'overview'
             ? 'antigravity_overview_transcript'
             : 'antigravity_jsonl_transcript';
-    const sections = entries.flatMap((entry) => renderLogEntry(entry, conversation, rehydrator));
+    const sections = entries.flatMap((entry) => renderLogEntry(entry));
     const parts = [
         `# ${conversation.title}`,
         '',
         `- exported_from: \`${exportedFrom}\``,
         `- conversation_id: \`${conversation.conversationId}\``,
         conversation.workspaceUri ? `- workspace: \`${conversation.workspaceUri}\`` : '',
-        ...buildHeadroomMetadataEntries(rehydrator).map((entry) => `- ${entry.key}: \`${String(entry.value)}\``),
         '',
         ...sections,
     ].filter(Boolean);
@@ -1256,12 +1221,8 @@ const renderAntigravityTranscriptMarkdown = async (
     return `${parts.join('\n').trimEnd()}\n`;
 };
 
-const renderDecryptedSafeStorageMarkdown = (
-    conversation: AntigravityConversation,
-    content: string,
-    rehydrator: HeadroomRehydrator | null,
-): string | null => {
-    const trimmed = rehydrateAntigravityText(content, rehydrator, conversation).trim();
+const renderDecryptedSafeStorageMarkdown = (conversation: AntigravityConversation, content: string): string | null => {
+    const trimmed = content.trim();
     if (!trimmed) {
         return null;
     }
@@ -1272,7 +1233,6 @@ const renderDecryptedSafeStorageMarkdown = (
         '- exported_from: `antigravity_safe_storage_payload`',
         `- conversation_id: \`${conversation.conversationId}\``,
         conversation.workspaceUri ? `- workspace: \`${conversation.workspaceUri}\`` : '',
-        ...buildHeadroomMetadataEntries(rehydrator).map((entry) => `- ${entry.key}: \`${String(entry.value)}\``),
         '',
         trimmed,
         '',
@@ -1283,13 +1243,11 @@ const renderDecryptedSafeStorageMarkdown = (
 
 export const renderAntigravityConversationMarkdown = async (
     conversation: AntigravityConversation,
-    options: HeadroomRehydrationOptions & {
-        headroomRehydrator?: HeadroomRehydrator | null;
+    options: {
         keychainSecret?: string | null;
     } = {},
 ): Promise<string | null> => {
-    const rehydrator = options.headroomRehydrator ?? resolveHeadroomRehydrator(options);
-    const transcript = await renderAntigravityTranscriptMarkdown(conversation, rehydrator);
+    const transcript = await renderAntigravityTranscriptMarkdown(conversation);
     if (transcript) {
         return transcript;
     }
@@ -1298,7 +1256,7 @@ export const renderAntigravityConversationMarkdown = async (
         const encrypted = Buffer.from(await Bun.file(conversation.conversationPath).arrayBuffer());
         const decrypted = decryptAntigravitySafeStoragePayload(encrypted, options.keychainSecret);
         if (decrypted) {
-            return renderDecryptedSafeStorageMarkdown(conversation, decrypted, rehydrator);
+            return renderDecryptedSafeStorageMarkdown(conversation, decrypted);
         }
     }
 

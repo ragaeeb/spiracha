@@ -14,6 +14,18 @@ const threadSchema = z.object({
     threadId: z.string().min(1),
 });
 
+const transcriptFiltersSchema = z.object({
+    showCommentary: z.boolean(),
+    showExtraEvents: z.boolean(),
+    showToolCalls: z.boolean(),
+    showUserMessages: z.boolean(),
+});
+
+const threadSnapshotSchema = z.object({
+    filters: transcriptFiltersSchema.optional(),
+    threadId: z.string().min(1),
+});
+
 const deleteThreadSchema = z.object({
     deleteSessionFiles: z.boolean().default(false),
     threadId: z.string().min(1),
@@ -30,26 +42,22 @@ const analyticsSchema = z.object({
 
 const exportSchema = z.object({
     convertToProjectRoot: z.boolean(),
-    headroomArchiveDir: z.string().optional(),
     includeCommentary: z.boolean(),
     includeMetadata: z.boolean(),
     includeTools: z.boolean(),
     outputFormat: z.enum(['md', 'txt']),
     redactUsername: z.boolean(),
-    rehydrateHeadroom: z.boolean().optional(),
     threadId: z.string().min(1),
     zipArchive: z.boolean().default(false),
 });
 
 const exportThreadsSchema = z.object({
     convertToProjectRoot: z.boolean(),
-    headroomArchiveDir: z.string().optional(),
     includeCommentary: z.boolean(),
     includeMetadata: z.boolean(),
     includeTools: z.boolean(),
     outputFormat: z.enum(['md', 'txt']),
     redactUsername: z.boolean(),
-    rehydrateHeadroom: z.boolean().optional(),
     threadIds: z.array(z.string().min(1)).min(1),
     zipArchive: z.boolean().default(true),
 });
@@ -88,10 +96,12 @@ export const listProjectThreadsFn = createServerFn({ method: 'GET' })
     });
 
 export const getThreadSnapshotFn = createServerFn({ method: 'GET' })
-    .validator(threadSchema)
+    .validator(threadSnapshotSchema)
     .handler(async ({ data }) => {
-        const [{ getThreadBrowseData }, { getCachedParsedCodexTranscript, getThreadRolloutLoadState }] =
-            await Promise.all([import('@spiracha/lib/codex-browser-db'), import('@spiracha/lib/codex-thread-cache')]);
+        const [
+            { getThreadBrowseData },
+            { getCachedParsedCodexTranscript, getCachedThreadTranscriptPreview, getThreadRolloutLoadState },
+        ] = await Promise.all([import('@spiracha/lib/codex-browser-db'), import('@spiracha/lib/codex-thread-cache')]);
         const dbPath = await getDbPath();
         const browseData = getThreadBrowseData(dbPath, data.threadId);
         const rollout = await getThreadRolloutLoadState(browseData.thread.rollout_path);
@@ -100,16 +110,21 @@ export const getThreadSnapshotFn = createServerFn({ method: 'GET' })
             ? 'deferred'
             : 'available';
 
-        if (!rollout.shouldDeferTranscriptLoad) {
-            try {
+        try {
+            if (rollout.shouldDeferTranscriptLoad) {
+                transcript = await getCachedThreadTranscriptPreview(browseData.thread.rollout_path, {
+                    filters: data.filters,
+                });
+            } else {
                 transcript = await getCachedParsedCodexTranscript(browseData.thread.rollout_path);
-            } catch (error) {
-                if (!isMissingFileError(error)) {
-                    throw error;
-                }
-
-                transcriptState = 'missing';
             }
+        } catch (error) {
+            if (!isMissingFileError(error)) {
+                throw error;
+            }
+
+            transcript = null;
+            transcriptState = 'missing';
         }
 
         return {
@@ -156,7 +171,6 @@ export const exportThreadFn = createServerFn({ method: 'POST' })
         const { renderCodexThreadDownload } = await import('@spiracha/lib/codex-browser-export');
         return renderCodexThreadDownload({
             dbPath: await getDbPath(),
-            headroomArchiveDir: data.headroomArchiveDir,
             includeCommentary: data.includeCommentary,
             includeMetadata: data.includeMetadata,
             includeTools: data.includeTools,
@@ -165,7 +179,6 @@ export const exportThreadFn = createServerFn({ method: 'POST' })
                 convertToProjectRoot: data.convertToProjectRoot,
                 redactUsername: data.redactUsername,
             },
-            rehydrateHeadroom: data.rehydrateHeadroom,
             threadId: data.threadId,
             zipArchive: data.zipArchive,
         });
@@ -177,7 +190,6 @@ export const exportThreadsFn = createServerFn({ method: 'POST' })
         const { renderCodexThreadsDownload } = await import('@spiracha/lib/codex-browser-export');
         return renderCodexThreadsDownload({
             dbPath: await getDbPath(),
-            headroomArchiveDir: data.headroomArchiveDir,
             includeCommentary: data.includeCommentary,
             includeMetadata: data.includeMetadata,
             includeTools: data.includeTools,
@@ -186,7 +198,6 @@ export const exportThreadsFn = createServerFn({ method: 'POST' })
                 convertToProjectRoot: data.convertToProjectRoot,
                 redactUsername: data.redactUsername,
             },
-            rehydrateHeadroom: data.rehydrateHeadroom,
             threadIds: data.threadIds,
             zipArchive: data.zipArchive,
         });

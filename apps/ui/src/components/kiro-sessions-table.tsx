@@ -5,6 +5,7 @@ import { createColumnHelper } from '@tanstack/react-table';
 import { Download, MoreHorizontal, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
+import { SelectionActionsToolbar } from '#/components/selection-actions-toolbar';
 import { Button } from '#/components/ui/button';
 import {
     DropdownMenu,
@@ -16,7 +17,9 @@ import { formatDateTime, formatNumber } from '#/lib/formatters';
 
 type KiroSessionsTableProps = {
     onDeleteSession: (session: KiroSessionSummary) => void;
+    onDeleteSessions: (sessionIds: string[]) => void;
     onExportSession: (session: KiroSessionSummary) => void;
+    onExportSessions: (sessionIds: string[]) => void;
     sessions: KiroSessionSummary[];
 };
 
@@ -93,7 +96,10 @@ const columns = (
                             <Download className="mr-2 size-4" />
                             Export session
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => onDeleteSession(info.row.original)}>
+                        <DropdownMenuItem
+                            className="text-[var(--destructive)]"
+                            onClick={() => onDeleteSession(info.row.original)}
+                        >
                             <Trash2 className="mr-2 size-4" />
                             Delete session
                         </DropdownMenuItem>
@@ -106,7 +112,13 @@ const columns = (
         }),
     ] as const;
 
-export const KiroSessionsTable = ({ onDeleteSession, onExportSession, sessions }: KiroSessionsTableProps) => {
+export const KiroSessionsTable = ({
+    onDeleteSession,
+    onDeleteSessions,
+    onExportSession,
+    onExportSessions,
+    sessions,
+}: KiroSessionsTableProps) => {
     const tableColumns = useMemo(() => columns(onDeleteSession, onExportSession), [onDeleteSession, onExportSession]);
 
     return (
@@ -114,7 +126,23 @@ export const KiroSessionsTable = ({ onDeleteSession, onExportSession, sessions }
             columns={tableColumns}
             data={sessions}
             emptyMessage="No Kiro sessions match the current workspace filter."
+            enableRowSelection
+            getRowId={(row) => row.sessionId}
             initialSorting={defaultSorting}
+            renderToolbar={({ clearSelection, selectedRows }) => {
+                const selectedSessionIds = selectedRows.map((row) => row.sessionId);
+                const hasEmptySelection = selectedRows.some((row) => row.renderablePartCount === 0);
+                return (
+                    <SelectionActionsToolbar
+                        clearSelection={clearSelection}
+                        exportDisabled={hasEmptySelection}
+                        itemLabel="session"
+                        selectedCount={selectedRows.length}
+                        onDeleteSelected={() => onDeleteSessions(selectedSessionIds)}
+                        onExportSelected={() => onExportSessions(selectedSessionIds)}
+                    />
+                );
+            }}
         />
     );
 };

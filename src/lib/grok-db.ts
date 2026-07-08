@@ -33,6 +33,10 @@ type GrokSessionDirectory = {
     sessionDir: string;
 };
 
+type ReadGrokSessionTranscriptOptions = {
+    includeRawPayloads?: boolean;
+};
+
 type SessionStats = {
     assistantMessageCount: number;
     messageCount: number;
@@ -135,6 +139,32 @@ const formatJsonLike = (value: JsonValue | undefined): string | null => {
     return JSON.stringify(value, null, 2);
 };
 
+const readJsonObjectFile = async (filePath: string): Promise<Record<string, JsonValue> | null> => {
+    const raw = (await Bun.file(filePath)
+        .json()
+        .catch(() => null)) as JsonValue | null;
+    return asObject(raw);
+};
+
+const listJsonFiles = async (dirPath: string): Promise<string[]> => {
+    const entries = await readdir(dirPath, { withFileTypes: true }).catch(() => []);
+    return entries
+        .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
+        .map((entry) => path.join(dirPath, entry.name))
+        .sort();
+};
+
+const getJsonObjectList = (value: JsonValue | undefined): Record<string, JsonValue>[] => {
+    if (!Array.isArray(value)) {
+        return [];
+    }
+
+    return value.flatMap((item) => {
+        const object = asObject(item);
+        return object ? [object] : [];
+    });
+};
+
 const textFromContentValue = (value: JsonValue | undefined): string => {
     if (typeof value === 'string') {
         return value;
@@ -167,6 +197,17 @@ const textFromContentValue = (value: JsonValue | undefined): string => {
     return object ? (asString(object.text ?? null) ?? asString(object.content ?? null) ?? '') : '';
 };
 
+const unwrapGrokTextEnvelope = (text: string): string => {
+    const trimmed = text.trim();
+    const userQuery = trimmed.match(/^<user_query>\s*([\s\S]*?)\s*<\/user_query>$/u);
+    return userQuery?.[1]?.trim() ?? trimmed;
+};
+
+const isGrokSystemContextEnvelope = (text: string): boolean => {
+    const trimmed = text.trimStart();
+    return trimmed.startsWith('<user_info>') || trimmed.startsWith('<summary_request>');
+};
+
 const getReasoningText = (raw: Record<string, JsonValue>): string => {
     const summary = Array.isArray(raw.summary) ? raw.summary : [];
     const summaryText = summary
@@ -184,26 +225,31 @@ const parseToolCallPart = (
     raw: Record<string, JsonValue>,
     entryId: string,
     index: number,
+    includeRawPayloads: boolean,
 ): GrokTranscriptPart | null => {
     const toolName = asString(raw.name ?? null) ?? 'unknown';
     const argumentsText = formatJsonLike(raw.arguments);
     return {
         argumentsText,
         partId: `${entryId}:tool-call:${index}`,
-        raw,
+        raw: includeRawPayloads ? raw : {},
         toolCallId: asString(raw.id ?? null),
         toolName,
         type: 'tool_call',
     };
 };
 
-const parseAssistantParts = (raw: Record<string, JsonValue>, entryId: string): GrokTranscriptPart[] => {
+const parseAssistantParts = (
+    raw: Record<string, JsonValue>,
+    entryId: string,
+    includeRawPayloads: boolean,
+): GrokTranscriptPart[] => {
     const parts: GrokTranscriptPart[] = [];
     const text = asString(raw.content ?? null) ?? '';
     if (text.trim()) {
         parts.push({
             partId: `${entryId}:text`,
-            raw: { content: text },
+            raw: includeRawPayloads ? { content: text } : {},
             text,
             type: 'text',
         });
@@ -212,7 +258,7 @@ const parseAssistantParts = (raw: Record<string, JsonValue>, entryId: string): G
     const toolCalls = Array.isArray(raw.tool_calls) ? raw.tool_calls : [];
     toolCalls.forEach((item, index) => {
         const object = asObject(item);
-        const part = object ? parseToolCallPart(object, entryId, index) : null;
+        const part = object ? parseToolCallPart(object, entryId, index, includeRawPayloads) : null;
         if (part) {
             parts.push(part);
         }
@@ -221,13 +267,17 @@ const parseAssistantParts = (raw: Record<string, JsonValue>, entryId: string): G
     return parts;
 };
 
-const parseTextEntryPart = (raw: Record<string, JsonValue>, entryId: string): GrokTranscriptPart[] => {
-    const text = textFromContentValue(raw.content).trim();
+const parseTextEntryPart = (
+    raw: Record<string, JsonValue>,
+    entryId: string,
+    includeRawPayloads: boolean,
+): GrokTranscriptPart[] => {
+    const text = unwrapGrokTextEnvelope(textFromContentValue(raw.content));
     return text
         ? [
               {
                   partId: `${entryId}:text`,
-                  raw,
+                  raw: includeRawPayloads ? raw : {},
                   text,
                   type: 'text',
               },
@@ -235,13 +285,17 @@ const parseTextEntryPart = (raw: Record<string, JsonValue>, entryId: string): Gr
         : [];
 };
 
-const parseReasoningParts = (raw: Record<string, JsonValue>, entryId: string): GrokTranscriptPart[] => {
+const parseReasoningParts = (
+    raw: Record<string, JsonValue>,
+    entryId: string,
+    includeRawPayloads: boolean,
+): GrokTranscriptPart[] => {
     const text = getReasoningText(raw).trim();
     return text
         ? [
               {
                   partId: `${entryId}:reasoning`,
-                  raw,
+                  raw: includeRawPayloads ? raw : {},
                   text,
                   type: 'reasoning',
               },
@@ -249,14 +303,18 @@ const parseReasoningParts = (raw: Record<string, JsonValue>, entryId: string): G
         : [];
 };
 
-const parseToolResultParts = (raw: Record<string, JsonValue>, entryId: string): GrokTranscriptPart[] => {
+const parseToolResultParts = (
+    raw: Record<string, JsonValue>,
+    entryId: string,
+    includeRawPayloads: boolean,
+): GrokTranscriptPart[] => {
     const outputText = textFromContentValue(raw.content).trim();
     return outputText
         ? [
               {
                   outputText,
                   partId: `${entryId}:tool-result`,
-                  raw,
+                  raw: includeRawPayloads ? raw : {},
                   toolCallId: asString(raw.tool_call_id ?? null),
                   type: 'tool_result',
               },
@@ -280,21 +338,30 @@ const getEntryRole = (type: string): string => {
     return 'unknown';
 };
 
+const getTranscriptEntryRole = (type: string, parts: GrokTranscriptPart[]): string => {
+    if (type === 'user' && parts.some((part) => part.type === 'text' && isGrokSystemContextEnvelope(part.text ?? ''))) {
+        return 'system';
+    }
+
+    return getEntryRole(type);
+};
+
 const parseTranscriptEntry = (
     raw: Record<string, JsonValue>,
     sessionId: string,
     index: number,
+    includeRawPayloads: boolean,
 ): GrokTranscriptEntry | null => {
     const type = asString(raw.type ?? null) ?? 'unknown';
     const entryId = asString(raw.id ?? null) ?? `${sessionId}:${index}`;
     const parts =
         type === 'assistant'
-            ? parseAssistantParts(raw, entryId)
+            ? parseAssistantParts(raw, entryId, includeRawPayloads)
             : type === 'reasoning'
-              ? parseReasoningParts(raw, entryId)
+              ? parseReasoningParts(raw, entryId, includeRawPayloads)
               : type === 'tool_result'
-                ? parseToolResultParts(raw, entryId)
-                : parseTextEntryPart(raw, entryId);
+                ? parseToolResultParts(raw, entryId, includeRawPayloads)
+                : parseTextEntryPart(raw, entryId, includeRawPayloads);
 
     if (parts.length === 0) {
         return null;
@@ -306,11 +373,53 @@ const parseTranscriptEntry = (
         modelFingerprint: asString(raw.model_fingerprint ?? null),
         modelId: asString(raw.model_id ?? null),
         parts,
-        raw,
-        role: getEntryRole(type),
+        raw: includeRawPayloads ? raw : {},
+        role: getTranscriptEntryRole(type, parts),
         timestamp: null,
         type,
     };
+};
+
+const readGrokChatHistory = async (
+    sessionDir: string,
+    chatHistoryPath: string,
+): Promise<Record<string, JsonValue>[]> => {
+    const liveEvents: Record<string, JsonValue>[] = [];
+    for await (const raw of readJsonlObjects(chatHistoryPath)) {
+        liveEvents.push(raw);
+    }
+
+    const requestFiles = await listJsonFiles(path.join(sessionDir, 'compaction_requests'));
+    const archivedHistory = (
+        await Promise.all(
+            requestFiles.map(async (filePath) => {
+                const request = await readJsonObjectFile(filePath);
+                return getJsonObjectList(request?.chat_history);
+            }),
+        )
+    )
+        .filter((history) => history.length > 0)
+        .sort((left, right) => right.length - left.length)[0];
+
+    if (!archivedHistory) {
+        return liveEvents;
+    }
+
+    const checkpointFiles = await listJsonFiles(path.join(sessionDir, 'compaction_checkpoints'));
+    const latestCheckpoint = (
+        await Promise.all(
+            checkpointFiles.map(async (filePath) => {
+                const checkpoint = await readJsonObjectFile(filePath);
+                return {
+                    compactedHistoryLength: getJsonObjectList(checkpoint?.compacted_history).length,
+                    createdAtMs: parseTimestampMs(checkpoint?.created_at) ?? 0,
+                };
+            }),
+        )
+    ).sort((left, right) => right.createdAtMs - left.createdAtMs)[0];
+
+    const liveTail = latestCheckpoint ? liveEvents.slice(latestCheckpoint.compactedHistoryLength) : liveEvents;
+    return [...archivedHistory, ...liveTail];
 };
 
 const createEmptyStats = (): SessionStats => ({
@@ -356,13 +465,6 @@ const updateStatsFromEntry = (stats: SessionStats, entry: GrokTranscriptEntry) =
     stats.toolCallCount += entry.parts.filter((part) => part.type === 'tool_call').length;
     stats.toolResultCount += entry.parts.filter((part) => part.type === 'tool_result').length;
     stats.renderablePartCount += entry.parts.filter(isRenderablePart).length;
-};
-
-const readJsonObjectFile = async (filePath: string): Promise<Record<string, JsonValue> | null> => {
-    const raw = (await Bun.file(filePath)
-        .json()
-        .catch(() => null)) as JsonValue | null;
-    return asObject(raw);
 };
 
 const getStringList = (value: JsonValue | undefined): string[] => {
@@ -492,7 +594,9 @@ const toSessionSummary = (
 const readSessionDirectory = async (
     file: GrokSessionDirectory,
     modelLabels: Map<string, string>,
+    options: ReadGrokSessionTranscriptOptions = {},
 ): Promise<GrokSessionTranscript | null> => {
+    const includeRawPayloads = options.includeRawPayloads ?? true;
     const summaryPath = path.join(file.sessionDir, 'summary.json');
     const chatHistoryPath = path.join(file.sessionDir, 'chat_history.jsonl');
     const identity = await readSummaryIdentity(summaryPath);
@@ -506,9 +610,11 @@ const readSessionDirectory = async (
     const rawEvents: Record<string, JsonValue>[] = [];
     let index = 0;
 
-    for await (const raw of readJsonlObjects(chatHistoryPath)) {
-        rawEvents.push(raw);
-        const entry = parseTranscriptEntry(raw, sessionId, index);
+    for (const raw of await readGrokChatHistory(file.sessionDir, chatHistoryPath)) {
+        if (includeRawPayloads) {
+            rawEvents.push(raw);
+        }
+        const entry = parseTranscriptEntry(raw, sessionId, index, includeRawPayloads);
         index += 1;
         if (!entry) {
             continue;
@@ -521,6 +627,7 @@ const readSessionDirectory = async (
     return {
         entries,
         rawEvents,
+        rawPayloadsOmitted: includeRawPayloads ? undefined : true,
         renderablePartCount: stats.renderablePartCount,
         session: toSessionSummary(file, identity, stats, entries, modelLabels),
     };
@@ -531,14 +638,32 @@ const listSessionDirectoriesForWorkspace = async (
     directoryName: string,
 ): Promise<GrokSessionDirectory[]> => {
     const workspaceDir = path.join(sessionsDir, directoryName);
-    const entries = await readdir(workspaceDir, { withFileTypes: true }).catch(() => []);
-    return entries
-        .filter((entry) => entry.isDirectory())
-        .map((entry) => ({
-            directoryName,
-            sessionDir: path.join(workspaceDir, entry.name),
-        }))
-        .sort((left, right) => left.sessionDir.localeCompare(right.sessionDir));
+    return listSessionDirectoriesUnderWorkspace(workspaceDir, directoryName);
+};
+
+const listSessionDirectoriesUnderWorkspace = async (
+    root: string,
+    directoryName: string,
+): Promise<GrokSessionDirectory[]> => {
+    const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
+    const directories: GrokSessionDirectory[] = [];
+
+    for (const entry of entries) {
+        if (!entry.isDirectory()) {
+            continue;
+        }
+
+        const entryPath = path.join(root, entry.name);
+        if (
+            (await pathExists(path.join(entryPath, 'summary.json'))) &&
+            (await pathExists(path.join(entryPath, 'chat_history.jsonl')))
+        ) {
+            directories.push({ directoryName, sessionDir: entryPath });
+        }
+        directories.push(...(await listSessionDirectoriesUnderWorkspace(entryPath, directoryName)));
+    }
+
+    return directories.sort((left, right) => left.sessionDir.localeCompare(right.sessionDir));
 };
 
 const listSessionDirectories = async (sessionsDir: string): Promise<GrokSessionDirectory[]> => {
@@ -707,6 +832,79 @@ const listFilesRecursively = async (root: string): Promise<string[]> => {
     return files;
 };
 
+const listDirectoriesRecursively = async (root: string): Promise<string[]> => {
+    const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
+    const directories: string[] = [];
+
+    for (const entry of entries) {
+        if (!entry.isDirectory()) {
+            continue;
+        }
+
+        const entryPath = path.join(root, entry.name);
+        directories.push(entryPath, ...(await listDirectoriesRecursively(entryPath)));
+    }
+
+    return directories;
+};
+
+const listRelatedSubagentDirectories = async (sessionsDir: string, sessionId: string): Promise<string[]> => {
+    return (await listDirectoriesRecursively(sessionsDir)).filter(
+        (directoryPath) =>
+            path.basename(directoryPath) === sessionId && path.basename(path.dirname(directoryPath)) === 'subagents',
+    );
+};
+
+const removeStringFromJsonArrays = (value: JsonValue, target: string): { changed: boolean; value: JsonValue } => {
+    if (Array.isArray(value)) {
+        let changed = false;
+        const next = value.flatMap((item) => {
+            if (item === target) {
+                changed = true;
+                return [];
+            }
+
+            const result = removeStringFromJsonArrays(item, target);
+            changed = changed || result.changed;
+            return [result.value];
+        });
+        return { changed, value: next };
+    }
+
+    if (value && typeof value === 'object') {
+        let changed = false;
+        const next: Record<string, JsonValue> = {};
+        for (const [key, item] of Object.entries(value)) {
+            const result = removeStringFromJsonArrays(item, target);
+            changed = changed || result.changed;
+            next[key] = result.value;
+        }
+        return { changed, value: next };
+    }
+
+    return { changed: false, value };
+};
+
+const pruneResourcesStateReferences = async (sessionsDir: string, sessionId: string): Promise<void> => {
+    const resourceStatePaths = (await listFilesRecursively(sessionsDir)).filter(
+        (filePath) => path.basename(filePath) === 'resources_state.json',
+    );
+
+    for (const resourceStatePath of resourceStatePaths) {
+        const value = (await Bun.file(resourceStatePath)
+            .json()
+            .catch(() => null)) as JsonValue | null;
+        if (value === null) {
+            continue;
+        }
+
+        const result = removeStringFromJsonArrays(value, sessionId);
+        if (result.changed) {
+            await Bun.write(resourceStatePath, `${JSON.stringify(result.value, null, 2)}\n`);
+        }
+    }
+};
+
 const removeActiveSessionEntry = async (sessionsDir: string, sessionId: string): Promise<void> => {
     const activeSessionsPath = path.join(getGrokHomeFromSessionsDir(sessionsDir), 'active_sessions.json');
     const value = (await Bun.file(activeSessionsPath)
@@ -727,6 +925,7 @@ const removeActiveSessionEntry = async (sessionsDir: string, sessionId: string):
 export const readGrokSessionTranscript = async (
     sessionsDir: string,
     sessionId: string,
+    options: ReadGrokSessionTranscriptOptions = {},
 ): Promise<GrokSessionTranscript | null> => {
     if (!(await pathExists(sessionsDir))) {
         return null;
@@ -738,7 +937,7 @@ export const readGrokSessionTranscript = async (
     }
 
     const modelLabels = await readModelLabels(getGrokHomeFromSessionsDir(sessionsDir));
-    return readSessionDirectory(file, modelLabels);
+    return readSessionDirectory(file, modelLabels, options);
 };
 
 export const deleteGrokSession = async (sessionsDir: string, sessionId: string): Promise<DeleteGrokSessionResult> => {
@@ -746,14 +945,21 @@ export const deleteGrokSession = async (sessionsDir: string, sessionId: string):
         return { deletedFiles: [], deletedSessionIds: [] };
     }
 
-    const file = await locateSessionDirectory(sessionsDir, sessionId);
-    if (!file) {
+    const directories = [
+        ...(await listSessionDirectories(sessionsDir)).filter((file) => path.basename(file.sessionDir) === sessionId),
+        ...(await locateSessionDirectory(sessionsDir, sessionId).then((file) => (file ? [file] : []))),
+    ];
+    const uniqueSessionDirs = [...new Set(directories.map((file) => file.sessionDir))];
+    const relatedSubagentDirs = await listRelatedSubagentDirectories(sessionsDir, sessionId);
+    const deleteDirs = [...new Set([...uniqueSessionDirs, ...relatedSubagentDirs])];
+    if (deleteDirs.length === 0) {
         return { deletedFiles: [], deletedSessionIds: [] };
     }
 
-    const deletedFiles = await listFilesRecursively(file.sessionDir);
-    await rm(file.sessionDir, { force: true, recursive: true });
+    const deletedFiles = (await Promise.all(deleteDirs.map(listFilesRecursively))).flat();
+    await Promise.all(deleteDirs.map((directoryPath) => rm(directoryPath, { force: true, recursive: true })));
     await removeActiveSessionEntry(sessionsDir, sessionId);
+    await pruneResourcesStateReferences(sessionsDir, sessionId);
     return {
         deletedFiles,
         deletedSessionIds: [sessionId],

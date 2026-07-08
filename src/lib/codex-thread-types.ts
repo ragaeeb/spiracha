@@ -1,10 +1,8 @@
 import os from 'node:os';
 import path from 'node:path';
-import type { HeadroomRehydrationOptions, HeadroomRehydrator } from './headroom-transcript-rehydration';
 import type { ExportFormat, JsonValue } from './shared';
 
-export type CodexTranscriptRenderOptions = HeadroomRehydrationOptions & {
-    headroomRehydrator?: HeadroomRehydrator | null;
+export type CodexTranscriptRenderOptions = {
     includeMetadata: boolean;
     includeCommentary: boolean;
     includeTools: boolean;

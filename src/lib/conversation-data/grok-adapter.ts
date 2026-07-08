@@ -111,7 +111,9 @@ const buildConversation = async (
 ): Promise<ConversationDetail> => {
     const transcript =
         loadedTranscript ??
-        (options.includeMessages ? await readGrokSessionTranscript(sessionsDir, session.sessionId) : null);
+        (options.includeMessages
+            ? await readGrokSessionTranscript(sessionsDir, session.sessionId, { includeRawPayloads: false })
+            : null);
     const allMessages = transcript ? transcriptToMessages(transcript) : [];
     const messages = options.includeMessages
         ? selectConversationMessages(allMessages, options.messageSelector ?? 'last_final_answer')
@@ -162,7 +164,7 @@ const listGrokConversationsForPath = async (options: ListConversationsForPathOpt
 
 const getGrokConversation = async (options: GetConversationOptions): Promise<ConversationDetail | null> => {
     const sessionsDir = getSessionsDir(options);
-    const transcript = await readGrokSessionTranscript(sessionsDir, options.id);
+    const transcript = await readGrokSessionTranscript(sessionsDir, options.id, { includeRawPayloads: false });
     return transcript
         ? buildConversation(
               transcript.session,

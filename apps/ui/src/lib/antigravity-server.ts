@@ -1,6 +1,7 @@
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
 import { canExportAntigravityConversation, isAntigravityConversationLocked } from './antigravity-conversation-state';
+import { renderSourceSessionsDownload } from './source-session-export-server';
 
 const workspaceSchema = z.object({
     workspaceKey: z.string().min(1),
@@ -12,8 +13,16 @@ const conversationSchema = z.object({
 
 const exportSchema = z.object({
     conversationId: z.string().min(1),
-    headroomArchiveDir: z.string().optional(),
-    rehydrateHeadroom: z.boolean().optional(),
+});
+
+const exportConversationsSchema = z.object({
+    conversationIds: z.array(z.string().min(1)).min(1),
+    outputFormat: z.enum(['md', 'txt']).default('md'),
+    zipArchive: z.boolean().default(true),
+});
+
+const deleteConversationsSchema = z.object({
+    conversationIds: z.array(z.string().min(1)).min(1),
 });
 
 export const listAntigravityWorkspacesFn = createServerFn({ method: 'GET' }).handler(async () => {
@@ -74,10 +83,7 @@ export const loadAntigravityConversationDetail = async (conversationId: string) 
     };
 };
 
-export const loadAntigravityConversationExport = async (
-    conversationId: string,
-    options: { headroomArchiveDir?: string; rehydrateHeadroom?: boolean } = {},
-) => {
+export const loadAntigravityConversationExport = async (conversationId: string) => {
     const { renderAntigravityConversationMarkdown } = await import('@spiracha/lib/antigravity-db');
     const { getCachedAntigravityKeychainSecret } = await import('@spiracha/lib/antigravity-keychain');
     const conversation = await findAntigravityConversationById(conversationId);
@@ -93,9 +99,7 @@ export const loadAntigravityConversationExport = async (
     }
 
     const content = await renderAntigravityConversationMarkdown(conversation, {
-        archiveDir: options.headroomArchiveDir,
         keychainSecret,
-        rehydrateHeadroom: options.rehydrateHeadroom,
     });
     if (!content) {
         throw new Error(`No exportable Antigravity transcript found for conversation: ${conversationId}`);
@@ -133,9 +137,29 @@ export const exportAntigravityArtifactsFn = createServerFn({ method: 'POST' })
 export const exportAntigravityConversationFn = createServerFn({ method: 'POST' })
     .validator(exportSchema)
     .handler(async ({ data }) => {
-        return loadAntigravityConversationExport(data.conversationId, {
-            headroomArchiveDir: data.headroomArchiveDir,
-            rehydrateHeadroom: data.rehydrateHeadroom,
+        return loadAntigravityConversationExport(data.conversationId);
+    });
+
+export const exportAntigravityConversationsFn = createServerFn({ method: 'POST' })
+    .validator(exportConversationsSchema)
+    .handler(async ({ data }) => {
+        const entries = await Promise.all(
+            data.conversationIds.map(async (conversationId) => {
+                const result = await loadAntigravityConversationExport(conversationId);
+                return {
+                    content: result.content,
+                    fallbackBaseName: 'antigravity-conversation',
+                    fileBaseName: result.filename.replace(/\.(?:md|txt)$/u, ''),
+                };
+            }),
+        );
+
+        return renderSourceSessionsDownload({
+            entries,
+            exportBaseName: `antigravity-conversations-${data.conversationIds.length}`,
+            fallbackBaseName: 'antigravity-conversations',
+            outputFormat: data.outputFormat,
+            zipArchive: data.zipArchive,
         });
     });
 
@@ -145,4 +169,15 @@ export const deleteAntigravityConversationFn = createServerFn({ method: 'POST' }
         const { deleteAntigravityConversation } = await import('@spiracha/lib/antigravity-db');
         const { resolveAntigravityRoots } = await import('@spiracha/lib/antigravity-exporter-types');
         return deleteAntigravityConversation(resolveAntigravityRoots(), data.conversationId);
+    });
+
+export const deleteAntigravityConversationsFn = createServerFn({ method: 'POST' })
+    .validator(deleteConversationsSchema)
+    .handler(async ({ data }) => {
+        const { deleteAntigravityConversation } = await import('@spiracha/lib/antigravity-db');
+        const { resolveAntigravityRoots } = await import('@spiracha/lib/antigravity-exporter-types');
+        const roots = resolveAntigravityRoots();
+        return Promise.all(
+            data.conversationIds.map((conversationId) => deleteAntigravityConversation(roots, conversationId)),
+        );
     });

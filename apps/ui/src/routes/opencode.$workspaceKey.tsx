@@ -1,7 +1,7 @@
 import type { OpenCodeSessionSummary, OpenCodeWorkspaceGroup } from '@spiracha/lib/opencode-exporter-types';
 import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
-import { createFileRoute } from '@tanstack/react-router';
-import { useDeferredValue, useState } from 'react';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { useDeferredValue, useMemo, useState } from 'react';
 import { DeleteConfirmDialog } from '#/components/delete-confirm-dialog';
 import { ExportDialog } from '#/components/export-dialog';
 import { ListSearchInput } from '#/components/list-search-input';
@@ -11,8 +11,14 @@ import { PageHeader } from '#/components/page-header';
 import { ReloadErrorPanel } from '#/components/reload-error-panel';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import { openCodeSessionsQueryOptions, openCodeWorkspacesQueryOptions } from '#/lib/opencode-queries';
-import { deleteOpenCodeSessionFn, exportOpenCodeSessionFn } from '#/lib/opencode-server';
+import {
+    deleteOpenCodeSessionFn,
+    deleteOpenCodeSessionsFn,
+    exportOpenCodeSessionFn,
+    exportOpenCodeSessionsFn,
+} from '#/lib/opencode-server';
 import { matchesTextQuery } from '#/lib/text-filter';
+import { isWorkspaceEmptiedByDelete } from '#/lib/workspace-delete-navigation';
 
 type ExportDialogOptions = {
     includeCommentary: boolean;
@@ -20,6 +26,15 @@ type ExportDialogOptions = {
     includeTools: boolean;
     outputFormat: 'md' | 'txt';
     zipArchive: boolean;
+};
+
+type PendingSessionDelete = {
+    sessions: OpenCodeSessionSummary[];
+};
+
+type PendingSessionExport = {
+    label: string;
+    sessionIds: string[];
 };
 
 const findWorkspaceOrThrow = (workspaces: OpenCodeWorkspaceGroup[], workspaceKey: string) => {
@@ -30,6 +45,36 @@ const findWorkspaceOrThrow = (workspaces: OpenCodeWorkspaceGroup[], workspaceKey
 
     return workspace;
 };
+
+const buildSessionExport = (selectedSessions: OpenCodeSessionSummary[]): PendingSessionExport => ({
+    label: selectedSessions.length === 1 ? selectedSessions[0]!.title : `${selectedSessions.length} selected sessions`,
+    sessionIds: selectedSessions.map((session) => session.sessionId),
+});
+
+const getDeleteConfirmLabel = (pendingDelete: PendingSessionDelete | null, isPending: boolean) => {
+    if (isPending) {
+        return 'Deleting...';
+    }
+
+    return pendingDelete && pendingDelete.sessions.length > 1 ? 'Delete sessions' : 'Delete session';
+};
+
+const getDeleteDescription = (pendingDelete: PendingSessionDelete | null) => {
+    if (!pendingDelete) {
+        return 'Permanently delete the selected OpenCode sessions from the database.';
+    }
+
+    if (pendingDelete.sessions.length === 1) {
+        return `Permanently delete "${pendingDelete.sessions[0]!.title}" from OpenCode history. This removes the session, child sessions, messages, and parts from the OpenCode database.`;
+    }
+
+    return `Permanently delete ${pendingDelete.sessions.length} selected OpenCode sessions from the database, including child sessions, messages, and parts.`;
+};
+
+const getDeleteTitle = (pendingDelete: PendingSessionDelete | null) =>
+    pendingDelete && pendingDelete.sessions.length > 1
+        ? `Delete ${pendingDelete.sessions.length} OpenCode sessions?`
+        : 'Delete this OpenCode session?';
 
 export const Route = createFileRoute('/opencode/$workspaceKey')({
     component: OpenCodeWorkspacePage,
@@ -49,14 +94,15 @@ function OpenCodeWorkspaceErrorComponent({ error }: { error: Error }) {
 }
 
 function OpenCodeWorkspacePage() {
+    const navigate = useNavigate({ from: Route.fullPath });
     const params = Route.useParams();
     const queryClient = useQueryClient();
     const workspaces = useSuspenseQuery(openCodeWorkspacesQueryOptions()).data;
     const workspace = findWorkspaceOrThrow(workspaces, params.workspaceKey);
     const sessions = useSuspenseQuery(openCodeSessionsQueryOptions(workspace.key)).data;
     const [searchInput, setSearchInput] = useState('');
-    const [pendingDelete, setPendingDelete] = useState<OpenCodeSessionSummary | null>(null);
-    const [pendingExport, setPendingExport] = useState<OpenCodeSessionSummary | null>(null);
+    const [pendingDelete, setPendingDelete] = useState<PendingSessionDelete | null>(null);
+    const [pendingExport, setPendingExport] = useState<PendingSessionExport | null>(null);
     const deferredSearch = useDeferredValue(searchInput);
 
     const exportMutation = useMutation({
@@ -65,16 +111,28 @@ function OpenCodeWorkspacePage() {
                 throw new Error('No OpenCode session selected for export');
             }
 
-            const download = await exportOpenCodeSessionFn({
-                data: {
-                    includeCommentary: options.includeCommentary,
-                    includeMetadata: options.includeMetadata,
-                    includeTools: options.includeTools,
-                    outputFormat: options.outputFormat,
-                    sessionId: pendingExport.sessionId,
-                    zipArchive: options.zipArchive,
-                },
-            });
+            const download =
+                pendingExport.sessionIds.length === 1
+                    ? await exportOpenCodeSessionFn({
+                          data: {
+                              includeCommentary: options.includeCommentary,
+                              includeMetadata: options.includeMetadata,
+                              includeTools: options.includeTools,
+                              outputFormat: options.outputFormat,
+                              sessionId: pendingExport.sessionIds[0]!,
+                              zipArchive: options.zipArchive,
+                          },
+                      })
+                    : await exportOpenCodeSessionsFn({
+                          data: {
+                              includeCommentary: options.includeCommentary,
+                              includeMetadata: options.includeMetadata,
+                              includeTools: options.includeTools,
+                              outputFormat: options.outputFormat,
+                              sessionIds: pendingExport.sessionIds,
+                              zipArchive: options.zipArchive,
+                          },
+                      });
             if (download.mode === 'download') {
                 downloadTextFile(download.fileName, download.content, download.mimeType);
                 return;
@@ -88,30 +146,61 @@ function OpenCodeWorkspacePage() {
     });
 
     const deleteMutation = useMutation({
-        mutationFn: async (session: OpenCodeSessionSummary) =>
-            deleteOpenCodeSessionFn({ data: { sessionId: session.sessionId } }),
-        onSuccess: async () => {
+        mutationFn: async (sessionIds: string[]) =>
+            sessionIds.length === 1
+                ? deleteOpenCodeSessionFn({ data: { sessionId: sessionIds[0]! } })
+                : deleteOpenCodeSessionsFn({ data: { sessionIds } }),
+        onSuccess: async (_result, sessionIds) => {
+            const workspaceEmptied = isWorkspaceEmptiedByDelete(sessions, sessionIds, (session) => session.sessionId);
+            setPendingDelete(null);
+            if (workspaceEmptied) {
+                await navigate({ to: '/opencode' });
+            }
+
             await Promise.all([
                 queryClient.invalidateQueries({ queryKey: ['opencode-workspaces'] }),
                 queryClient.invalidateQueries({ queryKey: ['opencode-sessions', workspace.key] }),
-                pendingDelete
-                    ? queryClient.invalidateQueries({ queryKey: ['opencode-session', pendingDelete.sessionId] })
-                    : Promise.resolve(),
+                ...sessionIds.map((sessionId) =>
+                    queryClient.invalidateQueries({ queryKey: ['opencode-session', sessionId] }),
+                ),
             ]);
-            setPendingDelete(null);
         },
     });
 
-    const visibleSessions = sessions.filter((session) =>
-        matchesTextQuery(deferredSearch, [
-            session.title,
-            session.sessionId,
-            session.slug,
-            session.agent,
-            session.modelLabel,
-            session.directory,
-        ]),
+    const visibleSessions = useMemo(
+        () =>
+            sessions.filter((session) =>
+                matchesTextQuery(deferredSearch, [
+                    session.title,
+                    session.sessionId,
+                    session.slug,
+                    session.agent,
+                    session.modelLabel,
+                    session.directory,
+                ]),
+            ),
+        [deferredSearch, sessions],
     );
+    const visibleSessionsById = useMemo(
+        () => new Map(visibleSessions.map((session) => [session.sessionId, session])),
+        [visibleSessions],
+    );
+    const lookupSelectedSessions = (sessionIds: string[]) =>
+        sessionIds
+            .map((sessionId) => visibleSessionsById.get(sessionId) ?? null)
+            .filter((session): session is OpenCodeSessionSummary => session !== null);
+    const openExportForSessions = (selectedSessions: OpenCodeSessionSummary[]) => {
+        if (selectedSessions.length === 0) {
+            return;
+        }
+
+        setPendingExport(buildSessionExport(selectedSessions));
+    };
+    const openDeleteForSessions = (selectedSessions: OpenCodeSessionSummary[]) => {
+        if (selectedSessions.length > 0) {
+            setPendingDelete({ sessions: selectedSessions });
+        }
+    };
 
     return (
         <div className="space-y-6">
@@ -130,14 +219,17 @@ function OpenCodeWorkspacePage() {
 
             <OpenCodeSessionsTable
                 sessions={visibleSessions}
-                onDeleteSession={setPendingDelete}
-                onExportSession={setPendingExport}
+                onDeleteSession={(session) => openDeleteForSessions([session])}
+                onDeleteSessions={(sessionIds) => openDeleteForSessions(lookupSelectedSessions(sessionIds))}
+                onExportSession={(session) => openExportForSessions([session])}
+                onExportSessions={(sessionIds) => openExportForSessions(lookupSelectedSessions(sessionIds))}
             />
 
             <ExportDialog
+                forceZipArchive={pendingExport ? pendingExport.sessionIds.length > 1 : false}
                 open={pendingExport !== null}
                 pending={exportMutation.isPending}
-                title={pendingExport ? `Export ${pendingExport.title}` : 'Export session'}
+                title={pendingExport ? `Export ${pendingExport.label}` : 'Export session'}
                 onExport={(options) => exportMutation.mutate(options)}
                 onOpenChange={(open) => {
                     if (!open) {
@@ -154,12 +246,8 @@ function OpenCodeWorkspacePage() {
             ) : null}
 
             <DeleteConfirmDialog
-                confirmLabel={deleteMutation.isPending ? 'Deleting...' : 'Delete session'}
-                description={
-                    pendingDelete
-                        ? `Permanently delete "${pendingDelete.title}" from OpenCode history. This removes the session, child sessions, messages, and parts from the OpenCode database.`
-                        : 'Permanently delete this OpenCode session from the database.'
-                }
+                confirmLabel={getDeleteConfirmLabel(pendingDelete, deleteMutation.isPending)}
+                description={getDeleteDescription(pendingDelete)}
                 errorMessage={
                     deleteMutation.isError
                         ? deleteMutation.error instanceof Error
@@ -168,10 +256,10 @@ function OpenCodeWorkspacePage() {
                         : null
                 }
                 open={pendingDelete !== null}
-                title="Delete this OpenCode session?"
+                title={getDeleteTitle(pendingDelete)}
                 onConfirm={() => {
                     if (pendingDelete) {
-                        deleteMutation.mutate(pendingDelete);
+                        deleteMutation.mutate(pendingDelete.sessions.map((session) => session.sessionId));
                     }
                 }}
                 onOpenChange={(open) => {

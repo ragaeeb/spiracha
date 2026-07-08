@@ -5,6 +5,7 @@ import { createColumnHelper } from '@tanstack/react-table';
 import { Download, MoreHorizontal, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
+import { SelectionActionsToolbar } from '#/components/selection-actions-toolbar';
 import { Button } from '#/components/ui/button';
 import {
     DropdownMenu,
@@ -16,7 +17,9 @@ import { formatDateTime, formatNumber } from '#/lib/formatters';
 
 type GrokSessionsTableProps = {
     onDeleteSession: (session: GrokSessionSummary) => void;
+    onDeleteSessions: (sessionIds: string[]) => void;
     onExportSession: (session: GrokSessionSummary) => void;
+    onExportSessions: (sessionIds: string[]) => void;
     sessions: GrokSessionSummary[];
 };
 
@@ -91,7 +94,10 @@ const columns = (
                             <Download className="mr-2 size-4" />
                             Export session
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => onDeleteSession(info.row.original)}>
+                        <DropdownMenuItem
+                            className="text-[var(--destructive)]"
+                            onClick={() => onDeleteSession(info.row.original)}
+                        >
                             <Trash2 className="mr-2 size-4" />
                             Delete session
                         </DropdownMenuItem>
@@ -104,7 +110,13 @@ const columns = (
         }),
     ] as const;
 
-export const GrokSessionsTable = ({ onDeleteSession, onExportSession, sessions }: GrokSessionsTableProps) => {
+export const GrokSessionsTable = ({
+    onDeleteSession,
+    onDeleteSessions,
+    onExportSession,
+    onExportSessions,
+    sessions,
+}: GrokSessionsTableProps) => {
     const tableColumns = useMemo(() => columns(onDeleteSession, onExportSession), [onDeleteSession, onExportSession]);
 
     return (
@@ -112,7 +124,23 @@ export const GrokSessionsTable = ({ onDeleteSession, onExportSession, sessions }
             columns={tableColumns}
             data={sessions}
             emptyMessage="No Grok sessions match the current workspace filter."
+            enableRowSelection
+            getRowId={(row) => row.sessionId}
             initialSorting={defaultSorting}
+            renderToolbar={({ clearSelection, selectedRows }) => {
+                const selectedSessionIds = selectedRows.map((row) => row.sessionId);
+                const hasEmptySelection = selectedRows.some((row) => row.renderablePartCount === 0);
+                return (
+                    <SelectionActionsToolbar
+                        clearSelection={clearSelection}
+                        exportDisabled={hasEmptySelection}
+                        itemLabel="session"
+                        selectedCount={selectedRows.length}
+                        onDeleteSelected={() => onDeleteSessions(selectedSessionIds)}
+                        onExportSelected={() => onExportSessions(selectedSessionIds)}
+                    />
+                );
+            }}
         />
     );
 };

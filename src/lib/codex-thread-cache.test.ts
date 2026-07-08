@@ -58,6 +58,62 @@ describe('getCachedThreadTranscriptPreview', () => {
         expect(transcript.sourceFileSizeBytes).toBeGreaterThan(1);
     });
 
+    it('should return the last visible events for a filtered oversized rollout preview', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-cache-filtered-tail-test-'));
+        tempPaths.push(tempRoot);
+        const sessionFile = path.join(tempRoot, 'filtered-tail.jsonl');
+        await Bun.write(
+            sessionFile,
+            [
+                JSON.stringify({
+                    payload: { message: 'first user prompt', type: 'user_message' },
+                    timestamp: '2026-07-07T12:00:00.000Z',
+                    type: 'response_item',
+                }),
+                JSON.stringify({
+                    payload: { message: 'first final answer', phase: 'final_answer', type: 'agent_message' },
+                    timestamp: '2026-07-07T12:00:01.000Z',
+                    type: 'response_item',
+                }),
+                JSON.stringify({
+                    payload: { message: 'second user prompt', type: 'user_message' },
+                    timestamp: '2026-07-07T12:00:02.000Z',
+                    type: 'response_item',
+                }),
+                JSON.stringify({
+                    payload: { message: 'second final answer', phase: 'final_answer', type: 'agent_message' },
+                    timestamp: '2026-07-07T12:00:03.000Z',
+                    type: 'response_item',
+                }),
+                JSON.stringify({
+                    payload: { arguments: '{"cmd":"rtk bun test"}', name: 'exec_command', type: 'function_call' },
+                    timestamp: '2026-07-07T12:00:04.000Z',
+                    type: 'response_item',
+                }),
+            ].join('\n'),
+        );
+
+        const transcript = await getCachedThreadTranscriptPreview(sessionFile, {
+            filters: {
+                showCommentary: false,
+                showExtraEvents: false,
+                showToolCalls: false,
+                showUserMessages: false,
+            },
+            largeTranscriptThresholdBytes: 1,
+            previewEventLimit: 1,
+        });
+
+        expect(transcript.events).toHaveLength(1);
+        expect(transcript.events[0]).toMatchObject({
+            kind: 'message',
+            role: 'assistant',
+            text: 'second final answer',
+        });
+        expect(transcript.rawIncluded).toBe(false);
+        expect(transcript.statsArePartial).toBe(true);
+    });
+
     it('should switch to preview mode when a rollout exceeds the default size threshold', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-cache-default-large-test-'));
         tempPaths.push(tempRoot);

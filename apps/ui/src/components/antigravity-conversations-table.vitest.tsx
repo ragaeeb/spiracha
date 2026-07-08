@@ -163,8 +163,10 @@ describe('AntigravityConversationsTable', () => {
                 conversations={[conversation]}
                 decryptionState={lockedState}
                 onDeleteConversation={vi.fn()}
+                onDeleteConversations={vi.fn()}
                 onExportArtifacts={vi.fn()}
                 onExportConversation={vi.fn()}
+                onExportConversations={vi.fn()}
             />,
         );
 
@@ -186,8 +188,10 @@ describe('AntigravityConversationsTable', () => {
                 ]}
                 decryptionState={lockedState}
                 onDeleteConversation={vi.fn()}
+                onDeleteConversations={vi.fn()}
                 onExportArtifacts={vi.fn()}
                 onExportConversation={vi.fn()}
+                onExportConversations={vi.fn()}
             />,
         );
 
@@ -212,8 +216,10 @@ describe('AntigravityConversationsTable', () => {
                 conversations={[conversation]}
                 decryptionState={lockedState}
                 onDeleteConversation={vi.fn()}
+                onDeleteConversations={vi.fn()}
                 onExportArtifacts={vi.fn()}
                 onExportConversation={onExportConversation}
+                onExportConversations={vi.fn()}
             />,
         );
 
@@ -246,8 +252,10 @@ describe('AntigravityConversationsTable', () => {
                 ]}
                 decryptionState={unlockedState}
                 onDeleteConversation={vi.fn()}
+                onDeleteConversations={vi.fn()}
                 onExportArtifacts={vi.fn()}
                 onExportConversation={vi.fn()}
+                onExportConversations={vi.fn()}
             />,
         );
 
@@ -273,8 +281,10 @@ describe('AntigravityConversationsTable', () => {
                 conversations={[conversation]}
                 decryptionState={unlockedState}
                 onDeleteConversation={vi.fn()}
+                onDeleteConversations={vi.fn()}
                 onExportArtifacts={onExportArtifacts}
                 onExportConversation={onExportConversation}
+                onExportConversations={vi.fn()}
             />,
         );
 
@@ -302,8 +312,10 @@ describe('AntigravityConversationsTable', () => {
                 conversations={[conversation]}
                 decryptionState={unlockedState}
                 onDeleteConversation={onDeleteConversation}
+                onDeleteConversations={vi.fn()}
                 onExportArtifacts={vi.fn()}
                 onExportConversation={vi.fn()}
+                onExportConversations={vi.fn()}
             />,
         );
 
@@ -318,5 +330,37 @@ describe('AntigravityConversationsTable', () => {
         fireEvent.click(await screen.findByText('Delete conversation'));
 
         expect(onDeleteConversation).toHaveBeenCalledWith(conversation);
+    });
+
+    it('should allow selecting multiple conversations and trigger bulk actions', () => {
+        const onDeleteConversations = vi.fn();
+        const onExportConversations = vi.fn();
+
+        render(
+            <AntigravityConversationsTable
+                conversations={[
+                    conversation,
+                    {
+                        ...conversation,
+                        conversationId: 'conversation-2',
+                        title: 'Second workspace sync',
+                    },
+                ]}
+                decryptionState={unlockedState}
+                onDeleteConversation={vi.fn()}
+                onDeleteConversations={onDeleteConversations}
+                onExportArtifacts={vi.fn()}
+                onExportConversation={vi.fn()}
+                onExportConversations={onExportConversations}
+            />,
+        );
+
+        fireEvent.click(screen.getByRole('checkbox', { name: 'Select row conversation-1' }));
+        fireEvent.click(screen.getByRole('checkbox', { name: 'Select row conversation-2' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Export selected conversations' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Delete selected conversations' }));
+
+        expect(onExportConversations).toHaveBeenCalledWith(['conversation-1', 'conversation-2']);
+        expect(onDeleteConversations).toHaveBeenCalledWith(['conversation-1', 'conversation-2']);
     });
 });

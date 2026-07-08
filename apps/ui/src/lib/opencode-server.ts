@@ -1,6 +1,6 @@
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
-import { renderSourceSessionDownload } from './source-session-export-server';
+import { renderSourceSessionDownload, renderSourceSessionsDownload } from './source-session-export-server';
 
 const workspaceSchema = z.object({
     workspaceKey: z.string().min(1),
@@ -11,14 +11,25 @@ const sessionSchema = z.object({
 });
 
 const exportSessionSchema = z.object({
-    headroomArchiveDir: z.string().optional(),
     includeCommentary: z.boolean().default(true),
     includeMetadata: z.boolean().default(true),
     includeTools: z.boolean().default(true),
     outputFormat: z.enum(['md', 'txt']).default('md'),
-    rehydrateHeadroom: z.boolean().optional(),
     sessionId: z.string().min(1),
     zipArchive: z.boolean().default(false),
+});
+
+const exportSessionsSchema = z.object({
+    includeCommentary: z.boolean().default(true),
+    includeMetadata: z.boolean().default(true),
+    includeTools: z.boolean().default(true),
+    outputFormat: z.enum(['md', 'txt']).default('md'),
+    sessionIds: z.array(z.string().min(1)).min(1),
+    zipArchive: z.boolean().default(true),
+});
+
+const deleteSessionsSchema = z.object({
+    sessionIds: z.array(z.string().min(1)).min(1),
 });
 
 export const listOpenCodeWorkspacesFn = createServerFn({ method: 'GET' }).handler(async () => {
@@ -55,12 +66,10 @@ export const exportOpenCodeSessionFn = createServerFn({ method: 'POST' })
         const { renderOpenCodeTranscript } = await import('@spiracha/lib/opencode-transcript');
         const transcript = await loadOpenCodeSessionTranscript(data.sessionId);
         const content = renderOpenCodeTranscript(transcript, {
-            archiveDir: data.headroomArchiveDir,
             includeCommentary: data.includeCommentary,
             includeMetadata: data.includeMetadata,
             includeTools: data.includeTools,
             outputFormat: data.outputFormat,
-            rehydrateHeadroom: data.rehydrateHeadroom,
         });
 
         if (!content) {
@@ -76,9 +85,52 @@ export const exportOpenCodeSessionFn = createServerFn({ method: 'POST' })
         });
     });
 
+export const exportOpenCodeSessionsFn = createServerFn({ method: 'POST' })
+    .validator(exportSessionsSchema)
+    .handler(async ({ data }) => {
+        const { renderOpenCodeTranscript } = await import('@spiracha/lib/opencode-transcript');
+        const entries = await Promise.all(
+            data.sessionIds.map(async (sessionId) => {
+                const transcript = await loadOpenCodeSessionTranscript(sessionId);
+                const content = renderOpenCodeTranscript(transcript, {
+                    includeCommentary: data.includeCommentary,
+                    includeMetadata: data.includeMetadata,
+                    includeTools: data.includeTools,
+                    outputFormat: data.outputFormat,
+                });
+
+                if (!content) {
+                    throw new Error(`OpenCode session has no exportable content: ${sessionId}`);
+                }
+
+                return {
+                    content,
+                    fallbackBaseName: 'opencode-session',
+                    fileBaseName: transcript.session.title || transcript.session.slug || transcript.session.sessionId,
+                };
+            }),
+        );
+
+        return renderSourceSessionsDownload({
+            entries,
+            exportBaseName: `opencode-sessions-${data.sessionIds.length}`,
+            fallbackBaseName: 'opencode-sessions',
+            outputFormat: data.outputFormat,
+            zipArchive: data.zipArchive,
+        });
+    });
+
 export const deleteOpenCodeSessionFn = createServerFn({ method: 'POST' })
     .validator(sessionSchema)
     .handler(async ({ data }) => {
         const { deleteOpenCodeSession, resolveOpenCodeDbPath } = await import('@spiracha/lib/opencode-db');
         return deleteOpenCodeSession(resolveOpenCodeDbPath(), data.sessionId);
+    });
+
+export const deleteOpenCodeSessionsFn = createServerFn({ method: 'POST' })
+    .validator(deleteSessionsSchema)
+    .handler(async ({ data }) => {
+        const { deleteOpenCodeSession, resolveOpenCodeDbPath } = await import('@spiracha/lib/opencode-db');
+        const dbPath = resolveOpenCodeDbPath();
+        return Promise.all(data.sessionIds.map((sessionId) => deleteOpenCodeSession(dbPath, sessionId)));
     });

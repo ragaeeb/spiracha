@@ -2,6 +2,8 @@ import { stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { ParsedCodexTranscript } from './codex-browser-types';
 import { parseCodexTranscriptFile } from './codex-thread-parser';
+import type { CodexTranscriptEventFilters } from './codex-transcript-filter';
+import { shouldShowCodexTranscriptEvent } from './codex-transcript-filter';
 import { getFileFingerprint, hashCacheKeyParts, withCachedJson } from './ui-cache';
 
 // Keep initial thread payloads below sizes that make TanStack Start SSR responses unreliable.
@@ -20,6 +22,7 @@ export const getCachedParsedCodexTranscript = async (sessionFile: string): Promi
 };
 
 type CachedThreadTranscriptPreviewOptions = {
+    filters?: CodexTranscriptEventFilters;
     largeTranscriptThresholdBytes?: number;
     previewEventLimit?: number;
 };
@@ -54,9 +57,11 @@ export const getCachedThreadTranscriptPreview = async (
 ): Promise<ParsedCodexTranscript> => {
     const threshold = options.largeTranscriptThresholdBytes ?? LARGE_THREAD_SIZE_BYTES;
     const previewEventLimit = options.previewEventLimit ?? LARGE_THREAD_PREVIEW_EVENT_LIMIT;
+    const filters = options.filters;
     const fingerprint = await getFileFingerprint(sessionFile);
     const { fileSizeBytes, shouldDeferTranscriptLoad } = await getThreadRolloutLoadState(sessionFile, threshold);
-    const key = `thread-preview-${hashCacheKeyParts(path.basename(sessionFile), fingerprint, String(threshold), String(previewEventLimit))}`;
+    const filterKey = filters ? JSON.stringify(filters) : 'all';
+    const key = `thread-preview-${hashCacheKeyParts(path.basename(sessionFile), fingerprint, String(threshold), String(previewEventLimit), filterKey)}`;
 
     return withCachedJson(key, async () => {
         if (!shouldDeferTranscriptLoad) {
@@ -66,10 +71,11 @@ export const getCachedThreadTranscriptPreview = async (
         }
 
         return parseCodexTranscriptFile(sessionFile, {
+            eventFilter: filters ? (event) => shouldShowCodexTranscriptEvent(event, filters) : undefined,
             includeRaw: false,
-            maxEvents: previewEventLimit,
             maxTurnContexts: 0,
             sourceFileSizeBytes: fileSizeBytes,
+            tailEventLimit: previewEventLimit,
         });
     });
 };

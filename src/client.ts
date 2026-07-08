@@ -18,7 +18,6 @@ import type {
     ListConversationsForPathOptions,
     ResolvedConversationRef,
 } from './lib/conversation-data/types';
-import type { HeadroomRehydrationOptions } from './lib/headroom-transcript-rehydration';
 
 export type {
     ConversationDataLocations,
@@ -73,9 +72,7 @@ export type HttpConversationClientOptions = {
 
 export type CreateConversationClientOptions = HttpConversationClientOptions | LocalConversationClientOptions;
 
-export type ExportConversationMarkdownOptions = GetConversationOptions & {
-    headroomArchiveDir?: string | null;
-} & Pick<HeadroomRehydrationOptions, 'rehydrateHeadroom'>;
+export type ExportConversationMarkdownOptions = GetConversationOptions;
 
 export type ConversationClient = {
     deleteConversation: (options: DeleteConversationOptions) => Promise<DeleteConversationResult | null>;
@@ -136,15 +133,6 @@ const appendListOptions = (url: URL, options: ListConversationsForPathOptions): 
 const appendMessageSelector = (url: URL, messageSelector: ConversationMessageSelector | undefined): void => {
     if (messageSelector) {
         url.searchParams.set('message_selector', messageSelector);
-    }
-};
-
-const appendHeadroomExportOptions = (url: URL, options: ExportConversationMarkdownOptions): void => {
-    if (options.headroomArchiveDir) {
-        url.searchParams.set('headroom_archive_dir', options.headroomArchiveDir);
-    }
-    if (options.rehydrateHeadroom !== undefined) {
-        url.searchParams.set('rehydrate_headroom', String(options.rehydrateHeadroom));
     }
 };
 
@@ -254,9 +242,7 @@ const makeLocalClient = (options: LocalConversationClientOptions): ConversationC
         const conversation = await getLocalConversation(withDefaultLocations(getOptions, options.locations));
         return conversation
             ? renderLocalConversationMarkdown(conversation, {
-                  headroomArchiveDir: getOptions.headroomArchiveDir,
                   messageSelector: getOptions.messageSelector,
-                  rehydrateHeadroom: getOptions.rehydrateHeadroom,
               })
             : null;
     },
@@ -286,7 +272,6 @@ const makeHttpClient = (options: HttpConversationClientOptions): ConversationCli
             const { id, messageSelector, source } = getOptions;
             const url = makeHttpUrl(baseUrl, `/api/v1/conversations/${source}/${encodeURIComponent(id)}/export`);
             appendMessageSelector(url, messageSelector);
-            appendHeadroomExportOptions(url, getOptions);
             return fetchTextOrNull(url);
         },
         getConversation: async (getOptions) => {

@@ -11,7 +11,6 @@ import { buildUiExportDownloadUrl, ensureUiExportDir } from './ui-export-files';
 
 type RenderCodexThreadDownloadInput = {
     dbPath: string;
-    headroomArchiveDir?: string | null;
     includeCommentary: boolean;
     includeMetadata: boolean;
     includeTools: boolean;
@@ -19,7 +18,6 @@ type RenderCodexThreadDownloadInput = {
     outputFormat: ExportFormat;
     pathDisplaySettings?: Pick<PathDisplaySettings, 'convertToProjectRoot' | 'redactUsername'>;
     publicExportDir?: string;
-    rehydrateHeadroom?: boolean;
     threadId: string;
     zipArchive?: boolean;
 };
@@ -93,12 +91,10 @@ type RolloutSnapshot = {
 
 const toDownloadOptions = (input: RenderCodexThreadDownloadInput): CodexTranscriptRenderOptions => {
     return {
-        archiveDir: input.headroomArchiveDir,
         includeCommentary: input.includeCommentary,
         includeMetadata: input.includeMetadata,
         includeTools: input.includeTools,
         outputFormat: input.outputFormat,
-        rehydrateHeadroom: input.rehydrateHeadroom,
     };
 };
 

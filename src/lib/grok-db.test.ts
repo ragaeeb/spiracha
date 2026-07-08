@@ -59,13 +59,22 @@ const writeGrokSessionFixture = async ({
             id: sessionId,
         },
         last_active_at: '2026-07-04T16:53:22.000Z',
-        num_chat_messages: 6,
+        num_chat_messages: 7,
         sandbox_profile: 'off',
     });
     await writeJsonl(path.join(sessionDir, 'chat_history.jsonl'), [
         { content: 'System prompt', type: 'system' },
         {
-            content: [{ text: 'Please review the seed refresh implementation.', type: 'text' }],
+            content: [{ text: '<user_info>\nOS Version: darwin 25.5.0\n</user_info>', type: 'text' }],
+            type: 'user',
+        },
+        {
+            content: [
+                {
+                    text: '<user_query>\nPlease review the seed refresh implementation.\n</user_query>',
+                    type: 'text',
+                },
+            ],
             type: 'user',
         },
         {
@@ -150,12 +159,110 @@ describe('grok db helpers', () => {
         expect(transcript?.entries.map((entry) => entry.type)).toEqual([
             'system',
             'user',
+            'user',
             'reasoning',
             'assistant',
             'tool_result',
             'assistant',
         ]);
-        expect(transcript?.renderablePartCount).toBe(6);
+        expect(transcript?.entries.map((entry) => entry.role)).toEqual([
+            'system',
+            'system',
+            'user',
+            'assistant',
+            'assistant',
+            'tool',
+            'assistant',
+        ]);
+        expect(transcript?.entries[2]?.parts[0]?.text).toBe('Please review the seed refresh implementation.');
+        expect(transcript?.renderablePartCount).toBe(7);
+    });
+
+    it('should rehydrate Grok messages hidden by context compaction', async () => {
+        const grokHome = await makeTempRoot();
+        const workspacePath = path.join(grokHome, 'project');
+        const fixture = await writeGrokSessionFixture({ grokHome, workspacePath });
+        const preCompactionHistory = [
+            { content: 'System prompt', type: 'system' },
+            {
+                content: [{ text: '<user_info>\nOS Version: darwin 25.5.0\n</user_info>', type: 'text' }],
+                type: 'user',
+            },
+            {
+                content: [{ text: '<user_query>\nFirst user prompt.\n</user_query>', type: 'text' }],
+                type: 'user',
+            },
+            {
+                content: 'First answer before compaction.',
+                model_id: 'grok-composer-2.5-fast',
+                type: 'assistant',
+            },
+        ];
+        const compactedHistory = [
+            preCompactionHistory[0],
+            preCompactionHistory[1],
+            {
+                content: [{ text: 'Your conversation was summarized due to context constraints.', type: 'text' }],
+                type: 'user',
+            },
+        ];
+        await mkdir(path.join(fixture.sessionDir, 'compaction_requests'), { recursive: true });
+        await mkdir(path.join(fixture.sessionDir, 'compaction_checkpoints'), { recursive: true });
+        await writeJson(path.join(fixture.sessionDir, 'compaction_requests', 'request.json'), {
+            chat_history: preCompactionHistory,
+            created_at: '2026-07-04T16:52:00.000Z',
+            schema_version: 1,
+        });
+        await writeJson(path.join(fixture.sessionDir, 'compaction_checkpoints', 'checkpoint.json'), {
+            compacted_history: compactedHistory,
+            created_at: '2026-07-04T16:52:10.000Z',
+            prompt_index_at_compaction: 1,
+            schema_version: 1,
+        });
+        await writeJsonl(path.join(fixture.sessionDir, 'chat_history.jsonl'), [
+            ...compactedHistory,
+            {
+                content: [{ text: '<user_query>\nSecond user prompt after compaction.\n</user_query>', type: 'text' }],
+                type: 'user',
+            },
+            {
+                content: 'Second answer after compaction.',
+                model_id: 'grok-composer-2.5-fast',
+                type: 'assistant',
+            },
+        ]);
+
+        const transcript = await readGrokSessionTranscript(fixture.sessionsDir, fixture.sessionId);
+
+        expect(transcript?.entries.map((entry) => entry.parts[0]?.text).filter(Boolean)).toContain(
+            'First user prompt.',
+        );
+        expect(transcript?.entries.map((entry) => entry.parts[0]?.text).filter(Boolean)).not.toContain(
+            'Your conversation was summarized due to context constraints.',
+        );
+        expect(transcript?.entries.map((entry) => entry.parts[0]?.text).filter(Boolean)).toContain(
+            'Second user prompt after compaction.',
+        );
+        expect(transcript?.entries.map((entry) => entry.parts[0]?.text).filter(Boolean)).toContain(
+            'Second answer after compaction.',
+        );
+        expect(transcript?.session.userMessageCount).toBe(2);
+    });
+
+    it('should omit raw Grok payloads when requested for large UI responses', async () => {
+        const grokHome = await makeTempRoot();
+        const workspacePath = path.join(grokHome, 'project');
+        const fixture = await writeGrokSessionFixture({ grokHome, workspacePath });
+
+        const transcript = await readGrokSessionTranscript(fixture.sessionsDir, fixture.sessionId, {
+            includeRawPayloads: false,
+        });
+
+        expect(transcript?.rawPayloadsOmitted).toBe(true);
+        expect(transcript?.rawEvents).toEqual([]);
+        expect(transcript?.entries[0]?.raw).toEqual({});
+        expect(transcript?.entries[0]?.parts[0]?.raw).toEqual({});
+        expect(transcript?.entries[2]?.parts[0]?.text).toBe('Please review the seed refresh implementation.');
     });
 
     it('should delete a Grok session directory and active session entry', async () => {
@@ -174,5 +281,48 @@ describe('grok db helpers', () => {
         ]);
         await expect(readGrokSessionTranscript(fixture.sessionsDir, fixture.sessionId)).resolves.toBeNull();
         await expect(Bun.file(path.join(grokHome, 'active_sessions.json')).json()).resolves.toEqual([]);
+    });
+
+    it('should delete Grok subagent metadata and parent resource references for a session', async () => {
+        const grokHome = await makeTempRoot();
+        const workspacePath = path.join(grokHome, 'project');
+        const parent = await writeGrokSessionFixture({
+            grokHome,
+            sessionId: 'parent-session',
+            workspacePath,
+        });
+        const child = await writeGrokSessionFixture({
+            grokHome,
+            sessionId: 'child-session',
+            workspacePath,
+        });
+        const subagentDir = path.join(parent.sessionDir, 'subagents', child.sessionId);
+        await mkdir(subagentDir, { recursive: true });
+        await writeJson(path.join(subagentDir, 'meta.json'), {
+            child_session_id: child.sessionId,
+            parent_session_id: parent.sessionId,
+            subagent_id: child.sessionId,
+        });
+        await writeJson(path.join(parent.sessionDir, 'resources_state.json'), {
+            state: {
+                'grok_build.ReportedTaskCompletions': {
+                    reported: [child.sessionId, 'kept-session'],
+                },
+            },
+        });
+
+        const result = await deleteGrokSession(child.sessionsDir, child.sessionId);
+
+        expect(result.deletedSessionIds).toEqual([child.sessionId]);
+        expect(result.deletedFiles).toContain(path.join(child.sessionDir, 'chat_history.jsonl'));
+        expect(result.deletedFiles).toContain(path.join(subagentDir, 'meta.json'));
+        await expect(readGrokSessionTranscript(child.sessionsDir, child.sessionId)).resolves.toBeNull();
+        await expect(Bun.file(path.join(parent.sessionDir, 'resources_state.json')).json()).resolves.toEqual({
+            state: {
+                'grok_build.ReportedTaskCompletions': {
+                    reported: ['kept-session'],
+                },
+            },
+        });
     });
 });

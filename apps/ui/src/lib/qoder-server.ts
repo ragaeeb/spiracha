@@ -1,6 +1,6 @@
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
-import { renderSourceSessionDownload } from './source-session-export-server';
+import { renderSourceSessionDownload, renderSourceSessionsDownload } from './source-session-export-server';
 
 const workspaceSchema = z.object({
     workspaceKey: z.string().min(1),
@@ -17,6 +17,15 @@ const exportSessionSchema = z.object({
     outputFormat: z.enum(['md', 'txt']).default('md'),
     sessionId: z.string().min(1),
     zipArchive: z.boolean().default(false),
+});
+
+const exportSessionsSchema = z.object({
+    includeCommentary: z.boolean().default(true),
+    includeMetadata: z.boolean().default(true),
+    includeTools: z.boolean().default(true),
+    outputFormat: z.enum(['md', 'txt']).default('md'),
+    sessionIds: z.array(z.string().min(1)).min(1),
+    zipArchive: z.boolean().default(true),
 });
 
 export const listQoderWorkspacesFn = createServerFn({ method: 'GET' }).handler(async () => {
@@ -73,6 +82,41 @@ export const exportQoderSessionFn = createServerFn({ method: 'POST' })
             content,
             fallbackBaseName: 'qoder-session',
             fileBaseName: transcript.session.title || transcript.session.sessionId,
+            outputFormat: data.outputFormat,
+            zipArchive: data.zipArchive,
+        });
+    });
+
+export const exportQoderSessionsFn = createServerFn({ method: 'POST' })
+    .validator(exportSessionsSchema)
+    .handler(async ({ data }) => {
+        const { renderQoderTranscript } = await import('@spiracha/lib/qoder-transcript');
+        const entries = await Promise.all(
+            data.sessionIds.map(async (sessionId) => {
+                const transcript = await loadQoderSessionTranscript(sessionId);
+                const content = renderQoderTranscript(transcript, {
+                    includeCommentary: data.includeCommentary,
+                    includeMetadata: data.includeMetadata,
+                    includeTools: data.includeTools,
+                    outputFormat: data.outputFormat,
+                });
+
+                if (!content) {
+                    throw new Error(`Qoder session has no exportable content: ${sessionId}`);
+                }
+
+                return {
+                    content,
+                    fallbackBaseName: 'qoder-session',
+                    fileBaseName: transcript.session.title || transcript.session.sessionId,
+                };
+            }),
+        );
+
+        return renderSourceSessionsDownload({
+            entries,
+            exportBaseName: `qoder-sessions-${data.sessionIds.length}`,
+            fallbackBaseName: 'qoder-sessions',
             outputFormat: data.outputFormat,
             zipArchive: data.zipArchive,
         });

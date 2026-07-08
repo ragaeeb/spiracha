@@ -311,6 +311,72 @@ describe('TranscriptView', () => {
         expect(screen.getByText('Implemented the requested dashboard update.')).toBeTruthy();
     });
 
+    it('should sort visible transcript events latest first without mutating source order', () => {
+        const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+        HTMLElement.prototype.scrollIntoView = vi.fn();
+        const events = [
+            { ...messageEvent, sequence: 1, text: 'Earliest message' },
+            { ...messageEvent, sequence: 2, text: 'Middle message' },
+            { ...messageEvent, sequence: 3, text: 'Latest message' },
+        ];
+
+        try {
+            const handleSortOrderChange = vi.fn();
+            const { container, rerender } = render(
+                <TranscriptView
+                    assistantModel={null}
+                    events={events}
+                    projectPath="/Users/example/workspace/spiracha"
+                    showCommentary
+                    showExtraEvents={false}
+                    showRawJson={false}
+                    showToolCalls={false}
+                    sortOrder="earliest"
+                    onSortOrderChange={handleSortOrderChange}
+                />,
+            );
+
+            const renderedMessageTexts = () =>
+                [...container.querySelectorAll('article')]
+                    .map((article) => article.textContent ?? '')
+                    .flatMap((text) => {
+                        if (text.includes('Earliest message')) {
+                            return ['Earliest message'];
+                        }
+                        if (text.includes('Middle message')) {
+                            return ['Middle message'];
+                        }
+                        return text.includes('Latest message') ? ['Latest message'] : [];
+                    });
+
+            expect(renderedMessageTexts()).toEqual(['Earliest message', 'Middle message', 'Latest message']);
+
+            fireEvent.click(screen.getByRole('combobox', { name: 'Sort transcript messages' }));
+            fireEvent.click(screen.getByText('Latest first'));
+
+            expect(handleSortOrderChange).toHaveBeenCalledWith('latest');
+
+            rerender(
+                <TranscriptView
+                    assistantModel={null}
+                    events={events}
+                    projectPath="/Users/example/workspace/spiracha"
+                    showCommentary
+                    showExtraEvents={false}
+                    showRawJson={false}
+                    showToolCalls={false}
+                    sortOrder="latest"
+                    onSortOrderChange={handleSortOrderChange}
+                />,
+            );
+
+            expect(renderedMessageTexts()).toEqual(['Latest message', 'Middle message', 'Earliest message']);
+            expect(events.map((event) => event.text)).toEqual(['Earliest message', 'Middle message', 'Latest message']);
+        } finally {
+            HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+        }
+    });
+
     it('should label system messages as System instead of User', () => {
         render(
             <TranscriptView

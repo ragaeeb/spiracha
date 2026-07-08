@@ -1,8 +1,3 @@
-import {
-    buildHeadroomMetadataEntries,
-    type HeadroomRehydrator,
-    resolveHeadroomRehydrator,
-} from './headroom-transcript-rehydration';
 import type {
     OpenCodeExportOptions,
     OpenCodeSessionSummary,
@@ -44,10 +39,7 @@ const getSessionTitle = (session: OpenCodeSessionSummary): string => {
     return cleanInlineTitle(session.title || session.sessionId);
 };
 
-const buildMetadataEntries = (
-    session: OpenCodeSessionSummary,
-    rehydrator: HeadroomRehydrator | null,
-): MetadataEntry[] => [
+const buildMetadataEntries = (session: OpenCodeSessionSummary): MetadataEntry[] => [
     { key: 'exported_from', value: 'opencode_sqlite' },
     { key: 'session_id', value: session.sessionId },
     { key: 'title', value: session.title },
@@ -65,7 +57,6 @@ const buildMetadataEntries = (
     { key: 'part_count', value: session.partCount },
     { key: 'total_tokens', value: session.totalTokens },
     { key: 'cost', value: session.cost },
-    ...buildHeadroomMetadataEntries(rehydrator),
 ];
 
 const roleTitle = (role: string): string => {
@@ -97,15 +88,7 @@ const renderTextPart = (
     options: OpenCodeExportOptions,
     finalAssistantTextPartIds: Set<string>,
 ): string => {
-    const rawText =
-        options.headroomRehydrator?.rehydrateText(part.text ?? '', {
-            client: 'opencode',
-            model: part.raw.modelID ? String(part.raw.modelID) : null,
-            provider: part.raw.providerID ? String(part.raw.providerID) : null,
-            sessionId: part.raw.sessionID ? String(part.raw.sessionID) : null,
-        }) ??
-        part.text ??
-        '';
+    const rawText = part.text ?? '';
     const { reasoningBlocks, visibleText } =
         part.role === 'assistant'
             ? splitOpenCodeThinkTaggedText(rawText)
@@ -137,15 +120,7 @@ const renderReasoningPart = (part: OpenCodeTranscriptPart, options: OpenCodeExpo
         return '';
     }
 
-    const rawText =
-        options.headroomRehydrator?.rehydrateText(part.text ?? '', {
-            client: 'opencode',
-            model: part.raw.modelID ? String(part.raw.modelID) : null,
-            provider: part.raw.providerID ? String(part.raw.providerID) : null,
-            sessionId: part.raw.sessionID ? String(part.raw.sessionID) : null,
-        }) ??
-        part.text ??
-        '';
+    const rawText = part.text ?? '';
     const { reasoningBlocks, visibleText } = splitOpenCodeThinkTaggedText(rawText);
     const text = cleanExtractedText([...reasoningBlocks, visibleText].filter(Boolean).join('\n\n')).trim();
     return text ? renderSection('Reasoning', text, options.outputFormat) : '';
@@ -170,15 +145,7 @@ const renderToolPart = (part: OpenCodeTranscriptPart, options: OpenCodeExportOpt
     if (part.argumentsText?.trim()) {
         lines.push('', 'Input:', '', renderCodeBlock(part.argumentsText.trim(), options.outputFormat));
     }
-    const outputText =
-        options.headroomRehydrator?.rehydrateText(part.outputText ?? '', {
-            client: 'opencode',
-            model: part.raw.modelID ? String(part.raw.modelID) : null,
-            provider: part.raw.providerID ? String(part.raw.providerID) : null,
-            sessionId: part.raw.sessionID ? String(part.raw.sessionID) : null,
-        }) ??
-        part.outputText ??
-        '';
+    const outputText = part.outputText ?? '';
     if (outputText.trim()) {
         lines.push('', 'Output:', '', renderCodeBlock(truncateOutput(outputText.trim()), options.outputFormat));
     }
@@ -210,13 +177,9 @@ export const renderOpenCodeTranscript = (
     transcript: OpenCodeSessionTranscript,
     options: OpenCodeExportOptions,
 ): string | null => {
-    const rehydrator = options.headroomRehydrator ?? resolveHeadroomRehydrator(options);
-    const renderOptions = { ...options, headroomRehydrator: rehydrator };
     const partsList = transcript.messages.flatMap((message) => message.parts);
     const finalAssistantTextPartIds = getFinalOpenCodeAssistantTextPartIds(partsList);
-    const sections = partsList
-        .map((part) => renderPart(part, renderOptions, finalAssistantTextPartIds))
-        .filter(Boolean);
+    const sections = partsList.map((part) => renderPart(part, options, finalAssistantTextPartIds)).filter(Boolean);
     if (sections.length === 0) {
         return null;
     }
@@ -225,7 +188,7 @@ export const renderOpenCodeTranscript = (
         renderDocumentTitle(getSessionTitle(transcript.session), options.outputFormat),
         '',
         options.includeMetadata
-            ? renderMetadataBlock(buildMetadataEntries(transcript.session, rehydrator), options.outputFormat)
+            ? renderMetadataBlock(buildMetadataEntries(transcript.session), options.outputFormat)
             : '',
         ...sections,
     ].filter(Boolean);

@@ -1,10 +1,12 @@
 import type { AntigravityConversation } from '@spiracha/lib/antigravity-exporter-types';
 import type { AntigravityDecryptionState } from '@spiracha/lib/antigravity-keychain';
 import { Link } from '@tanstack/react-router';
+import type { SortingState } from '@tanstack/react-table';
 import { createColumnHelper } from '@tanstack/react-table';
 import { Download, LockKeyhole, MoreHorizontal, ScrollText, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
+import { SelectionActionsToolbar } from '#/components/selection-actions-toolbar';
 import { Badge } from '#/components/ui/badge';
 import { Button } from '#/components/ui/button';
 import {
@@ -25,8 +27,10 @@ type AntigravityConversationsTableProps = {
     conversations: AntigravityConversation[];
     decryptionState: AntigravityDecryptionState | null;
     onDeleteConversation: (conversation: AntigravityConversation) => void;
+    onDeleteConversations: (conversationIds: string[]) => void;
     onExportArtifacts: (conversation: AntigravityConversation) => void;
     onExportConversation: (conversation: AntigravityConversation) => void;
+    onExportConversations: (conversationIds: string[]) => void;
 };
 
 type ConversationExportState = {
@@ -38,6 +42,7 @@ type ConversationExportState = {
 };
 
 const columnHelper = createColumnHelper<AntigravityConversation>();
+const defaultSorting: SortingState = [{ desc: true, id: 'updatedAt' }];
 
 const getConversationExportState = (
     conversation: AntigravityConversation,
@@ -110,6 +115,7 @@ const columns = (
                 </span>
             ),
             header: 'Updated',
+            id: 'updatedAt',
         }),
         columnHelper.display({
             cell: (info) => {
@@ -172,7 +178,10 @@ const columns = (
                                     Export artifacts
                                 </DropdownMenuItem>
                             ) : null}
-                            <DropdownMenuItem onClick={() => onDeleteConversation(info.row.original)}>
+                            <DropdownMenuItem
+                                className="text-[var(--destructive)]"
+                                onClick={() => onDeleteConversation(info.row.original)}
+                            >
                                 <Trash2 className="mr-2 size-4" />
                                 Delete conversation
                             </DropdownMenuItem>
@@ -189,8 +198,10 @@ export function AntigravityConversationsTable({
     conversations,
     decryptionState,
     onDeleteConversation,
+    onDeleteConversations,
     onExportArtifacts,
     onExportConversation,
+    onExportConversations,
 }: AntigravityConversationsTableProps) {
     const tableColumns = useMemo(
         () => columns(decryptionState, onDeleteConversation, onExportConversation, onExportArtifacts),
@@ -202,6 +213,25 @@ export function AntigravityConversationsTable({
             columns={tableColumns}
             data={conversations}
             emptyMessage="No Antigravity conversations match the current workspace filter."
+            enableRowSelection
+            getRowId={(row) => row.conversationId}
+            initialSorting={defaultSorting}
+            renderToolbar={({ clearSelection, selectedRows }) => {
+                const selectedConversationIds = selectedRows.map((row) => row.conversationId);
+                const hasNonExportableSelection = selectedRows.some(
+                    (row) => !getConversationExportState(row, decryptionState).canExportConversation,
+                );
+                return (
+                    <SelectionActionsToolbar
+                        clearSelection={clearSelection}
+                        exportDisabled={hasNonExportableSelection}
+                        itemLabel="conversation"
+                        selectedCount={selectedRows.length}
+                        onDeleteSelected={() => onDeleteConversations(selectedConversationIds)}
+                        onExportSelected={() => onExportConversations(selectedConversationIds)}
+                    />
+                );
+            }}
         />
     );
 }

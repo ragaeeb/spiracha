@@ -97,6 +97,7 @@ export type GrokTranscriptEntry = {
 export type GrokSessionTranscript = {
     entries: GrokTranscriptEntry[];
     rawEvents: Record<string, JsonValue>[];
+    rawPayloadsOmitted?: boolean;
     renderablePartCount: number;
     session: GrokSessionSummary;
 };

@@ -65,6 +65,60 @@ describe('parseCodexTranscriptFile', () => {
         expect(transcript.statsArePartial).toBe(true);
     });
 
+    it('should support filtered tail preview parsing for oversized transcripts', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-parser-tail-preview-test-'));
+        tempPaths.push(tempRoot);
+        const sessionFile = path.join(tempRoot, 'tail-preview.jsonl');
+        await Bun.write(
+            sessionFile,
+            [
+                JSON.stringify({
+                    payload: { message: 'first user prompt', type: 'user_message' },
+                    timestamp: '2026-07-07T12:00:00.000Z',
+                    type: 'response_item',
+                }),
+                JSON.stringify({
+                    payload: { message: 'first assistant answer', phase: 'final_answer', type: 'agent_message' },
+                    timestamp: '2026-07-07T12:00:01.000Z',
+                    type: 'response_item',
+                }),
+                JSON.stringify({
+                    payload: { message: 'second user prompt', type: 'user_message' },
+                    timestamp: '2026-07-07T12:00:02.000Z',
+                    type: 'response_item',
+                }),
+                JSON.stringify({
+                    payload: { message: 'second assistant answer', phase: 'final_answer', type: 'agent_message' },
+                    timestamp: '2026-07-07T12:00:03.000Z',
+                    type: 'response_item',
+                }),
+                JSON.stringify({
+                    payload: { message: 'third assistant answer', phase: 'final_answer', type: 'agent_message' },
+                    timestamp: '2026-07-07T12:00:04.000Z',
+                    type: 'response_item',
+                }),
+            ].join('\n'),
+        );
+
+        const transcript = await parseCodexTranscriptFile(sessionFile, {
+            eventFilter: (event) => event.kind === 'message' && event.role === 'assistant',
+            includeRaw: false,
+            maxTurnContexts: 0,
+            tailEventLimit: 2,
+        });
+
+        expect(transcript.events.map((event) => (event.kind === 'message' ? event.text : null))).toEqual([
+            'second assistant answer',
+            'third assistant answer',
+        ]);
+        expect(transcript.events.map((event) => event.sequence)).toEqual([3, 4]);
+        expect(transcript.events.every((event) => Object.keys(event.raw).length === 0)).toBe(true);
+        expect(transcript.stats.assistantMessageCount).toBe(2);
+        expect(transcript.stats.userMessageCount).toBe(0);
+        expect(transcript.isPartial).toBe(true);
+        expect(transcript.statsArePartial).toBe(true);
+    });
+
     it('should mark malformed exec_command arguments so callers can distinguish parse failure from missing data', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-parser-invalid-args-test-'));
         tempPaths.push(tempRoot);

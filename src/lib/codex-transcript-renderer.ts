@@ -11,12 +11,6 @@ import {
     type ToolRecord,
 } from './codex-thread-types';
 import {
-    buildHeadroomMetadataEntries,
-    type HeadroomRehydrationContext,
-    type HeadroomRehydrator,
-    resolveHeadroomRehydrator,
-} from './headroom-transcript-rehydration';
-import {
     asObject,
     asString,
     cleanExtractedText,
@@ -57,12 +51,7 @@ export const renderCodexSessionFile = async (
         '',
         options.includeMetadata
             ? renderMetadataBlock(
-                  buildMetadataEntries(
-                      target,
-                      transcriptState.sessionMeta,
-                      options,
-                      transcriptState.headroomRehydrator,
-                  ),
+                  buildMetadataEntries(target, transcriptState.sessionMeta, options),
                   options.outputFormat,
               )
             : '',
@@ -83,7 +72,6 @@ export const writeCodexSessionFileExport = async (
     let transcriptStream: any = null;
     const state: CodexTranscriptState = {
         assistantModel: target.thread?.model ?? null,
-        headroomRehydrator: getHeadroomRehydrator(options),
         sections: [],
         sessionMeta: {},
     };
@@ -110,7 +98,7 @@ export const writeCodexSessionFileExport = async (
 
         const outputStream = await createExportWriteStream(outputPath);
         try {
-            const prefix = buildStreamExportPrefix(target, state.sessionMeta, options, state.headroomRehydrator);
+            const prefix = buildStreamExportPrefix(target, state.sessionMeta, options);
             if (prefix) {
                 outputStream.write(transform(prefix));
             }
@@ -138,7 +126,6 @@ export const writeCodexSessionFileExport = async (
 
 type CodexTranscriptState = {
     assistantModel: string | null;
-    headroomRehydrator: HeadroomRehydrator | null;
     sessionMeta: SessionMeta;
     sections: string[];
 };
@@ -150,7 +137,6 @@ const collectCodexTranscript = async (
 ): Promise<CodexTranscriptState> => {
     const state: CodexTranscriptState = {
         assistantModel,
-        headroomRehydrator: getHeadroomRehydrator(options),
         sections: [],
         sessionMeta: {},
     };
@@ -195,7 +181,7 @@ const renderCodexTranscriptRecord = (
         return '';
     }
 
-    return renderToolBlock(tool, options.outputFormat, state);
+    return renderToolBlock(tool, options.outputFormat);
 };
 
 const processCodexMessageRecord = (
@@ -210,7 +196,6 @@ const buildStreamExportPrefix = (
     target: CodexTranscriptExportTarget,
     sessionMeta: SessionMeta,
     options: CodexTranscriptRenderOptions,
-    rehydrator: HeadroomRehydrator | null,
 ) => {
     const title = getTitle(target, sessionMeta);
     if (!options.includeMetadata) {
@@ -220,7 +205,7 @@ const buildStreamExportPrefix = (
     const parts = [
         renderDocumentTitle(title, options.outputFormat),
         '',
-        renderMetadataBlock(buildMetadataEntries(target, sessionMeta, options, rehydrator), options.outputFormat),
+        renderMetadataBlock(buildMetadataEntries(target, sessionMeta, options), options.outputFormat),
     ]
         .filter(Boolean)
         .join('\n');
@@ -304,12 +289,10 @@ const buildMetadataEntries = (
     target: CodexTranscriptExportTarget,
     sessionMeta: SessionMeta,
     options: CodexTranscriptRenderOptions,
-    rehydrator: HeadroomRehydrator | null,
 ): MetadataEntry[] => {
     return [
         ...buildCodexExportIdentityMetadata(target, sessionMeta),
         ...buildCodexExportPathMetadata(target, options),
-        ...buildHeadroomMetadataEntries(rehydrator),
         ...buildCodexRelationMetadata(target),
         ...buildCodexThreadMetadata(target, sessionMeta),
         ...buildCodexAgentMetadata(target),
@@ -472,21 +455,6 @@ const captureSessionMeta = (parsed: Record<string, JsonValue>, meta: SessionMeta
     meta.cli_version = asString(payload.cli_version) ?? meta.cli_version;
 };
 
-const getHeadroomRehydrator = (options: CodexTranscriptRenderOptions): HeadroomRehydrator | null => {
-    return options.headroomRehydrator ?? resolveHeadroomRehydrator(options);
-};
-
-const getCodexHeadroomContext = (state: CodexTranscriptState, message?: MessageRecord): HeadroomRehydrationContext => ({
-    client: state.sessionMeta.originator ?? state.sessionMeta.source ?? 'codex',
-    model: message?.model ?? state.assistantModel,
-    provider: state.sessionMeta.model_provider,
-    sessionId: state.sessionMeta.id,
-});
-
-const rehydrateCodexText = (text: string, state: CodexTranscriptState, message?: MessageRecord): string => {
-    return state.headroomRehydrator?.rehydrateText(text, getCodexHeadroomContext(state, message)) ?? text;
-};
-
 const extractMessageRecord = (parsed: Record<string, JsonValue>): MessageRecord | null => {
     if (parsed.type === 'message') {
         const directMessage = normalizeMessage(parsed);
@@ -585,7 +553,7 @@ const renderMessageBlock = (
         return '';
     }
 
-    const extractedText = rehydrateCodexText(extractText(message.content), state, message);
+    const extractedText = extractText(message.content);
     const text = cleanExtractedText(stripPreviewBlock(extractedText)).trim();
     if (!text || shouldSkipMessage(message.role, text)) {
         return '';
@@ -597,13 +565,13 @@ const renderMessageBlock = (
     return renderSection(title, body, outputFormat);
 };
 
-const renderToolBlock = (tool: ToolRecord, outputFormat: ExportFormat, state?: CodexTranscriptState): string => {
+const renderToolBlock = (tool: ToolRecord, outputFormat: ExportFormat): string => {
     if (tool.kind === 'call') {
         const details = formatToolCallDetails(tool, outputFormat);
         return details ? renderSection('Tool', details, outputFormat) : '';
     }
 
-    const outputText = state ? rehydrateCodexText(tool.outputText ?? '', state) : (tool.outputText ?? '');
+    const outputText = tool.outputText ?? '';
     const summary = formatToolOutputSummary(outputText, outputFormat);
     return summary ? renderSection('Tool Output', summary, outputFormat) : '';
 };

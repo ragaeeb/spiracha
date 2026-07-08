@@ -1,6 +1,6 @@
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
-import { renderSourceSessionDownload } from './source-session-export-server';
+import { renderSourceSessionDownload, renderSourceSessionsDownload } from './source-session-export-server';
 
 const LARGE_CLAUDE_CODE_SESSION_SIZE_BYTES = 8 * 1024 * 1024;
 
@@ -13,14 +13,25 @@ const sessionSchema = z.object({
 });
 
 const exportSessionSchema = z.object({
-    headroomArchiveDir: z.string().optional(),
     includeCommentary: z.boolean().default(true),
     includeMetadata: z.boolean().default(true),
     includeTools: z.boolean().default(true),
     outputFormat: z.enum(['md', 'txt']).default('md'),
-    rehydrateHeadroom: z.boolean().optional(),
     sessionId: z.string().min(1),
     zipArchive: z.boolean().default(false),
+});
+
+const exportSessionsSchema = z.object({
+    includeCommentary: z.boolean().default(true),
+    includeMetadata: z.boolean().default(true),
+    includeTools: z.boolean().default(true),
+    outputFormat: z.enum(['md', 'txt']).default('md'),
+    sessionIds: z.array(z.string().min(1)).min(1),
+    zipArchive: z.boolean().default(true),
+});
+
+const deleteSessionsSchema = z.object({
+    sessionIds: z.array(z.string().min(1)).min(1),
 });
 
 export const listClaudeCodeWorkspacesFn = createServerFn({ method: 'GET' }).handler(async () => {
@@ -83,12 +94,10 @@ export const exportClaudeCodeSessionFn = createServerFn({ method: 'POST' })
         const { renderClaudeCodeTranscript } = await import('@spiracha/lib/claude-code-transcript');
         const transcript = await loadClaudeCodeSessionTranscript(data.sessionId);
         const content = renderClaudeCodeTranscript(transcript, {
-            archiveDir: data.headroomArchiveDir,
             includeCommentary: data.includeCommentary,
             includeMetadata: data.includeMetadata,
             includeTools: data.includeTools,
             outputFormat: data.outputFormat,
-            rehydrateHeadroom: data.rehydrateHeadroom,
         });
 
         if (!content) {
@@ -104,9 +113,52 @@ export const exportClaudeCodeSessionFn = createServerFn({ method: 'POST' })
         });
     });
 
+export const exportClaudeCodeSessionsFn = createServerFn({ method: 'POST' })
+    .validator(exportSessionsSchema)
+    .handler(async ({ data }) => {
+        const { renderClaudeCodeTranscript } = await import('@spiracha/lib/claude-code-transcript');
+        const entries = await Promise.all(
+            data.sessionIds.map(async (sessionId) => {
+                const transcript = await loadClaudeCodeSessionTranscript(sessionId);
+                const content = renderClaudeCodeTranscript(transcript, {
+                    includeCommentary: data.includeCommentary,
+                    includeMetadata: data.includeMetadata,
+                    includeTools: data.includeTools,
+                    outputFormat: data.outputFormat,
+                });
+
+                if (!content) {
+                    throw new Error(`Claude Code session has no exportable content: ${sessionId}`);
+                }
+
+                return {
+                    content,
+                    fallbackBaseName: 'claude-code-session',
+                    fileBaseName: transcript.session.title || transcript.session.sessionId,
+                };
+            }),
+        );
+
+        return renderSourceSessionsDownload({
+            entries,
+            exportBaseName: `claude-code-sessions-${data.sessionIds.length}`,
+            fallbackBaseName: 'claude-code-sessions',
+            outputFormat: data.outputFormat,
+            zipArchive: data.zipArchive,
+        });
+    });
+
 export const deleteClaudeCodeSessionFn = createServerFn({ method: 'POST' })
     .validator(sessionSchema)
     .handler(async ({ data }) => {
         const { deleteClaudeCodeSession, resolveClaudeCodeProjectsDir } = await import('@spiracha/lib/claude-code-db');
         return deleteClaudeCodeSession(resolveClaudeCodeProjectsDir(), data.sessionId);
+    });
+
+export const deleteClaudeCodeSessionsFn = createServerFn({ method: 'POST' })
+    .validator(deleteSessionsSchema)
+    .handler(async ({ data }) => {
+        const { deleteClaudeCodeSession, resolveClaudeCodeProjectsDir } = await import('@spiracha/lib/claude-code-db');
+        const projectsDir = resolveClaudeCodeProjectsDir();
+        return Promise.all(data.sessionIds.map((sessionId) => deleteClaudeCodeSession(projectsDir, sessionId)));
     });

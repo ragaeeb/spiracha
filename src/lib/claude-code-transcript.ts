@@ -7,11 +7,6 @@ import type {
 } from './claude-code-exporter-types';
 import { getClaudeCodeAssistantMessagePhase } from './claude-code-transcript-phase';
 import {
-    buildHeadroomMetadataEntries,
-    type HeadroomRehydrator,
-    resolveHeadroomRehydrator,
-} from './headroom-transcript-rehydration';
-import {
     cleanExtractedText,
     cleanInlineTitle,
     formatInlineLiteral,
@@ -28,10 +23,7 @@ const getSessionTitle = (session: ClaudeCodeSessionSummary): string => {
     return cleanInlineTitle(session.title || session.sessionId);
 };
 
-const buildMetadataEntries = (
-    session: ClaudeCodeSessionSummary,
-    rehydrator: HeadroomRehydrator | null,
-): MetadataEntry[] => [
+const buildMetadataEntries = (session: ClaudeCodeSessionSummary): MetadataEntry[] => [
     { key: 'exported_from', value: 'claude_code_local_jsonl' },
     { key: 'session_id', value: session.sessionId },
     { key: 'title', value: session.title },
@@ -48,7 +40,6 @@ const buildMetadataEntries = (
     { key: 'tool_call_count', value: session.toolCallCount },
     { key: 'tool_result_count', value: session.toolResultCount },
     { key: 'total_tokens', value: session.totalTokens },
-    ...buildHeadroomMetadataEntries(rehydrator),
 ];
 
 const roleTitle = (role: string): string => {
@@ -75,45 +66,17 @@ const truncateOutput = (text: string): string => {
     return `${text.slice(0, TOOL_OUTPUT_PREVIEW_LIMIT)}\n... (truncated)`;
 };
 
-const rehydrateClaudeText = (
-    text: string,
-    entry: ClaudeCodeTranscriptEntry,
-    options: ClaudeCodeExportOptions,
-    sessionId: string,
-): string => {
-    const rehydrator = options.headroomRehydrator;
-    return (
-        rehydrator?.rehydrateText(text, {
-            client: 'claude-code',
-            model: entry.model ?? null,
-            provider: 'anthropic',
-            sessionId,
-        }) ?? text
-    );
-};
-
-const renderTextPart = (
-    entry: ClaudeCodeTranscriptEntry,
-    part: ClaudeCodeTranscriptPart,
-    role: string,
-    options: ClaudeCodeExportOptions,
-    sessionId: string,
-): string => {
-    const text = cleanExtractedText(rehydrateClaudeText(part.text ?? '', entry, options, sessionId)).trim();
+const renderTextPart = (part: ClaudeCodeTranscriptPart, role: string, options: ClaudeCodeExportOptions): string => {
+    const text = cleanExtractedText(part.text ?? '').trim();
     return text ? renderSection(roleTitle(role), text, options.outputFormat) : '';
 };
 
-const renderThinkingPart = (
-    entry: ClaudeCodeTranscriptEntry,
-    part: ClaudeCodeTranscriptPart,
-    options: ClaudeCodeExportOptions,
-    sessionId: string,
-): string => {
+const renderThinkingPart = (part: ClaudeCodeTranscriptPart, options: ClaudeCodeExportOptions): string => {
     if (!options.includeCommentary) {
         return '';
     }
 
-    const text = cleanExtractedText(rehydrateClaudeText(part.text ?? '', entry, options, sessionId)).trim();
+    const text = cleanExtractedText(part.text ?? '').trim();
     return text ? renderSection('Reasoning', text, options.outputFormat) : '';
 };
 
@@ -134,17 +97,12 @@ const renderToolUsePart = (part: ClaudeCodeTranscriptPart, options: ClaudeCodeEx
     return renderSection('Tool Call', lines.join('\n'), options.outputFormat);
 };
 
-const renderToolResultPart = (
-    entry: ClaudeCodeTranscriptEntry,
-    part: ClaudeCodeTranscriptPart,
-    options: ClaudeCodeExportOptions,
-    sessionId: string,
-): string => {
+const renderToolResultPart = (part: ClaudeCodeTranscriptPart, options: ClaudeCodeExportOptions): string => {
     if (!options.includeTools) {
         return '';
     }
 
-    const outputText = rehydrateClaudeText(part.outputText ?? '', entry, options, sessionId).trim();
+    const outputText = (part.outputText ?? '').trim();
     if (!outputText) {
         return '';
     }
@@ -160,17 +118,12 @@ const renderToolResultPart = (
     return renderSection('Tool Output', lines.join('\n'), options.outputFormat);
 };
 
-const renderAttachmentPart = (
-    entry: ClaudeCodeTranscriptEntry,
-    part: ClaudeCodeTranscriptPart,
-    options: ClaudeCodeExportOptions,
-    sessionId: string,
-): string => {
+const renderAttachmentPart = (part: ClaudeCodeTranscriptPart, options: ClaudeCodeExportOptions): string => {
     if (!options.includeCommentary) {
         return '';
     }
 
-    const text = cleanExtractedText(rehydrateClaudeText(part.text ?? '', entry, options, sessionId)).trim();
+    const text = cleanExtractedText(part.text ?? '').trim();
     if (!text) {
         return '';
     }
@@ -183,22 +136,21 @@ const renderPart = (
     entry: ClaudeCodeTranscriptEntry,
     part: ClaudeCodeTranscriptPart,
     options: ClaudeCodeExportOptions,
-    sessionId: string,
 ): string => {
     switch (part.type) {
         case 'text':
             if (getClaudeCodeAssistantMessagePhase(entry) === 'commentary' && !options.includeCommentary) {
                 return '';
             }
-            return renderTextPart(entry, part, entry.role, options, sessionId);
+            return renderTextPart(part, entry.role, options);
         case 'thinking':
-            return renderThinkingPart(entry, part, options, sessionId);
+            return renderThinkingPart(part, options);
         case 'tool_use':
             return renderToolUsePart(part, options);
         case 'tool_result':
-            return renderToolResultPart(entry, part, options, sessionId);
+            return renderToolResultPart(part, options);
         case 'attachment':
-            return renderAttachmentPart(entry, part, options, sessionId);
+            return renderAttachmentPart(part, options);
         case 'unknown':
             return '';
     }
@@ -208,10 +160,8 @@ export const renderClaudeCodeTranscript = (
     transcript: ClaudeCodeSessionTranscript,
     options: ClaudeCodeExportOptions,
 ): string | null => {
-    const rehydrator = options.headroomRehydrator ?? resolveHeadroomRehydrator(options);
-    const renderOptions = { ...options, headroomRehydrator: rehydrator };
     const sections = transcript.entries.flatMap((entry) =>
-        entry.parts.map((part) => renderPart(entry, part, renderOptions, transcript.session.sessionId)).filter(Boolean),
+        entry.parts.map((part) => renderPart(entry, part, options)).filter(Boolean),
     );
     if (sections.length === 0) {
         return null;
@@ -221,7 +171,7 @@ export const renderClaudeCodeTranscript = (
         renderDocumentTitle(getSessionTitle(transcript.session), options.outputFormat),
         '',
         options.includeMetadata
-            ? renderMetadataBlock(buildMetadataEntries(transcript.session, rehydrator), options.outputFormat)
+            ? renderMetadataBlock(buildMetadataEntries(transcript.session), options.outputFormat)
             : '',
         ...sections,
     ].filter(Boolean);
