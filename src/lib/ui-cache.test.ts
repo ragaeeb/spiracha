@@ -44,6 +44,34 @@ describe('ui cache', () => {
         expect(loadCount).toBe(1);
     });
 
+    it('should coalesce concurrent cache misses for the same key', async () => {
+        let loadCount = 0;
+        let releaseLoader: () => void = () => {};
+        const loaderCanFinish = new Promise<void>((resolve) => {
+            releaseLoader = resolve;
+        });
+
+        const requests = Array.from({ length: 4 }, () =>
+            withCachedJson('coalesced-entry', async () => {
+                loadCount += 1;
+                await loaderCanFinish;
+                return { loadedBy: loadCount };
+            }),
+        );
+
+        await Bun.sleep(1);
+        expect(loadCount).toBe(1);
+        releaseLoader();
+
+        await expect(Promise.all(requests)).resolves.toEqual([
+            { loadedBy: 1 },
+            { loadedBy: 1 },
+            { loadedBy: 1 },
+            { loadedBy: 1 },
+        ]);
+        expect(loadCount).toBe(1);
+    });
+
     it('should keep distinct cache keys separate when they contain path punctuation', async () => {
         await setCachedJson('thread-/tmp/a:b', { value: 'first' });
         await setCachedJson('thread-/tmp/a/b', { value: 'second' });

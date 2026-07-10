@@ -13,6 +13,7 @@ import { resolveOpenCodeDbPath } from '../opencode-exporter-types';
 import { splitOpenCodeThinkTaggedText } from '../opencode-think-tags';
 import { getFinalOpenCodeAssistantTextPartIds, getOpenCodeTextPartPhase } from '../opencode-transcript-phase';
 import { cleanInlineTitle } from '../shared';
+import { runWithTranscriptLoadLimit } from '../transcript-load-limiter';
 import {
     createDeepLinks,
     createTextMessage,
@@ -111,7 +112,13 @@ const buildConversation = async (
 ): Promise<ConversationDetail> => {
     const transcript =
         loadedTranscript ??
-        (options.includeMessages ? await readOpenCodeSessionTranscript(dbPath, session.sessionId) : null);
+        (options.includeMessages
+            ? await runWithTranscriptLoadLimit(() => readOpenCodeSessionTranscript(dbPath, session.sessionId), {
+                  id: session.sessionId,
+                  path: dbPath,
+                  source: 'opencode-api',
+              })
+            : null);
     const allMessages = transcript ? transcriptToMessages(transcript) : [];
     const messages = options.includeMessages
         ? selectConversationMessages(allMessages, options.messageSelector ?? 'last_final_answer')
@@ -160,7 +167,11 @@ const listOpenCodeConversationsForPath = async (options: ListConversationsForPat
 
 const getOpenCodeConversation = async (options: GetConversationOptions): Promise<ConversationDetail | null> => {
     const dbPath = getDbPath(options);
-    const transcript = await readOpenCodeSessionTranscript(dbPath, options.id);
+    const transcript = await runWithTranscriptLoadLimit(() => readOpenCodeSessionTranscript(dbPath, options.id), {
+        id: options.id,
+        path: dbPath,
+        source: 'opencode-api',
+    });
     return transcript
         ? buildConversation(
               transcript.session,

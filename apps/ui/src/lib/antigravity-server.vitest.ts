@@ -2,22 +2,27 @@ import type { AntigravityConversation } from '@spiracha/lib/antigravity-exporter
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
+    deleteAntigravityConversationMock,
     getAntigravityDecryptionStateMock,
     getCachedAntigravityKeychainSecretMock,
     listAntigravityConversationsMock,
     renderAntigravityArtifactsMarkdownMock,
     renderAntigravityConversationMarkdownMock,
+    resolveAntigravityRootsMock,
     unlockAntigravityDecryptionMock,
 } = vi.hoisted(() => ({
+    deleteAntigravityConversationMock: vi.fn(),
     getAntigravityDecryptionStateMock: vi.fn(),
     getCachedAntigravityKeychainSecretMock: vi.fn(),
     listAntigravityConversationsMock: vi.fn(),
     renderAntigravityArtifactsMarkdownMock: vi.fn(),
     renderAntigravityConversationMarkdownMock: vi.fn(),
+    resolveAntigravityRootsMock: vi.fn(),
     unlockAntigravityDecryptionMock: vi.fn(),
 }));
 
 vi.mock('@spiracha/lib/antigravity-db', () => ({
+    deleteAntigravityConversation: deleteAntigravityConversationMock,
     listAntigravityConversations: listAntigravityConversationsMock,
     listAntigravityConversationsForGroup: vi.fn(),
     listAntigravityWorkspaceGroups: vi.fn(),
@@ -31,7 +36,20 @@ vi.mock('@spiracha/lib/antigravity-keychain', () => ({
     unlockAntigravityDecryption: unlockAntigravityDecryptionMock,
 }));
 
-import { loadAntigravityConversationDetail, loadAntigravityConversationExport } from './antigravity-server';
+vi.mock('@spiracha/lib/antigravity-exporter-types', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@spiracha/lib/antigravity-exporter-types')>();
+    return {
+        ...actual,
+        resolveAntigravityRoots: resolveAntigravityRootsMock,
+    };
+});
+
+import {
+    deleteAntigravityConversationById,
+    deleteAntigravityConversationsById,
+    loadAntigravityConversationDetail,
+    loadAntigravityConversationExport,
+} from './antigravity-server';
 
 const makeConversation = (overrides: Partial<AntigravityConversation> = {}): AntigravityConversation => ({
     artifactBytes: 0,
@@ -64,6 +82,7 @@ describe('antigravity-server', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         getAntigravityDecryptionStateMock.mockResolvedValue(null);
+        resolveAntigravityRootsMock.mockReturnValue(['/tmp/root']);
         unlockAntigravityDecryptionMock.mockResolvedValue(null);
     });
 
@@ -108,6 +127,51 @@ describe('antigravity-server', () => {
 
         await expect(loadAntigravityConversationExport(conversation.conversationId)).rejects.toThrow(
             'No exportable Antigravity transcript found',
+        );
+    });
+
+    it('should reject a single Antigravity delete when nothing was removed', async () => {
+        deleteAntigravityConversationMock.mockResolvedValue({
+            deletedConversationIds: [],
+            deletedPaths: [],
+        });
+
+        await expect(deleteAntigravityConversationById('missing-conversation')).rejects.toThrow(
+            'Antigravity conversation not found: missing-conversation',
+        );
+    });
+
+    it('should aggregate bulk Antigravity delete results', async () => {
+        deleteAntigravityConversationMock
+            .mockResolvedValueOnce({
+                deletedConversationIds: ['conversation-1'],
+                deletedPaths: ['/tmp/root/conversation-1.pb'],
+            })
+            .mockResolvedValueOnce({
+                deletedConversationIds: ['conversation-2'],
+                deletedPaths: ['/tmp/root/conversation-2.pb', '/tmp/root/brain/conversation-2'],
+            });
+
+        const result = await deleteAntigravityConversationsById(['conversation-1', 'conversation-2']);
+
+        expect(result).toEqual({
+            deletedConversationIds: ['conversation-1', 'conversation-2'],
+            deletedPaths: [
+                '/tmp/root/conversation-1.pb',
+                '/tmp/root/conversation-2.pb',
+                '/tmp/root/brain/conversation-2',
+            ],
+        });
+    });
+
+    it('should reject bulk Antigravity delete when nothing was removed', async () => {
+        deleteAntigravityConversationMock.mockResolvedValue({
+            deletedConversationIds: [],
+            deletedPaths: [],
+        });
+
+        await expect(deleteAntigravityConversationsById(['missing-1', 'missing-2'])).rejects.toThrow(
+            'No Antigravity conversations were deleted',
         );
     });
 });

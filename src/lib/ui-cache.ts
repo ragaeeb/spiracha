@@ -11,6 +11,8 @@ type CacheEnvelope<T> = {
     version: number;
 };
 
+const inFlightCacheLoads = new Map<string, Promise<unknown>>();
+
 const ensureCacheDir = async () => {
     await mkdir(CACHE_DIR, { recursive: true });
 };
@@ -92,9 +94,23 @@ export const withCachedJson = async <T>(key: string, loader: () => Promise<T>): 
         return cached as T;
     }
 
-    const value = await loader();
-    await setCachedJson(key, value);
-    return value;
+    const inFlight = inFlightCacheLoads.get(key);
+    if (inFlight) {
+        return (await inFlight) as T;
+    }
+
+    const load = (async () => {
+        const value = await loader();
+        await setCachedJson(key, value);
+        return value;
+    })();
+    inFlightCacheLoads.set(key, load);
+
+    try {
+        return await load;
+    } finally {
+        inFlightCacheLoads.delete(key);
+    }
 };
 
 export const invalidateCacheByPrefix = async (...prefixes: string[]) => {

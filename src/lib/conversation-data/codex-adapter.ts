@@ -8,6 +8,7 @@ import type { MessageEvent, ThreadBrowseData, ThreadEvent } from '../codex-brows
 import { parseCodexTranscriptFile } from '../codex-thread-parser';
 import type { ThreadRow } from '../codex-thread-types';
 import { cleanInlineTitle } from '../shared';
+import { runWithTranscriptLoadLimit } from '../transcript-load-limiter';
 import { selectConversationMessages } from './message-selector';
 import { getConversationPathMatch } from './path-match';
 import type {
@@ -148,9 +149,17 @@ const toConversationMessage = (event: ThreadEvent): ConversationMessage | null =
 };
 
 const readCodexMessages = async (thread: ThreadRow): Promise<ConversationMessage[]> => {
-    const transcript = await parseCodexTranscriptFile(thread.rollout_path, {
-        includeRaw: false,
-    });
+    const transcript = await runWithTranscriptLoadLimit(
+        () =>
+            parseCodexTranscriptFile(thread.rollout_path, {
+                includeRaw: false,
+            }),
+        {
+            id: thread.id,
+            path: thread.rollout_path,
+            source: 'codex-api',
+        },
+    );
 
     return transcript.events.flatMap((event) => {
         const message = toConversationMessage(event);

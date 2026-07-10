@@ -28,6 +28,7 @@ import {
     renderSection,
     stripCodexAppDirectiveLines,
 } from './shared';
+import { runWithTranscriptLoadLimit } from './transcript-load-limiter';
 
 export const renderCodexSessionFile = async (
     target: CodexTranscriptExportTarget,
@@ -36,7 +37,14 @@ export const renderCodexSessionFile = async (
     let transcriptState: CodexTranscriptState;
 
     try {
-        transcriptState = await collectCodexTranscript(target.sessionFile, options, target.thread?.model ?? null);
+        transcriptState = await runWithTranscriptLoadLimit(
+            () => collectCodexTranscript(target.sessionFile, options, target.thread?.model ?? null),
+            {
+                id: target.thread?.id,
+                path: target.sessionFile,
+                source: 'codex-export-inline',
+            },
+        );
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         throw new Error(`Failed to read Codex transcript ${target.sessionFile}: ${message}`);
@@ -79,19 +87,28 @@ export const writeCodexSessionFileExport = async (
     let wroteSection = false;
 
     try {
-        transcriptStream = await createExportWriteStream(transcriptOutputPath);
-        for await (const parsed of readJsonlObjects(target.sessionFile)) {
-            captureSessionMeta(parsed, state.sessionMeta);
-            const block = renderCodexTranscriptRecord(parsed, options, state);
-            if (!block) {
-                continue;
-            }
+        await runWithTranscriptLoadLimit(
+            async () => {
+                transcriptStream = await createExportWriteStream(transcriptOutputPath);
+                for await (const parsed of readJsonlObjects(target.sessionFile)) {
+                    captureSessionMeta(parsed, state.sessionMeta);
+                    const block = renderCodexTranscriptRecord(parsed, options, state);
+                    if (!block) {
+                        continue;
+                    }
 
-            transcriptStream.write(transform(wroteSection ? `${getSectionSeparator()}${block}` : block));
-            wroteSection = true;
-        }
-        await finalizeExportWriteStream(transcriptStream);
-        transcriptStream = null;
+                    transcriptStream.write(transform(wroteSection ? `${getSectionSeparator()}${block}` : block));
+                    wroteSection = true;
+                }
+                await finalizeExportWriteStream(transcriptStream);
+                transcriptStream = null;
+            },
+            {
+                id: target.thread?.id,
+                path: target.sessionFile,
+                source: 'codex-export-stream',
+            },
+        );
 
         if (!wroteSection) {
             return false;

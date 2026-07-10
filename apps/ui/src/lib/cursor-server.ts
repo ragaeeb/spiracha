@@ -123,13 +123,21 @@ const renderCursorDownload = async (input: {
     outputFormat: 'md' | 'txt';
     zipArchive: boolean;
 }) => {
+    const { runWithTranscriptLoadLimit } = await import('@spiracha/lib/transcript-load-limiter');
     const { readCursorThreadTranscriptWithAgentFiles } = await import('@spiracha/lib/cursor-db');
     const { getCursorGlobalDbPath } = await import('@spiracha/lib/cursor-exporter-types');
     const { renderCursorTranscript } = await import('@spiracha/lib/cursor-transcript');
     const globalDbPath = getCursorGlobalDbPath();
     const rendered = await Promise.all(
         input.composerIds.map(async (composerId) => {
-            const transcript = await readCursorThreadTranscriptWithAgentFiles(globalDbPath, composerId);
+            const transcript = await runWithTranscriptLoadLimit(
+                () => readCursorThreadTranscriptWithAgentFiles(globalDbPath, composerId),
+                {
+                    id: composerId,
+                    path: globalDbPath,
+                    source: 'cursor-ui-export',
+                },
+            );
             if (!transcript) {
                 throw new Error(`No transcript found for thread: ${composerId}`);
             }
@@ -184,6 +192,7 @@ export const listCursorThreadsFn = createServerFn({ method: 'GET' })
 export const getCursorThreadDetailFn = createServerFn({ method: 'GET' })
     .validator(threadSchema)
     .handler(async ({ data }) => {
+        const { runWithTranscriptLoadLimit } = await import('@spiracha/lib/transcript-load-limiter');
         const { readCursorThreadTranscriptWithAgentFiles } = await import('@spiracha/lib/cursor-db');
         const { getCursorGlobalDbPath } = await import('@spiracha/lib/cursor-exporter-types');
         const thread = await findCursorThreadByComposerId(data.composerId);
@@ -191,7 +200,14 @@ export const getCursorThreadDetailFn = createServerFn({ method: 'GET' })
             throw new Error(`Cursor thread not found: ${data.composerId}`);
         }
 
-        const transcript = await readCursorThreadTranscriptWithAgentFiles(getCursorGlobalDbPath(), data.composerId);
+        const transcript = await runWithTranscriptLoadLimit(
+            () => readCursorThreadTranscriptWithAgentFiles(getCursorGlobalDbPath(), data.composerId),
+            {
+                id: data.composerId,
+                path: getCursorGlobalDbPath(),
+                source: 'cursor-ui-detail',
+            },
+        );
         return {
             thread,
             transcript,

@@ -45,15 +45,26 @@ export const listGrokSessionsFn = createServerFn({ method: 'GET' })
     });
 
 const loadGrokSessionTranscript = async (sessionId: string) => {
+    const { runWithTranscriptLoadLimit } = await import('@spiracha/lib/transcript-load-limiter');
     const { readGrokSessionTranscript, resolveGrokSessionsDir } = await import('@spiracha/lib/grok-db');
-    const transcript = await readGrokSessionTranscript(resolveGrokSessionsDir(), sessionId, {
-        includeRawPayloads: false,
-    });
-    if (!transcript) {
-        throw new Error(`Grok session not found: ${sessionId}`);
-    }
+    const sessionsDir = resolveGrokSessionsDir();
+    return runWithTranscriptLoadLimit(
+        async () => {
+            const transcript = await readGrokSessionTranscript(sessionsDir, sessionId, {
+                includeRawPayloads: false,
+            });
+            if (!transcript) {
+                throw new Error(`Grok session not found: ${sessionId}`);
+            }
 
-    return transcript;
+            return transcript;
+        },
+        {
+            id: sessionId,
+            path: sessionsDir,
+            source: 'grok-ui',
+        },
+    );
 };
 
 export const getGrokSessionDetailFn = createServerFn({ method: 'GET' })

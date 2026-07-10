@@ -47,39 +47,60 @@ export const listClaudeCodeSessionsFn = createServerFn({ method: 'GET' })
     });
 
 const loadClaudeCodeSessionTranscript = async (sessionId: string) => {
+    const { runWithTranscriptLoadLimit } = await import('@spiracha/lib/transcript-load-limiter');
     const { readClaudeCodeSessionTranscript, resolveClaudeCodeProjectsDir } = await import(
         '@spiracha/lib/claude-code-db'
     );
-    const transcript = await readClaudeCodeSessionTranscript(resolveClaudeCodeProjectsDir(), sessionId);
-    if (!transcript) {
-        throw new Error(`Claude Code session not found: ${sessionId}`);
-    }
+    const projectsDir = resolveClaudeCodeProjectsDir();
+    return runWithTranscriptLoadLimit(
+        async () => {
+            const transcript = await readClaudeCodeSessionTranscript(projectsDir, sessionId);
+            if (!transcript) {
+                throw new Error(`Claude Code session not found: ${sessionId}`);
+            }
 
-    return transcript;
+            return transcript;
+        },
+        {
+            id: sessionId,
+            path: projectsDir,
+            source: 'claude-code-ui',
+        },
+    );
 };
 
 const loadClaudeCodeSessionDetail = async (sessionId: string) => {
+    const { runWithTranscriptLoadLimit } = await import('@spiracha/lib/transcript-load-limiter');
     const { stat } = await import('node:fs/promises');
     const { readClaudeCodeSessionTranscript, resolveClaudeCodeProjectsDir } = await import(
         '@spiracha/lib/claude-code-db'
     );
     const projectsDir = resolveClaudeCodeProjectsDir();
-    const fullTranscript = await readClaudeCodeSessionTranscript(projectsDir, sessionId, {
-        includeRawPayloads: false,
-    });
-    if (!fullTranscript) {
-        throw new Error(`Claude Code session not found: ${sessionId}`);
-    }
+    return runWithTranscriptLoadLimit(
+        async () => {
+            const fullTranscript = await readClaudeCodeSessionTranscript(projectsDir, sessionId, {
+                includeRawPayloads: false,
+            });
+            if (!fullTranscript) {
+                throw new Error(`Claude Code session not found: ${sessionId}`);
+            }
 
-    const fileSizeBytes = await stat(fullTranscript.session.filePath)
-        .then((stats) => stats.size)
-        .catch(() => LARGE_CLAUDE_CODE_SESSION_SIZE_BYTES + 1);
+            const fileSizeBytes = await stat(fullTranscript.session.filePath)
+                .then((stats) => stats.size)
+                .catch(() => LARGE_CLAUDE_CODE_SESSION_SIZE_BYTES + 1);
 
-    if (fileSizeBytes > LARGE_CLAUDE_CODE_SESSION_SIZE_BYTES) {
-        return fullTranscript;
-    }
+            if (fileSizeBytes > LARGE_CLAUDE_CODE_SESSION_SIZE_BYTES) {
+                return fullTranscript;
+            }
 
-    return (await readClaudeCodeSessionTranscript(projectsDir, sessionId)) ?? fullTranscript;
+            return (await readClaudeCodeSessionTranscript(projectsDir, sessionId)) ?? fullTranscript;
+        },
+        {
+            id: sessionId,
+            path: projectsDir,
+            source: 'claude-code-ui-detail',
+        },
+    );
 };
 
 export const getClaudeCodeSessionDetailFn = createServerFn({ method: 'GET' })

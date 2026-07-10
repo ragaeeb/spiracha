@@ -41,19 +41,27 @@ export const listQoderSessionsFn = createServerFn({ method: 'GET' })
     });
 
 const loadQoderSessionTranscript = async (sessionId: string) => {
+    const { runWithTranscriptLoadLimit } = await import('@spiracha/lib/transcript-load-limiter');
     const { readQoderSessionTranscript, resolveQoderGlobalStateDb, resolveQoderWorkspaceStorageDir } = await import(
         '@spiracha/lib/qoder-db'
     );
-    const transcript = await readQoderSessionTranscript(
-        resolveQoderGlobalStateDb(),
-        resolveQoderWorkspaceStorageDir(),
-        sessionId,
-    );
-    if (!transcript) {
-        throw new Error(`Qoder session not found: ${sessionId}`);
-    }
+    const globalStateDb = resolveQoderGlobalStateDb();
+    const workspaceStorageDir = resolveQoderWorkspaceStorageDir();
+    return runWithTranscriptLoadLimit(
+        async () => {
+            const transcript = await readQoderSessionTranscript(globalStateDb, workspaceStorageDir, sessionId);
+            if (!transcript) {
+                throw new Error(`Qoder session not found: ${sessionId}`);
+            }
 
-    return transcript;
+            return transcript;
+        },
+        {
+            id: sessionId,
+            path: globalStateDb,
+            source: 'qoder-ui',
+        },
+    );
 };
 
 export const getQoderSessionDetailFn = createServerFn({ method: 'GET' })

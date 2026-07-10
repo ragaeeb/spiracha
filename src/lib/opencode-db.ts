@@ -1,7 +1,9 @@
 import { constants, Database } from 'bun:sqlite';
-import { stat } from 'node:fs/promises';
+import { readdir, stat } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { createConcurrencyLimiter } from './concurrency';
 import {
     getDefaultOpenCodeDataDir,
     type OpenCodeModelInfo,
@@ -28,6 +30,7 @@ import { runWithSqliteRetry } from './sqlite-retry';
 export { getDefaultOpenCodeDataDir, resolveOpenCodeDbPath };
 
 export const OPENCODE_READONLY_DB_OPEN_FLAGS = constants.SQLITE_OPEN_READONLY | constants.SQLITE_OPEN_URI;
+const DEFAULT_OPENCODE_DB_CONCURRENCY = 2;
 
 export type DeleteOpenCodeSessionResult = {
     deletedSessionIds: string[];
@@ -92,6 +95,83 @@ type PartRow = {
 
 const MAIN_SESSION_FILTER = 's.parent_id IS NULL';
 
+let nextOpenCodeDbLoadId = 1;
+let activeOpenCodeDbLoads = 0;
+let queuedOpenCodeDbLoads = 0;
+
+export const resolveOpenCodeDbConcurrency = (value = process.env.SPIRACHA_OPENCODE_DB_CONCURRENCY): number => {
+    const parsed = Number.parseInt(value ?? '', 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_OPENCODE_DB_CONCURRENCY;
+};
+
+const openCodeDbLimiter = createConcurrencyLimiter(resolveOpenCodeDbConcurrency());
+
+const logOpenCodeDb = (event: string, details: Record<string, unknown>) => {
+    if (process.env.SPIRACHA_OPENCODE_DB_LOGS !== '0') {
+        console.info(`[spiracha:opencode-db] ${event}`, details);
+    }
+};
+
+const runWithOpenCodeDbLimit = async <T>(operation: string, dbPath: string, action: () => T): Promise<T> => {
+    const loadId = nextOpenCodeDbLoadId;
+    nextOpenCodeDbLoadId += 1;
+    queuedOpenCodeDbLoads += 1;
+    const queuedAt = Date.now();
+
+    return openCodeDbLimiter(async () => {
+        queuedOpenCodeDbLoads -= 1;
+        activeOpenCodeDbLoads += 1;
+        const startedAt = Date.now();
+        logOpenCodeDb('start', {
+            active: activeOpenCodeDbLoads,
+            dbPath,
+            loadId,
+            operation,
+            queued: queuedOpenCodeDbLoads,
+            waitMs: startedAt - queuedAt,
+        });
+
+        try {
+            return action();
+        } catch (error) {
+            logOpenCodeDb('error', {
+                active: activeOpenCodeDbLoads,
+                dbPath,
+                durationMs: Date.now() - startedAt,
+                error: error instanceof Error ? error.message : String(error),
+                loadId,
+                operation,
+                queued: queuedOpenCodeDbLoads,
+            });
+            throw error;
+        } finally {
+            activeOpenCodeDbLoads -= 1;
+            logOpenCodeDb('finish', {
+                active: activeOpenCodeDbLoads,
+                dbPath,
+                durationMs: Date.now() - startedAt,
+                loadId,
+                operation,
+                queued: queuedOpenCodeDbLoads,
+            });
+        }
+    });
+};
+
+const getDefaultOpenCodeDesktopStateDir = (
+    env: NodeJS.ProcessEnv = process.env,
+    homeDir = os.homedir(),
+): string | null => {
+    const configured = env.SPIRACHA_OPENCODE_DESKTOP_STATE_DIR?.trim();
+    if (configured) {
+        return configured;
+    }
+
+    return process.platform === 'darwin'
+        ? path.join(homeDir, 'Library', 'Application Support', 'ai.opencode.desktop')
+        : null;
+};
+
 const pathExists = async (target: string): Promise<boolean> => {
     return await stat(target)
         .then(() => true)
@@ -149,6 +229,30 @@ const parseJsonValue = (value: string | null): JsonValue | string | null => {
 const parseJsonObject = (value: string): Record<string, JsonValue> => {
     const parsed = parseJsonValue(value);
     return asObject(parsed) ?? {};
+};
+
+const parseMutableJsonObject = (value: string): Record<string, unknown> | null => {
+    try {
+        const parsed = JSON.parse(value) as unknown;
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+            ? (parsed as Record<string, unknown>)
+            : null;
+    } catch {
+        return null;
+    }
+};
+
+const parseMutableJsonArray = (value: string): unknown[] | null => {
+    try {
+        const parsed = JSON.parse(value) as unknown;
+        return Array.isArray(parsed) ? parsed : null;
+    } catch {
+        return null;
+    }
+};
+
+const encodeOpenCodeDirectoryKey = (directory: string): string => {
+    return Buffer.from(directory).toString('base64').replace(/=+$/u, '');
 };
 
 const cleanLabel = (value: string | null | undefined): string | null => {
@@ -367,12 +471,14 @@ export const listOpenCodeWorkspaceGroups = async (
         return [];
     }
 
-    return withOpenCodeReadonlyDb(dbPath, (db) => {
-        const rows = db
-            .query(`${workspaceRowsQuery} ORDER BY lastActiveMs DESC, p.worktree ASC`)
-            .all() as WorkspaceRow[];
-        return rows.map(toWorkspaceGroup);
-    });
+    return runWithOpenCodeDbLimit('list-workspaces', dbPath, () =>
+        withOpenCodeReadonlyDb(dbPath, (db) => {
+            const rows = db
+                .query(`${workspaceRowsQuery} ORDER BY lastActiveMs DESC, p.worktree ASC`)
+                .all() as WorkspaceRow[];
+            return rows.map(toWorkspaceGroup);
+        }),
+    );
 };
 
 const openCodeWorkspaceMatchesQuery = (workspace: OpenCodeWorkspaceGroup, query: string): boolean => {
@@ -420,9 +526,11 @@ export const listOpenCodeSessionsForGroup = async (
         return [];
     }
 
-    return withOpenCodeReadonlyDb(dbPath, (db) => {
-        return readSessionSummaries(db, `s.project_id = ? AND ${MAIN_SESSION_FILTER}`, [projectId]);
-    });
+    return runWithOpenCodeDbLimit('list-sessions', dbPath, () =>
+        withOpenCodeReadonlyDb(dbPath, (db) => {
+            return readSessionSummaries(db, `s.project_id = ? AND ${MAIN_SESSION_FILTER}`, [projectId]);
+        }),
+    );
 };
 
 const readOpenCodeSessionSummary = (db: Database, sessionId: string): OpenCodeSessionSummary | null => {
@@ -445,6 +553,300 @@ const readOpenCodeSessionTreeIds = (db: Database, sessionId: string): string[] =
     return rows.map((row) => row.id);
 };
 
+const hasOpenCodeTable = (db: Database, tableName: string): boolean => {
+    return Boolean(db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(tableName));
+};
+
+const deleteRowsBySessionId = (db: Database, tableName: string, sessionIds: string[], placeholders: string) => {
+    if (hasOpenCodeTable(db, tableName)) {
+        db.query(`DELETE FROM ${tableName} WHERE session_id IN (${placeholders})`).run(...sessionIds);
+    }
+};
+
+const deleteOpenCodeEventRows = (db: Database, sessionIds: string[], placeholders: string) => {
+    if (hasOpenCodeTable(db, 'event')) {
+        db.query(`DELETE FROM event WHERE aggregate_id IN (${placeholders})`).run(...sessionIds);
+    }
+    if (hasOpenCodeTable(db, 'event_sequence')) {
+        db.query(`DELETE FROM event_sequence WHERE aggregate_id IN (${placeholders})`).run(...sessionIds);
+    }
+};
+
+const collectEmptyOpenCodeWorktrees = (
+    db: Database,
+    projects: Array<{ projectId: string; worktree: string }>,
+): string[] => {
+    const emptyWorktrees: string[] = [];
+    for (const project of projects) {
+        const remaining = db
+            .query('SELECT COUNT(*) AS count FROM session WHERE project_id = ? AND parent_id IS NULL')
+            .get(project.projectId) as { count: number };
+        if (remaining.count === 0) {
+            emptyWorktrees.push(project.worktree);
+        }
+    }
+    return emptyWorktrees;
+};
+
+const deleteOpenCodeSessionRows = (
+    db: Database,
+    sessionIds: string[],
+    placeholders: string,
+    projectRows: Array<{ projectId: string; worktree: string }>,
+): string[] => {
+    deleteOpenCodeEventRows(db, sessionIds, placeholders);
+    deleteRowsBySessionId(db, 'session_context_epoch', sessionIds, placeholders);
+    deleteRowsBySessionId(db, 'session_input', sessionIds, placeholders);
+    deleteRowsBySessionId(db, 'session_message', sessionIds, placeholders);
+    deleteRowsBySessionId(db, 'session_share', sessionIds, placeholders);
+    deleteRowsBySessionId(db, 'todo', sessionIds, placeholders);
+    db.query(`DELETE FROM part WHERE session_id IN (${placeholders})`).run(...sessionIds);
+    db.query(`DELETE FROM message WHERE session_id IN (${placeholders})`).run(...sessionIds);
+    db.query(`DELETE FROM session WHERE id IN (${placeholders})`).run(...sessionIds);
+    return collectEmptyOpenCodeWorktrees(db, projectRows);
+};
+
+const removeObjectKeysForSessionIds = (target: Record<string, unknown>, sessionIds: Set<string>) => {
+    let changed = false;
+    for (const key of Object.keys(target)) {
+        if (sessionIds.has(key) || [...sessionIds].some((sessionId) => key.includes(`/${sessionId}`))) {
+            delete target[key];
+            changed = true;
+        }
+    }
+    return changed;
+};
+
+const updateJsonStringField = (
+    state: Record<string, unknown>,
+    key: string,
+    update: (value: string) => { changed: boolean; next: unknown },
+) => {
+    const current = state[key];
+    if (typeof current !== 'string') {
+        return false;
+    }
+
+    const result = update(current);
+    if (!result.changed) {
+        return false;
+    }
+
+    state[key] = JSON.stringify(result.next);
+    return true;
+};
+
+const cleanOpenCodeServerProjects = (projects: Record<string, unknown>, worktrees: Set<string>): boolean => {
+    let changed = false;
+    for (const [serverId, entries] of Object.entries(projects)) {
+        if (!Array.isArray(entries)) {
+            continue;
+        }
+
+        const nextEntries = entries.filter((entry) => {
+            return !(
+                entry &&
+                typeof entry === 'object' &&
+                worktrees.has(String((entry as Record<string, unknown>).worktree ?? ''))
+            );
+        });
+        if (nextEntries.length !== entries.length) {
+            projects[serverId] = nextEntries;
+            changed = true;
+        }
+    }
+    return changed;
+};
+
+const cleanOpenCodeServerLastProject = (lastProject: Record<string, unknown>, worktrees: Set<string>): boolean => {
+    let changed = false;
+    for (const [serverId, directory] of Object.entries(lastProject)) {
+        if (worktrees.has(String(directory))) {
+            delete lastProject[serverId];
+            changed = true;
+        }
+    }
+    return changed;
+};
+
+const cleanOpenCodeServerState = (value: string, worktrees: Set<string>) => {
+    const parsed = parseMutableJsonObject(value);
+    const projects = parseMutableJsonObject(JSON.stringify(parsed?.projects ?? null));
+    const lastProject = parseMutableJsonObject(JSON.stringify(parsed?.lastProject ?? null));
+    if (!parsed) {
+        return { changed: false, next: parsed };
+    }
+
+    const projectsChanged = projects ? cleanOpenCodeServerProjects(projects, worktrees) : false;
+    const lastProjectChanged = lastProject ? cleanOpenCodeServerLastProject(lastProject, worktrees) : false;
+    parsed.projects = projects ?? parsed.projects;
+    parsed.lastProject = lastProject ?? parsed.lastProject;
+
+    const changed = projectsChanged || lastProjectChanged;
+    return changed ? { changed: true, next: parsed } : { changed: false, next: parsed };
+};
+
+const cleanOpenCodeDesktopStateObject = (
+    state: Record<string, unknown>,
+    sessionIds: Set<string>,
+    worktrees: Set<string>,
+): boolean => {
+    let changed = false;
+    const encodedWorktrees = new Set([...worktrees].map(encodeOpenCodeDirectoryKey));
+
+    for (const key of Object.keys(state)) {
+        if ([...sessionIds].some((sessionId) => key.startsWith(`session:${sessionId}:`))) {
+            delete state[key];
+            changed = true;
+        }
+    }
+
+    changed =
+        updateJsonStringField(state, 'notification', (value) => {
+            const parsed = parseMutableJsonObject(value);
+            const list = parsed?.list;
+            if (!Array.isArray(list)) {
+                return { changed: false, next: parsed };
+            }
+
+            const nextList = list.filter((item) => {
+                return !(
+                    item &&
+                    typeof item === 'object' &&
+                    (sessionIds.has(String((item as Record<string, unknown>).session ?? '')) ||
+                        worktrees.has(String((item as Record<string, unknown>).directory ?? '')))
+                );
+            });
+            if (nextList.length === list.length) {
+                return { changed: false, next: parsed };
+            }
+
+            return { changed: true, next: { ...parsed, list: nextList } };
+        }) || changed;
+
+    changed =
+        updateJsonStringField(state, 'layout.page', (value) => {
+            const parsed = parseMutableJsonObject(value);
+            const lastProjectSession = parseMutableJsonObject(JSON.stringify(parsed?.lastProjectSession ?? null));
+            if (!parsed || !lastProjectSession) {
+                return { changed: false, next: parsed };
+            }
+
+            let nextChanged = false;
+            for (const [directory, session] of Object.entries(lastProjectSession)) {
+                if (
+                    session &&
+                    typeof session === 'object' &&
+                    (sessionIds.has(String((session as Record<string, unknown>).id ?? '')) ||
+                        worktrees.has(directory) ||
+                        worktrees.has(String((session as Record<string, unknown>).directory ?? '')))
+                ) {
+                    delete lastProjectSession[directory];
+                    nextChanged = true;
+                }
+            }
+
+            return nextChanged
+                ? { changed: true, next: { ...parsed, lastProjectSession } }
+                : { changed: false, next: parsed };
+        }) || changed;
+
+    changed = updateJsonStringField(state, 'server', (value) => cleanOpenCodeServerState(value, worktrees)) || changed;
+
+    changed =
+        updateJsonStringField(state, 'permission', (value) => {
+            const parsed = parseMutableJsonObject(value);
+            const autoAccept = parseMutableJsonObject(JSON.stringify(parsed?.autoAccept ?? null));
+            if (!parsed || !autoAccept) {
+                return { changed: false, next: parsed };
+            }
+
+            const nextChanged = removeObjectKeysForSessionIds(autoAccept, sessionIds);
+            return nextChanged ? { changed: true, next: { ...parsed, autoAccept } } : { changed: false, next: parsed };
+        }) || changed;
+
+    changed =
+        updateJsonStringField(state, 'tabs', (value) => {
+            const parsed = parseMutableJsonArray(value);
+            if (!parsed) {
+                return { changed: false, next: parsed };
+            }
+
+            const next = parsed.filter((item) => {
+                return !(
+                    item &&
+                    typeof item === 'object' &&
+                    (sessionIds.has(String((item as Record<string, unknown>).sessionId ?? '')) ||
+                        encodedWorktrees.has(String((item as Record<string, unknown>).dirBase64 ?? '')))
+                );
+            });
+            return next.length === parsed.length ? { changed: false, next: parsed } : { changed: true, next };
+        }) || changed;
+
+    changed =
+        updateJsonStringField(state, 'workspace:model-selection', (value) => {
+            const parsed = parseMutableJsonObject(value);
+            const session = parseMutableJsonObject(JSON.stringify(parsed?.session ?? null));
+            if (!parsed || !session) {
+                return { changed: false, next: parsed };
+            }
+
+            const nextChanged = removeObjectKeysForSessionIds(session, sessionIds);
+            return nextChanged ? { changed: true, next: { ...parsed, session } } : { changed: false, next: parsed };
+        }) || changed;
+
+    changed =
+        updateJsonStringField(state, 'workspace:followup', (value) => {
+            const parsed = parseMutableJsonObject(value);
+            if (!parsed) {
+                return { changed: false, next: parsed };
+            }
+
+            let nextChanged = false;
+            for (const key of ['items', 'failed', 'paused', 'edit']) {
+                const child = parseMutableJsonObject(JSON.stringify(parsed[key] ?? null));
+                if (child && removeObjectKeysForSessionIds(child, sessionIds)) {
+                    parsed[key] = child;
+                    nextChanged = true;
+                }
+            }
+
+            return nextChanged ? { changed: true, next: parsed } : { changed: false, next: parsed };
+        }) || changed;
+
+    return changed;
+};
+
+export const deleteOpenCodeDesktopSessionState = async (
+    sessionIds: string[],
+    stateDir = getDefaultOpenCodeDesktopStateDir(),
+    worktrees: string[] = [],
+): Promise<string[]> => {
+    if (!stateDir || (sessionIds.length === 0 && worktrees.length === 0) || !(await pathExists(stateDir))) {
+        return [];
+    }
+
+    const sessionIdSet = new Set(sessionIds);
+    const worktreeSet = new Set(worktrees);
+    const changedFiles: string[] = [];
+    for (const fileName of await readdir(stateDir)) {
+        if (!fileName.endsWith('.dat')) {
+            continue;
+        }
+
+        const filePath = path.join(stateDir, fileName);
+        const state = parseMutableJsonObject(await Bun.file(filePath).text());
+        if (!state || !cleanOpenCodeDesktopStateObject(state, sessionIdSet, worktreeSet)) {
+            continue;
+        }
+
+        await Bun.write(filePath, `${JSON.stringify(state, null, '\t')}\n`);
+        changedFiles.push(filePath);
+    }
+
+    return changedFiles;
+};
+
 export const deleteOpenCodeSession = async (
     dbPath: string,
     sessionId: string,
@@ -453,21 +855,36 @@ export const deleteOpenCodeSession = async (
         return { deletedSessionIds: [] };
     }
 
-    return withOpenCodeWritableDb(dbPath, (db) => {
-        const sessionIds = readOpenCodeSessionTreeIds(db, sessionId);
-        if (sessionIds.length === 0) {
-            return { deletedSessionIds: [] };
-        }
+    const result = await runWithOpenCodeDbLimit('delete-session', dbPath, () =>
+        withOpenCodeWritableDb(dbPath, (db) => {
+            const sessionIds = readOpenCodeSessionTreeIds(db, sessionId);
+            if (sessionIds.length === 0) {
+                return { deletedSessionIds: [], emptyWorktrees: [] };
+            }
 
-        const placeholders = sessionIds.map(() => '?').join(', ');
-        db.transaction(() => {
-            db.query(`DELETE FROM part WHERE session_id IN (${placeholders})`).run(...sessionIds);
-            db.query(`DELETE FROM message WHERE session_id IN (${placeholders})`).run(...sessionIds);
-            db.query(`DELETE FROM session WHERE id IN (${placeholders})`).run(...sessionIds);
-        })();
+            const placeholders = sessionIds.map(() => '?').join(', ');
+            const projectRows = db
+                .query(
+                    `SELECT DISTINCT pr.id AS projectId, pr.worktree
+                FROM session s
+                JOIN project pr ON pr.id = s.project_id
+                WHERE s.id IN (${placeholders})`,
+                )
+                .all(...sessionIds) as Array<{ projectId: string; worktree: string }>;
+            const emptyWorktrees = db.transaction(() =>
+                deleteOpenCodeSessionRows(db, sessionIds, placeholders, projectRows),
+            )();
 
-        return { deletedSessionIds: sessionIds };
-    });
+            return { deletedSessionIds: sessionIds, emptyWorktrees };
+        }),
+    );
+
+    await deleteOpenCodeDesktopSessionState(
+        result.deletedSessionIds.length > 0 ? result.deletedSessionIds : [sessionId],
+        undefined,
+        result.emptyWorktrees,
+    );
+    return { deletedSessionIds: result.deletedSessionIds };
 };
 
 const getMessageRole = (raw: Record<string, JsonValue>): string => asString(raw.role ?? null) ?? 'unknown';
@@ -650,24 +1067,26 @@ export const readOpenCodeSessionTranscript = async (
         return null;
     }
 
-    return withOpenCodeReadonlyDb(dbPath, (db) => {
-        const session = readOpenCodeSessionSummary(db, sessionId);
-        if (!session) {
-            return null;
-        }
+    return runWithOpenCodeDbLimit('read-session', dbPath, () =>
+        withOpenCodeReadonlyDb(dbPath, (db) => {
+            const session = readOpenCodeSessionSummary(db, sessionId);
+            if (!session) {
+                return null;
+            }
 
-        const messages = readMessages(db, sessionId);
-        const partCount = messages.reduce((total, message) => total + message.parts.length, 0);
-        const renderablePartCount = messages.reduce(
-            (total, message) => total + message.parts.filter(isRenderablePart).length,
-            0,
-        );
+            const messages = readMessages(db, sessionId);
+            const partCount = messages.reduce((total, message) => total + message.parts.length, 0);
+            const renderablePartCount = messages.reduce(
+                (total, message) => total + message.parts.filter(isRenderablePart).length,
+                0,
+            );
 
-        return {
-            messages,
-            partCount,
-            renderablePartCount,
-            session,
-        };
-    });
+            return {
+                messages,
+                partCount,
+                renderablePartCount,
+                session,
+            };
+        }),
+    );
 };

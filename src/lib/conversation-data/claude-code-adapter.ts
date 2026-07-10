@@ -12,6 +12,7 @@ import type {
 } from '../claude-code-exporter-types';
 import { getClaudeCodeAssistantMessagePhase, resolveClaudeCodeProjectsDir } from '../claude-code-exporter-types';
 import { cleanInlineTitle } from '../shared';
+import { runWithTranscriptLoadLimit } from '../transcript-load-limiter';
 import {
     createDeepLinks,
     createTextMessage,
@@ -104,9 +105,15 @@ const buildConversation = async (
     projectsDir: string,
     matches: ConversationPathMatch[],
     options: Pick<ListConversationsForPathOptions, 'includeMessages' | 'messageSelector'>,
+    loadedTranscript: ClaudeCodeSessionTranscript | null = null,
 ): Promise<ConversationDetail> => {
     const transcript = options.includeMessages
-        ? await readClaudeCodeSessionTranscript(projectsDir, session.sessionId)
+        ? (loadedTranscript ??
+          (await runWithTranscriptLoadLimit(() => readClaudeCodeSessionTranscript(projectsDir, session.sessionId), {
+              id: session.sessionId,
+              path: session.filePath,
+              source: 'claude-code-api',
+          })))
         : null;
     const allMessages = transcript ? transcriptToMessages(transcript) : [];
     const messages = options.includeMessages
@@ -159,15 +166,28 @@ const listClaudeConversationsForPath = async (
 
 const getClaudeConversation = async (options: GetConversationOptions): Promise<ConversationDetail | null> => {
     const projectsDir = getProjectsDir(options);
-    const transcript = await readClaudeCodeSessionTranscript(projectsDir, options.id);
+    const transcript = await runWithTranscriptLoadLimit(
+        () => readClaudeCodeSessionTranscript(projectsDir, options.id),
+        {
+            id: options.id,
+            path: projectsDir,
+            source: 'claude-code-api',
+        },
+    );
     if (!transcript) {
         return null;
     }
 
-    return buildConversation(transcript.session, projectsDir, [], {
-        includeMessages: true,
-        messageSelector: options.messageSelector ?? 'all',
-    });
+    return buildConversation(
+        transcript.session,
+        projectsDir,
+        [],
+        {
+            includeMessages: true,
+            messageSelector: options.messageSelector ?? 'all',
+        },
+        transcript,
+    );
 };
 
 const deleteClaudeConversation = async (options: DeleteConversationOptions) => {

@@ -1,4 +1,9 @@
-import type { MessageEvent, ThreadEvent } from '@spiracha/lib/codex-browser-types';
+import type {
+    DynamicToolDefinition,
+    MessageEvent,
+    ParsedCodexTranscript,
+    ThreadEvent,
+} from '@spiracha/lib/codex-browser-types';
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { ChevronDown, ChevronUp, Download, Search, Trash2 } from 'lucide-react';
@@ -23,7 +28,11 @@ import { Button } from '#/components/ui/button';
 import { Checkbox } from '#/components/ui/checkbox';
 import { Input } from '#/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
-import { threadSnapshotQueryOptions, threadTranscriptQueryOptions } from '#/lib/codex-queries';
+import {
+    threadSnapshotQueryOptions,
+    threadTranscriptPreviewQueryOptions,
+    threadTranscriptQueryOptions,
+} from '#/lib/codex-queries';
 import { deleteThreadFn, exportThreadFn, type getThreadSnapshotFn } from '#/lib/codex-server';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import {
@@ -43,8 +52,12 @@ import {
 import { useSettings } from '#/lib/settings-store';
 import { shouldLoadFullThreadTranscript } from '#/lib/thread-transcript-load';
 
-type ThreadSnapshot = Awaited<ReturnType<typeof getThreadSnapshotFn>>;
-type ThreadTranscript = NonNullable<ThreadSnapshot['transcript']>;
+type ThreadSnapshotResponse = Awaited<ReturnType<typeof getThreadSnapshotFn>>;
+type ThreadTranscript = ParsedCodexTranscript;
+type ThreadSnapshot = Omit<ThreadSnapshotResponse, 'availableTools' | 'transcript'> & {
+    availableTools: DynamicToolDefinition[];
+    transcript: ThreadTranscript | null;
+};
 
 type TranscriptSearchResult = {
     event: MessageEvent;
@@ -816,6 +829,10 @@ function ThreadDetailPage() {
     const [activeEventJumpSignal, setActiveEventJumpSignal] = useState(0);
     const [exportOpen, setExportOpen] = useState(false);
     const [deleteOpen, setDeleteOpen] = useState(false);
+    const transcriptPreviewQuery = useQuery({
+        ...threadTranscriptPreviewQueryOptions(params.threadId, transcriptFilters),
+        enabled: snapshot.rollout.shouldDeferTranscriptLoad && !shouldLoadTranscript && !transcriptMissing,
+    });
     const transcriptQuery = useQuery({
         ...threadTranscriptQueryOptions(params.threadId),
         enabled: shouldLoadFullThreadTranscript({
@@ -824,8 +841,13 @@ function ThreadDetailPage() {
             transcriptMissing,
         }),
     });
-    const transcript = transcriptQuery.data ?? snapshot.transcript ?? null;
-    const viewSnapshot = { ...snapshot, transcript };
+    const transcript = transcriptQuery.data ?? transcriptPreviewQuery.data ?? snapshot.transcript ?? null;
+    const viewSnapshot = {
+        ...snapshot,
+        availableTools:
+            snapshot.availableTools.length > 0 ? snapshot.availableTools : (transcript?.sessionMeta.dynamicTools ?? []),
+        transcript,
+    };
     const fullTranscriptLoaded = Boolean(transcriptQuery.data && !transcriptQuery.data.isPartial);
     const transcriptSearchResults = useTranscriptSearchResults({
         assistantModel: snapshot.thread.model,
@@ -1022,7 +1044,13 @@ function ThreadDetailPage() {
                     activeSearchResultIndex={activeSearchResultIndex}
                     activeTranscriptEventKey={activeTranscriptEventKey}
                     fullTranscriptLoaded={fullTranscriptLoaded}
-                    loadError={transcriptQuery.isError ? transcriptQuery.error : null}
+                    loadError={
+                        transcriptQuery.isError
+                            ? transcriptQuery.error
+                            : transcriptPreviewQuery.isError
+                              ? transcriptPreviewQuery.error
+                              : null
+                    }
                     loadingFullTranscript={transcriptQuery.isFetching}
                     searchInput={transcriptSearchInput}
                     searchResults={transcriptSearchResults}

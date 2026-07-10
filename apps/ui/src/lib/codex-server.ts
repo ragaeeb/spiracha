@@ -1,3 +1,4 @@
+import type { ParsedCodexTranscript } from '@spiracha/lib/codex-browser-types';
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
 
@@ -76,6 +77,10 @@ const isMissingFileError = (error: unknown) => {
     return error instanceof Error && /ENOENT|no such file/i.test(error.message);
 };
 
+const logCodexThreadLoad = (event: string, details: Record<string, unknown>) => {
+    console.info(`[spiracha:codex-thread] ${event}`, details);
+};
+
 export const getDashboardSummaryFn = createServerFn({ method: 'GET' }).handler(async () => {
     const { getCodexDashboardSummary } = await import('@spiracha/lib/codex-browser-db');
     return getCodexDashboardSummary(await getDbPath());
@@ -98,46 +103,77 @@ export const listProjectThreadsFn = createServerFn({ method: 'GET' })
 export const getThreadSnapshotFn = createServerFn({ method: 'GET' })
     .validator(threadSnapshotSchema)
     .handler(async ({ data }) => {
-        const [
-            { getThreadBrowseData },
-            { getCachedParsedCodexTranscript, getCachedThreadTranscriptPreview, getThreadRolloutLoadState },
-        ] = await Promise.all([import('@spiracha/lib/codex-browser-db'), import('@spiracha/lib/codex-thread-cache')]);
+        const startedAt = Date.now();
+        const [{ getThreadBrowseData }, { getThreadRolloutLoadState }] = await Promise.all([
+            import('@spiracha/lib/codex-browser-db'),
+            import('@spiracha/lib/codex-thread-cache'),
+        ]);
         const dbPath = await getDbPath();
+        logCodexThreadLoad('snapshot_start', {
+            threadId: data.threadId,
+        });
         const browseData = getThreadBrowseData(dbPath, data.threadId);
-        const rollout = await getThreadRolloutLoadState(browseData.thread.rollout_path);
-        let transcript = null;
-        let transcriptState: 'available' | 'deferred' | 'missing' = rollout.shouldDeferTranscriptLoad
-            ? 'deferred'
-            : 'available';
+        const transcript: ParsedCodexTranscript | null = null;
+        let rollout: Awaited<ReturnType<typeof getThreadRolloutLoadState>>;
 
         try {
-            if (rollout.shouldDeferTranscriptLoad) {
-                transcript = await getCachedThreadTranscriptPreview(browseData.thread.rollout_path, {
-                    filters: data.filters,
-                });
-            } else {
-                transcript = await getCachedParsedCodexTranscript(browseData.thread.rollout_path);
-            }
+            rollout = await getThreadRolloutLoadState(browseData.thread.rollout_path);
         } catch (error) {
             if (!isMissingFileError(error)) {
                 throw error;
             }
 
-            transcript = null;
-            transcriptState = 'missing';
+            rollout = {
+                fileSizeBytes: null,
+                shouldDeferTranscriptLoad: false,
+            };
         }
+
+        const transcriptState: 'available' | 'deferred' | 'missing' =
+            rollout.fileSizeBytes === null ? 'missing' : rollout.shouldDeferTranscriptLoad ? 'deferred' : 'available';
+        logCodexThreadLoad('snapshot_ready', {
+            durationMs: Date.now() - startedAt,
+            fileSizeBytes: rollout.fileSizeBytes,
+            shouldDeferTranscriptLoad: rollout.shouldDeferTranscriptLoad,
+            threadId: data.threadId,
+            transcriptState,
+        });
 
         return {
             ...browseData,
-            availableTools:
-                browseData.dynamicTools.length > 0
-                    ? browseData.dynamicTools
-                    : (transcript?.sessionMeta.dynamicTools ?? []),
+            availableTools: browseData.dynamicTools,
             rollout,
             transcript,
             transcriptState,
         };
     });
+
+export const loadThreadTranscriptPreview = async (
+    threadId: string,
+    filters?: z.infer<typeof transcriptFiltersSchema>,
+) => {
+    const startedAt = Date.now();
+    const [{ getThreadBrowseData }, { getCachedThreadTranscriptPreview }] = await Promise.all([
+        import('@spiracha/lib/codex-browser-db'),
+        import('@spiracha/lib/codex-thread-cache'),
+    ]);
+    const dbPath = await getDbPath();
+    const browseData = getThreadBrowseData(dbPath, threadId);
+    logCodexThreadLoad('preview_start', {
+        rolloutPath: browseData.thread.rollout_path,
+        threadId,
+    });
+    const transcript = await getCachedThreadTranscriptPreview(browseData.thread.rollout_path, {
+        filters,
+    });
+    logCodexThreadLoad('preview_ready', {
+        durationMs: Date.now() - startedAt,
+        eventCount: transcript.events.length,
+        isPartial: transcript.isPartial,
+        threadId,
+    });
+    return transcript;
+};
 
 export const loadThreadTranscript = async (threadId: string) => {
     const [{ getThreadBrowseData }, { getCachedParsedCodexTranscript }] = await Promise.all([
@@ -146,8 +182,25 @@ export const loadThreadTranscript = async (threadId: string) => {
     ]);
     const dbPath = await getDbPath();
     const browseData = getThreadBrowseData(dbPath, threadId);
-    return getCachedParsedCodexTranscript(browseData.thread.rollout_path);
+    const startedAt = Date.now();
+    logCodexThreadLoad('full_start', {
+        rolloutPath: browseData.thread.rollout_path,
+        threadId,
+    });
+    const transcript = await getCachedParsedCodexTranscript(browseData.thread.rollout_path);
+    logCodexThreadLoad('full_ready', {
+        durationMs: Date.now() - startedAt,
+        eventCount: transcript.events.length,
+        threadId,
+    });
+    return transcript;
 };
+
+export const getThreadTranscriptPreviewFn = createServerFn({ method: 'GET' })
+    .validator(threadSnapshotSchema)
+    .handler(async ({ data }) => {
+        return loadThreadTranscriptPreview(data.threadId, data.filters);
+    });
 
 export const getThreadTranscriptFn = createServerFn({ method: 'GET' })
     .validator(threadSchema)

@@ -13,6 +13,7 @@ import type {
 } from '../grok-exporter-types';
 import { getFinalGrokAssistantTextPartIds, getGrokTextPartPhase } from '../grok-transcript-phase';
 import { cleanInlineTitle } from '../shared';
+import { runWithTranscriptLoadLimit } from '../transcript-load-limiter';
 import {
     createDeepLinks,
     createTextMessage,
@@ -112,7 +113,14 @@ const buildConversation = async (
     const transcript =
         loadedTranscript ??
         (options.includeMessages
-            ? await readGrokSessionTranscript(sessionsDir, session.sessionId, { includeRawPayloads: false })
+            ? await runWithTranscriptLoadLimit(
+                  () => readGrokSessionTranscript(sessionsDir, session.sessionId, { includeRawPayloads: false }),
+                  {
+                      id: session.sessionId,
+                      path: sessionsDir,
+                      source: 'grok-api',
+                  },
+              )
             : null);
     const allMessages = transcript ? transcriptToMessages(transcript) : [];
     const messages = options.includeMessages
@@ -164,7 +172,14 @@ const listGrokConversationsForPath = async (options: ListConversationsForPathOpt
 
 const getGrokConversation = async (options: GetConversationOptions): Promise<ConversationDetail | null> => {
     const sessionsDir = getSessionsDir(options);
-    const transcript = await readGrokSessionTranscript(sessionsDir, options.id, { includeRawPayloads: false });
+    const transcript = await runWithTranscriptLoadLimit(
+        () => readGrokSessionTranscript(sessionsDir, options.id, { includeRawPayloads: false }),
+        {
+            id: options.id,
+            path: sessionsDir,
+            source: 'grok-api',
+        },
+    );
     return transcript
         ? buildConversation(
               transcript.session,

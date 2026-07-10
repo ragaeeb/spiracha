@@ -14,6 +14,7 @@ import type {
 import { resolveQoderGlobalStateDb, resolveQoderWorkspaceStorageDir } from '../qoder-exporter-types';
 import { getFinalQoderAssistantMessageEntryIds, getQoderMessagePhase } from '../qoder-transcript-phase';
 import { cleanInlineTitle } from '../shared';
+import { runWithTranscriptLoadLimit } from '../transcript-load-limiter';
 import {
     createDeepLinks,
     createTextMessage,
@@ -117,18 +118,28 @@ const buildConversation = async (
     locations: ReturnType<typeof getQoderLocations>,
     matches: ConversationPathMatch[],
     options: Pick<ListConversationsForPathOptions, 'includeMessages' | 'messageSelector'>,
+    loadedTranscript: QoderSessionTranscript | null = null,
 ): Promise<ConversationDetail> => {
     const transcript = options.includeMessages
-        ? await readQoderSessionTranscript(
-              locations.globalStateDb,
-              locations.workspaceStorageDir,
-              session.sessionId,
-              locations.cliProjectsDir,
+        ? (loadedTranscript ??
+          (await runWithTranscriptLoadLimit(
+              () =>
+                  readQoderSessionTranscript(
+                      locations.globalStateDb,
+                      locations.workspaceStorageDir,
+                      session.sessionId,
+                      locations.cliProjectsDir,
+                      {
+                          acpSocketPath: locations.acpSocketPath,
+                          enableAcp: locations.acpSocketPath ? true : undefined,
+                      },
+                  ),
               {
-                  acpSocketPath: locations.acpSocketPath,
-                  enableAcp: locations.acpSocketPath ? true : undefined,
+                  id: session.sessionId,
+                  path: session.sourceStatePath ?? locations.globalStateDb,
+                  source: 'qoder-api',
               },
-          )
+          )))
         : null;
     const allMessages = transcript ? transcriptToMessages(transcript) : [];
     const messages = options.includeMessages
@@ -205,21 +216,35 @@ const listQoderConversationsForPath = async (options: ListConversationsForPathOp
 
 const getQoderConversation = async (options: GetConversationOptions): Promise<ConversationDetail | null> => {
     const locations = getQoderLocations(options);
-    const transcript = await readQoderSessionTranscript(
-        locations.globalStateDb,
-        locations.workspaceStorageDir,
-        options.id,
-        locations.cliProjectsDir,
+    const transcript = await runWithTranscriptLoadLimit(
+        () =>
+            readQoderSessionTranscript(
+                locations.globalStateDb,
+                locations.workspaceStorageDir,
+                options.id,
+                locations.cliProjectsDir,
+                {
+                    acpSocketPath: locations.acpSocketPath,
+                    enableAcp: locations.acpSocketPath ? true : undefined,
+                },
+            ),
         {
-            acpSocketPath: locations.acpSocketPath,
-            enableAcp: locations.acpSocketPath ? true : undefined,
+            id: options.id,
+            path: locations.globalStateDb,
+            source: 'qoder-api',
         },
     );
     return transcript
-        ? buildConversation(transcript.session, locations, [], {
-              includeMessages: true,
-              messageSelector: options.messageSelector ?? 'all',
-          })
+        ? buildConversation(
+              transcript.session,
+              locations,
+              [],
+              {
+                  includeMessages: true,
+                  messageSelector: options.messageSelector ?? 'all',
+              },
+              transcript,
+          )
         : null;
 };
 

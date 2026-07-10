@@ -13,6 +13,7 @@ import type {
 import { getCursorGlobalDbPath, resolveCursorUserDir } from '../cursor-exporter-types';
 import { collectCursorThreadsForDeletion, isCursorRunning, pruneCursorThreads } from '../cursor-recovery';
 import { cleanInlineTitle } from '../shared';
+import { runWithTranscriptLoadLimit } from '../transcript-load-limiter';
 import { createDeepLinks, createTextMessage, finalizeMessages } from './adapter-helpers';
 import { selectConversationMessages } from './message-selector';
 import { getFirstConversationPathMatch } from './path-match';
@@ -92,8 +93,16 @@ const buildConversation = async (
     matches: ConversationPathMatch[],
     options: Pick<ListConversationsForPathOptions, 'includeMessages' | 'messageSelector'>,
 ): Promise<ConversationDetail> => {
+    const globalDbPath = getCursorGlobalDbPath(userDir);
     const transcript = options.includeMessages
-        ? await readCursorThreadTranscriptWithAgentFiles(getCursorGlobalDbPath(userDir), thread.composerId, userDir)
+        ? await runWithTranscriptLoadLimit(
+              () => readCursorThreadTranscriptWithAgentFiles(globalDbPath, thread.composerId, userDir),
+              {
+                  id: thread.composerId,
+                  path: thread.transcriptDirs[0] ?? globalDbPath,
+                  source: 'cursor-api',
+              },
+          )
         : null;
     const allMessages = transcript ? transcriptToMessages(transcript) : [];
     const messages = options.includeMessages

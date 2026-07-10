@@ -5,6 +5,7 @@ import {
     getDashboardSummaryFn,
     getThreadSnapshotFn,
     getThreadTranscriptFn,
+    getThreadTranscriptPreviewFn,
     listProjectsFn,
     listProjectThreadsFn,
 } from './codex-server';
@@ -52,6 +53,14 @@ export const threadSnapshotQueryOptions = (threadId: string, filters?: ThreadTra
     queryOptions({
         queryFn: () => getThreadSnapshotFn({ data: { filters, threadId } }),
         queryKey: ['thread', threadId, filters ?? 'all'],
+        retry: retrySqliteQuery,
+        retryDelay,
+    });
+
+export const threadTranscriptPreviewQueryOptions = (threadId: string, filters?: ThreadTranscriptFilters) =>
+    queryOptions({
+        queryFn: () => getThreadTranscriptPreviewFn({ data: { filters, threadId } }),
+        queryKey: ['thread-transcript-preview', threadId, filters ?? 'all'],
         retry: retrySqliteQuery,
         retryDelay,
     });

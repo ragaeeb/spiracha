@@ -45,13 +45,24 @@ export const listOpenCodeSessionsFn = createServerFn({ method: 'GET' })
     });
 
 const loadOpenCodeSessionTranscript = async (sessionId: string) => {
+    const { runWithTranscriptLoadLimit } = await import('@spiracha/lib/transcript-load-limiter');
     const { readOpenCodeSessionTranscript, resolveOpenCodeDbPath } = await import('@spiracha/lib/opencode-db');
-    const transcript = await readOpenCodeSessionTranscript(resolveOpenCodeDbPath(), sessionId);
-    if (!transcript) {
-        throw new Error(`OpenCode session not found: ${sessionId}`);
-    }
+    const dbPath = resolveOpenCodeDbPath();
+    return runWithTranscriptLoadLimit(
+        async () => {
+            const transcript = await readOpenCodeSessionTranscript(dbPath, sessionId);
+            if (!transcript) {
+                throw new Error(`OpenCode session not found: ${sessionId}`);
+            }
 
-    return transcript;
+            return transcript;
+        },
+        {
+            id: sessionId,
+            path: dbPath,
+            source: 'opencode-ui',
+        },
+    );
 };
 
 export const getOpenCodeSessionDetailFn = createServerFn({ method: 'GET' })

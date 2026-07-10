@@ -4,6 +4,7 @@ import type { ParsedCodexTranscript } from './codex-browser-types';
 import { parseCodexTranscriptFile } from './codex-thread-parser';
 import type { CodexTranscriptEventFilters } from './codex-transcript-filter';
 import { shouldShowCodexTranscriptEvent } from './codex-transcript-filter';
+import { runWithTranscriptLoadLimit } from './transcript-load-limiter';
 import { getFileFingerprint, hashCacheKeyParts, withCachedJson } from './ui-cache';
 
 // Keep initial thread payloads below sizes that make TanStack Start SSR responses unreliable.
@@ -19,7 +20,12 @@ export const getCachedParsedCodexTranscript = async (sessionFile: string): Promi
     const fingerprint = await getFileFingerprint(sessionFile);
     const key = `thread-${hashCacheKeyParts(CODEX_TRANSCRIPT_CACHE_VERSION, path.basename(sessionFile), fingerprint)}`;
 
-    return withCachedJson(key, async () => parseCodexTranscriptFile(sessionFile));
+    return withCachedJson(key, async () =>
+        runWithTranscriptLoadLimit(() => parseCodexTranscriptFile(sessionFile), {
+            path: sessionFile,
+            source: 'codex-full',
+        }),
+    );
 };
 
 type CachedThreadTranscriptPreviewOptions = {
@@ -66,17 +72,31 @@ export const getCachedThreadTranscriptPreview = async (
 
     return withCachedJson(key, async () => {
         if (!shouldDeferTranscriptLoad) {
-            return parseCodexTranscriptFile(sessionFile, {
-                sourceFileSizeBytes: fileSizeBytes,
-            });
+            return runWithTranscriptLoadLimit(
+                () =>
+                    parseCodexTranscriptFile(sessionFile, {
+                        sourceFileSizeBytes: fileSizeBytes,
+                    }),
+                {
+                    path: sessionFile,
+                    source: 'codex-preview-full',
+                },
+            );
         }
 
-        return parseCodexTranscriptFile(sessionFile, {
-            eventFilter: filters ? (event) => shouldShowCodexTranscriptEvent(event, filters) : undefined,
-            includeRaw: false,
-            maxTurnContexts: 0,
-            sourceFileSizeBytes: fileSizeBytes,
-            tailEventLimit: previewEventLimit,
-        });
+        return runWithTranscriptLoadLimit(
+            () =>
+                parseCodexTranscriptFile(sessionFile, {
+                    eventFilter: filters ? (event) => shouldShowCodexTranscriptEvent(event, filters) : undefined,
+                    includeRaw: false,
+                    maxTurnContexts: 0,
+                    sourceFileSizeBytes: fileSizeBytes,
+                    tailEventLimit: previewEventLimit,
+                }),
+            {
+                path: sessionFile,
+                source: 'codex-preview',
+            },
+        );
     });
 };

@@ -45,13 +45,24 @@ export const listKiroSessionsFn = createServerFn({ method: 'GET' })
     });
 
 const loadKiroSessionTranscript = async (sessionId: string) => {
+    const { runWithTranscriptLoadLimit } = await import('@spiracha/lib/transcript-load-limiter');
     const { readKiroSessionTranscript, resolveKiroWorkspaceSessionsDir } = await import('@spiracha/lib/kiro-db');
-    const transcript = await readKiroSessionTranscript(resolveKiroWorkspaceSessionsDir(), sessionId);
-    if (!transcript) {
-        throw new Error(`Kiro session not found: ${sessionId}`);
-    }
+    const sessionsDir = resolveKiroWorkspaceSessionsDir();
+    return runWithTranscriptLoadLimit(
+        async () => {
+            const transcript = await readKiroSessionTranscript(sessionsDir, sessionId);
+            if (!transcript) {
+                throw new Error(`Kiro session not found: ${sessionId}`);
+            }
 
-    return transcript;
+            return transcript;
+        },
+        {
+            id: sessionId,
+            path: sessionsDir,
+            source: 'kiro-ui',
+        },
+    );
 };
 
 export const getKiroSessionDetailFn = createServerFn({ method: 'GET' })

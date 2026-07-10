@@ -6,6 +6,7 @@ import {
 import type { AntigravityConversation } from '../antigravity-exporter-types';
 import { resolveAntigravityRoots } from '../antigravity-exporter-types';
 import { cleanInlineTitle } from '../shared';
+import { runWithTranscriptLoadLimit } from '../transcript-load-limiter';
 import { createDeepLinks, decodeFileUri, finalizeMessages } from './adapter-helpers';
 import { selectConversationMessages } from './message-selector';
 import { getConversationPathMatch, getFirstConversationPathMatch } from './path-match';
@@ -32,7 +33,11 @@ const extractAbsolutePathReferences = (text: string): string[] => {
 };
 
 const readMessages = async (conversation: AntigravityConversation) => {
-    const messages = await readAntigravityConversationMessages(conversation);
+    const messages = await runWithTranscriptLoadLimit(() => readAntigravityConversationMessages(conversation), {
+        id: conversation.conversationId,
+        path: conversation.transcriptPath ?? conversation.conversationPath ?? undefined,
+        source: 'antigravity-api',
+    });
     return finalizeMessages(
         messages.map(
             (message): ConversationMessage => ({

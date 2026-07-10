@@ -13,6 +13,7 @@ import type {
 import { resolveKiroWorkspaceSessionsDir } from '../kiro-exporter-types';
 import { getFinalKiroAssistantMessageEntryIds, getKiroMessagePhase } from '../kiro-transcript-phase';
 import { cleanInlineTitle } from '../shared';
+import { runWithTranscriptLoadLimit } from '../transcript-load-limiter';
 import {
     createDeepLinks,
     createTextMessage,
@@ -80,8 +81,16 @@ const buildConversation = async (
     sessionsDir: string,
     matches: ConversationPathMatch[],
     options: Pick<ListConversationsForPathOptions, 'includeMessages' | 'messageSelector'>,
+    loadedTranscript: KiroSessionTranscript | null = null,
 ): Promise<ConversationDetail> => {
-    const transcript = options.includeMessages ? await readKiroSessionTranscript(sessionsDir, session.sessionId) : null;
+    const transcript = options.includeMessages
+        ? (loadedTranscript ??
+          (await runWithTranscriptLoadLimit(() => readKiroSessionTranscript(sessionsDir, session.sessionId), {
+              id: session.sessionId,
+              path: session.filePath,
+              source: 'kiro-api',
+          })))
+        : null;
     const allMessages = transcript ? transcriptToMessages(transcript) : [];
     const messages = options.includeMessages
         ? selectConversationMessages(allMessages, options.messageSelector ?? 'last_final_answer')
@@ -130,12 +139,22 @@ const listKiroConversationsForPath = async (options: ListConversationsForPathOpt
 
 const getKiroConversation = async (options: GetConversationOptions): Promise<ConversationDetail | null> => {
     const sessionsDir = getSessionsDir(options);
-    const transcript = await readKiroSessionTranscript(sessionsDir, options.id);
+    const transcript = await runWithTranscriptLoadLimit(() => readKiroSessionTranscript(sessionsDir, options.id), {
+        id: options.id,
+        path: sessionsDir,
+        source: 'kiro-api',
+    });
     return transcript
-        ? buildConversation(transcript.session, sessionsDir, [], {
-              includeMessages: true,
-              messageSelector: options.messageSelector ?? 'all',
-          })
+        ? buildConversation(
+              transcript.session,
+              sessionsDir,
+              [],
+              {
+                  includeMessages: true,
+                  messageSelector: options.messageSelector ?? 'all',
+              },
+              transcript,
+          )
         : null;
 };
 

@@ -60,6 +60,7 @@ const findAntigravityConversationById = async (conversationId: string) => {
 };
 
 export const loadAntigravityConversationDetail = async (conversationId: string) => {
+    const { runWithTranscriptLoadLimit } = await import('@spiracha/lib/transcript-load-limiter');
     const { renderAntigravityArtifactsMarkdown, renderAntigravityConversationMarkdown } = await import(
         '@spiracha/lib/antigravity-db'
     );
@@ -68,11 +69,18 @@ export const loadAntigravityConversationDetail = async (conversationId: string) 
     const keychainSecret = getCachedAntigravityKeychainSecret();
     const hasKeychainSecret = Boolean(keychainSecret);
     const transcriptLocked = isAntigravityConversationLocked(conversation, hasKeychainSecret);
-    const conversationMarkdown = transcriptLocked
-        ? null
-        : await renderAntigravityConversationMarkdown(conversation, { keychainSecret });
-    const artifactsMarkdown =
-        conversation.artifactCount > 0 ? await renderAntigravityArtifactsMarkdown(conversation) : null;
+    const [conversationMarkdown, artifactsMarkdown] = await runWithTranscriptLoadLimit(
+        async () =>
+            Promise.all([
+                transcriptLocked ? null : renderAntigravityConversationMarkdown(conversation, { keychainSecret }),
+                conversation.artifactCount > 0 ? renderAntigravityArtifactsMarkdown(conversation) : null,
+            ]),
+        {
+            id: conversation.conversationId,
+            path: conversation.transcriptPath ?? conversation.conversationPath ?? undefined,
+            source: 'antigravity-ui-detail',
+        },
+    );
 
     return {
         artifactsMarkdown,
@@ -84,6 +92,7 @@ export const loadAntigravityConversationDetail = async (conversationId: string) 
 };
 
 export const loadAntigravityConversationExport = async (conversationId: string) => {
+    const { runWithTranscriptLoadLimit } = await import('@spiracha/lib/transcript-load-limiter');
     const { renderAntigravityConversationMarkdown } = await import('@spiracha/lib/antigravity-db');
     const { getCachedAntigravityKeychainSecret } = await import('@spiracha/lib/antigravity-keychain');
     const conversation = await findAntigravityConversationById(conversationId);
@@ -98,9 +107,17 @@ export const loadAntigravityConversationExport = async (conversationId: string) 
         throw new Error(`No exportable Antigravity transcript found for conversation: ${conversationId}`);
     }
 
-    const content = await renderAntigravityConversationMarkdown(conversation, {
-        keychainSecret,
-    });
+    const content = await runWithTranscriptLoadLimit(
+        () =>
+            renderAntigravityConversationMarkdown(conversation, {
+                keychainSecret,
+            }),
+        {
+            id: conversation.conversationId,
+            path: conversation.transcriptPath ?? conversation.conversationPath ?? undefined,
+            source: 'antigravity-ui-export',
+        },
+    );
     if (!content) {
         throw new Error(`No exportable Antigravity transcript found for conversation: ${conversationId}`);
     }
@@ -108,6 +125,35 @@ export const loadAntigravityConversationExport = async (conversationId: string) 
     return {
         content,
         filename: `${conversationId}.md`,
+    };
+};
+
+export const deleteAntigravityConversationById = async (conversationId: string) => {
+    const { deleteAntigravityConversation } = await import('@spiracha/lib/antigravity-db');
+    const { resolveAntigravityRoots } = await import('@spiracha/lib/antigravity-exporter-types');
+    const result = await deleteAntigravityConversation(resolveAntigravityRoots(), conversationId);
+    if (result.deletedConversationIds.length === 0) {
+        throw new Error(`Antigravity conversation not found: ${conversationId}`);
+    }
+
+    return result;
+};
+
+export const deleteAntigravityConversationsById = async (conversationIds: string[]) => {
+    const { deleteAntigravityConversation } = await import('@spiracha/lib/antigravity-db');
+    const { resolveAntigravityRoots } = await import('@spiracha/lib/antigravity-exporter-types');
+    const roots = resolveAntigravityRoots();
+    const results = await Promise.all(
+        conversationIds.map((conversationId) => deleteAntigravityConversation(roots, conversationId)),
+    );
+    const deletedConversationIds = results.flatMap((result) => result.deletedConversationIds);
+    if (deletedConversationIds.length === 0) {
+        throw new Error('No Antigravity conversations were deleted');
+    }
+
+    return {
+        deletedConversationIds,
+        deletedPaths: results.flatMap((result) => result.deletedPaths),
     };
 };
 
@@ -166,18 +212,11 @@ export const exportAntigravityConversationsFn = createServerFn({ method: 'POST' 
 export const deleteAntigravityConversationFn = createServerFn({ method: 'POST' })
     .validator(conversationSchema)
     .handler(async ({ data }) => {
-        const { deleteAntigravityConversation } = await import('@spiracha/lib/antigravity-db');
-        const { resolveAntigravityRoots } = await import('@spiracha/lib/antigravity-exporter-types');
-        return deleteAntigravityConversation(resolveAntigravityRoots(), data.conversationId);
+        return deleteAntigravityConversationById(data.conversationId);
     });
 
 export const deleteAntigravityConversationsFn = createServerFn({ method: 'POST' })
     .validator(deleteConversationsSchema)
     .handler(async ({ data }) => {
-        const { deleteAntigravityConversation } = await import('@spiracha/lib/antigravity-db');
-        const { resolveAntigravityRoots } = await import('@spiracha/lib/antigravity-exporter-types');
-        const roots = resolveAntigravityRoots();
-        return Promise.all(
-            data.conversationIds.map((conversationId) => deleteAntigravityConversation(roots, conversationId)),
-        );
+        return deleteAntigravityConversationsById(data.conversationIds);
     });
