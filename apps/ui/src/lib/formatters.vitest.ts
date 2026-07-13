@@ -67,6 +67,7 @@ describe('formatters', () => {
         expect(formatBooleanLabel(false)).toBe('No');
         expect(formatModelLabel(null)).toBe('Assistant');
         expect(formatModelLabel('gpt-5.4')).toBe('GPT 5.4');
+        expect(formatModelLabel('claude-opus-4-8')).toBe('Claude Opus 4.8');
         expect(formatDateTime('not-a-date')).toBe('n/a');
     });
 });

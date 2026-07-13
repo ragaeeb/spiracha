@@ -208,7 +208,7 @@ describe('renderClaudeCodeTranscript', () => {
         expect(rendered).toContain('All four proposals are written...');
     });
 
-    it('should omit Claude compaction control entries from exports', () => {
+    it('should omit Claude compaction controls and synthetic assistant placeholders from exports', () => {
         const rendered = renderClaudeCodeTranscript(
             {
                 ...transcript,
@@ -243,6 +243,25 @@ describe('renderClaudeCodeTranscript', () => {
                         timestamp: '2026-06-01T09:59:01.000Z',
                         type: 'user',
                     },
+                    {
+                        cwd: '/Users/example/workspace/ushman-corpus',
+                        entryId: 'synthetic-assistant',
+                        parts: [
+                            {
+                                raw: { text: 'No response requested.' },
+                                text: 'No response requested.',
+                                type: 'text',
+                            },
+                        ],
+                        raw: {
+                            isApiErrorMessage: false,
+                            message: { model: '<synthetic>', stop_reason: 'stop_sequence' },
+                            type: 'assistant',
+                        },
+                        role: 'assistant',
+                        timestamp: '2026-06-01T09:59:02.000Z',
+                        type: 'assistant',
+                    },
                     ...transcript.entries,
                 ],
             },
@@ -256,6 +275,7 @@ describe('renderClaudeCodeTranscript', () => {
 
         expect(rendered).not.toContain('This session is being continued');
         expect(rendered).not.toContain('<command-name>/compact</command-name>');
+        expect(rendered).not.toContain('No response requested.');
         expect(rendered).toContain('Review Descope-Class Vendor-Detection');
     });
 });

@@ -48,6 +48,10 @@ export const isClaudeCodeSyntheticTranscriptEntry = (entry: ClaudeCodeFilterEntr
         return true;
     }
 
+    if (asMessageObject(entry.raw.message)?.model === '<synthetic>') {
+        return true;
+    }
+
     if (entry.role !== 'user') {
         return false;
     }

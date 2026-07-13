@@ -84,4 +84,20 @@ describe('claude code transcript phase helpers', () => {
             }),
         ).toBe(true);
     });
+
+    it('should classify Claude synthetic assistant placeholders as synthetic', () => {
+        expect(
+            isClaudeCodeSyntheticTranscriptEntry({
+                ...buildEntry('assistant', 'stop_sequence'),
+                parts: [{ text: 'No response requested.', type: 'text' }],
+                raw: {
+                    isApiErrorMessage: false,
+                    message: {
+                        model: '<synthetic>',
+                        stop_reason: 'stop_sequence',
+                    },
+                },
+            }),
+        ).toBe(true);
+    });
 });
