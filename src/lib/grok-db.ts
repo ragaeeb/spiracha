@@ -205,7 +205,11 @@ const unwrapGrokTextEnvelope = (text: string): string => {
 
 const isGrokSystemContextEnvelope = (text: string): boolean => {
     const trimmed = text.trimStart();
-    return trimmed.startsWith('<user_info>') || trimmed.startsWith('<summary_request>');
+    return (
+        trimmed.startsWith('<user_info>') ||
+        trimmed.startsWith('<summary_request>') ||
+        trimmed.startsWith('<system-reminder>')
+    );
 };
 
 const getReasoningText = (raw: Record<string, JsonValue>): string => {
@@ -449,7 +453,7 @@ const isRenderablePart = (part: GrokTranscriptPart): boolean => {
 };
 
 const updateStatsFromEntry = (stats: SessionStats, entry: GrokTranscriptEntry) => {
-    if (entry.role === 'assistant' || entry.role === 'system' || entry.role === 'user') {
+    if (entry.role === 'assistant' || entry.role === 'user') {
         stats.messageCount += entry.parts.some((part) => part.type === 'text') ? 1 : 0;
     }
 
@@ -457,7 +461,7 @@ const updateStatsFromEntry = (stats: SessionStats, entry: GrokTranscriptEntry) =
         stats.assistantMessageCount += 1;
     }
 
-    if (entry.role === 'user') {
+    if (entry.role === 'user' && entry.parts.some((part) => part.type === 'text')) {
         stats.userMessageCount += 1;
     }
 
@@ -577,7 +581,7 @@ const toSessionSummary = (
         headCommit: identity.headCommit,
         lastActiveAtIso: toIso(updatedAtMs),
         lastActiveAtMs: updatedAtMs,
-        messageCount: identity.messageCount ?? stats.messageCount,
+        messageCount: stats.messageCount,
         modelLabel: currentModelId ? (modelLabels.get(currentModelId) ?? null) : null,
         sandboxProfile: identity.sandboxProfile,
         sessionDir: file.sessionDir,
@@ -692,6 +696,10 @@ const readSessionDirectories = async (
     return transcripts.flatMap((transcript) => (transcript ? [transcript] : []));
 };
 
+const hasConversationMessages = (transcript: GrokSessionTranscript): boolean => {
+    return transcript.session.userMessageCount > 0 || transcript.session.assistantMessageCount > 0;
+};
+
 const compareNullableMsDesc = (left: number | null, right: number | null): number => {
     return (right ?? 0) - (left ?? 0);
 };
@@ -737,6 +745,10 @@ export const listGrokWorkspaceGroups = async (
     const sessionsByDirectory = new Map<string, GrokSessionSummary[]>();
 
     for (const transcript of transcripts) {
+        if (!hasConversationMessages(transcript)) {
+            continue;
+        }
+
         const directoryName = getDirectoryNameFromWorkspaceKey(transcript.session.workspaceKey);
         if (!directoryName) {
             continue;
@@ -800,7 +812,7 @@ export const listGrokSessionsForGroup = async (
 
     const files = await listSessionDirectoriesForWorkspace(sessionsDir, directoryName);
     const transcripts = await readSessionDirectories(sessionsDir, files);
-    return sortSessions(transcripts.map((transcript) => transcript.session));
+    return sortSessions(transcripts.filter(hasConversationMessages).map((transcript) => transcript.session));
 };
 
 const locateSessionDirectory = async (sessionsDir: string, sessionId: string): Promise<GrokSessionDirectory | null> => {

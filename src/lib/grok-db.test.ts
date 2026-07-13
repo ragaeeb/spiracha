@@ -137,6 +137,7 @@ describe('grok db helpers', () => {
                 assistantMessageCount: 1,
                 key: fixture.workspaceKey,
                 label: 'project',
+                messageCount: 2,
                 sessionCount: 1,
                 toolCallCount: 1,
                 toolResultCount: 1,
@@ -149,6 +150,7 @@ describe('grok db helpers', () => {
         expect(sessions).toEqual([
             expect.objectContaining({
                 currentModelId: 'grok-composer-2.5-fast',
+                messageCount: 2,
                 modelLabel: 'Composer 2.5',
                 sessionId: fixture.sessionId,
                 title: 'Review #109 #209',
@@ -176,6 +178,29 @@ describe('grok db helpers', () => {
         ]);
         expect(transcript?.entries[2]?.parts[0]?.text).toBe('Please review the seed refresh implementation.');
         expect(transcript?.renderablePartCount).toBe(7);
+    });
+
+    it('should omit Grok sessions that contain only system bootstrap messages', async () => {
+        const grokHome = await makeTempRoot();
+        const workspacePath = path.join(grokHome, 'project');
+        const fixture = await writeGrokSessionFixture({ grokHome, sessionId: 'system-only', workspacePath });
+        await writeJsonl(path.join(fixture.sessionDir, 'chat_history.jsonl'), [
+            { content: 'You are Grok.', type: 'system' },
+            {
+                content: [{ text: '<system-reminder>Available skills</system-reminder>', type: 'text' }],
+                type: 'user',
+            },
+        ]);
+
+        expect(await listGrokWorkspaceGroups(fixture.sessionsDir)).toEqual([]);
+        expect(await listGrokSessionsForGroup(fixture.workspaceKey, fixture.sessionsDir)).toEqual([]);
+
+        const transcript = await readGrokSessionTranscript(fixture.sessionsDir, fixture.sessionId);
+        expect(transcript?.entries.map((entry) => entry.role)).toEqual(['system', 'system']);
+        expect(transcript?.session).toMatchObject({
+            assistantMessageCount: 0,
+            userMessageCount: 0,
+        });
     });
 
     it('should rehydrate Grok messages hidden by context compaction', async () => {

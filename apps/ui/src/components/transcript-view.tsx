@@ -29,6 +29,8 @@ type TranscriptViewProps = {
 
 export type TranscriptSortOrder = 'earliest' | 'latest';
 
+export const DEFAULT_SHOW_USER_MESSAGES = false;
+
 export const shouldShowEvent = (
     event: ThreadEvent,
     showToolCalls: boolean,

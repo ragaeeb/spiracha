@@ -28,7 +28,7 @@ vi.mock('@tanstack/react-virtual', () => ({
     },
 }));
 
-import { getTranscriptEventKey, TranscriptView } from './transcript-view';
+import { DEFAULT_SHOW_USER_MESSAGES, getTranscriptEventKey, TranscriptView } from './transcript-view';
 
 const messageEvent: Extract<ThreadEvent, { kind: 'message' }> = {
     isHiddenByDefault: false,
@@ -66,6 +66,34 @@ describe('TranscriptView', () => {
         virtualizerCalls.length = 0;
         virtualizerScrollCalls.length = 0;
         vi.restoreAllMocks();
+    });
+
+    it('should show only final assistant messages with the shared route default', () => {
+        render(
+            <TranscriptView
+                assistantModel={null}
+                events={[
+                    messageEvent,
+                    {
+                        ...messageEvent,
+                        phase: 'final_answer',
+                        role: 'assistant',
+                        sequence: 1,
+                        text: 'Implementation complete',
+                        variant: 'agent_message',
+                    },
+                ]}
+                projectPath="/Users/example/workspace/spiracha"
+                showCommentary={false}
+                showExtraEvents={false}
+                showRawJson={false}
+                showToolCalls={false}
+                showUserMessages={DEFAULT_SHOW_USER_MESSAGES}
+            />,
+        );
+
+        expect(screen.queryByText('Build the UI')).toBeNull();
+        expect(screen.getByText('Implementation complete')).toBeTruthy();
     });
 
     it('should hide and show tool calls based on the checkbox state passed in', () => {

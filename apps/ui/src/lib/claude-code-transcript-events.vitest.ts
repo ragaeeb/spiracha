@@ -262,4 +262,47 @@ describe('claudeCodeTranscriptToThreadEvents', () => {
 
         expect(events.map((event) => event.sequence)).toEqual(events.map((_, index) => index));
     });
+
+    it('should not expose Claude compaction control entries as thread messages', () => {
+        const events = claudeCodeTranscriptToThreadEvents({
+            ...transcript,
+            entries: [
+                {
+                    cwd: '/workspace/project',
+                    entryId: 'compact-summary',
+                    parts: [
+                        {
+                            raw: { text: 'This session is being continued from a previous conversation.' },
+                            text: 'This session is being continued from a previous conversation.',
+                            type: 'text',
+                        },
+                    ],
+                    raw: { isCompactSummary: true, type: 'user' },
+                    role: 'user',
+                    timestamp: null,
+                    type: 'user',
+                },
+                {
+                    cwd: '/workspace/project',
+                    entryId: 'compact-command',
+                    parts: [
+                        {
+                            raw: { text: '<command-name>/compact</command-name>' },
+                            text: '<command-name>/compact</command-name>',
+                            type: 'text',
+                        },
+                    ],
+                    raw: { type: 'user' },
+                    role: 'user',
+                    timestamp: null,
+                    type: 'user',
+                },
+                ...transcript.entries,
+            ],
+        });
+
+        expect(events.some((event) => event.kind === 'message' && event.text.includes('/compact'))).toBe(false);
+        expect(events.some((event) => event.kind === 'message' && event.text.includes('being continued'))).toBe(false);
+        expect(events.some((event) => event.kind === 'message' && event.text === 'Hello')).toBe(true);
+    });
 });

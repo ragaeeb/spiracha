@@ -3,7 +3,10 @@ import type {
     ClaudeCodeTranscriptEntry,
     ClaudeCodeTranscriptPart,
 } from '@spiracha/lib/claude-code-exporter-types';
-import { getClaudeCodeAssistantMessagePhase } from '@spiracha/lib/claude-code-transcript-phase';
+import {
+    getClaudeCodeAssistantMessagePhase,
+    isClaudeCodeSyntheticTranscriptEntry,
+} from '@spiracha/lib/claude-code-transcript-phase';
 import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/codex-browser-types';
 import type { JsonValue } from '@spiracha/lib/shared';
 import { getThreadTranscriptStats } from './thread-transcript-stats';
@@ -141,6 +144,10 @@ export const claudeCodeTranscriptToThreadEvents = (transcript: ClaudeCodeSession
     const events: ThreadEvent[] = [];
     let sequence = 0;
     for (const entry of transcript.entries) {
+        if (isClaudeCodeSyntheticTranscriptEntry(entry)) {
+            continue;
+        }
+
         for (const part of entry.parts) {
             events.push(...partToEvents(entry, part, sequence));
             sequence += 1;

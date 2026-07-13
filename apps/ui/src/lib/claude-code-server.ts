@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { renderSourceSessionDownload, renderSourceSessionsDownload } from './source-session-export-server';
 
 const LARGE_CLAUDE_CODE_SESSION_SIZE_BYTES = 8 * 1024 * 1024;
+const CLAUDE_CODE_DETAIL_PREVIEW_ENTRY_LIMIT = 400;
+const CLAUDE_CODE_DETAIL_PREVIEW_LEADING_ENTRY_LIMIT = 100;
 
 const workspaceSchema = z.object({
     workspaceKey: z.string().min(1),
@@ -69,7 +71,26 @@ const loadClaudeCodeSessionTranscript = async (sessionId: string) => {
     );
 };
 
-const loadClaudeCodeSessionDetail = async (sessionId: string) => {
+export const buildClaudeCodeSessionDetailPreview = (
+    transcript: Awaited<ReturnType<typeof loadClaudeCodeSessionTranscript>>,
+) => {
+    if (transcript.entries.length <= CLAUDE_CODE_DETAIL_PREVIEW_ENTRY_LIMIT) {
+        return transcript;
+    }
+
+    const trailingEntryLimit = CLAUDE_CODE_DETAIL_PREVIEW_ENTRY_LIMIT - CLAUDE_CODE_DETAIL_PREVIEW_LEADING_ENTRY_LIMIT;
+    return {
+        ...transcript,
+        entries: [
+            ...transcript.entries.slice(0, CLAUDE_CODE_DETAIL_PREVIEW_LEADING_ENTRY_LIMIT),
+            ...transcript.entries.slice(-trailingEntryLimit),
+        ],
+        isPartial: true,
+        omittedEntryCount: transcript.entries.length - CLAUDE_CODE_DETAIL_PREVIEW_ENTRY_LIMIT,
+    };
+};
+
+export const loadClaudeCodeSessionDetail = async (sessionId: string) => {
     const { runWithTranscriptLoadLimit } = await import('@spiracha/lib/transcript-load-limiter');
     const { stat } = await import('node:fs/promises');
     const { readClaudeCodeSessionTranscript, resolveClaudeCodeProjectsDir } = await import(
@@ -83,6 +104,11 @@ const loadClaudeCodeSessionDetail = async (sessionId: string) => {
             });
             if (!fullTranscript) {
                 throw new Error(`Claude Code session not found: ${sessionId}`);
+            }
+
+            const previewTranscript = buildClaudeCodeSessionDetailPreview(fullTranscript);
+            if (previewTranscript.isPartial) {
+                return previewTranscript;
             }
 
             const fileSizeBytes = await stat(fullTranscript.session.filePath)
@@ -103,10 +129,40 @@ const loadClaudeCodeSessionDetail = async (sessionId: string) => {
     );
 };
 
+export const loadClaudeCodeSessionFullDetail = async (sessionId: string) => {
+    const { runWithTranscriptLoadLimit } = await import('@spiracha/lib/transcript-load-limiter');
+    const { readClaudeCodeSessionTranscript, resolveClaudeCodeProjectsDir } = await import(
+        '@spiracha/lib/claude-code-db'
+    );
+    const projectsDir = resolveClaudeCodeProjectsDir();
+    return runWithTranscriptLoadLimit(
+        async () => {
+            const transcript = await readClaudeCodeSessionTranscript(projectsDir, sessionId, {
+                includeRawPayloads: false,
+            });
+            if (!transcript) {
+                throw new Error(`Claude Code session not found: ${sessionId}`);
+            }
+            return transcript;
+        },
+        {
+            id: sessionId,
+            path: projectsDir,
+            source: 'claude-code-ui-full-detail',
+        },
+    );
+};
+
 export const getClaudeCodeSessionDetailFn = createServerFn({ method: 'GET' })
     .validator(sessionSchema)
     .handler(async ({ data }) => {
         return loadClaudeCodeSessionDetail(data.sessionId);
+    });
+
+export const getClaudeCodeSessionTranscriptFn = createServerFn({ method: 'GET' })
+    .validator(sessionSchema)
+    .handler(async ({ data }) => {
+        return loadClaudeCodeSessionFullDetail(data.sessionId);
     });
 
 export const exportClaudeCodeSessionFn = createServerFn({ method: 'POST' })

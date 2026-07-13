@@ -1,6 +1,6 @@
 import type { ClaudeCodeSessionTranscript } from '@spiracha/lib/claude-code-exporter-types';
 import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/codex-browser-types';
-import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { Download, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -13,11 +13,14 @@ import { MetadataSection } from '#/components/metadata-section';
 import { MetricCard } from '#/components/metric-card';
 import { PageHeader } from '#/components/page-header';
 import { ReloadErrorPanel } from '#/components/reload-error-panel';
-import { TranscriptView } from '#/components/transcript-view';
+import { DEFAULT_SHOW_USER_MESSAGES, TranscriptView } from '#/components/transcript-view';
 import { Button } from '#/components/ui/button';
 import { Checkbox } from '#/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
-import { claudeCodeSessionDetailQueryOptions } from '#/lib/claude-code-queries';
+import {
+    claudeCodeSessionDetailQueryOptions,
+    claudeCodeSessionTranscriptQueryOptions,
+} from '#/lib/claude-code-queries';
 import { deleteClaudeCodeSessionFn, exportClaudeCodeSessionFn } from '#/lib/claude-code-server';
 import {
     claudeCodeTranscriptToThreadEvents,
@@ -194,17 +197,57 @@ function ClaudeCodeRawPanels({ detail, events }: { detail: ClaudeCodeSessionTran
     );
 }
 
+const ClaudeCodeTranscriptPreviewNotice = ({
+    fullTranscriptLoaded,
+    omittedEntryCount,
+    pending,
+    onLoad,
+}: {
+    fullTranscriptLoaded: boolean;
+    omittedEntryCount: number;
+    pending: boolean;
+    onLoad: () => void;
+}) => {
+    const buttonLabel = fullTranscriptLoaded
+        ? 'Full transcript loaded'
+        : pending
+          ? 'Loading full transcript...'
+          : 'Load Full Transcript';
+
+    return (
+        <section className="rounded-[1.6rem] border border-[var(--border)] bg-[var(--panel)] p-5 shadow-[var(--panel-shadow)]">
+            <h3 className="font-semibold text-base">Showing a compact transcript preview</h3>
+            <p className="mt-2 text-[var(--muted-foreground)] text-sm leading-6">
+                Spiracha omitted {formatNumber(omittedEntryCount)} internal transcript entries from the initial page
+                load. The preview keeps the beginning and latest activity.
+            </p>
+            <div className="mt-4">
+                <Button disabled={pending || fullTranscriptLoaded} variant="outline" onClick={onLoad}>
+                    {buttonLabel}
+                </Button>
+            </div>
+        </section>
+    );
+};
+
 function ClaudeCodeSessionDetailPage() {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
-    const detail = useSuspenseQuery(claudeCodeSessionDetailQueryOptions(Route.useParams().sessionId)).data;
+    const params = Route.useParams();
+    const initialDetail = useSuspenseQuery(claudeCodeSessionDetailQueryOptions(params.sessionId)).data;
+    const [shouldLoadFullTranscript, setShouldLoadFullTranscript] = useState(false);
+    const fullTranscriptQuery = useQuery({
+        ...claudeCodeSessionTranscriptQueryOptions(params.sessionId),
+        enabled: shouldLoadFullTranscript,
+    });
+    const detail = fullTranscriptQuery.data ?? initialDetail;
     const [deleteOpen, setDeleteOpen] = useState(false);
     const [pendingExport, setPendingExport] = useState(false);
     const [showToolCalls, setShowToolCalls] = useState(false);
     const [showCommentary, setShowCommentary] = useState(false);
     const [showExtraEvents, setShowExtraEvents] = useState(false);
     const [showRawJson, setShowRawJson] = useState(false);
-    const [showUserMessages, setShowUserMessages] = useState(true);
+    const [showUserMessages, setShowUserMessages] = useState(DEFAULT_SHOW_USER_MESSAGES);
     const transcriptEvents = useMemo(() => claudeCodeTranscriptToThreadEvents(detail), [detail]);
     const transcriptStats = useMemo(() => getClaudeCodeThreadTranscriptStats(transcriptEvents), [transcriptEvents]);
 
@@ -239,6 +282,8 @@ function ClaudeCodeSessionDetailPage() {
                 queryClient.invalidateQueries({ queryKey: ['claude-code-workspaces'] }),
                 queryClient.invalidateQueries({ queryKey: ['claude-code-sessions', detail.session.workspaceKey] }),
                 queryClient.invalidateQueries({ queryKey: ['claude-code-session', detail.session.sessionId] }),
+                queryClient.invalidateQueries({ queryKey: ['claude-code-session', params.sessionId] }),
+                queryClient.invalidateQueries({ queryKey: ['claude-code-session-transcript', params.sessionId] }),
             ]);
             navigate({
                 params: { workspaceKey: detail.session.workspaceKey },
@@ -324,6 +369,22 @@ function ClaudeCodeSessionDetailPage() {
                         onShowToolCallsChange={setShowToolCalls}
                         onShowUserMessagesChange={setShowUserMessages}
                     />
+                    {initialDetail.isPartial ? (
+                        <ClaudeCodeTranscriptPreviewNotice
+                            fullTranscriptLoaded={Boolean(fullTranscriptQuery.data)}
+                            omittedEntryCount={initialDetail.omittedEntryCount ?? 0}
+                            pending={fullTranscriptQuery.isFetching}
+                            onLoad={() => setShouldLoadFullTranscript(true)}
+                        />
+                    ) : null}
+                    {fullTranscriptQuery.isError ? (
+                        <p className="text-[var(--destructive)] text-sm">
+                            Failed to load the full transcript:{' '}
+                            {fullTranscriptQuery.error instanceof Error
+                                ? fullTranscriptQuery.error.message
+                                : 'Unknown error'}
+                        </p>
+                    ) : null}
                     {transcriptEvents.length > 0 ? (
                         <TranscriptView
                             assistantModel={detail.session.model}

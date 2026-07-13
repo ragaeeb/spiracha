@@ -1,5 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
+import type { ClaudeCodeAssistantMessagePhase } from './claude-code-transcript-phase';
 import type { ExportFormat, JsonValue } from './shared';
 
 export type { ClaudeCodeAssistantMessagePhase } from './claude-code-transcript-phase';
@@ -84,6 +85,7 @@ export type ClaudeCodeTranscriptPart = {
 };
 
 export type ClaudeCodeTranscriptEntry = {
+    assistantPhase?: ClaudeCodeAssistantMessagePhase | null;
     cwd: string | null;
     entryId: string;
     model?: string | null;
@@ -97,6 +99,8 @@ export type ClaudeCodeTranscriptEntry = {
 
 export type ClaudeCodeSessionTranscript = {
     entries: ClaudeCodeTranscriptEntry[];
+    isPartial?: boolean;
+    omittedEntryCount?: number;
     rawPayloadsOmitted?: boolean;
     rawEvents: Record<string, JsonValue>[];
     renderablePartCount: number;

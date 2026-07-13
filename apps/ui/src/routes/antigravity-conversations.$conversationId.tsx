@@ -12,7 +12,7 @@ import { MetricCard } from '#/components/metric-card';
 import { PageHeader } from '#/components/page-header';
 import { ReloadErrorPanel } from '#/components/reload-error-panel';
 import { TextDocumentPanel } from '#/components/text-document-panel';
-import { TranscriptView } from '#/components/transcript-view';
+import { DEFAULT_SHOW_USER_MESSAGES, TranscriptView } from '#/components/transcript-view';
 import { Button } from '#/components/ui/button';
 import { Checkbox } from '#/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
@@ -311,7 +311,7 @@ function AntigravityConversationDetailPage() {
     const [showCommentary, setShowCommentary] = useState(false);
     const [showExtraEvents, setShowExtraEvents] = useState(false);
     const [showRawJson, setShowRawJson] = useState(false);
-    const [showUserMessages, setShowUserMessages] = useState(true);
+    const [showUserMessages, setShowUserMessages] = useState(DEFAULT_SHOW_USER_MESSAGES);
     const transcriptEvents = useMemo(
         () => antigravityMarkdownToThreadEvents(detail.conversationMarkdown),
         [detail.conversationMarkdown],
