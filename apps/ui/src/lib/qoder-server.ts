@@ -88,9 +88,11 @@ export const exportQoderSessionFn = createServerFn({ method: 'POST' })
 
         return renderSourceSessionDownload({
             content,
+            cwd: transcript.session.workspacePath ?? transcript.session.worktree,
             fallbackBaseName: 'qoder-session',
-            fileBaseName: transcript.session.title || transcript.session.sessionId,
             outputFormat: data.outputFormat,
+            sessionId: transcript.session.sessionId,
+            updatedAtMs: transcript.session.lastActiveAtMs,
             zipArchive: data.zipArchive,
         });
     });
@@ -115,15 +117,17 @@ export const exportQoderSessionsFn = createServerFn({ method: 'POST' })
 
                 return {
                     content,
+                    cwd: transcript.session.workspacePath ?? transcript.session.worktree,
                     fallbackBaseName: 'qoder-session',
                     fileBaseName: transcript.session.title || transcript.session.sessionId,
+                    sessionId: transcript.session.sessionId,
+                    updatedAtMs: transcript.session.lastActiveAtMs,
                 };
             }),
         );
 
         return renderSourceSessionsDownload({
             entries,
-            exportBaseName: `qoder-sessions-${data.sessionIds.length}`,
             fallbackBaseName: 'qoder-sessions',
             outputFormat: data.outputFormat,
             zipArchive: data.zipArchive,

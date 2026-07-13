@@ -89,9 +89,11 @@ export const exportKiroSessionFn = createServerFn({ method: 'POST' })
 
         return renderSourceSessionDownload({
             content,
+            cwd: transcript.session.workspacePath ?? transcript.session.worktree,
             fallbackBaseName: 'kiro-session',
-            fileBaseName: transcript.session.title || transcript.session.sessionId,
             outputFormat: data.outputFormat,
+            sessionId: transcript.session.sessionId,
+            updatedAtMs: transcript.session.lastActiveAtMs,
             zipArchive: data.zipArchive,
         });
     });
@@ -116,15 +118,17 @@ export const exportKiroSessionsFn = createServerFn({ method: 'POST' })
 
                 return {
                     content,
+                    cwd: transcript.session.workspacePath ?? transcript.session.worktree,
                     fallbackBaseName: 'kiro-session',
                     fileBaseName: transcript.session.title || transcript.session.sessionId,
+                    sessionId: transcript.session.sessionId,
+                    updatedAtMs: transcript.session.lastActiveAtMs,
                 };
             }),
         );
 
         return renderSourceSessionsDownload({
             entries,
-            exportBaseName: `kiro-sessions-${data.sessionIds.length}`,
             fallbackBaseName: 'kiro-sessions',
             outputFormat: data.outputFormat,
             zipArchive: data.zipArchive,

@@ -3,6 +3,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
+    buildBatchExportBaseName,
+    buildConversationExportBaseName,
     getExportMimeType,
     resolveUniqueExportFileBaseName,
     sanitizeExportFileName,
@@ -14,21 +16,25 @@ type ExportFormat = 'md' | 'txt';
 
 type RenderSourceSessionDownloadOptions = {
     content: string;
+    cwd: string | null;
     fallbackBaseName: string;
-    fileBaseName: string;
     outputFormat: ExportFormat;
+    sessionId: string;
+    updatedAtMs: number | null;
     zipArchive: boolean;
 };
 
 type RenderedSourceSession = {
     content: string;
+    cwd: string | null;
     fallbackBaseName: string;
     fileBaseName: string;
+    sessionId: string;
+    updatedAtMs: number | null;
 };
 
 type RenderSourceSessionsDownloadOptions = {
     entries: RenderedSourceSession[];
-    exportBaseName: string;
     fallbackBaseName: string;
     outputFormat: ExportFormat;
     zipArchive: boolean;
@@ -40,12 +46,21 @@ export const toSafeSourceExportName = (value: string, fallback: string) => {
 
 export const renderSourceSessionDownload = async ({
     content,
+    cwd,
     fallbackBaseName,
-    fileBaseName,
     outputFormat,
+    sessionId,
+    updatedAtMs,
     zipArchive,
 }: RenderSourceSessionDownloadOptions) => {
-    const safeBaseName = toSafeSourceExportName(fileBaseName, fallbackBaseName);
+    const safeBaseName = buildConversationExportBaseName(
+        {
+            cwd,
+            id: sessionId,
+            updatedAtMs,
+        },
+        fallbackBaseName,
+    );
     if (!zipArchive) {
         return {
             content,
@@ -76,7 +91,6 @@ export const renderSourceSessionDownload = async ({
 
 export const renderSourceSessionsDownload = async ({
     entries,
-    exportBaseName,
     fallbackBaseName,
     outputFormat,
     zipArchive,
@@ -89,14 +103,16 @@ export const renderSourceSessionsDownload = async ({
         const entry = entries[0]!;
         return renderSourceSessionDownload({
             content: entry.content,
+            cwd: entry.cwd,
             fallbackBaseName: entry.fallbackBaseName,
-            fileBaseName: entry.fileBaseName,
             outputFormat,
+            sessionId: entry.sessionId,
+            updatedAtMs: entry.updatedAtMs,
             zipArchive,
         });
     }
 
-    const safeBaseName = toSafeSourceExportName(exportBaseName, fallbackBaseName);
+    const safeBaseName = buildBatchExportBaseName(entries, fallbackBaseName);
     const exportDir = await ensureUiExportDir();
     const workspaceDir = await mkdtemp(path.join(os.tmpdir(), `${safeBaseName}-`));
     const zipPath = path.join(exportDir, `${safeBaseName}-${randomUUID()}.zip`);

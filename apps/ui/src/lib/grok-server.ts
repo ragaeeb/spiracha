@@ -91,9 +91,11 @@ export const exportGrokSessionFn = createServerFn({ method: 'POST' })
 
         return renderSourceSessionDownload({
             content,
+            cwd: transcript.session.cwd ?? transcript.session.worktree,
             fallbackBaseName: 'grok-session',
-            fileBaseName: transcript.session.title || transcript.session.sessionId,
             outputFormat: data.outputFormat,
+            sessionId: transcript.session.sessionId,
+            updatedAtMs: transcript.session.lastActiveAtMs,
             zipArchive: data.zipArchive,
         });
     });
@@ -118,15 +120,17 @@ export const exportGrokSessionsFn = createServerFn({ method: 'POST' })
 
                 return {
                     content,
+                    cwd: transcript.session.cwd ?? transcript.session.worktree,
                     fallbackBaseName: 'grok-session',
                     fileBaseName: transcript.session.title || transcript.session.sessionId,
+                    sessionId: transcript.session.sessionId,
+                    updatedAtMs: transcript.session.lastActiveAtMs,
                 };
             }),
         );
 
         return renderSourceSessionsDownload({
             entries,
-            exportBaseName: `grok-sessions-${data.sessionIds.length}`,
             fallbackBaseName: 'grok-sessions',
             outputFormat: data.outputFormat,
             zipArchive: data.zipArchive,

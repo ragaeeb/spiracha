@@ -1,3 +1,4 @@
+import { buildConversationExportBaseName } from '@spiracha/lib/ui-export-archive';
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
 import { canExportAntigravityConversation, isAntigravityConversationLocked } from './antigravity-conversation-state';
@@ -124,7 +125,15 @@ export const loadAntigravityConversationExport = async (conversationId: string) 
 
     return {
         content,
-        filename: `${conversationId}.md`,
+        conversation,
+        filename: `${buildConversationExportBaseName(
+            {
+                cwd: conversation.workspaceFolder,
+                id: conversation.conversationId,
+                updatedAtMs: conversation.lastUpdatedAtMs ?? conversation.conversationMtimeMs,
+            },
+            'antigravity-conversation',
+        )}.md`,
     };
 };
 
@@ -194,15 +203,17 @@ export const exportAntigravityConversationsFn = createServerFn({ method: 'POST' 
                 const result = await loadAntigravityConversationExport(conversationId);
                 return {
                     content: result.content,
+                    cwd: result.conversation.workspaceFolder,
                     fallbackBaseName: 'antigravity-conversation',
                     fileBaseName: result.filename.replace(/\.(?:md|txt)$/u, ''),
+                    sessionId: result.conversation.conversationId,
+                    updatedAtMs: result.conversation.lastUpdatedAtMs ?? result.conversation.conversationMtimeMs,
                 };
             }),
         );
 
         return renderSourceSessionsDownload({
             entries,
-            exportBaseName: `antigravity-conversations-${data.conversationIds.length}`,
             fallbackBaseName: 'antigravity-conversations',
             outputFormat: data.outputFormat,
             zipArchive: data.zipArchive,

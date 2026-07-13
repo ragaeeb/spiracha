@@ -5,8 +5,14 @@ import { getThreadBrowseData } from './codex-browser-db';
 import type { CodexTranscriptRenderOptions } from './codex-thread-types';
 import { renderCodexSessionFile, writeCodexSessionFileExport } from './codex-transcript-renderer';
 import { applyPathTransforms, type PathDisplaySettings } from './path-transforms';
-import { type ExportFormat, getPortablePathBasename } from './shared';
-import { getExportMimeType, sanitizeExportFileName, zipExportDirectory, zipExportFile } from './ui-export-archive';
+import type { ExportFormat } from './shared';
+import {
+    buildBatchExportBaseName,
+    buildConversationExportBaseName,
+    getExportMimeType,
+    zipExportDirectory,
+    zipExportFile,
+} from './ui-export-archive';
 import { buildUiExportDownloadUrl, ensureUiExportDir } from './ui-export-files';
 
 type RenderCodexThreadDownloadInput = {
@@ -42,31 +48,15 @@ export type CodexThreadDownload =
 
 const LARGE_BROWSER_EXPORT_THRESHOLD_BYTES = 128 * 1024 * 1024;
 
-const formatReadableExportDate = (value: number) => {
-    const date = new Date(value);
-    const year = date.getUTCFullYear();
-    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-    const day = String(date.getUTCDate()).padStart(2, '0');
-    const hours = String(date.getUTCHours()).padStart(2, '0');
-    const minutes = String(date.getUTCMinutes()).padStart(2, '0');
-    return `${year}-${month}-${day}-${hours}${minutes}`;
-};
-
 const buildExportBaseName = (thread: ReturnType<typeof getThreadBrowseData>['thread']) => {
-    const projectName = sanitizeExportFileName(getPortablePathBasename(thread.cwd) || 'thread') || 'thread';
-    const timestamp = thread.updated_at_ms ?? thread.updated_at * 1000;
-    return `${projectName}-${formatReadableExportDate(timestamp)}-${thread.id.slice(0, 8)}`;
-};
-
-const buildBatchExportBaseName = (threads: Array<ReturnType<typeof getThreadBrowseData>['thread']>) => {
-    const firstThread = threads[0];
-    if (!firstThread) {
-        throw new Error('No threads selected for export');
-    }
-
-    const projectName = sanitizeExportFileName(getPortablePathBasename(firstThread.cwd) || 'threads') || 'threads';
-    const latestTimestamp = Math.max(...threads.map((thread) => thread.updated_at_ms ?? thread.updated_at * 1000));
-    return `${projectName}-${formatReadableExportDate(latestTimestamp)}-threads-${threads.length}`;
+    return buildConversationExportBaseName(
+        {
+            cwd: thread.cwd,
+            id: thread.id,
+            updatedAtMs: thread.updated_at_ms ?? thread.updated_at * 1000,
+        },
+        'thread',
+    );
 };
 
 const buildUniqueArchivePath = (exportDir: string, exportBaseName: string) => {
@@ -302,7 +292,13 @@ export const renderCodexThreadsDownload = async (
     const browseEntries = threadIds.map((threadId) => getThreadBrowseData(input.dbPath, threadId));
     const threads = browseEntries.map((entry) => entry.thread);
     const exportDir = await resolvePublicExportDir(input.publicExportDir);
-    const exportBaseName = buildBatchExportBaseName(threads);
+    const exportBaseName = buildBatchExportBaseName(
+        threads.map((thread) => ({
+            cwd: thread.cwd,
+            updatedAtMs: thread.updated_at_ms ?? thread.updated_at * 1000,
+        })),
+        'threads',
+    );
     const bundleDirectory = await createExportWorkspace(exportDir, exportBaseName);
     const zipPath = buildUniqueArchivePath(exportDir, exportBaseName);
     const usedBatchEntryBaseNames = new Set<string>();

@@ -57,11 +57,13 @@ describe('source session export server helpers', () => {
             entries: [
                 {
                     content: '# Session',
+                    cwd: '/Users/example/workspace/spiracha',
                     fallbackBaseName: 'source-session',
                     fileBaseName: 'My session',
+                    sessionId: '019e36d7-ba2d-7fa1-b662-3f70fbbda248',
+                    updatedAtMs: Date.UTC(2026, 4, 17, 17, 12),
                 },
             ],
-            exportBaseName: 'source-sessions-1',
             fallbackBaseName: 'source-sessions',
             outputFormat: 'md',
             zipArchive: false,
@@ -69,10 +71,34 @@ describe('source session export server helpers', () => {
 
         expect(result).toEqual({
             content: '# Session',
-            fileName: 'My session.md',
+            fileName: 'spiracha-2026-05-17-1712-019e36d7.md',
             mimeType: 'text/markdown; charset=utf-8',
             mode: 'download',
         });
+    });
+
+    it('should use the Codex-style name when zipping one source session', async () => {
+        const result = await renderSourceSessionsDownload({
+            entries: [
+                {
+                    content: '# Session',
+                    cwd: '/Users/example/workspace/spiracha',
+                    fallbackBaseName: 'source-session',
+                    fileBaseName: 'My session',
+                    sessionId: '019e36d7-ba2d-7fa1-b662-3f70fbbda248',
+                    updatedAtMs: Date.UTC(2026, 4, 17, 17, 12),
+                },
+            ],
+            fallbackBaseName: 'source-sessions',
+            outputFormat: 'md',
+            zipArchive: true,
+        });
+
+        expect(result.mode).toBe('download_url');
+        if (result.mode !== 'download_url') {
+            throw new Error('expected a zip download URL');
+        }
+        expect(result.fileName).toBe('spiracha-2026-05-17-1712-019e36d7.zip');
     });
 
     it('should zip multiple source session exports', async () => {
@@ -80,16 +106,21 @@ describe('source session export server helpers', () => {
             entries: [
                 {
                     content: '# First',
+                    cwd: '/Users/example/workspace/spiracha',
                     fallbackBaseName: 'source-session',
                     fileBaseName: 'Repeated title',
+                    sessionId: '019e36d7-ba2d-7fa1-b662-3f70fbbda248',
+                    updatedAtMs: Date.UTC(2026, 4, 17, 17, 12),
                 },
                 {
                     content: '# Second',
+                    cwd: '/Users/example/workspace/spiracha',
                     fallbackBaseName: 'source-session',
                     fileBaseName: 'Repeated title',
+                    sessionId: '019e33a9-a225-7433-b299-6cb1ed299ffb',
+                    updatedAtMs: Date.UTC(2026, 4, 17, 17, 11),
                 },
             ],
-            exportBaseName: 'source sessions',
             fallbackBaseName: 'source-sessions',
             outputFormat: 'md',
             zipArchive: false,
@@ -99,7 +130,7 @@ describe('source session export server helpers', () => {
         if (result.mode !== 'download_url') {
             throw new Error('expected a zip download URL');
         }
-        expect(result.fileName).toBe('source sessions.zip');
+        expect(result.fileName).toBe('spiracha-2026-05-17-1712-threads-2.zip');
         const metadata = await stat(resolveDownloadPath(result.downloadUrl));
         expect(metadata.isFile()).toBe(true);
     });

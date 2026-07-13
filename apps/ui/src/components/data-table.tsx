@@ -9,7 +9,7 @@ import {
     useReactTable,
 } from '@tanstack/react-table';
 import { ArrowDownUp } from 'lucide-react';
-import { type MouseEvent, type ReactNode, useRef, useState } from 'react';
+import { type ReactNode, useRef, useState } from 'react';
 import { Checkbox } from '#/components/ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '#/components/ui/table';
 import { cn } from '#/lib/utils';
@@ -79,6 +79,7 @@ export function DataTable<TData>({
     const [sorting, setSorting] = useState<SortingState>(initialSorting);
     const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
     const lastSelectedRowIdRef = useRef<string | null>(null);
+    const pendingShiftSelectionRowIdRef = useRef<string | null>(null);
 
     const updateSelectionForRow = (rowId: string, checked: boolean, shiftKey: boolean) => {
         const visibleRowIds = table.getRowModel().rows.map((row) => row.id);
@@ -101,17 +102,18 @@ export function DataTable<TData>({
             <Checkbox
                 aria-label={`Select row ${row.id}`}
                 checked={row.getIsSelected()}
-                onClick={(event: MouseEvent<HTMLButtonElement>) => {
+                onPointerDown={(event) => {
                     event.stopPropagation();
-                    event.preventDefault();
-                    updateSelectionForRow(row.id, !row.getIsSelected(), event.shiftKey);
+                    pendingShiftSelectionRowIdRef.current = event.shiftKey ? row.id : null;
                 }}
                 onCheckedChange={(checked) => {
                     if (typeof checked !== 'boolean') {
                         return;
                     }
 
-                    updateSelectionForRow(row.id, checked, false);
+                    const shiftKey = pendingShiftSelectionRowIdRef.current === row.id;
+                    pendingShiftSelectionRowIdRef.current = null;
+                    updateSelectionForRow(row.id, checked, shiftKey);
                 }}
             />
         ),

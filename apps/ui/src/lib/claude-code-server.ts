@@ -127,9 +127,11 @@ export const exportClaudeCodeSessionFn = createServerFn({ method: 'POST' })
 
         return renderSourceSessionDownload({
             content,
+            cwd: transcript.session.cwd ?? transcript.session.worktree,
             fallbackBaseName: 'claude-code-session',
-            fileBaseName: transcript.session.title || transcript.session.sessionId,
             outputFormat: data.outputFormat,
+            sessionId: transcript.session.sessionId,
+            updatedAtMs: transcript.session.lastActiveAtMs,
             zipArchive: data.zipArchive,
         });
     });
@@ -154,15 +156,17 @@ export const exportClaudeCodeSessionsFn = createServerFn({ method: 'POST' })
 
                 return {
                     content,
+                    cwd: transcript.session.cwd ?? transcript.session.worktree,
                     fallbackBaseName: 'claude-code-session',
                     fileBaseName: transcript.session.title || transcript.session.sessionId,
+                    sessionId: transcript.session.sessionId,
+                    updatedAtMs: transcript.session.lastActiveAtMs,
                 };
             }),
         );
 
         return renderSourceSessionsDownload({
             entries,
-            exportBaseName: `claude-code-sessions-${data.sessionIds.length}`,
             fallbackBaseName: 'claude-code-sessions',
             outputFormat: data.outputFormat,
             zipArchive: data.zipArchive,

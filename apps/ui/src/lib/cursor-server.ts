@@ -3,6 +3,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
+    buildBatchExportBaseName,
+    buildConversationExportBaseName,
     getExportMimeType,
     resolveUniqueExportFileBaseName,
     sanitizeExportFileName,
@@ -72,12 +74,21 @@ const toSafeExportName = (value: string) => {
 };
 
 const renderCursorZipDownload = async (
-    rendered: Array<{ composerId: string; content: string }>,
+    rendered: Array<{ composerId: string; content: string; cwd: string | null; updatedAtMs: number | null }>,
     outputFormat: 'md' | 'txt',
 ) => {
     const exportDir = await ensureUiExportDir();
     const exportBaseName =
-        rendered.length === 1 ? `${toSafeExportName(rendered[0]!.composerId)}` : `cursor-threads-${rendered.length}`;
+        rendered.length === 1
+            ? buildConversationExportBaseName(
+                  {
+                      cwd: rendered[0]!.cwd,
+                      id: rendered[0]!.composerId,
+                      updatedAtMs: rendered[0]!.updatedAtMs,
+                  },
+                  'cursor-thread',
+              )
+            : buildBatchExportBaseName(rendered, 'cursor');
     const workspaceDir = await mkdtemp(path.join(os.tmpdir(), `${exportBaseName}-`));
     const zipPath = path.join(exportDir, `${exportBaseName}-${randomUUID()}.zip`);
     const usedBaseNames = new Map<string, number>();
@@ -128,6 +139,8 @@ const renderCursorDownload = async (input: {
     const { getCursorGlobalDbPath } = await import('@spiracha/lib/cursor-exporter-types');
     const { renderCursorTranscript } = await import('@spiracha/lib/cursor-transcript');
     const globalDbPath = getCursorGlobalDbPath();
+    const { listCursorWorkspaceGroups } = await import('@spiracha/lib/cursor-db');
+    const workspaceGroups = await listCursorWorkspaceGroups();
     const rendered = await Promise.all(
         input.composerIds.map(async (composerId) => {
             const transcript = await runWithTranscriptLoadLimit(
@@ -153,9 +166,16 @@ const renderCursorDownload = async (input: {
                 throw new Error(`Thread has no exportable content: ${composerId}`);
             }
 
+            const workspace =
+                workspaceGroups.find((candidate) =>
+                    candidate.buckets.some((bucket) => bucket.threadComposerIds.includes(composerId)),
+                ) ?? null;
+
             return {
                 composerId,
                 content,
+                cwd: workspace?.folders[0] ?? null,
+                updatedAtMs: transcript.head.lastUpdatedAtMs,
             };
         }),
     );
@@ -167,7 +187,14 @@ const renderCursorDownload = async (input: {
     if (rendered.length === 1) {
         return {
             content: rendered[0]!.content,
-            fileName: `${toSafeExportName(rendered[0]!.composerId)}.${input.outputFormat}`,
+            fileName: `${buildConversationExportBaseName(
+                {
+                    cwd: rendered[0]!.cwd,
+                    id: rendered[0]!.composerId,
+                    updatedAtMs: rendered[0]!.updatedAtMs,
+                },
+                'cursor-thread',
+            )}.${input.outputFormat}`,
             mimeType: getExportMimeType(input.outputFormat),
             mode: 'download' as const,
         };

@@ -89,9 +89,11 @@ export const exportOpenCodeSessionFn = createServerFn({ method: 'POST' })
 
         return renderSourceSessionDownload({
             content,
+            cwd: transcript.session.worktree,
             fallbackBaseName: 'opencode-session',
-            fileBaseName: transcript.session.title || transcript.session.slug || transcript.session.sessionId,
             outputFormat: data.outputFormat,
+            sessionId: transcript.session.sessionId,
+            updatedAtMs: transcript.session.lastUpdatedAtMs,
             zipArchive: data.zipArchive,
         });
     });
@@ -116,15 +118,17 @@ export const exportOpenCodeSessionsFn = createServerFn({ method: 'POST' })
 
                 return {
                     content,
+                    cwd: transcript.session.worktree,
                     fallbackBaseName: 'opencode-session',
                     fileBaseName: transcript.session.title || transcript.session.slug || transcript.session.sessionId,
+                    sessionId: transcript.session.sessionId,
+                    updatedAtMs: transcript.session.lastUpdatedAtMs,
                 };
             }),
         );
 
         return renderSourceSessionsDownload({
             entries,
-            exportBaseName: `opencode-sessions-${data.sessionIds.length}`,
             fallbackBaseName: 'opencode-sessions',
             outputFormat: data.outputFormat,
             zipArchive: data.zipArchive,
