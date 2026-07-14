@@ -674,7 +674,7 @@ describe('claude code workspace discovery', () => {
             {
                 cwd: corpusCwd,
                 error: 'server_error',
-                isApiErrorMessage: true,
+                isApiErrorMessage: 'true',
                 message: {
                     content: [
                         {

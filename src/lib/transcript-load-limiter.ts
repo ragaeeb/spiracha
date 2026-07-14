@@ -1,6 +1,7 @@
 import { createConcurrencyLimiter } from './concurrency';
 
 const DEFAULT_TRANSCRIPT_LOAD_CONCURRENCY = 3;
+const MAX_TRANSCRIPT_LOAD_CONCURRENCY = 16;
 type TranscriptLoadLogContext = {
     id?: string;
     path?: string;
@@ -13,7 +14,9 @@ let queuedTranscriptLoads = 0;
 
 export const resolveTranscriptLoadConcurrency = (value = process.env.SPIRACHA_TRANSCRIPT_LOAD_CONCURRENCY): number => {
     const parsed = Number.parseInt(value ?? '', 10);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TRANSCRIPT_LOAD_CONCURRENCY;
+    return Number.isFinite(parsed) && parsed > 0
+        ? Math.min(parsed, MAX_TRANSCRIPT_LOAD_CONCURRENCY)
+        : DEFAULT_TRANSCRIPT_LOAD_CONCURRENCY;
 };
 
 const transcriptLoadLimiter = createConcurrencyLimiter(resolveTranscriptLoadConcurrency());

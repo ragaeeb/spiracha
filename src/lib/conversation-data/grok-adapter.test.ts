@@ -109,6 +109,24 @@ describe('grok conversation adapter', () => {
         ]);
     });
 
+    it('should assign unique monotonic message order values', async () => {
+        const grokHome = await makeTempRoot();
+        const workspacePath = path.join(grokHome, 'repo');
+        const fixture = await writeGrokConversation(grokHome, workspacePath);
+
+        const page = await listConversationsForPath({
+            cwd: workspacePath,
+            includeMessages: true,
+            locations: { grokSessionsDir: fixture.sessionsDir },
+            messageSelector: 'all',
+            sources: ['grok'],
+        });
+        const orders = page.data[0]?.messages.map((message) => message.order) ?? [];
+
+        expect(orders).toEqual(orders.map((_, index) => index));
+        expect(new Set(orders).size).toBe(orders.length);
+    });
+
     it('should resolve and delete Grok conversations through the stable facade', async () => {
         const grokHome = await makeTempRoot();
         const fixture = await writeGrokConversation(grokHome, path.join(grokHome, 'repo'));

@@ -22,6 +22,15 @@ describe('claude code transcript phase helpers', () => {
         expect(getClaudeCodeAssistantMessagePhase(buildEntry('assistant', 'tool_use'))).toBe('commentary');
     });
 
+    it('should classify text emitted after a tool use as a final answer', () => {
+        expect(
+            getClaudeCodeAssistantMessagePhase({
+                ...buildEntry('assistant', 'tool_use'),
+                parts: [{ type: 'tool_use' }, { text: 'Implementation complete.', type: 'text' }],
+            }),
+        ).toBe('final_answer');
+    });
+
     it('should classify assistant end-turn messages as final answers', () => {
         expect(getClaudeCodeAssistantMessagePhase(buildEntry('assistant', 'end_turn'))).toBe('final_answer');
     });
@@ -81,6 +90,13 @@ describe('claude code transcript phase helpers', () => {
                     },
                 ],
                 raw: { isApiErrorMessage: true },
+            }),
+        ).toBe(true);
+        expect(
+            isClaudeCodeSyntheticTranscriptEntry({
+                ...buildEntry('assistant', 'stop_sequence'),
+                parts: [{ text: 'API Error: overloaded.', type: 'text' }],
+                raw: { isApiErrorMessage: 'true' },
             }),
         ).toBe(true);
     });

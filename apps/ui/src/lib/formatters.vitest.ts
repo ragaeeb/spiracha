@@ -37,13 +37,16 @@ describe('formatters', () => {
     });
 
     it('should use the runtime local timezone by default', () => {
+        const now = new Date(2026, 4, 24, 12, 0);
+        const value = new Date(2026, 4, 24, 12, 30);
+        vi.setSystemTime(now);
         const expected = new Intl.DateTimeFormat('en-US', {
             hour: 'numeric',
             hour12: true,
             minute: '2-digit',
-        }).format(new Date('2026-05-24T12:30:00.000Z'));
+        }).format(value);
 
-        expect(formatDateTime('2026-05-24T12:30:00.000Z')).toBe(expected);
+        expect(formatDateTime(value.getTime())).toBe(expected);
     });
 
     it('should include the year for dates outside the current calendar year', () => {

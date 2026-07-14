@@ -257,6 +257,47 @@ describe('TranscriptView', () => {
         expect(virtualizerScrollCalls.at(-1)).toEqual([25, { align: 'start' }]);
     });
 
+    it('should handle a new virtualized jump target even when the signal is reused', () => {
+        const events = Array.from({ length: 41 }, (_, index) => ({
+            ...messageEvent,
+            raw: { index, type: 'message' },
+            sequence: index,
+            text: `Message ${index}`,
+        }));
+        const { rerender } = render(
+            <TranscriptView
+                activeEventJumpSignal={1}
+                activeEventKey={getTranscriptEventKey(events[10]!, 10)}
+                assistantModel={null}
+                events={events}
+                projectPath="/Users/example/workspace/spiracha"
+                showCommentary
+                showExtraEvents={false}
+                showRawJson={false}
+                showToolCalls={false}
+            />,
+        );
+
+        rerender(
+            <TranscriptView
+                activeEventJumpSignal={1}
+                activeEventKey={getTranscriptEventKey(events[20]!, 20)}
+                assistantModel={null}
+                events={events}
+                projectPath="/Users/example/workspace/spiracha"
+                showCommentary
+                showExtraEvents={false}
+                showRawJson={false}
+                showToolCalls={false}
+            />,
+        );
+
+        expect(virtualizerScrollCalls.slice(-2)).toEqual([
+            [10, { align: 'start' }],
+            [20, { align: 'start' }],
+        ]);
+    });
+
     it('should hide and show commentary messages independently of final assistant answers', () => {
         const commentaryEvent: ThreadEvent = {
             isHiddenByDefault: false,

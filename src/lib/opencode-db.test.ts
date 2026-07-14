@@ -1,6 +1,6 @@
 import { Database } from 'bun:sqlite';
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, rm, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -189,12 +189,54 @@ describe('opencode db helpers', () => {
         const db = openOpenCodeReadDb(dbPath);
 
         try {
+            expect(db.query('PRAGMA query_only').get()).toEqual({ query_only: 1 });
+            expect(db.query('PRAGMA busy_timeout').get()).toEqual({ timeout: 1_000 });
             expect(() => db.exec("UPDATE project SET name = 'changed' WHERE id = 'pro_demo'")).toThrow(
                 'attempt to write a readonly database',
             );
         } finally {
             db.close();
         }
+    });
+
+    it('should read an OpenCode database from a read-only filesystem', async () => {
+        const dbPath = await createFixtureDb();
+        await chmod(dbPath, 0o444);
+        await chmod(path.dirname(dbPath), 0o555);
+
+        try {
+            await expect(listOpenCodeWorkspaceGroups(dbPath)).resolves.toHaveLength(1);
+        } finally {
+            await chmod(path.dirname(dbPath), 0o755);
+            await chmod(dbPath, 0o644);
+        }
+    });
+
+    it('should coalesce nullable legacy token columns to zero', async () => {
+        const dbPath = await createFixtureDb();
+        const db = new Database(dbPath);
+        try {
+            db.exec(`UPDATE session SET
+                tokens_input = NULL,
+                tokens_output = NULL,
+                tokens_reasoning = NULL,
+                tokens_cache_read = NULL,
+                tokens_cache_write = NULL
+                WHERE id = 'ses_main'`);
+        } finally {
+            db.close();
+        }
+
+        const sessions = await listOpenCodeSessionsForGroup('project:pro_demo', dbPath);
+
+        expect(sessions[0]).toMatchObject({
+            tokensCacheRead: 0,
+            tokensCacheWrite: 0,
+            tokensInput: 0,
+            tokensOutput: 0,
+            tokensReasoning: 0,
+            totalTokens: 0,
+        });
     });
 
     it('should encode workspace file URIs for paths with spaces', async () => {
@@ -393,6 +435,7 @@ describe('opencode db helpers', () => {
 
         expect(result.deletedSessionIds.sort()).toEqual(['ses_child', 'ses_main']);
         expect(await listOpenCodeSessionsForGroup('project:pro_demo', dbPath)).toEqual([]);
+        expect(await listOpenCodeWorkspaceGroups(dbPath)).toEqual([]);
         expect(await readOpenCodeSessionTranscript(dbPath, 'ses_main')).toBeNull();
 
         const db = new Database(dbPath);
@@ -400,6 +443,7 @@ describe('opencode db helpers', () => {
             expect(db.query('SELECT COUNT(*) AS count FROM session').get()).toEqual({ count: 0 });
             expect(db.query('SELECT COUNT(*) AS count FROM message').get()).toEqual({ count: 0 });
             expect(db.query('SELECT COUNT(*) AS count FROM part').get()).toEqual({ count: 0 });
+            expect(db.query('SELECT COUNT(*) AS count FROM project').get()).toEqual({ count: 0 });
             expect(
                 db.query('SELECT COUNT(*) AS count FROM event_sequence WHERE aggregate_id LIKE ?').get('ses_%'),
             ).toEqual({ count: 0 });
@@ -447,6 +491,7 @@ describe('opencode db helpers', () => {
                     permission: JSON.stringify({
                         autoAccept: {
                             'workspace/ses_delete': true,
+                            'workspace/ses_delete-suffix': true,
                             'workspace/ses_keep': true,
                         },
                     }),
@@ -475,6 +520,7 @@ describe('opencode db helpers', () => {
                 '\t',
             )}\n`,
         );
+        await chmod(globalStatePath, 0o600);
         await Bun.write(
             workspaceStatePath,
             `${JSON.stringify(
@@ -505,6 +551,8 @@ describe('opencode db helpers', () => {
         ]);
 
         expect(changedFiles.sort()).toEqual([globalStatePath, workspaceStatePath].sort());
+        expect((await stat(globalStatePath)).mode & 0o777).toBe(0o600);
+        expect((await readdir(stateDir)).filter((entry) => entry.includes('.tmp'))).toEqual([]);
         const globalState = JSON.parse(await Bun.file(globalStatePath).text());
         const layoutPage = JSON.parse(globalState['layout.page']);
         const notification = JSON.parse(globalState.notification);
@@ -515,7 +563,10 @@ describe('opencode db helpers', () => {
             '/Users/test/workspace/keep': { id: 'ses_keep' },
         });
         expect(notification.list).toEqual([{ session: 'ses_keep', type: 'turn-complete' }]);
-        expect(permission.autoAccept).toEqual({ 'workspace/ses_keep': true });
+        expect(permission.autoAccept).toEqual({
+            'workspace/ses_delete-suffix': true,
+            'workspace/ses_keep': true,
+        });
         expect(server).toEqual({
             lastProject: {},
             projects: {

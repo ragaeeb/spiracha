@@ -1,6 +1,7 @@
-import { readdir, rm, stat } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { chmod, readdir, rename, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { mapWithConcurrency } from './concurrency';
+import { createConcurrencyLimiter, mapWithConcurrency } from './concurrency';
 import {
     type GrokSessionSummary,
     type GrokSessionTranscript,
@@ -12,6 +13,7 @@ import {
     resolveGrokSessionsDir,
 } from './grok-exporter-types';
 import {
+    asNumber,
     asObject,
     asString,
     cleanExtractedText,
@@ -26,7 +28,9 @@ import {
 export { getDefaultGrokHome, resolveGrokHome, resolveGrokSessionsDir };
 
 const READ_CONCURRENCY = 8;
+const DELETE_CONCURRENCY = 1;
 const WORKSPACE_KEY_PREFIX = 'workspace:';
+const grokDeleteLimiter = createConcurrencyLimiter(DELETE_CONCURRENCY);
 
 type GrokSessionDirectory = {
     directoryName: string;
@@ -415,14 +419,23 @@ const readGrokChatHistory = async (
             checkpointFiles.map(async (filePath) => {
                 const checkpoint = await readJsonObjectFile(filePath);
                 return {
-                    compactedHistoryLength: getJsonObjectList(checkpoint?.compacted_history).length,
+                    compactedHistory: getJsonObjectList(checkpoint?.compacted_history),
                     createdAtMs: parseTimestampMs(checkpoint?.created_at) ?? 0,
+                    promptIndex: asNumber(checkpoint?.prompt_index_at_compaction ?? null),
                 };
             }),
         )
     ).sort((left, right) => right.createdAtMs - left.createdAtMs)[0];
 
-    const liveTail = latestCheckpoint ? liveEvents.slice(latestCheckpoint.compactedHistoryLength) : liveEvents;
+    const compactedHistoryIsLivePrefix = latestCheckpoint?.compactedHistory.every(
+        (event, index) => JSON.stringify(event) === JSON.stringify(liveEvents[index]),
+    );
+    const liveTailStart = compactedHistoryIsLivePrefix
+        ? latestCheckpoint?.compactedHistory.length
+        : latestCheckpoint?.promptIndex;
+    const liveTail = Number.isFinite(liveTailStart)
+        ? liveEvents.slice(Math.max(0, Math.min(liveEvents.length, Math.floor(liveTailStart ?? 0))))
+        : liveEvents;
     return [...archivedHistory, ...liveTail];
 };
 
@@ -817,6 +830,11 @@ export const listGrokSessionsForGroup = async (
 
 const locateSessionDirectory = async (sessionsDir: string, sessionId: string): Promise<GrokSessionDirectory | null> => {
     const files = await listSessionDirectories(sessionsDir);
+    const directMatch = files.find((file) => path.basename(file.sessionDir) === sessionId);
+    if (directMatch) {
+        return directMatch;
+    }
+
     const modelLabels = await readModelLabels(getGrokHomeFromSessionsDir(sessionsDir));
     const located = await mapWithConcurrency(files, READ_CONCURRENCY, async (file) => {
         const transcript = await readSessionDirectory(file, modelLabels);
@@ -861,40 +879,45 @@ const listDirectoriesRecursively = async (root: string): Promise<string[]> => {
 };
 
 const listRelatedSubagentDirectories = async (sessionsDir: string, sessionId: string): Promise<string[]> => {
-    return (await listDirectoriesRecursively(sessionsDir)).filter(
+    const candidates = (await listDirectoriesRecursively(sessionsDir)).filter(
         (directoryPath) =>
             path.basename(directoryPath) === sessionId && path.basename(path.dirname(directoryPath)) === 'subagents',
     );
+    const related = await mapWithConcurrency(candidates, READ_CONCURRENCY, async (directoryPath) => {
+        const metadata = await readJsonObjectFile(path.join(directoryPath, 'meta.json'));
+        return asString(metadata?.child_session_id ?? null) === sessionId ? directoryPath : null;
+    });
+    return related.filter((directoryPath): directoryPath is string => directoryPath !== null);
 };
 
-const removeStringFromJsonArrays = (value: JsonValue, target: string): { changed: boolean; value: JsonValue } => {
-    if (Array.isArray(value)) {
-        let changed = false;
-        const next = value.flatMap((item) => {
-            if (item === target) {
-                changed = true;
-                return [];
-            }
-
-            const result = removeStringFromJsonArrays(item, target);
-            changed = changed || result.changed;
-            return [result.value];
-        });
-        return { changed, value: next };
+const pruneReportedTaskCompletion = (value: JsonValue, sessionId: string): boolean => {
+    const root = asObject(value);
+    const state = asObject(root?.state ?? null);
+    const completions = asObject(state?.['grok_build.ReportedTaskCompletions'] ?? null);
+    const reported = completions?.reported;
+    if (!completions || !Array.isArray(reported)) {
+        return false;
     }
 
-    if (value && typeof value === 'object') {
-        let changed = false;
-        const next: Record<string, JsonValue> = {};
-        for (const [key, item] of Object.entries(value)) {
-            const result = removeStringFromJsonArrays(item, target);
-            changed = changed || result.changed;
-            next[key] = result.value;
-        }
-        return { changed, value: next };
+    const next = reported.filter((entry) => entry !== sessionId);
+    if (next.length === reported.length) {
+        return false;
     }
 
-    return { changed: false, value };
+    completions.reported = next;
+    return true;
+};
+
+const writeGrokJsonFile = async (filePath: string, value: JsonValue): Promise<void> => {
+    const tempPath = `${filePath}.${randomUUID()}.tmp`;
+    const mode = (await stat(filePath)).mode & 0o777;
+    try {
+        await Bun.write(tempPath, `${JSON.stringify(value, null, 2)}\n`);
+        await chmod(tempPath, mode);
+        await rename(tempPath, filePath);
+    } finally {
+        await rm(tempPath, { force: true });
+    }
 };
 
 const pruneResourcesStateReferences = async (sessionsDir: string, sessionId: string): Promise<void> => {
@@ -910,19 +933,22 @@ const pruneResourcesStateReferences = async (sessionsDir: string, sessionId: str
             continue;
         }
 
-        const result = removeStringFromJsonArrays(value, sessionId);
-        if (result.changed) {
-            await Bun.write(resourceStatePath, `${JSON.stringify(result.value, null, 2)}\n`);
+        if (pruneReportedTaskCompletion(value, sessionId)) {
+            await writeGrokJsonFile(resourceStatePath, value);
         }
     }
 };
 
 const removeActiveSessionEntry = async (sessionsDir: string, sessionId: string): Promise<void> => {
     const activeSessionsPath = path.join(getGrokHomeFromSessionsDir(sessionsDir), 'active_sessions.json');
-    const value = (await Bun.file(activeSessionsPath)
-        .json()
-        .catch(() => null)) as JsonValue | null;
+    const file = Bun.file(activeSessionsPath);
+    if (!(await file.exists())) {
+        return;
+    }
+
+    const value = (await file.json().catch(() => null)) as JsonValue | null;
     if (!Array.isArray(value)) {
+        console.warn('[spiracha:grok-db] malformed_active_sessions', { path: activeSessionsPath });
         return;
     }
 
@@ -931,7 +957,7 @@ const removeActiveSessionEntry = async (sessionsDir: string, sessionId: string):
         return;
     }
 
-    await Bun.write(activeSessionsPath, `${JSON.stringify(next, null, 2)}\n`);
+    await writeGrokJsonFile(activeSessionsPath, next);
 };
 
 export const readGrokSessionTranscript = async (
@@ -952,15 +978,25 @@ export const readGrokSessionTranscript = async (
     return readSessionDirectory(file, modelLabels, options);
 };
 
-export const deleteGrokSession = async (sessionsDir: string, sessionId: string): Promise<DeleteGrokSessionResult> => {
+const isSafeGrokSessionId = (sessionId: string): boolean =>
+    /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u.test(sessionId) && !sessionId.includes('..');
+
+const deleteGrokSessionWithLimit = async (sessionsDir: string, sessionId: string): Promise<DeleteGrokSessionResult> => {
+    if (!isSafeGrokSessionId(sessionId)) {
+        return { deletedFiles: [], deletedSessionIds: [] };
+    }
+
     if (!(await pathExists(sessionsDir))) {
         return { deletedFiles: [], deletedSessionIds: [] };
     }
 
-    const directories = [
-        ...(await listSessionDirectories(sessionsDir)).filter((file) => path.basename(file.sessionDir) === sessionId),
-        ...(await locateSessionDirectory(sessionsDir, sessionId).then((file) => (file ? [file] : []))),
-    ];
+    const directMatches = (await listSessionDirectories(sessionsDir)).filter(
+        (file) => path.basename(file.sessionDir) === sessionId,
+    );
+    const directories =
+        directMatches.length > 0
+            ? directMatches
+            : await locateSessionDirectory(sessionsDir, sessionId).then((file) => (file ? [file] : []));
     const uniqueSessionDirs = [...new Set(directories.map((file) => file.sessionDir))];
     const relatedSubagentDirs = await listRelatedSubagentDirectories(sessionsDir, sessionId);
     const deleteDirs = [...new Set([...uniqueSessionDirs, ...relatedSubagentDirs])];
@@ -968,12 +1004,23 @@ export const deleteGrokSession = async (sessionsDir: string, sessionId: string):
         return { deletedFiles: [], deletedSessionIds: [] };
     }
 
-    const deletedFiles = (await Promise.all(deleteDirs.map(listFilesRecursively))).flat();
-    await Promise.all(deleteDirs.map((directoryPath) => rm(directoryPath, { force: true, recursive: true })));
+    const deletedFiles = (
+        await Promise.all(
+            deleteDirs.map(async (directoryPath) => {
+                const files = await listFilesRecursively(directoryPath);
+                await rm(directoryPath, { force: true, recursive: true });
+                return files;
+            }),
+        )
+    ).flat();
     await removeActiveSessionEntry(sessionsDir, sessionId);
     await pruneResourcesStateReferences(sessionsDir, sessionId);
     return {
         deletedFiles,
         deletedSessionIds: [sessionId],
     };
+};
+
+export const deleteGrokSession = async (sessionsDir: string, sessionId: string): Promise<DeleteGrokSessionResult> => {
+    return grokDeleteLimiter(() => deleteGrokSessionWithLimit(sessionsDir, sessionId));
 };

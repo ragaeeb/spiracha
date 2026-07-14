@@ -84,42 +84,34 @@ export const buildClaudeCodeSessionDetailPreview = (
         entries: [
             ...transcript.entries.slice(0, CLAUDE_CODE_DETAIL_PREVIEW_LEADING_ENTRY_LIMIT),
             ...transcript.entries.slice(-trailingEntryLimit),
-        ],
+        ].map((entry) => ({
+            ...entry,
+            parts: entry.parts.map((part) => ({ ...part, raw: {} })),
+            raw: {},
+        })),
         isPartial: true,
         omittedEntryCount: transcript.entries.length - CLAUDE_CODE_DETAIL_PREVIEW_ENTRY_LIMIT,
+        rawEvents: [],
+        rawPayloadsOmitted: true,
     };
 };
 
 export const loadClaudeCodeSessionDetail = async (sessionId: string) => {
     const { runWithTranscriptLoadLimit } = await import('@spiracha/lib/transcript-load-limiter');
-    const { stat } = await import('node:fs/promises');
     const { readClaudeCodeSessionTranscript, resolveClaudeCodeProjectsDir } = await import(
         '@spiracha/lib/claude-code-db'
     );
     const projectsDir = resolveClaudeCodeProjectsDir();
     return runWithTranscriptLoadLimit(
         async () => {
-            const fullTranscript = await readClaudeCodeSessionTranscript(projectsDir, sessionId, {
-                includeRawPayloads: false,
+            const transcript = await readClaudeCodeSessionTranscript(projectsDir, sessionId, {
+                maxRawPayloadFileSizeBytes: LARGE_CLAUDE_CODE_SESSION_SIZE_BYTES,
             });
-            if (!fullTranscript) {
+            if (!transcript) {
                 throw new Error(`Claude Code session not found: ${sessionId}`);
             }
 
-            const previewTranscript = buildClaudeCodeSessionDetailPreview(fullTranscript);
-            if (previewTranscript.isPartial) {
-                return previewTranscript;
-            }
-
-            const fileSizeBytes = await stat(fullTranscript.session.filePath)
-                .then((stats) => stats.size)
-                .catch(() => LARGE_CLAUDE_CODE_SESSION_SIZE_BYTES + 1);
-
-            if (fileSizeBytes > LARGE_CLAUDE_CODE_SESSION_SIZE_BYTES) {
-                return fullTranscript;
-            }
-
-            return (await readClaudeCodeSessionTranscript(projectsDir, sessionId)) ?? fullTranscript;
+            return buildClaudeCodeSessionDetailPreview(transcript);
         },
         {
             id: sessionId,
@@ -241,5 +233,11 @@ export const deleteClaudeCodeSessionsFn = createServerFn({ method: 'POST' })
     .handler(async ({ data }) => {
         const { deleteClaudeCodeSession, resolveClaudeCodeProjectsDir } = await import('@spiracha/lib/claude-code-db');
         const projectsDir = resolveClaudeCodeProjectsDir();
-        return Promise.all(data.sessionIds.map((sessionId) => deleteClaudeCodeSession(projectsDir, sessionId)));
+        const results = await Promise.all(
+            data.sessionIds.map((sessionId) => deleteClaudeCodeSession(projectsDir, sessionId)),
+        );
+        return {
+            deletedFiles: [...new Set(results.flatMap((result) => result.deletedFiles))],
+            deletedSessionIds: [...new Set(results.flatMap((result) => result.deletedSessionIds))],
+        };
     });

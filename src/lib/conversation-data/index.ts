@@ -1,3 +1,4 @@
+import { mapWithConcurrency } from '../concurrency';
 import { antigravityConversationAdapter } from './antigravity-adapter';
 import { claudeCodeConversationAdapter } from './claude-code-adapter';
 import { codexConversationAdapter } from './codex-adapter';
@@ -87,6 +88,16 @@ const ADAPTERS: Partial<Record<ConversationSource, ConversationAdapter>> = {
 
 const MAX_LIMIT = 200;
 const DEFAULT_LIMIT = 100;
+const DELETE_CONCURRENCY_BY_SOURCE: Record<ConversationSource, number> = {
+    antigravity: 1,
+    'claude-code': 4,
+    codex: 1,
+    cursor: 1,
+    grok: 1,
+    kiro: 1,
+    opencode: 2,
+    qoder: 1,
+};
 
 const getEnabledSources = (sources: ListConversationsForPathOptions['sources']): ConversationSource[] => {
     if (!sources || sources === 'all') {
@@ -210,25 +221,31 @@ export const deleteConversations = async (
     if (!adapter?.deleteConversation) {
         return null;
     }
+    const deleteAdapterConversation = adapter.deleteConversation;
 
-    const results: DeleteConversationItemResult[] = [];
-    for (const id of options.ids) {
-        const result = await adapter.deleteConversation({
+    const rawResults = await mapWithConcurrency(
+        options.ids,
+        DELETE_CONCURRENCY_BY_SOURCE[options.source],
+        async (id) => ({
             id,
-            locations: options.locations,
-            source: options.source,
-        });
-        results.push({
-            deleted: result.deletedIds.length > 0,
-            deletedFiles: result.deletedFiles,
-            deletedIds: result.deletedIds,
-            id,
-        });
-    }
+            result: await deleteAdapterConversation({
+                id,
+                locations: options.locations,
+                source: options.source,
+            }),
+        }),
+    );
+    const deletedIdSet = new Set(rawResults.flatMap(({ result }) => result.deletedIds));
+    const results: DeleteConversationItemResult[] = rawResults.map(({ id, result }) => ({
+        deleted: result.deletedIds.length > 0 || deletedIdSet.has(id),
+        deletedFiles: result.deletedFiles,
+        deletedIds: result.deletedIds,
+        id,
+    }));
 
     return {
-        deletedFiles: results.flatMap((result) => result.deletedFiles),
-        deletedIds: results.flatMap((result) => result.deletedIds),
+        deletedFiles: [...new Set(results.flatMap((result) => result.deletedFiles))],
+        deletedIds: [...deletedIdSet],
         missingIds: results.filter((result) => !result.deleted).map((result) => result.id),
         results,
     };

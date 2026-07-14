@@ -153,6 +153,22 @@ describe('conversation delete adapters', () => {
         );
     });
 
+    it('should count descendant ids deleted by an earlier cascading delete as deleted', async () => {
+        const dbPath = await createOpenCodeDb();
+
+        const result = await deleteConversations({
+            ids: ['session-delete', 'session-child'],
+            locations: { opencodeDbPath: dbPath },
+            source: 'opencode',
+        });
+
+        expect(result?.missingIds).toEqual([]);
+        expect(result?.results).toEqual([
+            expect.objectContaining({ deleted: true, id: 'session-delete' }),
+            expect.objectContaining({ deleted: true, id: 'session-child' }),
+        ]);
+    });
+
     it('should delete Claude Code sessions through the stable facade without treating ids as paths', async () => {
         const projectsDir = await makeTempRoot('conversation-delete-claude-');
         const sessionPath = await writeClaudeSession(projectsDir, '/repo', 'session-delete');

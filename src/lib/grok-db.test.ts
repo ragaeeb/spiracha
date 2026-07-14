@@ -274,6 +274,44 @@ describe('grok db helpers', () => {
         expect(transcript?.session.userMessageCount).toBe(2);
     });
 
+    it('should use the checkpoint prompt index when compacted history is not the live prefix', async () => {
+        const grokHome = await makeTempRoot();
+        const fixture = await writeGrokSessionFixture({ grokHome, workspacePath: path.join(grokHome, 'project') });
+        const archivedHistory = [
+            { content: 'System prompt', type: 'system' },
+            { content: [{ text: '<user_query>First prompt</user_query>', type: 'text' }], type: 'user' },
+            { content: 'First answer', type: 'assistant' },
+        ];
+        await mkdir(path.join(fixture.sessionDir, 'compaction_requests'), { recursive: true });
+        await mkdir(path.join(fixture.sessionDir, 'compaction_checkpoints'), { recursive: true });
+        await writeJson(path.join(fixture.sessionDir, 'compaction_requests', 'request.json'), {
+            chat_history: archivedHistory,
+            created_at: '2026-07-04T16:52:00.000Z',
+        });
+        await writeJson(path.join(fixture.sessionDir, 'compaction_checkpoints', 'checkpoint.json'), {
+            compacted_history: [
+                archivedHistory[0],
+                { content: 'Summary that is not present in the live file', type: 'user' },
+                { content: 'Compaction acknowledgement', type: 'assistant' },
+            ],
+            created_at: '2026-07-04T16:52:10.000Z',
+            prompt_index_at_compaction: 1,
+        });
+        await writeJsonl(path.join(fixture.sessionDir, 'chat_history.jsonl'), [
+            archivedHistory[0],
+            { content: [{ text: '<user_query>Second prompt</user_query>', type: 'text' }], type: 'user' },
+            { content: 'Second answer', type: 'assistant' },
+        ]);
+
+        const transcript = await readGrokSessionTranscript(fixture.sessionsDir, fixture.sessionId);
+        const text = transcript?.entries.flatMap((entry) => entry.parts.map((part) => part.text)).filter(Boolean);
+
+        expect(text).toContain('First prompt');
+        expect(text).toContain('First answer');
+        expect(text).toContain('Second prompt');
+        expect(text).toContain('Second answer');
+    });
+
     it('should omit raw Grok payloads when requested for large UI responses', async () => {
         const grokHome = await makeTempRoot();
         const workspacePath = path.join(grokHome, 'project');
@@ -308,6 +346,47 @@ describe('grok db helpers', () => {
         await expect(Bun.file(path.join(grokHome, 'active_sessions.json')).json()).resolves.toEqual([]);
     });
 
+    it('should reject unsafe ids in the direct Grok delete primitive', async () => {
+        const grokHome = await makeTempRoot();
+        const fixture = await writeGrokSessionFixture({ grokHome, workspacePath: path.join(grokHome, 'project') });
+
+        await expect(deleteGrokSession(fixture.sessionsDir, '../session-1')).resolves.toEqual({
+            deletedFiles: [],
+            deletedSessionIds: [],
+        });
+        expect(await Bun.file(path.join(fixture.sessionDir, 'chat_history.jsonl')).exists()).toBe(true);
+    });
+
+    it('should delete a basename-matched session without parsing unrelated corrupt transcripts', async () => {
+        const grokHome = await makeTempRoot();
+        const fixture = await writeGrokSessionFixture({ grokHome, workspacePath: path.join(grokHome, 'project') });
+        const corruptDir = path.join(fixture.sessionsDir, fixture.directoryName, 'corrupt-session');
+        await mkdir(corruptDir, { recursive: true });
+        await Bun.write(path.join(corruptDir, 'chat_history.jsonl'), '{not-json\n');
+
+        const result = await deleteGrokSession(fixture.sessionsDir, fixture.sessionId);
+
+        expect(result.deletedSessionIds).toEqual([fixture.sessionId]);
+        expect(await Bun.file(path.join(corruptDir, 'chat_history.jsonl')).exists()).toBe(true);
+    });
+
+    it('should warn when active session state is malformed', async () => {
+        const grokHome = await makeTempRoot();
+        const fixture = await writeGrokSessionFixture({ grokHome, workspacePath: path.join(grokHome, 'project') });
+        await Bun.write(path.join(grokHome, 'active_sessions.json'), '{not-json');
+        const originalWarn = console.warn;
+        const warnings: unknown[][] = [];
+        console.warn = (...args) => warnings.push(args);
+
+        try {
+            await deleteGrokSession(fixture.sessionsDir, fixture.sessionId);
+        } finally {
+            console.warn = originalWarn;
+        }
+
+        expect(warnings).toEqual([expect.arrayContaining(['[spiracha:grok-db] malformed_active_sessions'])]);
+    });
+
     it('should delete Grok subagent metadata and parent resource references for a session', async () => {
         const grokHome = await makeTempRoot();
         const workspacePath = path.join(grokHome, 'project');
@@ -333,7 +412,18 @@ describe('grok db helpers', () => {
                 'grok_build.ReportedTaskCompletions': {
                     reported: [child.sessionId, 'kept-session'],
                 },
+                unrelated: {
+                    reported: [child.sessionId],
+                    sessionIds: [child.sessionId],
+                },
             },
+        });
+        const collidingSubagentDir = path.join(parent.sessionDir, 'other', 'subagents', child.sessionId);
+        await mkdir(collidingSubagentDir, { recursive: true });
+        await writeJson(path.join(collidingSubagentDir, 'meta.json'), {
+            child_session_id: 'different-session',
+            parent_session_id: parent.sessionId,
+            subagent_id: child.sessionId,
         });
 
         const result = await deleteGrokSession(child.sessionsDir, child.sessionId);
@@ -347,7 +437,12 @@ describe('grok db helpers', () => {
                 'grok_build.ReportedTaskCompletions': {
                     reported: ['kept-session'],
                 },
+                unrelated: {
+                    reported: [child.sessionId],
+                    sessionIds: [child.sessionId],
+                },
             },
         });
+        expect(await Bun.file(path.join(collidingSubagentDir, 'meta.json')).exists()).toBe(true);
     });
 });

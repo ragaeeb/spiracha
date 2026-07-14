@@ -1,3 +1,4 @@
+import { mapWithConcurrency } from './concurrency';
 import {
     type ConversationDetail,
     type ConversationMessageSelector,
@@ -30,6 +31,7 @@ type ConversationApiDependencies = {
 
 type ApiErrorCode =
     | 'conversation_not_found'
+    | 'internal_error'
     | 'method_not_allowed'
     | 'not_found'
     | 'unsupported_operation'
@@ -37,6 +39,7 @@ type ApiErrorCode =
 type ParseResult<T> = { error: Response } | { value: T };
 
 const MAX_CURSOR_OFFSET = 1_000_000;
+const BATCH_LOAD_CONCURRENCY = 4;
 const MAX_ID_BATCH_SIZE = 200;
 const MAX_ID_LENGTH = 2048;
 const MAX_LIMIT = 200;
@@ -177,7 +180,7 @@ const validateTimestamp = (field: string, value: number | undefined): Response |
 };
 
 const validateDeleteId = (id: string): Response | null => {
-    return /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u.test(id)
+    return /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u.test(id) && !id.includes('..')
         ? null
         : invalidFieldResponse(
               'id',
@@ -665,28 +668,27 @@ const handleExportConversations = async (request: Request, dependencies: ReturnT
         return result.error;
     }
 
-    const missingIds: string[] = [];
-    const entries = [];
-    for (const id of result.value.ids) {
+    const loaded = await mapWithConcurrency(result.value.ids, BATCH_LOAD_CONCURRENCY, async (id) => {
         const conversation = await dependencies.getConversation({
             id,
             messageSelector: result.value.messageSelector,
             source: result.value.source,
         });
         if (!conversation) {
-            missingIds.push(id);
-            continue;
+            return { entry: null, id };
         }
 
-        entries.push(
-            getConversationZipEntry(
+        return {
+            entry: getConversationZipEntry(
                 conversation,
                 dependencies.renderConversationMarkdown(conversation, {
                     messageSelector: result.value.messageSelector,
                 }),
             ),
-        );
-    }
+            id,
+        };
+    });
+    const missingIds = loaded.filter(({ entry }) => !entry).map(({ id }) => id);
 
     if (missingIds.length > 0) {
         return errorResponse(
@@ -701,7 +703,7 @@ const handleExportConversations = async (request: Request, dependencies: ReturnT
     }
 
     const zip = await createConversationMarkdownZip({
-        entries,
+        entries: loaded.flatMap(({ entry }) => (entry ? [entry] : [])),
         fileBaseName: `${result.value.source}-conversations-${result.value.ids.length}`,
     });
 
@@ -1145,7 +1147,16 @@ export const handleConversationApiRequest = async (
     const route = findRoute(context);
 
     if (route) {
-        return route.handle(context);
+        try {
+            return await route.handle(context);
+        } catch (error) {
+            console.error('[spiracha:conversation-api] request_failed', {
+                error: error instanceof Error ? error.message : String(error),
+                method: request.method,
+                pathname: url.pathname,
+            });
+            return errorResponse('internal_error', 'Conversation API request failed.', 500);
+        }
     }
 
     if (parsed.resource && API_RESOURCES.has(parsed.resource)) {

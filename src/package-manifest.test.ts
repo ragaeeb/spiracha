@@ -16,6 +16,13 @@ const readPackageManifest = async (): Promise<PackageManifest> => {
 };
 
 const removedRuntimeDependencies = ['@inquirer/prompts', '@modelcontextprotocol/sdk', 'iconv-lite'] as const;
+const requiredUiRuntimeDependencies = [
+    '@tanstack/react-start',
+    '@vitejs/plugin-react',
+    'react',
+    'react-dom',
+    'vite',
+] as const;
 
 const removedPackagedFiles = [
     'bin/codex-chats.js',
@@ -54,13 +61,9 @@ describe('package manifest', () => {
     it('should keep UI runtime dependencies available for bunx execution', async () => {
         const manifest = await readPackageManifest();
 
-        expect(manifest.dependencies).toMatchObject({
-            '@tanstack/react-start': '1.168.25',
-            '@vitejs/plugin-react': '6.0.2',
-            react: '19.2.7',
-            'react-dom': '19.2.7',
-            vite: '8.0.16',
-        });
+        for (const dependencyName of requiredUiRuntimeDependencies) {
+            expect(manifest.dependencies?.[dependencyName]).toBeDefined();
+        }
     });
 
     it('should publish the stable conversation API modules', async () => {

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { rm } from 'node:fs/promises';
+import { mkdir, readdir, rm, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -42,6 +42,21 @@ describe('ui cache', () => {
         expect(first).toBeNull();
         expect(second).toBeNull();
         expect(loadCount).toBe(1);
+    });
+
+    it('should create the cache directory with owner-only permissions', async () => {
+        await setCachedJson('private-cache', { ok: true });
+
+        expect((await stat(CACHE_DIR)).mode & 0o777).toBe(0o700);
+    });
+
+    it('should remove temporary files when the final cache rename fails', async () => {
+        const key = 'rename-failure';
+        await mkdir(getCacheFilePath(key), { recursive: true });
+
+        await expect(setCachedJson(key, { ok: true })).rejects.toBeDefined();
+
+        expect((await readdir(CACHE_DIR)).filter((entry) => entry.endsWith('.tmp'))).toEqual([]);
     });
 
     it('should coalesce concurrent cache misses for the same key', async () => {

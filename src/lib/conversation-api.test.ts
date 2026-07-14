@@ -405,6 +405,48 @@ describe('conversation API handler', () => {
         });
     });
 
+    it('should reject repeated-dot destructive ids before reaching delete handlers', async () => {
+        let called = false;
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/grok/session..backup', { method: 'DELETE' }),
+            {
+                deleteConversation: async () => {
+                    called = true;
+                    return { deletedFiles: [], deletedIds: [] };
+                },
+            },
+        );
+
+        expect(response.status).toBe(400);
+        expect(called).toBe(false);
+    });
+
+    it('should return the stable error envelope when a delete adapter throws', async () => {
+        const consoleError = console.error;
+        console.error = () => {};
+
+        try {
+            const response = await handleConversationApiRequest(
+                createRequest('/api/v1/conversations/grok/session-1', { method: 'DELETE' }),
+                {
+                    deleteConversation: async () => {
+                        throw new Error('source database is locked');
+                    },
+                },
+            );
+
+            expect(response.status).toBe(500);
+            await expect(response.json()).resolves.toEqual({
+                error: {
+                    code: 'internal_error',
+                    message: 'Conversation API request failed.',
+                },
+            });
+        } finally {
+            console.error = consoleError;
+        }
+    });
+
     it('should reject unsafe destructive ids in batch deletes before reaching delete handlers', async () => {
         let called = false;
         const response = await handleConversationApiRequest(
@@ -468,6 +510,37 @@ describe('conversation API handler', () => {
         expect(renderedSelectors).toEqual(['all', 'all']);
         const bytes = new Uint8Array(await response.arrayBuffer());
         expect(Array.from(bytes.slice(0, 2))).toEqual([0x50, 0x4b]);
+    });
+
+    it('should load batch export conversations with bounded concurrency while preserving input order', async () => {
+        let active = 0;
+        let maxActive = 0;
+        const renderedIds: string[] = [];
+        const ids = Array.from({ length: 9 }, (_, index) => `thread-${index}`);
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/export', {
+                body: JSON.stringify({ ids, source: 'grok' }),
+                method: 'POST',
+            }),
+            {
+                getConversation: async (options) => {
+                    active += 1;
+                    maxActive = Math.max(maxActive, active);
+                    await Bun.sleep(2);
+                    active -= 1;
+                    return { ...conversation, id: options.id, source: options.source, title: options.id };
+                },
+                renderConversationMarkdown: (renderedConversation) => {
+                    renderedIds.push(renderedConversation.title ?? '');
+                    return `# ${renderedConversation.title ?? ''}`;
+                },
+            },
+        );
+
+        expect(response.status).toBe(200);
+        expect(maxActive).toBeGreaterThan(1);
+        expect(maxActive).toBeLessThanOrEqual(4);
+        expect(renderedIds).toEqual(ids);
     });
 
     it('should reject unsupported batch export formats', async () => {

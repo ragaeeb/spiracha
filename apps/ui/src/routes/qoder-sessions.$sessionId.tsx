@@ -71,10 +71,13 @@ const buildSessionMetadata = (detail: QoderSessionTranscript) => [
     { label: 'Model', value: detail.session.model ?? 'unknown' },
     { label: 'Execution mode', value: detail.session.executionMode ?? 'unknown' },
     { label: 'Agent class', value: detail.session.agentClass ?? 'unknown' },
-    { label: 'Created', value: formatDateTime(detail.session.createdAtMs) },
+    {
+        label: 'Created',
+        value: <span suppressHydrationWarning>{formatDateTime(detail.session.createdAtMs)}</span>,
+    },
     {
         label: 'Last active',
-        value: formatDateTime(detail.session.lastActiveAtMs),
+        value: <span suppressHydrationWarning>{formatDateTime(detail.session.lastActiveAtMs)}</span>,
     },
 ];
 

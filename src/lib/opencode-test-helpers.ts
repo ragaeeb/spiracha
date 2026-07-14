@@ -97,11 +97,11 @@ const createOpenCodeTables = (db: Database) => {
             agent TEXT,
             model TEXT,
             cost REAL DEFAULT 0 NOT NULL,
-            tokens_input INTEGER DEFAULT 0 NOT NULL,
-            tokens_output INTEGER DEFAULT 0 NOT NULL,
-            tokens_reasoning INTEGER DEFAULT 0 NOT NULL,
-            tokens_cache_read INTEGER DEFAULT 0 NOT NULL,
-            tokens_cache_write INTEGER DEFAULT 0 NOT NULL,
+            tokens_input INTEGER DEFAULT 0,
+            tokens_output INTEGER DEFAULT 0,
+            tokens_reasoning INTEGER DEFAULT 0,
+            tokens_cache_read INTEGER DEFAULT 0,
+            tokens_cache_write INTEGER DEFAULT 0,
             metadata TEXT
         );
 

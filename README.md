@@ -7,7 +7,7 @@
 [![license](https://img.shields.io/npm/l/spiracha)](LICENSE.md)
 [![runtime](https://img.shields.io/badge/runtime-Bun-000000?logo=bun)](https://bun.sh)
 
-Spiracha is a local TanStack Start app for browsing and exporting agent conversation history from Codex, Claude Code, Kiro, Qoder, Cursor, Antigravity, and OpenCode.
+Spiracha is a local TanStack Start app for browsing and exporting agent conversation history from Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, and OpenCode.
 
 The legacy CLI, MCP server, and Codex plugin surfaces have been removed in the 2.0 hard cut. Spiracha now exposes the UI and a stable local data API; client-specific workflows such as review collection belong in the client that calls the API.
 
@@ -54,10 +54,15 @@ GET  /api/v1/conversations?cwd=/absolute/project&include_messages=true
 POST /api/v1/conversation-query
 GET  /api/v1/conversations/:source/:id
 GET  /api/v1/conversations/:source/:id/export
+DELETE /api/v1/conversations/:source/:id
+POST /api/v1/conversations/delete
+POST /api/v1/conversations/export
 GET  /api/v1/resolve?ref=<url-or-deeplink>
 ```
 
 The default list selector is `last_final_answer`, which keeps `fgh --collect` style clients fast and small. Use `message_selector=all` when a client needs the full normalized thread.
+
+Batch delete requires an explicit source and ID list. It returns `deletedIds`, `missingIds`, and a result for each requested ID, so partial success is represented in a `200` response body. Batch export also requires an explicit source and ID list, but is atomic: any missing ID returns an error instead of a partial archive.
 
 Example:
 

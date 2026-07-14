@@ -11,6 +11,7 @@ import {
 } from './claude-code-exporter-types';
 import {
     getClaudeCodeAssistantMessagePhase,
+    isClaudeCodeRawFlagEnabled,
     isClaudeCodeSyntheticTranscriptEntry,
 } from './claude-code-transcript-phase';
 import { mapWithConcurrency } from './concurrency';
@@ -44,6 +45,7 @@ type ParsedTranscriptFile = {
 
 type ReadTranscriptFileOptions = {
     includeRawPayloads?: boolean;
+    maxRawPayloadFileSizeBytes?: number;
 };
 
 export type ReadClaudeCodeSessionTranscriptOptions = ReadTranscriptFileOptions;
@@ -320,7 +322,7 @@ const parseTranscriptEntry = (raw: Record<string, JsonValue>): ClaudeCodeTranscr
     }
 
     return {
-        assistantPhase: getClaudeCodeAssistantMessagePhase({ raw, role }),
+        assistantPhase: getClaudeCodeAssistantMessagePhase({ parts, raw, role }),
         cwd: asString(raw.cwd ?? null),
         entryId: getTranscriptEntryId(type, raw),
         model: asString(message?.model ?? null),
@@ -557,7 +559,7 @@ const markIncompleteAssistantParentAsCommentary = (
         entry.parts.some(
             (part) => part.type === 'text' && part.text?.trim().startsWith('[Request interrupted by user]'),
         );
-    if ((!interruptedByUser && entry.raw.isApiErrorMessage !== true) || !entry.parentEntryId) {
+    if ((!interruptedByUser && !isClaudeCodeRawFlagEnabled(entry.raw.isApiErrorMessage)) || !entry.parentEntryId) {
         return;
     }
 
@@ -773,15 +775,21 @@ const getTranscriptLineages = (transcripts: ClaudeCodeSessionTranscript[]): Clau
     return lineages;
 };
 
-const countContentEntriesBefore = (transcript: ClaudeCodeSessionTranscript, rawEventIndex: number): number => {
-    let count = 0;
-    for (const raw of transcript.rawEvents.slice(0, rawEventIndex)) {
-        const entry = parseTranscriptEntry(raw);
-        if (entry && !isClaudeCodeSyntheticTranscriptEntry(entry)) {
-            count += 1;
+const countContentEntriesBefore = (
+    transcript: ClaudeCodeSessionTranscript,
+    rawEventIndex: number,
+    prefixCounts: WeakMap<ClaudeCodeSessionTranscript, number[]>,
+): number => {
+    let counts = prefixCounts.get(transcript);
+    if (!counts) {
+        counts = [0];
+        for (const raw of transcript.rawEvents) {
+            const entry = parseTranscriptEntry(raw);
+            counts.push((counts.at(-1) ?? 0) + (entry && !isClaudeCodeSyntheticTranscriptEntry(entry) ? 1 : 0));
         }
+        prefixCounts.set(transcript, counts);
     }
-    return count;
+    return counts[Math.max(0, Math.min(rawEventIndex, counts.length - 1))] ?? 0;
 };
 
 const deduplicateRawEvents = (rawEvents: Record<string, JsonValue>[]): Record<string, JsonValue>[] => {
@@ -799,22 +807,40 @@ const deduplicateRawEvents = (rawEvents: Record<string, JsonValue>[]): Record<st
     });
 };
 
+const MAX_CLAUDE_LINEAGE_DEPTH = 64;
+
 const buildLogicalRawEvents = (
     lineage: ClaudeCodeSessionTranscript[],
     current: ClaudeCodeSessionTranscript,
+    context: {
+        memo: WeakMap<ClaudeCodeSessionTranscript, Record<string, JsonValue>[]>;
+        prefixCounts: WeakMap<ClaudeCodeSessionTranscript, number[]>;
+    } = { memo: new WeakMap(), prefixCounts: new WeakMap() },
     visiting = new Set<string>(),
+    depth = 0,
 ): Record<string, JsonValue>[] => {
-    if (visiting.has(current.session.sessionId)) {
+    const cached = context.memo.get(current);
+    if (cached) {
+        return cached;
+    }
+
+    const finish = (events: Record<string, JsonValue>[]) => {
+        const deduplicated = deduplicateRawEvents(events);
+        context.memo.set(current, deduplicated);
+        return deduplicated;
+    };
+
+    if (visiting.has(current.session.sessionId) || depth >= MAX_CLAUDE_LINEAGE_DEPTH) {
         return deduplicateRawEvents(current.rawEvents);
     }
 
     const firstAnchorIndex = current.rawEvents.findIndex((raw) => getCompactionSummaryId(raw) !== null);
     const firstAnchor = firstAnchorIndex < 0 ? null : getCompactionSummaryId(current.rawEvents[firstAnchorIndex] ?? {});
     if (!firstAnchor) {
-        return deduplicateRawEvents(current.rawEvents);
+        return finish(current.rawEvents);
     }
 
-    const currentPrefixSize = countContentEntriesBefore(current, firstAnchorIndex);
+    const currentPrefixSize = countContentEntriesBefore(current, firstAnchorIndex, context.prefixCounts);
     const ancestor = lineage
         .filter((candidate) => candidate.session.sessionId !== current.session.sessionId)
         .map((candidate) => {
@@ -822,7 +848,8 @@ const buildLogicalRawEvents = (
             return {
                 anchorIndex,
                 candidate,
-                prefixSize: anchorIndex < 0 ? -1 : countContentEntriesBefore(candidate, anchorIndex),
+                prefixSize:
+                    anchorIndex < 0 ? -1 : countContentEntriesBefore(candidate, anchorIndex, context.prefixCounts),
             };
         })
         .filter((candidate) => candidate.prefixSize > currentPrefixSize)
@@ -832,21 +859,18 @@ const buildLogicalRawEvents = (
                 (left.candidate.session.createdAtMs ?? 0) - (right.candidate.session.createdAtMs ?? 0),
         )[0];
     if (!ancestor) {
-        return deduplicateRawEvents(current.rawEvents);
+        return finish(current.rawEvents);
     }
 
     const nextVisiting = new Set(visiting);
     nextVisiting.add(current.session.sessionId);
-    const ancestorEvents = buildLogicalRawEvents(lineage, ancestor.candidate, nextVisiting);
+    const ancestorEvents = buildLogicalRawEvents(lineage, ancestor.candidate, context, nextVisiting, depth + 1);
     const ancestorAnchorIndex = ancestorEvents.findIndex((raw) => getCompactionSummaryId(raw) === firstAnchor);
     if (ancestorAnchorIndex < 0) {
-        return deduplicateRawEvents(current.rawEvents);
+        return finish(current.rawEvents);
     }
 
-    return deduplicateRawEvents([
-        ...ancestorEvents.slice(0, ancestorAnchorIndex),
-        ...current.rawEvents.slice(firstAnchorIndex),
-    ]);
+    return finish([...ancestorEvents.slice(0, ancestorAnchorIndex), ...current.rawEvents.slice(firstAnchorIndex)]);
 };
 
 const compareTranscriptsByActivity = (
@@ -1043,7 +1067,22 @@ export const readClaudeCodeSessionTranscript = async (
     if (!transcript) {
         return null;
     }
-    return options.includeRawPayloads === false ? omitTranscriptRawPayloads(transcript) : transcript;
+    const lineageFileSizeBytes =
+        options.maxRawPayloadFileSizeBytes === undefined
+            ? 0
+            : (
+                  await Promise.all(
+                      lineage.map((candidate) =>
+                          stat(candidate.session.filePath)
+                              .then((metadata) => metadata.size)
+                              .catch(() => options.maxRawPayloadFileSizeBytes! + 1),
+                      ),
+                  )
+              ).reduce((total, size) => total + size, 0);
+    const omitRawPayloads =
+        options.includeRawPayloads === false ||
+        (options.maxRawPayloadFileSizeBytes !== undefined && lineageFileSizeBytes > options.maxRawPayloadFileSizeBytes);
+    return omitRawPayloads ? omitTranscriptRawPayloads(transcript) : transcript;
 };
 
 export const deleteClaudeCodeSession = async (

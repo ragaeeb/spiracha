@@ -25,7 +25,11 @@ export const SelectionActionsToolbar = ({
     if (selectedCount === 0) {
         const actions = [onExportSelected ? 'export' : null, onDeleteSelected ? 'delete' : null].filter(Boolean);
         const actionText =
-            actions.length === 2 ? `${actions[0]} or ${actions[1]} them in a batch` : `${actions[0]} them in a batch`;
+            actions.length === 2
+                ? `${actions[0]} or ${actions[1]} them in a batch`
+                : actions.length === 1
+                  ? `${actions[0]} them in a batch`
+                  : 'manage them in a batch';
 
         return (
             <p className="text-[var(--muted-foreground)] text-sm">
@@ -50,7 +54,7 @@ export const SelectionActionsToolbar = ({
                         onClick={onExportSelected}
                     >
                         <Download className="mr-2 size-4" />
-                        Export selected {pluralize(2, itemLabel)}
+                        Export selected {pluralize(selectedCount, itemLabel)}
                     </Button>
                 ) : null}
                 {onDeleteSelected ? (
@@ -63,7 +67,7 @@ export const SelectionActionsToolbar = ({
                         onClick={onDeleteSelected}
                     >
                         <Trash2 className="mr-2 size-4" />
-                        Delete selected {pluralize(2, itemLabel)}
+                        Delete selected {pluralize(selectedCount, itemLabel)}
                     </Button>
                 ) : null}
                 <Button className="rounded-full" size="sm" type="button" variant="ghost" onClick={clearSelection}>

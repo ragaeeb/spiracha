@@ -2,7 +2,7 @@ import type { ThreadEvent } from '@spiracha/lib/codex-browser-types';
 import { shouldShowCodexTranscriptEvent } from '@spiracha/lib/codex-transcript-filter';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Check, Copy } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Badge } from '#/components/ui/badge';
 import { Button } from '#/components/ui/button';
 import { Checkbox } from '#/components/ui/checkbox';
@@ -295,9 +295,14 @@ function TranscriptEventCard({
     onCopy,
     onSelectionChange,
 }: TranscriptEventCardProps) {
+    const handleElement = useCallback(
+        (element: HTMLElement | null) => onCardElement(eventKey, element),
+        [eventKey, onCardElement],
+    );
+
     return (
         <article
-            ref={(element) => onCardElement(eventKey, element)}
+            ref={handleElement}
             aria-current={isActive ? 'location' : undefined}
             className={cn(
                 'min-w-0 scroll-mt-24 overflow-hidden rounded-xl border p-3.5 shadow-[var(--panel-shadow)]',
@@ -381,7 +386,7 @@ export function TranscriptView({
     const [copyErrorMessage, setCopyErrorMessage] = useState<string | null>(null);
     const [selectedEventKeys, setSelectedEventKeys] = useState<string[]>([]);
     const eventElementByKeyRef = useRef(new Map<string, HTMLElement>());
-    const lastHandledJumpSignalRef = useRef<number | null>(null);
+    const lastHandledJumpRef = useRef<{ eventKey: string; signal: number } | null>(null);
     const parentRef = useRef<HTMLDivElement | null>(null);
     const timeoutIdsRef = useRef<number[]>([]);
     const useVirtualList = visibleEvents.length > 40;
@@ -410,14 +415,14 @@ export function TranscriptView({
         overscan: 8,
     });
 
-    const handleCardElement = (eventKey: string, element: HTMLElement | null) => {
+    const handleCardElement = useCallback((eventKey: string, element: HTMLElement | null) => {
         if (element) {
             eventElementByKeyRef.current.set(eventKey, element);
             return;
         }
 
         eventElementByKeyRef.current.delete(eventKey);
-    };
+    }, []);
 
     useEffect(() => {
         return () => {
@@ -440,10 +445,13 @@ export function TranscriptView({
             return;
         }
 
-        if (lastHandledJumpSignalRef.current === activeEventJumpSignal) {
+        if (
+            lastHandledJumpRef.current?.signal === activeEventJumpSignal &&
+            lastHandledJumpRef.current.eventKey === activeEventKey
+        ) {
             return;
         }
-        lastHandledJumpSignalRef.current = activeEventJumpSignal;
+        lastHandledJumpRef.current = { eventKey: activeEventKey, signal: activeEventJumpSignal };
 
         if (useVirtualList) {
             virtualizer.scrollToIndex(activeVisibleEventIndex, { align: 'start' });

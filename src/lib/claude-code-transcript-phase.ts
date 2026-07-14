@@ -4,6 +4,10 @@ export type ClaudeCodeAssistantMessagePhase = 'commentary' | 'final_answer';
 
 type ClaudeCodeAssistantPhaseEntry = {
     assistantPhase?: ClaudeCodeAssistantMessagePhase | null;
+    parts?: Array<{
+        text?: string;
+        type: string;
+    }>;
     raw: Record<string, JsonValue>;
     role: string;
 };
@@ -28,6 +32,10 @@ const asMessageObject = (value: JsonValue | undefined): Record<string, JsonValue
         : null;
 };
 
+export const isClaudeCodeRawFlagEnabled = (value: JsonValue | undefined): boolean => {
+    return value === true || value === 'true';
+};
+
 export const getClaudeCodeAssistantMessagePhase = (
     entry: ClaudeCodeAssistantPhaseEntry,
 ): ClaudeCodeAssistantMessagePhase | null => {
@@ -40,11 +48,23 @@ export const getClaudeCodeAssistantMessagePhase = (
     }
 
     const stopReason = asMessageObject(entry.raw.message)?.stop_reason;
-    return stopReason === 'tool_use' ? 'commentary' : 'final_answer';
+    if (stopReason !== 'tool_use') {
+        return 'final_answer';
+    }
+
+    const toolUseIndex = entry.parts?.findIndex((part) => part.type === 'tool_use') ?? -1;
+    const hasTextAfterToolUse =
+        toolUseIndex >= 0 &&
+        entry.parts?.slice(toolUseIndex + 1).some((part) => part.type === 'text' && part.text?.trim()) === true;
+    return hasTextAfterToolUse ? 'final_answer' : 'commentary';
 };
 
 export const isClaudeCodeSyntheticTranscriptEntry = (entry: ClaudeCodeFilterEntry): boolean => {
-    if (entry.raw.isApiErrorMessage === true || entry.raw.isMeta === true || entry.raw.isCompactSummary === true) {
+    if (
+        isClaudeCodeRawFlagEnabled(entry.raw.isApiErrorMessage) ||
+        isClaudeCodeRawFlagEnabled(entry.raw.isMeta) ||
+        isClaudeCodeRawFlagEnabled(entry.raw.isCompactSummary)
+    ) {
         return true;
     }
 
