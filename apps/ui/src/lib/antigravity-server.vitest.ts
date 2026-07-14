@@ -2,25 +2,34 @@ import type { AntigravityConversation } from '@spiracha/lib/antigravity-exporter
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
+    deleteAntigravityConversationMock,
     getAntigravityDecryptionStateMock,
     getCachedAntigravityKeychainSecretMock,
     listAntigravityConversationsMock,
+    listAntigravityWorkspaceGroupsMock,
     renderAntigravityArtifactsMarkdownMock,
     renderAntigravityConversationMarkdownMock,
+    renderSourceSessionsDownloadMock,
+    resolveAntigravityRootsMock,
     unlockAntigravityDecryptionMock,
 } = vi.hoisted(() => ({
+    deleteAntigravityConversationMock: vi.fn(),
     getAntigravityDecryptionStateMock: vi.fn(),
     getCachedAntigravityKeychainSecretMock: vi.fn(),
     listAntigravityConversationsMock: vi.fn(),
+    listAntigravityWorkspaceGroupsMock: vi.fn(),
     renderAntigravityArtifactsMarkdownMock: vi.fn(),
     renderAntigravityConversationMarkdownMock: vi.fn(),
+    renderSourceSessionsDownloadMock: vi.fn(),
+    resolveAntigravityRootsMock: vi.fn(),
     unlockAntigravityDecryptionMock: vi.fn(),
 }));
 
 vi.mock('@spiracha/lib/antigravity-db', () => ({
+    deleteAntigravityConversation: deleteAntigravityConversationMock,
     listAntigravityConversations: listAntigravityConversationsMock,
     listAntigravityConversationsForGroup: vi.fn(),
-    listAntigravityWorkspaceGroups: vi.fn(),
+    listAntigravityWorkspaceGroups: listAntigravityWorkspaceGroupsMock,
     renderAntigravityArtifactsMarkdown: renderAntigravityArtifactsMarkdownMock,
     renderAntigravityConversationMarkdown: renderAntigravityConversationMarkdownMock,
 }));
@@ -31,7 +40,25 @@ vi.mock('@spiracha/lib/antigravity-keychain', () => ({
     unlockAntigravityDecryption: unlockAntigravityDecryptionMock,
 }));
 
-import { loadAntigravityConversationDetail, loadAntigravityConversationExport } from './antigravity-server';
+vi.mock('@spiracha/lib/antigravity-exporter-types', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@spiracha/lib/antigravity-exporter-types')>();
+    return {
+        ...actual,
+        resolveAntigravityRoots: resolveAntigravityRootsMock,
+    };
+});
+
+vi.mock('./source-session-export-server', () => ({
+    renderSourceSessionsDownload: renderSourceSessionsDownloadMock,
+}));
+
+import {
+    deleteAntigravityConversationById,
+    deleteAntigravityConversationsById,
+    exportAntigravityConversations,
+    loadAntigravityConversationDetail,
+    loadAntigravityConversationExport,
+} from './antigravity-server';
 
 const makeConversation = (overrides: Partial<AntigravityConversation> = {}): AntigravityConversation => ({
     artifactBytes: 0,
@@ -48,6 +75,7 @@ const makeConversation = (overrides: Partial<AntigravityConversation> = {}): Ant
     sourceRoot: '/tmp/root',
     summaryPath: '/tmp/summary.pb',
     title: 'Conversation one',
+    totalBytes: 640,
     transcriptBytes: 128,
     transcriptEntryCount: 2,
     transcriptPath: '/tmp/overview.txt',
@@ -57,13 +85,20 @@ const makeConversation = (overrides: Partial<AntigravityConversation> = {}): Ant
     workspaceLabel: 'workspace',
     workspaceUri: 'file:///tmp/workspace',
     ...overrides,
+    projectId: overrides.projectId ?? null,
 });
 
 describe('antigravity-server', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         getAntigravityDecryptionStateMock.mockResolvedValue(null);
+        listAntigravityWorkspaceGroupsMock.mockResolvedValue([]);
+        resolveAntigravityRootsMock.mockReturnValue(['/tmp/root']);
         unlockAntigravityDecryptionMock.mockResolvedValue(null);
+        renderSourceSessionsDownloadMock.mockImplementation(async ({ entries }) => ({
+            fileName: `${entries[0]?.cwd}-threads-${entries.length}.zip`,
+            mode: 'download_url',
+        }));
     });
 
     it('should keep readable local-log transcripts available without keychain unlock', async () => {
@@ -77,6 +112,92 @@ describe('antigravity-server', () => {
 
         expect(detail.transcriptLocked).toBe(false);
         expect(detail.conversationMarkdown).toBe('transcript markdown');
+    });
+
+    it('should return the resolved Antigravity project group for detail navigation', async () => {
+        const projectId = '00ea3331-909e-4010-a208-78f964ecfb59';
+        const conversation = makeConversation({ projectId });
+        listAntigravityConversationsMock.mockResolvedValue([conversation]);
+        listAntigravityWorkspaceGroupsMock.mockResolvedValue([
+            {
+                artifactCount: 0,
+                conversationBytes: 0,
+                conversationCount: 1,
+                key: `project:${projectId}`,
+                label: 'spiracha',
+                lastActiveMs: 0,
+                totalBytes: 0,
+                transcriptCount: 1,
+                uri: null,
+            },
+        ]);
+        getCachedAntigravityKeychainSecretMock.mockReturnValue(null);
+        renderAntigravityConversationMarkdownMock.mockResolvedValue('transcript markdown');
+        renderAntigravityArtifactsMarkdownMock.mockResolvedValue(null);
+
+        const detail = await loadAntigravityConversationDetail(conversation.conversationId);
+
+        expect(detail.conversationGroup).toEqual({
+            key: `project:${projectId}`,
+            label: 'spiracha',
+        });
+    });
+
+    it('should name multi-conversation exports after the resolved Antigravity project', async () => {
+        const projectId = '00ea3331-909e-4010-a208-78f964ecfb59';
+        const conversations = [
+            makeConversation({
+                conversationBytes: 0,
+                conversationId: 'conversation-1',
+                conversationPath: null,
+                projectId,
+                transcriptBytes: 0,
+                transcriptEntryCount: 0,
+                transcriptPath: null,
+                transcriptSource: null,
+            }),
+            makeConversation({
+                conversationBytes: 0,
+                conversationId: 'conversation-2',
+                conversationPath: null,
+                projectId,
+                transcriptBytes: 0,
+                transcriptEntryCount: 0,
+                transcriptPath: null,
+                transcriptSource: null,
+            }),
+        ];
+        listAntigravityConversationsMock.mockResolvedValue(conversations);
+        listAntigravityWorkspaceGroupsMock.mockResolvedValue([
+            {
+                artifactCount: 0,
+                conversationBytes: 0,
+                conversationCount: 2,
+                key: `project:${projectId}`,
+                label: 'spiracha',
+                lastActiveMs: 0,
+                totalBytes: 0,
+                transcriptCount: 2,
+                uri: null,
+            },
+        ]);
+        getCachedAntigravityKeychainSecretMock.mockReturnValue(null);
+        renderAntigravityConversationMarkdownMock.mockResolvedValue('transcript markdown');
+
+        const result = await exportAntigravityConversations({
+            conversationIds: conversations.map((conversation) => conversation.conversationId),
+            outputFormat: 'md',
+            zipArchive: true,
+        });
+
+        expect(result.fileName).toBe('spiracha-threads-2.zip');
+        expect(renderSourceSessionsDownloadMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                entries: expect.arrayContaining([
+                    expect.objectContaining({ cwd: 'spiracha', fileBaseName: expect.stringContaining('spiracha-') }),
+                ]),
+            }),
+        );
     });
 
     it('should suppress duplicate conversation markdown when artifacts render the same content', async () => {
@@ -107,6 +228,51 @@ describe('antigravity-server', () => {
 
         await expect(loadAntigravityConversationExport(conversation.conversationId)).rejects.toThrow(
             'No exportable Antigravity transcript found',
+        );
+    });
+
+    it('should reject a single Antigravity delete when nothing was removed', async () => {
+        deleteAntigravityConversationMock.mockResolvedValue({
+            deletedConversationIds: [],
+            deletedPaths: [],
+        });
+
+        await expect(deleteAntigravityConversationById('missing-conversation')).rejects.toThrow(
+            'Antigravity conversation not found: missing-conversation',
+        );
+    });
+
+    it('should aggregate bulk Antigravity delete results', async () => {
+        deleteAntigravityConversationMock
+            .mockResolvedValueOnce({
+                deletedConversationIds: ['conversation-1'],
+                deletedPaths: ['/tmp/root/conversation-1.pb'],
+            })
+            .mockResolvedValueOnce({
+                deletedConversationIds: ['conversation-2'],
+                deletedPaths: ['/tmp/root/conversation-2.pb', '/tmp/root/brain/conversation-2'],
+            });
+
+        const result = await deleteAntigravityConversationsById(['conversation-1', 'conversation-2']);
+
+        expect(result).toEqual({
+            deletedConversationIds: ['conversation-1', 'conversation-2'],
+            deletedPaths: [
+                '/tmp/root/conversation-1.pb',
+                '/tmp/root/conversation-2.pb',
+                '/tmp/root/brain/conversation-2',
+            ],
+        });
+    });
+
+    it('should reject bulk Antigravity delete when nothing was removed', async () => {
+        deleteAntigravityConversationMock.mockResolvedValue({
+            deletedConversationIds: [],
+            deletedPaths: [],
+        });
+
+        await expect(deleteAntigravityConversationsById(['missing-1', 'missing-2'])).rejects.toThrow(
+            'No Antigravity conversations were deleted',
         );
     });
 });

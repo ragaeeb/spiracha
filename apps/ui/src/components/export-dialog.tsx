@@ -79,18 +79,8 @@ export function ExportDialog({
                                 <SelectValue placeholder="Choose a format" />
                             </SelectTrigger>
                             <SelectContent className="border-[var(--border)] bg-[var(--panel)] text-[var(--foreground)] shadow-[var(--panel-shadow)]">
-                                <SelectItem
-                                    className="focus:bg-[var(--panel-secondary)] focus:text-[var(--foreground)] data-[highlighted]:bg-[var(--panel-secondary)] data-[highlighted]:text-[var(--foreground)]"
-                                    value="md"
-                                >
-                                    Markdown (.md)
-                                </SelectItem>
-                                <SelectItem
-                                    className="focus:bg-[var(--panel-secondary)] focus:text-[var(--foreground)] data-[highlighted]:bg-[var(--panel-secondary)] data-[highlighted]:text-[var(--foreground)]"
-                                    value="txt"
-                                >
-                                    Plain text (.txt)
-                                </SelectItem>
+                                <SelectItem value="md">Markdown (.md)</SelectItem>
+                                <SelectItem value="txt">Plain text (.txt)</SelectItem>
                             </SelectContent>
                         </Select>
                     </div>

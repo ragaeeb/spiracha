@@ -3,6 +3,7 @@ import { mkdir, utimes } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
+    deleteAntigravityConversation,
     groupAntigravityConversations,
     listAntigravityConversations,
     renderAntigravityArtifactsMarkdown,
@@ -14,6 +15,7 @@ type SummaryFixture = {
     title: string;
     indexedItemCount?: number;
     createdAtSeconds?: number;
+    projectId?: string;
     updatedAtSeconds?: number;
     workspaceUri?: string;
 };
@@ -50,6 +52,13 @@ const encodeWorkspace = (uri: string): number[] => {
     return encodeMessage(9, [...encodeString(1, uri), ...encodeString(2, uri), ...encodeString(4, 'main')]);
 };
 
+const encodeContext = (projectId: string, workspaceUri?: string): number[] => {
+    return encodeMessage(17, [
+        ...(workspaceUri ? encodeMessage(1, [...encodeString(1, workspaceUri), ...encodeString(2, workspaceUri)]) : []),
+        ...encodeString(18, projectId),
+    ]);
+};
+
 const encodeSummaryIndex = (summaries: SummaryFixture[]): Uint8Array => {
     const bytes = summaries.flatMap((summary) => {
         const summaryPayload = [
@@ -60,6 +69,7 @@ const encodeSummaryIndex = (summaries: SummaryFixture[]): Uint8Array => {
             ...encodeNumber(5, 1),
             ...encodeTimestamp(7, summary.createdAtSeconds ?? 1_700_000_000),
             ...(summary.workspaceUri ? encodeWorkspace(summary.workspaceUri) : []),
+            ...(summary.projectId ? encodeContext(summary.projectId, summary.workspaceUri) : []),
         ];
 
         return encodeMessage(1, [...encodeString(1, summary.id), ...encodeMessage(2, summaryPayload)]);
@@ -174,6 +184,39 @@ describe('antigravity db discovery', () => {
         });
     });
 
+    it('should prefer Antigravity project assignment over a conflicting workspace URI', async () => {
+        const root = await makeRoot();
+        const projectId = '00ea3331-909e-4010-a208-78f964ecfb59';
+        const conversationIds = [
+            '4d04caff-d2d4-4bd1-b083-c4346029a095',
+            '9bbac489-acfa-4d1f-877e-5defcbeb4741',
+            '0f611134-0bb1-491e-8380-55d836a8c961',
+        ];
+        await Bun.write(
+            path.join(root, 'agyhub_summaries_proto.pb'),
+            encodeSummaryIndex(
+                conversationIds.map((id) => ({
+                    id,
+                    projectId,
+                    title: '### Findings',
+                    workspaceUri: 'file:///tmp/ushman-replay',
+                })),
+            ),
+        );
+
+        const conversations = await listAntigravityConversations([root]);
+        const groups = groupAntigravityConversations(conversations, new Map([[projectId, 'spiracha']]));
+
+        expect(conversations.map((conversation) => conversation.projectId)).toEqual([projectId, projectId, projectId]);
+        expect(groups).toHaveLength(1);
+        expect(groups[0]).toMatchObject({
+            conversationCount: 3,
+            key: `project:${projectId}`,
+            label: 'spiracha',
+            uri: null,
+        });
+    });
+
     it('should prefer newer conversation files when duplicate roots are present', async () => {
         const oldRoot = await makeRoot();
         const newRoot = await makeRoot();
@@ -267,6 +310,66 @@ describe('antigravity db discovery', () => {
         expect(markdown).toContain('`list_dir`');
     });
 
+    it('should prefer full Antigravity JSONL transcripts and include them in total size', async () => {
+        const root = await makeRoot();
+        const conversationId = '66666666-7777-4666-8666-666666666666';
+        const logsDir = path.join(root, 'brain', conversationId, '.system_generated', 'logs');
+        await mkdir(logsDir, { recursive: true });
+        await Bun.write(
+            path.join(root, 'agyhub_summaries_proto.pb'),
+            encodeSummaryIndex([{ id: conversationId, title: 'Full transcript session' }]),
+        );
+        await Bun.write(
+            path.join(logsDir, 'transcript.jsonl'),
+            JSON.stringify({
+                content: 'Short transcript only.',
+                created_at: '2026-05-30T22:10:47Z',
+                source: 'MODEL',
+                status: 'DONE',
+                step_index: 1,
+                type: 'PLANNER_RESPONSE',
+            }),
+        );
+        const fullTranscriptPath = path.join(logsDir, 'transcript_full.jsonl');
+        await Bun.write(
+            fullTranscriptPath,
+            [
+                JSON.stringify({
+                    content: 'Full transcript user message.',
+                    created_at: '2026-05-30T22:10:46Z',
+                    source: 'USER_EXPLICIT',
+                    status: 'DONE',
+                    step_index: 0,
+                    type: 'USER_INPUT',
+                }),
+                JSON.stringify({
+                    content: 'Full transcript assistant answer.',
+                    created_at: '2026-05-30T22:10:47Z',
+                    source: 'MODEL',
+                    status: 'DONE',
+                    step_index: 1,
+                    type: 'PLANNER_RESPONSE',
+                }),
+            ].join('\n'),
+        );
+
+        const [conversation] = await listAntigravityConversations([root]);
+        const markdown = await renderAntigravityConversationMarkdown(conversation!);
+        const [group] = groupAntigravityConversations([conversation!]);
+
+        expect(conversation).toMatchObject({
+            totalBytes: conversation!.transcriptBytes,
+            transcriptEntryCount: 2,
+            transcriptPath: fullTranscriptPath,
+            transcriptSource: 'transcript',
+        });
+        expect(conversation!.transcriptBytes).toBeGreaterThan(0);
+        expect(group?.totalBytes).toBe(conversation!.totalBytes);
+        expect(markdown).toContain('Full transcript user message.');
+        expect(markdown).toContain('Full transcript assistant answer.');
+        expect(markdown).not.toContain('Short transcript only.');
+    });
+
     it('should render Antigravity operation results as tool output sections', async () => {
         const root = await makeRoot();
         const conversationId = '99999999-9999-4999-8999-999999999999';
@@ -335,5 +438,70 @@ describe('antigravity db discovery', () => {
         const markdown = await renderAntigravityConversationMarkdown(conversation!);
 
         expect(markdown).toBeNull();
+    });
+
+    it('should render summary-only Antigravity conversations as exportable metadata', async () => {
+        const root = await makeRoot();
+        const conversationId = '88888888-9999-4888-8888-888888888888';
+        await Bun.write(
+            path.join(root, 'agyhub_summaries_proto.pb'),
+            encodeSummaryIndex([
+                {
+                    id: conversationId,
+                    indexedItemCount: 5,
+                    title: 'Summary only review',
+                    workspaceUri: 'file:///tmp/summary-workspace',
+                },
+            ]),
+        );
+
+        const [conversation] = await listAntigravityConversations([root]);
+        const markdown = await renderAntigravityConversationMarkdown(conversation!);
+
+        expect(conversation).toMatchObject({
+            totalBytes: 0,
+            transcriptSource: null,
+        });
+        expect(markdown).toContain('# Summary only review');
+        expect(markdown).toContain('- exported_from: `antigravity_summary_index`');
+        expect(markdown).toContain('- indexed_items: `5`');
+    });
+
+    it('should delete an Antigravity conversation from summaries, protobufs, transcripts, and artifacts', async () => {
+        const root = await makeRoot();
+        const deletedId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        const retainedId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+        const deletedArtifactDir = path.join(root, 'brain', deletedId);
+        const deletedLogsDir = path.join(deletedArtifactDir, '.system_generated', 'logs');
+        const deletedConversationPath = path.join(root, 'conversations', `${deletedId}.pb`);
+        const deletedTranscriptPath = path.join(deletedLogsDir, 'overview.txt');
+        const deletedFullTranscriptPath = path.join(deletedLogsDir, 'transcript_full.jsonl');
+        await mkdir(deletedLogsDir, { recursive: true });
+        await Bun.write(
+            path.join(root, 'agyhub_summaries_proto.pb'),
+            encodeSummaryIndex([
+                { id: deletedId, title: 'Delete me', workspaceUri: 'file:///tmp/delete-me' },
+                { id: retainedId, title: 'Keep me', workspaceUri: 'file:///tmp/keep-me' },
+            ]),
+        );
+        await Bun.write(deletedConversationPath, new Uint8Array([1, 2, 3]));
+        await Bun.write(deletedTranscriptPath, '{}\n');
+        await Bun.write(deletedFullTranscriptPath, '{}\n');
+        await Bun.write(path.join(deletedArtifactDir, 'artifact.md'), 'Generated artifact.\n');
+        await Bun.write(path.join(root, 'conversations', `${retainedId}.pb`), new Uint8Array([4, 5]));
+
+        const result = await deleteAntigravityConversation([root], deletedId);
+
+        expect(result.deletedConversationIds).toEqual([deletedId]);
+        expect(result.deletedPaths.sort()).toEqual(
+            [deletedArtifactDir, deletedConversationPath, deletedFullTranscriptPath, deletedTranscriptPath].sort(),
+        );
+        expect(await Bun.file(deletedConversationPath).exists()).toBe(false);
+        expect(await Bun.file(deletedTranscriptPath).exists()).toBe(false);
+        expect(await Bun.file(deletedFullTranscriptPath).exists()).toBe(false);
+        expect(await Bun.file(path.join(deletedArtifactDir, 'artifact.md')).exists()).toBe(false);
+
+        const conversations = await listAntigravityConversations([root]);
+        expect(conversations.map((conversation) => conversation.conversationId)).toEqual([retainedId]);
     });
 });

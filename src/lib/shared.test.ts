@@ -48,6 +48,8 @@ describe('shared helpers', () => {
     it('should format model labels and inline code safely', () => {
         expect(formatModelLabel(null)).toBe('Assistant');
         expect(formatModelLabel('gpt-5.4')).toBe('GPT 5.4');
+        expect(formatModelLabel('claude-opus-4-8')).toBe('Claude Opus 4.8');
+        expect(formatModelLabel('claude-3-5-sonnet-20241022')).toBe('Claude 3.5 Sonnet 20241022');
         expect(formatModelLabel('o3')).toBe('O3');
         expect(formatModelLabel('custom_model')).toBe('Custom Model');
         expect(inlineCode('`wrapped`')).toBe('`` `wrapped` ``');

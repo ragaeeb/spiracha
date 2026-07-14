@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'bun:test';
-import { getExportMimeType, resolveUniqueExportFileBaseName, sanitizeExportFileName } from './ui-export-archive';
+import {
+    buildBatchExportBaseName,
+    getExportMimeType,
+    resolveUniqueExportFileBaseName,
+    sanitizeExportFileName,
+} from './ui-export-archive';
 
 describe('ui export archive helpers', () => {
     it('should sanitize export filenames consistently', () => {
@@ -14,6 +19,36 @@ describe('ui export archive helpers', () => {
         expect(resolveUniqueExportFileBaseName('other', used)).toBe('other');
         expect(resolveUniqueExportFileBaseName('same', used)).toBe('same-2');
         expect(resolveUniqueExportFileBaseName('same', used)).toBe('same-3');
+    });
+
+    it('should name batch archives from the project, latest conversation time, and selected thread count', () => {
+        expect(
+            buildBatchExportBaseName(
+                [
+                    {
+                        cwd: '/Users/example/workspace/spiracha',
+                        updatedAtMs: Date.UTC(2026, 4, 17, 17, 11),
+                    },
+                    {
+                        cwd: '/Users/example/workspace/spiracha',
+                        updatedAtMs: Date.UTC(2026, 4, 17, 17, 12),
+                    },
+                ],
+                'threads',
+            ),
+        ).toBe('spiracha-2026-05-17-1712-threads-2');
+
+        expect(
+            buildBatchExportBaseName(
+                [
+                    {
+                        cwd: 'C:\\workspace\\spiracha',
+                        updatedAtMs: Date.UTC(2026, 4, 17, 17, 12),
+                    },
+                ],
+                'threads',
+            ),
+        ).toBe('spiracha-2026-05-17-1712-threads-1');
     });
 
     it('should return text MIME types for export formats', () => {

@@ -1,6 +1,7 @@
 export const CONVERSATION_SOURCES = [
     'codex',
     'claude-code',
+    'grok',
     'kiro',
     'qoder',
     'cursor',
@@ -77,6 +78,7 @@ export type ConversationDataLocations = {
     claudeCodeProjectsDir?: string;
     codexDbPath?: string;
     cursorUserDir?: string;
+    grokSessionsDir?: string;
     kiroWorkspaceSessionsDir?: string;
     opencodeDbPath?: string;
     qoderAcpSocketPath?: string;
@@ -104,12 +106,53 @@ export type GetConversationOptions = {
     source: ConversationSource;
 };
 
+export type DeleteConversationOptions = {
+    id: string;
+    locations?: ConversationDataLocations;
+    source: ConversationSource;
+};
+
+export type DeleteConversationResult = {
+    deletedFiles: string[];
+    deletedIds: string[];
+};
+
+export type ConversationIdSetOptions = {
+    ids: string[];
+    locations?: ConversationDataLocations;
+    source: ConversationSource;
+};
+
+export type DeleteConversationsOptions = ConversationIdSetOptions;
+
+export type DeleteConversationItemResult = DeleteConversationResult & {
+    deleted: boolean;
+    id: string;
+};
+
+export type DeleteConversationsResult = DeleteConversationResult & {
+    missingIds: string[];
+    results: DeleteConversationItemResult[];
+};
+
+export type ExportConversationsZipOptions = ConversationIdSetOptions & {
+    messageSelector?: ConversationMessageSelector;
+    outputFormat?: 'md';
+};
+
+export type ConversationZipDownload = {
+    blob: Blob;
+    fileName: string;
+    mimeType: 'application/zip';
+};
+
 export type ResolvedConversationRef = {
     id: string;
     source: ConversationSource;
 };
 
 export type ConversationAdapter = {
+    deleteConversation?: (options: DeleteConversationOptions) => Promise<DeleteConversationResult>;
     getConversation: (options: GetConversationOptions) => Promise<ConversationDetail | null>;
     listConversationsForPath: (options: ListConversationsForPathOptions) => Promise<ConversationDetail[]>;
     source: ConversationSource;

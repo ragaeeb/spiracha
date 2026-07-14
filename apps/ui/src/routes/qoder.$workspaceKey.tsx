@@ -1,7 +1,7 @@
 import type { QoderSessionSummary, QoderWorkspaceGroup } from '@spiracha/lib/qoder-exporter-types';
 import { useMutation, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
-import { useDeferredValue, useState } from 'react';
+import { useDeferredValue, useMemo, useState } from 'react';
 import { ExportDialog } from '#/components/export-dialog';
 import { ListSearchInput } from '#/components/list-search-input';
 import { LoadingPanel } from '#/components/loading-panel';
@@ -10,7 +10,7 @@ import { QoderSessionsTable } from '#/components/qoder-sessions-table';
 import { ReloadErrorPanel } from '#/components/reload-error-panel';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import { qoderSessionsQueryOptions, qoderWorkspacesQueryOptions } from '#/lib/qoder-queries';
-import { exportQoderSessionFn } from '#/lib/qoder-server';
+import { exportQoderSessionFn, exportQoderSessionsFn } from '#/lib/qoder-server';
 import { matchesTextQuery } from '#/lib/text-filter';
 
 type ExportDialogOptions = {
@@ -19,6 +19,11 @@ type ExportDialogOptions = {
     includeTools: boolean;
     outputFormat: 'md' | 'txt';
     zipArchive: boolean;
+};
+
+type PendingSessionExport = {
+    label: string;
+    sessionIds: string[];
 };
 
 const findWorkspaceOrThrow = (workspaces: QoderWorkspaceGroup[], workspaceKey: string) => {
@@ -40,7 +45,7 @@ const QoderWorkspacePage = () => {
     const workspace = findWorkspaceOrThrow(workspaces, params.workspaceKey);
     const sessions = useSuspenseQuery(qoderSessionsQueryOptions(workspace.key)).data;
     const [searchInput, setSearchInput] = useState('');
-    const [pendingExport, setPendingExport] = useState<QoderSessionSummary | null>(null);
+    const [pendingExport, setPendingExport] = useState<PendingSessionExport | null>(null);
     const deferredSearch = useDeferredValue(searchInput);
 
     const exportMutation = useMutation({
@@ -49,16 +54,28 @@ const QoderWorkspacePage = () => {
                 throw new Error('No Qoder session selected for export');
             }
 
-            const download = await exportQoderSessionFn({
-                data: {
-                    includeCommentary: options.includeCommentary,
-                    includeMetadata: options.includeMetadata,
-                    includeTools: options.includeTools,
-                    outputFormat: options.outputFormat,
-                    sessionId: pendingExport.sessionId,
-                    zipArchive: options.zipArchive,
-                },
-            });
+            const download =
+                pendingExport.sessionIds.length === 1
+                    ? await exportQoderSessionFn({
+                          data: {
+                              includeCommentary: options.includeCommentary,
+                              includeMetadata: options.includeMetadata,
+                              includeTools: options.includeTools,
+                              outputFormat: options.outputFormat,
+                              sessionId: pendingExport.sessionIds[0]!,
+                              zipArchive: options.zipArchive,
+                          },
+                      })
+                    : await exportQoderSessionsFn({
+                          data: {
+                              includeCommentary: options.includeCommentary,
+                              includeMetadata: options.includeMetadata,
+                              includeTools: options.includeTools,
+                              outputFormat: options.outputFormat,
+                              sessionIds: pendingExport.sessionIds,
+                              zipArchive: options.zipArchive,
+                          },
+                      });
             if (download.mode === 'download') {
                 downloadTextFile(download.fileName, download.content, download.mimeType);
                 return;
@@ -71,20 +88,45 @@ const QoderWorkspacePage = () => {
         },
     });
 
-    const visibleSessions = sessions.filter((session) =>
-        matchesTextQuery(deferredSearch, [
-            session.title,
-            session.sessionId,
-            session.taskId,
-            session.requestId,
-            session.model,
-            session.status,
-            session.executionMode,
-            session.agentClass,
-            session.query,
-            session.sourceStatePath,
-        ]),
+    const visibleSessions = useMemo(
+        () =>
+            sessions.filter((session) =>
+                matchesTextQuery(deferredSearch, [
+                    session.title,
+                    session.sessionId,
+                    session.taskId,
+                    session.requestId,
+                    session.model,
+                    session.status,
+                    session.executionMode,
+                    session.agentClass,
+                    session.query,
+                    session.sourceStatePath,
+                ]),
+            ),
+        [deferredSearch, sessions],
     );
+    const visibleSessionsById = useMemo(
+        () => new Map(visibleSessions.map((session) => [session.sessionId, session])),
+        [visibleSessions],
+    );
+    const lookupSelectedSessions = (sessionIds: string[]) =>
+        sessionIds
+            .map((sessionId) => visibleSessionsById.get(sessionId) ?? null)
+            .filter((session): session is QoderSessionSummary => session !== null);
+    const openExportForSessions = (selectedSessions: QoderSessionSummary[]) => {
+        if (selectedSessions.length === 0) {
+            return;
+        }
+
+        setPendingExport({
+            label:
+                selectedSessions.length === 1
+                    ? selectedSessions[0]!.title
+                    : `${selectedSessions.length} selected sessions`,
+            sessionIds: selectedSessions.map((session) => session.sessionId),
+        });
+    };
 
     return (
         <div className="space-y-6">
@@ -101,12 +143,17 @@ const QoderWorkspacePage = () => {
                 title={workspace.label}
             />
 
-            <QoderSessionsTable sessions={visibleSessions} onExportSession={setPendingExport} />
+            <QoderSessionsTable
+                sessions={visibleSessions}
+                onExportSession={(session) => openExportForSessions([session])}
+                onExportSessions={(sessionIds) => openExportForSessions(lookupSelectedSessions(sessionIds))}
+            />
 
             <ExportDialog
+                forceZipArchive={pendingExport ? pendingExport.sessionIds.length > 1 : false}
                 open={pendingExport !== null}
                 pending={exportMutation.isPending}
-                title={pendingExport ? `Export ${pendingExport.title}` : 'Export session'}
+                title={pendingExport ? `Export ${pendingExport.label}` : 'Export session'}
                 onExport={(options) => exportMutation.mutate(options)}
                 onOpenChange={(open) => {
                     if (!open) {

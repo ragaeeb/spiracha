@@ -38,7 +38,9 @@ const columns = [
     }),
     columnHelper.accessor('lastActiveAtMs', {
         cell: (info) => (
-            <span className="whitespace-nowrap text-sm">{formatDateTime(info.getValue(), { timeZone: 'UTC' })}</span>
+            <span className="whitespace-nowrap text-sm" suppressHydrationWarning>
+                {formatDateTime(info.getValue())}
+            </span>
         ),
         header: 'Last active',
     }),

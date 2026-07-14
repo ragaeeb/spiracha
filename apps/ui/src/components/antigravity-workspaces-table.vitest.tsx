@@ -33,6 +33,7 @@ const workspace: AntigravityWorkspaceGroup = {
     key: 'folder:/Users/user/workspace/demo',
     label: 'demo',
     lastActiveMs: 1_700_000_000_000,
+    totalBytes: 8192,
     transcriptCount: 1,
     uri: 'file:///Users/user/workspace/demo',
 };

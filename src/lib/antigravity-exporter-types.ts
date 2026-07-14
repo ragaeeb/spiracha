@@ -46,9 +46,11 @@ export type AntigravityConversation = {
     indexedItemCount: number | null;
     lastUpdatedAtMs: number | null;
     model: string | null;
+    projectId: string | null;
     sourceRoot: string | null;
     summaryPath: string | null;
     title: string;
+    totalBytes: number;
     transcriptBytes: number;
     transcriptEntryCount: number;
     transcriptPath: string | null;
@@ -67,5 +69,6 @@ export type AntigravityWorkspaceGroup = {
     label: string;
     lastActiveMs: number;
     transcriptCount: number;
+    totalBytes: number;
     uri: string | null;
 };

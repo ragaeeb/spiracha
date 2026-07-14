@@ -14,13 +14,27 @@ import type {
     TurnContextRecord,
     WebSearchEvent,
 } from './codex-browser-types';
-import { asNumber, asObject, asString, type JsonValue, readJsonlObjects } from './shared';
+import { asNumber, asObject, asString, type JsonValue, readJsonlObjects, stripCodexAppDirectiveLines } from './shared';
 
 type ParseCodexTranscriptOptions = {
+    eventFilter?: (event: ThreadEvent) => boolean;
     includeRaw?: boolean;
     maxEvents?: number;
     maxTurnContexts?: number;
     sourceFileSizeBytes?: number | null;
+    tailEventLimit?: number;
+};
+
+type ParseCodexTranscriptState = {
+    events: ThreadEvent[];
+    eventFilter: (event: ThreadEvent) => boolean;
+    includeRaw: boolean;
+    maxEvents: number;
+    maxTurnContexts: number;
+    sequence: number;
+    shouldStop: boolean;
+    tailEventLimit: number;
+    turnContexts: TurnContextRecord[];
 };
 
 const createEmptyStats = (): ThreadTranscriptStats => {
@@ -64,43 +78,72 @@ export const parseCodexTranscriptFile = async (
     const includeRaw = options.includeRaw ?? true;
     const maxEvents = options.maxEvents ?? Number.POSITIVE_INFINITY;
     const maxTurnContexts = options.maxTurnContexts ?? Number.POSITIVE_INFINITY;
-    let sequence = 0;
+    const tailEventLimit = options.tailEventLimit ?? Number.POSITIVE_INFINITY;
+    const eventFilter = options.eventFilter ?? (() => true);
+    const state: ParseCodexTranscriptState = {
+        eventFilter,
+        events,
+        includeRaw,
+        maxEvents,
+        maxTurnContexts,
+        sequence: 0,
+        shouldStop: false,
+        tailEventLimit,
+        turnContexts,
+    };
 
     for await (const parsed of readJsonlObjects(sessionFile)) {
         captureSessionMeta(parsed, sessionMeta);
-        const topLevelType = asString(parsed.type);
-
-        if (topLevelType === 'turn_context') {
-            if (turnContexts.length < maxTurnContexts) {
-                captureTurnContext(parsed, turnContexts);
-            }
-            continue;
-        }
-
-        const event = toThreadEvent(parsed, sequence, includeRaw);
-        if (!event) {
-            continue;
-        }
-
-        events.push(event);
-        updateTranscriptStats(stats, event);
-        sequence += 1;
-
-        if (events.length >= maxEvents) {
+        captureTranscriptRecord(parsed, state);
+        if (state.shouldStop) {
             break;
         }
     }
 
+    for (const event of events) {
+        updateTranscriptStats(stats, event);
+    }
+
     return {
         events,
-        isPartial: Number.isFinite(maxEvents) || Number.isFinite(maxTurnContexts),
+        isPartial:
+            Number.isFinite(maxEvents) ||
+            Number.isFinite(maxTurnContexts) ||
+            Number.isFinite(tailEventLimit) ||
+            options.eventFilter !== undefined,
         rawIncluded: includeRaw,
         sessionMeta,
         sourceFileSizeBytes: options.sourceFileSizeBytes ?? null,
         stats,
-        statsArePartial: Number.isFinite(maxEvents),
+        statsArePartial:
+            Number.isFinite(maxEvents) || Number.isFinite(tailEventLimit) || options.eventFilter !== undefined,
         turnContexts,
     };
+};
+
+const captureTranscriptRecord = (parsed: Record<string, JsonValue>, state: ParseCodexTranscriptState) => {
+    if (asString(parsed.type) === 'turn_context') {
+        if (state.turnContexts.length < state.maxTurnContexts) {
+            captureTurnContext(parsed, state.turnContexts);
+        }
+        return;
+    }
+
+    const event = toThreadEvent(parsed, state.sequence, state.includeRaw);
+    if (!event) {
+        return;
+    }
+
+    state.sequence += 1;
+    if (!state.eventFilter(event)) {
+        return;
+    }
+
+    state.events.push(event);
+    if (state.events.length > state.tailEventLimit) {
+        state.events.shift();
+    }
+    state.shouldStop = state.events.length >= state.maxEvents;
 };
 
 const captureSessionMeta = (parsed: Record<string, JsonValue>, sessionMeta: SessionMetaExtended) => {
@@ -261,12 +304,13 @@ const createMessageEvent = (
 ): MessageEvent | null => {
     const role = asString(payload.role);
     const content = payload.content;
+    const text = extractText(content);
     if (!role || content === undefined) {
         return null;
     }
 
     return {
-        isHiddenByDefault: shouldHideTranscriptText(role, extractText(content)),
+        isHiddenByDefault: shouldHideTranscriptText(role, text),
         kind: 'message',
         memoryCitation: null,
         model: asString(payload.model),
@@ -274,7 +318,7 @@ const createMessageEvent = (
         raw,
         role,
         sequence,
-        text: extractText(content),
+        text,
         timestamp,
         variant: 'message',
     };
@@ -286,8 +330,9 @@ const createUserMessageEvent = (
     sequence: number,
     timestamp: string | null,
 ): MessageEvent => {
+    const text = stripMemoryCitationBlocks(asString(payload.message) ?? '');
     return {
-        isHiddenByDefault: shouldHideTranscriptText('user', asString(payload.message)?.trim() ?? ''),
+        isHiddenByDefault: shouldHideTranscriptText('user', text),
         kind: 'message',
         memoryCitation: null,
         model: null,
@@ -295,7 +340,7 @@ const createUserMessageEvent = (
         raw,
         role: 'user',
         sequence,
-        text: asString(payload.message)?.trim() ?? '',
+        text,
         timestamp,
         variant: 'user_message',
     };
@@ -307,8 +352,9 @@ const createAgentMessageEvent = (
     sequence: number,
     timestamp: string | null,
 ): MessageEvent => {
+    const text = stripMemoryCitationBlocks(asString(payload.message) ?? '');
     return {
-        isHiddenByDefault: false,
+        isHiddenByDefault: shouldHideTranscriptText('assistant', text),
         kind: 'message',
         memoryCitation: payload.memory_citation ?? null,
         model: asString(payload.model),
@@ -316,7 +362,7 @@ const createAgentMessageEvent = (
         raw,
         role: 'assistant',
         sequence,
-        text: asString(payload.message)?.trim() ?? '',
+        text,
         timestamp,
         variant: 'agent_message',
     };
@@ -548,22 +594,27 @@ const parseExecCommandArguments = (argumentsText: string | null) => {
 
 const extractText = (content: JsonValue): string => {
     if (typeof content === 'string') {
-        return content.trim();
+        return stripMemoryCitationBlocks(content);
     }
 
     if (Array.isArray(content)) {
-        return content
-            .map((entry) => extractTextPart(entry))
-            .filter(Boolean)
-            .join('\n\n')
-            .trim();
+        return stripMemoryCitationBlocks(
+            content
+                .map((entry) => extractTextPart(entry))
+                .filter(Boolean)
+                .join('\n\n'),
+        );
     }
 
     if (content && typeof content === 'object') {
-        return asString((content as Record<string, JsonValue>).text)?.trim() ?? '';
+        return stripMemoryCitationBlocks(asString((content as Record<string, JsonValue>).text) ?? '');
     }
 
     return '';
+};
+
+const stripMemoryCitationBlocks = (text: string): string => {
+    return stripCodexAppDirectiveLines(text.replace(/<oai-mem-citation>[\s\S]*?<\/oai-mem-citation>/gu, ''));
 };
 
 const extractTextPart = (entry: JsonValue): string => {

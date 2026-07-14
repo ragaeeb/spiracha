@@ -207,4 +207,75 @@ describe('renderClaudeCodeTranscript', () => {
         expect(rendered).not.toContain('Tool:');
         expect(rendered).toContain('All four proposals are written...');
     });
+
+    it('should omit Claude compaction controls and synthetic assistant placeholders from exports', () => {
+        const rendered = renderClaudeCodeTranscript(
+            {
+                ...transcript,
+                entries: [
+                    {
+                        cwd: '/Users/example/workspace/ushman-corpus',
+                        entryId: 'compact-summary',
+                        parts: [
+                            {
+                                raw: { text: 'This session is being continued from a previous conversation.' },
+                                text: 'This session is being continued from a previous conversation.',
+                                type: 'text',
+                            },
+                        ],
+                        raw: { isCompactSummary: true, type: 'user' },
+                        role: 'user',
+                        timestamp: '2026-06-01T09:59:00.000Z',
+                        type: 'user',
+                    },
+                    {
+                        cwd: '/Users/example/workspace/ushman-corpus',
+                        entryId: 'compact-command',
+                        parts: [
+                            {
+                                raw: { text: '<command-name>/compact</command-name>' },
+                                text: '<command-name>/compact</command-name>',
+                                type: 'text',
+                            },
+                        ],
+                        raw: { type: 'user' },
+                        role: 'user',
+                        timestamp: '2026-06-01T09:59:01.000Z',
+                        type: 'user',
+                    },
+                    {
+                        cwd: '/Users/example/workspace/ushman-corpus',
+                        entryId: 'synthetic-assistant',
+                        parts: [
+                            {
+                                raw: { text: 'No response requested.' },
+                                text: 'No response requested.',
+                                type: 'text',
+                            },
+                        ],
+                        raw: {
+                            isApiErrorMessage: false,
+                            message: { model: '<synthetic>', stop_reason: 'stop_sequence' },
+                            type: 'assistant',
+                        },
+                        role: 'assistant',
+                        timestamp: '2026-06-01T09:59:02.000Z',
+                        type: 'assistant',
+                    },
+                    ...transcript.entries,
+                ],
+            },
+            {
+                includeCommentary: true,
+                includeMetadata: false,
+                includeTools: false,
+                outputFormat: 'md',
+            },
+        );
+
+        expect(rendered).not.toContain('This session is being continued');
+        expect(rendered).not.toContain('<command-name>/compact</command-name>');
+        expect(rendered).not.toContain('No response requested.');
+        expect(rendered).toContain('Review Descope-Class Vendor-Detection');
+    });
 });

@@ -1,7 +1,9 @@
+import { mapWithConcurrency } from '../concurrency';
 import { antigravityConversationAdapter } from './antigravity-adapter';
 import { claudeCodeConversationAdapter } from './claude-code-adapter';
 import { codexConversationAdapter } from './codex-adapter';
 import { cursorConversationAdapter } from './cursor-adapter';
+import { grokConversationAdapter } from './grok-adapter';
 import { kiroConversationAdapter } from './kiro-adapter';
 import { selectConversationMessages } from './message-selector';
 import { opencodeConversationAdapter } from './opencode-adapter';
@@ -14,6 +16,11 @@ import {
     type ConversationPage,
     type ConversationSource,
     type ConversationSourceInfo,
+    type DeleteConversationItemResult,
+    type DeleteConversationOptions,
+    type DeleteConversationResult,
+    type DeleteConversationsOptions,
+    type DeleteConversationsResult,
     type GetConversationOptions,
     type ListConversationsForPathOptions,
     type ResolvedConversationRef,
@@ -27,6 +34,7 @@ export {
     type ConversationDataLocations,
     type ConversationDeepLinks,
     type ConversationDetail,
+    type ConversationIdSetOptions,
     type ConversationMessage,
     type ConversationMessagePhase,
     type ConversationMessageRole,
@@ -35,6 +43,13 @@ export {
     type ConversationPathMatch,
     type ConversationSource,
     type ConversationSourceInfo,
+    type ConversationZipDownload,
+    type DeleteConversationItemResult,
+    type DeleteConversationOptions,
+    type DeleteConversationResult,
+    type DeleteConversationsOptions,
+    type DeleteConversationsResult,
+    type ExportConversationsZipOptions,
     type GetConversationOptions,
     type ListConversationsForPathOptions,
     type ResolvedConversationRef,
@@ -45,6 +60,7 @@ const SOURCE_LABELS: Record<ConversationSource, string> = {
     'claude-code': 'Claude Code',
     codex: 'Codex',
     cursor: 'Cursor',
+    grok: 'Grok',
     kiro: 'Kiro',
     opencode: 'OpenCode',
     qoder: 'Qoder',
@@ -64,6 +80,7 @@ const ADAPTERS: Partial<Record<ConversationSource, ConversationAdapter>> = {
     'claude-code': claudeCodeConversationAdapter,
     codex: codexConversationAdapter,
     cursor: cursorConversationAdapter,
+    grok: grokConversationAdapter,
     kiro: kiroConversationAdapter,
     opencode: opencodeConversationAdapter,
     qoder: qoderConversationAdapter,
@@ -71,6 +88,16 @@ const ADAPTERS: Partial<Record<ConversationSource, ConversationAdapter>> = {
 
 const MAX_LIMIT = 200;
 const DEFAULT_LIMIT = 100;
+const DELETE_CONCURRENCY_BY_SOURCE: Record<ConversationSource, number> = {
+    antigravity: 1,
+    'claude-code': 4,
+    codex: 1,
+    cursor: 1,
+    grok: 1,
+    kiro: 1,
+    opencode: 2,
+    qoder: 1,
+};
 
 const getEnabledSources = (sources: ListConversationsForPathOptions['sources']): ConversationSource[] => {
     if (!sources || sources === 'all') {
@@ -181,9 +208,55 @@ export const getConversation = async (options: GetConversationOptions) => {
     return getAdapter(options.source)?.getConversation(options) ?? null;
 };
 
+export const deleteConversation = async (
+    options: DeleteConversationOptions,
+): Promise<DeleteConversationResult | null> => {
+    return (await getAdapter(options.source)?.deleteConversation?.(options)) ?? null;
+};
+
+export const deleteConversations = async (
+    options: DeleteConversationsOptions,
+): Promise<DeleteConversationsResult | null> => {
+    const adapter = getAdapter(options.source);
+    if (!adapter?.deleteConversation) {
+        return null;
+    }
+    const deleteAdapterConversation = adapter.deleteConversation;
+
+    const rawResults = await mapWithConcurrency(
+        options.ids,
+        DELETE_CONCURRENCY_BY_SOURCE[options.source],
+        async (id) => ({
+            id,
+            result: await deleteAdapterConversation({
+                id,
+                locations: options.locations,
+                source: options.source,
+            }),
+        }),
+    );
+    const deletedIdSet = new Set(rawResults.flatMap(({ result }) => result.deletedIds));
+    const results: DeleteConversationItemResult[] = rawResults.map(({ id, result }) => ({
+        deleted: result.deletedIds.length > 0 || deletedIdSet.has(id),
+        deletedFiles: result.deletedFiles,
+        deletedIds: result.deletedIds,
+        id,
+    }));
+
+    return {
+        deletedFiles: [...new Set(results.flatMap((result) => result.deletedFiles))],
+        deletedIds: [...deletedIdSet],
+        missingIds: results.filter((result) => !result.deleted).map((result) => result.id),
+        results,
+    };
+};
+
 const sourceFromSessionRoute = (segment: string): ConversationSource | null => {
     if (segment === 'claude-code-sessions') {
         return 'claude-code';
+    }
+    if (segment === 'grok-sessions') {
+        return 'grok';
     }
     if (segment === 'kiro-sessions') {
         return 'kiro';
@@ -287,7 +360,9 @@ export const renderConversationMarkdown = (
         messages: ConversationMessage[];
         title: string | null;
     },
-    options: { messageSelector?: ConversationMessageSelector } = {},
+    options: {
+        messageSelector?: ConversationMessageSelector;
+    } = {},
 ) => {
     const selectedMessages = options.messageSelector
         ? selectConversationMessages(conversation.messages, options.messageSelector)

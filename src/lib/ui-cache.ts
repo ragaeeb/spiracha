@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, readdir, rename, rm, stat } from 'node:fs/promises';
+import { chmod, mkdir, readdir, rename, rm, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -11,8 +11,13 @@ type CacheEnvelope<T> = {
     version: number;
 };
 
+type CacheReadResult<T> = { hit: true; value: T } | { hit: false };
+
+const inFlightCacheLoads = new Map<string, Promise<unknown>>();
+
 const ensureCacheDir = async () => {
-    await mkdir(CACHE_DIR, { recursive: true });
+    await mkdir(CACHE_DIR, { mode: 0o700, recursive: true });
+    await chmod(CACHE_DIR, 0o700);
 };
 
 const toCachePath = (key: string) => {
@@ -41,12 +46,12 @@ export const getFileFingerprint = async (filePath: string) => {
     return `${filePath}:${metadata.size}:${metadata.mtimeMs}`;
 };
 
-export const getCachedJson = async <T>(key: string): Promise<T | null> => {
+const readCachedJson = async <T>(key: string): Promise<CacheReadResult<T>> => {
     await ensureCacheDir();
     const filePath = toCachePath(key);
     const file = Bun.file(filePath);
     if (!(await file.exists())) {
-        return null;
+        return { hit: false };
     }
 
     let parsed: CacheEnvelope<T> | T;
@@ -54,7 +59,7 @@ export const getCachedJson = async <T>(key: string): Promise<T | null> => {
         parsed = (await file.json()) as CacheEnvelope<T> | T;
     } catch {
         await rm(filePath, { force: true });
-        return null;
+        return { hit: false };
     }
 
     if (
@@ -64,11 +69,16 @@ export const getCachedJson = async <T>(key: string): Promise<T | null> => {
         (parsed as CacheEnvelope<T>).version === CACHE_ENVELOPE_VERSION &&
         'value' in parsed
     ) {
-        return (parsed as CacheEnvelope<T>).value;
+        return { hit: true, value: (parsed as CacheEnvelope<T>).value };
     }
 
     await rm(filePath, { force: true });
-    return null;
+    return { hit: false };
+};
+
+export const getCachedJson = async <T>(key: string): Promise<T | null> => {
+    const cached = await readCachedJson<T>(key);
+    return cached.hit ? cached.value : null;
 };
 
 export const setCachedJson = async <T>(key: string, value: T) => {
@@ -80,21 +90,37 @@ export const setCachedJson = async <T>(key: string, value: T) => {
         version: CACHE_ENVELOPE_VERSION,
     };
 
-    await Bun.write(tempPath, JSON.stringify(envelope));
-    await rename(tempPath, filePath);
+    try {
+        await Bun.write(tempPath, JSON.stringify(envelope));
+        await rename(tempPath, filePath);
+    } finally {
+        await rm(tempPath, { force: true });
+    }
 };
 
 export const withCachedJson = async <T>(key: string, loader: () => Promise<T>): Promise<T> => {
-    const filePath = toCachePath(key);
-    const existedBeforeRead = await Bun.file(filePath).exists();
-    const cached = await getCachedJson<T>(key);
-    if (cached !== null || (existedBeforeRead && (await Bun.file(filePath).exists()))) {
-        return cached as T;
+    const cached = await readCachedJson<T>(key);
+    if (cached.hit) {
+        return cached.value;
     }
 
-    const value = await loader();
-    await setCachedJson(key, value);
-    return value;
+    const inFlight = inFlightCacheLoads.get(key);
+    if (inFlight) {
+        return (await inFlight) as T;
+    }
+
+    const load = (async () => {
+        const value = await loader();
+        await setCachedJson(key, value);
+        return value;
+    })();
+    inFlightCacheLoads.set(key, load);
+
+    try {
+        return await load;
+    } finally {
+        inFlightCacheLoads.delete(key);
+    }
 };
 
 export const invalidateCacheByPrefix = async (...prefixes: string[]) => {

@@ -26,7 +26,9 @@ import {
     renderDocumentTitle,
     renderMetadataBlock,
     renderSection,
+    stripCodexAppDirectiveLines,
 } from './shared';
+import { runWithTranscriptLoadLimit } from './transcript-load-limiter';
 
 export const renderCodexSessionFile = async (
     target: CodexTranscriptExportTarget,
@@ -35,7 +37,14 @@ export const renderCodexSessionFile = async (
     let transcriptState: CodexTranscriptState;
 
     try {
-        transcriptState = await collectCodexTranscript(target.sessionFile, options, target.thread?.model ?? null);
+        transcriptState = await runWithTranscriptLoadLimit(
+            () => collectCodexTranscript(target.sessionFile, options, target.thread?.model ?? null),
+            {
+                id: target.thread?.id,
+                path: target.sessionFile,
+                source: 'codex-export-inline',
+            },
+        );
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         throw new Error(`Failed to read Codex transcript ${target.sessionFile}: ${message}`);
@@ -78,19 +87,28 @@ export const writeCodexSessionFileExport = async (
     let wroteSection = false;
 
     try {
-        transcriptStream = await createExportWriteStream(transcriptOutputPath);
-        for await (const parsed of readJsonlObjects(target.sessionFile)) {
-            captureSessionMeta(parsed, state.sessionMeta);
-            const block = renderCodexTranscriptRecord(parsed, options, state);
-            if (!block) {
-                continue;
-            }
+        await runWithTranscriptLoadLimit(
+            async () => {
+                transcriptStream = await createExportWriteStream(transcriptOutputPath);
+                for await (const parsed of readJsonlObjects(target.sessionFile)) {
+                    captureSessionMeta(parsed, state.sessionMeta);
+                    const block = renderCodexTranscriptRecord(parsed, options, state);
+                    if (!block) {
+                        continue;
+                    }
 
-            transcriptStream.write(transform(wroteSection ? `${getSectionSeparator()}${block}` : block));
-            wroteSection = true;
-        }
-        await finalizeExportWriteStream(transcriptStream);
-        transcriptStream = null;
+                    transcriptStream.write(transform(wroteSection ? `${getSectionSeparator()}${block}` : block));
+                    wroteSection = true;
+                }
+                await finalizeExportWriteStream(transcriptStream);
+                transcriptStream = null;
+            },
+            {
+                id: target.thread?.id,
+                path: target.sessionFile,
+                source: 'codex-export-stream',
+            },
+        );
 
         if (!wroteSection) {
             return false;
@@ -189,7 +207,7 @@ const processCodexMessageRecord = (
     options: CodexTranscriptRenderOptions,
     state: CodexTranscriptState,
 ) => {
-    return renderMessageBlock(message, options.outputFormat, state.assistantModel, options.includeCommentary);
+    return renderMessageBlock(message, options.outputFormat, state, options.includeCommentary);
 };
 
 const buildStreamExportPrefix = (
@@ -542,7 +560,7 @@ const extractToolRecord = (parsed: Record<string, JsonValue>): ToolRecord | null
 const renderMessageBlock = (
     message: MessageRecord,
     outputFormat: ExportFormat,
-    assistantModel: string | null,
+    state: CodexTranscriptState,
     includeCommentary: boolean,
 ): string => {
     if (message.role !== 'user' && message.role !== 'assistant') {
@@ -553,12 +571,13 @@ const renderMessageBlock = (
         return '';
     }
 
-    const text = cleanExtractedText(stripPreviewBlock(extractText(message.content))).trim();
+    const extractedText = extractText(message.content);
+    const text = stripCodexAppDirectiveLines(cleanExtractedText(stripPreviewBlock(extractedText)));
     if (!text || shouldSkipMessage(message.role, text)) {
         return '';
     }
 
-    const title = message.role === 'user' ? 'User' : formatModelLabel(message.model ?? assistantModel);
+    const title = message.role === 'user' ? 'User' : formatModelLabel(message.model ?? state.assistantModel);
     const body = message.phase ? `Phase: ${message.phase}\n\n${text}` : text;
 
     return renderSection(title, body, outputFormat);
@@ -570,7 +589,8 @@ const renderToolBlock = (tool: ToolRecord, outputFormat: ExportFormat): string =
         return details ? renderSection('Tool', details, outputFormat) : '';
     }
 
-    const summary = formatToolOutputSummary(tool.outputText ?? '', outputFormat);
+    const outputText = tool.outputText ?? '';
+    const summary = formatToolOutputSummary(outputText, outputFormat);
     return summary ? renderSection('Tool Output', summary, outputFormat) : '';
 };
 

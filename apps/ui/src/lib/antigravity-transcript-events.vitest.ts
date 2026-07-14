@@ -206,6 +206,48 @@ describe('antigravityMarkdownToThreadEvents', () => {
         );
     });
 
+    it('should keep markdown headings inside assistant answers visible as assistant text', () => {
+        const events = antigravityMarkdownToThreadEvents(
+            [
+                '## User',
+                '',
+                'Review the advisor implementation',
+                '',
+                '## Assistant',
+                '',
+                '_Timestamp: 2026-07-08T21:56:58Z_',
+                '',
+                'I now have a comprehensive view.',
+                '',
+                '## Consolidated Code Review',
+                '',
+                'The transaction policy object is emitted in the advisor JSON.',
+                '',
+                '### Finding 1',
+                '',
+                'The field is emitted in the advisor but not consumed locally.',
+                '',
+            ].join('\n'),
+        );
+
+        expect(events).toContainEqual(
+            expect.objectContaining({
+                isHiddenByDefault: false,
+                kind: 'message',
+                phase: 'final_answer',
+                role: 'assistant',
+                text: expect.stringContaining('emitted in the advisor'),
+            }),
+        );
+        expect(events).not.toContainEqual(
+            expect.objectContaining({
+                isHiddenByDefault: true,
+                role: 'event',
+                text: expect.stringContaining('emitted in the advisor'),
+            }),
+        );
+    });
+
     it('should not promote pre-tool assistant text to final answer when the transcript ends after tool use', () => {
         const events = antigravityMarkdownToThreadEvents(
             [

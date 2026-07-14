@@ -38,7 +38,7 @@ const columns = [
         cell: (info) => <span className="font-mono text-sm">{formatNumber(info.getValue())}</span>,
         header: 'Artifacts',
     }),
-    columnHelper.accessor('conversationBytes', {
+    columnHelper.accessor('totalBytes', {
         cell: (info) => <span className="font-mono text-sm">{formatBytes(info.getValue())}</span>,
         header: 'Size',
     }),

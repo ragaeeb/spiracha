@@ -5,6 +5,7 @@ import { createColumnHelper } from '@tanstack/react-table';
 import { Download, MoreHorizontal } from 'lucide-react';
 import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
+import { SelectionActionsToolbar } from '#/components/selection-actions-toolbar';
 import { Button } from '#/components/ui/button';
 import {
     DropdownMenu,
@@ -16,6 +17,7 @@ import { formatDateTime, formatNumber } from '#/lib/formatters';
 
 type QoderSessionsTableProps = {
     onExportSession: (session: QoderSessionSummary) => void;
+    onExportSessions: (sessionIds: string[]) => void;
     sessions: QoderSessionSummary[];
 };
 
@@ -38,7 +40,11 @@ const columns = (onExportSession: (session: QoderSessionSummary) => void) =>
             header: 'Session',
         }),
         columnHelper.accessor('lastActiveAtMs', {
-            cell: (info) => <span className="whitespace-nowrap text-sm">{formatDateTime(info.getValue())}</span>,
+            cell: (info) => (
+                <span className="whitespace-nowrap text-sm" suppressHydrationWarning>
+                    {formatDateTime(info.getValue())}
+                </span>
+            ),
             header: 'Updated',
             id: 'lastActive',
         }),
@@ -98,7 +104,7 @@ const columns = (onExportSession: (session: QoderSessionSummary) => void) =>
         }),
     ] as const;
 
-export const QoderSessionsTable = ({ onExportSession, sessions }: QoderSessionsTableProps) => {
+export const QoderSessionsTable = ({ onExportSession, onExportSessions, sessions }: QoderSessionsTableProps) => {
     const tableColumns = useMemo(() => columns(onExportSession), [onExportSession]);
 
     return (
@@ -106,7 +112,22 @@ export const QoderSessionsTable = ({ onExportSession, sessions }: QoderSessionsT
             columns={tableColumns}
             data={sessions}
             emptyMessage="No Qoder sessions match the current workspace filter."
+            enableRowSelection
+            getRowId={(row) => row.sessionId}
             initialSorting={defaultSorting}
+            renderToolbar={({ clearSelection, selectedRows }) => {
+                const selectedSessionIds = selectedRows.map((row) => row.sessionId);
+                const hasEmptySelection = selectedRows.some((row) => row.renderablePartCount === 0);
+                return (
+                    <SelectionActionsToolbar
+                        clearSelection={clearSelection}
+                        exportDisabled={hasEmptySelection}
+                        itemLabel="session"
+                        selectedCount={selectedRows.length}
+                        onExportSelected={() => onExportSessions(selectedSessionIds)}
+                    />
+                );
+            }}
         />
     );
 };

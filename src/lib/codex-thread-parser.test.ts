@@ -65,6 +65,60 @@ describe('parseCodexTranscriptFile', () => {
         expect(transcript.statsArePartial).toBe(true);
     });
 
+    it('should support filtered tail preview parsing for oversized transcripts', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-parser-tail-preview-test-'));
+        tempPaths.push(tempRoot);
+        const sessionFile = path.join(tempRoot, 'tail-preview.jsonl');
+        await Bun.write(
+            sessionFile,
+            [
+                JSON.stringify({
+                    payload: { message: 'first user prompt', type: 'user_message' },
+                    timestamp: '2026-07-07T12:00:00.000Z',
+                    type: 'response_item',
+                }),
+                JSON.stringify({
+                    payload: { message: 'first assistant answer', phase: 'final_answer', type: 'agent_message' },
+                    timestamp: '2026-07-07T12:00:01.000Z',
+                    type: 'response_item',
+                }),
+                JSON.stringify({
+                    payload: { message: 'second user prompt', type: 'user_message' },
+                    timestamp: '2026-07-07T12:00:02.000Z',
+                    type: 'response_item',
+                }),
+                JSON.stringify({
+                    payload: { message: 'second assistant answer', phase: 'final_answer', type: 'agent_message' },
+                    timestamp: '2026-07-07T12:00:03.000Z',
+                    type: 'response_item',
+                }),
+                JSON.stringify({
+                    payload: { message: 'third assistant answer', phase: 'final_answer', type: 'agent_message' },
+                    timestamp: '2026-07-07T12:00:04.000Z',
+                    type: 'response_item',
+                }),
+            ].join('\n'),
+        );
+
+        const transcript = await parseCodexTranscriptFile(sessionFile, {
+            eventFilter: (event) => event.kind === 'message' && event.role === 'assistant',
+            includeRaw: false,
+            maxTurnContexts: 0,
+            tailEventLimit: 2,
+        });
+
+        expect(transcript.events.map((event) => (event.kind === 'message' ? event.text : null))).toEqual([
+            'second assistant answer',
+            'third assistant answer',
+        ]);
+        expect(transcript.events.map((event) => event.sequence)).toEqual([3, 4]);
+        expect(transcript.events.every((event) => Object.keys(event.raw).length === 0)).toBe(true);
+        expect(transcript.stats.assistantMessageCount).toBe(2);
+        expect(transcript.stats.userMessageCount).toBe(0);
+        expect(transcript.isPartial).toBe(true);
+        expect(transcript.statsArePartial).toBe(true);
+    });
+
     it('should mark malformed exec_command arguments so callers can distinguish parse failure from missing data', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-parser-invalid-args-test-'));
         tempPaths.push(tempRoot);
@@ -89,5 +143,100 @@ describe('parseCodexTranscriptFile', () => {
 
         expect(toolCall?.kind).toBe('tool_call');
         expect(toolCall && 'argumentsParseFailed' in toolCall ? toolCall.argumentsParseFailed : null).toBe(true);
+    });
+
+    it('should strip Codex memory citation XML from visible message text', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-parser-memory-citation-test-'));
+        tempPaths.push(tempRoot);
+        const sessionFile = path.join(tempRoot, 'memory-citation.jsonl');
+        const memoryCitation = `<oai-mem-citation>
+<citation_entries>
+MEMORY.md:439-441|note=[corpus fixture source of truth and validation guidance]
+MEMORY.md:609-611|note=[ushman e2e fixture and validation guidance]
+</citation_entries>
+</oai-mem-citation>`;
+        const memoryCitationWithRollouts = `<oai-mem-citation>
+<citation_entries>
+MEMORY.md:1-2|note=[project guidance]
+</citation_entries>
+<rollout_ids>
+019c6e27-e55b-73d1-87d8-4e01f1f75043
+</rollout_ids>
+</oai-mem-citation>`;
+        await Bun.write(
+            sessionFile,
+            [
+                JSON.stringify({
+                    payload: {
+                        message: `Implemented the requested fix.\n\n${memoryCitationWithRollouts}`,
+                        type: 'agent_message',
+                    },
+                    timestamp: '2026-07-06T12:00:00.000Z',
+                    type: 'response_item',
+                }),
+                JSON.stringify({
+                    payload: {
+                        content: [
+                            {
+                                text: memoryCitation,
+                                type: 'text',
+                            },
+                        ],
+                        role: 'assistant',
+                        type: 'message',
+                    },
+                    timestamp: '2026-07-06T12:00:01.000Z',
+                    type: 'response_item',
+                }),
+            ].join('\n'),
+        );
+
+        const transcript = await parseCodexTranscriptFile(sessionFile);
+
+        expect(transcript.events[0]).toMatchObject({
+            kind: 'message',
+            role: 'assistant',
+            text: 'Implemented the requested fix.',
+        });
+        expect(transcript.events[1]).toMatchObject({
+            isHiddenByDefault: true,
+            kind: 'message',
+            role: 'assistant',
+            text: '',
+        });
+    });
+
+    it('should strip Codex app directive lines from visible assistant text', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-parser-directives-test-'));
+        tempPaths.push(tempRoot);
+        const sessionFile = path.join(tempRoot, 'directives.jsonl');
+        await Bun.write(
+            sessionFile,
+            [
+                JSON.stringify({
+                    payload: {
+                        message: [
+                            'Implemented the fix.',
+                            '::git-stage{cwd="."}',
+                            '::git-commit{cwd="."}',
+                            '::git-stage{cwd="~/workspace/ushman-e2e"}',
+                            '::git-commit{cwd="~/workspace/ushman-e2e"}',
+                        ].join('\n'),
+                        phase: 'final_answer',
+                        type: 'agent_message',
+                    },
+                    timestamp: '2026-07-08T12:00:00.000Z',
+                    type: 'response_item',
+                }),
+            ].join('\n'),
+        );
+
+        const transcript = await parseCodexTranscriptFile(sessionFile);
+
+        expect(transcript.events[0]).toMatchObject({
+            kind: 'message',
+            role: 'assistant',
+            text: 'Implemented the fix.',
+        });
     });
 });

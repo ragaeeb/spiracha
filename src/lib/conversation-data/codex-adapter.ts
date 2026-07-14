@@ -1,8 +1,14 @@
-import { getThreadBrowseData, listScopedThreads, resolveCodexThreadDbPath } from '../codex-browser-db';
+import {
+    deleteCodexThread,
+    getThreadBrowseData,
+    listScopedThreads,
+    resolveCodexThreadDbPath,
+} from '../codex-browser-db';
 import type { MessageEvent, ThreadBrowseData, ThreadEvent } from '../codex-browser-types';
 import { parseCodexTranscriptFile } from '../codex-thread-parser';
 import type { ThreadRow } from '../codex-thread-types';
 import { cleanInlineTitle } from '../shared';
+import { runWithTranscriptLoadLimit } from '../transcript-load-limiter';
 import { selectConversationMessages } from './message-selector';
 import { getConversationPathMatch } from './path-match';
 import type {
@@ -12,6 +18,7 @@ import type {
     ConversationMessagePhase,
     ConversationMessageRole,
     ConversationPathMatch,
+    DeleteConversationOptions,
     GetConversationOptions,
     ListConversationsForPathOptions,
 } from './types';
@@ -142,9 +149,17 @@ const toConversationMessage = (event: ThreadEvent): ConversationMessage | null =
 };
 
 const readCodexMessages = async (thread: ThreadRow): Promise<ConversationMessage[]> => {
-    const transcript = await parseCodexTranscriptFile(thread.rollout_path, {
-        includeRaw: false,
-    });
+    const transcript = await runWithTranscriptLoadLimit(
+        () =>
+            parseCodexTranscriptFile(thread.rollout_path, {
+                includeRaw: false,
+            }),
+        {
+            id: thread.id,
+            path: thread.rollout_path,
+            source: 'codex-api',
+        },
+    );
 
     return transcript.events.flatMap((event) => {
         const message = toConversationMessage(event);
@@ -238,7 +253,16 @@ const getCodexConversation = async (options: GetConversationOptions): Promise<Co
     });
 };
 
+const deleteCodexConversation = async (options: DeleteConversationOptions) => {
+    const result = await deleteCodexThread(getCodexDbPath(options), options.id, { deleteSessionFiles: true });
+    return {
+        deletedFiles: result.deletedSessionFiles,
+        deletedIds: result.deletedThreadIds,
+    };
+};
+
 export const codexConversationAdapter: ConversationAdapter = {
+    deleteConversation: deleteCodexConversation,
     getConversation: getCodexConversation,
     listConversationsForPath: listCodexConversationsForPath,
     source: 'codex',

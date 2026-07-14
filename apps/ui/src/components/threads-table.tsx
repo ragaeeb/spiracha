@@ -2,8 +2,9 @@ import type { ThreadListEntry } from '@spiracha/lib/codex-browser-types';
 import { Link } from '@tanstack/react-router';
 import type { SortingState } from '@tanstack/react-table';
 import { createColumnHelper } from '@tanstack/react-table';
-import { Download, MoreHorizontal, Trash2, X } from 'lucide-react';
+import { Download, MoreHorizontal, Trash2 } from 'lucide-react';
 import { DataTable } from '#/components/data-table';
+import { SelectionActionsToolbar } from '#/components/selection-actions-toolbar';
 import { Button } from '#/components/ui/button';
 import {
     DropdownMenu,
@@ -148,53 +149,15 @@ export function ThreadsTable({
             getRowId={(row) => row.thread.id}
             initialSorting={defaultSorting}
             renderToolbar={({ clearSelection, selectedRows }) => {
-                if (selectedRows.length === 0) {
-                    return (
-                        <p className="text-[var(--muted-foreground)] text-sm">
-                            Select threads to export or delete them in a batch.
-                        </p>
-                    );
-                }
-
                 const selectedThreadIds = selectedRows.map((row) => row.thread.id);
                 return (
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                        <p className="text-sm">
-                            {selectedRows.length} thread{selectedRows.length === 1 ? '' : 's'} selected
-                        </p>
-                        <div className="flex flex-wrap gap-2">
-                            <Button
-                                className="rounded-full"
-                                size="sm"
-                                type="button"
-                                variant="outline"
-                                onClick={() => onExportThreads(selectedThreadIds)}
-                            >
-                                <Download className="mr-2 size-4" />
-                                Export selected threads
-                            </Button>
-                            <Button
-                                className="rounded-full border-[var(--destructive)]/20 text-[var(--destructive)]"
-                                size="sm"
-                                type="button"
-                                variant="outline"
-                                onClick={() => onDeleteThreads(selectedThreadIds)}
-                            >
-                                <Trash2 className="mr-2 size-4" />
-                                Delete selected threads
-                            </Button>
-                            <Button
-                                className="rounded-full"
-                                size="sm"
-                                type="button"
-                                variant="ghost"
-                                onClick={clearSelection}
-                            >
-                                <X className="mr-2 size-4" />
-                                Clear selection
-                            </Button>
-                        </div>
-                    </div>
+                    <SelectionActionsToolbar
+                        clearSelection={clearSelection}
+                        itemLabel="thread"
+                        selectedCount={selectedRows.length}
+                        onDeleteSelected={() => onDeleteThreads(selectedThreadIds)}
+                        onExportSelected={() => onExportThreads(selectedThreadIds)}
+                    />
                 );
             }}
         />

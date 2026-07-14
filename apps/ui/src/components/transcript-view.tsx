@@ -1,16 +1,20 @@
 import type { ThreadEvent } from '@spiracha/lib/codex-browser-types';
+import { shouldShowCodexTranscriptEvent } from '@spiracha/lib/codex-transcript-filter';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Check, Copy } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Badge } from '#/components/ui/badge';
 import { Button } from '#/components/ui/button';
 import { Checkbox } from '#/components/ui/checkbox';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '#/components/ui/select';
 import { formatDateTime, formatModelLabel } from '#/lib/formatters';
 import { applyPathTransforms } from '#/lib/path-utils';
 import { useSettings } from '#/lib/settings-store';
 import { cn } from '#/lib/utils';
 
 type TranscriptViewProps = {
+    activeEventJumpSignal?: number;
+    activeEventKey?: string | null;
     assistantModel: string | null;
     events: ThreadEvent[];
     projectPath: string | null;
@@ -19,36 +23,27 @@ type TranscriptViewProps = {
     showRawJson: boolean;
     showToolCalls: boolean;
     showUserMessages?: boolean;
+    sortOrder?: TranscriptSortOrder;
+    onSortOrderChange?: (value: TranscriptSortOrder) => void;
 };
 
-const isCommentaryMessage = (event: ThreadEvent) =>
-    event.kind === 'message' && event.role === 'assistant' && event.phase === 'commentary';
+export type TranscriptSortOrder = 'earliest' | 'latest';
 
-const shouldShowEvent = (
+export const DEFAULT_SHOW_USER_MESSAGES = false;
+
+export const shouldShowEvent = (
     event: ThreadEvent,
     showToolCalls: boolean,
     showExtraEvents: boolean,
     showCommentary: boolean,
     showUserMessages: boolean,
-) => {
-    if (isCommentaryMessage(event) && !showCommentary) {
-        return false;
-    }
-
-    if (event.kind === 'message') {
-        if (event.role === 'user' && !showUserMessages) {
-            return false;
-        }
-
-        return !event.isHiddenByDefault || showExtraEvents;
-    }
-
-    if (event.kind === 'tool_call' || event.kind === 'tool_output') {
-        return showToolCalls;
-    }
-
-    return showExtraEvents;
-};
+) =>
+    shouldShowCodexTranscriptEvent(event, {
+        showCommentary,
+        showExtraEvents,
+        showToolCalls,
+        showUserMessages,
+    });
 
 const getEventTone = (event: ThreadEvent) => {
     if (event.kind === 'message' && event.role === 'assistant') {
@@ -153,7 +148,7 @@ const getEventMarkdownBody = (event: ThreadEvent, transform: Transform) => {
 const getEventMarkdown = (event: ThreadEvent, assistantModel: string | null, transform: Transform) =>
     `## ${getEventTitle(event, assistantModel)}\n\n${getEventMarkdownBody(event, transform)}`;
 
-const buildEventKey = (event: ThreadEvent, index: number) => {
+export const getTranscriptEventKey = (event: ThreadEvent, index: number) => {
     if (event.kind === 'tool_call') {
         return `${event.kind}-${event.sequence}-${event.callId ?? event.timestamp ?? event.name}-${index}`;
     }
@@ -248,36 +243,81 @@ type TranscriptEventCardProps = {
     assistantModel: string | null;
     copied: boolean;
     event: ThreadEvent;
+    eventKey: string;
+    isActive: boolean;
     isSelected: boolean;
     showRawJson: boolean;
     transform: Transform;
+    onCardElement: (eventKey: string, element: HTMLElement | null) => void;
     onCopy: (event: ThreadEvent) => void;
     onSelectionChange: (event: ThreadEvent, checked: boolean) => void;
 };
+
+function TranscriptSortSelect({
+    sortOrder,
+    onSortOrderChange,
+}: {
+    sortOrder: TranscriptSortOrder;
+    onSortOrderChange?: (value: TranscriptSortOrder) => void;
+}) {
+    return (
+        <div className="flex items-center gap-2 text-sm">
+            <label className="text-[var(--muted-foreground)]" htmlFor="transcript-sort-order">
+                Sort by
+            </label>
+            <Select value={sortOrder} onValueChange={(value) => onSortOrderChange?.(value as TranscriptSortOrder)}>
+                <SelectTrigger
+                    aria-label="Sort transcript messages"
+                    className="h-8 w-[10.5rem] rounded-full border-[var(--border)] bg-[var(--panel)] text-xs"
+                    id="transcript-sort-order"
+                >
+                    <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="border-[var(--border)] bg-[var(--panel)] text-[var(--foreground)]">
+                    <SelectItem value="earliest">Earliest first</SelectItem>
+                    <SelectItem value="latest">Latest first</SelectItem>
+                </SelectContent>
+            </Select>
+        </div>
+    );
+}
 
 function TranscriptEventCard({
     assistantModel,
     copied,
     event,
+    eventKey,
+    isActive,
     isSelected,
     showRawJson,
     transform,
+    onCardElement,
     onCopy,
     onSelectionChange,
 }: TranscriptEventCardProps) {
+    const handleElement = useCallback(
+        (element: HTMLElement | null) => onCardElement(eventKey, element),
+        [eventKey, onCardElement],
+    );
+
     return (
         <article
+            ref={handleElement}
+            aria-current={isActive ? 'location' : undefined}
             className={cn(
-                'min-w-0 overflow-hidden rounded-xl border p-3.5 shadow-[var(--panel-shadow)]',
+                'min-w-0 scroll-mt-24 overflow-hidden rounded-xl border p-3.5 shadow-[var(--panel-shadow)]',
                 isSelected && 'ring-2 ring-[var(--accent)]/35',
+                isActive && 'ring-2 ring-[var(--accent)]',
                 getEventTone(event),
             )}
+            data-transcript-event-key={eventKey}
         >
             <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
                     <Checkbox
                         aria-label={`Select ${getEventTitle(event, assistantModel)}`}
                         checked={isSelected}
+                        className="size-5 cursor-pointer"
                         onCheckedChange={(checked) => onSelectionChange(event, checked === true)}
                     />
                     <h3 className="min-w-0 break-words font-semibold text-sm [overflow-wrap:anywhere]">
@@ -316,6 +356,8 @@ function TranscriptEventCard({
 }
 
 export function TranscriptView({
+    activeEventJumpSignal = 0,
+    activeEventKey = null,
     assistantModel,
     events,
     projectPath,
@@ -324,33 +366,45 @@ export function TranscriptView({
     showRawJson,
     showToolCalls,
     showUserMessages = true,
+    sortOrder = 'earliest',
+    onSortOrderChange,
 }: TranscriptViewProps) {
     const { settings } = useSettings();
-    const visibleEvents = useMemo(
+    const filteredEvents = useMemo(
         () =>
             events.filter((event) =>
                 shouldShowEvent(event, showToolCalls, showExtraEvents, showCommentary, showUserMessages),
             ),
         [events, showCommentary, showExtraEvents, showToolCalls, showUserMessages],
     );
+    const visibleEvents = useMemo(
+        () => (sortOrder === 'latest' ? [...filteredEvents].reverse() : filteredEvents),
+        [filteredEvents, sortOrder],
+    );
     const [copiedEventKeys, setCopiedEventKeys] = useState<string[]>([]);
     const [copiedSelection, setCopiedSelection] = useState(false);
     const [copyErrorMessage, setCopyErrorMessage] = useState<string | null>(null);
     const [selectedEventKeys, setSelectedEventKeys] = useState<string[]>([]);
+    const eventElementByKeyRef = useRef(new Map<string, HTMLElement>());
+    const lastHandledJumpRef = useRef<{ eventKey: string; signal: number } | null>(null);
     const parentRef = useRef<HTMLDivElement | null>(null);
     const timeoutIdsRef = useRef<number[]>([]);
     const useVirtualList = visibleEvents.length > 40;
     const eventKeyByEvent = useMemo(
-        () => new Map(events.map((event, index) => [event, buildEventKey(event, index)])),
+        () => new Map(events.map((event, index) => [event, getTranscriptEventKey(event, index)])),
         [events],
     );
-    const getEventKey = (event: ThreadEvent) => eventKeyByEvent.get(event) ?? buildEventKey(event, -1);
+    const getEventKey = (event: ThreadEvent) => eventKeyByEvent.get(event) ?? getTranscriptEventKey(event, -1);
     const transform = (text: string) => applyPathTransforms(text, settings, projectPath);
     const visibleEventKeys = useMemo(
-        () => visibleEvents.map((event) => eventKeyByEvent.get(event) ?? buildEventKey(event, -1)),
+        () => visibleEvents.map((event) => eventKeyByEvent.get(event) ?? getTranscriptEventKey(event, -1)),
         [visibleEvents, eventKeyByEvent],
     );
     const visibleEventKeySet = useMemo(() => new Set(visibleEventKeys), [visibleEventKeys]);
+    const activeVisibleEventIndex = useMemo(
+        () => (activeEventKey ? visibleEventKeys.indexOf(activeEventKey) : -1),
+        [activeEventKey, visibleEventKeys],
+    );
     const selectedEventKeySet = useMemo(() => new Set(selectedEventKeys), [selectedEventKeys]);
     const virtualizer = useVirtualizer({
         count: useVirtualList ? visibleEvents.length : 0,
@@ -360,6 +414,15 @@ export function TranscriptView({
         measureElement: (element) => element.getBoundingClientRect().height,
         overscan: 8,
     });
+
+    const handleCardElement = useCallback((eventKey: string, element: HTMLElement | null) => {
+        if (element) {
+            eventElementByKeyRef.current.set(eventKey, element);
+            return;
+        }
+
+        eventElementByKeyRef.current.delete(eventKey);
+    }, []);
 
     useEffect(() => {
         return () => {
@@ -376,6 +439,27 @@ export function TranscriptView({
             return next.length === current.length ? current : next;
         });
     }, [visibleEventKeySet]);
+
+    useEffect(() => {
+        if (!Number.isFinite(activeEventJumpSignal) || !activeEventKey || activeVisibleEventIndex < 0) {
+            return;
+        }
+
+        if (
+            lastHandledJumpRef.current?.signal === activeEventJumpSignal &&
+            lastHandledJumpRef.current.eventKey === activeEventKey
+        ) {
+            return;
+        }
+        lastHandledJumpRef.current = { eventKey: activeEventKey, signal: activeEventJumpSignal };
+
+        if (useVirtualList) {
+            virtualizer.scrollToIndex(activeVisibleEventIndex, { align: 'start' });
+            return;
+        }
+
+        eventElementByKeyRef.current.get(activeEventKey)?.scrollIntoView({ behavior: 'auto', block: 'start' });
+    }, [activeEventJumpSignal, activeEventKey, activeVisibleEventIndex, useVirtualList, virtualizer]);
 
     const scheduleTimeout = (callback: () => void, delayMs: number) => {
         const timeoutId = window.setTimeout(() => {
@@ -468,17 +552,20 @@ export function TranscriptView({
                             <span className="text-[var(--destructive)] text-sm">{copyErrorMessage}</span>
                         ) : null}
                     </div>
-                    <Button
-                        aria-label="Copy selected messages"
-                        className="hover:bg-[var(--panel-secondary)] hover:text-[var(--foreground)]"
-                        disabled={visibleSelectedKeys.length === 0}
-                        size="sm"
-                        variant="outline"
-                        onClick={() => void handleCopySelected()}
-                    >
-                        {copiedSelection ? <Check className="text-[var(--accent)]" /> : <Copy />}
-                        {copiedSelection ? 'Copied' : 'Copy'}
-                    </Button>
+                    <div className="flex items-center gap-2">
+                        <TranscriptSortSelect sortOrder={sortOrder} onSortOrderChange={onSortOrderChange} />
+                        <Button
+                            aria-label="Copy selected messages"
+                            className="hover:bg-[var(--panel-secondary)] hover:text-[var(--foreground)]"
+                            disabled={visibleSelectedKeys.length === 0}
+                            size="sm"
+                            variant="outline"
+                            onClick={() => void handleCopySelected()}
+                        >
+                            {copiedSelection ? <Check className="text-[var(--accent)]" /> : <Copy />}
+                            {copiedSelection ? 'Copied' : 'Copy'}
+                        </Button>
+                    </div>
                 </div>
                 <div className="relative w-full" style={{ height: `${virtualizer.getTotalSize()}px` }}>
                     {virtualizer.getVirtualItems().map((item) => (
@@ -493,9 +580,12 @@ export function TranscriptView({
                                 assistantModel={assistantModel}
                                 copied={copiedEventKeys.includes(getEventKey(visibleEvents[item.index]!))}
                                 event={visibleEvents[item.index]!}
+                                eventKey={getEventKey(visibleEvents[item.index]!)}
+                                isActive={activeEventKey === getEventKey(visibleEvents[item.index]!)}
                                 isSelected={selectedEventKeySet.has(getEventKey(visibleEvents[item.index]!))}
                                 showRawJson={showRawJson}
                                 transform={transform}
+                                onCardElement={handleCardElement}
                                 onCopy={(event) => void handleCopyEvent(event)}
                                 onSelectionChange={handleSelectionChange}
                             />
@@ -522,27 +612,33 @@ export function TranscriptView({
                         <span className="text-[var(--destructive)] text-sm">{copyErrorMessage}</span>
                     ) : null}
                 </div>
-                <Button
-                    aria-label="Copy selected messages"
-                    className="hover:bg-[var(--panel-secondary)] hover:text-[var(--foreground)]"
-                    disabled={visibleSelectedKeys.length === 0}
-                    size="sm"
-                    variant="outline"
-                    onClick={() => void handleCopySelected()}
-                >
-                    {copiedSelection ? <Check className="text-[var(--accent)]" /> : <Copy />}
-                    {copiedSelection ? 'Copied' : 'Copy'}
-                </Button>
+                <div className="flex items-center gap-2">
+                    <TranscriptSortSelect sortOrder={sortOrder} onSortOrderChange={onSortOrderChange} />
+                    <Button
+                        aria-label="Copy selected messages"
+                        className="hover:bg-[var(--panel-secondary)] hover:text-[var(--foreground)]"
+                        disabled={visibleSelectedKeys.length === 0}
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void handleCopySelected()}
+                    >
+                        {copiedSelection ? <Check className="text-[var(--accent)]" /> : <Copy />}
+                        {copiedSelection ? 'Copied' : 'Copy'}
+                    </Button>
+                </div>
             </div>
             {visibleEvents.map((event) => (
                 <TranscriptEventCard
                     assistantModel={assistantModel}
                     copied={copiedEventKeys.includes(getEventKey(event))}
-                    key={getEventKey(event)}
                     event={event}
+                    eventKey={getEventKey(event)}
+                    key={getEventKey(event)}
+                    isActive={activeEventKey === getEventKey(event)}
                     isSelected={selectedEventKeySet.has(getEventKey(event))}
                     showRawJson={showRawJson}
                     transform={transform}
+                    onCardElement={handleCardElement}
                     onCopy={(selectedEvent) => void handleCopyEvent(selectedEvent)}
                     onSelectionChange={handleSelectionChange}
                 />

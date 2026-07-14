@@ -1,4 +1,4 @@
-import { readdir, stat } from 'node:fs/promises';
+import { readdir, stat, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import {
     type ClaudeCodeSessionSummary,
@@ -9,6 +9,11 @@ import {
     getDefaultClaudeCodeDataDir,
     resolveClaudeCodeProjectsDir,
 } from './claude-code-exporter-types';
+import {
+    getClaudeCodeAssistantMessagePhase,
+    isClaudeCodeRawFlagEnabled,
+    isClaudeCodeSyntheticTranscriptEntry,
+} from './claude-code-transcript-phase';
 import { mapWithConcurrency } from './concurrency';
 import {
     asBoolean,
@@ -38,6 +43,18 @@ type ParsedTranscriptFile = {
     transcript: ClaudeCodeSessionTranscript;
 };
 
+type ReadTranscriptFileOptions = {
+    includeRawPayloads?: boolean;
+    maxRawPayloadFileSizeBytes?: number;
+};
+
+export type ReadClaudeCodeSessionTranscriptOptions = ReadTranscriptFileOptions;
+
+export type DeleteClaudeCodeSessionResult = {
+    deletedFiles: string[];
+    deletedSessionIds: string[];
+};
+
 type SessionStats = {
     assistantMessageCount: number;
     attachmentCount: number;
@@ -50,6 +67,11 @@ type SessionStats = {
     toolCallCount: number;
     toolResultCount: number;
     userMessageCount: number;
+};
+
+type SessionStatsTracker = {
+    assistantMessageIds: Set<string>;
+    usageMessageIds: Set<string>;
 };
 
 type SessionIdentity = {
@@ -73,6 +95,18 @@ const pathExists = async (target: string): Promise<boolean> => {
     return await stat(target)
         .then(() => true)
         .catch(() => false);
+};
+
+const unlinkIfPresent = async (target: string): Promise<boolean> => {
+    try {
+        await unlink(target);
+        return true;
+    } catch (error) {
+        if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+            return false;
+        }
+        throw error;
+    }
 };
 
 const cleanLabel = (value: string | null | undefined): string | null => {
@@ -281,19 +315,21 @@ const parseTranscriptEntry = (raw: Record<string, JsonValue>): ClaudeCodeTranscr
     const type = asString(raw.type ?? null) ?? 'unknown';
     const message = asObject(raw.message ?? null);
     const parts = getTranscriptEntryParts(type, message, raw);
+    const role = getTranscriptEntryRole(type, message);
 
     if (parts.length === 0) {
         return null;
     }
 
     return {
+        assistantPhase: getClaudeCodeAssistantMessagePhase({ parts, raw, role }),
         cwd: asString(raw.cwd ?? null),
         entryId: getTranscriptEntryId(type, raw),
         model: asString(message?.model ?? null),
         parentEntryId: asString(raw.parentUuid ?? null),
         parts,
         raw,
-        role: getTranscriptEntryRole(type, message),
+        role,
         timestamp: asString(raw.timestamp ?? null),
         type,
     };
@@ -313,11 +349,28 @@ const createEmptyStats = (): SessionStats => ({
     userMessageCount: 0,
 });
 
-const addUsageStats = (stats: SessionStats, message: Record<string, JsonValue> | null) => {
+const createStatsTracker = (): SessionStatsTracker => ({
+    assistantMessageIds: new Set(),
+    usageMessageIds: new Set(),
+});
+
+const getMessageIdentity = (entry: ClaudeCodeTranscriptEntry): string => {
+    const message = asObject(entry.raw.message ?? null);
+    return asString(message?.id ?? null) ?? entry.entryId;
+};
+
+const addUsageStats = (stats: SessionStats, tracker: SessionStatsTracker, entry: ClaudeCodeTranscriptEntry) => {
+    const message = asObject(entry.raw.message ?? null);
     const usage = asObject(message?.usage ?? null);
     if (!usage) {
         return;
     }
+
+    const messageId = getMessageIdentity(entry);
+    if (tracker.usageMessageIds.has(messageId)) {
+        return;
+    }
+    tracker.usageMessageIds.add(messageId);
 
     stats.inputTokens += asNumber(usage.input_tokens ?? null) ?? 0;
     stats.outputTokens += asNumber(usage.output_tokens ?? null) ?? 0;
@@ -325,18 +378,57 @@ const addUsageStats = (stats: SessionStats, message: Record<string, JsonValue> |
     stats.cacheReadInputTokens += asNumber(usage.cache_read_input_tokens ?? null) ?? 0;
 };
 
-const updateStatsFromEntry = (stats: SessionStats, entry: ClaudeCodeTranscriptEntry) => {
-    if (entry.type === 'user' || entry.type === 'assistant') {
+const hasTextPart = (entry: ClaudeCodeTranscriptEntry): boolean => {
+    return entry.parts.some((part) => part.type === 'text' && part.text?.trim());
+};
+
+const extractUserPromptText = (text: string): string | null => {
+    const cleaned = cleanExtractedText(text).trim();
+    if (!cleaned.startsWith('<!-- attach -->')) {
+        return cleaned || null;
+    }
+
+    const lines = cleaned.split('\n').slice(1);
+    let sawQuotedAttachment = false;
+    for (const [index, line] of lines.entries()) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('>')) {
+            sawQuotedAttachment = true;
+            continue;
+        }
+        if (!trimmed) {
+            continue;
+        }
+        if (sawQuotedAttachment) {
+            return lines.slice(index).join('\n').trim() || null;
+        }
+    }
+
+    return null;
+};
+
+const updateMessageStats = (stats: SessionStats, tracker: SessionStatsTracker, entry: ClaudeCodeTranscriptEntry) => {
+    if (entry.role === 'user' && hasTextPart(entry) && !isClaudeCodeSyntheticTranscriptEntry(entry)) {
         stats.messageCount += 1;
-    }
-
-    if (entry.role === 'user') {
         stats.userMessageCount += 1;
+        return;
     }
 
-    if (entry.role === 'assistant') {
-        stats.assistantMessageCount += 1;
+    if (entry.role !== 'assistant' || !hasTextPart(entry)) {
+        return;
     }
+
+    const messageId = getMessageIdentity(entry);
+    if (tracker.assistantMessageIds.has(messageId)) {
+        return;
+    }
+    tracker.assistantMessageIds.add(messageId);
+    stats.messageCount += 1;
+    stats.assistantMessageCount += 1;
+};
+
+const updateStatsFromEntry = (stats: SessionStats, tracker: SessionStatsTracker, entry: ClaudeCodeTranscriptEntry) => {
+    updateMessageStats(stats, tracker, entry);
 
     if (entry.type === 'attachment') {
         stats.attachmentCount += 1;
@@ -345,7 +437,7 @@ const updateStatsFromEntry = (stats: SessionStats, entry: ClaudeCodeTranscriptEn
     stats.toolCallCount += entry.parts.filter((part) => part.type === 'tool_use').length;
     stats.toolResultCount += entry.parts.filter((part) => part.type === 'tool_result').length;
     stats.renderablePartCount += entry.parts.filter(isRenderablePart).length;
-    addUsageStats(stats, asObject(entry.raw.message ?? null));
+    addUsageStats(stats, tracker, entry);
 };
 
 const updateTimeline = (
@@ -382,9 +474,9 @@ const updateIdentityFromRaw = (identity: SessionIdentity, raw: Record<string, Js
 };
 
 const updateIdentityFromEntry = (identity: SessionIdentity, entry: ClaudeCodeTranscriptEntry) => {
-    if (entry.role === 'user' && !identity.firstUserText) {
+    if (entry.role === 'user' && !identity.firstUserText && !isClaudeCodeSyntheticTranscriptEntry(entry)) {
         const textPart = entry.parts.find((part) => part.type === 'text' && part.text?.trim());
-        identity.firstUserText = cleanExtractedText(textPart?.text ?? '').trim() || null;
+        identity.firstUserText = extractUserPromptText(textPart?.text ?? '');
     }
 };
 
@@ -450,10 +542,58 @@ const isRenderablePart = (part: ClaudeCodeTranscriptPart): boolean => {
     return false;
 };
 
-const readTranscriptFile = async (file: TranscriptFile): Promise<ParsedTranscriptFile | null> => {
-    const fallbackMtimeMs = await stat(file.filePath)
-        .then((stats) => stats.mtimeMs)
-        .catch(() => null);
+const stripEntryRawPayloads = (entry: ClaudeCodeTranscriptEntry): ClaudeCodeTranscriptEntry => {
+    return {
+        ...entry,
+        parts: entry.parts.map((part) => ({ ...part, raw: {} })),
+        raw: {},
+    };
+};
+
+const markIncompleteAssistantParentAsCommentary = (
+    entries: ClaudeCodeTranscriptEntry[],
+    entry: ClaudeCodeTranscriptEntry,
+): void => {
+    const interruptedByUser =
+        entry.role === 'user' &&
+        entry.parts.some(
+            (part) => part.type === 'text' && part.text?.trim().startsWith('[Request interrupted by user]'),
+        );
+    if ((!interruptedByUser && !isClaudeCodeRawFlagEnabled(entry.raw.isApiErrorMessage)) || !entry.parentEntryId) {
+        return;
+    }
+
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+        const candidate = entries[index];
+        if (candidate?.entryId === entry.parentEntryId && candidate.role === 'assistant') {
+            candidate.assistantPhase = 'commentary';
+            return;
+        }
+    }
+};
+
+const markLatestAssistantAsCommentary = (entries: ClaudeCodeTranscriptEntry[]): void => {
+    const latestEntry = entries.at(-1);
+    if (latestEntry?.role === 'assistant') {
+        latestEntry.assistantPhase = 'commentary';
+    }
+};
+
+const isSubagentTaskNotification = (raw: Record<string, JsonValue>): boolean => {
+    return (
+        raw.type === 'queue-operation' &&
+        asString(raw.content ?? null)
+            ?.trimStart()
+            .startsWith('<task-notification>') === true
+    );
+};
+
+const buildTranscriptFromRawEvents = (
+    file: TranscriptFile,
+    sourceRawEvents: Record<string, JsonValue>[],
+    fallbackMtimeMs: number | null,
+    includeRawPayloads: boolean,
+): ClaudeCodeSessionTranscript => {
     const identity: SessionIdentity = {
         cwd: null,
         firstUserText: null,
@@ -464,33 +604,66 @@ const readTranscriptFile = async (file: TranscriptFile): Promise<ParsedTranscrip
         version: null,
     };
     const stats = createEmptyStats();
+    const statsTracker = createStatsTracker();
     const timeline = { firstMs: null as number | null, lastMs: null as number | null };
     const entries: ClaudeCodeTranscriptEntry[] = [];
-    const rawEvents: Record<string, JsonValue>[] = [];
 
-    for await (const raw of readJsonlObjects(file.filePath)) {
-        rawEvents.push(raw);
+    for (const raw of sourceRawEvents) {
         updateTimeline(timeline, raw);
         updateIdentityFromRaw(identity, raw);
+
+        if (isSubagentTaskNotification(raw)) {
+            markLatestAssistantAsCommentary(entries);
+        }
 
         const entry = parseTranscriptEntry(raw);
         if (!entry) {
             continue;
         }
 
-        entries.push(entry);
-        updateStatsFromEntry(stats, entry);
+        markIncompleteAssistantParentAsCommentary(entries, entry);
+        if (isClaudeCodeSyntheticTranscriptEntry(entry)) {
+            continue;
+        }
+
+        entries.push(includeRawPayloads ? entry : stripEntryRawPayloads(entry));
+        updateStatsFromEntry(stats, statsTracker, entry);
         updateIdentityFromEntry(identity, entry);
     }
 
     const session = toSessionSummary(file, identity, stats, toTimeline(timeline, fallbackMtimeMs));
     return {
-        transcript: {
-            entries,
-            rawEvents,
-            renderablePartCount: stats.renderablePartCount,
-            session,
-        },
+        entries,
+        rawEvents: includeRawPayloads ? sourceRawEvents : [],
+        rawPayloadsOmitted: includeRawPayloads ? undefined : true,
+        renderablePartCount: stats.renderablePartCount,
+        session,
+    };
+};
+
+const readTranscriptFile = async (
+    file: TranscriptFile,
+    options: ReadTranscriptFileOptions = {},
+): Promise<ParsedTranscriptFile | null> => {
+    const includeRawPayloads = options.includeRawPayloads ?? true;
+    const fallbackMtimeMs = await stat(file.filePath)
+        .then((stats) => stats.mtimeMs)
+        .catch(() => null);
+    const rawEvents: Record<string, JsonValue>[] = [];
+
+    try {
+        for await (const raw of readJsonlObjects(file.filePath)) {
+            rawEvents.push(raw);
+        }
+    } catch (error) {
+        if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+            return null;
+        }
+        throw error;
+    }
+
+    return {
+        transcript: buildTranscriptFromRawEvents(file, rawEvents, fallbackMtimeMs, includeRawPayloads),
     };
 };
 
@@ -521,8 +694,233 @@ const listTranscriptFiles = async (projectsDir: string): Promise<TranscriptFile[
 };
 
 const readTranscriptFiles = async (files: TranscriptFile[]): Promise<ClaudeCodeSessionTranscript[]> => {
-    const parsed = await mapWithConcurrency(files, READ_CONCURRENCY, readTranscriptFile);
+    const parsed = await mapWithConcurrency(files, READ_CONCURRENCY, (file) => readTranscriptFile(file));
     return parsed.flatMap((item) => (item ? [item.transcript] : []));
+};
+
+const getCompactionSummaryId = (raw: Record<string, JsonValue>): string | null => {
+    return raw.isCompactSummary === true ? asString(raw.uuid ?? null) : null;
+};
+
+const getCompactionSummaryIds = (transcript: ClaudeCodeSessionTranscript): string[] => {
+    return [...new Set(transcript.rawEvents.map(getCompactionSummaryId).filter((id): id is string => id !== null))];
+};
+
+type TranscriptLineageIndex = {
+    anchorsByIndex: string[][];
+    indexesByAnchor: Map<string, number[]>;
+};
+
+const indexTranscriptLineageAnchors = (transcripts: ClaudeCodeSessionTranscript[]): TranscriptLineageIndex => {
+    const indexesByAnchor = new Map<string, number[]>();
+    const anchorsByIndex = transcripts.map((transcript, index) => {
+        const anchors = getCompactionSummaryIds(transcript).map(
+            (anchorId) => `${transcript.session.workspaceKey}\0${anchorId}`,
+        );
+        for (const anchor of anchors) {
+            const indexes = indexesByAnchor.get(anchor) ?? [];
+            indexes.push(index);
+            indexesByAnchor.set(anchor, indexes);
+        }
+        return anchors;
+    });
+
+    return { anchorsByIndex, indexesByAnchor };
+};
+
+const collectTranscriptLineage = (
+    startIndex: number,
+    transcripts: ClaudeCodeSessionTranscript[],
+    index: TranscriptLineageIndex,
+    visited: Set<number>,
+): ClaudeCodeSessionTranscript[] => {
+    const lineage: ClaudeCodeSessionTranscript[] = [];
+    const pending = [startIndex];
+    visited.add(startIndex);
+
+    while (pending.length > 0) {
+        const currentIndex = pending.pop() as number;
+        const transcript = transcripts[currentIndex];
+        if (!transcript) {
+            continue;
+        }
+        lineage.push(transcript);
+
+        const neighborIndexes = (index.anchorsByIndex[currentIndex] ?? []).flatMap(
+            (anchor) => index.indexesByAnchor.get(anchor) ?? [],
+        );
+        for (const neighborIndex of neighborIndexes) {
+            if (!visited.has(neighborIndex)) {
+                visited.add(neighborIndex);
+                pending.push(neighborIndex);
+            }
+        }
+    }
+
+    return lineage;
+};
+
+const getTranscriptLineages = (transcripts: ClaudeCodeSessionTranscript[]): ClaudeCodeSessionTranscript[][] => {
+    const index = indexTranscriptLineageAnchors(transcripts);
+    const visited = new Set<number>();
+    const lineages: ClaudeCodeSessionTranscript[][] = [];
+
+    for (const startIndex of transcripts.keys()) {
+        if (visited.has(startIndex)) {
+            continue;
+        }
+        lineages.push(collectTranscriptLineage(startIndex, transcripts, index, visited));
+    }
+
+    return lineages;
+};
+
+const countContentEntriesBefore = (
+    transcript: ClaudeCodeSessionTranscript,
+    rawEventIndex: number,
+    prefixCounts: WeakMap<ClaudeCodeSessionTranscript, number[]>,
+): number => {
+    let counts = prefixCounts.get(transcript);
+    if (!counts) {
+        counts = [0];
+        for (const raw of transcript.rawEvents) {
+            const entry = parseTranscriptEntry(raw);
+            counts.push((counts.at(-1) ?? 0) + (entry && !isClaudeCodeSyntheticTranscriptEntry(entry) ? 1 : 0));
+        }
+        prefixCounts.set(transcript, counts);
+    }
+    return counts[Math.max(0, Math.min(rawEventIndex, counts.length - 1))] ?? 0;
+};
+
+const deduplicateRawEvents = (rawEvents: Record<string, JsonValue>[]): Record<string, JsonValue>[] => {
+    const seenIds = new Set<string>();
+    return rawEvents.filter((raw) => {
+        const eventId = asString(raw.uuid ?? null);
+        if (!eventId) {
+            return true;
+        }
+        if (seenIds.has(eventId)) {
+            return false;
+        }
+        seenIds.add(eventId);
+        return true;
+    });
+};
+
+const MAX_CLAUDE_LINEAGE_DEPTH = 64;
+
+const buildLogicalRawEvents = (
+    lineage: ClaudeCodeSessionTranscript[],
+    current: ClaudeCodeSessionTranscript,
+    context: {
+        memo: WeakMap<ClaudeCodeSessionTranscript, Record<string, JsonValue>[]>;
+        prefixCounts: WeakMap<ClaudeCodeSessionTranscript, number[]>;
+    } = { memo: new WeakMap(), prefixCounts: new WeakMap() },
+    visiting = new Set<string>(),
+    depth = 0,
+): Record<string, JsonValue>[] => {
+    const cached = context.memo.get(current);
+    if (cached) {
+        return cached;
+    }
+
+    const finish = (events: Record<string, JsonValue>[]) => {
+        const deduplicated = deduplicateRawEvents(events);
+        context.memo.set(current, deduplicated);
+        return deduplicated;
+    };
+
+    if (visiting.has(current.session.sessionId) || depth >= MAX_CLAUDE_LINEAGE_DEPTH) {
+        return deduplicateRawEvents(current.rawEvents);
+    }
+
+    const firstAnchorIndex = current.rawEvents.findIndex((raw) => getCompactionSummaryId(raw) !== null);
+    const firstAnchor = firstAnchorIndex < 0 ? null : getCompactionSummaryId(current.rawEvents[firstAnchorIndex] ?? {});
+    if (!firstAnchor) {
+        return finish(current.rawEvents);
+    }
+
+    const currentPrefixSize = countContentEntriesBefore(current, firstAnchorIndex, context.prefixCounts);
+    const ancestor = lineage
+        .filter((candidate) => candidate.session.sessionId !== current.session.sessionId)
+        .map((candidate) => {
+            const anchorIndex = candidate.rawEvents.findIndex((raw) => getCompactionSummaryId(raw) === firstAnchor);
+            return {
+                anchorIndex,
+                candidate,
+                prefixSize:
+                    anchorIndex < 0 ? -1 : countContentEntriesBefore(candidate, anchorIndex, context.prefixCounts),
+            };
+        })
+        .filter((candidate) => candidate.prefixSize > currentPrefixSize)
+        .sort(
+            (left, right) =>
+                right.prefixSize - left.prefixSize ||
+                (left.candidate.session.createdAtMs ?? 0) - (right.candidate.session.createdAtMs ?? 0),
+        )[0];
+    if (!ancestor) {
+        return finish(current.rawEvents);
+    }
+
+    const nextVisiting = new Set(visiting);
+    nextVisiting.add(current.session.sessionId);
+    const ancestorEvents = buildLogicalRawEvents(lineage, ancestor.candidate, context, nextVisiting, depth + 1);
+    const ancestorAnchorIndex = ancestorEvents.findIndex((raw) => getCompactionSummaryId(raw) === firstAnchor);
+    if (ancestorAnchorIndex < 0) {
+        return finish(current.rawEvents);
+    }
+
+    return finish([...ancestorEvents.slice(0, ancestorAnchorIndex), ...current.rawEvents.slice(firstAnchorIndex)]);
+};
+
+const compareTranscriptsByActivity = (
+    left: ClaudeCodeSessionTranscript,
+    right: ClaudeCodeSessionTranscript,
+): number => {
+    return (
+        compareNullableMsDesc(left.session.lastActiveAtMs, right.session.lastActiveAtMs) ||
+        left.session.sessionId.localeCompare(right.session.sessionId)
+    );
+};
+
+const coalesceTranscriptLineage = (lineage: ClaudeCodeSessionTranscript[]): ClaudeCodeSessionTranscript | null => {
+    const canonical = [...lineage].sort(compareTranscriptsByActivity)[0];
+    if (!canonical) {
+        return null;
+    }
+
+    const directoryName = getDirectoryNameFromWorkspaceKey(canonical.session.workspaceKey);
+    if (!directoryName) {
+        return canonical;
+    }
+
+    const transcript = buildTranscriptFromRawEvents(
+        { directoryName, filePath: canonical.session.filePath },
+        buildLogicalRawEvents(lineage, canonical),
+        canonical.session.lastActiveAtMs,
+        true,
+    );
+    transcript.session.filePath = canonical.session.filePath;
+    transcript.session.sessionId = canonical.session.sessionId;
+    return transcript;
+};
+
+const coalesceTranscriptLineages = (transcripts: ClaudeCodeSessionTranscript[]): ClaudeCodeSessionTranscript[] => {
+    return getTranscriptLineages(transcripts).flatMap((lineage) => {
+        const transcript = coalesceTranscriptLineage(lineage);
+        return transcript ? [transcript] : [];
+    });
+};
+
+const omitTranscriptRawPayloads = (transcript: ClaudeCodeSessionTranscript): ClaudeCodeSessionTranscript => ({
+    ...transcript,
+    entries: transcript.entries.map(stripEntryRawPayloads),
+    rawEvents: [],
+    rawPayloadsOmitted: true,
+});
+
+const hasSessionContent = (transcript: ClaudeCodeSessionTranscript): boolean => {
+    return transcript.session.userMessageCount > 0 || transcript.session.assistantMessageCount > 0;
 };
 
 const compareNullableMsDesc = (left: number | null, right: number | null): number => {
@@ -560,12 +958,16 @@ export const listClaudeCodeWorkspaceGroups = async (
     projectsDir = resolveClaudeCodeProjectsDir(),
 ): Promise<ClaudeCodeWorkspaceGroup[]> => {
     const files = await listTranscriptFiles(projectsDir);
-    const transcripts = await readTranscriptFiles(files);
+    const transcripts = coalesceTranscriptLineages(await readTranscriptFiles(files));
     const sessionsByDirectory = new Map<string, ClaudeCodeSessionSummary[]>();
 
     for (const transcript of transcripts) {
         const directoryName = getDirectoryNameFromWorkspaceKey(transcript.session.workspaceKey);
         if (!directoryName) {
+            continue;
+        }
+
+        if (!hasSessionContent(transcript)) {
             continue;
         }
 
@@ -629,8 +1031,8 @@ export const listClaudeCodeSessionsForGroup = async (
     }
 
     const files = await listTranscriptFilesForProject(projectsDir, directoryName);
-    const transcripts = await readTranscriptFiles(files);
-    return sortSessions(transcripts.map((transcript) => transcript.session));
+    const transcripts = coalesceTranscriptLineages(await readTranscriptFiles(files));
+    return sortSessions(transcripts.filter(hasSessionContent).map((transcript) => transcript.session));
 };
 
 const locateSessionFile = async (projectsDir: string, sessionId: string): Promise<TranscriptFile | null> => {
@@ -641,6 +1043,7 @@ const locateSessionFile = async (projectsDir: string, sessionId: string): Promis
 export const readClaudeCodeSessionTranscript = async (
     projectsDir: string,
     sessionId: string,
+    options: ReadClaudeCodeSessionTranscriptOptions = {},
 ): Promise<ClaudeCodeSessionTranscript | null> => {
     if (!(await pathExists(projectsDir))) {
         return null;
@@ -651,5 +1054,68 @@ export const readClaudeCodeSessionTranscript = async (
         return null;
     }
 
-    return (await readTranscriptFile(file))?.transcript ?? null;
+    const files = await listTranscriptFilesForProject(projectsDir, file.directoryName);
+    const transcripts = await readTranscriptFiles(files);
+    const lineage = getTranscriptLineages(transcripts).find((candidate) =>
+        candidate.some((transcript) => transcript.session.sessionId === sessionId),
+    );
+    if (!lineage) {
+        return null;
+    }
+
+    const transcript = coalesceTranscriptLineage(lineage);
+    if (!transcript) {
+        return null;
+    }
+    const lineageFileSizeBytes =
+        options.maxRawPayloadFileSizeBytes === undefined
+            ? 0
+            : (
+                  await Promise.all(
+                      lineage.map((candidate) =>
+                          stat(candidate.session.filePath)
+                              .then((metadata) => metadata.size)
+                              .catch(() => options.maxRawPayloadFileSizeBytes! + 1),
+                      ),
+                  )
+              ).reduce((total, size) => total + size, 0);
+    const omitRawPayloads =
+        options.includeRawPayloads === false ||
+        (options.maxRawPayloadFileSizeBytes !== undefined && lineageFileSizeBytes > options.maxRawPayloadFileSizeBytes);
+    return omitRawPayloads ? omitTranscriptRawPayloads(transcript) : transcript;
+};
+
+export const deleteClaudeCodeSession = async (
+    projectsDir: string,
+    sessionId: string,
+): Promise<DeleteClaudeCodeSessionResult> => {
+    if (!(await pathExists(projectsDir))) {
+        return { deletedFiles: [], deletedSessionIds: [] };
+    }
+
+    const file = await locateSessionFile(projectsDir, sessionId);
+    if (!file) {
+        return { deletedFiles: [], deletedSessionIds: [] };
+    }
+
+    const files = await listTranscriptFilesForProject(projectsDir, file.directoryName);
+    const transcripts = await readTranscriptFiles(files);
+    const lineage = getTranscriptLineages(transcripts).find((candidate) =>
+        candidate.some((transcript) => transcript.session.sessionId === sessionId),
+    );
+    const targets = (lineage ?? [])
+        .map((transcript) => ({
+            filePath: transcript.session.filePath,
+            sessionId: transcript.session.sessionId,
+        }))
+        .sort((left, right) => left.filePath.localeCompare(right.filePath));
+    if (targets.length === 0) {
+        return { deletedFiles: [], deletedSessionIds: [] };
+    }
+
+    const removed = await Promise.all(targets.map((target) => unlinkIfPresent(target.filePath)));
+    return {
+        deletedFiles: targets.flatMap((target, index) => (removed[index] ? [target.filePath] : [])),
+        deletedSessionIds: targets.flatMap((target, index) => (removed[index] ? [target.sessionId] : [])),
+    };
 };

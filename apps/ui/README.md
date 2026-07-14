@@ -1,6 +1,6 @@
 # Spiracha UI
 
-The browser UI for browsing local Codex, Claude Code, Kiro, Qoder, Cursor, Antigravity, and OpenCode history, inspecting transcript details, exporting chats, and analyzing Codex usage patterns.
+The browser UI for browsing local Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, and OpenCode history, inspecting transcript details, exporting chats, and analyzing Codex usage patterns.
 
 ## Stack
 
@@ -18,9 +18,11 @@ The browser UI for browsing local Codex, Claude Code, Kiro, Qoder, Cursor, Antig
 - lists derived Codex projects from the Codex SQLite database
 - lists Codex threads within a project in chronological order
 - shows Codex thread timelines, tool calls, metadata, and raw event context
-- exports Codex, Claude Code, Kiro, Qoder, Cursor, and OpenCode sessions or threads as Markdown, plain text, or optional zip archives with optional metadata, commentary, and tool-call inclusion
+- exports Codex, Claude Code, Grok, Kiro, Qoder, Cursor, and OpenCode sessions or threads as Markdown, plain text, or optional zip archives with optional metadata, commentary, and tool-call inclusion
 - lists Claude Code workspaces and sessions from local `~/.claude/projects` JSONL files
 - shows dedicated Claude Code session detail pages with reasoning, tool calls, token metadata, and export actions
+- lists Grok workspaces and sessions from local Grok session archives
+- shows dedicated Grok session detail pages with compacted-history recovery, tool calls, metadata, export, and delete actions
 - lists Kiro workspaces and sessions from local Kiro workspace session files
 - shows dedicated Kiro session detail pages with image attachments, prompt logs, execution-derived tool calls, metadata, and export actions
 - lists Qoder workspaces and sessions from local Qoder history and checkpoint storage
@@ -67,9 +69,15 @@ Runtime configuration is intentionally small:
 - `SPIRACHA_ANALYTICS_TRANSCRIPT_CONCURRENCY`
   - Optional positive integer for Codex analytics transcript parsing concurrency.
   - Defaults to `8`.
+- `SPIRACHA_TRANSCRIPT_LOAD_CONCURRENCY`
+  - Optional positive integer for detail-page transcript loading concurrency across sources.
+  - Defaults to `3` and is capped at `16` to protect the server from excessive parallel disk and database work.
 - `SPIRACHA_CLAUDE_CODE_PROJECTS_DIR`
   - Optional absolute path to the Claude Code projects directory.
   - If unset, Spiracha reads `${SPIRACHA_CLAUDE_CODE_DATA_DIR:-~/.claude}/projects`. `SPIRACHA_CLAUDE_CODE_DIR` and `SPIRACHA_CLAUDE_HOME` are also accepted aliases for the Claude Code data directory.
+- `SPIRACHA_GROK_SESSIONS_DIR`
+  - Optional path to the Grok sessions directory.
+  - If unset, Spiracha reads `${SPIRACHA_GROK_HOME:-~/.grok}/sessions`. `SPIRACHA_GROK_DIR` is accepted as a Grok home-directory alias.
 - `SPIRACHA_KIRO_WORKSPACE_SESSIONS_DIR`
   - Optional absolute path to the Kiro workspace sessions directory.
   - If unset, Spiracha reads `${SPIRACHA_KIRO_DATA_DIR:-~/Library/Application Support/Kiro/User/globalStorage/kiro.kiroagent}/workspace-sessions`. `SPIRACHA_KIRO_AGENT_DIR` and `SPIRACHA_KIRO_DIR` are also accepted aliases for the Kiro data directory.
@@ -82,6 +90,9 @@ Runtime configuration is intentionally small:
 - `SPIRACHA_OPENCODE_DB`
   - Optional absolute path to the OpenCode SQLite database.
   - If unset, Spiracha reads `${SPIRACHA_OPENCODE_DATA_DIR:-${XDG_DATA_HOME:-~/.local/share}/opencode}/opencode.db`. `SPIRACHA_OPENCODE_DIR` is also accepted as an OpenCode data-directory alias.
+- `SPIRACHA_OPENCODE_DB_CONCURRENCY`
+  - Optional positive integer for concurrent OpenCode database reads.
+  - Defaults to `2`.
 - `SPIRACHA_CURSOR_USER_DIR`
   - Optional absolute path to Cursor's `User` directory.
   - If unset, Spiracha reads the platform default Cursor user-data directory.
@@ -100,6 +111,7 @@ Default source locations:
 | --- | --- | --- |
 | Codex | shared Codex DB probe list | `SPIRACHA_CODEX_DB` |
 | Claude Code | `~/.claude/projects` | `SPIRACHA_CLAUDE_CODE_PROJECTS_DIR` |
+| Grok | `~/.grok/sessions` | `SPIRACHA_GROK_SESSIONS_DIR`, `SPIRACHA_GROK_HOME` |
 | Kiro | `~/Library/Application Support/Kiro/User/globalStorage/kiro.kiroagent/workspace-sessions` | `SPIRACHA_KIRO_WORKSPACE_SESSIONS_DIR` |
 | Qoder | `~/Library/Application Support/Qoder/User/globalStorage/state.vscdb` + `~/Library/Application Support/Qoder/User/workspaceStorage` | `SPIRACHA_QODER_GLOBAL_STATE_DB`, `SPIRACHA_QODER_WORKSPACE_STORAGE_DIR` |
 | Cursor | `~/Library/Application Support/Cursor/User` on macOS | `SPIRACHA_CURSOR_USER_DIR`, `SPIRACHA_CURSOR_PROJECTS_DIR` |
@@ -125,6 +137,12 @@ Transcript detail pages expose the same display controls across sources: user me
   - Claude Code workspace session listing
 - `/claude-code-sessions/$sessionId`
   - Claude Code session detail and export
+- `/grok`
+  - Grok workspace inventory and search
+- `/grok/$workspaceKey`
+  - Grok workspace session listing
+- `/grok-sessions/$sessionId`
+  - Grok session detail, export, and delete
 - `/kiro`
   - Kiro workspace inventory and search
 - `/kiro/$workspaceKey`

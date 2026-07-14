@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as settingsStore from '#/lib/settings-store';
 
 const virtualizerCalls: Array<Record<string, unknown>> = [];
+const virtualizerScrollCalls: Array<[number, { align?: string } | undefined]> = [];
 
 vi.mock('@tanstack/react-virtual', () => ({
     useVirtualizer: (options: Record<string, unknown>) => {
@@ -20,11 +21,14 @@ vi.mock('@tanstack/react-virtual', () => ({
                     start: index * 160,
                 })),
             measureElement: vi.fn(),
+            scrollToIndex: (index: number, options?: { align?: string }) => {
+                virtualizerScrollCalls.push([index, options]);
+            },
         };
     },
 }));
 
-import { TranscriptView } from './transcript-view';
+import { DEFAULT_SHOW_USER_MESSAGES, getTranscriptEventKey, TranscriptView } from './transcript-view';
 
 const messageEvent: Extract<ThreadEvent, { kind: 'message' }> = {
     isHiddenByDefault: false,
@@ -60,7 +64,36 @@ describe('TranscriptView', () => {
 
     beforeEach(() => {
         virtualizerCalls.length = 0;
+        virtualizerScrollCalls.length = 0;
         vi.restoreAllMocks();
+    });
+
+    it('should show only final assistant messages with the shared route default', () => {
+        render(
+            <TranscriptView
+                assistantModel={null}
+                events={[
+                    messageEvent,
+                    {
+                        ...messageEvent,
+                        phase: 'final_answer',
+                        role: 'assistant',
+                        sequence: 1,
+                        text: 'Implementation complete',
+                        variant: 'agent_message',
+                    },
+                ]}
+                projectPath="/Users/example/workspace/spiracha"
+                showCommentary={false}
+                showExtraEvents={false}
+                showRawJson={false}
+                showToolCalls={false}
+                showUserMessages={DEFAULT_SHOW_USER_MESSAGES}
+            />,
+        );
+
+        expect(screen.queryByText('Build the UI')).toBeNull();
+        expect(screen.getByText('Implementation complete')).toBeTruthy();
     });
 
     it('should hide and show tool calls based on the checkbox state passed in', () => {
@@ -169,6 +202,102 @@ describe('TranscriptView', () => {
         expect(latestCall?.measureElement).toBeTypeOf('function');
     });
 
+    it('should scroll to and mark the requested event in non-virtualized transcript lists', () => {
+        const scrollIntoView = vi.fn();
+        Object.assign(window.HTMLElement.prototype, { scrollIntoView });
+
+        const secondMessage = {
+            ...messageEvent,
+            sequence: 2,
+            text: 'Second matching answer',
+        };
+
+        render(
+            <TranscriptView
+                activeEventJumpSignal={1}
+                activeEventKey={getTranscriptEventKey(secondMessage, 1)}
+                assistantModel={null}
+                events={[messageEvent, secondMessage]}
+                projectPath="/Users/example/workspace/spiracha"
+                showCommentary
+                showExtraEvents={false}
+                showRawJson={false}
+                showToolCalls={false}
+            />,
+        );
+
+        expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'auto', block: 'start' });
+        expect(screen.getByText('Second matching answer').closest('article')?.getAttribute('aria-current')).toBe(
+            'location',
+        );
+    });
+
+    it('should scroll virtualized transcript lists to the requested event index', () => {
+        const events = Array.from({ length: 41 }, (_, index) => ({
+            ...messageEvent,
+            raw: { index, type: 'message' },
+            sequence: index,
+            text: `Message ${index}`,
+        }));
+
+        render(
+            <TranscriptView
+                activeEventJumpSignal={1}
+                activeEventKey={getTranscriptEventKey(events[25]!, 25)}
+                assistantModel={null}
+                events={events}
+                projectPath="/Users/example/workspace/spiracha"
+                showCommentary
+                showExtraEvents={false}
+                showRawJson={false}
+                showToolCalls={false}
+            />,
+        );
+
+        expect(virtualizerScrollCalls.at(-1)).toEqual([25, { align: 'start' }]);
+    });
+
+    it('should handle a new virtualized jump target even when the signal is reused', () => {
+        const events = Array.from({ length: 41 }, (_, index) => ({
+            ...messageEvent,
+            raw: { index, type: 'message' },
+            sequence: index,
+            text: `Message ${index}`,
+        }));
+        const { rerender } = render(
+            <TranscriptView
+                activeEventJumpSignal={1}
+                activeEventKey={getTranscriptEventKey(events[10]!, 10)}
+                assistantModel={null}
+                events={events}
+                projectPath="/Users/example/workspace/spiracha"
+                showCommentary
+                showExtraEvents={false}
+                showRawJson={false}
+                showToolCalls={false}
+            />,
+        );
+
+        rerender(
+            <TranscriptView
+                activeEventJumpSignal={1}
+                activeEventKey={getTranscriptEventKey(events[20]!, 20)}
+                assistantModel={null}
+                events={events}
+                projectPath="/Users/example/workspace/spiracha"
+                showCommentary
+                showExtraEvents={false}
+                showRawJson={false}
+                showToolCalls={false}
+            />,
+        );
+
+        expect(virtualizerScrollCalls.slice(-2)).toEqual([
+            [10, { align: 'start' }],
+            [20, { align: 'start' }],
+        ]);
+    });
+
     it('should hide and show commentary messages independently of final assistant answers', () => {
         const commentaryEvent: ThreadEvent = {
             isHiddenByDefault: false,
@@ -249,6 +378,72 @@ describe('TranscriptView', () => {
 
         expect(screen.queryByText('Build the UI')).toBeNull();
         expect(screen.getByText('Implemented the requested dashboard update.')).toBeTruthy();
+    });
+
+    it('should sort visible transcript events latest first without mutating source order', () => {
+        const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+        HTMLElement.prototype.scrollIntoView = vi.fn();
+        const events = [
+            { ...messageEvent, sequence: 1, text: 'Earliest message' },
+            { ...messageEvent, sequence: 2, text: 'Middle message' },
+            { ...messageEvent, sequence: 3, text: 'Latest message' },
+        ];
+
+        try {
+            const handleSortOrderChange = vi.fn();
+            const { container, rerender } = render(
+                <TranscriptView
+                    assistantModel={null}
+                    events={events}
+                    projectPath="/Users/example/workspace/spiracha"
+                    showCommentary
+                    showExtraEvents={false}
+                    showRawJson={false}
+                    showToolCalls={false}
+                    sortOrder="earliest"
+                    onSortOrderChange={handleSortOrderChange}
+                />,
+            );
+
+            const renderedMessageTexts = () =>
+                [...container.querySelectorAll('article')]
+                    .map((article) => article.textContent ?? '')
+                    .flatMap((text) => {
+                        if (text.includes('Earliest message')) {
+                            return ['Earliest message'];
+                        }
+                        if (text.includes('Middle message')) {
+                            return ['Middle message'];
+                        }
+                        return text.includes('Latest message') ? ['Latest message'] : [];
+                    });
+
+            expect(renderedMessageTexts()).toEqual(['Earliest message', 'Middle message', 'Latest message']);
+
+            fireEvent.click(screen.getByRole('combobox', { name: 'Sort transcript messages' }));
+            fireEvent.click(screen.getByText('Latest first'));
+
+            expect(handleSortOrderChange).toHaveBeenCalledWith('latest');
+
+            rerender(
+                <TranscriptView
+                    assistantModel={null}
+                    events={events}
+                    projectPath="/Users/example/workspace/spiracha"
+                    showCommentary
+                    showExtraEvents={false}
+                    showRawJson={false}
+                    showToolCalls={false}
+                    sortOrder="latest"
+                    onSortOrderChange={handleSortOrderChange}
+                />,
+            );
+
+            expect(renderedMessageTexts()).toEqual(['Latest message', 'Middle message', 'Earliest message']);
+            expect(events.map((event) => event.text)).toEqual(['Earliest message', 'Middle message', 'Latest message']);
+        } finally {
+            HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+        }
     });
 
     it('should label system messages as System instead of User', () => {
@@ -396,6 +591,55 @@ describe('TranscriptView', () => {
                 '## Tool call: exec_command\n\nrtk bun test\n\n/Users/example/workspace/spiracha',
             ].join('\n\n'),
         );
+    });
+
+    it('should show individual message checkbox selection immediately', () => {
+        render(
+            <TranscriptView
+                assistantModel={null}
+                events={[messageEvent, { ...messageEvent, sequence: 2, text: 'Second user message' }]}
+                projectPath="/Users/example/workspace/spiracha"
+                showCommentary
+                showExtraEvents={false}
+                showRawJson={false}
+                showToolCalls={false}
+            />,
+        );
+
+        const messageCheckbox = screen.getAllByRole('checkbox', { name: 'Select User' })[0]!;
+        fireEvent.click(messageCheckbox);
+
+        expect(messageCheckbox.getAttribute('aria-checked')).toBe('true');
+        expect(screen.getByText('1 selected')).toBeTruthy();
+        expect(screen.getByText('Build the UI').closest('article')?.className).toContain('ring-2');
+    });
+
+    it('should preserve message checkbox selection after a search result jump is active', () => {
+        const scrollIntoView = vi.fn();
+        Object.assign(window.HTMLElement.prototype, { scrollIntoView });
+        const secondMessage = { ...messageEvent, sequence: 2, text: 'Second matching answer' };
+
+        render(
+            <TranscriptView
+                activeEventJumpSignal={1}
+                activeEventKey={getTranscriptEventKey(secondMessage, 1)}
+                assistantModel={null}
+                events={[messageEvent, secondMessage]}
+                projectPath="/Users/example/workspace/spiracha"
+                showCommentary
+                showExtraEvents={false}
+                showRawJson={false}
+                showToolCalls={false}
+            />,
+        );
+
+        const activeMessageCheckbox = screen.getAllByRole('checkbox', { name: 'Select User' })[1]!;
+        fireEvent.click(activeMessageCheckbox);
+
+        expect(activeMessageCheckbox.getAttribute('aria-checked')).toBe('true');
+        expect(screen.getByText('1 selected')).toBeTruthy();
+        expect(screen.getByText('Second matching answer').closest('article')?.className).toContain('ring-2');
+        expect(scrollIntoView).toHaveBeenCalledTimes(1);
     });
 
     it('should keep selection keys distinct for duplicate tool-call metadata', async () => {

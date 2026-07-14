@@ -88,10 +88,11 @@ const renderTextPart = (
     options: OpenCodeExportOptions,
     finalAssistantTextPartIds: Set<string>,
 ): string => {
+    const rawText = part.text ?? '';
     const { reasoningBlocks, visibleText } =
         part.role === 'assistant'
-            ? splitOpenCodeThinkTaggedText(part.text ?? '')
-            : { reasoningBlocks: [], visibleText: part.text ?? '' };
+            ? splitOpenCodeThinkTaggedText(rawText)
+            : { reasoningBlocks: [], visibleText: rawText };
     const sections: string[] = [];
 
     if (options.includeCommentary) {
@@ -119,7 +120,8 @@ const renderReasoningPart = (part: OpenCodeTranscriptPart, options: OpenCodeExpo
         return '';
     }
 
-    const { reasoningBlocks, visibleText } = splitOpenCodeThinkTaggedText(part.text ?? '');
+    const rawText = part.text ?? '';
+    const { reasoningBlocks, visibleText } = splitOpenCodeThinkTaggedText(rawText);
     const text = cleanExtractedText([...reasoningBlocks, visibleText].filter(Boolean).join('\n\n')).trim();
     return text ? renderSection('Reasoning', text, options.outputFormat) : '';
 };
@@ -143,8 +145,9 @@ const renderToolPart = (part: OpenCodeTranscriptPart, options: OpenCodeExportOpt
     if (part.argumentsText?.trim()) {
         lines.push('', 'Input:', '', renderCodeBlock(part.argumentsText.trim(), options.outputFormat));
     }
-    if (part.outputText?.trim()) {
-        lines.push('', 'Output:', '', renderCodeBlock(truncateOutput(part.outputText.trim()), options.outputFormat));
+    const outputText = part.outputText ?? '';
+    if (outputText.trim()) {
+        lines.push('', 'Output:', '', renderCodeBlock(truncateOutput(outputText.trim()), options.outputFormat));
     }
 
     return renderSection('Tool Call', lines.join('\n'), options.outputFormat);

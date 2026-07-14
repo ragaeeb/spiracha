@@ -41,7 +41,11 @@ const columns = [
         header: 'Snapshots',
     }),
     columnHelper.accessor('lastActiveAtMs', {
-        cell: (info) => <span className="whitespace-nowrap text-sm">{formatDateTime(info.getValue())}</span>,
+        cell: (info) => (
+            <span className="whitespace-nowrap text-sm" suppressHydrationWarning>
+                {formatDateTime(info.getValue())}
+            </span>
+        ),
         header: 'Last active',
     }),
 ] as const;

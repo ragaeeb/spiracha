@@ -4,8 +4,10 @@ import {
     encodeAnalyticsProjectSelectValue,
     parseAnalyticsSearch,
     parseTextQuerySearch,
+    parseThreadTranscriptSearch,
     withAnalyticsProjectSearch,
     withTextQuerySearch,
+    withThreadTranscriptSearch,
 } from './route-search';
 
 describe('route search helpers', () => {
@@ -47,5 +49,52 @@ describe('route search helpers', () => {
         expect(decodeAnalyticsProjectSelectValue('__all__')).toBeNull();
         expect(decodeAnalyticsProjectSelectValue('spiracha')).toBeNull();
         expect(decodeAnalyticsProjectSelectValue('project:__all__')).toBe('__all__');
+    });
+
+    it('should parse thread transcript filters from the URL', () => {
+        expect(
+            parseThreadTranscriptSearch({
+                commentary: 'true',
+                extra: '1',
+                q: '  export  ',
+                raw: 'false',
+                sort: 'latest',
+                tools: true,
+                user: '0',
+            }),
+        ).toEqual({
+            commentary: true,
+            extra: true,
+            q: 'export',
+            sort: 'latest',
+            tools: true,
+        });
+        expect(parseThreadTranscriptSearch({ sort: 'earliest' })).toEqual({});
+        expect(parseThreadTranscriptSearch({ sort: 'other' })).toEqual({});
+    });
+
+    it('should keep thread transcript filters bookmarkable while dropping false values', () => {
+        expect(
+            withThreadTranscriptSearch(
+                {
+                    commentary: true,
+                    q: 'export',
+                    tools: true,
+                },
+                {
+                    extra: true,
+                    q: '',
+                    sort: 'latest',
+                    tools: false,
+                    user: true,
+                },
+            ),
+        ).toEqual({
+            commentary: true,
+            extra: true,
+            sort: 'latest',
+            user: true,
+        });
+        expect(withThreadTranscriptSearch({ sort: 'latest' }, { sort: 'earliest' })).toEqual({});
     });
 });

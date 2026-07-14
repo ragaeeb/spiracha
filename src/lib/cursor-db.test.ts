@@ -225,6 +225,48 @@ describe('cursor-db workspace discovery', () => {
         expect(await listCursorThreadsForGroup(historyOnly!, userDir, { includeTranscriptDirs: false })).toEqual([]);
     });
 
+    it('should ignore null global composer heads during workspace discovery', async () => {
+        const userDir = await makeUserDir();
+        await createCursorFixture(userDir, {
+            buckets: [],
+            threads: [],
+        });
+        const db = new Database(getCursorGlobalDbPath(userDir));
+        try {
+            db.run('INSERT OR REPLACE INTO cursorDiskKV (key, value) VALUES (?, ?)', [
+                'composerData:null-head',
+                'null',
+            ]);
+        } finally {
+            db.close();
+        }
+
+        const groups = await listCursorWorkspaceGroups(userDir);
+
+        expect(groups).toEqual([]);
+    });
+
+    it('should ignore SQL null global composer head values during workspace discovery', async () => {
+        const userDir = await makeUserDir();
+        const globalDir = path.join(userDir, 'globalStorage');
+        await mkdir(globalDir, { recursive: true });
+        const db = new Database(getCursorGlobalDbPath(userDir));
+        try {
+            db.exec('CREATE TABLE ItemTable (key TEXT PRIMARY KEY, value TEXT)');
+            db.exec('CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT)');
+            db.run('INSERT OR REPLACE INTO cursorDiskKV (key, value) VALUES (?, ?)', [
+                'composerData:sql-null-head',
+                null,
+            ]);
+        } finally {
+            db.close();
+        }
+
+        const groups = await listCursorWorkspaceGroups(userDir);
+
+        expect(groups).toEqual([]);
+    });
+
     it('should list threads for a workspace with bubble counts', async () => {
         const userDir = await makeUserDir();
         await createCursorFixture(userDir, baseSpec());
@@ -277,6 +319,32 @@ describe('cursor-db workspace discovery', () => {
         const [group] = await listCursorWorkspaceGroups(userDir);
 
         expect(group?.folders).toEqual([path.join(userDir, 'packages/app')]);
+    });
+
+    it('should ignore stale code-workspace references without warning', async () => {
+        const userDir = await makeUserDir();
+        const workspaceFilePath = path.join(userDir, 'missing.code-workspace');
+        await createCursorFixture(userDir, {
+            buckets: [
+                {
+                    bucketId: 'stale-workspace-bucket',
+                    workspace: `file://${workspaceFilePath}`,
+                },
+            ],
+            threads: [],
+        });
+        const warn = console.warn;
+        const warnings: unknown[][] = [];
+        console.warn = (...args: unknown[]) => warnings.push(args);
+
+        try {
+            const [group] = await listCursorWorkspaceGroups(userDir);
+
+            expect(group?.folders).toEqual([]);
+            expect(warnings).toEqual([]);
+        } finally {
+            console.warn = warn;
+        }
     });
 });
 

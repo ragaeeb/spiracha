@@ -1,10 +1,11 @@
 import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/codex-browser-types';
 import type { OpenCodeSessionTranscript } from '@spiracha/lib/opencode-exporter-types';
-import { useMutation, useSuspenseQuery } from '@tanstack/react-query';
-import { createFileRoute, Link } from '@tanstack/react-router';
-import { Download } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
+import { Download, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Breadcrumbs } from '#/components/breadcrumbs';
+import { DeleteConfirmDialog } from '#/components/delete-confirm-dialog';
 import { ExportDialog } from '#/components/export-dialog';
 import { JsonPanel } from '#/components/json-panel';
 import { LoadingPanel } from '#/components/loading-panel';
@@ -12,14 +13,14 @@ import { MetadataSection } from '#/components/metadata-section';
 import { MetricCard } from '#/components/metric-card';
 import { PageHeader } from '#/components/page-header';
 import { ReloadErrorPanel } from '#/components/reload-error-panel';
-import { TranscriptView } from '#/components/transcript-view';
+import { DEFAULT_SHOW_USER_MESSAGES, TranscriptView } from '#/components/transcript-view';
 import { Button } from '#/components/ui/button';
 import { Checkbox } from '#/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import { formatDateTime, formatList, formatNumber, formatTokens } from '#/lib/formatters';
 import { openCodeSessionDetailQueryOptions } from '#/lib/opencode-queries';
-import { exportOpenCodeSessionFn } from '#/lib/opencode-server';
+import { deleteOpenCodeSessionFn, exportOpenCodeSessionFn } from '#/lib/opencode-server';
 import { getOpenCodeThreadTranscriptStats, openCodeTranscriptToThreadEvents } from '#/lib/opencode-transcript-events';
 
 type ExportDialogOptions = {
@@ -47,6 +48,8 @@ type TranscriptControlsProps = {
 const OpenCodeSessionDetailErrorComponent = ({ error }: { error: Error }) => {
     return <ReloadErrorPanel description={error.message} title="Failed to load OpenCode session" />;
 };
+
+const toError = (error: unknown) => (error instanceof Error ? error : new Error(String(error)));
 
 const buildSessionMetadata = (detail: OpenCodeSessionTranscript) => [
     { label: 'Session ID', value: <span data-mono="true">{detail.session.sessionId}</span> },
@@ -159,18 +162,27 @@ const OpenCodeRawPanels = ({ detail, events }: { detail: OpenCodeSessionTranscri
 };
 
 const OpenCodeSessionDetailPage = () => {
-    const detail = useSuspenseQuery(openCodeSessionDetailQueryOptions(Route.useParams().sessionId)).data;
+    const navigate = useNavigate();
+    const queryClient = useQueryClient();
+    const params = Route.useParams();
+    const detailQuery = useQuery(openCodeSessionDetailQueryOptions(params.sessionId));
+    const detail = detailQuery.data ?? null;
+    const [deleteOpen, setDeleteOpen] = useState(false);
     const [pendingExport, setPendingExport] = useState(false);
     const [showToolCalls, setShowToolCalls] = useState(false);
     const [showCommentary, setShowCommentary] = useState(false);
     const [showExtraEvents, setShowExtraEvents] = useState(false);
     const [showRawJson, setShowRawJson] = useState(false);
-    const [showUserMessages, setShowUserMessages] = useState(true);
-    const transcriptEvents = useMemo(() => openCodeTranscriptToThreadEvents(detail), [detail]);
+    const [showUserMessages, setShowUserMessages] = useState(DEFAULT_SHOW_USER_MESSAGES);
+    const transcriptEvents = useMemo(() => (detail ? openCodeTranscriptToThreadEvents(detail) : []), [detail]);
     const transcriptStats = useMemo(() => getOpenCodeThreadTranscriptStats(transcriptEvents), [transcriptEvents]);
 
     const exportSessionMutation = useMutation({
         mutationFn: async (options: ExportDialogOptions) => {
+            if (!detail) {
+                throw new Error(`OpenCode session not found: ${params.sessionId}`);
+            }
+
             const download = await exportOpenCodeSessionFn({
                 data: {
                     includeCommentary: options.includeCommentary,
@@ -193,19 +205,74 @@ const OpenCodeSessionDetailPage = () => {
         },
     });
 
+    const deleteSessionMutation = useMutation({
+        mutationFn: () => {
+            if (!detail) {
+                throw new Error(`OpenCode session not found: ${params.sessionId}`);
+            }
+
+            return deleteOpenCodeSessionFn({ data: { sessionId: detail.session.sessionId } });
+        },
+        onSuccess: async () => {
+            if (!detail) {
+                return;
+            }
+
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ['opencode-workspaces'] }),
+                queryClient.invalidateQueries({ queryKey: ['opencode-sessions', detail.session.workspaceKey] }),
+                queryClient.invalidateQueries({ queryKey: ['opencode-session', detail.session.sessionId] }),
+            ]);
+            navigate({
+                params: { workspaceKey: detail.session.workspaceKey },
+                to: '/opencode/$workspaceKey',
+            });
+        },
+    });
+
+    if (detailQuery.isLoading) {
+        return (
+            <LoadingPanel
+                description="Loading the OpenCode transcript, parts, and session metadata."
+                title="Loading session"
+            />
+        );
+    }
+
+    if (detailQuery.isError) {
+        return <OpenCodeSessionDetailErrorComponent error={toError(detailQuery.error)} />;
+    }
+
+    if (!detail) {
+        return (
+            <OpenCodeSessionDetailErrorComponent error={new Error(`OpenCode session not found: ${params.sessionId}`)} />
+        );
+    }
+
     return (
         <div className="space-y-6">
             <PageHeader
                 actions={
-                    <Button
-                        className="rounded-full"
-                        type="button"
-                        variant="outline"
-                        onClick={() => setPendingExport(true)}
-                    >
-                        <Download className="mr-2 size-4" />
-                        Export
-                    </Button>
+                    <>
+                        <Button
+                            className="rounded-full"
+                            type="button"
+                            variant="outline"
+                            onClick={() => setPendingExport(true)}
+                        >
+                            <Download className="mr-2 size-4" />
+                            Export
+                        </Button>
+                        <Button
+                            className="rounded-full border-[var(--destructive)]/20 text-[var(--destructive)]"
+                            type="button"
+                            variant="outline"
+                            onClick={() => setDeleteOpen(true)}
+                        >
+                            <Trash2 className="mr-2 size-4" />
+                            Delete
+                        </Button>
+                    </>
                 }
                 breadcrumb={
                     <Breadcrumbs
@@ -316,6 +383,27 @@ const OpenCodeSessionDetailPage = () => {
                     }
                 }}
             />
+
+            <DeleteConfirmDialog
+                confirmLabel={deleteSessionMutation.isPending ? 'Deleting...' : 'Delete session'}
+                description="Permanently delete this OpenCode session from the database. This removes the session, child sessions, messages, and parts."
+                errorMessage={
+                    deleteSessionMutation.isError
+                        ? deleteSessionMutation.error instanceof Error
+                            ? deleteSessionMutation.error.message
+                            : 'Session delete failed'
+                        : null
+                }
+                open={deleteOpen}
+                title="Delete this OpenCode session?"
+                onConfirm={() => deleteSessionMutation.mutate()}
+                onOpenChange={(open) => {
+                    setDeleteOpen(open);
+                    if (!open) {
+                        deleteSessionMutation.reset();
+                    }
+                }}
+            />
         </div>
     );
 };
@@ -323,8 +411,6 @@ const OpenCodeSessionDetailPage = () => {
 export const Route = createFileRoute('/opencode-sessions/$sessionId')({
     component: OpenCodeSessionDetailPage,
     errorComponent: OpenCodeSessionDetailErrorComponent,
-    loader: ({ context, params }) =>
-        context.queryClient.ensureQueryData(openCodeSessionDetailQueryOptions(params.sessionId)),
     pendingComponent: () => (
         <LoadingPanel
             description="Loading the OpenCode transcript, parts, and session metadata."

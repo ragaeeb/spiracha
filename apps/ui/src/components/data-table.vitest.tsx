@@ -63,7 +63,9 @@ describe('DataTable', () => {
         );
 
         fireEvent.click(screen.getByRole('checkbox', { name: 'Select row row-1' }));
-        fireEvent.click(screen.getByRole('checkbox', { name: /select row row-3/i }), { shiftKey: true });
+        const rowThreeCheckbox = screen.getByRole('checkbox', { name: /select row row-3/i });
+        fireEvent.pointerDown(rowThreeCheckbox, { shiftKey: true });
+        fireEvent.click(rowThreeCheckbox, { shiftKey: true });
 
         expect(screen.getByText((content) => content.includes('row-1,row-2,row-3'))).toBeTruthy();
     });

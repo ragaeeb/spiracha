@@ -126,6 +126,11 @@ const parseCodeWorkspaceJson = (text: string): { folders?: Array<{ path?: string
     }
 };
 
+const isMissingCodeWorkspaceFileError = (error: unknown): boolean => {
+    const code = (error as { code?: unknown }).code;
+    return code === 'ENOENT' || code === 'ENOTDIR';
+};
+
 const parseCodeWorkspaceFolders = async (workspaceFilePath: string): Promise<string[]> => {
     if (!workspaceFilePath.endsWith('.code-workspace')) {
         return [];
@@ -149,6 +154,10 @@ const parseCodeWorkspaceFolders = async (workspaceFilePath: string): Promise<str
 
         return folders;
     } catch (error) {
+        if (isMissingCodeWorkspaceFileError(error)) {
+            return [];
+        }
+
         warnCursorDataIssue('invalid_code_workspace_json', {
             error: error instanceof Error ? error.message : String(error),
             workspaceFilePath,
@@ -679,23 +688,43 @@ const readAllHeads = (db: Database, options: CursorDiscoveryOptions = {}): Map<s
                  WHERE key LIKE 'composerData:%'
                     AND COALESCE(json_extract(value, '$.lastUpdatedAt'), 0) >= ?`,
             )
-            .all(options.updatedAfterMs) as Array<{ id: string; value: string }>;
+            .all(options.updatedAfterMs) as Array<{ id: string; value: string | null }>;
 
         return new Map(rows.map((row) => [row.id, parseGlobalHead(row.value)]));
     }
 
     const rows = db
         .query(`SELECT substr(key, 14) AS id, value FROM cursorDiskKV WHERE key LIKE 'composerData:%'`)
-        .all() as Array<{ id: string; value: string }>;
+        .all() as Array<{ id: string; value: string | null }>;
 
     return new Map(rows.map((row) => [row.id, parseGlobalHead(row.value)]));
 };
 
-const parseGlobalHead = (value: string): GlobalHead => {
-    let parsed: Record<string, JsonValue> = {};
+const parseGlobalHead = (value: string | null): GlobalHead => {
+    let parsed: Record<string, JsonValue> | null = {};
+    if (value === null) {
+        return {
+            createdAtMs: null,
+            lastUpdatedAtMs: null,
+            mode: null,
+            name: null,
+            pathHint: null,
+        };
+    }
+
     try {
-        parsed = JSON.parse(value) as Record<string, JsonValue>;
+        parsed = asObject(JSON.parse(value) as JsonValue);
     } catch {
+        return {
+            createdAtMs: null,
+            lastUpdatedAtMs: null,
+            mode: null,
+            name: null,
+            pathHint: inferFolderFromBlob(value),
+        };
+    }
+
+    if (!parsed) {
         return {
             createdAtMs: null,
             lastUpdatedAtMs: null,

@@ -1,6 +1,7 @@
 import { queryOptions } from '@tanstack/react-query';
 import {
     getClaudeCodeSessionDetailFn,
+    getClaudeCodeSessionTranscriptFn,
     listClaudeCodeSessionsFn,
     listClaudeCodeWorkspacesFn,
 } from './claude-code-server';
@@ -23,4 +24,11 @@ export const claudeCodeSessionDetailQueryOptions = (sessionId: string | null) =>
         enabled: sessionId !== null,
         queryFn: () => getClaudeCodeSessionDetailFn({ data: { sessionId: sessionId ?? '' } }),
         queryKey: ['claude-code-session', sessionId ?? 'none'],
+    });
+
+export const claudeCodeSessionTranscriptQueryOptions = (sessionId: string | null) =>
+    queryOptions({
+        enabled: sessionId !== null,
+        queryFn: () => getClaudeCodeSessionTranscriptFn({ data: { sessionId: sessionId ?? '' } }),
+        queryKey: ['claude-code-session-transcript', sessionId ?? 'none'],
     });

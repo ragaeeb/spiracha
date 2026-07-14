@@ -1,7 +1,14 @@
+import type {
+    DynamicToolDefinition,
+    MessageEvent,
+    ParsedCodexTranscript,
+    ThreadEvent,
+} from '@spiracha/lib/codex-browser-types';
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
-import { Download, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { ChevronDown, ChevronUp, Download, Search, Trash2 } from 'lucide-react';
+import type { KeyboardEvent } from 'react';
+import { startTransition, useEffect, useMemo, useState } from 'react';
 import { Breadcrumbs } from '#/components/breadcrumbs';
 import { DeleteConfirmDialog } from '#/components/delete-confirm-dialog';
 import { ExportDialog } from '#/components/export-dialog';
@@ -10,18 +17,162 @@ import { LoadingPanel } from '#/components/loading-panel';
 import { MetadataSection } from '#/components/metadata-section';
 import { MetricCard } from '#/components/metric-card';
 import { PageHeader } from '#/components/page-header';
-import { TranscriptView } from '#/components/transcript-view';
+import {
+    getTranscriptEventKey,
+    shouldShowEvent,
+    type TranscriptSortOrder,
+    TranscriptView,
+} from '#/components/transcript-view';
 import { Badge } from '#/components/ui/badge';
 import { Button } from '#/components/ui/button';
 import { Checkbox } from '#/components/ui/checkbox';
+import { Input } from '#/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
-import { threadSnapshotQueryOptions, threadTranscriptQueryOptions } from '#/lib/codex-queries';
+import {
+    threadSnapshotQueryOptions,
+    threadTranscriptPreviewQueryOptions,
+    threadTranscriptQueryOptions,
+} from '#/lib/codex-queries';
 import { deleteThreadFn, exportThreadFn, type getThreadSnapshotFn } from '#/lib/codex-server';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
-import { formatBooleanLabel, formatBytes, formatDateTime, formatList, formatTokens } from '#/lib/formatters';
+import {
+    formatBooleanLabel,
+    formatBytes,
+    formatDateTime,
+    formatList,
+    formatModelLabel,
+    formatTokens,
+} from '#/lib/formatters';
+import { applyPathTransforms } from '#/lib/path-utils';
+import {
+    parseThreadTranscriptSearch,
+    type ThreadTranscriptSearch,
+    withThreadTranscriptSearch,
+} from '#/lib/route-search';
 import { useSettings } from '#/lib/settings-store';
+import { shouldLoadFullThreadTranscript } from '#/lib/thread-transcript-load';
 
-type ThreadSnapshot = Awaited<ReturnType<typeof getThreadSnapshotFn>>;
+type ThreadSnapshotResponse = Awaited<ReturnType<typeof getThreadSnapshotFn>>;
+type ThreadTranscript = ParsedCodexTranscript;
+type ThreadSnapshot = Omit<ThreadSnapshotResponse, 'availableTools' | 'transcript'> & {
+    availableTools: DynamicToolDefinition[];
+    transcript: ThreadTranscript | null;
+};
+
+type TranscriptSearchResult = {
+    event: MessageEvent;
+    eventIndex: number;
+    eventKey: string;
+    messageNumber: number;
+    phase: string | null;
+    roleLabel: string;
+    snippet: string;
+};
+
+type TranscriptSearchPanelProps = {
+    activeResultIndex: number;
+    query: string;
+    results: TranscriptSearchResult[];
+    onJumpToResult: (index: number) => void;
+    onQueryChange: (value: string) => void;
+};
+
+type TranscriptSearchFilters = {
+    showCommentary: boolean;
+    showExtraEvents: boolean;
+    showToolCalls: boolean;
+    showUserMessages: boolean;
+};
+
+const SEARCH_SNIPPET_RADIUS = 72;
+
+const getTranscriptFiltersFromSearch = (search: ThreadTranscriptSearch) => ({
+    showCommentary: search.commentary === true,
+    showExtraEvents: search.extra === true,
+    showToolCalls: search.tools === true,
+    showUserMessages: search.user === true,
+});
+
+type ThreadTranscriptFilters = ReturnType<typeof getTranscriptFiltersFromSearch>;
+
+const normalizeTranscriptSearchText = (value: string) => value.replace(/\s+/gu, ' ').trim();
+
+const getTranscriptSearchRoleLabel = (event: MessageEvent, assistantModel: string | null) => {
+    if (event.role === 'assistant') {
+        return formatModelLabel(event.model ?? assistantModel);
+    }
+
+    return event.role === 'system' ? 'System' : 'User';
+};
+
+const buildTranscriptSearchSnippet = (text: string, query: string) => {
+    const normalizedText = normalizeTranscriptSearchText(text);
+    const normalizedQuery = normalizeTranscriptSearchText(query).toLowerCase();
+    const matchIndex = normalizedText.toLowerCase().indexOf(normalizedQuery);
+
+    if (matchIndex < 0) {
+        return normalizedText.slice(0, SEARCH_SNIPPET_RADIUS * 2);
+    }
+
+    const start = Math.max(0, matchIndex - SEARCH_SNIPPET_RADIUS);
+    const end = Math.min(normalizedText.length, matchIndex + normalizedQuery.length + SEARCH_SNIPPET_RADIUS);
+    const prefix = start > 0 ? '...' : '';
+    const suffix = end < normalizedText.length ? '...' : '';
+
+    return `${prefix}${normalizedText.slice(start, end)}${suffix}`;
+};
+
+const buildTranscriptSearchResults = (
+    events: ThreadEvent[],
+    query: string,
+    assistantModel: string | null,
+    filters: TranscriptSearchFilters,
+    transform: (text: string) => string,
+): TranscriptSearchResult[] => {
+    const normalizedQuery = normalizeTranscriptSearchText(query).toLowerCase();
+    if (!normalizedQuery) {
+        return [];
+    }
+
+    const results: TranscriptSearchResult[] = [];
+    let messageNumber = 0;
+
+    events.forEach((event, index) => {
+        if (event.kind !== 'message') {
+            return;
+        }
+
+        if (
+            !shouldShowEvent(
+                event,
+                filters.showToolCalls,
+                filters.showExtraEvents,
+                filters.showCommentary,
+                filters.showUserMessages,
+            )
+        ) {
+            return;
+        }
+
+        messageNumber += 1;
+        const searchText = normalizeTranscriptSearchText(transform(event.text));
+        if (!searchText.toLowerCase().includes(normalizedQuery)) {
+            return;
+        }
+
+        results.push({
+            event,
+            eventIndex: index,
+            eventKey: getTranscriptEventKey(event, index),
+            messageNumber,
+            phase: event.phase,
+            roleLabel: getTranscriptSearchRoleLabel(event, assistantModel),
+            snippet: buildTranscriptSearchSnippet(searchText, query),
+        });
+    });
+
+    return results;
+};
 
 type TranscriptControlsProps = {
     rawJsonDisabled?: boolean;
@@ -162,7 +313,7 @@ const buildTranscriptStatsItems = (snapshot: ThreadSnapshot) => {
         return [
             { label: 'Transcript load', value: 'Deferred for oversized rollout' },
             { label: 'Rollout size', value: formatBytes(snapshot.rollout.fileSizeBytes) },
-            { label: 'Preview mode', value: 'Load the transcript manually to inspect it.' },
+            { label: 'Deferred load', value: 'Load the transcript manually to inspect it.' },
         ];
     }
 
@@ -237,6 +388,98 @@ function TranscriptControls({
                 <label htmlFor="transcript-show-user-messages">User</label>
             </div>
         </div>
+    );
+}
+
+function TranscriptSearchPanel({
+    activeResultIndex,
+    query,
+    results,
+    onJumpToResult,
+    onQueryChange,
+}: TranscriptSearchPanelProps) {
+    const hasQuery = normalizeTranscriptSearchText(query).length > 0;
+    const hasResults = results.length > 0;
+    const statusLabel = hasQuery
+        ? hasResults
+            ? `${activeResultIndex + 1} / ${results.length}`
+            : 'No matches'
+        : 'Search';
+
+    const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+        if (event.key !== 'Enter' || !hasResults) {
+            return;
+        }
+
+        event.preventDefault();
+        onJumpToResult(event.shiftKey ? activeResultIndex - 1 : activeResultIndex);
+    };
+
+    return (
+        <section className="rounded-xl border border-[var(--border)] bg-[var(--panel)] px-4 py-3 shadow-[var(--panel-shadow)]">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+                <div className="relative min-w-0 flex-1">
+                    <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-[var(--muted-foreground)]" />
+                    <Input
+                        aria-label="Search transcript messages"
+                        className="h-10 rounded-full border-[var(--border)] bg-[var(--panel-secondary)] pr-4 pl-9"
+                        placeholder="Search transcript messages"
+                        value={query}
+                        onChange={(event) => onQueryChange(event.target.value)}
+                        onKeyDown={handleKeyDown}
+                    />
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                    <span className="min-w-20 text-right text-[var(--muted-foreground)] text-sm">{statusLabel}</span>
+                    <Button
+                        className="rounded-full"
+                        disabled={!hasResults}
+                        size="sm"
+                        type="button"
+                        variant="outline"
+                        onClick={() => onJumpToResult(activeResultIndex - 1)}
+                    >
+                        <ChevronUp className="size-4" />
+                        Prev
+                    </Button>
+                    <Button
+                        className="rounded-full"
+                        disabled={!hasResults}
+                        size="sm"
+                        type="button"
+                        variant="outline"
+                        onClick={() => onJumpToResult(activeResultIndex + 1)}
+                    >
+                        <ChevronDown className="size-4" />
+                        Next
+                    </Button>
+                </div>
+            </div>
+
+            {hasQuery && hasResults ? (
+                <div className="mt-3 max-h-72 overflow-auto rounded-xl border border-[var(--border)] bg-[var(--panel-secondary)]">
+                    {results.map((result, index) => (
+                        <button
+                            key={result.eventKey}
+                            aria-current={index === activeResultIndex ? 'true' : undefined}
+                            className="block w-full border-[var(--border)] border-b px-3 py-2.5 text-left transition last:border-b-0 hover:bg-[var(--panel)] aria-current:bg-[var(--panel)]"
+                            type="button"
+                            onClick={() => onJumpToResult(index)}
+                        >
+                            <span className="flex flex-wrap items-center gap-2">
+                                <span className="font-medium text-sm">Message {result.messageNumber}</span>
+                                <Badge variant="outline">{result.roleLabel}</Badge>
+                                {result.phase ? <Badge variant="outline">{result.phase}</Badge> : null}
+                            </span>
+                            <span className="mt-1 block min-w-0 break-words text-[var(--muted-foreground)] text-sm leading-5 [overflow-wrap:anywhere]">
+                                {result.snippet}
+                            </span>
+                        </button>
+                    ))}
+                </div>
+            ) : null}
+        </section>
     );
 }
 
@@ -319,15 +562,48 @@ function DeferredTranscriptNotice({
             <p className="mt-2 text-[var(--muted-foreground)] text-sm leading-6">
                 {missing
                     ? 'The rollout JSONL referenced by this thread is no longer present on disk. Export may still work if the file is restored, but transcript browsing is unavailable right now.'
-                    : `Spiracha skipped loading the transcript automatically because the rollout file is ${formatBytes(fileSizeBytes)}. Export still works immediately. If you need to inspect the thread here, load a bounded preview manually.`}
+                    : `Spiracha skipped loading the transcript automatically because the rollout file is ${formatBytes(fileSizeBytes)}. Export still works immediately. Load the full transcript when you need to inspect it here.`}
             </p>
             {missing ? null : (
                 <div className="mt-4">
                     <Button disabled={pending} variant="outline" onClick={onLoad}>
-                        {pending ? 'Loading preview...' : 'Load transcript preview'}
+                        {pending ? 'Loading full thread...' : 'Load Full Thread'}
                     </Button>
                 </div>
             )}
+        </section>
+    );
+}
+
+function LargeThreadPreviewNotice({
+    fileSizeBytes,
+    fullTranscriptLoaded,
+    pending,
+    onLoad,
+}: {
+    fileSizeBytes: number | null;
+    fullTranscriptLoaded: boolean;
+    pending: boolean;
+    onLoad: () => void;
+}) {
+    const buttonLabel = fullTranscriptLoaded
+        ? 'Full thread loaded'
+        : pending
+          ? 'Loading full thread...'
+          : 'Load Full Thread';
+
+    return (
+        <section className="rounded-[1.6rem] border border-[var(--border)] bg-[var(--panel)] p-5 shadow-[var(--panel-shadow)]">
+            <h3 className="font-semibold text-base">Showing the latest matching messages</h3>
+            <p className="mt-2 text-[var(--muted-foreground)] text-sm leading-6">
+                This rollout is {formatBytes(fileSizeBytes)}, so Spiracha loaded a small window from the end of the
+                thread using the current transcript filters. Load the full thread when you need earlier messages.
+            </p>
+            <div className="mt-4">
+                <Button disabled={pending || fullTranscriptLoaded} variant="outline" onClick={onLoad}>
+                    {buttonLabel}
+                </Button>
+            </div>
         </section>
     );
 }
@@ -364,38 +640,263 @@ const getThreadExportErrorMessage = (transcriptMissing: boolean, error: unknown)
 export const Route = createFileRoute('/threads/$threadId')({
     component: ThreadDetailPage,
     errorComponent: ThreadErrorComponent,
-    loader: ({ context, params }) => context.queryClient.ensureQueryData(threadSnapshotQueryOptions(params.threadId)),
+    loader: ({ context, deps, params }) =>
+        context.queryClient.ensureQueryData(
+            threadSnapshotQueryOptions(
+                params.threadId,
+                (deps as { transcriptFilters: ThreadTranscriptFilters }).transcriptFilters,
+            ),
+        ),
+    loaderDeps: ({ search }) => ({
+        transcriptFilters: getTranscriptFiltersFromSearch(parseThreadTranscriptSearch(search)),
+    }),
     pendingComponent: () => (
         <LoadingPanel
             description="Loading the transcript, metadata, and parsed event stream for this thread."
             title="Loading thread"
         />
     ),
+    validateSearch: parseThreadTranscriptSearch,
 });
 
+const useThreadTranscriptRouteSearch = () => {
+    const navigate = useNavigate({ from: Route.fullPath });
+    const search = Route.useSearch();
+    const transcriptFilters = useMemo(() => getTranscriptFiltersFromSearch(search), [search]);
+
+    const updateTranscriptSearch = (patch: Partial<ThreadTranscriptSearch>) => {
+        startTransition(() => {
+            void navigate({
+                params: true,
+                replace: true,
+                search: (previous: Record<string, unknown>) => withThreadTranscriptSearch(previous, patch),
+            });
+        });
+    };
+
+    return {
+        navigate,
+        search,
+        transcriptFilters,
+        updateTranscriptSearch,
+    };
+};
+
+const useTranscriptSearchResults = ({
+    assistantModel,
+    filters,
+    projectPath,
+    query,
+    settings,
+    transcript,
+}: {
+    assistantModel: string | null;
+    filters: TranscriptSearchFilters;
+    projectPath: string;
+    query: string;
+    settings: ReturnType<typeof useSettings>['settings'];
+    transcript: ThreadTranscript | null;
+}) =>
+    useMemo(
+        () =>
+            transcript
+                ? buildTranscriptSearchResults(transcript.events, query, assistantModel, filters, (text) =>
+                      applyPathTransforms(text, settings, projectPath),
+                  )
+                : [],
+        [assistantModel, filters, projectPath, query, settings, transcript],
+    );
+
+function ThreadTranscriptTab({
+    activeEventJumpSignal,
+    activeSearchResultIndex,
+    activeTranscriptEventKey,
+    fullTranscriptLoaded,
+    loadError,
+    loadingFullTranscript,
+    searchInput,
+    searchResults,
+    showRawJson,
+    sortOrder,
+    snapshot,
+    transcript,
+    transcriptFilters,
+    onJumpToSearchResult,
+    onLoadFullThread,
+    onSearchInputChange,
+    onSortOrderChange,
+    onTranscriptFilterChange,
+}: {
+    activeEventJumpSignal: number;
+    activeSearchResultIndex: number;
+    activeTranscriptEventKey: string | null;
+    fullTranscriptLoaded: boolean;
+    loadError: unknown;
+    loadingFullTranscript: boolean;
+    searchInput: string;
+    searchResults: TranscriptSearchResult[];
+    showRawJson: boolean;
+    sortOrder: TranscriptSortOrder;
+    snapshot: ThreadSnapshot;
+    transcript: ThreadTranscript | null;
+    transcriptFilters: ThreadTranscriptFilters;
+    onJumpToSearchResult: (index: number) => void;
+    onLoadFullThread: () => void;
+    onSearchInputChange: (value: string) => void;
+    onSortOrderChange: (value: TranscriptSortOrder) => void;
+    onTranscriptFilterChange: (patch: Partial<ThreadTranscriptSearch>) => void;
+}) {
+    return (
+        <TabsContent className="space-y-3" value="transcript">
+            <TranscriptControls
+                rawJsonDisabled={!transcript?.rawIncluded}
+                showCommentary={transcriptFilters.showCommentary}
+                showExtraEvents={transcriptFilters.showExtraEvents}
+                showRawJson={showRawJson}
+                showToolCalls={transcriptFilters.showToolCalls}
+                showUserMessages={transcriptFilters.showUserMessages}
+                onShowCommentaryChange={(commentary) => onTranscriptFilterChange({ commentary })}
+                onShowExtraEventsChange={(extra) => onTranscriptFilterChange({ extra })}
+                onShowRawJsonChange={(raw) => onTranscriptFilterChange({ raw })}
+                onShowToolCallsChange={(tools) => onTranscriptFilterChange({ tools })}
+                onShowUserMessagesChange={(user) => onTranscriptFilterChange({ user })}
+            />
+            {transcript?.isPartial && snapshot.rollout.shouldDeferTranscriptLoad ? (
+                <LargeThreadPreviewNotice
+                    fileSizeBytes={snapshot.rollout.fileSizeBytes}
+                    fullTranscriptLoaded={fullTranscriptLoaded}
+                    pending={loadingFullTranscript}
+                    onLoad={onLoadFullThread}
+                />
+            ) : null}
+            {transcript ? (
+                <TranscriptSearchPanel
+                    activeResultIndex={activeSearchResultIndex}
+                    query={searchInput}
+                    results={searchResults}
+                    onJumpToResult={onJumpToSearchResult}
+                    onQueryChange={onSearchInputChange}
+                />
+            ) : null}
+            {transcript ? (
+                <TranscriptView
+                    activeEventJumpSignal={activeEventJumpSignal}
+                    activeEventKey={activeTranscriptEventKey}
+                    assistantModel={snapshot.thread.model}
+                    events={transcript.events}
+                    projectPath={snapshot.thread.cwd}
+                    showCommentary={transcriptFilters.showCommentary}
+                    showExtraEvents={transcriptFilters.showExtraEvents}
+                    showRawJson={showRawJson && transcript.rawIncluded}
+                    showToolCalls={transcriptFilters.showToolCalls}
+                    showUserMessages={transcriptFilters.showUserMessages}
+                    sortOrder={sortOrder}
+                    onSortOrderChange={onSortOrderChange}
+                />
+            ) : (
+                <DeferredTranscriptNotice
+                    fileSizeBytes={snapshot.rollout.fileSizeBytes}
+                    missing={snapshot.transcriptState === 'missing'}
+                    pending={loadingFullTranscript}
+                    onLoad={onLoadFullThread}
+                />
+            )}
+            {loadError ? (
+                <p className="text-[var(--destructive)] text-sm">
+                    Failed to load transcript preview:{' '}
+                    {loadError instanceof Error ? loadError.message : 'Unknown error'}
+                </p>
+            ) : null}
+        </TabsContent>
+    );
+}
+
 function ThreadDetailPage() {
-    const navigate = useNavigate();
+    const { navigate, search, transcriptFilters, updateTranscriptSearch } = useThreadTranscriptRouteSearch();
     const queryClient = useQueryClient();
     const params = Route.useParams();
-    const snapshot = useSuspenseQuery(threadSnapshotQueryOptions(params.threadId)).data;
+    const snapshot = useSuspenseQuery(threadSnapshotQueryOptions(params.threadId, transcriptFilters)).data;
     const { settings } = useSettings();
     const transcriptMissing = snapshot.transcriptState === 'missing';
     const [shouldLoadTranscript, setShouldLoadTranscript] = useState(
         !snapshot.rollout.shouldDeferTranscriptLoad && !transcriptMissing,
     );
-    const [showToolCalls, setShowToolCalls] = useState(false);
-    const [showCommentary, setShowCommentary] = useState(false);
-    const [showExtraEvents, setShowExtraEvents] = useState(false);
-    const [showRawJson, setShowRawJson] = useState(false);
-    const [showUserMessages, setShowUserMessages] = useState(true);
+    const showRawJson = search.raw === true;
+    const sortOrder: TranscriptSortOrder = search.sort ?? 'earliest';
+    const transcriptSearchInput = search.q ?? '';
+    const [activeSearchResultIndex, setActiveSearchResultIndex] = useState(0);
+    const [activeTranscriptEventKey, setActiveTranscriptEventKey] = useState<string | null>(null);
+    const [activeEventJumpSignal, setActiveEventJumpSignal] = useState(0);
     const [exportOpen, setExportOpen] = useState(false);
     const [deleteOpen, setDeleteOpen] = useState(false);
+    const transcriptPreviewQuery = useQuery({
+        ...threadTranscriptPreviewQueryOptions(params.threadId, transcriptFilters),
+        enabled: snapshot.rollout.shouldDeferTranscriptLoad && !shouldLoadTranscript && !transcriptMissing,
+    });
     const transcriptQuery = useQuery({
         ...threadTranscriptQueryOptions(params.threadId),
-        enabled: shouldLoadTranscript && snapshot.transcript === null && !transcriptMissing,
+        enabled: shouldLoadFullThreadTranscript({
+            shouldLoadTranscript,
+            snapshotTranscript: snapshot.transcript,
+            transcriptMissing,
+        }),
     });
-    const transcript = snapshot.transcript ?? transcriptQuery.data ?? null;
-    const viewSnapshot = { ...snapshot, transcript };
+    const transcript = transcriptQuery.data ?? transcriptPreviewQuery.data ?? snapshot.transcript ?? null;
+    const viewSnapshot = {
+        ...snapshot,
+        availableTools:
+            snapshot.availableTools.length > 0 ? snapshot.availableTools : (transcript?.sessionMeta.dynamicTools ?? []),
+        transcript,
+    };
+    const fullTranscriptLoaded = Boolean(transcriptQuery.data && !transcriptQuery.data.isPartial);
+    const transcriptSearchResults = useTranscriptSearchResults({
+        assistantModel: snapshot.thread.model,
+        filters: transcriptFilters,
+        projectPath: snapshot.thread.cwd,
+        query: transcriptSearchInput,
+        settings,
+        transcript,
+    });
+
+    useEffect(() => {
+        setActiveSearchResultIndex((current) =>
+            transcriptSearchResults.length === 0 ? 0 : Math.min(current, transcriptSearchResults.length - 1),
+        );
+        setActiveTranscriptEventKey((current) =>
+            current && transcriptSearchResults.some((result) => result.eventKey === current) ? current : null,
+        );
+    }, [transcriptSearchResults]);
+
+    const updateTranscriptSearchInput = (value: string) => {
+        setActiveSearchResultIndex(0);
+        setActiveTranscriptEventKey(null);
+        updateTranscriptSearch({ q: value });
+    };
+
+    const updateTranscriptFilter = (patch: Partial<ThreadTranscriptSearch>) => {
+        setActiveSearchResultIndex(0);
+        setActiveTranscriptEventKey(null);
+        updateTranscriptSearch(patch);
+    };
+
+    const updateSortOrder = (sort: TranscriptSortOrder) => {
+        updateTranscriptSearch({ sort });
+    };
+
+    const jumpToTranscriptSearchResult = (index: number) => {
+        if (transcriptSearchResults.length === 0) {
+            return;
+        }
+
+        const wrappedIndex =
+            ((index % transcriptSearchResults.length) + transcriptSearchResults.length) %
+            transcriptSearchResults.length;
+        const result = transcriptSearchResults[wrappedIndex]!;
+
+        setActiveSearchResultIndex(wrappedIndex);
+        setActiveTranscriptEventKey(result.eventKey);
+        setActiveEventJumpSignal((current) => current + 1);
+    };
 
     const exportThreadMutation = useMutation({
         mutationFn: async (options: {
@@ -502,13 +1003,10 @@ function ThreadDetailPage() {
                                 params: { project: snapshot.project },
                                 to: '/codex/$project',
                             },
-                            { label: snapshot.thread.title },
+                            { label: snapshot.thread.title, title: snapshot.thread.title, truncate: true },
                         ]}
                     />
                 }
-                eyebrow={snapshot.project}
-                subtitle={snapshot.thread.preview}
-                title={snapshot.thread.title}
             />
 
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -541,46 +1039,32 @@ function ThreadDetailPage() {
                     </TabsTrigger>
                 </TabsList>
 
-                <TabsContent className="space-y-3" value="transcript">
-                    <TranscriptControls
-                        rawJsonDisabled={!transcript?.rawIncluded}
-                        showCommentary={showCommentary}
-                        showExtraEvents={showExtraEvents}
-                        showRawJson={showRawJson}
-                        showToolCalls={showToolCalls}
-                        showUserMessages={showUserMessages}
-                        onShowCommentaryChange={setShowCommentary}
-                        onShowExtraEventsChange={setShowExtraEvents}
-                        onShowRawJsonChange={setShowRawJson}
-                        onShowToolCallsChange={setShowToolCalls}
-                        onShowUserMessagesChange={setShowUserMessages}
-                    />
-                    {transcript ? (
-                        <TranscriptView
-                            assistantModel={snapshot.thread.model}
-                            events={transcript.events}
-                            projectPath={snapshot.thread.cwd}
-                            showCommentary={showCommentary}
-                            showExtraEvents={showExtraEvents}
-                            showRawJson={showRawJson && transcript.rawIncluded}
-                            showToolCalls={showToolCalls}
-                            showUserMessages={showUserMessages}
-                        />
-                    ) : (
-                        <DeferredTranscriptNotice
-                            fileSizeBytes={snapshot.rollout.fileSizeBytes}
-                            missing={snapshot.transcriptState === 'missing'}
-                            pending={transcriptQuery.isFetching}
-                            onLoad={() => setShouldLoadTranscript(true)}
-                        />
-                    )}
-                    {transcriptQuery.isError ? (
-                        <p className="text-[var(--destructive)] text-sm">
-                            Failed to load transcript preview:{' '}
-                            {transcriptQuery.error instanceof Error ? transcriptQuery.error.message : 'Unknown error'}
-                        </p>
-                    ) : null}
-                </TabsContent>
+                <ThreadTranscriptTab
+                    activeEventJumpSignal={activeEventJumpSignal}
+                    activeSearchResultIndex={activeSearchResultIndex}
+                    activeTranscriptEventKey={activeTranscriptEventKey}
+                    fullTranscriptLoaded={fullTranscriptLoaded}
+                    loadError={
+                        transcriptQuery.isError
+                            ? transcriptQuery.error
+                            : transcriptPreviewQuery.isError
+                              ? transcriptPreviewQuery.error
+                              : null
+                    }
+                    loadingFullTranscript={transcriptQuery.isFetching}
+                    searchInput={transcriptSearchInput}
+                    searchResults={transcriptSearchResults}
+                    showRawJson={showRawJson}
+                    sortOrder={sortOrder}
+                    snapshot={snapshot}
+                    transcript={transcript}
+                    transcriptFilters={transcriptFilters}
+                    onJumpToSearchResult={jumpToTranscriptSearchResult}
+                    onLoadFullThread={() => setShouldLoadTranscript(true)}
+                    onSearchInputChange={updateTranscriptSearchInput}
+                    onSortOrderChange={updateSortOrder}
+                    onTranscriptFilterChange={updateTranscriptFilter}
+                />
 
                 <TabsContent value="metadata">
                     <ThreadMetadataPanels snapshot={viewSnapshot} />

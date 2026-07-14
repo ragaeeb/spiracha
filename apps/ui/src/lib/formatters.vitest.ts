@@ -15,8 +15,13 @@ describe('formatters', () => {
         vi.setSystemTime(new Date('2026-05-24T12:00:00.000Z'));
     });
 
-    it('should format dates deterministically by default and support explicit user timezones', () => {
-        expect(formatDateTime('2026-05-24T12:30:00.000Z')).toBe('12:30 PM');
+    it('should format dates in the requested timezone', () => {
+        expect(
+            formatDateTime('2026-05-24T12:30:00.000Z', {
+                now: new Date('2026-05-24T12:00:00.000Z'),
+                timeZone: 'UTC',
+            }),
+        ).toBe('12:30 PM');
         expect(
             formatDateTime('2026-05-24T12:30:00.000Z', {
                 now: new Date('2026-05-24T12:00:00.000Z'),
@@ -29,6 +34,19 @@ describe('formatters', () => {
                 timeZone: 'America/Toronto',
             }),
         ).toBe('May 23 · 8:30 PM');
+    });
+
+    it('should use the runtime local timezone by default', () => {
+        const now = new Date(2026, 4, 24, 12, 0);
+        const value = new Date(2026, 4, 24, 12, 30);
+        vi.setSystemTime(now);
+        const expected = new Intl.DateTimeFormat('en-US', {
+            hour: 'numeric',
+            hour12: true,
+            minute: '2-digit',
+        }).format(value);
+
+        expect(formatDateTime(value.getTime())).toBe(expected);
     });
 
     it('should include the year for dates outside the current calendar year', () => {
@@ -52,6 +70,7 @@ describe('formatters', () => {
         expect(formatBooleanLabel(false)).toBe('No');
         expect(formatModelLabel(null)).toBe('Assistant');
         expect(formatModelLabel('gpt-5.4')).toBe('GPT 5.4');
+        expect(formatModelLabel('claude-opus-4-8')).toBe('Claude Opus 4.8');
         expect(formatDateTime('not-a-date')).toBe('n/a');
     });
 });

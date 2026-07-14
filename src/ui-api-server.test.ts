@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createCodexBrowserFixture } from './lib/codex-test-helpers';
 
-const SERVER_TIMEOUT_MS = 30_000;
+const SERVER_TIMEOUT_MS = 60_000;
 const tempRoots: string[] = [];
 
 const makeTempRoot = async () => {
@@ -28,9 +28,10 @@ const getAvailablePort = () => {
 
 const waitForJson = async (url: string) => {
     let lastError: unknown;
-    for (let attempt = 0; attempt < 275; attempt += 1) {
+    const deadlineMs = Date.now() + 45_000;
+    while (Date.now() < deadlineMs) {
         try {
-            const response = await fetch(url);
+            const response = await fetch(url, { signal: AbortSignal.timeout(1_000) });
             if (response.ok) {
                 return response.json() as Promise<unknown>;
             }
@@ -42,6 +43,10 @@ const waitForJson = async (url: string) => {
     }
 
     throw lastError instanceof Error ? lastError : new Error(String(lastError));
+};
+
+const fetchWithTimeout = (url: string, init?: RequestInit) => {
+    return fetch(url, { ...init, signal: AbortSignal.timeout(5_000) });
 };
 
 const startUiDevServer = (port: number, env: NodeJS.ProcessEnv) => {
@@ -98,6 +103,57 @@ describe('UI API server routes', () => {
                     ],
                     source: 'codex',
                 });
+
+                const batchExportResponse = await fetchWithTimeout(
+                    `http://127.0.0.1:${port}/api/v1/conversations/export`,
+                    {
+                        body: JSON.stringify({
+                            ids: [fixture.threads[0]!.threadId, fixture.threads[1]!.threadId],
+                            source: 'codex',
+                        }),
+                        headers: { 'Content-Type': 'application/json' },
+                        method: 'POST',
+                    },
+                );
+                expect(batchExportResponse.status).toBe(200);
+                expect(batchExportResponse.headers.get('Content-Type')).toBe('application/zip');
+                expect(batchExportResponse.headers.get('Content-Disposition')).toContain('codex-conversations-2.zip');
+                const batchExportBytes = new Uint8Array(await batchExportResponse.arrayBuffer());
+                expect(Array.from(batchExportBytes.slice(0, 2))).toEqual([0x50, 0x4b]);
+
+                const batchDeleteResponse = await fetchWithTimeout(
+                    `http://127.0.0.1:${port}/api/v1/conversations/delete`,
+                    {
+                        body: JSON.stringify({
+                            ids: [fixture.threads[1]!.threadId],
+                            source: 'codex',
+                        }),
+                        headers: { 'Content-Type': 'application/json' },
+                        method: 'POST',
+                    },
+                );
+                expect(batchDeleteResponse.status).toBe(200);
+                await expect(batchDeleteResponse.json()).resolves.toMatchObject({
+                    data: {
+                        deletedFiles: [fixture.threads[1]!.sessionFile],
+                        deletedIds: [fixture.threads[1]!.threadId],
+                        missingIds: [],
+                    },
+                });
+                expect(await Bun.file(fixture.threads[1]!.sessionFile).exists()).toBe(false);
+
+                const deleteResponse = await fetchWithTimeout(
+                    `http://127.0.0.1:${port}/api/v1/conversations/codex/${fixture.threads[0]!.threadId}`,
+                    { method: 'DELETE' },
+                );
+                expect(deleteResponse.status).toBe(200);
+                await expect(deleteResponse.json()).resolves.toEqual({
+                    data: {
+                        deletedFiles: [fixture.threads[0]!.sessionFile],
+                        deletedIds: [fixture.threads[0]!.threadId],
+                    },
+                });
+                expect(await Bun.file(fixture.threads[0]!.sessionFile).exists()).toBe(false);
             } finally {
                 proc.kill();
                 await proc.exited.catch(() => undefined);

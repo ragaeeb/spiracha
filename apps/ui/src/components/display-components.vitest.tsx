@@ -14,11 +14,13 @@ vi.mock('@tanstack/react-router', () => ({
         children,
         className,
         params,
+        title,
         to,
     }: {
         children: ReactNode;
         className?: string;
         params?: Record<string, string>;
+        title?: string;
         to: string;
     }) => {
         let href = to;
@@ -26,7 +28,7 @@ vi.mock('@tanstack/react-router', () => ({
             href = href.replace(`$${key}`, value);
         }
         return (
-            <a className={className} href={href}>
+            <a className={className} href={href} title={title}>
                 {children}
             </a>
         );
@@ -73,6 +75,26 @@ describe('display components', () => {
         expect(screen.getByText('Current thread').getAttribute('aria-current')).toBe('page');
     });
 
+    it('should truncate breadcrumb labels while preserving the full hover title', () => {
+        const longTitle = 'A very long Codex thread title that should fit in the breadcrumb without pushing layout';
+
+        render(
+            <Breadcrumbs
+                items={[
+                    { label: 'Codex', to: '/codex' },
+                    { label: 'demo', params: { project: 'demo' }, to: '/codex/$project' },
+                    { label: longTitle, title: longTitle, truncate: true },
+                ]}
+            />,
+        );
+
+        const current = screen.getByText(longTitle);
+
+        expect(current.getAttribute('aria-current')).toBe('page');
+        expect(current.getAttribute('title')).toBe(longTitle);
+        expect(current.className).toContain('truncate');
+    });
+
     it('should render loading and page headers with optional content', () => {
         render(
             <div>
@@ -96,6 +118,13 @@ describe('display components', () => {
             screen.getByText((content) => content.includes('Line one') && content.includes('Line two')),
         ).toBeTruthy();
         expect(screen.getByRole('button', { name: 'Refresh' })).toBeTruthy();
+    });
+
+    it('should render a breadcrumb-only page header', () => {
+        const { container } = render(<PageHeader breadcrumb={<div>Only breadcrumb</div>} />);
+
+        expect(screen.getByText('Only breadcrumb')).toBeTruthy();
+        expect(container.querySelector('h1,h2,h3,h4,h5,h6')).toBeNull();
     });
 
     it('should avoid duplicate React keys when breadcrumb labels and destinations repeat', () => {

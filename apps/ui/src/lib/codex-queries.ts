@@ -5,9 +5,17 @@ import {
     getDashboardSummaryFn,
     getThreadSnapshotFn,
     getThreadTranscriptFn,
+    getThreadTranscriptPreviewFn,
     listProjectsFn,
     listProjectThreadsFn,
 } from './codex-server';
+
+type ThreadTranscriptFilters = {
+    showCommentary: boolean;
+    showExtraEvents: boolean;
+    showToolCalls: boolean;
+    showUserMessages: boolean;
+};
 
 const retrySqliteQuery = (failureCount: number, error: unknown) => {
     return failureCount < 3 && isRetryableSqliteError(error);
@@ -41,10 +49,18 @@ export const projectThreadsQueryOptions = (project: string) =>
         retryDelay,
     });
 
-export const threadSnapshotQueryOptions = (threadId: string) =>
+export const threadSnapshotQueryOptions = (threadId: string, filters?: ThreadTranscriptFilters) =>
     queryOptions({
-        queryFn: () => getThreadSnapshotFn({ data: { threadId } }),
-        queryKey: ['thread', threadId],
+        queryFn: () => getThreadSnapshotFn({ data: { filters, threadId } }),
+        queryKey: ['thread', threadId, filters ?? 'all'],
+        retry: retrySqliteQuery,
+        retryDelay,
+    });
+
+export const threadTranscriptPreviewQueryOptions = (threadId: string, filters?: ThreadTranscriptFilters) =>
+    queryOptions({
+        queryFn: () => getThreadTranscriptPreviewFn({ data: { filters, threadId } }),
+        queryKey: ['thread-transcript-preview', threadId, filters ?? 'all'],
         retry: retrySqliteQuery,
         retryDelay,
     });

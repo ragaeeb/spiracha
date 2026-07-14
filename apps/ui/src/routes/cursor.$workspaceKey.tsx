@@ -21,6 +21,7 @@ import {
 } from '#/lib/cursor-server';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import { matchesTextQuery } from '#/lib/text-filter';
+import { isWorkspaceEmptiedByDelete } from '#/lib/workspace-delete-navigation';
 
 type PendingCursorDelete =
     | { kind: 'threads'; threads: CursorThreadSummary[] }
@@ -153,8 +154,17 @@ const CursorWorkspacePage = () => {
                 return;
             }
 
-            await invalidateWorkspaceQueries();
+            const workspaceEmptied = isWorkspaceEmptiedByDelete(
+                threads,
+                target.threads.map((thread) => thread.composerId),
+                (thread) => thread.composerId,
+            );
             setPendingDelete(null);
+            if (workspaceEmptied) {
+                await navigate({ to: '/cursor' });
+            }
+
+            await invalidateWorkspaceQueries();
         },
     });
 

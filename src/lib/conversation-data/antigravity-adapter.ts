@@ -1,7 +1,12 @@
-import { listAntigravityConversations, readAntigravityConversationMessages } from '../antigravity-db';
+import {
+    deleteAntigravityConversation,
+    listAntigravityConversations,
+    readAntigravityConversationMessages,
+} from '../antigravity-db';
 import type { AntigravityConversation } from '../antigravity-exporter-types';
 import { resolveAntigravityRoots } from '../antigravity-exporter-types';
 import { cleanInlineTitle } from '../shared';
+import { runWithTranscriptLoadLimit } from '../transcript-load-limiter';
 import { createDeepLinks, decodeFileUri, finalizeMessages } from './adapter-helpers';
 import { selectConversationMessages } from './message-selector';
 import { getConversationPathMatch, getFirstConversationPathMatch } from './path-match';
@@ -10,6 +15,7 @@ import type {
     ConversationDetail,
     ConversationMessage,
     ConversationPathMatch,
+    DeleteConversationOptions,
     GetConversationOptions,
     ListConversationsForPathOptions,
 } from './types';
@@ -27,7 +33,11 @@ const extractAbsolutePathReferences = (text: string): string[] => {
 };
 
 const readMessages = async (conversation: AntigravityConversation) => {
-    const messages = await readAntigravityConversationMessages(conversation);
+    const messages = await runWithTranscriptLoadLimit(() => readAntigravityConversationMessages(conversation), {
+        id: conversation.conversationId,
+        path: conversation.transcriptPath ?? conversation.conversationPath ?? undefined,
+        source: 'antigravity-api',
+    });
     return finalizeMessages(
         messages.map(
             (message): ConversationMessage => ({
@@ -141,7 +151,16 @@ const getAntigravityConversation = async (options: GetConversationOptions): Prom
         : null;
 };
 
+const deleteAntigravityConversationById = async (options: DeleteConversationOptions) => {
+    const result = await deleteAntigravityConversation(getRoots(options), options.id);
+    return {
+        deletedFiles: result.deletedPaths,
+        deletedIds: result.deletedConversationIds,
+    };
+};
+
 export const antigravityConversationAdapter: ConversationAdapter = {
+    deleteConversation: deleteAntigravityConversationById,
     getConversation: getAntigravityConversation,
     listConversationsForPath: listAntigravityConversationsForPath,
     source: 'antigravity',

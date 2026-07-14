@@ -16,6 +16,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as QoderIndexRouteImport } from './routes/qoder.index'
 import { Route as OpencodeIndexRouteImport } from './routes/opencode.index'
 import { Route as KiroIndexRouteImport } from './routes/kiro.index'
+import { Route as GrokIndexRouteImport } from './routes/grok.index'
 import { Route as CursorIndexRouteImport } from './routes/cursor.index'
 import { Route as CodexIndexRouteImport } from './routes/codex.index'
 import { Route as ClaudeCodeIndexRouteImport } from './routes/claude-code.index'
@@ -27,6 +28,8 @@ import { Route as OpencodeWorkspaceKeyRouteImport } from './routes/opencode.$wor
 import { Route as OpencodeSessionsSessionIdRouteImport } from './routes/opencode-sessions.$sessionId'
 import { Route as KiroWorkspaceKeyRouteImport } from './routes/kiro.$workspaceKey'
 import { Route as KiroSessionsSessionIdRouteImport } from './routes/kiro-sessions.$sessionId'
+import { Route as GrokWorkspaceKeyRouteImport } from './routes/grok.$workspaceKey'
+import { Route as GrokSessionsSessionIdRouteImport } from './routes/grok-sessions.$sessionId'
 import { Route as CursorWorkspaceKeyRouteImport } from './routes/cursor.$workspaceKey'
 import { Route as CursorThreadsComposerIdRouteImport } from './routes/cursor-threads.$composerId'
 import { Route as CodexProjectRouteImport } from './routes/codex.$project'
@@ -38,6 +41,8 @@ import { Route as ApiV1SourcesRouteImport } from './routes/api.v1.sources'
 import { Route as ApiV1ResolveRouteImport } from './routes/api.v1.resolve'
 import { Route as ApiV1ConversationsRouteImport } from './routes/api.v1.conversations'
 import { Route as ApiV1ConversationQueryRouteImport } from './routes/api.v1.conversation-query'
+import { Route as ApiV1ConversationsExportRouteImport } from './routes/api.v1.conversations.export'
+import { Route as ApiV1ConversationsDeleteRouteImport } from './routes/api.v1.conversations.delete'
 import { Route as ApiV1ConversationsSourceIdRouteImport } from './routes/api.v1.conversations.$source.$id'
 import { Route as ApiV1ConversationsSourceIdExportRouteImport } from './routes/api.v1.conversations.$source.$id.export'
 
@@ -74,6 +79,11 @@ const OpencodeIndexRoute = OpencodeIndexRouteImport.update({
 const KiroIndexRoute = KiroIndexRouteImport.update({
   id: '/kiro/',
   path: '/kiro/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GrokIndexRoute = GrokIndexRouteImport.update({
+  id: '/grok/',
+  path: '/grok/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CursorIndexRoute = CursorIndexRouteImport.update({
@@ -130,6 +140,16 @@ const KiroWorkspaceKeyRoute = KiroWorkspaceKeyRouteImport.update({
 const KiroSessionsSessionIdRoute = KiroSessionsSessionIdRouteImport.update({
   id: '/kiro-sessions/$sessionId',
   path: '/kiro-sessions/$sessionId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GrokWorkspaceKeyRoute = GrokWorkspaceKeyRouteImport.update({
+  id: '/grok/$workspaceKey',
+  path: '/grok/$workspaceKey',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GrokSessionsSessionIdRoute = GrokSessionsSessionIdRouteImport.update({
+  id: '/grok-sessions/$sessionId',
+  path: '/grok-sessions/$sessionId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CursorWorkspaceKeyRoute = CursorWorkspaceKeyRouteImport.update({
@@ -189,6 +209,18 @@ const ApiV1ConversationQueryRoute = ApiV1ConversationQueryRouteImport.update({
   path: '/api/v1/conversation-query',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiV1ConversationsExportRoute =
+  ApiV1ConversationsExportRouteImport.update({
+    id: '/export',
+    path: '/export',
+    getParentRoute: () => ApiV1ConversationsRoute,
+  } as any)
+const ApiV1ConversationsDeleteRoute =
+  ApiV1ConversationsDeleteRouteImport.update({
+    id: '/delete',
+    path: '/delete',
+    getParentRoute: () => ApiV1ConversationsRoute,
+  } as any)
 const ApiV1ConversationsSourceIdRoute =
   ApiV1ConversationsSourceIdRouteImport.update({
     id: '/$source/$id',
@@ -214,6 +246,8 @@ export interface FileRoutesByFullPath {
   '/codex/$project': typeof CodexProjectRoute
   '/cursor-threads/$composerId': typeof CursorThreadsComposerIdRoute
   '/cursor/$workspaceKey': typeof CursorWorkspaceKeyRoute
+  '/grok-sessions/$sessionId': typeof GrokSessionsSessionIdRoute
+  '/grok/$workspaceKey': typeof GrokWorkspaceKeyRoute
   '/kiro-sessions/$sessionId': typeof KiroSessionsSessionIdRoute
   '/kiro/$workspaceKey': typeof KiroWorkspaceKeyRoute
   '/opencode-sessions/$sessionId': typeof OpencodeSessionsSessionIdRoute
@@ -225,6 +259,7 @@ export interface FileRoutesByFullPath {
   '/claude-code/': typeof ClaudeCodeIndexRoute
   '/codex/': typeof CodexIndexRoute
   '/cursor/': typeof CursorIndexRoute
+  '/grok/': typeof GrokIndexRoute
   '/kiro/': typeof KiroIndexRoute
   '/opencode/': typeof OpencodeIndexRoute
   '/qoder/': typeof QoderIndexRoute
@@ -232,6 +267,8 @@ export interface FileRoutesByFullPath {
   '/api/v1/conversations': typeof ApiV1ConversationsRouteWithChildren
   '/api/v1/resolve': typeof ApiV1ResolveRoute
   '/api/v1/sources': typeof ApiV1SourcesRoute
+  '/api/v1/conversations/delete': typeof ApiV1ConversationsDeleteRoute
+  '/api/v1/conversations/export': typeof ApiV1ConversationsExportRoute
   '/api/v1/conversations/$source/$id': typeof ApiV1ConversationsSourceIdRouteWithChildren
   '/api/v1/conversations/$source/$id/export': typeof ApiV1ConversationsSourceIdExportRoute
 }
@@ -247,6 +284,8 @@ export interface FileRoutesByTo {
   '/codex/$project': typeof CodexProjectRoute
   '/cursor-threads/$composerId': typeof CursorThreadsComposerIdRoute
   '/cursor/$workspaceKey': typeof CursorWorkspaceKeyRoute
+  '/grok-sessions/$sessionId': typeof GrokSessionsSessionIdRoute
+  '/grok/$workspaceKey': typeof GrokWorkspaceKeyRoute
   '/kiro-sessions/$sessionId': typeof KiroSessionsSessionIdRoute
   '/kiro/$workspaceKey': typeof KiroWorkspaceKeyRoute
   '/opencode-sessions/$sessionId': typeof OpencodeSessionsSessionIdRoute
@@ -258,6 +297,7 @@ export interface FileRoutesByTo {
   '/claude-code': typeof ClaudeCodeIndexRoute
   '/codex': typeof CodexIndexRoute
   '/cursor': typeof CursorIndexRoute
+  '/grok': typeof GrokIndexRoute
   '/kiro': typeof KiroIndexRoute
   '/opencode': typeof OpencodeIndexRoute
   '/qoder': typeof QoderIndexRoute
@@ -265,6 +305,8 @@ export interface FileRoutesByTo {
   '/api/v1/conversations': typeof ApiV1ConversationsRouteWithChildren
   '/api/v1/resolve': typeof ApiV1ResolveRoute
   '/api/v1/sources': typeof ApiV1SourcesRoute
+  '/api/v1/conversations/delete': typeof ApiV1ConversationsDeleteRoute
+  '/api/v1/conversations/export': typeof ApiV1ConversationsExportRoute
   '/api/v1/conversations/$source/$id': typeof ApiV1ConversationsSourceIdRouteWithChildren
   '/api/v1/conversations/$source/$id/export': typeof ApiV1ConversationsSourceIdExportRoute
 }
@@ -281,6 +323,8 @@ export interface FileRoutesById {
   '/codex/$project': typeof CodexProjectRoute
   '/cursor-threads/$composerId': typeof CursorThreadsComposerIdRoute
   '/cursor/$workspaceKey': typeof CursorWorkspaceKeyRoute
+  '/grok-sessions/$sessionId': typeof GrokSessionsSessionIdRoute
+  '/grok/$workspaceKey': typeof GrokWorkspaceKeyRoute
   '/kiro-sessions/$sessionId': typeof KiroSessionsSessionIdRoute
   '/kiro/$workspaceKey': typeof KiroWorkspaceKeyRoute
   '/opencode-sessions/$sessionId': typeof OpencodeSessionsSessionIdRoute
@@ -292,6 +336,7 @@ export interface FileRoutesById {
   '/claude-code/': typeof ClaudeCodeIndexRoute
   '/codex/': typeof CodexIndexRoute
   '/cursor/': typeof CursorIndexRoute
+  '/grok/': typeof GrokIndexRoute
   '/kiro/': typeof KiroIndexRoute
   '/opencode/': typeof OpencodeIndexRoute
   '/qoder/': typeof QoderIndexRoute
@@ -299,6 +344,8 @@ export interface FileRoutesById {
   '/api/v1/conversations': typeof ApiV1ConversationsRouteWithChildren
   '/api/v1/resolve': typeof ApiV1ResolveRoute
   '/api/v1/sources': typeof ApiV1SourcesRoute
+  '/api/v1/conversations/delete': typeof ApiV1ConversationsDeleteRoute
+  '/api/v1/conversations/export': typeof ApiV1ConversationsExportRoute
   '/api/v1/conversations/$source/$id': typeof ApiV1ConversationsSourceIdRouteWithChildren
   '/api/v1/conversations/$source/$id/export': typeof ApiV1ConversationsSourceIdExportRoute
 }
@@ -316,6 +363,8 @@ export interface FileRouteTypes {
     | '/codex/$project'
     | '/cursor-threads/$composerId'
     | '/cursor/$workspaceKey'
+    | '/grok-sessions/$sessionId'
+    | '/grok/$workspaceKey'
     | '/kiro-sessions/$sessionId'
     | '/kiro/$workspaceKey'
     | '/opencode-sessions/$sessionId'
@@ -327,6 +376,7 @@ export interface FileRouteTypes {
     | '/claude-code/'
     | '/codex/'
     | '/cursor/'
+    | '/grok/'
     | '/kiro/'
     | '/opencode/'
     | '/qoder/'
@@ -334,6 +384,8 @@ export interface FileRouteTypes {
     | '/api/v1/conversations'
     | '/api/v1/resolve'
     | '/api/v1/sources'
+    | '/api/v1/conversations/delete'
+    | '/api/v1/conversations/export'
     | '/api/v1/conversations/$source/$id'
     | '/api/v1/conversations/$source/$id/export'
   fileRoutesByTo: FileRoutesByTo
@@ -349,6 +401,8 @@ export interface FileRouteTypes {
     | '/codex/$project'
     | '/cursor-threads/$composerId'
     | '/cursor/$workspaceKey'
+    | '/grok-sessions/$sessionId'
+    | '/grok/$workspaceKey'
     | '/kiro-sessions/$sessionId'
     | '/kiro/$workspaceKey'
     | '/opencode-sessions/$sessionId'
@@ -360,6 +414,7 @@ export interface FileRouteTypes {
     | '/claude-code'
     | '/codex'
     | '/cursor'
+    | '/grok'
     | '/kiro'
     | '/opencode'
     | '/qoder'
@@ -367,6 +422,8 @@ export interface FileRouteTypes {
     | '/api/v1/conversations'
     | '/api/v1/resolve'
     | '/api/v1/sources'
+    | '/api/v1/conversations/delete'
+    | '/api/v1/conversations/export'
     | '/api/v1/conversations/$source/$id'
     | '/api/v1/conversations/$source/$id/export'
   id:
@@ -382,6 +439,8 @@ export interface FileRouteTypes {
     | '/codex/$project'
     | '/cursor-threads/$composerId'
     | '/cursor/$workspaceKey'
+    | '/grok-sessions/$sessionId'
+    | '/grok/$workspaceKey'
     | '/kiro-sessions/$sessionId'
     | '/kiro/$workspaceKey'
     | '/opencode-sessions/$sessionId'
@@ -393,6 +452,7 @@ export interface FileRouteTypes {
     | '/claude-code/'
     | '/codex/'
     | '/cursor/'
+    | '/grok/'
     | '/kiro/'
     | '/opencode/'
     | '/qoder/'
@@ -400,6 +460,8 @@ export interface FileRouteTypes {
     | '/api/v1/conversations'
     | '/api/v1/resolve'
     | '/api/v1/sources'
+    | '/api/v1/conversations/delete'
+    | '/api/v1/conversations/export'
     | '/api/v1/conversations/$source/$id'
     | '/api/v1/conversations/$source/$id/export'
   fileRoutesById: FileRoutesById
@@ -416,6 +478,8 @@ export interface RootRouteChildren {
   CodexProjectRoute: typeof CodexProjectRoute
   CursorThreadsComposerIdRoute: typeof CursorThreadsComposerIdRoute
   CursorWorkspaceKeyRoute: typeof CursorWorkspaceKeyRoute
+  GrokSessionsSessionIdRoute: typeof GrokSessionsSessionIdRoute
+  GrokWorkspaceKeyRoute: typeof GrokWorkspaceKeyRoute
   KiroSessionsSessionIdRoute: typeof KiroSessionsSessionIdRoute
   KiroWorkspaceKeyRoute: typeof KiroWorkspaceKeyRoute
   OpencodeSessionsSessionIdRoute: typeof OpencodeSessionsSessionIdRoute
@@ -427,6 +491,7 @@ export interface RootRouteChildren {
   ClaudeCodeIndexRoute: typeof ClaudeCodeIndexRoute
   CodexIndexRoute: typeof CodexIndexRoute
   CursorIndexRoute: typeof CursorIndexRoute
+  GrokIndexRoute: typeof GrokIndexRoute
   KiroIndexRoute: typeof KiroIndexRoute
   OpencodeIndexRoute: typeof OpencodeIndexRoute
   QoderIndexRoute: typeof QoderIndexRoute
@@ -485,6 +550,13 @@ declare module '@tanstack/react-router' {
       path: '/kiro'
       fullPath: '/kiro/'
       preLoaderRoute: typeof KiroIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/grok/': {
+      id: '/grok/'
+      path: '/grok'
+      fullPath: '/grok/'
+      preLoaderRoute: typeof GrokIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/cursor/': {
@@ -564,6 +636,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof KiroSessionsSessionIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/grok/$workspaceKey': {
+      id: '/grok/$workspaceKey'
+      path: '/grok/$workspaceKey'
+      fullPath: '/grok/$workspaceKey'
+      preLoaderRoute: typeof GrokWorkspaceKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/grok-sessions/$sessionId': {
+      id: '/grok-sessions/$sessionId'
+      path: '/grok-sessions/$sessionId'
+      fullPath: '/grok-sessions/$sessionId'
+      preLoaderRoute: typeof GrokSessionsSessionIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/cursor/$workspaceKey': {
       id: '/cursor/$workspaceKey'
       path: '/cursor/$workspaceKey'
@@ -641,6 +727,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiV1ConversationQueryRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/v1/conversations/export': {
+      id: '/api/v1/conversations/export'
+      path: '/export'
+      fullPath: '/api/v1/conversations/export'
+      preLoaderRoute: typeof ApiV1ConversationsExportRouteImport
+      parentRoute: typeof ApiV1ConversationsRoute
+    }
+    '/api/v1/conversations/delete': {
+      id: '/api/v1/conversations/delete'
+      path: '/delete'
+      fullPath: '/api/v1/conversations/delete'
+      preLoaderRoute: typeof ApiV1ConversationsDeleteRouteImport
+      parentRoute: typeof ApiV1ConversationsRoute
+    }
     '/api/v1/conversations/$source/$id': {
       id: '/api/v1/conversations/$source/$id'
       path: '/$source/$id'
@@ -674,10 +774,14 @@ const ApiV1ConversationsSourceIdRouteWithChildren =
   )
 
 interface ApiV1ConversationsRouteChildren {
+  ApiV1ConversationsDeleteRoute: typeof ApiV1ConversationsDeleteRoute
+  ApiV1ConversationsExportRoute: typeof ApiV1ConversationsExportRoute
   ApiV1ConversationsSourceIdRoute: typeof ApiV1ConversationsSourceIdRouteWithChildren
 }
 
 const ApiV1ConversationsRouteChildren: ApiV1ConversationsRouteChildren = {
+  ApiV1ConversationsDeleteRoute: ApiV1ConversationsDeleteRoute,
+  ApiV1ConversationsExportRoute: ApiV1ConversationsExportRoute,
   ApiV1ConversationsSourceIdRoute: ApiV1ConversationsSourceIdRouteWithChildren,
 }
 
@@ -697,6 +801,8 @@ const rootRouteChildren: RootRouteChildren = {
   CodexProjectRoute: CodexProjectRoute,
   CursorThreadsComposerIdRoute: CursorThreadsComposerIdRoute,
   CursorWorkspaceKeyRoute: CursorWorkspaceKeyRoute,
+  GrokSessionsSessionIdRoute: GrokSessionsSessionIdRoute,
+  GrokWorkspaceKeyRoute: GrokWorkspaceKeyRoute,
   KiroSessionsSessionIdRoute: KiroSessionsSessionIdRoute,
   KiroWorkspaceKeyRoute: KiroWorkspaceKeyRoute,
   OpencodeSessionsSessionIdRoute: OpencodeSessionsSessionIdRoute,
@@ -708,6 +814,7 @@ const rootRouteChildren: RootRouteChildren = {
   ClaudeCodeIndexRoute: ClaudeCodeIndexRoute,
   CodexIndexRoute: CodexIndexRoute,
   CursorIndexRoute: CursorIndexRoute,
+  GrokIndexRoute: GrokIndexRoute,
   KiroIndexRoute: KiroIndexRoute,
   OpencodeIndexRoute: OpencodeIndexRoute,
   QoderIndexRoute: QoderIndexRoute,

@@ -75,6 +75,7 @@ describe('AppShell', () => {
             'Dashboard',
             'Codex',
             'Claude Code',
+            'Grok',
             'Kiro',
             'Qoder',
             'Antigravity',
@@ -107,6 +108,18 @@ describe('AppShell', () => {
         );
 
         expect(screen.getByRole('link', { name: 'Kiro' }).className).toContain('bg-[var(--accent-muted)]');
+    });
+
+    it('should keep Grok active on standalone session detail routes', () => {
+        useRouterStateMock.mockReturnValue('/grok-sessions/session-1');
+
+        render(
+            <AppShell>
+                <div>Content area</div>
+            </AppShell>,
+        );
+
+        expect(screen.getByRole('link', { name: 'Grok' }).className).toContain('bg-[var(--accent-muted)]');
     });
 
     it('should keep Qoder active on standalone session detail routes', () => {

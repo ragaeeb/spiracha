@@ -1,5 +1,24 @@
 import type { ExportFormat } from './shared';
 
+type BatchExportNameEntry = {
+    cwd: string | null;
+    updatedAtMs: number | null;
+};
+
+type ConversationExportNameEntry = BatchExportNameEntry & {
+    id: string;
+};
+
+const getPortablePathBasename = (value: string): string => {
+    const trimmed = value.replace(/[\\/]+$/u, '');
+    if (!trimmed) {
+        return '';
+    }
+
+    const separatorIndex = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'));
+    return separatorIndex === -1 ? trimmed : trimmed.slice(separatorIndex + 1);
+};
+
 export const sanitizeExportFileName = (value: string) => {
     return value
         .replace(/[<>:"/\\|?*\u0000-\u001f]/gu, ' ')
@@ -16,6 +35,47 @@ export const resolveUniqueExportFileBaseName = (baseName: string, usedCounts: Ma
     const count = (usedCounts.get(baseName) ?? 0) + 1;
     usedCounts.set(baseName, count);
     return count === 1 ? baseName : `${baseName}-${count}`;
+};
+
+const formatBatchExportDate = (value: number) => {
+    const date = new Date(value);
+    const year = date.getUTCFullYear();
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(date.getUTCDate()).padStart(2, '0');
+    const hours = String(date.getUTCHours()).padStart(2, '0');
+    const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day}-${hours}${minutes}`;
+};
+
+const resolveExportProjectName = (cwd: string | null, fallbackProjectName: string) => {
+    return sanitizeExportFileName(getPortablePathBasename(cwd ?? '') || fallbackProjectName) || 'threads';
+};
+
+export const buildConversationExportBaseName = (
+    { cwd, id, updatedAtMs }: ConversationExportNameEntry,
+    fallbackProjectName: string,
+) => {
+    const projectName = resolveExportProjectName(cwd, fallbackProjectName);
+    const shortId = sanitizeExportFileName(id).slice(0, 8) || 'conversation';
+    return Number.isFinite(updatedAtMs) && (updatedAtMs ?? 0) > 0
+        ? `${projectName}-${formatBatchExportDate(updatedAtMs!)}-${shortId}`
+        : `${projectName}-${shortId}`;
+};
+
+export const buildBatchExportBaseName = (entries: BatchExportNameEntry[], fallbackProjectName: string) => {
+    if (entries.length === 0) {
+        throw new Error('No conversations selected for export');
+    }
+
+    const firstCwd = entries.find((entry) => entry.cwd?.trim())?.cwd ?? null;
+    const projectName = resolveExportProjectName(firstCwd, fallbackProjectName);
+    const latestUpdatedAtMs = Math.max(
+        ...entries.map((entry) => (Number.isFinite(entry.updatedAtMs) ? (entry.updatedAtMs ?? 0) : 0)),
+    );
+
+    return latestUpdatedAtMs > 0
+        ? `${projectName}-${formatBatchExportDate(latestUpdatedAtMs)}-threads-${entries.length}`
+        : `${projectName}-threads-${entries.length}`;
 };
 
 const readPipeText = async (pipe: ReadableStream<Uint8Array> | number | undefined) => {

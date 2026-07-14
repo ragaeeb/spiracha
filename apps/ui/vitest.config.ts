@@ -16,6 +16,12 @@ export default defineConfig({
             reporter: ['text', 'lcov'],
         },
         environment: 'jsdom',
+        environmentOptions: {
+            jsdom: {
+                url: 'http://localhost',
+            },
+        },
         include: ['src/**/*.vitest.ts', 'src/**/*.vitest.tsx'],
+        setupFiles: ['vitest.setup.ts'],
     },
 });

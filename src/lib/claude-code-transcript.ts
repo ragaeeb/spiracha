@@ -5,7 +5,10 @@ import type {
     ClaudeCodeTranscriptEntry,
     ClaudeCodeTranscriptPart,
 } from './claude-code-exporter-types';
-import { getClaudeCodeAssistantMessagePhase } from './claude-code-transcript-phase';
+import {
+    getClaudeCodeAssistantMessagePhase,
+    isClaudeCodeSyntheticTranscriptEntry,
+} from './claude-code-transcript-phase';
 import {
     cleanExtractedText,
     cleanInlineTitle,
@@ -102,7 +105,7 @@ const renderToolResultPart = (part: ClaudeCodeTranscriptPart, options: ClaudeCod
         return '';
     }
 
-    const outputText = part.outputText?.trim();
+    const outputText = (part.outputText ?? '').trim();
     if (!outputText) {
         return '';
     }
@@ -160,9 +163,9 @@ export const renderClaudeCodeTranscript = (
     transcript: ClaudeCodeSessionTranscript,
     options: ClaudeCodeExportOptions,
 ): string | null => {
-    const sections = transcript.entries.flatMap((entry) =>
-        entry.parts.map((part) => renderPart(entry, part, options)).filter(Boolean),
-    );
+    const sections = transcript.entries
+        .filter((entry) => !isClaudeCodeSyntheticTranscriptEntry(entry))
+        .flatMap((entry) => entry.parts.map((part) => renderPart(entry, part, options)).filter(Boolean));
     if (sections.length === 0) {
         return null;
     }

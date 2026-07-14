@@ -28,6 +28,7 @@ describe('conversation data facade', () => {
                     claudeCodeProjectsDir: path.join(tempRoot, 'claude'),
                     codexDbPath: path.join(tempRoot, 'missing-codex.sqlite'),
                     cursorUserDir: path.join(tempRoot, 'cursor'),
+                    grokSessionsDir: path.join(tempRoot, 'grok', 'sessions'),
                     kiroWorkspaceSessionsDir: path.join(tempRoot, 'kiro'),
                     opencodeDbPath: path.join(tempRoot, 'missing-opencode.sqlite'),
                     qoderGlobalStateDb: path.join(tempRoot, 'missing-qoder.sqlite'),

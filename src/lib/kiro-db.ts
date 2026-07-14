@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readdir, stat } from 'node:fs/promises';
+import { readdir, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { mapWithConcurrency } from './concurrency';
 import {
@@ -43,6 +43,11 @@ type KiroSessionFile = {
 type KiroExecutionFile = {
     filePath: string;
     raw: Record<string, JsonValue>;
+};
+
+export type DeleteKiroSessionResult = {
+    deletedFiles: string[];
+    deletedSessionIds: string[];
 };
 
 type ReadSessionFileOptions = {
@@ -932,6 +937,23 @@ const locateSessionFile = async (sessionsDir: string, sessionId: string): Promis
     return files.find((file) => path.basename(file.filePath, '.json') === sessionId) ?? null;
 };
 
+const removeKiroSessionIndexEntry = async (workspaceDir: string, sessionId: string): Promise<void> => {
+    const indexPath = path.join(workspaceDir, 'sessions.json');
+    const value = (await Bun.file(indexPath)
+        .json()
+        .catch(() => null)) as JsonValue | null;
+    if (!Array.isArray(value)) {
+        return;
+    }
+
+    const next = value.filter((item) => asString(asObject(item)?.sessionId ?? null) !== sessionId);
+    if (next.length === value.length) {
+        return;
+    }
+
+    await Bun.write(indexPath, JSON.stringify(next, null, 2));
+};
+
 export const readKiroSessionTranscript = async (
     sessionsDir: string,
     sessionId: string,
@@ -946,4 +968,33 @@ export const readKiroSessionTranscript = async (
     }
 
     return readSessionFile(file, { includeExecutions: true, sessionsDir });
+};
+
+export const deleteKiroSession = async (sessionsDir: string, sessionId: string): Promise<DeleteKiroSessionResult> => {
+    if (!(await pathExists(sessionsDir))) {
+        return { deletedFiles: [], deletedSessionIds: [] };
+    }
+
+    const file = await locateSessionFile(sessionsDir, sessionId);
+    if (!file) {
+        return { deletedFiles: [], deletedSessionIds: [] };
+    }
+
+    const transcript = await readSessionFile(file, { includeExecutions: false, sessionsDir });
+    const executionFiles = transcript
+        ? await listExecutionFilesForSession(
+              getKiroDataDirFromSessionsDir(sessionsDir),
+              sessionId,
+              transcript.session.worktree,
+          )
+        : [];
+    const deletedFiles = [file.filePath, ...executionFiles.map((execution) => execution.filePath)];
+
+    await Promise.all(deletedFiles.map((filePath) => rm(filePath, { force: true })));
+    await removeKiroSessionIndexEntry(path.dirname(file.filePath), sessionId);
+
+    return {
+        deletedFiles,
+        deletedSessionIds: [sessionId],
+    };
 };

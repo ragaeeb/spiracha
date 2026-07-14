@@ -18,9 +18,10 @@ type ParsedToolCall = {
     name: string;
 };
 
-const HEADING_PATTERN = /^##\s+(.+)$/u;
+const HEADING_PATTERN = /^##\s+((?:User|Assistant|System|Event)|Tool:\s*.+)$/iu;
 const TIMESTAMP_PATTERN = /^_Timestamp:\s*(.+?)_$/u;
 const TOOL_HEADING_PATTERN = /^tool:\s*(.+)$/iu;
+const CONTROL_SUBHEADING_PATTERN = /^###\s+(Thinking|Tool Calls)\s*$/iu;
 
 const splitMarkdownSections = (markdown: string | null): MarkdownSection[] => {
     if (!markdown?.trim()) {
@@ -72,7 +73,12 @@ const extractTimestamp = (body: string): { body: string; timestamp: string | nul
 };
 
 const sectionBodyBeforeSubheading = (body: string): string => {
-    return body.split(/^###\s+/mu)[0]?.trim() ?? '';
+    const lines = body.split(/\r?\n/u);
+    const controlIndex = lines.findIndex((line) => CONTROL_SUBHEADING_PATTERN.test(line.trim()));
+    return lines
+        .slice(0, controlIndex === -1 ? undefined : controlIndex)
+        .join('\n')
+        .trim();
 };
 
 const extractSubheadingBlock = (body: string, title: string): string => {
@@ -82,7 +88,9 @@ const extractSubheadingBlock = (body: string, title: string): string => {
         return '';
     }
 
-    const nextSubheadingIndex = lines.findIndex((line, index) => index > startIndex && line.startsWith('### '));
+    const nextSubheadingIndex = lines.findIndex(
+        (line, index) => index > startIndex && CONTROL_SUBHEADING_PATTERN.test(line.trim()),
+    );
     return lines
         .slice(startIndex + 1, nextSubheadingIndex === -1 ? undefined : nextSubheadingIndex)
         .join('\n')

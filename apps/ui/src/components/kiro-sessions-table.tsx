@@ -2,9 +2,10 @@ import type { KiroSessionSummary } from '@spiracha/lib/kiro-exporter-types';
 import { Link } from '@tanstack/react-router';
 import type { SortingState } from '@tanstack/react-table';
 import { createColumnHelper } from '@tanstack/react-table';
-import { Download, MoreHorizontal } from 'lucide-react';
+import { Download, MoreHorizontal, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
+import { SelectionActionsToolbar } from '#/components/selection-actions-toolbar';
 import { Button } from '#/components/ui/button';
 import {
     DropdownMenu,
@@ -15,14 +16,20 @@ import {
 import { formatDateTime, formatNumber } from '#/lib/formatters';
 
 type KiroSessionsTableProps = {
+    onDeleteSession: (session: KiroSessionSummary) => void;
+    onDeleteSessions: (sessionIds: string[]) => void;
     onExportSession: (session: KiroSessionSummary) => void;
+    onExportSessions: (sessionIds: string[]) => void;
     sessions: KiroSessionSummary[];
 };
 
 const columnHelper = createColumnHelper<KiroSessionSummary>();
 const defaultSorting: SortingState = [{ desc: true, id: 'lastActive' }];
 
-const columns = (onExportSession: (session: KiroSessionSummary) => void) =>
+const columns = (
+    onDeleteSession: (session: KiroSessionSummary) => void,
+    onExportSession: (session: KiroSessionSummary) => void,
+) =>
     [
         columnHelper.accessor('title', {
             cell: (info) => (
@@ -89,6 +96,13 @@ const columns = (onExportSession: (session: KiroSessionSummary) => void) =>
                             <Download className="mr-2 size-4" />
                             Export session
                         </DropdownMenuItem>
+                        <DropdownMenuItem
+                            className="text-[var(--destructive)]"
+                            onClick={() => onDeleteSession(info.row.original)}
+                        >
+                            <Trash2 className="mr-2 size-4" />
+                            Delete session
+                        </DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>
             ),
@@ -98,15 +112,37 @@ const columns = (onExportSession: (session: KiroSessionSummary) => void) =>
         }),
     ] as const;
 
-export const KiroSessionsTable = ({ onExportSession, sessions }: KiroSessionsTableProps) => {
-    const tableColumns = useMemo(() => columns(onExportSession), [onExportSession]);
+export const KiroSessionsTable = ({
+    onDeleteSession,
+    onDeleteSessions,
+    onExportSession,
+    onExportSessions,
+    sessions,
+}: KiroSessionsTableProps) => {
+    const tableColumns = useMemo(() => columns(onDeleteSession, onExportSession), [onDeleteSession, onExportSession]);
 
     return (
         <DataTable
             columns={tableColumns}
             data={sessions}
             emptyMessage="No Kiro sessions match the current workspace filter."
+            enableRowSelection
+            getRowId={(row) => row.sessionId}
             initialSorting={defaultSorting}
+            renderToolbar={({ clearSelection, selectedRows }) => {
+                const selectedSessionIds = selectedRows.map((row) => row.sessionId);
+                const hasEmptySelection = selectedRows.some((row) => row.renderablePartCount === 0);
+                return (
+                    <SelectionActionsToolbar
+                        clearSelection={clearSelection}
+                        exportDisabled={hasEmptySelection}
+                        itemLabel="session"
+                        selectedCount={selectedRows.length}
+                        onDeleteSelected={() => onDeleteSessions(selectedSessionIds)}
+                        onExportSelected={() => onExportSessions(selectedSessionIds)}
+                    />
+                );
+            }}
         />
     );
 };
