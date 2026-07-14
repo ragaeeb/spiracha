@@ -726,6 +726,134 @@ describe('claude code workspace discovery', () => {
         expect(transcript?.session.assistantMessageCount).toBe(2);
     });
 
+    it('should classify assistant responses followed by subagent task notifications as commentary', async () => {
+        const projectsDir = await makeTempRoot();
+        await writeSession(projectsDir, '-Users-rhaq-workspace-ushman-corpus', 'session-subagents', [
+            {
+                cwd: corpusCwd,
+                message: { content: 'Run the review with finder agents', role: 'user' },
+                sessionId: 'session-subagents',
+                timestamp: '2026-06-01T10:00:00.000Z',
+                type: 'user',
+                uuid: 'user-subagents',
+            },
+            {
+                cwd: corpusCwd,
+                message: {
+                    content: 'Waiting on the last three finder agents.',
+                    role: 'assistant',
+                    stop_reason: 'end_turn',
+                },
+                parentUuid: 'user-subagents',
+                sessionId: 'session-subagents',
+                timestamp: '2026-06-01T10:00:01.000Z',
+                type: 'assistant',
+                uuid: 'assistant-waiting',
+            },
+            {
+                content:
+                    '<task-notification>\n<task-id>finder-1</task-id>\n<status>completed</status>\n</task-notification>',
+                operation: 'enqueue',
+                sessionId: 'session-subagents',
+                timestamp: '2026-06-01T10:00:02.000Z',
+                type: 'queue-operation',
+            },
+            {
+                cwd: corpusCwd,
+                message: {
+                    content: 'The review is complete. Here are the findings.',
+                    role: 'assistant',
+                    stop_reason: 'end_turn',
+                },
+                sessionId: 'session-subagents',
+                timestamp: '2026-06-01T10:00:03.000Z',
+                type: 'assistant',
+                uuid: 'assistant-complete',
+            },
+        ]);
+
+        const transcript = await readClaudeCodeSessionTranscript(projectsDir, 'session-subagents', {
+            includeRawPayloads: false,
+        });
+        const assistantMessages = transcript?.entries
+            .filter((entry) => entry.role === 'assistant')
+            .map((entry) => ({
+                phase: getClaudeCodeAssistantMessagePhase(entry),
+                text: entry.parts.find((part) => part.type === 'text')?.text,
+            }));
+
+        expect(assistantMessages).toEqual([
+            { phase: 'commentary', text: 'Waiting on the last three finder agents.' },
+            { phase: 'final_answer', text: 'The review is complete. Here are the findings.' },
+        ]);
+    });
+
+    it('should classify an assistant response interrupted by the user as commentary', async () => {
+        const projectsDir = await makeTempRoot();
+        await writeSession(projectsDir, '-Users-rhaq-workspace-ushman-corpus', 'session-interrupted', [
+            {
+                cwd: corpusCwd,
+                message: { content: 'Prototype the mechanics', role: 'user' },
+                sessionId: 'session-interrupted',
+                timestamp: '2026-06-01T10:00:00.000Z',
+                type: 'user',
+                uuid: 'user-request',
+            },
+            {
+                cwd: corpusCwd,
+                message: {
+                    content: 'Now let me prototype the key mechanics in scratch before writing the suite.',
+                    id: 'message-interrupted',
+                    model: 'claude-opus-4-8',
+                    role: 'assistant',
+                    stop_reason: null,
+                },
+                parentUuid: 'user-request',
+                sessionId: 'session-interrupted',
+                timestamp: '2026-06-01T10:00:01.000Z',
+                type: 'assistant',
+                uuid: 'assistant-interrupted',
+            },
+            {
+                cwd: corpusCwd,
+                message: { content: '[Request interrupted by user]', role: 'user' },
+                parentUuid: 'assistant-interrupted',
+                sessionId: 'session-interrupted',
+                timestamp: '2026-06-01T10:00:02.000Z',
+                type: 'user',
+                uuid: 'user-interrupted',
+            },
+            {
+                cwd: corpusCwd,
+                message: { content: 'Implementation complete.', role: 'assistant', stop_reason: 'end_turn' },
+                sessionId: 'session-interrupted',
+                timestamp: '2026-06-01T10:00:03.000Z',
+                type: 'assistant',
+                uuid: 'assistant-complete',
+            },
+        ]);
+
+        const transcript = await readClaudeCodeSessionTranscript(projectsDir, 'session-interrupted', {
+            includeRawPayloads: false,
+        });
+        const assistantPhases = transcript?.entries
+            .filter((entry) => entry.role === 'assistant')
+            .map(getClaudeCodeAssistantMessagePhase);
+
+        expect(assistantPhases).toEqual(['commentary', 'final_answer']);
+        expect(transcript?.entries.some((entry) => entry.entryId === 'user-interrupted')).toBe(false);
+        const rendered = transcript
+            ? renderClaudeCodeTranscript(transcript, {
+                  includeCommentary: false,
+                  includeMetadata: false,
+                  includeTools: false,
+                  outputFormat: 'md',
+              })
+            : null;
+        expect(rendered).not.toContain('Now let me prototype the key mechanics');
+        expect(rendered).toContain('Implementation complete.');
+    });
+
     it('should delete a Claude Code session JSONL file', async () => {
         const projectsDir = await makeTempRoot();
         const sessionPath = path.join(projectsDir, '-Users-rhaq-workspace-ushman-corpus', 'session-delete.jsonl');

@@ -8,9 +8,10 @@ import {
     deleteOpenCodeSession,
     findOpenCodeWorkspaceGroups,
     getDefaultOpenCodeDataDir,
-    getOpenCodeReadonlyDbUri,
+    getOpenCodeReadDbUri,
     listOpenCodeSessionsForGroup,
     listOpenCodeWorkspaceGroups,
+    openOpenCodeReadDb,
     readOpenCodeSessionTranscript,
     resolveOpenCodeDbConcurrency,
 } from './opencode-db';
@@ -140,9 +141,9 @@ describe('opencode db helpers', () => {
         expect(getDefaultOpenCodeDataDir({ XDG_DATA_HOME: '/tmp/xdg' }, '/Users/alice')).toBe('/tmp/xdg/opencode');
     });
 
-    it('should build a read-only SQLite URI for paths with spaces', () => {
-        expect(getOpenCodeReadonlyDbUri('/Users/alice/Local Data/opencode.db')).toBe(
-            'file:///Users/alice/Local%20Data/opencode.db?mode=ro',
+    it('should build a read SQLite URI for paths with spaces', () => {
+        expect(getOpenCodeReadDbUri('/Users/alice/Local Data/opencode.db')).toBe(
+            'file:///Users/alice/Local%20Data/opencode.db?mode=rw',
         );
     });
 
@@ -167,6 +168,33 @@ describe('opencode db helpers', () => {
         });
         expect(groups[0]?.messageCount).toBe(2);
         expect(groups[0]?.partCount).toBe(6);
+    });
+
+    it('should read a WAL database when its sidecar files do not exist', async () => {
+        const dbPath = await createFixtureDb();
+        const db = new Database(dbPath);
+        db.exec('PRAGMA journal_mode = WAL');
+        db.close();
+        expect(await Bun.file(`${dbPath}-shm`).exists()).toBe(false);
+        expect(await Bun.file(`${dbPath}-wal`).exists()).toBe(false);
+
+        const groups = await listOpenCodeWorkspaceGroups(dbPath);
+
+        expect(groups).toHaveLength(1);
+        expect(groups[0]?.key).toBe('project:pro_demo');
+    });
+
+    it('should prevent writes through an OpenCode read connection', async () => {
+        const dbPath = await createFixtureDb();
+        const db = openOpenCodeReadDb(dbPath);
+
+        try {
+            expect(() => db.exec("UPDATE project SET name = 'changed' WHERE id = 'pro_demo'")).toThrow(
+                'attempt to write a readonly database',
+            );
+        } finally {
+            db.close();
+        }
     });
 
     it('should encode workspace file URIs for paths with spaces', async () => {

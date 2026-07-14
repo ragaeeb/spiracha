@@ -548,21 +548,42 @@ const stripEntryRawPayloads = (entry: ClaudeCodeTranscriptEntry): ClaudeCodeTran
     };
 };
 
-const markApiErrorParentAsCommentary = (
+const markIncompleteAssistantParentAsCommentary = (
     entries: ClaudeCodeTranscriptEntry[],
-    apiErrorEntry: ClaudeCodeTranscriptEntry,
+    entry: ClaudeCodeTranscriptEntry,
 ): void => {
-    if (apiErrorEntry.raw.isApiErrorMessage !== true || !apiErrorEntry.parentEntryId) {
+    const interruptedByUser =
+        entry.role === 'user' &&
+        entry.parts.some(
+            (part) => part.type === 'text' && part.text?.trim().startsWith('[Request interrupted by user]'),
+        );
+    if ((!interruptedByUser && entry.raw.isApiErrorMessage !== true) || !entry.parentEntryId) {
         return;
     }
 
     for (let index = entries.length - 1; index >= 0; index -= 1) {
         const candidate = entries[index];
-        if (candidate?.entryId === apiErrorEntry.parentEntryId && candidate.role === 'assistant') {
+        if (candidate?.entryId === entry.parentEntryId && candidate.role === 'assistant') {
             candidate.assistantPhase = 'commentary';
             return;
         }
     }
+};
+
+const markLatestAssistantAsCommentary = (entries: ClaudeCodeTranscriptEntry[]): void => {
+    const latestEntry = entries.at(-1);
+    if (latestEntry?.role === 'assistant') {
+        latestEntry.assistantPhase = 'commentary';
+    }
+};
+
+const isSubagentTaskNotification = (raw: Record<string, JsonValue>): boolean => {
+    return (
+        raw.type === 'queue-operation' &&
+        asString(raw.content ?? null)
+            ?.trimStart()
+            .startsWith('<task-notification>') === true
+    );
 };
 
 const buildTranscriptFromRawEvents = (
@@ -589,12 +610,16 @@ const buildTranscriptFromRawEvents = (
         updateTimeline(timeline, raw);
         updateIdentityFromRaw(identity, raw);
 
+        if (isSubagentTaskNotification(raw)) {
+            markLatestAssistantAsCommentary(entries);
+        }
+
         const entry = parseTranscriptEntry(raw);
         if (!entry) {
             continue;
         }
 
-        markApiErrorParentAsCommentary(entries, entry);
+        markIncompleteAssistantParentAsCommentary(entries, entry);
         if (isClaudeCodeSyntheticTranscriptEntry(entry)) {
             continue;
         }

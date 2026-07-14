@@ -29,7 +29,7 @@ import { runWithSqliteRetry } from './sqlite-retry';
 
 export { getDefaultOpenCodeDataDir, resolveOpenCodeDbPath };
 
-export const OPENCODE_READONLY_DB_OPEN_FLAGS = constants.SQLITE_OPEN_READONLY | constants.SQLITE_OPEN_URI;
+export const OPENCODE_READ_DB_OPEN_FLAGS = constants.SQLITE_OPEN_READWRITE | constants.SQLITE_OPEN_URI;
 const DEFAULT_OPENCODE_DB_CONCURRENCY = 2;
 
 export type DeleteOpenCodeSessionResult = {
@@ -178,20 +178,27 @@ const pathExists = async (target: string): Promise<boolean> => {
         .catch(() => false);
 };
 
-export const getOpenCodeReadonlyDbUri = (dbPath: string): string => {
+export const getOpenCodeReadDbUri = (dbPath: string): string => {
     const url = pathToFileURL(dbPath);
-    url.searchParams.set('mode', 'ro');
+    url.searchParams.set('mode', 'rw');
     return url.href;
 };
 
-export const openOpenCodeReadonlyDb = (dbPath: string): Database => {
-    return new Database(getOpenCodeReadonlyDbUri(dbPath), OPENCODE_READONLY_DB_OPEN_FLAGS);
+export const openOpenCodeReadDb = (dbPath: string): Database => {
+    const db = new Database(getOpenCodeReadDbUri(dbPath), OPENCODE_READ_DB_OPEN_FLAGS);
+    try {
+        db.exec('PRAGMA query_only = ON');
+        return db;
+    } catch (error) {
+        db.close();
+        throw error;
+    }
 };
 
 const withOpenCodeReadonlyDb = <T>(dbPath: string, action: (db: Database) => T): T => {
     return runWithSqliteRetry({
         action: () => {
-            const db = openOpenCodeReadonlyDb(dbPath);
+            const db = openOpenCodeReadDb(dbPath);
             try {
                 return action(db);
             } finally {
