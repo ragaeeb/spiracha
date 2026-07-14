@@ -2,7 +2,6 @@ import { buildConversationExportBaseName } from '@spiracha/lib/ui-export-archive
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
 import { canExportAntigravityConversation, isAntigravityConversationLocked } from './antigravity-conversation-state';
-import { renderSourceSessionsDownload } from './source-session-export-server';
 
 const workspaceSchema = z.object({
     workspaceKey: z.string().min(1),
@@ -216,6 +215,7 @@ export const exportAntigravityConversationFn = createServerFn({ method: 'POST' }
     });
 
 export const exportAntigravityConversations = async (data: z.infer<typeof exportConversationsSchema>) => {
+    const { renderSourceSessionsDownload } = await import('./source-session-export-server');
     const { listAntigravityWorkspaceGroups } = await import('@spiracha/lib/antigravity-db');
     const groups = await listAntigravityWorkspaceGroups();
     const groupsByKey = new Map(groups.map((group) => [group.key, group]));
