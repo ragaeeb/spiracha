@@ -11,6 +11,7 @@ import {
     resolveAntigravityRoots,
 } from './antigravity-exporter-types';
 import { decryptAntigravitySafeStoragePayload } from './antigravity-keychain';
+import { resolveAntigravityProjectNames } from './antigravity-projects';
 import { mapWithConcurrency } from './concurrency';
 
 type ProtoField = {
@@ -25,6 +26,7 @@ type SummaryEntry = {
     createdAtMs: number | null;
     indexedItemCount: number | null;
     lastUpdatedAtMs: number | null;
+    projectId: string | null;
     summaryPath: string;
     title: string;
     workspaceFolder: string | null;
@@ -275,8 +277,8 @@ const parseContextWorkspaceInfo = (field: ProtoField | null): WorkspaceInfo | nu
 // Antigravity summary parsing is reverse-engineered from agyhub_summaries_proto.pb:
 // entry field 1 = conversation id, entry field 2 = summary message. Inside that summary,
 // field 1 = title, 2 = indexed item count, 3 = last-updated timestamp, 7 = created timestamp,
-// 9 = workspace info, and 17 = context workspace info. parseWorkspaceInfo uses nested fields
-// 1/2 for URI variants; parseContextWorkspaceInfo uses field 7 or nested workspace field 1.
+// 9 = workspace info, and 17 = context metadata. Context field 18 is the Antigravity
+// project id; workspace parsing uses context field 7 or nested workspace field 1.
 const parseSummaryEntry = (entryField: ProtoField, summaryPath: string): SummaryEntry | null => {
     try {
         const entryFields = nestedFields(entryField);
@@ -287,6 +289,7 @@ const parseSummaryEntry = (entryField: ProtoField, summaryPath: string): Summary
         }
 
         const summaryFields = nestedFields(summaryBytes);
+        const contextFields = nestedFields(firstField(summaryFields, 17));
         const workspace =
             parseWorkspaceInfo(firstField(summaryFields, 9)) ??
             parseContextWorkspaceInfo(firstField(summaryFields, 17)) ??
@@ -298,6 +301,7 @@ const parseSummaryEntry = (entryField: ProtoField, summaryPath: string): Summary
             createdAtMs: parseTimestampMs(firstField(summaryFields, 7)),
             indexedItemCount: fieldNumberValue(summaryFields, 2),
             lastUpdatedAtMs: parseTimestampMs(firstField(summaryFields, 3)),
+            projectId: fieldString(contextFields, 18),
             summaryPath,
             title: cleanTitle(fieldString(summaryFields, 1), conversationId),
         };
@@ -793,6 +797,7 @@ const toConversation = (
         indexedItemCount: summary?.indexedItemCount ?? null,
         lastUpdatedAtMs,
         model: transcript?.model ?? null,
+        projectId: summary?.projectId ?? null,
         sourceRoot,
         summaryPath: summary?.summaryPath ?? null,
         title: summary?.title ?? cleanTitle(fallbackTitle, conversationId),
@@ -839,19 +844,22 @@ export const listAntigravityConversations = async (
 
 export const groupAntigravityConversations = (
     conversations: AntigravityConversation[],
+    projectNames: ReadonlyMap<string, string> = new Map(),
 ): AntigravityWorkspaceGroup[] => {
     const groups = new Map<string, AntigravityWorkspaceGroup>();
     for (const conversation of conversations) {
-        const current = groups.get(conversation.workspaceKey) ?? {
+        const projectName = conversation.projectId ? projectNames.get(conversation.projectId) : null;
+        const groupKey = conversation.projectId ? `project:${conversation.projectId}` : conversation.workspaceKey;
+        const current = groups.get(groupKey) ?? {
             artifactCount: 0,
             conversationBytes: 0,
             conversationCount: 0,
-            key: conversation.workspaceKey,
-            label: conversation.workspaceLabel,
+            key: groupKey,
+            label: projectName ?? conversation.workspaceLabel,
             lastActiveMs: 0,
             totalBytes: 0,
             transcriptCount: 0,
-            uri: conversation.workspaceUri,
+            uri: conversation.projectId ? null : conversation.workspaceUri,
         };
         current.artifactCount += conversation.artifactCount;
         current.conversationBytes += conversation.conversationBytes;
@@ -859,7 +867,7 @@ export const groupAntigravityConversations = (
         current.lastActiveMs = Math.max(current.lastActiveMs, conversation.lastUpdatedAtMs ?? 0);
         current.transcriptCount += conversation.transcriptEntryCount > 0 ? 1 : 0;
         current.totalBytes += conversation.totalBytes;
-        groups.set(conversation.workspaceKey, current);
+        groups.set(groupKey, current);
     }
 
     return [...groups.values()].sort((a, b) => b.lastActiveMs - a.lastActiveMs || a.label.localeCompare(b.label));
@@ -868,16 +876,23 @@ export const groupAntigravityConversations = (
 export const listAntigravityWorkspaceGroups = async (
     roots = resolveAntigravityRoots(),
 ): Promise<AntigravityWorkspaceGroup[]> => {
-    return groupAntigravityConversations(await listAntigravityConversations(roots));
+    const conversations = await listAntigravityConversations(roots);
+    const projectNames = await resolveAntigravityProjectNames(
+        conversations.flatMap((conversation) => (conversation.projectId ? [conversation.projectId] : [])),
+    );
+    return groupAntigravityConversations(conversations, projectNames);
 };
 
 export const listAntigravityConversationsForGroup = async (
     workspaceKey: string,
     roots = resolveAntigravityRoots(),
 ): Promise<AntigravityConversation[]> => {
-    return (await listAntigravityConversations(roots)).filter(
-        (conversation) => conversation.workspaceKey === workspaceKey,
-    );
+    return (await listAntigravityConversations(roots)).filter((conversation) => {
+        const conversationGroupKey = conversation.projectId
+            ? `project:${conversation.projectId}`
+            : conversation.workspaceKey;
+        return conversationGroupKey === workspaceKey;
+    });
 };
 
 const existingAntigravityDeletePaths = async (root: string, conversationId: string): Promise<string[]> => {

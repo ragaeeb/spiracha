@@ -15,6 +15,7 @@ type SummaryFixture = {
     title: string;
     indexedItemCount?: number;
     createdAtSeconds?: number;
+    projectId?: string;
     updatedAtSeconds?: number;
     workspaceUri?: string;
 };
@@ -51,6 +52,13 @@ const encodeWorkspace = (uri: string): number[] => {
     return encodeMessage(9, [...encodeString(1, uri), ...encodeString(2, uri), ...encodeString(4, 'main')]);
 };
 
+const encodeContext = (projectId: string, workspaceUri?: string): number[] => {
+    return encodeMessage(17, [
+        ...(workspaceUri ? encodeMessage(1, [...encodeString(1, workspaceUri), ...encodeString(2, workspaceUri)]) : []),
+        ...encodeString(18, projectId),
+    ]);
+};
+
 const encodeSummaryIndex = (summaries: SummaryFixture[]): Uint8Array => {
     const bytes = summaries.flatMap((summary) => {
         const summaryPayload = [
@@ -61,6 +69,7 @@ const encodeSummaryIndex = (summaries: SummaryFixture[]): Uint8Array => {
             ...encodeNumber(5, 1),
             ...encodeTimestamp(7, summary.createdAtSeconds ?? 1_700_000_000),
             ...(summary.workspaceUri ? encodeWorkspace(summary.workspaceUri) : []),
+            ...(summary.projectId ? encodeContext(summary.projectId, summary.workspaceUri) : []),
         ];
 
         return encodeMessage(1, [...encodeString(1, summary.id), ...encodeMessage(2, summaryPayload)]);
@@ -172,6 +181,39 @@ describe('antigravity db discovery', () => {
         expect(groups[1]).toMatchObject({
             conversationCount: 1,
             label: 'project-one',
+        });
+    });
+
+    it('should prefer Antigravity project assignment over a conflicting workspace URI', async () => {
+        const root = await makeRoot();
+        const projectId = '00ea3331-909e-4010-a208-78f964ecfb59';
+        const conversationIds = [
+            '4d04caff-d2d4-4bd1-b083-c4346029a095',
+            '9bbac489-acfa-4d1f-877e-5defcbeb4741',
+            '0f611134-0bb1-491e-8380-55d836a8c961',
+        ];
+        await Bun.write(
+            path.join(root, 'agyhub_summaries_proto.pb'),
+            encodeSummaryIndex(
+                conversationIds.map((id) => ({
+                    id,
+                    projectId,
+                    title: '### Findings',
+                    workspaceUri: 'file:///tmp/ushman-replay',
+                })),
+            ),
+        );
+
+        const conversations = await listAntigravityConversations([root]);
+        const groups = groupAntigravityConversations(conversations, new Map([[projectId, 'spiracha']]));
+
+        expect(conversations.map((conversation) => conversation.projectId)).toEqual([projectId, projectId, projectId]);
+        expect(groups).toHaveLength(1);
+        expect(groups[0]).toMatchObject({
+            conversationCount: 3,
+            key: `project:${projectId}`,
+            label: 'spiracha',
+            uri: null,
         });
     });
 

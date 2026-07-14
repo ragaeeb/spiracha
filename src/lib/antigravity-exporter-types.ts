@@ -46,6 +46,7 @@ export type AntigravityConversation = {
     indexedItemCount: number | null;
     lastUpdatedAtMs: number | null;
     model: string | null;
+    projectId: string | null;
     sourceRoot: string | null;
     summaryPath: string | null;
     title: string;

@@ -6,8 +6,10 @@ const {
     getAntigravityDecryptionStateMock,
     getCachedAntigravityKeychainSecretMock,
     listAntigravityConversationsMock,
+    listAntigravityWorkspaceGroupsMock,
     renderAntigravityArtifactsMarkdownMock,
     renderAntigravityConversationMarkdownMock,
+    renderSourceSessionsDownloadMock,
     resolveAntigravityRootsMock,
     unlockAntigravityDecryptionMock,
 } = vi.hoisted(() => ({
@@ -15,8 +17,10 @@ const {
     getAntigravityDecryptionStateMock: vi.fn(),
     getCachedAntigravityKeychainSecretMock: vi.fn(),
     listAntigravityConversationsMock: vi.fn(),
+    listAntigravityWorkspaceGroupsMock: vi.fn(),
     renderAntigravityArtifactsMarkdownMock: vi.fn(),
     renderAntigravityConversationMarkdownMock: vi.fn(),
+    renderSourceSessionsDownloadMock: vi.fn(),
     resolveAntigravityRootsMock: vi.fn(),
     unlockAntigravityDecryptionMock: vi.fn(),
 }));
@@ -25,7 +29,7 @@ vi.mock('@spiracha/lib/antigravity-db', () => ({
     deleteAntigravityConversation: deleteAntigravityConversationMock,
     listAntigravityConversations: listAntigravityConversationsMock,
     listAntigravityConversationsForGroup: vi.fn(),
-    listAntigravityWorkspaceGroups: vi.fn(),
+    listAntigravityWorkspaceGroups: listAntigravityWorkspaceGroupsMock,
     renderAntigravityArtifactsMarkdown: renderAntigravityArtifactsMarkdownMock,
     renderAntigravityConversationMarkdown: renderAntigravityConversationMarkdownMock,
 }));
@@ -44,9 +48,14 @@ vi.mock('@spiracha/lib/antigravity-exporter-types', async (importOriginal) => {
     };
 });
 
+vi.mock('./source-session-export-server', () => ({
+    renderSourceSessionsDownload: renderSourceSessionsDownloadMock,
+}));
+
 import {
     deleteAntigravityConversationById,
     deleteAntigravityConversationsById,
+    exportAntigravityConversations,
     loadAntigravityConversationDetail,
     loadAntigravityConversationExport,
 } from './antigravity-server';
@@ -76,14 +85,20 @@ const makeConversation = (overrides: Partial<AntigravityConversation> = {}): Ant
     workspaceLabel: 'workspace',
     workspaceUri: 'file:///tmp/workspace',
     ...overrides,
+    projectId: overrides.projectId ?? null,
 });
 
 describe('antigravity-server', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         getAntigravityDecryptionStateMock.mockResolvedValue(null);
+        listAntigravityWorkspaceGroupsMock.mockResolvedValue([]);
         resolveAntigravityRootsMock.mockReturnValue(['/tmp/root']);
         unlockAntigravityDecryptionMock.mockResolvedValue(null);
+        renderSourceSessionsDownloadMock.mockImplementation(async ({ entries }) => ({
+            fileName: `${entries[0]?.cwd}-threads-${entries.length}.zip`,
+            mode: 'download_url',
+        }));
     });
 
     it('should keep readable local-log transcripts available without keychain unlock', async () => {
@@ -97,6 +112,92 @@ describe('antigravity-server', () => {
 
         expect(detail.transcriptLocked).toBe(false);
         expect(detail.conversationMarkdown).toBe('transcript markdown');
+    });
+
+    it('should return the resolved Antigravity project group for detail navigation', async () => {
+        const projectId = '00ea3331-909e-4010-a208-78f964ecfb59';
+        const conversation = makeConversation({ projectId });
+        listAntigravityConversationsMock.mockResolvedValue([conversation]);
+        listAntigravityWorkspaceGroupsMock.mockResolvedValue([
+            {
+                artifactCount: 0,
+                conversationBytes: 0,
+                conversationCount: 1,
+                key: `project:${projectId}`,
+                label: 'spiracha',
+                lastActiveMs: 0,
+                totalBytes: 0,
+                transcriptCount: 1,
+                uri: null,
+            },
+        ]);
+        getCachedAntigravityKeychainSecretMock.mockReturnValue(null);
+        renderAntigravityConversationMarkdownMock.mockResolvedValue('transcript markdown');
+        renderAntigravityArtifactsMarkdownMock.mockResolvedValue(null);
+
+        const detail = await loadAntigravityConversationDetail(conversation.conversationId);
+
+        expect(detail.conversationGroup).toEqual({
+            key: `project:${projectId}`,
+            label: 'spiracha',
+        });
+    });
+
+    it('should name multi-conversation exports after the resolved Antigravity project', async () => {
+        const projectId = '00ea3331-909e-4010-a208-78f964ecfb59';
+        const conversations = [
+            makeConversation({
+                conversationBytes: 0,
+                conversationId: 'conversation-1',
+                conversationPath: null,
+                projectId,
+                transcriptBytes: 0,
+                transcriptEntryCount: 0,
+                transcriptPath: null,
+                transcriptSource: null,
+            }),
+            makeConversation({
+                conversationBytes: 0,
+                conversationId: 'conversation-2',
+                conversationPath: null,
+                projectId,
+                transcriptBytes: 0,
+                transcriptEntryCount: 0,
+                transcriptPath: null,
+                transcriptSource: null,
+            }),
+        ];
+        listAntigravityConversationsMock.mockResolvedValue(conversations);
+        listAntigravityWorkspaceGroupsMock.mockResolvedValue([
+            {
+                artifactCount: 0,
+                conversationBytes: 0,
+                conversationCount: 2,
+                key: `project:${projectId}`,
+                label: 'spiracha',
+                lastActiveMs: 0,
+                totalBytes: 0,
+                transcriptCount: 2,
+                uri: null,
+            },
+        ]);
+        getCachedAntigravityKeychainSecretMock.mockReturnValue(null);
+        renderAntigravityConversationMarkdownMock.mockResolvedValue('transcript markdown');
+
+        const result = await exportAntigravityConversations({
+            conversationIds: conversations.map((conversation) => conversation.conversationId),
+            outputFormat: 'md',
+            zipArchive: true,
+        });
+
+        expect(result.fileName).toBe('spiracha-threads-2.zip');
+        expect(renderSourceSessionsDownloadMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                entries: expect.arrayContaining([
+                    expect.objectContaining({ cwd: 'spiracha', fileBaseName: expect.stringContaining('spiracha-') }),
+                ]),
+            }),
+        );
     });
 
     it('should suppress duplicate conversation markdown when artifacts render the same content', async () => {

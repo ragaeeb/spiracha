@@ -58,10 +58,10 @@ const buildConversationMetadata = (detail: AntigravityConversationDetail) => {
             value: (
                 <Link
                     className="text-[var(--accent)]"
-                    params={{ workspaceKey: detail.conversation.workspaceKey }}
+                    params={{ workspaceKey: detail.conversationGroup.key }}
                     to="/antigravity/$workspaceKey"
                 >
-                    {detail.conversation.workspaceLabel}
+                    {detail.conversationGroup.label}
                 </Link>
             ),
         },
@@ -346,14 +346,14 @@ function AntigravityConversationDetailPage() {
             await Promise.all([
                 queryClient.invalidateQueries({ queryKey: ['antigravity-workspaces'] }),
                 queryClient.invalidateQueries({
-                    queryKey: ['antigravity-conversations', detail.conversation.workspaceKey],
+                    queryKey: ['antigravity-conversations', detail.conversationGroup.key],
                 }),
                 queryClient.invalidateQueries({
                     queryKey: ['antigravity-conversation', detail.conversation.conversationId],
                 }),
             ]);
             navigate({
-                params: { workspaceKey: detail.conversation.workspaceKey },
+                params: { workspaceKey: detail.conversationGroup.key },
                 to: '/antigravity/$workspaceKey',
             });
         },
@@ -379,8 +379,8 @@ function AntigravityConversationDetailPage() {
                         items={[
                             { label: 'Antigravity', to: '/antigravity' },
                             {
-                                label: detail.conversation.workspaceLabel,
-                                params: { workspaceKey: detail.conversation.workspaceKey },
+                                label: detail.conversationGroup.label,
+                                params: { workspaceKey: detail.conversationGroup.key },
                                 to: '/antigravity/$workspaceKey',
                             },
                             { label: detail.conversation.title },
