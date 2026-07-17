@@ -1,29 +1,18 @@
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
-import { type AsyncZippable, zip } from 'fflate';
+import { type Zippable, zipSync } from 'fflate';
 
 const readZipFile = async (filePath: string) => {
     return new Uint8Array(await Bun.file(filePath).arrayBuffer());
 };
 
-const createZip = async (files: AsyncZippable): Promise<Uint8Array> => {
-    return await new Promise((resolve, reject) => {
-        zip(files, { level: 9 }, (error, data) => {
-            if (error) {
-                reject(error);
-                return;
-            }
-
-            resolve(data);
-        });
-    });
-};
+const createZip = (files: Zippable) => zipSync(files, { level: 9 });
 
 const readZipDirectory = async (
     rootDirectory: string,
     currentDirectory = rootDirectory,
-    files: AsyncZippable = {},
-): Promise<AsyncZippable> => {
+    files: Zippable = {},
+): Promise<Zippable> => {
     const entries = await readdir(currentDirectory, { withFileTypes: true });
     await Promise.all(
         entries.map(async (entry) => {
