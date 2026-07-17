@@ -41,7 +41,10 @@ const textPartToMessages = (
     finalTextPartIds: Set<string>,
     order: number,
 ): ConversationMessage[] => {
-    const split = splitOpenCodeThinkTaggedText(part.text ?? '');
+    const split =
+        part.role === 'assistant'
+            ? splitOpenCodeThinkTaggedText(part.text ?? '')
+            : { reasoningBlocks: [], visibleText: part.text ?? '' };
     return [
         ...createTextMessage({
             createdAtMs: part.createdAtMs,
@@ -83,15 +86,27 @@ const partToMessages = (
     }
 
     if (part.type === 'tool') {
-        return createTextMessage({
-            createdAtMs: part.createdAtMs,
-            id: part.partId,
-            metadata: { callId: part.callId, status: part.status, toolName: part.toolName },
-            order,
-            phase: part.outputText ? 'tool_output' : 'tool_call',
-            role: 'tool',
-            text: part.outputText ?? part.argumentsText ?? part.title ?? part.toolName,
-        });
+        const metadata = { callId: part.callId, status: part.status, toolName: part.toolName };
+        return [
+            ...createTextMessage({
+                createdAtMs: part.createdAtMs,
+                id: `${part.partId}:tool_call`,
+                metadata,
+                order,
+                phase: 'tool_call',
+                role: 'tool',
+                text: [part.toolName, part.argumentsText ?? part.title].filter(Boolean).join('\n'),
+            }),
+            ...createTextMessage({
+                createdAtMs: part.createdAtMs,
+                id: `${part.partId}:tool_output`,
+                metadata,
+                order,
+                phase: 'tool_output',
+                role: 'tool',
+                text: part.outputText,
+            }),
+        ];
     }
 
     return [];

@@ -92,6 +92,13 @@ describe('shared helpers', () => {
         );
     });
 
+    it('should keep markdown code blocks valid when exported content contains backtick fences', () => {
+        expect(renderCodeBlock('before\n```ts\nconst value = 1;\n```\nafter', 'md')).toBe(
+            '````text\nbefore\n```ts\nconst value = 1;\n```\nafter\n````',
+        );
+        expect(renderCodeBlock('before\n```\nafter', 'txt')).toBe('before\n```\nafter');
+    });
+
     it('should skip invalid jsonl lines and write export files to disk', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'shared-test-'));
         tempPaths.push(tempRoot);

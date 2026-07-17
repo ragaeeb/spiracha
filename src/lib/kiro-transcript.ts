@@ -61,10 +61,6 @@ const renderTextPart = (part: KiroTranscriptPart, title: string, options: KiroEx
 };
 
 const renderImagePart = (part: KiroTranscriptPart, options: KiroExportOptions): string => {
-    if (!options.includeCommentary) {
-        return '';
-    }
-
     const text = cleanExtractedText(part.text ?? 'Image attachment').trim();
     return renderSection('Attachment', text, options.outputFormat);
 };

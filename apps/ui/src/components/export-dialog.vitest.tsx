@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { ExportDialog } from './export-dialog';
 
@@ -141,5 +141,35 @@ describe('ExportDialog', () => {
         render(<ExportDialog errorMessage="Could not export thread" open onExport={vi.fn()} onOpenChange={vi.fn()} />);
 
         expect(screen.getByText('Could not export thread')).toBeTruthy();
+    });
+
+    it('should hide unsupported transcript filters instead of offering ignored options', () => {
+        const onExport = vi.fn();
+        render(
+            <ExportDialog
+                open
+                showCommentaryOption={false}
+                showToolsOption={false}
+                title="Export opaque conversation"
+                onExport={onExport}
+                onOpenChange={vi.fn()}
+            />,
+        );
+        const dialog = screen.getByRole('dialog', { name: 'Export opaque conversation' });
+        const dialogQueries = within(dialog);
+
+        expect(dialogQueries.queryByRole('checkbox', { name: /include commentary/i })).toBeNull();
+        expect(dialogQueries.queryByRole('checkbox', { name: /include tool calls/i })).toBeNull();
+        expect(dialogQueries.queryByText(/whether the export includes tool calls/i)).toBeNull();
+        expect(dialogQueries.getByText('Choose the transcript format and export options.')).toBeTruthy();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
+        expect(onExport).toHaveBeenCalledWith({
+            includeCommentary: false,
+            includeMetadata: true,
+            includeTools: true,
+            outputFormat: 'md',
+            zipArchive: false,
+        });
     });
 });

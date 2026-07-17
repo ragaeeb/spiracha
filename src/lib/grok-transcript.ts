@@ -5,6 +5,7 @@ import type {
     GrokTranscriptEntry,
     GrokTranscriptPart,
 } from './grok-exporter-types';
+import { getFinalGrokAssistantTextPartIds, getGrokTextPartPhase } from './grok-transcript-phase';
 import {
     cleanExtractedText,
     cleanInlineTitle,
@@ -118,9 +119,20 @@ const renderToolResultPart = (part: GrokTranscriptPart, options: GrokExportOptio
     return renderSection('Tool Output', lines.join('\n'), options.outputFormat);
 };
 
-const renderPart = (entry: GrokTranscriptEntry, part: GrokTranscriptPart, options: GrokExportOptions): string => {
+const renderPart = (
+    entry: GrokTranscriptEntry,
+    part: GrokTranscriptPart,
+    options: GrokExportOptions,
+    finalAssistantTextPartIds: Set<string>,
+): string => {
     switch (part.type) {
         case 'text':
+            if (
+                getGrokTextPartPhase(entry, part, finalAssistantTextPartIds) === 'commentary' &&
+                !options.includeCommentary
+            ) {
+                return '';
+            }
             return renderTextPart(entry, part, options);
         case 'reasoning':
             return renderReasoningPart(part, options);
@@ -134,8 +146,9 @@ const renderPart = (entry: GrokTranscriptEntry, part: GrokTranscriptPart, option
 };
 
 export const renderGrokTranscript = (transcript: GrokSessionTranscript, options: GrokExportOptions): string | null => {
+    const finalAssistantTextPartIds = getFinalGrokAssistantTextPartIds(transcript.entries);
     const sections = transcript.entries.flatMap((entry) =>
-        entry.parts.map((part) => renderPart(entry, part, options)).filter(Boolean),
+        entry.parts.map((part) => renderPart(entry, part, options, finalAssistantTextPartIds)).filter(Boolean),
     );
     if (sections.length === 0) {
         return null;

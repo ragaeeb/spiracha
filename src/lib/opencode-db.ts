@@ -1014,12 +1014,13 @@ const parseTextOpenCodePart = (base: BaseOpenCodePart): OpenCodeTranscriptPart =
 
 const parseToolOpenCodePart = (base: BaseOpenCodePart): OpenCodeTranscriptPart => {
     const state = asObject(base.raw.state ?? null);
+    const metadata = asObject(state?.metadata ?? null);
     return {
         ...base,
         argumentsText: formatJsonLike(state?.input),
         callId: asString(base.raw.callID ?? null) ?? asString(base.raw.callId ?? null),
         endTimeMs: parseToolTimeMs(base.raw, 'end'),
-        outputText: formatJsonLike(state?.output),
+        outputText: formatJsonLike(state?.output ?? metadata?.output ?? state?.error),
         startTimeMs: parseToolTimeMs(base.raw, 'start'),
         status: asString(state?.status ?? null),
         title: asString(state?.title ?? null),

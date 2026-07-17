@@ -10,7 +10,7 @@ import { getFileFingerprint, hashCacheKeyParts, withCachedJson } from './ui-cach
 // Keep initial thread payloads below sizes that make TanStack Start SSR responses unreliable.
 export const LARGE_THREAD_SIZE_BYTES = 8 * 1024 * 1024;
 export const LARGE_THREAD_PREVIEW_EVENT_LIMIT = 200;
-const CODEX_TRANSCRIPT_CACHE_VERSION = 'v2';
+const CODEX_TRANSCRIPT_CACHE_VERSION = 'v3';
 
 const isMissingFileError = (error: unknown) => {
     return error instanceof Error && 'code' in error && error.code === 'ENOENT';

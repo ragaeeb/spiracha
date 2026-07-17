@@ -1,12 +1,21 @@
 import type { ClaudeCodeSessionTranscript } from '@spiracha/lib/claude-code-exporter-types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { deleteClaudeCodeSessionMock, readClaudeCodeSessionTranscriptMock, resolveClaudeCodeProjectsDirMock } =
-    vi.hoisted(() => ({
-        deleteClaudeCodeSessionMock: vi.fn(),
-        readClaudeCodeSessionTranscriptMock: vi.fn(),
-        resolveClaudeCodeProjectsDirMock: vi.fn(),
-    }));
+const {
+    deleteClaudeCodeSessionMock,
+    readClaudeCodeSessionTranscriptMock,
+    renderClaudeCodeTranscriptMock,
+    renderSourceSessionDownloadMock,
+    renderSourceSessionsDownloadMock,
+    resolveClaudeCodeProjectsDirMock,
+} = vi.hoisted(() => ({
+    deleteClaudeCodeSessionMock: vi.fn(),
+    readClaudeCodeSessionTranscriptMock: vi.fn(),
+    renderClaudeCodeTranscriptMock: vi.fn(),
+    renderSourceSessionDownloadMock: vi.fn(),
+    renderSourceSessionsDownloadMock: vi.fn(),
+    resolveClaudeCodeProjectsDirMock: vi.fn(),
+}));
 
 vi.mock('@tanstack/react-start', () => ({
     createServerFn: () => {
@@ -27,13 +36,24 @@ vi.mock('@spiracha/lib/claude-code-db', () => ({
     resolveClaudeCodeProjectsDir: resolveClaudeCodeProjectsDirMock,
 }));
 
+vi.mock('@spiracha/lib/claude-code-transcript', () => ({
+    renderClaudeCodeTranscript: renderClaudeCodeTranscriptMock,
+}));
+
 vi.mock('@spiracha/lib/transcript-load-limiter', () => ({
     runWithTranscriptLoadLimit: (loader: () => Promise<unknown>) => loader(),
+}));
+
+vi.mock('./source-session-export-server', () => ({
+    renderSourceSessionDownload: renderSourceSessionDownloadMock,
+    renderSourceSessionsDownload: renderSourceSessionsDownloadMock,
 }));
 
 import {
     buildClaudeCodeSessionDetailPreview,
     deleteClaudeCodeSessionsFn,
+    exportClaudeCodeSessionFn,
+    exportClaudeCodeSessionsFn,
     loadClaudeCodeSessionDetail,
     loadClaudeCodeSessionFullDetail,
 } from './claude-code-server';
@@ -85,6 +105,9 @@ describe('Claude Code server transcript loading', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         resolveClaudeCodeProjectsDirMock.mockReturnValue('/tmp/projects');
+        renderClaudeCodeTranscriptMock.mockReturnValue('rendered transcript');
+        renderSourceSessionDownloadMock.mockResolvedValue({ mode: 'download' });
+        renderSourceSessionsDownloadMock.mockResolvedValue({ mode: 'download_url' });
     });
 
     it('should bound the initial detail payload while preserving the beginning and end', () => {
@@ -143,5 +166,43 @@ describe('Claude Code server transcript loading', () => {
             deletedFiles: ['/tmp/root.jsonl'],
             deletedSessionIds: ['root', 'child'],
         });
+    });
+
+    it('should forward every export option for single and batch Claude Code sessions', async () => {
+        const first = buildTranscript(1);
+        const second = buildTranscript(1);
+        second.session = { ...second.session, sessionId: 'session-second', title: 'Second session' };
+        readClaudeCodeSessionTranscriptMock
+            .mockResolvedValueOnce(first)
+            .mockResolvedValueOnce(first)
+            .mockResolvedValueOnce(second);
+
+        const options = {
+            includeCommentary: false,
+            includeMetadata: false,
+            includeTools: true,
+            outputFormat: 'txt' as const,
+            zipArchive: true,
+        };
+        await exportClaudeCodeSessionFn({ data: { ...options, sessionId: first.session.sessionId } } as never);
+        await exportClaudeCodeSessionsFn({
+            data: { ...options, sessionIds: [first.session.sessionId, second.session.sessionId] },
+        } as never);
+
+        expect(renderClaudeCodeTranscriptMock).toHaveBeenCalledTimes(3);
+        for (const transcript of [first, first, second]) {
+            expect(renderClaudeCodeTranscriptMock).toHaveBeenCalledWith(transcript, {
+                includeCommentary: false,
+                includeMetadata: false,
+                includeTools: true,
+                outputFormat: 'txt',
+            });
+        }
+        expect(renderSourceSessionDownloadMock).toHaveBeenCalledWith(
+            expect.objectContaining({ outputFormat: 'txt', zipArchive: true }),
+        );
+        expect(renderSourceSessionsDownloadMock).toHaveBeenCalledWith(
+            expect.objectContaining({ outputFormat: 'txt', zipArchive: true }),
+        );
     });
 });

@@ -5,6 +5,7 @@ import { useMemo, useState } from 'react';
 import { AntigravityKeychainPanel } from '#/components/antigravity-keychain-panel';
 import { Breadcrumbs } from '#/components/breadcrumbs';
 import { DeleteConfirmDialog } from '#/components/delete-confirm-dialog';
+import { ExportDialog } from '#/components/export-dialog';
 import { JsonPanel } from '#/components/json-panel';
 import { LoadingPanel } from '#/components/loading-panel';
 import { MetadataSection } from '#/components/metadata-section';
@@ -31,7 +32,7 @@ import {
     antigravityMarkdownToThreadEvents,
     getAntigravityThreadTranscriptStats,
 } from '#/lib/antigravity-transcript-events';
-import { downloadTextFile } from '#/lib/download';
+import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import { formatBytes, formatDateTime, formatNumber } from '#/lib/formatters';
 
 type AntigravityConversationDetail = Awaited<ReturnType<typeof getAntigravityConversationDetailFn>>;
@@ -48,6 +49,14 @@ type TranscriptControlsProps = {
     onShowRawJsonChange: (checked: boolean) => void;
     onShowToolCallsChange: (checked: boolean) => void;
     onShowUserMessagesChange: (checked: boolean) => void;
+};
+
+type ExportDialogOptions = {
+    includeCommentary: boolean;
+    includeMetadata: boolean;
+    includeTools: boolean;
+    outputFormat: 'md' | 'txt';
+    zipArchive: boolean;
 };
 
 const buildConversationMetadata = (detail: AntigravityConversationDetail) => {
@@ -307,6 +316,7 @@ function AntigravityConversationDetailPage() {
     const decryptionState = useSuspenseQuery(antigravityDecryptionQueryOptions()).data;
     const detail = useSuspenseQuery(antigravityConversationDetailQueryOptions(Route.useParams().conversationId)).data;
     const [deleteOpen, setDeleteOpen] = useState(false);
+    const [exportOpen, setExportOpen] = useState(false);
     const [showToolCalls, setShowToolCalls] = useState(false);
     const [showCommentary, setShowCommentary] = useState(false);
     const [showExtraEvents, setShowExtraEvents] = useState(false);
@@ -324,10 +334,26 @@ function AntigravityConversationDetailPage() {
     const showConversationExport = canExportConversation || detail.transcriptLocked;
 
     const exportConversationMutation = useMutation({
-        mutationFn: () =>
-            exportAntigravityConversationFn({ data: { conversationId: detail.conversation.conversationId } }),
-        onSuccess: (result) => {
-            downloadTextFile(result.filename, result.content, 'text/markdown; charset=utf-8');
+        mutationFn: async (options: ExportDialogOptions) => {
+            const download = await exportAntigravityConversationFn({
+                data: {
+                    conversationId: detail.conversation.conversationId,
+                    includeCommentary: options.includeCommentary,
+                    includeMetadata: options.includeMetadata,
+                    includeTools: options.includeTools,
+                    outputFormat: options.outputFormat,
+                    zipArchive: options.zipArchive,
+                },
+            });
+            if (download.mode === 'download') {
+                downloadTextFile(download.fileName, download.content, download.mimeType);
+                return;
+            }
+
+            await downloadUrlFile(download.fileName, download.downloadUrl);
+        },
+        onSuccess: () => {
+            setExportOpen(false);
         },
     });
 
@@ -371,7 +397,7 @@ function AntigravityConversationDetailPage() {
                         showConversationExport={showConversationExport}
                         onDeleteConversation={() => setDeleteOpen(true)}
                         onExportArtifacts={() => exportArtifactsMutation.mutate()}
-                        onExportConversation={() => exportConversationMutation.mutate()}
+                        onExportConversation={() => setExportOpen(true)}
                     />
                 }
                 breadcrumb={
@@ -463,14 +489,6 @@ function AntigravityConversationDetailPage() {
                 </TabsContent>
             </Tabs>
 
-            {exportConversationMutation.isError ? (
-                <p className="text-[var(--destructive)] text-sm">
-                    {exportConversationMutation.error instanceof Error
-                        ? exportConversationMutation.error.message
-                        : 'Conversation export failed'}
-                </p>
-            ) : null}
-
             {exportArtifactsMutation.isError ? (
                 <p className="text-[var(--destructive)] text-sm">
                     {exportArtifactsMutation.error instanceof Error
@@ -478,6 +496,28 @@ function AntigravityConversationDetailPage() {
                         : 'Artifact export failed'}
                 </p>
             ) : null}
+
+            <ExportDialog
+                errorMessage={
+                    exportConversationMutation.isError
+                        ? exportConversationMutation.error instanceof Error
+                            ? exportConversationMutation.error.message
+                            : 'Conversation export failed'
+                        : null
+                }
+                open={exportOpen}
+                pending={exportConversationMutation.isPending}
+                showCommentaryOption={detail.conversation.transcriptSource !== 'safe-storage'}
+                showToolsOption={detail.conversation.transcriptSource !== 'safe-storage'}
+                title={`Export ${detail.conversation.title}`}
+                onExport={(options) => exportConversationMutation.mutate(options)}
+                onOpenChange={(open) => {
+                    setExportOpen(open);
+                    if (!open) {
+                        exportConversationMutation.reset();
+                    }
+                }}
+            />
 
             <DeleteConfirmDialog
                 confirmLabel={deleteConversationMutation.isPending ? 'Deleting...' : 'Delete conversation'}

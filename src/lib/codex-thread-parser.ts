@@ -129,7 +129,7 @@ const captureTranscriptRecord = (parsed: Record<string, JsonValue>, state: Parse
         return;
     }
 
-    const event = toThreadEvent(parsed, state.sequence, state.includeRaw);
+    const event = parseCodexTranscriptRecord(parsed, state.sequence, state.includeRaw);
     if (!event) {
         return;
     }
@@ -204,10 +204,10 @@ const captureTurnContext = (parsed: Record<string, JsonValue>, turnContexts: Tur
     });
 };
 
-const toThreadEvent = (
+export const parseCodexTranscriptRecord = (
     parsed: Record<string, JsonValue>,
-    sequence: number,
-    includeRaw: boolean,
+    sequence = 0,
+    includeRaw = false,
 ): ThreadEvent | null => {
     const payload = asObject(parsed.payload);
     if (!payload) {
@@ -265,11 +265,11 @@ const buildResponseItemEvent = (
         return createAgentMessageEvent(payload, raw, sequence, timestamp);
     }
 
-    if (payloadType === 'function_call') {
-        return createToolCallEvent(payload, raw, sequence, timestamp);
+    if (payloadType === 'function_call' || payloadType === 'custom_tool_call') {
+        return createToolCallEvent(payload, raw, sequence, timestamp, payloadType === 'custom_tool_call');
     }
 
-    if (payloadType === 'function_call_output') {
+    if (payloadType === 'function_call_output' || payloadType === 'custom_tool_call_output') {
         return createToolOutputEvent(payload, raw, sequence, timestamp);
     }
 
@@ -310,7 +310,7 @@ const createMessageEvent = (
     }
 
     return {
-        isHiddenByDefault: shouldHideTranscriptText(role, text),
+        isHiddenByDefault: shouldHideCodexTranscriptText(role, text),
         kind: 'message',
         memoryCitation: null,
         model: asString(payload.model),
@@ -330,9 +330,9 @@ const createUserMessageEvent = (
     sequence: number,
     timestamp: string | null,
 ): MessageEvent => {
-    const text = stripMemoryCitationBlocks(asString(payload.message) ?? '');
+    const text = stripCodexMemoryCitationBlocks(asString(payload.message) ?? '');
     return {
-        isHiddenByDefault: shouldHideTranscriptText('user', text),
+        isHiddenByDefault: shouldHideCodexTranscriptText('user', text),
         kind: 'message',
         memoryCitation: null,
         model: null,
@@ -352,9 +352,9 @@ const createAgentMessageEvent = (
     sequence: number,
     timestamp: string | null,
 ): MessageEvent => {
-    const text = stripMemoryCitationBlocks(asString(payload.message) ?? '');
+    const text = stripCodexMemoryCitationBlocks(asString(payload.message) ?? '');
     return {
-        isHiddenByDefault: shouldHideTranscriptText('assistant', text),
+        isHiddenByDefault: shouldHideCodexTranscriptText('assistant', text),
         kind: 'message',
         memoryCitation: payload.memory_citation ?? null,
         model: asString(payload.model),
@@ -373,10 +373,13 @@ const createToolCallEvent = (
     raw: Record<string, JsonValue>,
     sequence: number,
     timestamp: string | null,
+    isCustomToolCall: boolean,
 ): ToolCallEvent => {
     const name = asString(payload.name) ?? 'unknown';
-    const argumentsText = asString(payload.arguments);
-    const parsedArguments = parseExecCommandArguments(argumentsText);
+    const argumentsText = asString(isCustomToolCall ? payload.input : payload.arguments);
+    const parsedArguments = isCustomToolCall
+        ? { argumentsParseFailed: false, cmd: argumentsText, workdir: null }
+        : parseExecCommandArguments(argumentsText);
 
     return {
         argumentsParseFailed: parsedArguments.argumentsParseFailed,
@@ -398,7 +401,7 @@ const createToolOutputEvent = (
     sequence: number,
     timestamp: string | null,
 ): ToolOutputEvent => {
-    const outputText = asString(payload.output) ?? '';
+    const outputText = extractToolOutputText(payload.output);
 
     return {
         callId: asString(payload.call_id),
@@ -524,7 +527,7 @@ const updateTranscriptStats = (stats: ThreadTranscriptStats, event: ThreadEvent)
 
     if (event.kind === 'tool_call') {
         stats.toolCallCount += 1;
-        if (event.name === 'exec_command') {
+        if (event.name === 'exec' || event.name === 'exec_command') {
             stats.execCommandCount += 1;
         }
         return;
@@ -592,13 +595,31 @@ const parseExecCommandArguments = (argumentsText: string | null) => {
     }
 };
 
+const extractToolOutputText = (output: JsonValue | undefined): string => {
+    if (typeof output === 'string') {
+        return output;
+    }
+
+    if (!Array.isArray(output)) {
+        return '';
+    }
+
+    return output
+        .map((entry) => {
+            const contentBlock = asObject(entry);
+            return contentBlock ? asString(contentBlock.text) : null;
+        })
+        .filter((entry): entry is string => entry !== null)
+        .join('\n');
+};
+
 const extractText = (content: JsonValue): string => {
     if (typeof content === 'string') {
-        return stripMemoryCitationBlocks(content);
+        return stripCodexMemoryCitationBlocks(content);
     }
 
     if (Array.isArray(content)) {
-        return stripMemoryCitationBlocks(
+        return stripCodexMemoryCitationBlocks(
             content
                 .map((entry) => extractTextPart(entry))
                 .filter(Boolean)
@@ -607,13 +628,13 @@ const extractText = (content: JsonValue): string => {
     }
 
     if (content && typeof content === 'object') {
-        return stripMemoryCitationBlocks(asString((content as Record<string, JsonValue>).text) ?? '');
+        return stripCodexMemoryCitationBlocks(asString((content as Record<string, JsonValue>).text) ?? '');
     }
 
     return '';
 };
 
-const stripMemoryCitationBlocks = (text: string): string => {
+export const stripCodexMemoryCitationBlocks = (text: string): string => {
     return stripCodexAppDirectiveLines(text.replace(/<oai-mem-citation>[\s\S]*?<\/oai-mem-citation>/gu, ''));
 };
 
@@ -633,7 +654,7 @@ const extractTextPart = (entry: JsonValue): string => {
     return text ?? '';
 };
 
-const shouldHideTranscriptText = (role: string, text: string) => {
+export const shouldHideCodexTranscriptText = (role: string, text: string) => {
     if (!text) {
         return true;
     }
@@ -644,6 +665,7 @@ const shouldHideTranscriptText = (role: string, text: string) => {
 
     return (
         text.startsWith('# AGENTS.md instructions for ') ||
+        text.startsWith('AGENTS.md instructions for ') ||
         text.startsWith('<permissions instructions>') ||
         text.startsWith('<app-context>') ||
         text.startsWith('<environment_context>') ||

@@ -17,6 +17,8 @@ type ExportDialogProps = {
     forceZipArchive?: boolean;
     open: boolean;
     pending?: boolean;
+    showCommentaryOption?: boolean;
+    showToolsOption?: boolean;
     title?: string;
     onExport: (options: {
         includeCommentary: boolean;
@@ -34,6 +36,8 @@ export function ExportDialog({
     forceZipArchive = false,
     open,
     pending = false,
+    showCommentaryOption = true,
+    showToolsOption = true,
     title = 'Export thread',
     onExport,
     onOpenChange,
@@ -62,7 +66,7 @@ export function ExportDialog({
                 <DialogHeader>
                     <DialogTitle>{title}</DialogTitle>
                     <DialogDescription className="text-[var(--muted-foreground)]">
-                        Choose the transcript format and whether the export includes tool calls.
+                        Choose the transcript format and export options.
                     </DialogDescription>
                 </DialogHeader>
 
@@ -99,33 +103,37 @@ export function ExportDialog({
                         </span>
                     </div>
 
-                    <div className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--panel-secondary)] p-3">
-                        <Checkbox
-                            aria-label="Include commentary"
-                            checked={includeCommentary}
-                            onCheckedChange={(checked) => setIncludeCommentary(checked === true)}
-                        />
-                        <span className="space-y-1">
-                            <span className="block font-medium text-sm">Include commentary</span>
-                            <span className="block text-[var(--muted-foreground)] text-sm">
-                                Includes assistant commentary-phase updates in the exported transcript.
+                    {showCommentaryOption ? (
+                        <div className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--panel-secondary)] p-3">
+                            <Checkbox
+                                aria-label="Include commentary"
+                                checked={includeCommentary}
+                                onCheckedChange={(checked) => setIncludeCommentary(checked === true)}
+                            />
+                            <span className="space-y-1">
+                                <span className="block font-medium text-sm">Include commentary</span>
+                                <span className="block text-[var(--muted-foreground)] text-sm">
+                                    Includes assistant commentary-phase updates in the exported transcript.
+                                </span>
                             </span>
-                        </span>
-                    </div>
+                        </div>
+                    ) : null}
 
-                    <div className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--panel-secondary)] p-3">
-                        <Checkbox
-                            aria-label="Include tool calls"
-                            checked={includeTools}
-                            onCheckedChange={(checked) => setIncludeTools(checked === true)}
-                        />
-                        <span className="space-y-1">
-                            <span className="block font-medium text-sm">Include tool calls</span>
-                            <span className="block text-[var(--muted-foreground)] text-sm">
-                                Includes tool-call summaries and tool-output summaries in the export.
+                    {showToolsOption ? (
+                        <div className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--panel-secondary)] p-3">
+                            <Checkbox
+                                aria-label="Include tool calls"
+                                checked={includeTools}
+                                onCheckedChange={(checked) => setIncludeTools(checked === true)}
+                            />
+                            <span className="space-y-1">
+                                <span className="block font-medium text-sm">Include tool calls</span>
+                                <span className="block text-[var(--muted-foreground)] text-sm">
+                                    Includes tool-call summaries and tool-output summaries in the export.
+                                </span>
                             </span>
-                        </span>
-                    </div>
+                        </div>
+                    ) : null}
 
                     <div className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--panel-secondary)] p-3">
                         <Checkbox

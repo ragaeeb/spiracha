@@ -145,6 +145,78 @@ describe('parseCodexTranscriptFile', () => {
         expect(toolCall && 'argumentsParseFailed' in toolCall ? toolCall.argumentsParseFailed : null).toBe(true);
     });
 
+    it('should parse custom tool calls alongside legacy function calls', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-parser-custom-tools-test-'));
+        tempPaths.push(tempRoot);
+        const sessionFile = path.join(tempRoot, 'custom-tools.jsonl');
+        await Bun.write(
+            sessionFile,
+            [
+                JSON.stringify({
+                    payload: {
+                        call_id: 'custom-call-1',
+                        input: 'const result = await tools.exec_command({ cmd: "rtk bun test" });',
+                        name: 'exec',
+                        type: 'custom_tool_call',
+                    },
+                    timestamp: '2026-07-17T12:00:00.000Z',
+                    type: 'response_item',
+                }),
+                JSON.stringify({
+                    payload: {
+                        call_id: 'custom-call-1',
+                        output: [
+                            { text: 'Script completed\nWall time 0.1 seconds\nOutput:', type: 'input_text' },
+                            { text: '12 tests passed', type: 'input_text' },
+                        ],
+                        type: 'custom_tool_call_output',
+                    },
+                    timestamp: '2026-07-17T12:00:01.000Z',
+                    type: 'response_item',
+                }),
+                JSON.stringify({
+                    payload: {
+                        arguments: '{"timeout_ms":30000}',
+                        call_id: 'wait-call-1',
+                        name: 'wait',
+                        type: 'function_call',
+                    },
+                    timestamp: '2026-07-17T12:00:02.000Z',
+                    type: 'response_item',
+                }),
+            ].join('\n'),
+        );
+
+        const transcript = await parseCodexTranscriptFile(sessionFile);
+
+        expect(transcript.events).toMatchObject([
+            {
+                argumentsParseFailed: false,
+                argumentsText: 'const result = await tools.exec_command({ cmd: "rtk bun test" });',
+                callId: 'custom-call-1',
+                command: 'const result = await tools.exec_command({ cmd: "rtk bun test" });',
+                kind: 'tool_call',
+                name: 'exec',
+                workdir: null,
+            },
+            {
+                callId: 'custom-call-1',
+                kind: 'tool_output',
+                outputText: 'Script completed\nWall time 0.1 seconds\nOutput:\n12 tests passed',
+            },
+            {
+                callId: 'wait-call-1',
+                kind: 'tool_call',
+                name: 'wait',
+            },
+        ]);
+        expect(transcript.stats).toMatchObject({
+            execCommandCount: 1,
+            toolCallCount: 2,
+            toolOutputCount: 1,
+        });
+    });
+
     it('should strip Codex memory citation XML from visible message text', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-parser-memory-citation-test-'));
         tempPaths.push(tempRoot);

@@ -112,6 +112,14 @@ function ProjectThreadsLoadingState({ project }: { project: string }) {
 
 const toError = (error: unknown) => (error instanceof Error ? error : new Error(String(error)));
 
+const getThreadExportErrorMessage = (error: unknown): string | null => {
+    if (!error) {
+        return null;
+    }
+
+    return error instanceof Error ? error.message : 'Thread export failed';
+};
+
 function ProjectDetailPage() {
     const navigate = useNavigate({ from: Route.fullPath });
     const params = Route.useParams();
@@ -374,6 +382,7 @@ function ProjectDetailPage() {
             />
 
             <ExportDialog
+                errorMessage={getThreadExportErrorMessage(exportThreadMutation.error)}
                 forceZipArchive={shouldForceZipArchive(pendingExport)}
                 open={pendingExport !== null}
                 pending={exportThreadMutation.isPending}
@@ -382,6 +391,7 @@ function ProjectDetailPage() {
                 onOpenChange={(open) => {
                     if (!open) {
                         setPendingExport(null);
+                        exportThreadMutation.reset();
                     }
                 }}
             />

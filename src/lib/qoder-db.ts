@@ -1128,6 +1128,7 @@ const cliToolCallPartToTranscriptPart = (part: Record<string, JsonValue>): Qoder
               raw: {
                   ...part,
                   command: text,
+                  toolCallId: asString(data.id ?? data.tool_use_id ?? part.id ?? part.tool_use_id ?? null),
                   toolName: getCliToolName(part, data),
               },
               role: 'tool',

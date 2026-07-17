@@ -279,6 +279,13 @@ function OpenCodeWorkspaceContent({
             />
 
             <ExportDialog
+                errorMessage={
+                    exportMutation.isError
+                        ? exportMutation.error instanceof Error
+                            ? exportMutation.error.message
+                            : 'Session export failed'
+                        : null
+                }
                 forceZipArchive={pendingExport ? pendingExport.sessionIds.length > 1 : false}
                 open={pendingExport !== null}
                 pending={exportMutation.isPending}
@@ -291,12 +298,6 @@ function OpenCodeWorkspaceContent({
                     }
                 }}
             />
-
-            {exportMutation.isError ? (
-                <p className="text-[var(--destructive)] text-sm">
-                    {exportMutation.error instanceof Error ? exportMutation.error.message : 'Session export failed'}
-                </p>
-            ) : null}
 
             <DeleteConfirmDialog
                 confirmLabel={getDeleteConfirmLabel(pendingDelete, deleteMutation.isPending)}

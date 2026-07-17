@@ -127,12 +127,20 @@ describe('antigravity conversation adapter', () => {
                 type: 'PLANNER_RESPONSE',
             },
             {
-                content: 'Final answer with Unhandled Optional Chaining in Manifest.',
+                content: 'I will inspect the manifest before answering.',
                 created_at: '2026-06-17T16:00:03Z',
                 source: 'MODEL',
                 status: 'DONE',
                 step_index: 3,
                 tool_calls: [{ args: { AbsolutePath: '/tmp/project/README.md' }, name: 'view_file' }],
+                type: 'PLANNER_RESPONSE',
+            },
+            {
+                content: 'Final answer with Unhandled Optional Chaining in Manifest.',
+                created_at: '2026-06-17T16:00:04Z',
+                source: 'MODEL',
+                status: 'DONE',
+                step_index: 4,
                 type: 'PLANNER_RESPONSE',
             },
         ]);

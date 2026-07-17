@@ -324,6 +324,51 @@ describe('opencode db helpers', () => {
         });
     });
 
+    it('should preserve failed tool errors as tool output', async () => {
+        const dbPath = await makeDbPath();
+        await createOpenCodeFixture(dbPath, {
+            projects: [{ id: 'pro_error', worktree: '/repo' }],
+            sessions: [
+                {
+                    id: 'ses_error',
+                    messages: [
+                        {
+                            id: 'msg_assistant',
+                            parts: [
+                                {
+                                    data: {
+                                        callID: 'call_failed',
+                                        state: {
+                                            error: 'Permission denied',
+                                            input: { filePath: '/root/secret' },
+                                            status: 'error',
+                                        },
+                                        tool: 'read',
+                                        type: 'tool',
+                                    },
+                                    id: 'prt_failed_tool',
+                                },
+                            ],
+                            role: 'assistant',
+                        },
+                    ],
+                    projectId: 'pro_error',
+                    title: 'Failed tool',
+                },
+            ],
+        });
+
+        const transcript = await readOpenCodeSessionTranscript(dbPath, 'ses_error');
+
+        expect(transcript?.messages[0]?.parts[0]).toMatchObject({
+            callId: 'call_failed',
+            outputText: 'Permission denied',
+            status: 'error',
+            toolName: 'read',
+            type: 'tool',
+        });
+    });
+
     it('should delete an OpenCode top-level session with child sessions and transcript rows', async () => {
         const dbPath = await createFixtureDb();
         const setupDb = new Database(dbPath);

@@ -12,7 +12,17 @@ import {
 } from './antigravity-exporter-types';
 import { decryptAntigravitySafeStoragePayload } from './antigravity-keychain';
 import { resolveAntigravityProjectNames } from './antigravity-projects';
+import { getAntigravityAssistantPhase, getFinalAntigravityAssistantSequences } from './antigravity-transcript-phase';
 import { mapWithConcurrency } from './concurrency';
+import {
+    type ExportFormat,
+    formatInlineLiteral,
+    type MetadataEntry,
+    renderCodeBlock,
+    renderDocumentTitle,
+    renderMetadataBlock,
+    renderSection,
+} from './shared';
 
 type ProtoField = {
     bytes?: Uint8Array;
@@ -66,9 +76,17 @@ export type AntigravityConversationMessage = {
     createdAtMs: number | null;
     metadata: Record<string, unknown>;
     order: number;
-    phase: 'final_answer' | 'reasoning' | 'tool_call' | 'tool_output' | 'unknown';
+    phase: 'commentary' | 'final_answer' | 'reasoning' | 'tool_call' | 'tool_output' | 'unknown';
     role: 'assistant' | 'system' | 'tool' | 'unknown' | 'user';
     text: string;
+};
+
+export type AntigravityConversationRenderOptions = {
+    includeCommentary?: boolean;
+    includeMetadata?: boolean;
+    includeTools?: boolean;
+    keychainSecret?: string | null;
+    outputFormat?: ExportFormat;
 };
 
 type WorkspaceInfo = Pick<SummaryEntry, 'workspaceFolder' | 'workspaceKey' | 'workspaceLabel' | 'workspaceUri'>;
@@ -1043,48 +1061,99 @@ const logEntryHeading = (entry: AntigravityLogEntry): string => {
     return type ? `Tool: ${type}` : 'Event';
 };
 
-const renderToolCalls = (toolCalls: unknown): string[] => {
+type ResolvedAntigravityConversationRenderOptions = {
+    includeCommentary: boolean;
+    includeMetadata: boolean;
+    includeTools: boolean;
+    keychainSecret: string | null;
+    outputFormat: ExportFormat;
+};
+
+const resolveAntigravityRenderOptions = (
+    options: AntigravityConversationRenderOptions,
+): ResolvedAntigravityConversationRenderOptions => ({
+    includeCommentary: options.includeCommentary ?? true,
+    includeMetadata: options.includeMetadata ?? true,
+    includeTools: options.includeTools ?? true,
+    keychainSecret: options.keychainSecret ?? null,
+    outputFormat: options.outputFormat ?? 'md',
+});
+
+const renderNestedHeading = (title: string, outputFormat: ExportFormat) => {
+    return outputFormat === 'md' ? `### ${title}` : `${title}\n${'~'.repeat(Math.max(title.length, 3))}`;
+};
+
+const renderToolCalls = (toolCalls: unknown, outputFormat: ExportFormat): string => {
     if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
-        return [];
+        return '';
     }
 
-    const parts = ['### Tool Calls', ''];
+    const parts: string[] = [];
     for (const call of toolCalls) {
         if (!call || typeof call !== 'object') {
             continue;
         }
 
         const { args, name } = call as { args?: unknown; name?: unknown };
-        parts.push(`- \`${typeof name === 'string' ? name : 'unknown'}\``);
+        parts.push(`- ${formatInlineLiteral(typeof name === 'string' ? name : 'unknown', outputFormat)}`);
         if (args !== undefined) {
-            parts.push('', '```json', JSON.stringify(args, null, 2), '```', '');
+            parts.push('', 'Input:', '', renderCodeBlock(JSON.stringify(args, null, 2), outputFormat), '');
         }
     }
 
-    return parts;
+    return parts.length > 0 ? [renderNestedHeading('Tool Calls', outputFormat), '', ...parts].join('\n').trimEnd() : '';
 };
 
-const renderLogEntry = (entry: AntigravityLogEntry): string[] => {
-    const heading = logEntryHeading(entry);
-    const timestamp = getString(entry.created_at);
-    const content = cleanLogContent(entry);
+const renderLogEntryBodyParts = (
+    entry: AntigravityLogEntry,
+    role: AntigravityConversationMessage['role'],
+    sequence: number,
+    finalAssistantSequences: Set<number>,
+    options: ResolvedAntigravityConversationRenderOptions,
+): string[] => {
+    const bodyParts: string[] = [];
     const thinking = getString(entry.thinking) ?? '';
-    const parts = [`## ${heading}`, ''];
-
-    if (timestamp) {
-        parts.push(`_Timestamp: ${timestamp}_`, '');
+    if (options.includeCommentary && thinking) {
+        bodyParts.push(renderNestedHeading('Thinking', options.outputFormat), '', thinking.trim(), '');
     }
 
-    if (thinking) {
-        parts.push('### Thinking', '', thinking.trim(), '');
+    const content = cleanLogContent(entry);
+    const phase = role === 'assistant' ? getAntigravityAssistantPhase(sequence, finalAssistantSequences) : 'unknown';
+    if (content && (role !== 'assistant' || phase !== 'commentary' || options.includeCommentary)) {
+        bodyParts.push(content, '');
     }
 
-    if (content) {
-        parts.push(content, '');
+    const toolCalls = options.includeTools ? renderToolCalls(entry.tool_calls, options.outputFormat) : '';
+    if (toolCalls) {
+        bodyParts.push(toolCalls);
     }
 
-    parts.push(...renderToolCalls(entry.tool_calls));
-    return parts;
+    return bodyParts;
+};
+
+const renderLogEntry = (
+    entry: AntigravityLogEntry,
+    sequence: number,
+    finalAssistantSequences: Set<number>,
+    options: ResolvedAntigravityConversationRenderOptions,
+): string => {
+    const heading = logEntryHeading(entry);
+    const role = logEntryRole(entry);
+    if (!options.includeTools && (role === 'tool' || heading.startsWith('Tool: '))) {
+        return '';
+    }
+
+    const timestamp = getString(entry.created_at);
+    const bodyParts = renderLogEntryBodyParts(entry, role, sequence, finalAssistantSequences, options);
+
+    if (bodyParts.length === 0) {
+        return '';
+    }
+
+    const parts = timestamp
+        ? [options.outputFormat === 'md' ? `_Timestamp: ${timestamp}_` : `Timestamp: ${timestamp}`, '', ...bodyParts]
+        : bodyParts;
+    return renderSection(heading, parts.join('\n').trimEnd(), options.outputFormat);
 };
 
 const logEntryCreatedAtMs = (entry: AntigravityLogEntry): number | null => {
@@ -1122,10 +1191,14 @@ const logEntryRole = (entry: AntigravityLogEntry): AntigravityConversationMessag
     return 'unknown';
 };
 
-const logEntryPhase = (entry: AntigravityLogEntry): AntigravityConversationMessage['phase'] => {
+const logEntryPhase = (
+    entry: AntigravityLogEntry,
+    sequence: number,
+    finalAssistantSequences: Set<number>,
+): AntigravityConversationMessage['phase'] => {
     const role = logEntryRole(entry);
     if (role === 'assistant') {
-        return 'final_answer';
+        return getAntigravityAssistantPhase(sequence, finalAssistantSequences);
     }
     if (role === 'tool') {
         return 'tool_output';
@@ -1155,11 +1228,27 @@ const toolCallsText = (toolCalls: unknown): string => {
         .join('\n');
 };
 
-const logEntryToMessages = (entry: AntigravityLogEntry, index: number): AntigravityConversationMessage[] => {
+const getAntigravityPhaseItems = (entries: AntigravityLogEntry[]) => {
+    return entries.map((entry, sequence) => {
+        const role = logEntryRole(entry);
+        return {
+            hasContent: Boolean(cleanLogContent(entry)),
+            hasToolCalls: Array.isArray(entry.tool_calls) && entry.tool_calls.length > 0,
+            role: role === 'assistant' || role === 'user' ? role : ('other' as const),
+            sequence,
+        };
+    });
+};
+
+const logEntryToMessages = (
+    entry: AntigravityLogEntry,
+    index: number,
+    finalAssistantSequences: Set<number>,
+): AntigravityConversationMessage[] => {
     const order = logEntryOrder(entry, index);
     const createdAtMs = logEntryCreatedAtMs(entry);
     const role = logEntryRole(entry);
-    const phase = logEntryPhase(entry);
+    const phase = logEntryPhase(entry, index, finalAssistantSequences);
     const metadata = logEntryMetadata(entry);
     const messages: AntigravityConversationMessage[] = [];
     const thinking = getString(entry.thinking)?.trim();
@@ -1210,13 +1299,37 @@ export const readAntigravityConversationMessages = async (
 
     try {
         const entries = parseLogEntries(await Bun.file(conversation.transcriptPath).text());
-        return entries.flatMap(logEntryToMessages);
+        const finalAssistantSequences = getFinalAntigravityAssistantSequences(getAntigravityPhaseItems(entries));
+        return entries.flatMap((entry, index) => logEntryToMessages(entry, index, finalAssistantSequences));
     } catch {
         return [];
     }
 };
 
-const renderAntigravityTranscriptMarkdown = async (conversation: AntigravityConversation): Promise<string | null> => {
+const renderAntigravityMetadata = (entries: MetadataEntry[], outputFormat: ExportFormat): string => {
+    if (outputFormat === 'txt') {
+        return renderMetadataBlock(entries, outputFormat);
+    }
+
+    return entries
+        .filter((entry) => entry.value !== null && entry.value !== undefined && entry.value !== '')
+        .map((entry) => `- ${entry.key}: ${formatInlineLiteral(String(entry.value), outputFormat)}`)
+        .join('\n');
+};
+
+const buildAntigravityIdentityMetadata = (
+    conversation: AntigravityConversation,
+    exportedFrom: string,
+): MetadataEntry[] => [
+    { key: 'exported_from', value: exportedFrom },
+    { key: 'conversation_id', value: conversation.conversationId },
+    { key: 'workspace', value: conversation.workspaceUri },
+];
+
+const renderAntigravityTranscript = async (
+    conversation: AntigravityConversation,
+    options: ResolvedAntigravityConversationRenderOptions,
+): Promise<string | null> => {
     if (!conversation.transcriptPath || !conversation.transcriptSource) {
         return null;
     }
@@ -1230,33 +1343,44 @@ const renderAntigravityTranscriptMarkdown = async (conversation: AntigravityConv
         conversation.transcriptSource === 'overview'
             ? 'antigravity_overview_transcript'
             : 'antigravity_jsonl_transcript';
-    const sections = entries.flatMap((entry) => renderLogEntry(entry));
+    const finalAssistantSequences = getFinalAntigravityAssistantSequences(getAntigravityPhaseItems(entries));
+    const sections = entries
+        .map((entry, sequence) => renderLogEntry(entry, sequence, finalAssistantSequences, options))
+        .filter(Boolean);
     const parts = [
-        `# ${conversation.title}`,
+        renderDocumentTitle(conversation.title, options.outputFormat),
         '',
-        `- exported_from: \`${exportedFrom}\``,
-        `- conversation_id: \`${conversation.conversationId}\``,
-        conversation.workspaceUri ? `- workspace: \`${conversation.workspaceUri}\`` : '',
-        '',
+        options.includeMetadata
+            ? renderAntigravityMetadata(
+                  buildAntigravityIdentityMetadata(conversation, exportedFrom),
+                  options.outputFormat,
+              )
+            : '',
         ...sections,
     ].filter(Boolean);
 
     return `${parts.join('\n').trimEnd()}\n`;
 };
 
-const renderDecryptedSafeStorageMarkdown = (conversation: AntigravityConversation, content: string): string | null => {
+const renderDecryptedSafeStorage = (
+    conversation: AntigravityConversation,
+    content: string,
+    options: ResolvedAntigravityConversationRenderOptions,
+): string | null => {
     const trimmed = content.trim();
     if (!trimmed) {
         return null;
     }
 
     return [
-        `# ${conversation.title}`,
+        renderDocumentTitle(conversation.title, options.outputFormat),
         '',
-        '- exported_from: `antigravity_safe_storage_payload`',
-        `- conversation_id: \`${conversation.conversationId}\``,
-        conversation.workspaceUri ? `- workspace: \`${conversation.workspaceUri}\`` : '',
-        '',
+        options.includeMetadata
+            ? renderAntigravityMetadata(
+                  buildAntigravityIdentityMetadata(conversation, 'antigravity_safe_storage_payload'),
+                  options.outputFormat,
+              )
+            : '',
         trimmed,
         '',
     ]
@@ -1264,7 +1388,10 @@ const renderDecryptedSafeStorageMarkdown = (conversation: AntigravityConversatio
         .join('\n');
 };
 
-const renderAntigravitySummaryMarkdown = (conversation: AntigravityConversation): string | null => {
+const renderAntigravitySummary = (
+    conversation: AntigravityConversation,
+    options: ResolvedAntigravityConversationRenderOptions,
+): string | null => {
     if (conversation.artifactCount > 0) {
         return null;
     }
@@ -1274,16 +1401,30 @@ const renderAntigravitySummaryMarkdown = (conversation: AntigravityConversation)
     }
 
     return [
-        `# ${conversation.title}`,
+        renderDocumentTitle(conversation.title, options.outputFormat),
         '',
-        '- exported_from: `antigravity_summary_index`',
-        `- conversation_id: \`${conversation.conversationId}\``,
-        conversation.workspaceUri ? `- workspace: \`${conversation.workspaceUri}\`` : '',
-        conversation.indexedItemCount !== null ? `- indexed_items: \`${conversation.indexedItemCount}\`` : '',
-        conversation.createdAtMs ? `- created_at: \`${new Date(conversation.createdAtMs).toISOString()}\`` : '',
-        conversation.lastUpdatedAtMs ? `- updated_at: \`${new Date(conversation.lastUpdatedAtMs).toISOString()}\`` : '',
-        '',
-        'No local transcript log was found for this Antigravity conversation. The export contains the summary index metadata that Antigravity retained.',
+        options.includeMetadata
+            ? renderAntigravityMetadata(
+                  [
+                      ...buildAntigravityIdentityMetadata(conversation, 'antigravity_summary_index'),
+                      { key: 'indexed_items', value: conversation.indexedItemCount },
+                      {
+                          key: 'created_at',
+                          value: conversation.createdAtMs ? new Date(conversation.createdAtMs).toISOString() : null,
+                      },
+                      {
+                          key: 'updated_at',
+                          value: conversation.lastUpdatedAtMs
+                              ? new Date(conversation.lastUpdatedAtMs).toISOString()
+                              : null,
+                      },
+                  ],
+                  options.outputFormat,
+              )
+            : '',
+        options.includeMetadata
+            ? 'No local transcript log was found for this Antigravity conversation. The export contains the summary index metadata that Antigravity retained.'
+            : 'No local transcript log was found for this Antigravity conversation.',
         '',
     ]
         .filter(Boolean)
@@ -1292,22 +1433,21 @@ const renderAntigravitySummaryMarkdown = (conversation: AntigravityConversation)
 
 export const renderAntigravityConversationMarkdown = async (
     conversation: AntigravityConversation,
-    options: {
-        keychainSecret?: string | null;
-    } = {},
+    options: AntigravityConversationRenderOptions = {},
 ): Promise<string | null> => {
-    const transcript = await renderAntigravityTranscriptMarkdown(conversation);
+    const resolvedOptions = resolveAntigravityRenderOptions(options);
+    const transcript = await renderAntigravityTranscript(conversation, resolvedOptions);
     if (transcript) {
         return transcript;
     }
 
-    if (options.keychainSecret && conversation.conversationPath) {
+    if (resolvedOptions.keychainSecret && conversation.conversationPath) {
         const encrypted = Buffer.from(await Bun.file(conversation.conversationPath).arrayBuffer());
-        const decrypted = decryptAntigravitySafeStoragePayload(encrypted, options.keychainSecret);
+        const decrypted = decryptAntigravitySafeStoragePayload(encrypted, resolvedOptions.keychainSecret);
         if (decrypted) {
-            return renderDecryptedSafeStorageMarkdown(conversation, decrypted);
+            return renderDecryptedSafeStorage(conversation, decrypted, resolvedOptions);
         }
     }
 
-    return renderAntigravitySummaryMarkdown(conversation);
+    return renderAntigravitySummary(conversation, resolvedOptions);
 };

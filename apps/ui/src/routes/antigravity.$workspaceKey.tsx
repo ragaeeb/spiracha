@@ -21,7 +21,6 @@ import {
     deleteAntigravityConversationFn,
     deleteAntigravityConversationsFn,
     exportAntigravityArtifactsFn,
-    exportAntigravityConversationFn,
     exportAntigravityConversationsFn,
 } from '#/lib/antigravity-server';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
@@ -44,6 +43,7 @@ type PendingConversationDelete = {
 type PendingConversationExport = {
     conversationIds: string[];
     label: string;
+    supportsTranscriptFilters: boolean;
 };
 
 const findWorkspaceOrThrow = (workspaces: AntigravityWorkspaceGroup[], workspaceKey: string) => {
@@ -61,6 +61,9 @@ const buildConversationExport = (selectedConversations: AntigravityConversation[
         selectedConversations.length === 1
             ? selectedConversations[0]!.title
             : `${selectedConversations.length} selected conversations`,
+    supportsTranscriptFilters: selectedConversations.every(
+        (conversation) => conversation.transcriptSource !== 'safe-storage',
+    ),
 });
 
 const getDeleteConfirmLabel = (pendingDelete: PendingConversationDelete | null, isPending: boolean) => {
@@ -101,32 +104,12 @@ const getDeleteTitle = (pendingDelete: PendingConversationDelete | null) => {
         : 'Delete this Antigravity conversation?';
 };
 
-const AntigravityWorkspaceErrors = ({
-    artifactError,
-    batchExportError,
-    conversationError,
-}: {
-    artifactError: Error | null;
-    batchExportError: Error | null;
-    conversationError: Error | null;
-}) => {
-    const messages = [conversationError?.message, artifactError?.message, batchExportError?.message].filter(
-        (message): message is string => Boolean(message),
-    );
-
-    if (messages.length === 0) {
+const AntigravityWorkspaceErrors = ({ artifactError }: { artifactError: Error | null }) => {
+    if (!artifactError) {
         return null;
     }
 
-    return (
-        <div className="space-y-1">
-            {messages.map((message) => (
-                <p className="text-[var(--destructive)] text-sm" key={message}>
-                    {message}
-                </p>
-            ))}
-        </div>
-    );
+    return <p className="text-[var(--destructive)] text-sm">{artifactError.message}</p>;
 };
 
 export const Route = createFileRoute('/antigravity/$workspaceKey')({
@@ -165,14 +148,6 @@ function AntigravityWorkspacePage() {
     const [pendingExport, setPendingExport] = useState<PendingConversationExport | null>(null);
     const deferredSearch = useDeferredValue(searchInput);
 
-    const exportConversationMutation = useMutation({
-        mutationFn: (conversation: AntigravityConversation) =>
-            exportAntigravityConversationFn({ data: { conversationId: conversation.conversationId } }),
-        onSuccess: (result) => {
-            downloadTextFile(result.filename, result.content, 'text/markdown; charset=utf-8');
-        },
-    });
-
     const exportArtifactsMutation = useMutation({
         mutationFn: (conversation: AntigravityConversation) =>
             exportAntigravityArtifactsFn({ data: { conversationId: conversation.conversationId } }),
@@ -190,6 +165,9 @@ function AntigravityWorkspacePage() {
             const download = await exportAntigravityConversationsFn({
                 data: {
                     conversationIds: pendingExport.conversationIds,
+                    includeCommentary: options.includeCommentary,
+                    includeMetadata: options.includeMetadata,
+                    includeTools: options.includeTools,
                     outputFormat: options.outputFormat,
                     zipArchive: options.zipArchive,
                 },
@@ -308,7 +286,7 @@ function AntigravityWorkspacePage() {
                     openDeleteForConversations(lookupSelectedConversations(conversationIds), 'selected')
                 }
                 onExportArtifacts={(conversation) => exportArtifactsMutation.mutate(conversation)}
-                onExportConversation={(conversation) => exportConversationMutation.mutate(conversation)}
+                onExportConversation={(conversation) => openExportForConversations([conversation])}
                 onExportConversations={(conversationIds) =>
                     openExportForConversations(lookupSelectedConversations(conversationIds))
                 }
@@ -316,14 +294,21 @@ function AntigravityWorkspacePage() {
 
             <AntigravityWorkspaceErrors
                 artifactError={exportArtifactsMutation.isError ? exportArtifactsMutation.error : null}
-                batchExportError={exportConversationsMutation.isError ? exportConversationsMutation.error : null}
-                conversationError={exportConversationMutation.isError ? exportConversationMutation.error : null}
             />
 
             <ExportDialog
+                errorMessage={
+                    exportConversationsMutation.isError
+                        ? exportConversationsMutation.error instanceof Error
+                            ? exportConversationsMutation.error.message
+                            : 'Conversation export failed'
+                        : null
+                }
                 forceZipArchive={pendingExport ? pendingExport.conversationIds.length > 1 : false}
                 open={pendingExport !== null}
                 pending={exportConversationsMutation.isPending}
+                showCommentaryOption={pendingExport?.supportsTranscriptFilters ?? true}
+                showToolsOption={pendingExport?.supportsTranscriptFilters ?? true}
                 title={pendingExport ? `Export ${pendingExport.label}` : 'Export conversation'}
                 onExport={(options) => exportConversationsMutation.mutate(options)}
                 onOpenChange={(open) => {

@@ -484,7 +484,9 @@ describe('qoder workspace discovery', () => {
         });
         expect(transcript?.entries[1]?.parts[0]?.text).toBe('Inspecting the code path.');
         expect(transcript?.entries[2]?.parts[0]?.text).toContain('Read\n{"file_path":"/tmp/file.ts"}');
+        expect(transcript?.entries[2]?.parts[0]?.raw).toMatchObject({ toolCallId: 'call-1', toolName: 'Read' });
         expect(transcript?.entries[3]?.parts[0]?.text).toBe('const value = 1;');
+        expect(transcript?.entries[3]?.parts[0]?.raw).toMatchObject({ toolCallId: 'call-1', toolName: 'Read' });
         expect(transcript?.entries[4]?.parts[0]?.text).toBe('Final answer: race on shared mutable state.');
         expect(transcript?.rawSession.sourceCliTranscriptPath).toContain('task-a.session.execution.jsonl');
     });

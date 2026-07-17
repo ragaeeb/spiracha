@@ -253,7 +253,6 @@ const CursorWorkspacePage = () => {
 
             <CursorWorkspaceErrors
                 deleteError={deleteMutation.isError ? deleteMutation.error : null}
-                exportError={exportMutation.isError ? exportMutation.error : null}
                 recoverError={recoverWorkspaceMutation.isError ? recoverWorkspaceMutation.error : null}
             />
 
@@ -275,6 +274,13 @@ const CursorWorkspacePage = () => {
             />
 
             <ExportDialog
+                errorMessage={
+                    exportMutation.isError
+                        ? exportMutation.error instanceof Error
+                            ? exportMutation.error.message
+                            : 'Thread export failed'
+                        : null
+                }
                 forceZipArchive={pendingExport ? pendingExport.composerIds.length > 1 : false}
                 open={pendingExport !== null}
                 pending={exportMutation.isPending}
@@ -283,6 +289,7 @@ const CursorWorkspacePage = () => {
                 onOpenChange={(open) => {
                     if (!open) {
                         setPendingExport(null);
+                        exportMutation.reset();
                     }
                 }}
             />
@@ -358,18 +365,14 @@ const CursorWorkspaceRecoveryNotice = ({ workspace }: { workspace: CursorWorkspa
 
 const CursorWorkspaceErrors = ({
     deleteError,
-    exportError,
     recoverError,
 }: {
     deleteError: Error | null;
-    exportError: Error | null;
     recoverError: Error | null;
 }) => {
-    const entries = [
-        recoverError ? recoverError.message : null,
-        deleteError ? deleteError.message : null,
-        exportError ? exportError.message : null,
-    ].filter(Boolean);
+    const entries = [recoverError ? recoverError.message : null, deleteError ? deleteError.message : null].filter(
+        Boolean,
+    );
 
     if (entries.length === 0) {
         return null;

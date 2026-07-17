@@ -1,18 +1,7 @@
-import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
-import {
-    buildBatchExportBaseName,
-    buildConversationExportBaseName,
-    getExportMimeType,
-    resolveUniqueExportFileBaseName,
-    sanitizeExportFileName,
-    zipExportDirectory,
-} from '@spiracha/lib/ui-export-archive';
-import { buildUiExportDownloadUrl, ensureUiExportDir } from '@spiracha/lib/ui-export-files';
+import { buildConversationExportBaseName, getExportMimeType } from '@spiracha/lib/ui-export-archive';
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
+import { renderSourceSessionsDownload } from './source-session-export-server';
 
 const workspaceSchema = z.object({
     workspaceKey: z.string().min(1),
@@ -69,48 +58,29 @@ const findGroupByKey = async (workspaceKey: string) => {
     return group;
 };
 
-const toSafeExportName = (value: string) => {
-    return sanitizeExportFileName(value) || 'cursor-thread';
-};
-
 const renderCursorZipDownload = async (
-    rendered: Array<{ composerId: string; content: string; cwd: string | null; updatedAtMs: number | null }>,
+    rendered: Array<{
+        composerId: string;
+        content: string;
+        cwd: string | null;
+        fileBaseName: string;
+        updatedAtMs: number | null;
+    }>,
     outputFormat: 'md' | 'txt',
 ) => {
-    const exportDir = await ensureUiExportDir();
-    const exportBaseName =
-        rendered.length === 1
-            ? buildConversationExportBaseName(
-                  {
-                      cwd: rendered[0]!.cwd,
-                      id: rendered[0]!.composerId,
-                      updatedAtMs: rendered[0]!.updatedAtMs,
-                  },
-                  'cursor-thread',
-              )
-            : buildBatchExportBaseName(rendered, 'cursor');
-    const workspaceDir = await mkdtemp(path.join(os.tmpdir(), `${exportBaseName}-`));
-    const zipPath = path.join(exportDir, `${exportBaseName}-${randomUUID()}.zip`);
-    const usedBaseNames = new Map<string, number>();
-
-    try {
-        for (const entry of rendered) {
-            const baseName = toSafeExportName(entry.composerId);
-            const fileBaseName = resolveUniqueExportFileBaseName(baseName, usedBaseNames);
-            await Bun.write(path.join(workspaceDir, `${fileBaseName}.${outputFormat}`), entry.content);
-        }
-
-        await zipExportDirectory(workspaceDir, zipPath);
-    } finally {
-        await rm(workspaceDir, { force: true, recursive: true });
-    }
-
-    return {
-        downloadUrl: buildUiExportDownloadUrl(zipPath),
-        fileName: `${exportBaseName}.zip`,
-        mimeType: 'application/zip',
-        mode: 'download_url' as const,
-    };
+    return renderSourceSessionsDownload({
+        entries: rendered.map((entry) => ({
+            content: entry.content,
+            cwd: entry.cwd,
+            fallbackBaseName: 'cursor-thread',
+            fileBaseName: entry.fileBaseName,
+            sessionId: entry.composerId,
+            updatedAtMs: entry.updatedAtMs,
+        })),
+        fallbackBaseName: 'cursor',
+        outputFormat,
+        zipArchive: true,
+    });
 };
 
 export const findCursorThreadByComposerId = async (composerId: string) => {
@@ -175,6 +145,7 @@ const renderCursorDownload = async (input: {
                 composerId,
                 content,
                 cwd: workspace?.folders[0] ?? null,
+                fileBaseName: transcript.head.name || composerId,
                 updatedAtMs: transcript.head.lastUpdatedAtMs,
             };
         }),

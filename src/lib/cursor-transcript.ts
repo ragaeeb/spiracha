@@ -5,6 +5,7 @@ import type {
     CursorThreadTranscript,
     CursorToolCall,
 } from './cursor-exporter-types';
+import { getCursorTextBubblePhase, getFinalCursorAssistantTextBubbleIds } from './cursor-transcript-phase';
 import {
     cleanExtractedText,
     cleanInlineTitle,
@@ -60,6 +61,9 @@ export const renderCursorToolCall = (toolCall: CursorToolCall, outputFormat: Exp
     if (toolCall.status) {
         lines.push(`Status: ${toolCall.status}`);
     }
+    if (toolCall.callId) {
+        lines.push(`Call ID: ${toolCall.callId}`);
+    }
 
     const args = prettyToolArguments(toolCall.argumentsText);
     if (args) {
@@ -79,7 +83,11 @@ const renderUserBubble = (bubble: CursorBubble, outputFormat: ExportFormat): str
     return text ? renderSection('User', text, outputFormat) : '';
 };
 
-const renderAssistantBubble = (bubble: CursorBubble, options: CursorExportOptions): string[] => {
+const renderAssistantBubble = (
+    bubble: CursorBubble,
+    options: CursorExportOptions,
+    finalAssistantTextBubbleIds: Set<string>,
+): string[] => {
     const blocks: string[] = [];
 
     if (options.includeCommentary && bubble.thinking?.trim()) {
@@ -90,7 +98,10 @@ const renderAssistantBubble = (bubble: CursorBubble, options: CursorExportOption
     }
 
     const text = cleanExtractedText(bubble.text).trim();
-    if (text) {
+    if (
+        text &&
+        (getCursorTextBubblePhase(bubble, finalAssistantTextBubbleIds) !== 'commentary' || options.includeCommentary)
+    ) {
         blocks.push(renderSection('Assistant', text, options.outputFormat));
     }
 
@@ -101,14 +112,18 @@ const renderAssistantBubble = (bubble: CursorBubble, options: CursorExportOption
     return blocks;
 };
 
-export const renderCursorBubble = (bubble: CursorBubble, options: CursorExportOptions): string[] => {
+export const renderCursorBubble = (
+    bubble: CursorBubble,
+    options: CursorExportOptions,
+    finalAssistantTextBubbleIds = getFinalCursorAssistantTextBubbleIds([bubble]),
+): string[] => {
     if (bubble.kind === 'user') {
         const block = renderUserBubble(bubble, options.outputFormat);
         return block ? [block] : [];
     }
 
     if (bubble.kind === 'assistant') {
-        return renderAssistantBubble(bubble, options);
+        return renderAssistantBubble(bubble, options, finalAssistantTextBubbleIds);
     }
 
     return [];
@@ -161,9 +176,10 @@ export const renderCursorTranscript = (
     transcript: CursorThreadTranscript,
     options: CursorExportOptions,
 ): string | null => {
+    const finalAssistantTextBubbleIds = getFinalCursorAssistantTextBubbleIds(transcript.bubbles);
     const sections: string[] = [];
     for (const bubble of transcript.bubbles) {
-        sections.push(...renderCursorBubble(bubble, options));
+        sections.push(...renderCursorBubble(bubble, options, finalAssistantTextBubbleIds));
     }
 
     if (sections.length === 0) {

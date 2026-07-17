@@ -24,7 +24,7 @@ const transcript: QoderSessionTranscript = {
             entryType: 'tool_call',
             parts: [
                 {
-                    raw: { toolName: 'create_file', type: 'qoderFileOperation' },
+                    raw: { toolCallId: 'call-1', toolName: 'create_file', type: 'qoderFileOperation' },
                     text: 'Create file: /workspace/project/src/index.ts',
                     type: 'text',
                 },
@@ -110,6 +110,7 @@ describe('qoderTranscriptToThreadEvents', () => {
             text: 'Review this code\n/workspace/project/src/index.ts',
         });
         expect(events[1]).toMatchObject({
+            callId: 'call-1',
             command: 'Create file: /workspace/project/src/index.ts',
             kind: 'tool_call',
             name: 'create_file',

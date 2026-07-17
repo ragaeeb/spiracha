@@ -36,6 +36,11 @@ import type {
 
 const QODER_CONVERSATION_HYDRATION_CONCURRENCY = 4;
 
+const getPartString = (part: QoderTranscriptPart, key: string): string | null => {
+    const value = part.raw[key];
+    return typeof value === 'string' && value.trim() ? value : null;
+};
+
 const getQoderLocations = (options: {
     locations?: {
         qoderAcpSocketPath?: string;
@@ -74,7 +79,11 @@ const partToMessages = (
         return createTextMessage({
             createdAtMs: toDateMs(entry.timestamp),
             id: `${entry.entryId}:${partIndex}`,
-            metadata: { requestId: entry.requestId },
+            metadata: {
+                requestId: entry.requestId,
+                toolCallId: getPartString(part, 'toolCallId') ?? entry.entryId,
+                toolName: getPartString(part, 'toolName'),
+            },
             order: partIndex,
             phase: 'tool_call',
             role: 'tool',
@@ -86,7 +95,11 @@ const partToMessages = (
         return createTextMessage({
             createdAtMs: toDateMs(entry.timestamp),
             id: `${entry.entryId}:${partIndex}`,
-            metadata: { requestId: entry.requestId },
+            metadata: {
+                requestId: entry.requestId,
+                toolCallId: getPartString(part, 'toolCallId'),
+                toolName: getPartString(part, 'toolName'),
+            },
             order: partIndex,
             phase: 'tool_output',
             role: 'tool',

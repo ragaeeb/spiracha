@@ -25,6 +25,17 @@ const {
     unlockAntigravityDecryptionMock: vi.fn(),
 }));
 
+vi.mock('@tanstack/react-start', () => ({
+    createServerFn: () => {
+        const serverFn = {
+            handler: (callback: unknown) => callback,
+            validator: () => serverFn,
+        };
+
+        return serverFn;
+    },
+}));
+
 vi.mock('@spiracha/lib/antigravity-db', () => ({
     deleteAntigravityConversation: deleteAntigravityConversationMock,
     listAntigravityConversations: listAntigravityConversationsMock,
@@ -55,6 +66,7 @@ vi.mock('./source-session-export-server', () => ({
 import {
     deleteAntigravityConversationById,
     deleteAntigravityConversationsById,
+    exportAntigravityConversationFn,
     exportAntigravityConversations,
     loadAntigravityConversationDetail,
     loadAntigravityConversationExport,
@@ -198,6 +210,74 @@ describe('antigravity-server', () => {
                 ]),
             }),
         );
+    });
+
+    it('should forward every dialog option to Antigravity transcript rendering', async () => {
+        const conversation = makeConversation();
+        listAntigravityConversationsMock.mockResolvedValue([conversation]);
+        getCachedAntigravityKeychainSecretMock.mockReturnValue(null);
+        renderAntigravityConversationMarkdownMock.mockResolvedValue('plain transcript');
+
+        await exportAntigravityConversations({
+            conversationIds: [conversation.conversationId],
+            includeCommentary: false,
+            includeMetadata: false,
+            includeTools: false,
+            outputFormat: 'txt',
+            zipArchive: false,
+        });
+
+        expect(renderAntigravityConversationMarkdownMock).toHaveBeenCalledWith(conversation, {
+            includeCommentary: false,
+            includeMetadata: false,
+            includeTools: false,
+            keychainSecret: null,
+            outputFormat: 'txt',
+        });
+        expect(renderSourceSessionsDownloadMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                entries: [expect.objectContaining({ content: 'plain transcript' })],
+                outputFormat: 'txt',
+                zipArchive: false,
+            }),
+        );
+    });
+
+    it('should apply every dialog option and download mode to a single conversation export', async () => {
+        const conversation = makeConversation();
+        listAntigravityConversationsMock.mockResolvedValue([conversation]);
+        getCachedAntigravityKeychainSecretMock.mockReturnValue(null);
+        renderAntigravityConversationMarkdownMock.mockResolvedValue('plain transcript');
+
+        const result = await exportAntigravityConversationFn({
+            data: {
+                conversationId: conversation.conversationId,
+                includeCommentary: false,
+                includeMetadata: false,
+                includeTools: false,
+                outputFormat: 'txt',
+                zipArchive: true,
+            },
+        });
+
+        expect(renderAntigravityConversationMarkdownMock).toHaveBeenCalledWith(conversation, {
+            includeCommentary: false,
+            includeMetadata: false,
+            includeTools: false,
+            keychainSecret: null,
+            outputFormat: 'txt',
+        });
+        expect(renderSourceSessionsDownloadMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                entries: [expect.objectContaining({ content: 'plain transcript' })],
+                outputFormat: 'txt',
+                zipArchive: true,
+            }),
+        );
+        expect(result).toEqual({
+            fileName: '/tmp/workspace-threads-1.zip',
+            mode: 'download_url',
+        });
     });
 
     it('should suppress duplicate conversation markdown when artifacts render the same content', async () => {

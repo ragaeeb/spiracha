@@ -1,3 +1,4 @@
+import { getFinalAntigravityAssistantSequences } from '@spiracha/lib/antigravity-transcript-phase';
 import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/codex-browser-types';
 import type { JsonValue } from '@spiracha/lib/shared';
 
@@ -195,38 +196,37 @@ const buildToolOutputEvent = (
 });
 
 const getFinalAssistantSectionSequences = (sections: MarkdownSection[]): Set<number> => {
-    const finalAssistantSectionSequences = new Set<number>();
-    let currentAssistantContentSequence: number | null = null;
-
-    const flushAssistantRun = () => {
-        if (currentAssistantContentSequence !== null) {
-            finalAssistantSectionSequences.add(currentAssistantContentSequence);
-        }
-        currentAssistantContentSequence = null;
-    };
-
-    for (const section of sections) {
+    const items = sections.map((section) => {
         const heading = section.heading.toLowerCase();
         if (heading === 'user') {
-            flushAssistantRun();
-            continue;
+            return {
+                hasContent: Boolean(section.body),
+                hasToolCalls: false,
+                role: 'user' as const,
+                sequence: section.sequence,
+            };
         }
 
-        if (heading !== 'assistant') {
-            continue;
+        if (heading === 'assistant') {
+            const { body } = extractTimestamp(section.body);
+            const parsed = parseAssistantSection(body);
+            return {
+                hasContent: Boolean(parsed.content),
+                hasToolCalls: parsed.toolCalls.length > 0,
+                role: 'assistant' as const,
+                sequence: section.sequence,
+            };
         }
 
-        const { body } = extractTimestamp(section.body);
-        const parsed = parseAssistantSection(body);
-        if (parsed.toolCalls.length > 0) {
-            currentAssistantContentSequence = null;
-        } else if (parsed.content) {
-            currentAssistantContentSequence = section.sequence;
-        }
-    }
+        return {
+            hasContent: Boolean(section.body),
+            hasToolCalls: false,
+            role: 'other' as const,
+            sequence: section.sequence,
+        };
+    });
 
-    flushAssistantRun();
-    return finalAssistantSectionSequences;
+    return getFinalAntigravityAssistantSequences(items);
 };
 
 const textSectionToEvents = (

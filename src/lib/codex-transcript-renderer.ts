@@ -3,6 +3,11 @@ import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { finished } from 'node:stream/promises';
 import {
+    parseCodexTranscriptRecord,
+    shouldHideCodexTranscriptText,
+    stripCodexMemoryCitationBlocks,
+} from './codex-thread-parser';
+import {
     type CodexTranscriptExportTarget,
     type CodexTranscriptRenderOptions,
     DEFAULT_CODEX_DIR,
@@ -23,6 +28,7 @@ import {
     type JsonValue,
     type MetadataEntry,
     readJsonlObjects,
+    renderCodeBlock,
     renderDocumentTitle,
     renderMetadataBlock,
     renderSection,
@@ -512,45 +518,22 @@ const normalizeMessage = (value: Record<string, JsonValue>): MessageRecord | nul
 };
 
 const extractToolRecord = (parsed: Record<string, JsonValue>): ToolRecord | null => {
-    if (parsed.type !== 'response_item') {
-        return null;
-    }
-
-    const payload = asObject(parsed.payload);
-    if (!payload) {
-        return null;
-    }
-
-    if (payload.type === 'function_call') {
-        const name = asString(payload.name);
-        const argumentsText = asString(payload.arguments);
-        const callId = asString(payload.call_id);
-
-        if (name !== 'exec_command') {
-            return null;
-        }
-
+    const event = parseCodexTranscriptRecord(parsed);
+    if (event?.kind === 'tool_call') {
         return {
-            argumentsText: argumentsText ?? undefined,
-            callId,
+            argumentsText: event.argumentsText ?? undefined,
+            callId: event.callId,
             kind: 'call',
-            name,
+            name: event.name,
         };
     }
 
-    if (payload.type === 'function_call_output') {
-        const callId = asString(payload.call_id);
-        const outputText = asString(payload.output);
-
-        if (!outputText?.includes('Command: ')) {
-            return null;
-        }
-
+    if (event?.kind === 'tool_output') {
         return {
-            callId,
+            callId: event.callId,
             kind: 'output',
-            name: 'function_call_output',
-            outputText: outputText ?? undefined,
+            name: 'tool_output',
+            outputText: event.outputText,
         };
     }
 
@@ -572,8 +555,10 @@ const renderMessageBlock = (
     }
 
     const extractedText = extractText(message.content);
-    const text = stripCodexAppDirectiveLines(cleanExtractedText(stripPreviewBlock(extractedText)));
-    if (!text || shouldSkipMessage(message.role, text)) {
+    const text = stripCodexMemoryCitationBlocks(
+        stripCodexAppDirectiveLines(cleanExtractedText(stripPreviewBlock(extractedText))),
+    );
+    if (!text || shouldHideCodexTranscriptText(message.role, text)) {
         return '';
     }
 
@@ -586,12 +571,18 @@ const renderMessageBlock = (
 const renderToolBlock = (tool: ToolRecord, outputFormat: ExportFormat): string => {
     if (tool.kind === 'call') {
         const details = formatToolCallDetails(tool, outputFormat);
-        return details ? renderSection('Tool', details, outputFormat) : '';
+        return renderSection('Tool Call', details, outputFormat);
     }
 
     const outputText = tool.outputText ?? '';
     const summary = formatToolOutputSummary(outputText, outputFormat);
-    return summary ? renderSection('Tool Output', summary, outputFormat) : '';
+    if (!summary && !outputText.trim()) {
+        return '';
+    }
+
+    const lines = tool.callId ? [`Call ID: ${tool.callId}`, ''] : [];
+    lines.push(summary || renderCodeBlock(outputText.trim(), outputFormat));
+    return renderSection('Tool Output', lines.join('\n'), outputFormat);
 };
 
 const stripPreviewBlock = (text: string): string => {
@@ -620,33 +611,26 @@ const stripPreviewBlock = (text: string): string => {
     return parts.slice(1).join('\n\n');
 };
 
-const shouldSkipMessage = (role: string, text: string): boolean => {
-    if (text.startsWith('<environment_context>')) {
-        return true;
-    }
-
-    if (text.startsWith('AGENTS.md instructions for ')) {
-        return true;
-    }
-
-    if (text.startsWith('# AGENTS.md instructions for ')) {
-        return true;
-    }
-
-    if (role === 'user' && text.includes('<environment_context>')) {
-        return true;
-    }
-
-    return false;
-};
-
 const formatToolCallDetails = (tool: ToolRecord, outputFormat: ExportFormat): string => {
-    if (tool.name !== 'exec_command') {
-        return '';
+    const lines = [`Tool: ${formatInlineLiteral(tool.name, outputFormat)}`];
+    if (tool.callId) {
+        lines.push(`Call ID: ${tool.callId}`);
     }
 
-    const details = parseExecCommandArguments(tool.argumentsText);
-    return details.cmd ? `Command: ${formatInlineLiteral(details.cmd, outputFormat)}` : '';
+    if (tool.name === 'exec_command') {
+        const details = parseExecCommandArguments(tool.argumentsText);
+        if (details.cmd) {
+            lines.push(`Command: ${formatInlineLiteral(details.cmd, outputFormat)}`);
+            return lines.join('\n');
+        }
+    }
+
+    const argumentsText = tool.argumentsText?.trim();
+    if (argumentsText) {
+        lines.push('', 'Input:', '', renderCodeBlock(argumentsText, outputFormat));
+    }
+
+    return lines.join('\n');
 };
 
 const extractText = (content: JsonValue): string => {

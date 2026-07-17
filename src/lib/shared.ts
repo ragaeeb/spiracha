@@ -225,7 +225,8 @@ export const renderSection = (title: string, body: string, format: ExportFormat)
 
 export const renderCodeBlock = (text: string, format: ExportFormat): string => {
     if (format === 'md') {
-        return `\`\`\`text\n${text}\n\`\`\``;
+        const fence = getBacktickFence(text, 3);
+        return `${fence}text\n${text}\n${fence}`;
     }
 
     return text;
@@ -235,10 +236,14 @@ export const formatInlineLiteral = (value: string, format: ExportFormat): string
     return format === 'md' ? inlineCode(value) : value;
 };
 
-export const inlineCode = (value: string): string => {
+const getBacktickFence = (value: string, minimumLength: number): string => {
     const backtickRuns = value.match(/`+/g) ?? [];
     const maxRunLength = backtickRuns.reduce((max, run) => Math.max(max, run.length), 0);
-    const fence = '`'.repeat(maxRunLength + 1);
+    return '`'.repeat(Math.max(minimumLength, maxRunLength + 1));
+};
+
+export const inlineCode = (value: string): string => {
+    const fence = getBacktickFence(value, 1);
     const padded = value.startsWith('`') || value.endsWith('`') ? ` ${value} ` : value;
     return `${fence}${padded}${fence}`;
 };

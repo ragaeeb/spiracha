@@ -1,4 +1,8 @@
-import type { CursorThreadSummary, CursorWorkspaceGroup } from '@spiracha/lib/cursor-exporter-types';
+import type {
+    CursorThreadSummary,
+    CursorThreadTranscript,
+    CursorWorkspaceGroup,
+} from '@spiracha/lib/cursor-exporter-types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
@@ -7,14 +11,20 @@ const {
     listCursorThreadsForGroupMock,
     listCursorWorkspaceGroupsMock,
     pruneCursorThreadsMock,
+    readCursorThreadTranscriptWithAgentFilesMock,
     recoverCursorWorkspaceGroupMock,
+    renderCursorTranscriptMock,
+    renderSourceSessionsDownloadMock,
 } = vi.hoisted(() => ({
     collectCursorThreadsForDeletionMock: vi.fn(),
     isCursorRunningMock: vi.fn(),
     listCursorThreadsForGroupMock: vi.fn(),
     listCursorWorkspaceGroupsMock: vi.fn(),
     pruneCursorThreadsMock: vi.fn(),
+    readCursorThreadTranscriptWithAgentFilesMock: vi.fn(),
     recoverCursorWorkspaceGroupMock: vi.fn(),
+    renderCursorTranscriptMock: vi.fn(),
+    renderSourceSessionsDownloadMock: vi.fn(),
 }));
 
 vi.mock('@tanstack/react-start', () => ({
@@ -32,7 +42,7 @@ vi.mock('@spiracha/lib/cursor-db', () => ({
     listCursorThreadsForGroup: listCursorThreadsForGroupMock,
     listCursorWorkspaceGroups: listCursorWorkspaceGroupsMock,
     readCursorThreadTranscript: vi.fn(),
-    readCursorThreadTranscriptWithAgentFiles: vi.fn(),
+    readCursorThreadTranscriptWithAgentFiles: readCursorThreadTranscriptWithAgentFilesMock,
 }));
 
 vi.mock('@spiracha/lib/cursor-exporter-types', () => ({
@@ -47,10 +57,20 @@ vi.mock('@spiracha/lib/cursor-recovery', () => ({
 }));
 
 vi.mock('@spiracha/lib/cursor-transcript', () => ({
-    renderCursorTranscript: vi.fn(),
+    renderCursorTranscript: renderCursorTranscriptMock,
 }));
 
-import { deleteCursorThreadsFn, deleteCursorWorkspaceFn, findCursorThreadByComposerId } from './cursor-server';
+vi.mock('./source-session-export-server', () => ({
+    renderSourceSessionsDownload: renderSourceSessionsDownloadMock,
+}));
+
+import {
+    deleteCursorThreadsFn,
+    deleteCursorWorkspaceFn,
+    exportCursorThreadFn,
+    exportCursorThreadsFn,
+    findCursorThreadByComposerId,
+} from './cursor-server';
 
 const workspaceOne: CursorWorkspaceGroup = {
     buckets: [],
@@ -90,6 +110,21 @@ const makeThread = (overrides: Partial<CursorThreadSummary> = {}): CursorThreadS
     workspaceLabel: workspaceOne.label,
     ...overrides,
 });
+
+const transcript: CursorThreadTranscript = {
+    bubbles: [],
+    head: {
+        composerId: 'thread-1',
+        createdAtMs: 1_700_000_000_000,
+        lastUpdatedAtMs: 1_700_000_100_000,
+        mode: 'agent',
+        name: 'Thread one',
+        orderedBubbleIds: [],
+        totalBubbleHeaders: 0,
+    },
+    omittedBubbleCount: 0,
+    renderableBubbleCount: 0,
+};
 
 describe('findCursorThreadByComposerId', () => {
     beforeEach(() => {
@@ -186,5 +221,86 @@ describe('deleteCursorWorkspaceFn', () => {
         });
         expect(collectCursorThreadsForDeletionMock).toHaveBeenCalledWith(['thread-1', 'thread-2']);
         expect(pruneCursorThreadsMock).toHaveBeenCalledWith(deletableThreads, true);
+    });
+});
+
+describe('Cursor export server functions', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        listCursorWorkspaceGroupsMock.mockResolvedValue([workspaceOne]);
+        readCursorThreadTranscriptWithAgentFilesMock.mockResolvedValue(transcript);
+        renderCursorTranscriptMock.mockReturnValue('rendered transcript');
+        renderSourceSessionsDownloadMock.mockResolvedValue({ mode: 'download_url' });
+    });
+
+    it('should forward every single-thread export option to the renderer', async () => {
+        const result = await exportCursorThreadFn({
+            data: {
+                composerId: 'thread-1',
+                includeCommentary: false,
+                includeMetadata: false,
+                includeTools: false,
+                outputFormat: 'txt',
+                zipArchive: false,
+            },
+        });
+
+        expect(renderCursorTranscriptMock).toHaveBeenCalledWith(transcript, {
+            includeCommentary: false,
+            includeMetadata: false,
+            includeTools: false,
+            outputFormat: 'txt',
+        });
+        expect(result).toMatchObject({ content: 'rendered transcript', mode: 'download' });
+        expect(result.fileName).toMatch(/\.txt$/u);
+    });
+
+    it('should forward every batch export option to the renderer', async () => {
+        await exportCursorThreadsFn({
+            data: {
+                composerIds: ['thread-1'],
+                includeCommentary: true,
+                includeMetadata: false,
+                includeTools: true,
+                outputFormat: 'md',
+                zipArchive: false,
+            },
+        });
+
+        expect(renderCursorTranscriptMock).toHaveBeenCalledWith(transcript, {
+            includeCommentary: true,
+            includeMetadata: false,
+            includeTools: true,
+            outputFormat: 'md',
+        });
+    });
+
+    it('should use thread titles for files inside batch ZIP exports', async () => {
+        readCursorThreadTranscriptWithAgentFilesMock.mockResolvedValueOnce(transcript).mockResolvedValueOnce({
+            ...transcript,
+            head: { ...transcript.head, composerId: 'thread-2', name: 'Thread two' },
+        });
+
+        await exportCursorThreadsFn({
+            data: {
+                composerIds: ['thread-1', 'thread-2'],
+                includeCommentary: false,
+                includeMetadata: true,
+                includeTools: true,
+                outputFormat: 'md',
+                zipArchive: true,
+            },
+        });
+
+        expect(renderSourceSessionsDownloadMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                entries: [
+                    expect.objectContaining({ fileBaseName: 'Thread one', sessionId: 'thread-1' }),
+                    expect.objectContaining({ fileBaseName: 'Thread two', sessionId: 'thread-2' }),
+                ],
+                outputFormat: 'md',
+                zipArchive: true,
+            }),
+        );
     });
 });

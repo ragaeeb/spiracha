@@ -1,5 +1,6 @@
 import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/codex-browser-types';
 import type { CursorBubble, CursorThreadTranscript, CursorToolCall } from '@spiracha/lib/cursor-exporter-types';
+import { getCursorTextBubblePhase, getFinalCursorAssistantTextBubbleIds } from '@spiracha/lib/cursor-transcript-phase';
 import type { JsonValue } from '@spiracha/lib/shared';
 
 const toTimestamp = (value: number | null): string | null => {
@@ -110,36 +111,10 @@ const buildToolOutputEvent = (bubble: CursorBubble, sequence: number, toolCall: 
     };
 };
 
-const getAssistantFinalTextIndexes = (bubbles: CursorBubble[]) => {
-    const finalTextIndexes = new Set<number>();
-    let currentAssistantTextIndex: number | null = null;
-
-    const flushAssistantRun = () => {
-        if (currentAssistantTextIndex !== null) {
-            finalTextIndexes.add(currentAssistantTextIndex);
-            currentAssistantTextIndex = null;
-        }
-    };
-
-    bubbles.forEach((bubble, index) => {
-        if (bubble.kind !== 'assistant') {
-            flushAssistantRun();
-            return;
-        }
-
-        if (bubble.text.trim()) {
-            currentAssistantTextIndex = index;
-        }
-    });
-
-    flushAssistantRun();
-    return finalTextIndexes;
-};
-
 const cursorBubbleToThreadEvents = (
     bubble: CursorBubble,
     bubbleIndex: number,
-    finalTextIndexes: Set<number>,
+    finalAssistantTextBubbleIds: Set<string>,
 ): ThreadEvent[] => {
     if (bubble.kind !== 'assistant' && bubble.kind !== 'user') {
         return [];
@@ -152,8 +127,7 @@ const cursorBubbleToThreadEvents = (
     }
 
     if (bubble.text.trim()) {
-        const phase =
-            bubble.kind === 'assistant' ? (finalTextIndexes.has(bubbleIndex) ? 'final_answer' : 'commentary') : null;
+        const phase = getCursorTextBubblePhase(bubble, finalAssistantTextBubbleIds);
         events.push(buildMessageEvent(bubble, baseSequence + 1, bubble.kind, bubble.text, phase));
     }
 
@@ -169,8 +143,10 @@ const cursorBubbleToThreadEvents = (
 };
 
 export const cursorTranscriptToThreadEvents = (transcript: CursorThreadTranscript): ThreadEvent[] => {
-    const finalTextIndexes = getAssistantFinalTextIndexes(transcript.bubbles);
-    return transcript.bubbles.flatMap((bubble, index) => cursorBubbleToThreadEvents(bubble, index, finalTextIndexes));
+    const finalAssistantTextBubbleIds = getFinalCursorAssistantTextBubbleIds(transcript.bubbles);
+    return transcript.bubbles.flatMap((bubble, index) =>
+        cursorBubbleToThreadEvents(bubble, index, finalAssistantTextBubbleIds),
+    );
 };
 
 const updateMessageStats = (stats: ThreadTranscriptStats, event: Extract<ThreadEvent, { kind: 'message' }>) => {

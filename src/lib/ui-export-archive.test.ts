@@ -21,6 +21,15 @@ describe('ui export archive helpers', () => {
         expect(resolveUniqueExportFileBaseName('same', used)).toBe('same-3');
     });
 
+    it('should avoid generated and case-insensitive filename collisions', () => {
+        const used = new Map<string, number>();
+
+        expect(resolveUniqueExportFileBaseName('same', used)).toBe('same');
+        expect(resolveUniqueExportFileBaseName('same-2', used)).toBe('same-2');
+        expect(resolveUniqueExportFileBaseName('same', used)).toBe('same-3');
+        expect(resolveUniqueExportFileBaseName('SAME', used)).toBe('SAME-4');
+    });
+
     it('should name batch archives from the project, latest conversation time, and selected thread count', () => {
         expect(
             buildBatchExportBaseName(

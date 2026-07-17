@@ -37,5 +37,16 @@ export const getQoderMessagePhase = (entry: QoderTranscriptEntry, finalAssistant
         return null;
     }
 
+    const isExplicitReasoning = entry.parts.some((part) => {
+        return (
+            part.raw.sourceType === 'reasoning' ||
+            part.raw.sourceType === 'thinking' ||
+            part.raw.sessionUpdate === 'agent_thought_chunk'
+        );
+    });
+    if (isExplicitReasoning) {
+        return 'commentary';
+    }
+
     return finalAssistantMessageEntryIds.has(entry.entryId) ? 'final_answer' : 'commentary';
 };

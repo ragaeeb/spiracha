@@ -32,9 +32,19 @@ export const getExportMimeType = (outputFormat: ExportFormat) => {
 };
 
 export const resolveUniqueExportFileBaseName = (baseName: string, usedCounts: Map<string, number>) => {
-    const count = (usedCounts.get(baseName) ?? 0) + 1;
-    usedCounts.set(baseName, count);
-    return count === 1 ? baseName : `${baseName}-${count}`;
+    const normalizeKey = (value: string) => value.normalize('NFC').toLowerCase();
+    const baseKey = normalizeKey(baseName);
+    let count = (usedCounts.get(baseKey) ?? 0) + 1;
+    let candidate = count === 1 ? baseName : `${baseName}-${count}`;
+
+    while (usedCounts.has(normalizeKey(candidate))) {
+        count += 1;
+        candidate = `${baseName}-${count}`;
+    }
+
+    usedCounts.set(baseKey, count);
+    usedCounts.set(normalizeKey(candidate), Math.max(usedCounts.get(normalizeKey(candidate)) ?? 0, 1));
+    return candidate;
 };
 
 const formatBatchExportDate = (value: number) => {

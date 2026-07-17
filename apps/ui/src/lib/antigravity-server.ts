@@ -13,10 +13,18 @@ const conversationSchema = z.object({
 
 const exportSchema = z.object({
     conversationId: z.string().min(1),
+    includeCommentary: z.boolean().default(false),
+    includeMetadata: z.boolean().default(true),
+    includeTools: z.boolean().default(true),
+    outputFormat: z.enum(['md', 'txt']).default('md'),
+    zipArchive: z.boolean().default(false),
 });
 
 const exportConversationsSchema = z.object({
     conversationIds: z.array(z.string().min(1)).min(1),
+    includeCommentary: z.boolean().default(false),
+    includeMetadata: z.boolean().default(true),
+    includeTools: z.boolean().default(true),
     outputFormat: z.enum(['md', 'txt']).default('md'),
     zipArchive: z.boolean().default(true),
 });
@@ -111,7 +119,17 @@ export const loadAntigravityConversationDetail = async (conversationId: string) 
     };
 };
 
-export const loadAntigravityConversationExport = async (conversationId: string) => {
+type AntigravityConversationExportOptions = {
+    includeCommentary?: boolean;
+    includeMetadata?: boolean;
+    includeTools?: boolean;
+    outputFormat?: 'md' | 'txt';
+};
+
+export const loadAntigravityConversationExport = async (
+    conversationId: string,
+    options: AntigravityConversationExportOptions = {},
+) => {
     const { runWithTranscriptLoadLimit } = await import('@spiracha/lib/transcript-load-limiter');
     const { renderAntigravityConversationMarkdown } = await import('@spiracha/lib/antigravity-db');
     const { getCachedAntigravityKeychainSecret } = await import('@spiracha/lib/antigravity-keychain');
@@ -130,7 +148,11 @@ export const loadAntigravityConversationExport = async (conversationId: string) 
     const content = await runWithTranscriptLoadLimit(
         () =>
             renderAntigravityConversationMarkdown(conversation, {
+                includeCommentary: options.includeCommentary,
+                includeMetadata: options.includeMetadata,
+                includeTools: options.includeTools,
                 keychainSecret,
+                outputFormat: options.outputFormat,
             }),
         {
             id: conversation.conversationId,
@@ -152,7 +174,7 @@ export const loadAntigravityConversationExport = async (conversationId: string) 
                 updatedAtMs: conversation.lastUpdatedAtMs ?? conversation.conversationMtimeMs,
             },
             'antigravity-conversation',
-        )}.md`,
+        )}.${options.outputFormat ?? 'md'}`,
     };
 };
 
@@ -192,7 +214,7 @@ export const getAntigravityConversationDetailFn = createServerFn({ method: 'GET'
     });
 
 export const exportAntigravityArtifactsFn = createServerFn({ method: 'POST' })
-    .validator(exportSchema)
+    .validator(conversationSchema)
     .handler(async ({ data }) => {
         const { renderAntigravityArtifactsMarkdown } = await import('@spiracha/lib/antigravity-db');
         const conversation = await findAntigravityConversationById(data.conversationId);
@@ -211,17 +233,30 @@ export const exportAntigravityArtifactsFn = createServerFn({ method: 'POST' })
 export const exportAntigravityConversationFn = createServerFn({ method: 'POST' })
     .validator(exportSchema)
     .handler(async ({ data }) => {
-        return loadAntigravityConversationExport(data.conversationId);
+        return exportAntigravityConversations({
+            conversationIds: [data.conversationId],
+            includeCommentary: data.includeCommentary,
+            includeMetadata: data.includeMetadata,
+            includeTools: data.includeTools,
+            outputFormat: data.outputFormat,
+            zipArchive: data.zipArchive,
+        });
     });
 
-export const exportAntigravityConversations = async (data: z.infer<typeof exportConversationsSchema>) => {
+export const exportAntigravityConversations = async (input: z.input<typeof exportConversationsSchema>) => {
+    const data = exportConversationsSchema.parse(input);
     const { renderSourceSessionsDownload } = await import('./source-session-export-server');
     const { listAntigravityWorkspaceGroups } = await import('@spiracha/lib/antigravity-db');
     const groups = await listAntigravityWorkspaceGroups();
     const groupsByKey = new Map(groups.map((group) => [group.key, group]));
     const entries = await Promise.all(
         data.conversationIds.map(async (conversationId) => {
-            const result = await loadAntigravityConversationExport(conversationId);
+            const result = await loadAntigravityConversationExport(conversationId, {
+                includeCommentary: data.includeCommentary,
+                includeMetadata: data.includeMetadata,
+                includeTools: data.includeTools,
+                outputFormat: data.outputFormat,
+            });
             const conversation = result.conversation;
             const projectGroup = conversation.projectId
                 ? groupsByKey.get(`project:${conversation.projectId}`)

@@ -48,4 +48,38 @@ describe('qoder transcript phase helpers', () => {
 
         expect(finalIds).toEqual(new Set(['a1-final']));
     });
+
+    it('should classify explicit CLI reasoning as commentary even when it is the last assistant entry', () => {
+        const reasoningEntry: QoderTranscriptEntry = {
+            ...entry('a1-reasoning', 'assistant'),
+            parts: [
+                {
+                    raw: { sourceType: 'reasoning' },
+                    text: 'Inspecting the code path.',
+                    type: 'text',
+                },
+            ],
+        };
+        const entries = [entry('u1', 'user'), reasoningEntry];
+
+        const finalIds = getFinalQoderAssistantMessageEntryIds(entries);
+
+        expect(finalIds).toEqual(new Set(['a1-reasoning']));
+        expect(getQoderMessagePhase(reasoningEntry, finalIds)).toBe('commentary');
+    });
+
+    it('should classify explicit ACP thought chunks as commentary', () => {
+        const reasoningEntry: QoderTranscriptEntry = {
+            ...entry('a1-thought', 'assistant'),
+            parts: [
+                {
+                    raw: { sessionUpdate: 'agent_thought_chunk' },
+                    text: 'Thinking through the request.',
+                    type: 'text',
+                },
+            ],
+        };
+
+        expect(getQoderMessagePhase(reasoningEntry, new Set(['a1-thought']))).toBe('commentary');
+    });
 });

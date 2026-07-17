@@ -41,11 +41,57 @@ const listZipEntries = async (zipPath: string) => {
         .filter(Boolean);
 };
 
+const readZipEntry = async (zipPath: string, entryName: string) => {
+    const proc = Bun.spawn(['unzip', '-p', zipPath, entryName], {
+        stderr: 'pipe',
+        stdout: 'pipe',
+    });
+    const [stdoutText, stderrText, exitCode] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        proc.exited,
+    ]);
+
+    if (exitCode !== 0) {
+        throw new Error(`unzip failed (${exitCode}): ${(stderrText || stdoutText).trim()}`);
+    }
+
+    return stdoutText;
+};
+
+const appendModernToolRecords = async (sessionFile: string) => {
+    const records = [
+        {
+            payload: {
+                call_id: 'custom-call-1',
+                input: 'const result = await tools.exec_command({ cmd: "rtk bun test" });',
+                name: 'exec',
+                type: 'custom_tool_call',
+            },
+            type: 'response_item',
+        },
+        {
+            payload: {
+                call_id: 'custom-call-1',
+                output: [{ text: 'Modern tool output', type: 'input_text' }],
+                type: 'custom_tool_call_output',
+            },
+            type: 'response_item',
+        },
+    ];
+    const current = await Bun.file(sessionFile).text();
+    await Bun.write(
+        sessionFile,
+        `${current.trimEnd()}\n${records.map((record) => JSON.stringify(record)).join('\n')}\n`,
+    );
+};
+
 describe('renderCodexThreadDownload', () => {
     it('should render a thread export to downloadable markdown content', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-export-test-'));
         tempPaths.push(tempRoot);
         const fixture = await createCodexFixture(tempRoot);
+        await appendModernToolRecords(fixture.sessionFile);
 
         const download = await renderCodexThreadDownload({
             dbPath: fixture.dbPath,
@@ -65,6 +111,8 @@ describe('renderCodexThreadDownload', () => {
         expect(download.content).toContain('tokens_used: 42');
         expect(download.content).toContain('## GPT 5.4');
         expect(download.content).toContain('## Tool');
+        expect(download.content).toContain('Tool: `exec`');
+        expect(download.content).toContain('Modern tool output');
     });
 
     it('should apply project-root conversion and username redaction to exported content', async () => {
@@ -147,6 +195,7 @@ describe('renderCodexThreadDownload', () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-export-zip-test-'));
         tempPaths.push(tempRoot);
         const fixture = await createCodexBrowserFixture(tempRoot);
+        await appendModernToolRecords(fixture.threads[0]!.sessionFile);
 
         const download = await renderCodexThreadDownload({
             dbPath: fixture.dbPath,
@@ -169,6 +218,9 @@ describe('renderCodexThreadDownload', () => {
         const entries = await listZipEntries(zipPath);
 
         expect(entries).toEqual(['spiracha-2026-05-17-1712-019e36d7.md']);
+        const content = await readZipEntry(zipPath, entries[0]!);
+        expect(content).toContain('Tool: `exec`');
+        expect(content).toContain('Modern tool output');
     });
 
     it('should report a missing rollout file instead of surfacing a raw stat error', async () => {
