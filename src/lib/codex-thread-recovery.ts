@@ -2,7 +2,7 @@ import { Database } from 'bun:sqlite';
 import { copyFile, utimes } from 'node:fs/promises';
 import path from 'node:path';
 import type { RecoverProjectThreadsResult } from './codex-browser-types';
-import { getPortablePathBasename } from './shared';
+import { getPortablePathBasename } from './portable-path';
 import { runWithSqliteRetry } from './sqlite-retry';
 
 type RecoveryThreadRow = {

@@ -1,6 +1,6 @@
 import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/codex-browser-types';
 import type { OpenCodeSessionTranscript } from '@spiracha/lib/opencode-exporter-types';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { Download, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -48,8 +48,6 @@ type TranscriptControlsProps = {
 const OpenCodeSessionDetailErrorComponent = ({ error }: { error: Error }) => {
     return <ReloadErrorPanel description={error.message} title="Failed to load OpenCode session" />;
 };
-
-const toError = (error: unknown) => (error instanceof Error ? error : new Error(String(error)));
 
 const buildSessionMetadata = (detail: OpenCodeSessionTranscript) => [
     { label: 'Session ID', value: <span data-mono="true">{detail.session.sessionId}</span> },
@@ -165,8 +163,7 @@ const OpenCodeSessionDetailPage = () => {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const params = Route.useParams();
-    const detailQuery = useQuery(openCodeSessionDetailQueryOptions(params.sessionId));
-    const detail = detailQuery.data ?? null;
+    const detail = useSuspenseQuery(openCodeSessionDetailQueryOptions(params.sessionId)).data;
     const [deleteOpen, setDeleteOpen] = useState(false);
     const [pendingExport, setPendingExport] = useState(false);
     const [showToolCalls, setShowToolCalls] = useState(false);
@@ -229,25 +226,6 @@ const OpenCodeSessionDetailPage = () => {
             });
         },
     });
-
-    if (detailQuery.isLoading) {
-        return (
-            <LoadingPanel
-                description="Loading the OpenCode transcript, parts, and session metadata."
-                title="Loading session"
-            />
-        );
-    }
-
-    if (detailQuery.isError) {
-        return <OpenCodeSessionDetailErrorComponent error={toError(detailQuery.error)} />;
-    }
-
-    if (!detail) {
-        return (
-            <OpenCodeSessionDetailErrorComponent error={new Error(`OpenCode session not found: ${params.sessionId}`)} />
-        );
-    }
 
     return (
         <div className="space-y-6">
@@ -411,6 +389,8 @@ const OpenCodeSessionDetailPage = () => {
 export const Route = createFileRoute('/opencode-sessions/$sessionId')({
     component: OpenCodeSessionDetailPage,
     errorComponent: OpenCodeSessionDetailErrorComponent,
+    loader: ({ context, params }) =>
+        context.queryClient.ensureQueryData(openCodeSessionDetailQueryOptions(params.sessionId)),
     pendingComponent: () => (
         <LoadingPanel
             description="Loading the OpenCode transcript, parts, and session metadata."

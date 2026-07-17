@@ -13,6 +13,11 @@ const makeTempRoot = async () => {
     return tempRoot;
 };
 
+const appendTranscriptRecord = async (filePath: string, record: unknown) => {
+    const current = await Bun.file(filePath).text();
+    await Bun.write(filePath, `${current.trimEnd()}\n${JSON.stringify(record)}\n`);
+};
+
 describe('codex conversation adapter', () => {
     afterEach(async () => {
         await Promise.all(tempRoots.splice(0).map((root) => rm(root, { force: true, recursive: true })));
@@ -59,6 +64,46 @@ describe('codex conversation adapter', () => {
         });
         expect(detail?.messages).toHaveLength(1);
         expect(detail?.deepLinks.spiracha).toBe(`spiracha://conversation/codex/${fixture.threads[0]!.threadId}`);
+    });
+
+    it('should normalize invalid timestamps, unknown phases, and sparse event sequences', async () => {
+        const fixture = await createCodexBrowserFixture(await makeTempRoot());
+        const thread = fixture.threads[0]!;
+        await appendTranscriptRecord(thread.sessionFile, {
+            payload: {
+                content: [{ text: 'Legacy assistant update.', type: 'output_text' }],
+                phase: 'legacy_progress',
+                role: 'assistant',
+                type: 'message',
+            },
+            timestamp: 'not-a-timestamp',
+            type: 'response_item',
+        });
+        await appendTranscriptRecord(thread.sessionFile, {
+            payload: {
+                content: [{ text: 'Tool-authored message.', type: 'output_text' }],
+                role: 'tool',
+                type: 'message',
+            },
+            timestamp: '2026-07-17T12:00:00.000Z',
+            type: 'response_item',
+        });
+
+        const detail = await getConversation({
+            id: thread.threadId,
+            locations: { codexDbPath: fixture.dbPath },
+            messageSelector: 'all',
+            source: 'codex',
+        });
+        const legacyMessage = detail?.messages.find((message) => message.text === 'Legacy assistant update.');
+        const toolMessage = detail?.messages.find((message) => message.text === 'Tool-authored message.');
+
+        expect(legacyMessage).toMatchObject({
+            createdAtMs: null,
+            phase: 'unknown',
+        });
+        expect(toolMessage).toMatchObject({ role: 'tool' });
+        expect(detail?.messages.map((message) => message.order)).toEqual(detail?.messages.map((_, index) => index));
     });
 
     it('should resolve Codex UI and native thread references', async () => {

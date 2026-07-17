@@ -2,12 +2,18 @@ import type { KiroSessionTranscript } from '@spiracha/lib/kiro-exporter-types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
+    deleteKiroSessionMock,
+    listKiroSessionsForGroupMock,
+    listKiroWorkspaceGroupsMock,
     readKiroSessionTranscriptMock,
     renderKiroTranscriptMock,
     renderSourceSessionDownloadMock,
     renderSourceSessionsDownloadMock,
     resolveKiroWorkspaceSessionsDirMock,
 } = vi.hoisted(() => ({
+    deleteKiroSessionMock: vi.fn(),
+    listKiroSessionsForGroupMock: vi.fn(),
+    listKiroWorkspaceGroupsMock: vi.fn(),
     readKiroSessionTranscriptMock: vi.fn(),
     renderKiroTranscriptMock: vi.fn(),
     renderSourceSessionDownloadMock: vi.fn(),
@@ -26,9 +32,9 @@ vi.mock('@tanstack/react-start', () => ({
 }));
 
 vi.mock('@spiracha/lib/kiro-db', () => ({
-    deleteKiroSession: vi.fn(),
-    listKiroSessionsForGroup: vi.fn(),
-    listKiroWorkspaceGroups: vi.fn(),
+    deleteKiroSession: deleteKiroSessionMock,
+    listKiroSessionsForGroup: listKiroSessionsForGroupMock,
+    listKiroWorkspaceGroups: listKiroWorkspaceGroupsMock,
     readKiroSessionTranscript: readKiroSessionTranscriptMock,
     resolveKiroWorkspaceSessionsDir: resolveKiroWorkspaceSessionsDirMock,
 }));
@@ -46,7 +52,15 @@ vi.mock('./source-session-export-server', () => ({
     renderSourceSessionsDownload: renderSourceSessionsDownloadMock,
 }));
 
-import { exportKiroSessionFn, exportKiroSessionsFn } from './kiro-server';
+import {
+    deleteKiroSessionFn,
+    deleteKiroSessionsFn,
+    exportKiroSessionFn,
+    exportKiroSessionsFn,
+    getKiroSessionDetailFn,
+    listKiroSessionsFn,
+    listKiroWorkspacesFn,
+} from './kiro-server';
 
 const buildTranscript = (sessionId: string, title: string): KiroSessionTranscript =>
     ({
@@ -115,5 +129,62 @@ describe('Kiro server exports', () => {
         expect(renderSourceSessionsDownloadMock).toHaveBeenCalledWith(
             expect.objectContaining({ outputFormat: 'txt', zipArchive: true }),
         );
+    });
+
+    it('should list, load, and delete Kiro sessions through the source database', async () => {
+        const transcript = buildTranscript('session-first', 'First session');
+        listKiroWorkspaceGroupsMock.mockResolvedValue(['workspace']);
+        listKiroSessionsForGroupMock.mockResolvedValue(['session']);
+        readKiroSessionTranscriptMock.mockResolvedValue(transcript);
+        deleteKiroSessionMock.mockResolvedValue(true);
+
+        await expect(listKiroWorkspacesFn({} as never)).resolves.toEqual(['workspace']);
+        await expect(listKiroSessionsFn({ data: { workspaceKey: 'workspace-a' } } as never)).resolves.toEqual([
+            'session',
+        ]);
+        await expect(getKiroSessionDetailFn({ data: { sessionId: 'session-first' } } as never)).resolves.toBe(
+            transcript,
+        );
+        await expect(deleteKiroSessionFn({ data: { sessionId: 'session-first' } } as never)).resolves.toBe(true);
+        await expect(
+            deleteKiroSessionsFn({ data: { sessionIds: ['session-first', 'session-second'] } } as never),
+        ).resolves.toEqual([true, true]);
+
+        expect(listKiroSessionsForGroupMock).toHaveBeenCalledWith('workspace-a');
+        expect(deleteKiroSessionMock).toHaveBeenCalledTimes(3);
+    });
+
+    it('should reject missing and empty Kiro session exports', async () => {
+        readKiroSessionTranscriptMock.mockResolvedValueOnce(null);
+        await expect(getKiroSessionDetailFn({ data: { sessionId: 'missing' } } as never)).rejects.toThrow(
+            'Kiro session not found: missing',
+        );
+
+        readKiroSessionTranscriptMock.mockResolvedValue(buildTranscript('empty', 'Empty'));
+        renderKiroTranscriptMock.mockReturnValue('');
+        await expect(
+            exportKiroSessionFn({
+                data: {
+                    includeCommentary: true,
+                    includeMetadata: true,
+                    includeTools: true,
+                    outputFormat: 'md',
+                    sessionId: 'empty',
+                    zipArchive: false,
+                },
+            } as never),
+        ).rejects.toThrow('Kiro session has no exportable content: empty');
+        await expect(
+            exportKiroSessionsFn({
+                data: {
+                    includeCommentary: true,
+                    includeMetadata: true,
+                    includeTools: true,
+                    outputFormat: 'md',
+                    sessionIds: ['empty'],
+                    zipArchive: true,
+                },
+            } as never),
+        ).rejects.toThrow('Kiro session has no exportable content: empty');
     });
 });

@@ -24,6 +24,7 @@ import {
     asString,
     isWorkspacePathQuery,
     type JsonValue,
+    pathExists,
     workspacePathMatchesQuery,
 } from './shared';
 import { runWithSqliteRetry } from './sqlite-retry';
@@ -183,12 +184,6 @@ const getDefaultOpenCodeDesktopStateDir = (
     return process.platform === 'darwin'
         ? path.join(homeDir, 'Library', 'Application Support', 'ai.opencode.desktop')
         : null;
-};
-
-const pathExists = async (target: string): Promise<boolean> => {
-    return await stat(target)
-        .then(() => true)
-        .catch(() => false);
 };
 
 export const getOpenCodeReadDbUri = (dbPath: string, mode: 'ro' | 'rw' = 'rw'): string => {

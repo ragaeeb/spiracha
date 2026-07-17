@@ -1,5 +1,5 @@
 import type { OpenCodeSessionSummary, OpenCodeWorkspaceGroup } from '@spiracha/lib/opencode-exporter-types';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { Trash2 } from 'lucide-react';
 import { useDeferredValue, useMemo, useState } from 'react';
@@ -86,6 +86,11 @@ const getDeleteTitle = (pendingDelete: PendingSessionDelete | null) => {
 export const Route = createFileRoute('/opencode/$workspaceKey')({
     component: OpenCodeWorkspacePage,
     errorComponent: OpenCodeWorkspaceErrorComponent,
+    loader: async ({ context, params }) => {
+        const workspaces = await context.queryClient.ensureQueryData(openCodeWorkspacesQueryOptions());
+        findWorkspaceOrThrow(workspaces, params.workspaceKey);
+        await context.queryClient.ensureQueryData(openCodeSessionsQueryOptions(params.workspaceKey));
+    },
     pendingComponent: () => (
         <LoadingPanel description="Loading OpenCode sessions and transcript metadata." title="Loading workspace" />
     ),
@@ -95,38 +100,22 @@ function OpenCodeWorkspaceErrorComponent({ error }: { error: Error }) {
     return <ReloadErrorPanel description={error.message} title="Failed to load OpenCode workspace" />;
 }
 
-const toError = (error: unknown) => (error instanceof Error ? error : new Error(String(error)));
+const findWorkspaceOrThrow = (workspaces: OpenCodeWorkspaceGroup[], workspaceKey: string) => {
+    const workspace = workspaces.find((candidate) => candidate.key === workspaceKey);
+    if (!workspace) {
+        throw new Error(`OpenCode workspace not found: ${workspaceKey}`);
+    }
+
+    return workspace;
+};
 
 function OpenCodeWorkspacePage() {
     const params = Route.useParams();
-    const workspacesQuery = useQuery(openCodeWorkspacesQueryOptions());
-    const workspaces = workspacesQuery.data ?? [];
-    const workspace = workspaces.find((candidate) => candidate.key === params.workspaceKey) ?? null;
-    const sessionsQuery = useQuery(openCodeSessionsQueryOptions(workspace?.key ?? null));
+    const workspaces = useSuspenseQuery(openCodeWorkspacesQueryOptions()).data;
+    const workspace = findWorkspaceOrThrow(workspaces, params.workspaceKey);
+    const sessions = useSuspenseQuery(openCodeSessionsQueryOptions(workspace.key)).data;
 
-    if (workspacesQuery.isLoading || (workspace && sessionsQuery.isLoading)) {
-        return (
-            <LoadingPanel description="Loading OpenCode sessions and transcript metadata." title="Loading workspace" />
-        );
-    }
-
-    if (workspacesQuery.isError) {
-        return <OpenCodeWorkspaceErrorComponent error={toError(workspacesQuery.error)} />;
-    }
-
-    if (!workspace) {
-        return (
-            <OpenCodeWorkspaceErrorComponent
-                error={new Error(`OpenCode workspace not found: ${params.workspaceKey}`)}
-            />
-        );
-    }
-
-    if (sessionsQuery.isError) {
-        return <OpenCodeWorkspaceErrorComponent error={toError(sessionsQuery.error)} />;
-    }
-
-    return <OpenCodeWorkspaceContent sessions={sessionsQuery.data ?? []} workspace={workspace} />;
+    return <OpenCodeWorkspaceContent sessions={sessions} workspace={workspace} />;
 }
 
 function OpenCodeWorkspaceContent({

@@ -308,6 +308,43 @@ describe('conversation API handler', () => {
         });
     });
 
+    it('should return conversation detail with all messages by default', async () => {
+        const response = await handleConversationApiRequest(createRequest('/api/v1/conversations/codex/thread-1'), {
+            getConversation: async (options) => {
+                expect(options).toEqual({ id: 'thread-1', messageSelector: 'all', source: 'codex' });
+                return conversation;
+            },
+        });
+
+        expect(response.status).toBe(200);
+        await expect(response.json()).resolves.toEqual({ data: conversation });
+    });
+
+    it('should export one conversation with the requested message selector', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/codex/thread-1/export?message_selector=last_final_answer'),
+            {
+                getConversation: async (options) => {
+                    expect(options).toEqual({
+                        id: 'thread-1',
+                        messageSelector: 'last_final_answer',
+                        source: 'codex',
+                    });
+                    return conversation;
+                },
+                renderConversationMarkdown: (renderedConversation, options) => {
+                    expect(renderedConversation).toBe(conversation);
+                    expect(options).toEqual({ messageSelector: 'last_final_answer' });
+                    return '# Thread 1\n';
+                },
+            },
+        );
+
+        expect(response.status).toBe(200);
+        expect(response.headers.get('Content-Type')).toBe('text/markdown; charset=utf-8');
+        await expect(response.text()).resolves.toBe('# Thread 1\n');
+    });
+
     it('should delete supported conversations through the public API', async () => {
         const response = await handleConversationApiRequest(
             createRequest('/api/v1/conversations/grok/019f2e0a-a16c-7120-97da-8fae66e36731', { method: 'DELETE' }),

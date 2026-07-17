@@ -15,6 +15,7 @@ import {
     isClaudeCodeSyntheticTranscriptEntry,
 } from './claude-code-transcript-phase';
 import { mapWithConcurrency } from './concurrency';
+import { getPortablePathBasename } from './portable-path';
 import {
     asBoolean,
     asNumber,
@@ -22,7 +23,6 @@ import {
     asString,
     cleanExtractedText,
     cleanInlineTitle,
-    getPortablePathBasename,
     isWorkspacePathQuery,
     type JsonValue,
     readJsonlObjects,

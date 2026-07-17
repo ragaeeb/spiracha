@@ -2,6 +2,7 @@ import { Database } from 'bun:sqlite';
 import { readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { mapWithConcurrency } from './concurrency';
+import { getPortablePathBasename } from './portable-path';
 import { loadQoderAcpSession, type QoderAcpSessionUpdate, resolveQoderAcpSocketPath } from './qoder-acp-client';
 import {
     getDefaultQoderUserDir,
@@ -19,7 +20,6 @@ import {
     asString,
     cleanExtractedText,
     cleanInlineTitle,
-    getPortablePathBasename,
     isWorkspacePathQuery,
     type JsonValue,
     workspacePathMatchesQuery,

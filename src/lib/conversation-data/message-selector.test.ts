@@ -33,6 +33,16 @@ describe('conversation message selection', () => {
         expect(selectConversationMessages(messages, 'last_final_answer')).toEqual([messages[1]]);
     });
 
+    it('should select the last assistant message regardless of phase', () => {
+        const messages = [
+            baseMessage({ id: 'assistant-1', order: 1, phase: 'final_answer', role: 'assistant', text: 'final' }),
+            baseMessage({ id: 'tool-1', order: 2, role: 'tool', text: 'output' }),
+            baseMessage({ id: 'assistant-2', order: 3, phase: 'commentary', role: 'assistant', text: 'latest' }),
+        ];
+
+        expect(selectConversationMessages(messages, 'last_assistant')).toEqual([messages[2]]);
+    });
+
     it('should fall back to the last assistant message when no final answer exists', () => {
         const messages = [
             baseMessage({ id: 'assistant-1', order: 1, phase: 'commentary', role: 'assistant', text: 'first' }),

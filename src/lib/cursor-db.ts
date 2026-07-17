@@ -19,7 +19,7 @@ import {
     getCursorWorkspaceStorageDir,
     resolveCursorUserDir,
 } from './cursor-exporter-types';
-import { asNumber, asObject, asString, type JsonValue } from './shared';
+import { asNumber, asObject, asString, type JsonValue, pathExists } from './shared';
 
 type ComposerEntry = Record<string, JsonValue> & {
     composerId?: string;
@@ -47,15 +47,6 @@ export const getCursorReadonlyDbUri = (dbPath: string): string => {
 
 export const openCursorReadonlyDb = (dbPath: string): Database => {
     return new Database(getCursorReadonlyDbUri(dbPath), CURSOR_READONLY_DB_OPEN_FLAGS);
-};
-
-const pathExists = async (target: string): Promise<boolean> => {
-    try {
-        await stat(target);
-        return true;
-    } catch {
-        return false;
-    }
 };
 
 const isMissingOrUnreadableCursorStoreError = (error: unknown): boolean => {

@@ -194,9 +194,12 @@ const getCursorConversation = async (options: GetConversationOptions): Promise<C
     return null;
 };
 
-const deleteCursorConversation = async (options: DeleteConversationOptions) => {
+export const deleteCursorConversation = async (
+    options: DeleteConversationOptions,
+    checkCursorRunning: () => Promise<boolean> = isCursorRunning,
+) => {
     const userDir = getUserDir(options);
-    if (!options.locations?.cursorUserDir && (await isCursorRunning())) {
+    if (await checkCursorRunning()) {
         throw new Error(
             'Quit Cursor before deleting. It rewrites chat history on exit, which can resurrect deleted threads.',
         );

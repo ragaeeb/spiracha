@@ -9,6 +9,7 @@ import { parseCodexTranscriptFile } from '../codex-thread-parser';
 import type { ThreadRow } from '../codex-thread-types';
 import { cleanInlineTitle } from '../shared';
 import { runWithTranscriptLoadLimit } from '../transcript-load-limiter';
+import { createDeepLinks, finalizeMessages, normalizeRole, toDateMs } from './adapter-helpers';
 import { selectConversationMessages } from './message-selector';
 import { getConversationPathMatch } from './path-match';
 import type {
@@ -16,7 +17,6 @@ import type {
     ConversationDetail,
     ConversationMessage,
     ConversationMessagePhase,
-    ConversationMessageRole,
     ConversationPathMatch,
     DeleteConversationOptions,
     GetConversationOptions,
@@ -35,20 +35,6 @@ const toCreatedAtMs = (thread: ThreadRow) => {
     return thread.created_at_ms ?? thread.created_at * 1000;
 };
 
-const buildCodexDeepLinks = (id: string) => ({
-    native: `codex://threads/${id}`,
-    spiracha: `spiracha://conversation/codex/${id}`,
-    ui: `/threads/${id}`,
-});
-
-const normalizeRole = (role: string): ConversationMessageRole => {
-    if (role === 'assistant' || role === 'user' || role === 'system') {
-        return role;
-    }
-
-    return 'unknown';
-};
-
 const normalizeMessagePhase = (event: MessageEvent): ConversationMessagePhase => {
     if (event.role !== 'assistant') {
         return 'unknown';
@@ -62,7 +48,7 @@ const normalizeMessagePhase = (event: MessageEvent): ConversationMessagePhase =>
         return 'commentary';
     }
 
-    return 'final_answer';
+    return 'unknown';
 };
 
 const toMessageEventMessage = (event: MessageEvent): ConversationMessage | null => {
@@ -72,7 +58,7 @@ const toMessageEventMessage = (event: MessageEvent): ConversationMessage | null 
     }
 
     return {
-        createdAtMs: event.timestamp ? Date.parse(event.timestamp) : null,
+        createdAtMs: toDateMs(event.timestamp),
         id: `codex:${event.sequence}`,
         metadata: {
             model: event.model,
@@ -88,7 +74,7 @@ const toMessageEventMessage = (event: MessageEvent): ConversationMessage | null 
 const toToolMessage = (event: ThreadEvent): ConversationMessage | null => {
     if (event.kind === 'tool_call') {
         return {
-            createdAtMs: event.timestamp ? Date.parse(event.timestamp) : null,
+            createdAtMs: toDateMs(event.timestamp),
             id: `codex:${event.sequence}`,
             metadata: {
                 callId: event.callId,
@@ -106,7 +92,7 @@ const toToolMessage = (event: ThreadEvent): ConversationMessage | null => {
     if (event.kind === 'tool_output') {
         const text = event.summary || event.outputText;
         return {
-            createdAtMs: event.timestamp ? Date.parse(event.timestamp) : null,
+            createdAtMs: toDateMs(event.timestamp),
             id: `codex:${event.sequence}`,
             metadata: {
                 callId: event.callId,
@@ -132,7 +118,7 @@ const toConversationMessage = (event: ThreadEvent): ConversationMessage | null =
         const text = event.summary.join('\n').trim();
         return text
             ? {
-                  createdAtMs: event.timestamp ? Date.parse(event.timestamp) : null,
+                  createdAtMs: toDateMs(event.timestamp),
                   id: `codex:${event.sequence}`,
                   metadata: {
                       hasEncryptedContent: event.hasEncryptedContent,
@@ -161,10 +147,12 @@ const readCodexMessages = async (thread: ThreadRow): Promise<ConversationMessage
         },
     );
 
-    return transcript.events.flatMap((event) => {
-        const message = toConversationMessage(event);
-        return message ? [message] : [];
-    });
+    return finalizeMessages(
+        transcript.events.flatMap((event) => {
+            const message = toConversationMessage(event);
+            return message ? [message] : [];
+        }),
+    );
 };
 
 const buildCodexConversation = async (
@@ -179,7 +167,7 @@ const buildCodexConversation = async (
 
     return {
         createdAtMs: toCreatedAtMs(thread),
-        deepLinks: buildCodexDeepLinks(thread.id),
+        deepLinks: createDeepLinks('codex', thread.id, `/threads/${thread.id}`, `codex://threads/${thread.id}`),
         id: thread.id,
         matches,
         messageCount: options.includeMessages ? allMessages.length : null,

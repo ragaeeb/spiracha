@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This package is the local browser UI for Spiracha. It reads Codex, Claude Code, Kiro, Qoder, Cursor, Antigravity, and OpenCode local data through TanStack Start server functions and shared root-package helpers.
+This package is the local browser UI for Spiracha. It reads Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, and OpenCode local data through TanStack Start server functions and shared root-package helpers.
 
 ## Commands
 
@@ -29,12 +29,13 @@ Important:
 - Codex project inventory and project-thread search use route search params. `/codex` and `/codex/$project` use `q`.
 - Codex analytics uses the `project` route search param so filtered analytics links can be bookmarked and reloaded.
 - Claude Code session detail lives at `/claude-code-sessions/$sessionId`.
+- Grok session detail lives at `/grok-sessions/$sessionId`.
 - Kiro session detail lives at `/kiro-sessions/$sessionId`.
 - Qoder session detail lives at `/qoder-sessions/$sessionId`.
 - Cursor thread detail lives at `/cursor-threads/$composerId`.
 - Antigravity conversation detail lives at `/antigravity-conversations/$conversationId`.
 - OpenCode session detail lives at `/opencode-sessions/$sessionId`.
-- Keep the Codex, Claude Code, Kiro, Qoder, Cursor, Antigravity, and OpenCode list/detail pages aligned around the same table-driven index/detail pattern when adding new source integrations.
+- Keep the Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, and OpenCode list/detail pages aligned around the same table-driven index/detail pattern when adding new source integrations.
 
 ## Shared Data Layer
 
@@ -48,6 +49,9 @@ The UI depends on root-package helpers via `@spiracha/*` path aliases:
 - `@spiracha/lib/claude-code-db`
 - `@spiracha/lib/claude-code-transcript-phase`
 - `@spiracha/lib/claude-code-transcript`
+- `@spiracha/lib/grok-db`
+- `@spiracha/lib/grok-transcript-phase`
+- `@spiracha/lib/grok-transcript`
 - `@spiracha/lib/kiro-db`
 - `@spiracha/lib/kiro-transcript-phase`
 - `@spiracha/lib/kiro-transcript`
@@ -73,10 +77,10 @@ The `*-transcript-phase` helpers are intentionally browser-safe and may be impor
 
 Use the existing layers consistently:
 
-- TanStack Start server functions in `src/lib/codex-server.ts`, `src/lib/claude-code-server.ts`, `src/lib/kiro-server.ts`, `src/lib/qoder-server.ts`, `src/lib/cursor-server.ts`, `src/lib/antigravity-server.ts`, and `src/lib/opencode-server.ts`
+- TanStack Start server functions in `src/lib/codex-server.ts`, `src/lib/claude-code-server.ts`, `src/lib/grok-server.ts`, `src/lib/kiro-server.ts`, `src/lib/qoder-server.ts`, `src/lib/cursor-server.ts`, `src/lib/antigravity-server.ts`, and `src/lib/opencode-server.ts`
   - Use for any browser-triggered read/write that needs Bun-only modules, DB access, filesystem access, Keychain access, or shared root-package helpers.
   - Use `.validator(...)` for input validation. Do not add new `.inputValidator(...)` calls.
-- TanStack Query query options in `src/lib/codex-queries.ts`, `src/lib/claude-code-queries.ts`, `src/lib/kiro-queries.ts`, `src/lib/qoder-queries.ts`, `src/lib/cursor-queries.ts`, `src/lib/antigravity-queries.ts`, and `src/lib/opencode-queries.ts`
+- TanStack Query query options in `src/lib/codex-queries.ts`, `src/lib/claude-code-queries.ts`, `src/lib/grok-queries.ts`, `src/lib/kiro-queries.ts`, `src/lib/qoder-queries.ts`, `src/lib/cursor-queries.ts`, `src/lib/antigravity-queries.ts`, and `src/lib/opencode-queries.ts`
   - Use for client-side fetching, caching, retries, and invalidation of server-function results.
 - Shared root-package helpers under `@spiracha/lib/*`
   - Extend these when the behavior should stay shared between the UI and the stable data API.

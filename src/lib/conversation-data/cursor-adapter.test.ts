@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createCursorFixture } from '../cursor-test-helpers';
-import { cursorConversationAdapter } from './cursor-adapter';
+import { cursorConversationAdapter, deleteCursorConversation } from './cursor-adapter';
 
 const tempDirs: string[] = [];
 
@@ -12,6 +12,19 @@ afterEach(async () => {
 });
 
 describe('cursorConversationAdapter', () => {
+    it('should refuse custom-directory deletes while Cursor is running', async () => {
+        await expect(
+            deleteCursorConversation(
+                {
+                    id: 'thread-1',
+                    locations: { cursorUserDir: '/tmp/custom-cursor-user-dir' },
+                    source: 'cursor',
+                },
+                async () => true,
+            ),
+        ).rejects.toThrow('Quit Cursor before deleting');
+    });
+
     it('should classify intermediate assistant progress as commentary', async () => {
         const userDir = await mkdtemp(path.join(os.tmpdir(), 'cursor-adapter-'));
         tempDirs.push(userDir);

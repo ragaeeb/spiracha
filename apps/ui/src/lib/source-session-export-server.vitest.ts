@@ -9,11 +9,13 @@ vi.mock('@spiracha/lib/ui-export-archive', async () => {
     const actual = await vi.importActual<typeof import('@spiracha/lib/ui-export-archive')>(
         '@spiracha/lib/ui-export-archive',
     );
-    const fs = await import('node:fs/promises');
+    return actual;
+});
 
+vi.mock('@spiracha/lib/ui-export-zip', () => {
     return {
-        ...actual,
         zipExportDirectory: vi.fn(async (_sourceDirectory: string, zipPath: string) => {
+            const fs = await import('node:fs/promises');
             await fs.writeFile(zipPath, 'zip');
         }),
     };

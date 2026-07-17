@@ -3,6 +3,7 @@ import { createRootRouteWithContext, HeadContent, Outlet, Scripts } from '@tanst
 import type { ReactNode } from 'react';
 import { AppShell } from '#/components/app-shell';
 import { TooltipProvider } from '#/components/ui/tooltip';
+import { getRootErrorPresentation } from '#/lib/root-error-message';
 import { SettingsProvider } from '#/lib/settings-store';
 import appCss from '#/styles.css?url';
 
@@ -23,26 +24,18 @@ const themeInitScript = `
 `;
 
 function RootErrorComponent({ error }: { error: Error }) {
-    const isSqliteError =
-        error.message.includes('unable to open database') ||
-        error.message.includes('database is locked') ||
-        error.message.includes('SQLITE_');
+    const presentation = getRootErrorPresentation(error);
 
     return (
         <div className="flex min-h-screen items-center justify-center bg-[#101418] px-4 text-[#eef3f7]">
             <div className="max-w-[30rem] text-center">
-                <h1 className="mb-3 font-semibold text-base">
-                    {isSqliteError ? 'Database unavailable' : 'Something went wrong'}
-                </h1>
-                {isSqliteError ? (
-                    <p className="my-2 text-[#99a3af] text-[0.875rem] leading-6">
-                        Spiracha could not open the Codex SQLite database. Codex may have an exclusive lock on the file,
-                        or the database does not exist yet. Close Codex or wait a moment, then reload.
-                    </p>
+                <h1 className="mb-3 font-semibold text-base">{presentation.title}</h1>
+                {presentation.isDatabaseError ? (
+                    <p className="my-2 text-[#99a3af] text-[0.875rem] leading-6">{presentation.description}</p>
                 ) : (
                     <p className="my-2 text-[#99a3af] text-[0.875rem] leading-6">
                         <code className="rounded border border-white/10 bg-[#12181e] px-1.5 py-1 text-[0.8em]">
-                            {error.message}
+                            {presentation.description}
                         </code>
                     </p>
                 )}
@@ -87,7 +80,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
             },
             {
                 content:
-                    'Browse local Codex, Claude Code, Kiro, Qoder, Cursor, Antigravity, and OpenCode history through a compact workspace UI.',
+                    'Browse local Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, and OpenCode history through a compact workspace UI.',
                 name: 'description',
             },
             {

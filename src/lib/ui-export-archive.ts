@@ -1,3 +1,4 @@
+import { getPortablePathBasename } from './portable-path';
 import type { ExportFormat } from './shared';
 
 type BatchExportNameEntry = {
@@ -7,16 +8,6 @@ type BatchExportNameEntry = {
 
 type ConversationExportNameEntry = BatchExportNameEntry & {
     id: string;
-};
-
-const getPortablePathBasename = (value: string): string => {
-    const trimmed = value.replace(/[\\/]+$/u, '');
-    if (!trimmed) {
-        return '';
-    }
-
-    const separatorIndex = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'));
-    return separatorIndex === -1 ? trimmed : trimmed.slice(separatorIndex + 1);
 };
 
 export const sanitizeExportFileName = (value: string) => {
@@ -86,46 +77,4 @@ export const buildBatchExportBaseName = (entries: BatchExportNameEntry[], fallba
     return latestUpdatedAtMs > 0
         ? `${projectName}-${formatBatchExportDate(latestUpdatedAtMs)}-threads-${entries.length}`
         : `${projectName}-threads-${entries.length}`;
-};
-
-const readPipeText = async (pipe: ReadableStream<Uint8Array> | number | undefined) => {
-    return pipe && typeof pipe !== 'number' ? new Response(pipe).text() : '';
-};
-
-const runZip = async (args: string[], options: { cwd?: string } = {}) => {
-    let proc: ReturnType<typeof Bun.spawn>;
-    try {
-        proc = Bun.spawn(['zip', '-9', ...args], {
-            cwd: options.cwd,
-            stderr: 'pipe',
-            stdout: 'pipe',
-        });
-    } catch (error) {
-        throw new Error(
-            `zip command failed to start. Install the "zip" executable or choose a non-zip export. ${error instanceof Error ? error.message : String(error)}`,
-        );
-    }
-
-    const [stdoutText, stderrText, exitCode] = await Promise.all([
-        readPipeText(proc.stdout),
-        readPipeText(proc.stderr),
-        proc.exited,
-    ]);
-
-    if (exitCode !== 0) {
-        const output = (stderrText || stdoutText).trim();
-        throw new Error(
-            output
-                ? `zip command failed (${exitCode}): ${output}`
-                : `zip command failed (${exitCode}). Install the "zip" executable or choose a non-zip export.`,
-        );
-    }
-};
-
-export const zipExportFile = async (sourcePath: string, zipPath: string) => {
-    await runZip(['-j', zipPath, sourcePath]);
-};
-
-export const zipExportDirectory = async (sourceDirectory: string, zipPath: string) => {
-    await runZip(['-r', zipPath, '.'], { cwd: sourceDirectory });
 };

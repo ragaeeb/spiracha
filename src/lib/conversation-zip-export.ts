@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { resolveUniqueExportFileBaseName, sanitizeExportFileName, zipExportDirectory } from './ui-export-archive';
+import { resolveUniqueExportFileBaseName, sanitizeExportFileName } from './ui-export-archive';
+import { zipExportDirectory } from './ui-export-zip';
 
 type ConversationMarkdownZipEntry = {
     fallbackBaseName: string;

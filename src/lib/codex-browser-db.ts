@@ -18,7 +18,8 @@ import { getCachedParsedCodexTranscript, getThreadRolloutLoadState } from './cod
 import type { ThreadRelations, ThreadRow } from './codex-thread-types';
 import { DEFAULT_CODEX_DIR, DEFAULT_DB_PATH } from './codex-thread-types';
 import { mapWithConcurrency } from './concurrency';
-import { cleanInlineTitle, getPortablePathBasename } from './shared';
+import { getPortablePathBasename } from './portable-path';
+import { cleanInlineTitle } from './shared';
 import { runWithSqliteRetry } from './sqlite-retry';
 import { invalidateCacheByPrefix } from './ui-cache';
 

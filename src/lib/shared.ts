@@ -1,5 +1,5 @@
 import { createReadStream, createWriteStream } from 'node:fs';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
@@ -26,20 +26,26 @@ export const expandHome = (value: string): string => {
         return os.homedir();
     }
 
-    if (value.startsWith('~/')) {
-        return path.join(os.homedir(), value.slice(2));
+    if (value.startsWith('~/') || value.startsWith('~\\')) {
+        return path.join(
+            os.homedir(),
+            ...value
+                .slice(2)
+                .split(/[\\/]+/u)
+                .filter(Boolean),
+        );
     }
 
     return value;
 };
 
-export const getPortablePathBasename = (value: string): string => {
-    const trimmed = value.replace(/[\\/]+$/u, '');
-    if (!trimmed) {
-        return '';
+export const pathExists = async (target: string): Promise<boolean> => {
+    try {
+        await stat(target);
+        return true;
+    } catch {
+        return false;
     }
-
-    return path.win32.basename(path.posix.basename(trimmed));
 };
 
 export const isWorkspacePathQuery = (value: string): boolean => {
@@ -128,6 +134,7 @@ export const readJsonlObjects = (filePath: string): AsyncIterableIterator<Record
     });
     const lineIterator = lines[Symbol.asyncIterator]();
     let closed = false;
+    let lineNumber = 0;
 
     const close = () => {
         if (closed) {
@@ -147,6 +154,7 @@ export const readJsonlObjects = (filePath: string): AsyncIterableIterator<Record
                 return { done: true, value: undefined as never };
             }
 
+            lineNumber += 1;
             const trimmed = nextLine.value.trim();
             if (!trimmed) {
                 continue;
@@ -157,7 +165,9 @@ export const readJsonlObjects = (filePath: string): AsyncIterableIterator<Record
                     done: false,
                     value: JSON.parse(trimmed) as Record<string, JsonValue>,
                 };
-            } catch {}
+            } catch {
+                console.warn('[spiracha:jsonl] invalid_json_line', { filePath, lineNumber });
+            }
         }
     };
 

@@ -1,19 +1,7 @@
 import { realpath } from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
+import { expandHome } from '../shared';
 import type { ConversationPathMatch } from './types';
-
-const expandHome = (value: string) => {
-    if (value === '~') {
-        return os.homedir();
-    }
-
-    if (value.startsWith('~/') || value.startsWith('~\\')) {
-        return path.join(os.homedir(), value.slice(2));
-    }
-
-    return value;
-};
 
 const trimTrailingSeparators = (value: string) => {
     const trimmed = value.replace(/[\\/]+$/u, '');

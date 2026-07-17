@@ -33,7 +33,7 @@ import {
     getAntigravityThreadTranscriptStats,
 } from '#/lib/antigravity-transcript-events';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
-import { formatBytes, formatDateTime, formatNumber } from '#/lib/formatters';
+import { formatBytes, formatDateTime, formatList, formatNumber } from '#/lib/formatters';
 
 type AntigravityConversationDetail = Awaited<ReturnType<typeof getAntigravityConversationDetailFn>>;
 
@@ -106,7 +106,7 @@ const buildTranscriptStatsItems = (
 
     const stats = getAntigravityThreadTranscriptStats(events);
     return [
-        { label: 'Event kinds', value: [...new Set(events.map((event) => event.kind))].join(', ') || 'n/a' },
+        { label: 'Event kinds', value: formatList([...new Set(events.map((event) => event.kind))]) },
         { label: 'Messages', value: formatNumber(stats.messageCount) },
         { label: 'User messages', value: formatNumber(stats.userMessageCount) },
         { label: 'Assistant messages', value: formatNumber(stats.assistantMessageCount) },

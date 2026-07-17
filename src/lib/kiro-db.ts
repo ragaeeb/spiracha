@@ -11,12 +11,12 @@ import {
     type KiroWorkspaceGroup,
     resolveKiroWorkspaceSessionsDir,
 } from './kiro-exporter-types';
+import { getPortablePathBasename } from './portable-path';
 import {
     asObject,
     asString,
     cleanExtractedText,
     cleanInlineTitle,
-    getPortablePathBasename,
     isWorkspacePathQuery,
     type JsonValue,
     workspacePathMatchesQuery,

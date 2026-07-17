@@ -12,13 +12,13 @@ import {
     resolveGrokHome,
     resolveGrokSessionsDir,
 } from './grok-exporter-types';
+import { getPortablePathBasename } from './portable-path';
 import {
     asNumber,
     asObject,
     asString,
     cleanExtractedText,
     cleanInlineTitle,
-    getPortablePathBasename,
     isWorkspacePathQuery,
     type JsonValue,
     readJsonlObjects,

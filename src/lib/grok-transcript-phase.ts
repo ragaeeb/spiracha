@@ -1,6 +1,6 @@
 import type { GrokTranscriptEntry, GrokTranscriptPart } from './grok-exporter-types';
 
-export type GrokAssistantMessagePhase = 'commentary' | 'final_answer' | 'unknown';
+export type GrokAssistantMessagePhase = 'commentary' | 'final_answer' | null;
 
 export const getFinalGrokAssistantTextPartIds = (entries: GrokTranscriptEntry[]): Set<string> => {
     const finalPartIds = new Set<string>();
@@ -45,7 +45,7 @@ export const getGrokTextPartPhase = (
     finalTextPartIds: Set<string>,
 ): GrokAssistantMessagePhase => {
     if (entry.role !== 'assistant') {
-        return 'unknown';
+        return null;
     }
 
     return finalTextPartIds.has(part.partId) ? 'final_answer' : 'commentary';

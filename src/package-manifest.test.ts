@@ -10,8 +10,19 @@ type PackageManifest = {
     version: string;
 };
 
+type UiPackageManifest = {
+    dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
+    pnpm?: unknown;
+};
+
 const readPackageManifest = async (): Promise<PackageManifest> => {
     const packageJsonPath = path.join(process.cwd(), 'package.json');
+    return Bun.file(packageJsonPath).json();
+};
+
+const readUiPackageManifest = async (): Promise<UiPackageManifest> => {
+    const packageJsonPath = path.join(process.cwd(), 'apps/ui/package.json');
     return Bun.file(packageJsonPath).json();
 };
 
@@ -63,6 +74,40 @@ describe('package manifest', () => {
 
         for (const dependencyName of requiredUiRuntimeDependencies) {
             expect(manifest.dependencies?.[dependencyName]).toBeDefined();
+        }
+    });
+
+    it('should keep mirrored UI runtime dependency versions aligned', async () => {
+        const manifest = await readPackageManifest();
+        const uiManifest = await readUiPackageManifest();
+        const uiRuntimeDependencies = {
+            ...uiManifest.dependencies,
+            ...uiManifest.devDependencies,
+        };
+
+        for (const [dependencyName, uiVersion] of Object.entries(uiRuntimeDependencies)) {
+            const rootVersion = manifest.dependencies?.[dependencyName];
+            if (rootVersion) {
+                expect(uiVersion, dependencyName).toBe(rootVersion);
+            }
+        }
+    });
+
+    it('should not retain configuration for unsupported package managers', async () => {
+        const uiManifest = await readUiPackageManifest();
+
+        expect(uiManifest.pnpm).toBeUndefined();
+    });
+
+    it('should document every supported source in contributor and UI metadata', async () => {
+        const sourceLabels = ['Codex', 'Claude Code', 'Grok', 'Kiro', 'Qoder', 'Cursor', 'Antigravity', 'OpenCode'];
+        const documentedFiles = ['README.md', 'AGENTS.md', 'apps/ui/AGENTS.md', 'apps/ui/src/routes/__root.tsx'];
+
+        for (const filePath of documentedFiles) {
+            const content = await Bun.file(path.join(process.cwd(), filePath)).text();
+            for (const sourceLabel of sourceLabels) {
+                expect(content, `${filePath} should mention ${sourceLabel}`).toContain(sourceLabel);
+            }
         }
     });
 
