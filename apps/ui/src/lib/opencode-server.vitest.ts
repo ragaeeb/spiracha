@@ -132,7 +132,9 @@ describe('OpenCode export server functions', () => {
     it('should list, load, and delete OpenCode sessions through the source database', async () => {
         listOpenCodeWorkspaceGroupsMock.mockResolvedValue(['workspace']);
         listOpenCodeSessionsForGroupMock.mockResolvedValue(['session']);
-        deleteOpenCodeSessionMock.mockResolvedValue(true);
+        deleteOpenCodeSessionMock.mockImplementation(async (_dbPath: string, sessionId: string) => ({
+            deletedSessionIds: [sessionId],
+        }));
 
         await expect(listOpenCodeWorkspacesFn({} as never)).resolves.toEqual(['workspace']);
         await expect(listOpenCodeSessionsFn({ data: { workspaceKey: 'workspace-a' } } as never)).resolves.toEqual([
@@ -141,10 +143,12 @@ describe('OpenCode export server functions', () => {
         await expect(getOpenCodeSessionDetailFn({ data: { sessionId: 'session-1' } } as never)).resolves.toBe(
             transcript,
         );
-        await expect(deleteOpenCodeSessionFn({ data: { sessionId: 'session-1' } } as never)).resolves.toBe(true);
+        await expect(deleteOpenCodeSessionFn({ data: { sessionId: 'session-1' } } as never)).resolves.toEqual({
+            deletedSessionIds: ['session-1'],
+        });
         await expect(
             deleteOpenCodeSessionsFn({ data: { sessionIds: ['session-1', 'session-2'] } } as never),
-        ).resolves.toEqual([true, true]);
+        ).resolves.toEqual({ deletedSessionIds: ['session-1', 'session-2'] });
 
         expect(listOpenCodeSessionsForGroupMock).toHaveBeenCalledWith('workspace-a');
         expect(deleteOpenCodeSessionMock).toHaveBeenCalledTimes(3);
@@ -153,6 +157,10 @@ describe('OpenCode export server functions', () => {
     it('should reject missing and empty OpenCode session exports', async () => {
         readOpenCodeSessionTranscriptMock.mockResolvedValueOnce(null);
         await expect(getOpenCodeSessionDetailFn({ data: { sessionId: 'missing' } } as never)).rejects.toThrow(
+            'OpenCode session not found: missing',
+        );
+        deleteOpenCodeSessionMock.mockResolvedValueOnce({ deletedSessionIds: [] });
+        await expect(deleteOpenCodeSessionFn({ data: { sessionId: 'missing' } } as never)).rejects.toThrow(
             'OpenCode session not found: missing',
         );
 

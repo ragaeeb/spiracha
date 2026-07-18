@@ -16,9 +16,11 @@ import { getFinalQoderAssistantMessageEntryIds, getQoderMessagePhase } from '../
 import { cleanInlineTitle } from '../shared';
 import { runWithTranscriptLoadLimit } from '../transcript-load-limiter';
 import {
+    createConversationUiPath,
     createDeepLinks,
     createTextMessage,
     finalizeMessages,
+    isWithinUpdatedWindow,
     normalizeAssistantPhase,
     normalizeRole,
     toDateMs,
@@ -54,20 +56,6 @@ const getQoderLocations = (options: {
     globalStateDb: options.locations?.qoderGlobalStateDb ?? resolveQoderGlobalStateDb(),
     workspaceStorageDir: options.locations?.qoderWorkspaceStorageDir ?? resolveQoderWorkspaceStorageDir(),
 });
-
-const isWithinUpdatedWindow = (
-    session: QoderSessionSummary,
-    options: Pick<ListConversationsForPathOptions, 'updatedAfterMs' | 'updatedBeforeMs'>,
-): boolean => {
-    const updatedAtMs = session.lastActiveAtMs ?? 0;
-    if (options.updatedAfterMs !== undefined && updatedAtMs < options.updatedAfterMs) {
-        return false;
-    }
-    if (options.updatedBeforeMs !== undefined && updatedAtMs > options.updatedBeforeMs) {
-        return false;
-    }
-    return true;
-};
 
 const partToMessages = (
     entry: QoderTranscriptEntry,
@@ -168,7 +156,11 @@ const buildConversation = async (
 
     return {
         createdAtMs: session.createdAtMs,
-        deepLinks: createDeepLinks('qoder', session.sessionId, `/qoder-sessions/${session.sessionId}`),
+        deepLinks: createDeepLinks(
+            'qoder',
+            session.sessionId,
+            createConversationUiPath('qoder-sessions', session.sessionId),
+        ),
         id: session.sessionId,
         matches,
         messageCount: options.includeMessages ? allMessages.length : session.messageCount,
@@ -214,7 +206,7 @@ const listQoderConversationsForPath = async (options: ListConversationsForPathOp
             locations.workspaceStorageDir,
         );
         for (const session of sessions) {
-            if (!isWithinUpdatedWindow(session, options)) {
+            if (!isWithinUpdatedWindow(session.lastActiveAtMs, options)) {
                 continue;
             }
 

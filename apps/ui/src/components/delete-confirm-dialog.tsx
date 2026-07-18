@@ -1,7 +1,6 @@
 import { useEffect, useId, useState } from 'react';
 import {
     AlertDialog,
-    AlertDialogAction,
     AlertDialogCancel,
     AlertDialogContent,
     AlertDialogDescription,
@@ -9,6 +8,7 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from '#/components/ui/alert-dialog';
+import { Button } from '#/components/ui/button';
 import { Checkbox } from '#/components/ui/checkbox';
 
 type DeleteConfirmDialogProps = {
@@ -75,12 +75,13 @@ export function DeleteConfirmDialog({
                 {errorMessage ? <p className="text-[var(--destructive)] text-sm">{errorMessage}</p> : null}
                 <AlertDialogFooter>
                     <AlertDialogCancel className="border-[var(--border)]">Cancel</AlertDialogCancel>
-                    <AlertDialogAction
+                    <Button
                         className="bg-[var(--destructive)] text-[var(--destructive-foreground)] hover:bg-[var(--destructive)]/90"
+                        type="button"
                         onClick={() => onConfirm({ deleteSessionFiles })}
                     >
                         {confirmLabel}
-                    </AlertDialogAction>
+                    </Button>
                 </AlertDialogFooter>
             </AlertDialogContent>
         </AlertDialog>

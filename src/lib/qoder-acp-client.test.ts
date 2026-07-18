@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { loadQoderAcpSession } from './qoder-acp-client';
+import { isQoderAcpResponse, loadQoderAcpSession } from './qoder-acp-client';
 
 const tempRoots: string[] = [];
 
@@ -220,6 +220,11 @@ describe('loadQoderAcpSession', () => {
                 update: expect.objectContaining({ modelId: 'qmodel_latest' }),
             }),
         ]);
+    });
+
+    it('should distinguish responses from server requests with colliding ids', () => {
+        expect(isQoderAcpResponse({ id: 1, jsonrpc: '2.0', method: 'fs/read_text_file', params: {} }, 1)).toBe(false);
+        expect(isQoderAcpResponse({ id: 1, jsonrpc: '2.0', result: null }, 1)).toBe(true);
     });
 
     it('should keep draining while Qoder session updates are still arriving', async () => {

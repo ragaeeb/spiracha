@@ -29,12 +29,7 @@ const writeJsonl = async (filePath: string, records: unknown[]) => {
     await Bun.write(filePath, `${records.map((record) => JSON.stringify(record)).join('\n')}\n`);
 };
 
-const writeSession = async (
-    projectsDir: string,
-    projectDirName: string,
-    sessionId: string,
-    records: Record<string, unknown>[],
-) => {
+const writeSession = async (projectsDir: string, projectDirName: string, sessionId: string, records: unknown[]) => {
     const projectDir = path.join(projectsDir, projectDirName);
     await mkdir(projectDir, { recursive: true });
     await writeJsonl(path.join(projectDir, `${sessionId}.jsonl`), records);
@@ -222,6 +217,25 @@ describe('claude code workspace discovery', () => {
         });
         expect(findClaudeCodeWorkspaceGroups(workspaces, '~/workspace/ushman-corpus')).toHaveLength(1);
         expect(findClaudeCodeWorkspaceGroups(workspaces, 'other')[0]?.worktree).toBe(otherCwd);
+    });
+
+    it('should skip null JSONL records without losing valid Claude Code messages', async () => {
+        const projectsDir = await makeTempRoot();
+        await writeSession(projectsDir, '-Users-rhaq-workspace-ushman-corpus', 'session-null', [
+            null,
+            ...buildSessionRecords('session-null', corpusCwd),
+        ]);
+
+        const originalWarn = console.warn;
+        console.warn = () => undefined;
+        try {
+            const transcript = await readClaudeCodeSessionTranscript(projectsDir, 'session-null');
+
+            expect(transcript?.session.messageCount).toBe(2);
+            expect(transcript?.entries).toHaveLength(3);
+        } finally {
+            console.warn = originalWarn;
+        }
     });
 
     it('should list sessions for a workspace and parse a selected transcript', async () => {
@@ -569,6 +583,34 @@ describe('claude code workspace discovery', () => {
         expect(await readClaudeCodeSessionTranscript(projectsDir, 'metadata-only')).not.toBeNull();
     });
 
+    it('should prefer a sibling transcript cwd over lossy hyphenated directory decoding', async () => {
+        const projectsDir = await makeTempRoot();
+        const directoryName = '-Users-rhaq-workspace-my-project';
+        const expectedWorktree = path.join(homeDir, 'workspace', 'my-project');
+        await writeSession(projectsDir, directoryName, 'a-no-cwd', [
+            {
+                message: { content: 'No cwd in this record', role: 'user' },
+                sessionId: 'a-no-cwd',
+                type: 'user',
+                uuid: 'a-no-cwd-user',
+            },
+        ]);
+        await writeSession(projectsDir, directoryName, 'b-with-cwd', [
+            {
+                cwd: expectedWorktree,
+                message: { content: 'Canonical cwd', role: 'user' },
+                sessionId: 'b-with-cwd',
+                type: 'user',
+                uuid: 'b-with-cwd-user',
+            },
+        ]);
+
+        const groups = await listClaudeCodeWorkspaceGroups(projectsDir);
+
+        expect(groups[0]?.worktree).toBe(expectedWorktree);
+        expect(groups[0]?.label).toBe('my-project');
+    });
+
     it('should omit raw payloads when requested for large UI responses', async () => {
         const projectsDir = await makeTempRoot();
         await writeSession(
@@ -596,6 +638,25 @@ describe('claude code workspace discovery', () => {
             sessionId: 'session-a',
             toolCallCount: 1,
         });
+    });
+
+    it('should locate and delete a Claude session by its body session id when the filename differs', async () => {
+        const projectsDir = await makeTempRoot();
+        const sessionId = 'canonical-session-id';
+        await writeSession(
+            projectsDir,
+            '-Users-rhaq-workspace-ushman-corpus',
+            'stale-storage-name',
+            buildSessionRecords(sessionId, corpusCwd),
+        );
+
+        const transcript = await readClaudeCodeSessionTranscript(projectsDir, sessionId);
+        const deleted = await deleteClaudeCodeSession(projectsDir, sessionId);
+
+        expect(transcript?.session.sessionId).toBe(sessionId);
+        expect(deleted.deletedSessionIds).toEqual([sessionId]);
+        expect(deleted.deletedFiles).toHaveLength(1);
+        expect(await Bun.file(deleted.deletedFiles[0]!).exists()).toBe(false);
     });
 
     it('should preserve assistant phases when raw payloads are omitted', async () => {

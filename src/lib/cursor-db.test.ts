@@ -5,6 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import {
     CURSOR_READONLY_DB_OPEN_FLAGS,
+    decodeCursorUri,
+    findCursorTranscriptDirs,
     findCursorWorkspaceGroups,
     getCursorReadonlyDbUri,
     listCursorThreadsForGroup,
@@ -63,6 +65,10 @@ const baseSpec = (): CursorFixtureSpec => ({
 });
 
 describe('cursor-db workspace discovery', () => {
+    it('should preserve malformed percent escapes in workspace URIs', () => {
+        expect(decodeCursorUri('file:///Users/test/workspace/100%done')).toBe('/Users/test/workspace/100%done');
+    });
+
     it('should group duplicate buckets for the same folder under one workspace', async () => {
         const userDir = await makeUserDir();
         await createCursorFixture(userDir, baseSpec());
@@ -290,6 +296,14 @@ describe('cursor-db workspace discovery', () => {
         const threads = await listCursorThreadsForGroup(group!, userDir);
 
         expect(threads[0]?.transcriptDirs).toEqual([transcriptDir]);
+    });
+
+    it('should reject composer ids that escape the agent transcript directory', async () => {
+        const userDir = await makeUserDir();
+        await mkdir(path.join(userDir, 'projects', 'demo-project', 'agent-transcripts'), { recursive: true });
+
+        expect(await findCursorTranscriptDirs('..', userDir)).toEqual([]);
+        expect(await findCursorTranscriptDirs('../../..', userDir)).toEqual([]);
     });
 
     it('should parse JSONC code-workspace files when resolving workspace folders', async () => {
@@ -668,6 +682,26 @@ describe('openCursorReadonlyDb', () => {
             expect(row.count).toBe(1);
         } finally {
             db.close();
+        }
+    });
+
+    it('should include committed WAL rows while Cursor still has the database open', async () => {
+        const dir = await mkdtemp(path.join(os.tmpdir(), 'cursor-live-wal-'));
+        tempDirs.push(dir);
+        const dbPath = path.join(dir, 'state.vscdb');
+        const writable = new Database(dbPath);
+        writable.exec('PRAGMA journal_mode=WAL');
+        writable.exec('PRAGMA wal_autocheckpoint=0');
+        writable.exec('CREATE TABLE ItemTable (key TEXT PRIMARY KEY, value TEXT)');
+        writable.run('INSERT INTO ItemTable VALUES (?, ?)', ['live', 'visible']);
+
+        const db = openCursorReadonlyDb(dbPath);
+        try {
+            const row = db.query('SELECT value FROM ItemTable WHERE key = ?').get('live') as { value: string } | null;
+            expect(row?.value).toBe('visible');
+        } finally {
+            db.close();
+            writable.close();
         }
     });
 });

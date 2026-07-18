@@ -187,4 +187,78 @@ describe('pruneCursorThreads', () => {
         const [group] = await listCursorWorkspaceGroups(userDir);
         expect(group?.threadCount).toBe(0);
     });
+
+    it('should treat underscores in composer ids as literals when deleting bubble keys', async () => {
+        const userDir = await makeUserDir('cursor-delete-wildcard-');
+        await createCursorFixture(userDir, {
+            buckets: [
+                {
+                    bucketId: 'bucket-a',
+                    composerIds: ['thread_1', 'threadX1'],
+                    folder: 'file:///Users/test/workspace/wildcard',
+                    threadsInComposerData: true,
+                },
+            ],
+            headerLinks: [
+                { bucketId: 'bucket-a', composerId: 'thread_1' },
+                { bucketId: 'bucket-a', composerId: 'threadX1' },
+            ],
+            threads: [
+                {
+                    bubbles: [{ bubbleId: 'b1', text: 'delete me', type: 1 }],
+                    composerId: 'thread_1',
+                    name: 'Underscore thread',
+                },
+                {
+                    bubbles: [{ bubbleId: 'b2', text: 'keep me', type: 1 }],
+                    composerId: 'threadX1',
+                    name: 'Literal thread',
+                },
+            ],
+        });
+
+        const deletable = await collectCursorThreadsForDeletion(['thread_1'], userDir);
+        const result = await pruneCursorThreads(deletable, true, userDir);
+        const db = new Database(getCursorGlobalDbPath(userDir), { readonly: true });
+        try {
+            const remaining = db
+                .query("SELECT COUNT(*) AS count FROM cursorDiskKV WHERE key LIKE 'bubbleId:threadX1:%'")
+                .get() as { count: number };
+
+            expect(result.bubblesDeleted).toBe(1);
+            expect(remaining.count).toBe(1);
+        } finally {
+            db.close();
+        }
+    });
+
+    it('should roll back global thread deletion when a later global mutation fails', async () => {
+        const userDir = await makeUserDir('cursor-delete-transaction-');
+        await createCursorFixture(userDir, recoverySpec());
+        const globalDbPath = getCursorGlobalDbPath(userDir);
+        const setupDb = new Database(globalDbPath);
+        setupDb.exec(`
+            CREATE TRIGGER fail_composer_delete
+            BEFORE DELETE ON cursorDiskKV
+            WHEN OLD.key = 'composerData:thread-1'
+            BEGIN
+                SELECT RAISE(ABORT, 'forced composer delete failure');
+            END;
+        `);
+        setupDb.close();
+        const deletable = await collectCursorThreadsForDeletion(['thread-1'], userDir);
+
+        expect(pruneCursorThreads(deletable, true, userDir)).rejects.toThrow('forced composer delete failure');
+
+        const db = new Database(globalDbPath, { readonly: true });
+        try {
+            const bubbles = db
+                .query("SELECT COUNT(*) AS count FROM cursorDiskKV WHERE key LIKE 'bubbleId:thread-1:%'")
+                .get() as { count: number };
+            expect(bubbles.count).toBe(2);
+            expect(readHeaders(globalDbPath).map((header) => header.composerId)).toContain('thread-1');
+        } finally {
+            db.close();
+        }
+    });
 });

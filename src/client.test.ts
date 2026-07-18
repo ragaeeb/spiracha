@@ -381,7 +381,10 @@ describe('conversation client', () => {
     it('should return null for HTTP conversation deletes that no longer exist', async () => {
         const server = Bun.serve({
             fetch() {
-                return Response.json({ error: { message: 'missing' } }, { status: 404 });
+                return Response.json(
+                    { error: { code: 'conversation_not_found', message: 'missing' } },
+                    { status: 404 },
+                );
             },
             port: 0,
         });
@@ -393,6 +396,35 @@ describe('conversation client', () => {
             });
 
             await expect(client.deleteConversation({ id: 'missing-session', source: 'kiro' })).resolves.toBeNull();
+        } finally {
+            server.stop(true);
+        }
+    });
+
+    it('should return null for unsupported HTTP conversation delete operations', async () => {
+        const server = Bun.serve({
+            fetch() {
+                return Response.json(
+                    {
+                        error: {
+                            code: 'unsupported_operation',
+                            message: 'Deleting qoder conversations is not supported.',
+                        },
+                    },
+                    { status: 405 },
+                );
+            },
+            port: 0,
+        });
+
+        try {
+            const client = createConversationClient({
+                baseUrl: `http://127.0.0.1:${server.port}`,
+                mode: 'http',
+            });
+
+            await expect(client.deleteConversation({ id: 'session-1', source: 'qoder' })).resolves.toBeNull();
+            await expect(client.deleteConversations({ ids: ['session-1'], source: 'qoder' })).resolves.toBeNull();
         } finally {
             server.stop(true);
         }
@@ -410,5 +442,51 @@ describe('conversation client', () => {
                 locations: { codexDbPath: '/tmp/codex.sqlite' },
             }),
         ).rejects.toThrow(new SpirachaClientError('`locations` is only supported by local Spiracha clients.'));
+    });
+
+    it('should reject oversized local export batches before hydrating conversations', async () => {
+        const client = createConversationClient({ mode: 'local' });
+
+        expect(
+            client.exportConversationsZip({
+                ids: Array.from({ length: 201 }, (_value, index) => `conversation-${index}`),
+                source: 'codex',
+            }),
+        ).rejects.toThrow(new SpirachaClientError('At most 200 conversation ids may be exported at once.'));
+    });
+
+    it('should preserve a configured HTTP base path prefix', async () => {
+        const originalFetch = globalThis.fetch;
+        const requestedUrls: string[] = [];
+        globalThis.fetch = (async (input) => {
+            requestedUrls.push(String(input));
+            return Response.json({ data: [] });
+        }) as typeof fetch;
+
+        try {
+            const client = createConversationClient({ baseUrl: 'https://example.com/spiracha', mode: 'http' });
+            await client.listSources();
+            expect(requestedUrls).toEqual(['https://example.com/spiracha/api/v1/sources']);
+        } finally {
+            globalThis.fetch = originalFetch;
+        }
+    });
+
+    it('should surface a route-level 404 instead of treating it as a missing conversation', async () => {
+        const originalFetch = globalThis.fetch;
+        globalThis.fetch = (async () =>
+            Response.json(
+                { error: { code: 'not_found', message: 'API route not found.' } },
+                { status: 404 },
+            )) as unknown as typeof fetch;
+
+        try {
+            const client = createConversationClient({ baseUrl: 'https://example.com/spiracha', mode: 'http' });
+            await expect(client.getConversation({ id: 'thread-1', source: 'codex' })).rejects.toThrow(
+                new SpirachaClientError('Spiracha API request failed (404): API route not found.', 404),
+            );
+        } finally {
+            globalThis.fetch = originalFetch;
+        }
     });
 });

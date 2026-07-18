@@ -21,6 +21,7 @@ import { canExportAntigravityConversation } from '#/lib/antigravity-conversation
 import {
     antigravityConversationDetailQueryOptions,
     antigravityDecryptionQueryOptions,
+    antigravityWorkspacesQueryOptions,
 } from '#/lib/antigravity-queries';
 import {
     deleteAntigravityConversationFn,
@@ -34,6 +35,7 @@ import {
 } from '#/lib/antigravity-transcript-events';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import { formatBytes, formatDateTime, formatList, formatNumber } from '#/lib/formatters';
+import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
 type AntigravityConversationDetail = Awaited<ReturnType<typeof getAntigravityConversationDetailFn>>;
 
@@ -378,6 +380,17 @@ function AntigravityConversationDetailPage() {
                     queryKey: ['antigravity-conversation', detail.conversation.conversationId],
                 }),
             ]);
+            const workspaces = await queryClient.fetchQuery(antigravityWorkspacesQueryOptions());
+            if (
+                shouldNavigateToSourceIndexAfterDelete(
+                    workspaces,
+                    detail.conversationGroup.key,
+                    (workspace) => workspace.key,
+                )
+            ) {
+                navigate({ to: '/antigravity' });
+                return;
+            }
             navigate({
                 params: { workspaceKey: detail.conversationGroup.key },
                 to: '/antigravity/$workspaceKey',

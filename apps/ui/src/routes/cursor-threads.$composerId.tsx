@@ -16,11 +16,12 @@ import { DEFAULT_SHOW_USER_MESSAGES, TranscriptView } from '#/components/transcr
 import { Button } from '#/components/ui/button';
 import { Checkbox } from '#/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
-import { cursorThreadDetailQueryOptions } from '#/lib/cursor-queries';
+import { cursorThreadDetailQueryOptions, cursorWorkspacesQueryOptions } from '#/lib/cursor-queries';
 import { deleteCursorThreadsFn, exportCursorThreadFn, type getCursorThreadDetailFn } from '#/lib/cursor-server';
 import { cursorTranscriptToThreadEvents, getCursorThreadTranscriptStats } from '#/lib/cursor-transcript-events';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import { formatBytes, formatDateTime, formatList, formatNumber } from '#/lib/formatters';
+import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
 type CursorThreadDetail = Awaited<ReturnType<typeof getCursorThreadDetailFn>>;
 
@@ -231,15 +232,26 @@ const CursorThreadDetailPage = () => {
     const deleteThreadMutation = useMutation({
         mutationFn: () => deleteCursorThreadsFn({ data: { composerIds: [detail.thread.composerId] } }),
         onSuccess: async () => {
-            await navigate({
-                params: { workspaceKey: detail.thread.workspaceKey },
-                to: '/cursor/$workspaceKey',
-            });
             await Promise.all([
                 queryClient.invalidateQueries({ queryKey: ['cursor-thread', detail.thread.composerId] }),
                 queryClient.invalidateQueries({ queryKey: ['cursor-threads', detail.thread.workspaceKey] }),
                 queryClient.invalidateQueries({ queryKey: ['cursor-workspaces'] }),
             ]);
+            const workspaces = await queryClient.fetchQuery(cursorWorkspacesQueryOptions());
+            if (
+                shouldNavigateToSourceIndexAfterDelete(
+                    workspaces,
+                    detail.thread.workspaceKey,
+                    (workspace) => workspace.key,
+                )
+            ) {
+                await navigate({ to: '/cursor' });
+                return;
+            }
+            await navigate({
+                params: { workspaceKey: detail.thread.workspaceKey },
+                to: '/cursor/$workspaceKey',
+            });
         },
     });
 

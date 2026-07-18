@@ -43,6 +43,34 @@ describe('getCodexAnalytics', () => {
         expect(analytics.summary.distinctToolNames).toBe(2);
     });
 
+    it('should include custom tool calls in tool usage analytics', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-analytics-custom-tools-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const sessionFile = fixture.threads[0]!.sessionFile;
+        const existingTranscript = await Bun.file(sessionFile).text();
+        await Bun.write(
+            sessionFile,
+            `${existingTranscript.trimEnd()}\n${JSON.stringify({
+                payload: {
+                    call_id: 'custom-tool-1',
+                    input: '{"q":"Codex transcript format"}',
+                    name: 'image_query',
+                    type: 'custom_tool_call',
+                },
+                type: 'response_item',
+            })}\n`,
+        );
+
+        const analytics = await getCodexAnalytics({
+            dbPath: fixture.dbPath,
+            project: null,
+        });
+
+        expect(analytics.toolUsage).toContainEqual({ count: 1, name: 'image_query' });
+        expect(analytics.summary.distinctToolNames).toBe(3);
+    });
+
     it('should restrict analytics to a single derived project', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-analytics-project-test-'));
         tempPaths.push(tempRoot);

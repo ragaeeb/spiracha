@@ -19,9 +19,10 @@ import { Checkbox } from '#/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import { formatDateTime, formatList, formatNumber } from '#/lib/formatters';
-import { grokSessionDetailQueryOptions } from '#/lib/grok-queries';
+import { grokSessionDetailQueryOptions, grokWorkspacesQueryOptions } from '#/lib/grok-queries';
 import { deleteGrokSessionFn, exportGrokSessionFn } from '#/lib/grok-server';
 import { getGrokThreadTranscriptStats, grokTranscriptToThreadEvents } from '#/lib/grok-transcript-events';
+import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
 type ExportDialogOptions = {
     includeCommentary: boolean;
@@ -205,6 +206,17 @@ const GrokSessionDetailPage = () => {
                 queryClient.invalidateQueries({ queryKey: ['grok-sessions', detail.session.workspaceKey] }),
                 queryClient.invalidateQueries({ queryKey: ['grok-session', detail.session.sessionId] }),
             ]);
+            const workspaces = await queryClient.fetchQuery(grokWorkspacesQueryOptions());
+            if (
+                shouldNavigateToSourceIndexAfterDelete(
+                    workspaces,
+                    detail.session.workspaceKey,
+                    (workspace) => workspace.key,
+                )
+            ) {
+                navigate({ to: '/grok' });
+                return;
+            }
             navigate({
                 params: { workspaceKey: detail.session.workspaceKey },
                 to: '/grok/$workspaceKey',

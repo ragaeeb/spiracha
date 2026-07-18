@@ -164,13 +164,7 @@ function GrokWorkspacePage() {
             sessionIds.length === 1
                 ? deleteGrokSessionFn({ data: { sessionId: sessionIds[0]! } })
                 : deleteGrokSessionsFn({ data: { sessionIds } }),
-        onSuccess: async (_result, sessionIds) => {
-            const workspaceEmptied = isWorkspaceEmptiedByDelete(sessions, sessionIds, (session) => session.sessionId);
-            setPendingDelete(null);
-            if (workspaceEmptied) {
-                await navigate({ to: '/grok' });
-            }
-
+        onSettled: async (_result, _error, sessionIds) => {
             await Promise.all([
                 queryClient.invalidateQueries({ queryKey: ['grok-workspaces'] }),
                 queryClient.invalidateQueries({ queryKey: ['grok-sessions', workspace.key] }),
@@ -178,6 +172,13 @@ function GrokWorkspacePage() {
                     queryClient.invalidateQueries({ queryKey: ['grok-session', sessionId] }),
                 ),
             ]);
+        },
+        onSuccess: async (_result, sessionIds) => {
+            const workspaceEmptied = isWorkspaceEmptiedByDelete(sessions, sessionIds, (session) => session.sessionId);
+            setPendingDelete(null);
+            if (workspaceEmptied) {
+                await navigate({ to: '/grok' });
+            }
         },
     });
 

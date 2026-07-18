@@ -27,9 +27,23 @@ const findClosingBackticks = (text: string, start: number, runLength: number): n
 };
 
 const findThinkCloseIndex = (text: string, start: number): number => {
-    THINK_CLOSE_PATTERN.lastIndex = start;
-    const match = THINK_CLOSE_PATTERN.exec(text);
-    return match ? match.index : -1;
+    let cursor = start;
+    while (cursor < text.length) {
+        THINK_CLOSE_PATTERN.lastIndex = cursor;
+        const match = THINK_CLOSE_PATTERN.exec(text);
+        if (!match) {
+            return -1;
+        }
+
+        const backtickIndex = text.indexOf('`', cursor);
+        if (backtickIndex === -1 || backtickIndex >= match.index) {
+            return match.index;
+        }
+
+        cursor = findClosingBackticks(text, backtickIndex, getBacktickRunLength(text, backtickIndex));
+    }
+
+    return -1;
 };
 
 const getLastVisibleChar = (parts: string[]): string => {

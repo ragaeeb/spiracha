@@ -6,7 +6,7 @@ const readZipFile = async (filePath: string) => {
     return new Uint8Array(await Bun.file(filePath).arrayBuffer());
 };
 
-const createZip = (files: Zippable) => zipSync(files, { level: 9 });
+const createZip = async (files: Zippable) => zipSync(files, { level: 3 });
 
 const readZipDirectory = async (
     rootDirectory: string,

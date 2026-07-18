@@ -2,7 +2,12 @@ import { describe, expect, it } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { listConversationsForPath, renderConversationMarkdown } from './index';
+import {
+    listConversationSources,
+    listConversationsForPath,
+    renderConversationMarkdown,
+    resolveConversationRef,
+} from './index';
 import type { ConversationMessage } from './types';
 
 const createMessage = (overrides: Partial<ConversationMessage>): ConversationMessage => ({
@@ -42,6 +47,37 @@ describe('conversation data facade', () => {
                 meta: { hasNext: false, nextCursor: null },
             });
         } finally {
+            await rm(tempRoot, { force: true, recursive: true });
+        }
+    });
+
+    it('should warn when all-source collection skips a broken integration', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'conversation-data-broken-source-'));
+        const originalWarn = console.warn;
+        const warnings: unknown[][] = [];
+        console.warn = (...args: unknown[]) => warnings.push(args);
+        try {
+            const qoderDbPath = path.join(tempRoot, 'qoder.sqlite');
+            await Bun.write(qoderDbPath, 'not a sqlite database');
+            await listConversationsForPath({
+                cwd: path.join(tempRoot, 'repo'),
+                locations: {
+                    antigravityRoots: [path.join(tempRoot, 'antigravity')],
+                    claudeCodeProjectsDir: path.join(tempRoot, 'claude'),
+                    codexDbPath: path.join(tempRoot, 'missing-codex.sqlite'),
+                    cursorUserDir: path.join(tempRoot, 'cursor'),
+                    grokSessionsDir: path.join(tempRoot, 'grok', 'sessions'),
+                    kiroWorkspaceSessionsDir: path.join(tempRoot, 'kiro'),
+                    opencodeDbPath: path.join(tempRoot, 'missing-opencode.sqlite'),
+                    qoderGlobalStateDb: qoderDbPath,
+                    qoderWorkspaceStorageDir: path.join(tempRoot, 'qoder-workspaces'),
+                },
+                sources: 'all',
+            });
+
+            expect(warnings.some((warning) => String(warning[0]).includes('qoder'))).toBe(true);
+        } finally {
+            console.warn = originalWarn;
             await rm(tempRoot, { force: true, recursive: true });
         }
     });
@@ -89,5 +125,30 @@ describe('conversation data facade', () => {
                 { messageSelector: 'last_final_answer' },
             ),
         ).toBe('# Empty thread\n\n_No messages selected._\n');
+    });
+
+    it('should reject malformed local pagination cursors', async () => {
+        await expect(
+            listConversationsForPath({
+                cursor: Buffer.from('12garbage').toString('base64url'),
+                cwd: '/repo',
+                sources: [],
+            }),
+        ).rejects.toThrow('Invalid conversation pagination cursor.');
+    });
+
+    it('should return an isolated source metadata array', async () => {
+        const first = await listConversationSources();
+        first.splice(0, first.length);
+
+        expect(await listConversationSources()).not.toEqual([]);
+    });
+
+    it('should resolve only exact supported UI route prefixes', async () => {
+        await expect(resolveConversationRef('https://example.com/threads/thread-1')).resolves.toEqual({
+            id: 'thread-1',
+            source: 'codex',
+        });
+        await expect(resolveConversationRef('https://example.com/unrelated/threads/thread-1')).resolves.toBeNull();
     });
 });

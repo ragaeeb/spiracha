@@ -9,7 +9,7 @@ import {
     useReactTable,
 } from '@tanstack/react-table';
 import { ArrowDownUp } from 'lucide-react';
-import { type ReactNode, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { Checkbox } from '#/components/ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '#/components/ui/table';
 import { cn } from '#/lib/utils';
@@ -80,6 +80,22 @@ export function DataTable<TData>({
     const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
     const lastSelectedRowIdRef = useRef<string | null>(null);
     const pendingShiftSelectionRowIdRef = useRef<string | null>(null);
+    const currentRowIds = useMemo(
+        () => new Set(data.map((row, index) => (getRowId ? getRowId(row, index) : String(index)))),
+        [data, getRowId],
+    );
+
+    useEffect(() => {
+        setRowSelection((selection) => {
+            const next = Object.fromEntries(
+                Object.entries(selection).filter(([rowId, selected]) => selected && currentRowIds.has(rowId)),
+            );
+            return Object.keys(next).length === Object.keys(selection).length ? selection : next;
+        });
+        if (lastSelectedRowIdRef.current && !currentRowIds.has(lastSelectedRowIdRef.current)) {
+            lastSelectedRowIdRef.current = null;
+        }
+    }, [currentRowIds]);
 
     const updateSelectionForRow = (rowId: string, checked: boolean, shiftKey: boolean) => {
         const visibleRowIds = table.getRowModel().rows.map((row) => row.id);

@@ -1,6 +1,6 @@
 import {
     deleteClaudeCodeSession,
-    listClaudeCodeSessionsForGroup,
+    listClaudeCodeSessionTranscriptsForGroup,
     listClaudeCodeWorkspaceGroups,
     readClaudeCodeSessionTranscript,
 } from '../claude-code-db';
@@ -11,12 +11,15 @@ import type {
     ClaudeCodeTranscriptPart,
 } from '../claude-code-exporter-types';
 import { getClaudeCodeAssistantMessagePhase, resolveClaudeCodeProjectsDir } from '../claude-code-exporter-types';
+import { mapWithConcurrency } from '../concurrency';
 import { cleanInlineTitle } from '../shared';
 import { runWithTranscriptLoadLimit } from '../transcript-load-limiter';
 import {
+    createConversationUiPath,
     createDeepLinks,
     createTextMessage,
     finalizeMessages,
+    isWithinUpdatedWindow,
     normalizeAssistantPhase,
     normalizeRole,
     toDateMs,
@@ -32,6 +35,8 @@ import type {
     GetConversationOptions,
     ListConversationsForPathOptions,
 } from './types';
+
+const CLAUDE_CONVERSATION_HYDRATION_CONCURRENCY = 4;
 
 const getProjectsDir = (options: { locations?: { claudeCodeProjectsDir?: string } }) =>
     options.locations?.claudeCodeProjectsDir ?? resolveClaudeCodeProjectsDir();
@@ -89,6 +94,19 @@ const partToMessages = (
         });
     }
 
+    if (part.type === 'attachment') {
+        const attachmentLabel = part.attachmentType?.trim() || 'file';
+        return createTextMessage({
+            createdAtMs,
+            id: baseId,
+            metadata: { attachmentType: part.attachmentType ?? null },
+            order: partIndex,
+            phase: 'unknown',
+            role: normalizeRole(entry.role),
+            text: part.text?.trim() || `[Attachment: ${attachmentLabel}]`,
+        });
+    }
+
     return [];
 };
 
@@ -122,7 +140,11 @@ const buildConversation = async (
 
     return {
         createdAtMs: session.createdAtMs,
-        deepLinks: createDeepLinks('claude-code', session.sessionId, `/claude-code-sessions/${session.sessionId}`),
+        deepLinks: createDeepLinks(
+            'claude-code',
+            session.sessionId,
+            createConversationUiPath('claude-code-sessions', session.sessionId),
+        ),
         id: session.sessionId,
         matches,
         messageCount: options.includeMessages ? allMessages.length : session.messageCount,
@@ -155,10 +177,14 @@ const listClaudeConversationsForPath = async (
             continue;
         }
 
-        const sessions = await listClaudeCodeSessionsForGroup(group.key, projectsDir);
-        for (const session of sessions) {
-            conversations.push(await buildConversation(session, projectsDir, [match], options));
-        }
+        const transcripts = (await listClaudeCodeSessionTranscriptsForGroup(group.key, projectsDir)).filter(
+            (transcript) => isWithinUpdatedWindow(transcript.session.lastActiveAtMs, options),
+        );
+        conversations.push(
+            ...(await mapWithConcurrency(transcripts, CLAUDE_CONVERSATION_HYDRATION_CONCURRENCY, (transcript) =>
+                buildConversation(transcript.session, projectsDir, [match], options, transcript),
+            )),
+        );
     }
 
     return conversations;

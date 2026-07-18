@@ -237,16 +237,26 @@ describe('cursorTranscriptToThreadEvents', () => {
 
 describe('getCursorThreadTranscriptStats', () => {
     it('should count adapted Cursor transcript events for metadata panels', () => {
-        const stats = getCursorThreadTranscriptStats(cursorTranscriptToThreadEvents(buildTranscript()));
+        const transcript = buildTranscript();
+        transcript.bubbles[1]!.toolCall!.name = 'exec_command';
+        const stats = getCursorThreadTranscriptStats(cursorTranscriptToThreadEvents(transcript));
 
         expect(stats).toMatchObject({
             assistantMessageCount: 2,
             commentaryCount: 1,
+            execCommandCount: 1,
             finalAnswerCount: 1,
             messageCount: 3,
             toolCallCount: 1,
             toolOutputCount: 1,
             userMessageCount: 1,
         });
+    });
+
+    it('should trim adapted Cursor message text', () => {
+        const transcript = buildTranscript();
+        transcript.bubbles[0]!.text = '  Please inspect the repo  ';
+
+        expect(cursorTranscriptToThreadEvents(transcript)[0]).toMatchObject({ text: 'Please inspect the repo' });
     });
 });

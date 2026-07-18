@@ -15,6 +15,7 @@ describe('UI export ZIP helpers', () => {
     it('should create zip exports without a system zip executable', async () => {
         const implementation = await Bun.file(new URL('./ui-export-zip.ts', import.meta.url)).text();
         expect(implementation).not.toContain("Bun.spawn(['zip'");
+        expect(implementation).not.toContain('level: 9');
 
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'ui-export-zip-'));
         tempPaths.push(tempRoot);

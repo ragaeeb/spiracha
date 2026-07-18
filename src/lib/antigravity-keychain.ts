@@ -169,19 +169,18 @@ export const getAntigravityDecryptionState = ({
 
 export const getCachedAntigravityKeychainSecret = (): string | null => cachedKeychainSecret;
 
+export const getAntigravityKeychainExecOptions = () => ({ timeout: 10_000 });
+
 export const readAntigravityKeychainSecret = async (): Promise<string> => {
     if (process.platform !== 'darwin') {
         throw new Error('Antigravity Keychain access is only available on macOS.');
     }
 
-    const { stdout } = await execFileAsync('security', [
-        'find-generic-password',
-        '-s',
-        ANTIGRAVITY_KEYCHAIN_SERVICE,
-        '-a',
-        ANTIGRAVITY_KEYCHAIN_ACCOUNT,
-        '-w',
-    ]);
+    const { stdout } = await execFileAsync(
+        'security',
+        ['find-generic-password', '-s', ANTIGRAVITY_KEYCHAIN_SERVICE, '-a', ANTIGRAVITY_KEYCHAIN_ACCOUNT, '-w'],
+        getAntigravityKeychainExecOptions(),
+    );
     const secret = stdout.trim();
     if (!secret) {
         throw new Error(`No secret was returned for ${ANTIGRAVITY_KEYCHAIN_SERVICE}.`);

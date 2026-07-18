@@ -1,5 +1,6 @@
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
+import { requireDeletedItems, runDeleteBatch } from './delete-batch';
 import { renderSourceSessionDownload, renderSourceSessionsDownload } from './source-session-export-server';
 
 const LARGE_CLAUDE_CODE_SESSION_SIZE_BYTES = 8 * 1024 * 1024;
@@ -56,7 +57,9 @@ const loadClaudeCodeSessionTranscript = async (sessionId: string) => {
     const projectsDir = resolveClaudeCodeProjectsDir();
     return runWithTranscriptLoadLimit(
         async () => {
-            const transcript = await readClaudeCodeSessionTranscript(projectsDir, sessionId);
+            const transcript = await readClaudeCodeSessionTranscript(projectsDir, sessionId, {
+                includeRawPayloads: false,
+            });
             if (!transcript) {
                 throw new Error(`Claude Code session not found: ${sessionId}`);
             }
@@ -225,7 +228,9 @@ export const deleteClaudeCodeSessionFn = createServerFn({ method: 'POST' })
     .validator(sessionSchema)
     .handler(async ({ data }) => {
         const { deleteClaudeCodeSession, resolveClaudeCodeProjectsDir } = await import('@spiracha/lib/claude-code-db');
-        return deleteClaudeCodeSession(resolveClaudeCodeProjectsDir(), data.sessionId);
+        const result = await deleteClaudeCodeSession(resolveClaudeCodeProjectsDir(), data.sessionId);
+        requireDeletedItems(result.deletedSessionIds, 'Claude Code session', data.sessionId);
+        return result;
     });
 
 export const deleteClaudeCodeSessionsFn = createServerFn({ method: 'POST' })
@@ -233,8 +238,13 @@ export const deleteClaudeCodeSessionsFn = createServerFn({ method: 'POST' })
     .handler(async ({ data }) => {
         const { deleteClaudeCodeSession, resolveClaudeCodeProjectsDir } = await import('@spiracha/lib/claude-code-db');
         const projectsDir = resolveClaudeCodeProjectsDir();
-        const results = await Promise.all(
-            data.sessionIds.map((sessionId) => deleteClaudeCodeSession(projectsDir, sessionId)),
+        const results = await runDeleteBatch(data.sessionIds, (sessionId) =>
+            deleteClaudeCodeSession(projectsDir, sessionId),
+        );
+        requireDeletedItems(
+            results.flatMap((result) => result.deletedSessionIds),
+            'Claude Code sessions',
+            'batch',
         );
         return {
             deletedFiles: [...new Set(results.flatMap((result) => result.deletedFiles))],

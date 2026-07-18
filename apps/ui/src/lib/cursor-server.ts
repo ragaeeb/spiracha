@@ -1,14 +1,18 @@
-import { buildConversationExportBaseName, getExportMimeType } from '@spiracha/lib/ui-export-archive';
+import { isSafeCursorComposerId } from '@spiracha/lib/cursor-id';
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
-import { renderSourceSessionsDownload } from './source-session-export-server';
+import { renderSourceSessionDownload, renderSourceSessionsDownload } from './source-session-export-server';
 
 const workspaceSchema = z.object({
     workspaceKey: z.string().min(1),
 });
 
+const composerIdSchema = z.string().refine(isSafeCursorComposerId, {
+    message: 'Invalid Cursor composer id.',
+});
+
 const threadSchema = z.object({
-    composerId: z.string().min(1),
+    composerId: composerIdSchema,
 });
 
 const recoverSchema = z.object({
@@ -17,7 +21,7 @@ const recoverSchema = z.object({
 });
 
 const exportSchema = z.object({
-    composerId: z.string().min(1),
+    composerId: composerIdSchema,
     includeCommentary: z.boolean().default(true),
     includeMetadata: z.boolean().default(true),
     includeTools: z.boolean().default(true),
@@ -26,7 +30,7 @@ const exportSchema = z.object({
 });
 
 const exportThreadsSchema = z.object({
-    composerIds: z.array(z.string().min(1)).min(1),
+    composerIds: z.array(composerIdSchema).min(1),
     includeCommentary: z.boolean().default(true),
     includeMetadata: z.boolean().default(true),
     includeTools: z.boolean().default(true),
@@ -35,7 +39,7 @@ const exportThreadsSchema = z.object({
 });
 
 const deleteThreadsSchema = z.object({
-    composerIds: z.array(z.string().min(1)).min(1),
+    composerIds: z.array(composerIdSchema).min(1),
 });
 
 const ensureCursorClosedForWrite = async () => {
@@ -156,19 +160,16 @@ const renderCursorDownload = async (input: {
     }
 
     if (rendered.length === 1) {
-        return {
-            content: rendered[0]!.content,
-            fileName: `${buildConversationExportBaseName(
-                {
-                    cwd: rendered[0]!.cwd,
-                    id: rendered[0]!.composerId,
-                    updatedAtMs: rendered[0]!.updatedAtMs,
-                },
-                'cursor-thread',
-            )}.${input.outputFormat}`,
-            mimeType: getExportMimeType(input.outputFormat),
-            mode: 'download' as const,
-        };
+        const entry = rendered[0]!;
+        return renderSourceSessionDownload({
+            content: entry.content,
+            cwd: entry.cwd,
+            fallbackBaseName: 'cursor-thread',
+            outputFormat: input.outputFormat,
+            sessionId: entry.composerId,
+            updatedAtMs: entry.updatedAtMs,
+            zipArchive: false,
+        });
     }
 
     throw new Error('No Cursor threads selected for export');

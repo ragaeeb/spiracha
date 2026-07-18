@@ -15,6 +15,14 @@ const writeClaudeSession = async (projectsDir: string, sessionId: string, cwd: s
     await mkdir(projectDir, { recursive: true });
     const records = [
         {
+            attachment: { content: '', type: 'image' },
+            cwd,
+            sessionId,
+            timestamp: '2026-06-01T10:00:00.500Z',
+            type: 'attachment',
+            uuid: 'attachment-1',
+        },
+        {
             cwd,
             message: { content: 'Review this project.', role: 'user' },
             sessionId,
@@ -99,6 +107,7 @@ describe('Claude Code conversation adapter', () => {
                 expect.objectContaining({ phase: 'reasoning', text: 'I should inspect the source.' }),
                 expect.objectContaining({ phase: 'tool_call', role: 'tool' }),
                 expect.objectContaining({ phase: 'tool_output', role: 'tool', text: 'file contents' }),
+                expect.objectContaining({ metadata: { attachmentType: 'image' }, text: '[Attachment: image]' }),
                 expect.objectContaining({
                     phase: 'final_answer',
                     role: 'assistant',
@@ -106,5 +115,30 @@ describe('Claude Code conversation adapter', () => {
                 }),
             ]),
         );
+    });
+
+    it('should list path-scoped Claude conversations within an updated-time window', async () => {
+        const projectsDir = await mkdtemp(path.join(os.tmpdir(), 'claude-adapter-list-'));
+        tempDirs.push(projectsDir);
+        const cwd = path.join(projectsDir, 'repo');
+        await writeClaudeSession(projectsDir, 'session-in-window', cwd);
+
+        const conversations = await claudeCodeConversationAdapter.listConversationsForPath({
+            cwd,
+            includeMessages: false,
+            locations: { claudeCodeProjectsDir: projectsDir },
+            updatedAfterMs: Date.parse('2026-06-01T10:00:02.000Z'),
+            updatedBeforeMs: Date.parse('2026-06-01T10:00:04.000Z'),
+        });
+        const excluded = await claudeCodeConversationAdapter.listConversationsForPath({
+            cwd,
+            locations: { claudeCodeProjectsDir: projectsDir },
+            updatedAfterMs: Date.parse('2026-06-01T10:00:04.000Z'),
+        });
+
+        expect(conversations.map(({ id }) => id)).toEqual(['session-in-window']);
+        expect(conversations[0]?.matches[0]?.kind).toBe('exact');
+        expect(conversations[0]?.messages).toEqual([]);
+        expect(excluded).toEqual([]);
     });
 });

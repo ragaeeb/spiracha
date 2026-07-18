@@ -1,6 +1,6 @@
 import { constants, Database } from 'bun:sqlite';
 import { closeSync, openSync, readdirSync, readSync, type Stats, statSync } from 'node:fs';
-import { rename, rm } from 'node:fs/promises';
+import { rename, rm, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
@@ -14,7 +14,7 @@ import type {
     ThreadBrowseData,
     ThreadListEntry,
 } from './codex-browser-types';
-import { getCachedParsedCodexTranscript, getThreadRolloutLoadState } from './codex-thread-cache';
+import { getCachedCodexTranscriptStats, getThreadRolloutLoadState } from './codex-thread-cache';
 import type { ThreadRelations, ThreadRow } from './codex-thread-types';
 import { DEFAULT_CODEX_DIR, DEFAULT_DB_PATH } from './codex-thread-types';
 import { mapWithConcurrency } from './concurrency';
@@ -41,7 +41,35 @@ const FALLBACK_STATS_HEAD_READ_LIMIT_BYTES = 512 * 1024;
 const FALLBACK_STATS_TAIL_READ_LIMIT_BYTES = 512 * 1024;
 const FALLBACK_STATS_RECORD_PATTERN = /"type"\s*:\s*"(?:agent_message|message|token_count|turn_context)"/u;
 const THREAD_ID_PATTERN = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/iu;
-const sessionFileIndexCache = new Map<string, Map<string, string>>();
+const THREAD_ROW_COLUMNS = `
+    id, rollout_path, created_at, updated_at, source, model_provider, cwd, title,
+    sandbox_policy, approval_mode, tokens_used, has_user_event, archived, archived_at,
+    git_sha, git_branch, git_origin_url, cli_version, first_user_message, agent_nickname,
+    agent_role, memory_mode, model, reasoning_effort, agent_path, created_at_ms,
+    updated_at_ms, thread_source, preview
+`;
+const PROJECT_CWD_FILTER = `
+    typeof(cwd) = 'text'
+    AND (
+        RTRIM(cwd, '/\\') = ?
+        OR SUBSTR(RTRIM(cwd, '/\\'), -(LENGTH(?) + 1)) = '/' || ?
+        OR SUBSTR(RTRIM(cwd, '/\\'), -(LENGTH(?) + 1)) = '\\' || ?
+    )
+`;
+type SessionFileIndexCacheEntry = {
+    fingerprint: string;
+    sessionFilesByThreadId: Map<string, string>;
+};
+
+type FallbackThreadRowCacheEntry = {
+    fingerprint: string;
+    row: ThreadRow | null;
+    sessionMeta: FallbackSessionMeta | null;
+};
+
+const sessionFileIndexCache = new Map<string, SessionFileIndexCacheEntry>();
+const sessionIndexEntriesCache = new Map<string, { entries: SessionIndexEntry[]; fingerprint: string }>();
+const fallbackThreadRowCache = new Map<string, FallbackThreadRowCacheEntry>();
 let sessionIndexMutationQueue = Promise.resolve();
 
 type SessionIndexEntry = {
@@ -218,11 +246,17 @@ export const resolveCodexThreadDbPath = () => {
     throw new Error(`Unable to open Codex thread database. Tried: ${candidates.join(', ')}`);
 };
 
-const readAllThreads = (dbPath: string): ThreadRow[] => {
+const projectCwdBindings = (projectName: string) => [projectName, projectName, projectName, projectName, projectName];
+
+const readThreads = (dbPath: string, projectName: string | null = null): ThreadRow[] => {
     return withReadonlyDb(dbPath, (db) => {
+        const projectFilter = projectName ? `WHERE ${PROJECT_CWD_FILTER}` : '';
         return db
-            .query('SELECT * FROM threads ORDER BY COALESCE(updated_at_ms, updated_at * 1000) DESC, id DESC')
-            .all() as ThreadRow[];
+            .query(
+                `SELECT ${THREAD_ROW_COLUMNS} FROM threads ${projectFilter}
+                 ORDER BY COALESCE(updated_at_ms, updated_at * 1000) DESC, id DESC`,
+            )
+            .all(...(projectName ? projectCwdBindings(projectName) : [])) as ThreadRow[];
     });
 };
 
@@ -230,6 +264,18 @@ const resolveCodexDirFromDbPath = (dbPath: string) => {
     const dbDir = path.dirname(dbPath);
     return path.basename(dbDir) === 'sqlite' ? path.dirname(dbDir) : dbDir;
 };
+
+const resolveCodexRolloutPath = (dbPath: string, rolloutPath: string) =>
+    path.isAbsolute(rolloutPath) ? rolloutPath : path.join(resolveCodexDirFromDbPath(dbPath), rolloutPath);
+
+export class CodexThreadNotFoundError extends Error {
+    readonly code = 'CODEX_THREAD_NOT_FOUND';
+
+    constructor(threadId: string) {
+        super(`Thread not found: ${threadId}`);
+        this.name = 'CodexThreadNotFoundError';
+    }
+}
 
 const parseJsonlObject = <T>(line: string): T | null => {
     try {
@@ -282,8 +328,11 @@ const readJsonlObjects = <T>(filePath: string, onRecord: (record: T) => void) =>
         }
 
         emitJsonlLine(pending + decoder.end(), onRecord);
-    } catch {
-        return;
+    } catch (error) {
+        if ((error as { code?: unknown }).code === 'ENOENT') {
+            return;
+        }
+        throw error;
     } finally {
         if (descriptor !== null) {
             closeSync(descriptor);
@@ -300,9 +349,22 @@ const collectJsonlObjects = <T>(filePath: string): T[] => {
 };
 
 const readSessionIndexEntries = (codexDir: string): SessionIndexEntry[] => {
-    return collectJsonlObjects<SessionIndexEntry>(path.join(codexDir, 'session_index.jsonl')).filter(
+    const sessionIndexPath = path.join(codexDir, 'session_index.jsonl');
+    let fingerprint = 'missing';
+    try {
+        const metadata = statSync(sessionIndexPath);
+        fingerprint = `${metadata.size}:${metadata.mtimeMs}`;
+    } catch {}
+    const cached = sessionIndexEntriesCache.get(codexDir);
+    if (cached?.fingerprint === fingerprint) {
+        return cached.entries;
+    }
+
+    const entries = collectJsonlObjects<SessionIndexEntry>(sessionIndexPath).filter(
         (entry) => typeof entry.id === 'string' && entry.id.length > 0,
     );
+    sessionIndexEntriesCache.set(codexDir, { entries, fingerprint });
+    return entries;
 };
 
 const collectSessionFilesByThreadId = (sessionsDir: string): Map<string, string> => {
@@ -341,6 +403,36 @@ const collectSessionFilesByThreadId = (sessionsDir: string): Map<string, string>
     return sessionFiles;
 };
 
+const getSessionFileIndexFingerprint = (sessionsDir: string) => {
+    const toFingerprintPart = (targetPath: string) => {
+        try {
+            const metadata = statSync(targetPath);
+            return `${metadata.size}:${metadata.mtimeMs}`;
+        } catch {
+            return 'missing';
+        }
+    };
+
+    return `${toFingerprintPart(path.join(path.dirname(sessionsDir), 'session_index.jsonl'))}:${toFingerprintPart(
+        sessionsDir,
+    )}`;
+};
+
+const getSessionFilesByThreadId = (sessionsDir: string) => {
+    const fingerprint = getSessionFileIndexFingerprint(sessionsDir);
+    const cached = sessionFileIndexCache.get(sessionsDir);
+    if (cached?.fingerprint === fingerprint) {
+        return cached.sessionFilesByThreadId;
+    }
+
+    const sessionFilesByThreadId = collectSessionFilesByThreadId(sessionsDir);
+    sessionFileIndexCache.set(sessionsDir, {
+        fingerprint,
+        sessionFilesByThreadId,
+    });
+    return sessionFilesByThreadId;
+};
+
 const findSessionFileByThreadId = (sessionsDir: string, threadId: string): string | null => {
     const lookup = (sessionFilesByThreadId: Map<string, string>) => {
         const sessionFile = sessionFilesByThreadId.get(threadId);
@@ -355,15 +447,7 @@ const findSessionFileByThreadId = (sessionsDir: string, threadId: string): strin
         }
     };
 
-    const cached = sessionFileIndexCache.get(sessionsDir);
-    const cachedMatch = cached ? lookup(cached) : null;
-    if (cachedMatch) {
-        return cachedMatch;
-    }
-
-    const refreshed = collectSessionFilesByThreadId(sessionsDir);
-    sessionFileIndexCache.set(sessionsDir, refreshed);
-    return lookup(refreshed);
+    return lookup(getSessionFilesByThreadId(sessionsDir));
 };
 
 const readSessionMetaLine = (sessionFile: string): string | null => {
@@ -522,8 +606,8 @@ const readFallbackRolloutStatsHead = (sessionFile: string, stats: FallbackRollou
             return position;
         }
 
-        decoder.end();
-        return position;
+        const partialLine = pending + decoder.end();
+        return Math.max(0, position - Buffer.byteLength(partialLine, 'utf8'));
     } catch {
         return 0;
     } finally {
@@ -597,14 +681,14 @@ const readFallbackRolloutStatsTail = (
     }
 };
 
-const readFallbackRolloutStats = (sessionFile: string): FallbackRolloutStats => {
+const readFallbackRolloutStats = (sessionFile: string, knownFileStats?: Stats): FallbackRolloutStats => {
     const stats: FallbackRolloutStats = {
         model: null,
         tokensUsed: 0,
     };
 
     try {
-        const fileStats = statSync(sessionFile);
+        const fileStats = knownFileStats ?? statSync(sessionFile);
         if (!fileStats.isFile()) {
             return stats;
         }
@@ -623,18 +707,14 @@ const buildFallbackThreadRow = (
     sessionFile: string,
     sessionMeta: FallbackSessionMeta,
     rolloutStats: FallbackRolloutStats,
+    rolloutMtimeMs: number,
 ): ThreadRow | null => {
     const cwd = stringOrNull(sessionMeta.cwd);
     if (!cwd) {
         return null;
     }
 
-    let mtimeMs = Date.now();
-    try {
-        mtimeMs = statSync(sessionFile).mtimeMs;
-    } catch {}
-
-    const updatedAtMs = parseIsoMs(entry.updated_at, mtimeMs);
+    const updatedAtMs = parseIsoMs(entry.updated_at, rolloutMtimeMs);
     const createdAtMs = parseIsoMs(sessionMeta.timestamp, updatedAtMs);
     const title = entry.thread_name?.trim() || path.basename(sessionFile, '.jsonl');
     const source = stringOrNull(sessionMeta.source) ?? 'session_file';
@@ -677,8 +757,17 @@ const readFallbackThreadRow = (
     sessionFile: string,
     options: FallbackThreadRowOptions = {},
 ): ThreadRow | null => {
-    const sessionMeta = readFallbackSessionMeta(sessionFile);
+    let fileStats: Stats;
+    try {
+        fileStats = statSync(sessionFile);
+    } catch {
+        return null;
+    }
+    const fingerprint = `${fileStats.size}:${fileStats.mtimeMs}:${entry.thread_name ?? ''}:${entry.updated_at ?? ''}`;
+    const cached = fallbackThreadRowCache.get(sessionFile);
+    const sessionMeta = cached?.fingerprint === fingerprint ? cached.sessionMeta : readFallbackSessionMeta(sessionFile);
     if (!sessionMeta) {
+        fallbackThreadRowCache.set(sessionFile, { fingerprint, row: null, sessionMeta: null });
         return null;
     }
 
@@ -691,7 +780,19 @@ const readFallbackThreadRow = (
         return null;
     }
 
-    return buildFallbackThreadRow(entry, sessionFile, sessionMeta, readFallbackRolloutStats(sessionFile));
+    if (cached?.fingerprint === fingerprint) {
+        return cached.row;
+    }
+
+    const row = buildFallbackThreadRow(
+        entry,
+        sessionFile,
+        sessionMeta,
+        readFallbackRolloutStats(sessionFile, fileStats),
+        fileStats.mtimeMs,
+    );
+    fallbackThreadRowCache.set(sessionFile, { fingerprint, row, sessionMeta });
+    return row;
 };
 
 const readFallbackThreadRows = (
@@ -701,7 +802,7 @@ const readFallbackThreadRows = (
     options: ReadFallbackThreadRowsOptions = {},
 ): ThreadRow[] => {
     const codexDir = resolveCodexDirFromDbPath(dbPath);
-    const sessionFilesByThreadId = collectSessionFilesByThreadId(path.join(codexDir, 'sessions'));
+    const sessionFilesByThreadId = getSessionFilesByThreadId(path.join(codexDir, 'sessions'));
     const fallbackThreads: ThreadRow[] = [];
 
     for (const entry of readSessionIndexEntries(codexDir)) {
@@ -759,32 +860,39 @@ const mergeFallbackThreadRows = (dbPath: string, threads: ThreadRow[], projectNa
     });
 };
 
-const applyRolloutActivityTimestamps = (threads: ThreadRow[]) => {
-    return threads
-        .map((thread) => {
+const applyRolloutActivityTimestamps = async (dbPath: string, threads: ThreadRow[]) => {
+    const activeThreads = await mapWithConcurrency(
+        threads,
+        THREAD_LIST_IO_CONCURRENCY,
+        async (thread): Promise<ThreadRow> => {
+            const rolloutPath = resolveCodexRolloutPath(dbPath, thread.rollout_path);
+            const normalizedThread =
+                rolloutPath === thread.rollout_path ? thread : { ...thread, rollout_path: rolloutPath };
             let rolloutUpdatedAtMs = toTimestampMs(thread);
             try {
-                rolloutUpdatedAtMs = Math.max(rolloutUpdatedAtMs, statSync(thread.rollout_path).mtimeMs);
+                rolloutUpdatedAtMs = Math.max(rolloutUpdatedAtMs, (await stat(rolloutPath)).mtimeMs);
             } catch {}
 
             if (rolloutUpdatedAtMs <= toTimestampMs(thread)) {
-                return thread;
+                return normalizedThread;
             }
 
             return {
-                ...thread,
+                ...normalizedThread,
                 updated_at: Math.floor(rolloutUpdatedAtMs / 1000),
                 updated_at_ms: Math.floor(rolloutUpdatedAtMs),
             };
-        })
-        .sort((left, right) => {
-            const updatedDifference = toTimestampMs(right) - toTimestampMs(left);
-            if (updatedDifference !== 0) {
-                return updatedDifference;
-            }
+        },
+    );
 
-            return right.id.localeCompare(left.id);
-        });
+    return activeThreads.sort((left, right) => {
+        const updatedDifference = toTimestampMs(right) - toTimestampMs(left);
+        if (updatedDifference !== 0) {
+            return updatedDifference;
+        }
+
+        return right.id.localeCompare(left.id);
+    });
 };
 
 const buildDashboardRecentThreads = (threads: ThreadRow[]) => {
@@ -815,14 +923,6 @@ const buildDashboardRecentThreads = (threads: ThreadRow[]) => {
             project: getPortablePathBasename(thread.cwd),
             thread: compactThreadListRow(thread),
         }));
-};
-
-const filterThreadsByProject = (threads: ThreadRow[], projectName: string | null) => {
-    if (!projectName) {
-        return threads;
-    }
-
-    return threads.filter((thread) => getPortablePathBasename(thread.cwd) === projectName);
 };
 
 const buildProjectSummaryMap = (threads: ThreadRow[]) => {
@@ -1024,7 +1124,7 @@ const getSessionFilesForThreadIds = (dbPath: string, threadIds: string[]) => {
         return sessionFile ? [sessionFile] : [];
     }
 
-    const sessionFilesByThreadId = collectSessionFilesByThreadId(path.join(codexDir, 'sessions'));
+    const sessionFilesByThreadId = getSessionFilesByThreadId(path.join(codexDir, 'sessions'));
     return threadIds
         .map((threadId) => sessionFilesByThreadId.get(threadId))
         .filter((value): value is string => Boolean(value));
@@ -1052,13 +1152,52 @@ const filterSessionIndexLines = (lines: string[], threadIds: Set<string>) => {
     return { removedThreadIds, retainedLines };
 };
 
-const writeSessionIndexLines = async (sessionIndexPath: string, codexDir: string, retainedLines: string[]) => {
+export const mergeSessionIndexLinesForRewrite = (
+    initialLines: string[],
+    retainedLines: string[],
+    currentLines: string[],
+    deletedThreadIds: Set<string>,
+) => {
+    const initial = new Set(initialLines.map((line) => line.trim()).filter(Boolean));
+    const merged = retainedLines.map((line) => line.trim()).filter(Boolean);
+    const included = new Set(merged);
+
+    for (const line of currentLines) {
+        const trimmed = line.trim();
+        if (!trimmed || initial.has(trimmed) || included.has(trimmed)) {
+            continue;
+        }
+        const entry = parseJsonlObject<SessionIndexEntry>(trimmed);
+        if (entry?.id && deletedThreadIds.has(entry.id)) {
+            continue;
+        }
+        merged.push(trimmed);
+        included.add(trimmed);
+    }
+
+    return merged;
+};
+
+const writeSessionIndexLines = async (
+    sessionIndexPath: string,
+    codexDir: string,
+    initialLines: string[],
+    retainedLines: string[],
+    deletedThreadIds: Set<string>,
+) => {
     const tempSessionIndexPath = path.join(
         codexDir,
         `.session_index.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`,
     );
     try {
-        await Bun.write(tempSessionIndexPath, retainedLines.length > 0 ? `${retainedLines.join('\n')}\n` : '');
+        const currentLines = (await Bun.file(sessionIndexPath).text()).split(/\r?\n/u);
+        const mergedLines = mergeSessionIndexLinesForRewrite(
+            initialLines,
+            retainedLines,
+            currentLines,
+            deletedThreadIds,
+        );
+        await Bun.write(tempSessionIndexPath, mergedLines.length > 0 ? `${mergedLines.join('\n')}\n` : '');
         await rename(tempSessionIndexPath, sessionIndexPath);
     } catch (error) {
         await rm(tempSessionIndexPath, { force: true });
@@ -1085,7 +1224,7 @@ const removeSessionIndexEntries = async (codexDir: string, threadIds: string[]) 
             return [];
         }
 
-        await writeSessionIndexLines(sessionIndexPath, codexDir, retainedLines);
+        await writeSessionIndexLines(sessionIndexPath, codexDir, lines, retainedLines, uniqueThreadIds);
         return uniqueValues(removedThreadIds);
     };
 
@@ -1099,7 +1238,7 @@ const removeSessionIndexEntries = async (codexDir: string, threadIds: string[]) 
 
 const listFallbackThreadIdsForProject = (dbPath: string, existingThreadIds: Set<string>, projectName: string) => {
     const codexDir = resolveCodexDirFromDbPath(dbPath);
-    const sessionFilesByThreadId = collectSessionFilesByThreadId(path.join(codexDir, 'sessions'));
+    const sessionFilesByThreadId = getSessionFilesByThreadId(path.join(codexDir, 'sessions'));
     const fallbackThreadIds: string[] = [];
 
     for (const entry of readSessionIndexEntries(codexDir)) {
@@ -1128,20 +1267,26 @@ const deleteSessionIndexEntriesForThreads = async (
     deleteSessionFiles: boolean,
 ) => {
     const codexDir = resolveCodexDirFromDbPath(dbPath);
+    const fallbackSessionFiles = deleteSessionFiles ? getSessionFilesForThreadIds(dbPath, threadIds) : [];
+    const deletedSessionFiles = deleteSessionFiles
+        ? await deleteThreadSessionFiles([
+              ...dbDeletedSessionFiles.map((sessionFile) => resolveCodexRolloutPath(dbPath, sessionFile)),
+              ...fallbackSessionFiles,
+          ])
+        : [];
     const removedThreadIds = await removeSessionIndexEntries(codexDir, threadIds);
-    const fallbackSessionFiles = deleteSessionFiles ? getSessionFilesForThreadIds(dbPath, removedThreadIds) : [];
 
     return {
-        deletedSessionFiles: deleteSessionFiles
-            ? await deleteThreadSessionFiles([...dbDeletedSessionFiles, ...fallbackSessionFiles])
-            : [],
+        deletedSessionFiles,
         deletedThreadIds: removedThreadIds,
     };
 };
 
-export const listCodexProjects = (dbPath: string): ProjectSummary[] => {
+export const listCodexProjects = async (dbPath: string): Promise<ProjectSummary[]> => {
     return mapProjectSummaries(
-        buildProjectSummaryMap(applyRolloutActivityTimestamps(mergeFallbackThreadRows(dbPath, readAllThreads(dbPath)))),
+        buildProjectSummaryMap(
+            await applyRolloutActivityTimestamps(dbPath, mergeFallbackThreadRows(dbPath, readThreads(dbPath))),
+        ),
     );
 };
 
@@ -1163,12 +1308,8 @@ export const listProjectThreads = async (
     projectName: string,
     options: ListProjectThreadsOptions = {},
 ): Promise<ThreadListEntry[]> => {
-    const threads = mergeFallbackThreadRows(
-        dbPath,
-        filterThreadsByProject(readAllThreads(dbPath), projectName),
-        projectName,
-    );
-    const activeThreads = applyRolloutActivityTimestamps(threads);
+    const threads = mergeFallbackThreadRows(dbPath, readThreads(dbPath, projectName), projectName);
+    const activeThreads = await applyRolloutActivityTimestamps(dbPath, threads);
     const entries = await mapWithConcurrency(activeThreads, THREAD_LIST_IO_CONCURRENCY, async (thread) => {
         const rollout = await getThreadRolloutLoadState(thread.rollout_path, options.largeTranscriptThresholdBytes);
 
@@ -1200,16 +1341,16 @@ export const listProjectThreads = async (
             };
         }
 
-        const transcript = await getCachedParsedCodexTranscript(thread.rollout_path);
+        const stats = await getCachedCodexTranscriptStats(thread.rollout_path);
 
         return {
             project: projectName,
             rolloutSizeBytes: rollout.fileSizeBytes,
             stats: {
                 deferred: false,
-                execCommandCount: transcript.stats.execCommandCount,
-                toolCallCount: transcript.stats.toolCallCount,
-                webSearchEventCount: transcript.stats.webSearchEventCount,
+                execCommandCount: stats.execCommandCount,
+                toolCallCount: stats.toolCallCount,
+                webSearchEventCount: stats.webSearchEventCount,
             },
             thread: compactThreadListRow(thread),
         };
@@ -1224,8 +1365,12 @@ export const getThreadBrowseData = (dbPath: string, threadId: string): ThreadBro
         const dbThread = db.query('SELECT * FROM threads WHERE id = ? LIMIT 1').get(threadId) as ThreadRow | null;
         const thread = dbThread ?? readFallbackThreadRowById(dbPath, threadId, { includeSubagents: true }) ?? null;
         if (!thread) {
-            throw new Error(`Thread not found: ${threadId}`);
+            throw new CodexThreadNotFoundError(threadId);
         }
+        const normalizedThread = {
+            ...thread,
+            rollout_path: resolveCodexRolloutPath(dbPath, thread.rollout_path),
+        };
 
         const dynamicTools =
             dbThread && existingTableNames.has('thread_dynamic_tools')
@@ -1238,15 +1383,15 @@ export const getThreadBrowseData = (dbPath: string, threadId: string): ThreadBro
 
         return {
             dynamicTools: dynamicTools.map((row) => parseDynamicToolRow(row)),
-            project: getPortablePathBasename(thread.cwd),
+            project: getPortablePathBasename(normalizedThread.cwd),
             relations: getRelationsForThread(db, threadId, existingTableNames),
-            thread,
+            thread: normalizedThread,
         };
     });
 };
 
-export const getCodexDashboardSummary = (dbPath: string): DashboardSummary => {
-    const threads = applyRolloutActivityTimestamps(mergeFallbackThreadRows(dbPath, readAllThreads(dbPath)));
+export const getCodexDashboardSummary = async (dbPath: string): Promise<DashboardSummary> => {
+    const threads = await applyRolloutActivityTimestamps(dbPath, mergeFallbackThreadRows(dbPath, readThreads(dbPath)));
     const projects = mapProjectSummaries(buildProjectSummaryMap(threads));
     const threadsWithRelations = withReadonlyDb(dbPath, (db) => {
         if (!getExistingTableNames(db).has('thread_spawn_edges')) {
@@ -1341,13 +1486,20 @@ export const deleteCodexProject = async (
     projectName: string,
     options: DeleteProjectOptions = {},
 ): Promise<DeleteProjectResult> => {
-    const existingThreadIds = new Set(readAllThreads(dbPath).map((thread) => thread.id));
+    const existingThreadIds = new Set(
+        withReadonlyDb(dbPath, (db) =>
+            (db.query('SELECT id FROM threads').all() as Array<{ id: string }>).map(({ id }) => id),
+        ),
+    );
     const fallbackThreadIds = listFallbackThreadIdsForProject(dbPath, existingThreadIds, projectName);
     const result = withWritableDb(dbPath, (db) => {
-        const threads = db.query('SELECT id, cwd FROM threads').all() as Array<{ cwd: string; id: string }>;
-        const threadIds = threads
-            .filter((thread) => getPortablePathBasename(thread.cwd) === projectName)
-            .map((thread) => thread.id);
+        const threadIds = (
+            db
+                .query(`SELECT id FROM threads WHERE ${PROJECT_CWD_FILTER}`)
+                .all(...projectCwdBindings(projectName)) as Array<{
+                id: string;
+            }>
+        ).map(({ id }) => id);
         const deleted = deleteThreadIds(db, threadIds);
 
         return {
@@ -1375,7 +1527,7 @@ export const deleteCodexProject = async (
 };
 
 export const listScopedThreads = (dbPath: string, projectName: string | null): ThreadRow[] => {
-    return mergeFallbackThreadRows(dbPath, filterThreadsByProject(readAllThreads(dbPath), projectName), projectName);
+    return mergeFallbackThreadRows(dbPath, readThreads(dbPath, projectName), projectName);
 };
 
 export const invalidateCodexUiCaches = async () => {

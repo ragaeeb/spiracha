@@ -51,4 +51,14 @@ describe('conversation message selection', () => {
 
         expect(selectConversationMessages(messages, 'last_final_answer')).toEqual([messages[1]]);
     });
+
+    it('should not expose reasoning as a final-answer fallback', () => {
+        const messages = [
+            baseMessage({ id: 'assistant-1', order: 1, phase: 'commentary', role: 'assistant', text: 'Status.' }),
+            baseMessage({ id: 'assistant-2', order: 2, phase: 'reasoning', role: 'assistant', text: 'Private chain.' }),
+        ];
+
+        expect(selectConversationMessages(messages, 'last_final_answer')).toEqual([messages[0]]);
+        expect(selectConversationMessages([messages[1]!], 'last_final_answer')).toEqual([]);
+    });
 });

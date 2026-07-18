@@ -45,4 +45,13 @@ describe('splitOpenCodeThinkTaggedText', () => {
         expect(result.reasoningBlocks).toEqual(['Still thinking.']);
         expect(result.visibleText).toBe('Visible.');
     });
+
+    it('should ignore literal closing tags inside fenced code within a reasoning block', () => {
+        const result = splitOpenCodeThinkTaggedText(
+            '<think>Inspect this example:\n```html\n</think>\n```\nStill reasoning.</think>\nFinal answer.',
+        );
+
+        expect(result.reasoningBlocks).toEqual(['Inspect this example:\n```html\n</think>\n```\nStill reasoning.']);
+        expect(result.visibleText).toBe('Final answer.');
+    });
 });

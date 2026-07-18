@@ -83,5 +83,48 @@ describe('cursorConversationAdapter', () => {
             { phase: 'tool_call', text: 'read_file\n{}' },
             { phase: 'tool_output', text: 'source' },
         ]);
+        expect(conversation?.metadata).not.toHaveProperty('transcriptDirs');
+    });
+
+    it('should list path-scoped Cursor conversations within an updated-time window', async () => {
+        const userDir = await mkdtemp(path.join(os.tmpdir(), 'cursor-adapter-list-'));
+        tempDirs.push(userDir);
+        await createCursorFixture(userDir, {
+            buckets: [
+                {
+                    bucketId: 'bucket-1',
+                    composerIds: ['thread-in-window'],
+                    folder: 'file:///repo',
+                    threadsInComposerData: true,
+                },
+            ],
+            headerLinks: [{ bucketId: 'bucket-1', composerId: 'thread-in-window', uriPath: '/repo' }],
+            threads: [
+                {
+                    bubbles: [{ bubbleId: 'u1', text: 'Scoped thread', type: 1 }],
+                    composerId: 'thread-in-window',
+                    lastUpdatedAt: 200,
+                    name: 'Scoped Cursor thread',
+                },
+            ],
+        });
+
+        const conversations = await cursorConversationAdapter.listConversationsForPath({
+            cwd: '/repo',
+            includeMessages: false,
+            locations: { cursorUserDir: userDir },
+            updatedAfterMs: 100,
+            updatedBeforeMs: 300,
+        });
+        const excluded = await cursorConversationAdapter.listConversationsForPath({
+            cwd: '/repo',
+            locations: { cursorUserDir: userDir },
+            updatedBeforeMs: 100,
+        });
+
+        expect(conversations.map(({ id }) => id)).toEqual(['thread-in-window']);
+        expect(conversations[0]?.matches[0]?.kind).toBe('exact');
+        expect(conversations[0]?.messages).toEqual([]);
+        expect(excluded).toEqual([]);
     });
 });

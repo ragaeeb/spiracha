@@ -66,6 +66,47 @@ describe('codex conversation adapter', () => {
         expect(detail?.deepLinks.spiracha).toBe(`spiracha://conversation/codex/${fixture.threads[0]!.threadId}`);
     });
 
+    it('should keep Codex conversations available when one rollout file disappears', async () => {
+        const fixture = await createCodexBrowserFixture(await makeTempRoot());
+        const missingThread = fixture.threads[0]!;
+        await rm(missingThread.sessionFile);
+
+        const page = await listConversationsForPath({
+            cwd: missingThread.cwd,
+            includeMessages: true,
+            locations: { codexDbPath: fixture.dbPath },
+            messageSelector: 'all',
+            sources: ['codex'],
+        });
+
+        expect(page.data).toHaveLength(2);
+        expect(page.data.find((conversation) => conversation.id === missingThread.threadId)?.messages).toEqual([]);
+        expect(page.data.some((conversation) => conversation.messages.length > 0)).toBe(true);
+    });
+
+    it('should omit centralized hidden Codex bootstrap messages from normalized conversations', async () => {
+        const fixture = await createCodexBrowserFixture(await makeTempRoot());
+        const thread = fixture.threads[0]!;
+        await appendTranscriptRecord(thread.sessionFile, {
+            payload: {
+                message: '<environment_context>private bootstrap context</environment_context>',
+                type: 'user_message',
+            },
+            timestamp: '2026-07-17T12:00:00.000Z',
+            type: 'response_item',
+        });
+
+        const detail = await getConversation({
+            id: thread.threadId,
+            locations: { codexDbPath: fixture.dbPath },
+            messageSelector: 'all',
+            source: 'codex',
+        });
+
+        expect(detail?.messages.some((message) => message.text.includes('private bootstrap context'))).toBe(false);
+        expect(detail?.messages.some((message) => message.role === 'user')).toBe(true);
+    });
+
     it('should normalize invalid timestamps, unknown phases, and sparse event sequences', async () => {
         const fixture = await createCodexBrowserFixture(await makeTempRoot());
         const thread = fixture.threads[0]!;
@@ -104,6 +145,25 @@ describe('codex conversation adapter', () => {
         });
         expect(toolMessage).toMatchObject({ role: 'tool' });
         expect(detail?.messages.map((message) => message.order)).toEqual(detail?.messages.map((_, index) => index));
+    });
+
+    it('should omit empty Codex tool outputs from normalized messages', async () => {
+        const fixture = await createCodexBrowserFixture(await makeTempRoot());
+        const thread = fixture.threads[0]!;
+        await appendTranscriptRecord(thread.sessionFile, {
+            payload: { call_id: 'empty-output', output: '', type: 'function_call_output' },
+            timestamp: '2026-07-17T12:00:00.000Z',
+            type: 'response_item',
+        });
+
+        const detail = await getConversation({
+            id: thread.threadId,
+            locations: { codexDbPath: fixture.dbPath },
+            messageSelector: 'all',
+            source: 'codex',
+        });
+
+        expect(detail?.messages.some((message) => message.text === '')).toBe(false);
     });
 
     it('should resolve Codex UI and native thread references', async () => {

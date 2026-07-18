@@ -14,6 +14,33 @@ export const buildSpirachaDevServerCommand = (packageRoot = resolveSpirachaPacka
     cwd: path.join(packageRoot, 'apps', 'ui'),
 });
 
+type SpirachaChildProcess = {
+    exited: Promise<number>;
+    kill: (signal?: NodeJS.Signals | number) => void;
+};
+
+type SpirachaSignalEmitter = {
+    off: (event: NodeJS.Signals, listener: () => void) => unknown;
+    on: (event: NodeJS.Signals, listener: () => void) => unknown;
+};
+
+export const waitForSpirachaDevServer = async (
+    child: SpirachaChildProcess,
+    signalEmitter: SpirachaSignalEmitter = process,
+): Promise<number> => {
+    const forwardSigint = () => child.kill('SIGINT');
+    const forwardSigterm = () => child.kill('SIGTERM');
+    signalEmitter.on('SIGINT', forwardSigint);
+    signalEmitter.on('SIGTERM', forwardSigterm);
+
+    try {
+        return await child.exited;
+    } finally {
+        signalEmitter.off('SIGINT', forwardSigint);
+        signalEmitter.off('SIGTERM', forwardSigterm);
+    }
+};
+
 export const runSpirachaDevServer = async (): Promise<number> => {
     const command = buildSpirachaDevServerCommand();
     const proc = Bun.spawn([process.execPath, ...command.args], {
@@ -24,7 +51,7 @@ export const runSpirachaDevServer = async (): Promise<number> => {
         stdout: 'inherit',
     });
 
-    return proc.exited;
+    return waitForSpirachaDevServer(proc);
 };
 
 if (import.meta.main) {

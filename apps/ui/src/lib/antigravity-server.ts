@@ -1,7 +1,9 @@
+import type { AntigravityConversation } from '@spiracha/lib/antigravity-exporter-types';
 import { buildConversationExportBaseName } from '@spiracha/lib/ui-export-archive';
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
 import { canExportAntigravityConversation, isAntigravityConversationLocked } from './antigravity-conversation-state';
+import { runDeleteBatch } from './delete-batch';
 
 const workspaceSchema = z.object({
     workspaceKey: z.string().min(1),
@@ -129,11 +131,12 @@ type AntigravityConversationExportOptions = {
 export const loadAntigravityConversationExport = async (
     conversationId: string,
     options: AntigravityConversationExportOptions = {},
+    loadedConversation?: AntigravityConversation,
 ) => {
     const { runWithTranscriptLoadLimit } = await import('@spiracha/lib/transcript-load-limiter');
     const { renderAntigravityConversationMarkdown } = await import('@spiracha/lib/antigravity-db');
     const { getCachedAntigravityKeychainSecret } = await import('@spiracha/lib/antigravity-keychain');
-    const conversation = await findAntigravityConversationById(conversationId);
+    const conversation = loadedConversation ?? (await findAntigravityConversationById(conversationId));
     const keychainSecret = getCachedAntigravityKeychainSecret();
     const hasKeychainSecret = Boolean(keychainSecret);
 
@@ -193,8 +196,8 @@ export const deleteAntigravityConversationsById = async (conversationIds: string
     const { deleteAntigravityConversation } = await import('@spiracha/lib/antigravity-db');
     const { resolveAntigravityRoots } = await import('@spiracha/lib/antigravity-exporter-types');
     const roots = resolveAntigravityRoots();
-    const results = await Promise.all(
-        conversationIds.map((conversationId) => deleteAntigravityConversation(roots, conversationId)),
+    const results = await runDeleteBatch(conversationIds, (conversationId) =>
+        deleteAntigravityConversation(roots, conversationId),
     );
     const deletedConversationIds = results.flatMap((result) => result.deletedConversationIds);
     if (deletedConversationIds.length === 0) {
@@ -246,17 +249,31 @@ export const exportAntigravityConversationFn = createServerFn({ method: 'POST' }
 export const exportAntigravityConversations = async (input: z.input<typeof exportConversationsSchema>) => {
     const data = exportConversationsSchema.parse(input);
     const { renderSourceSessionsDownload } = await import('./source-session-export-server');
-    const { listAntigravityWorkspaceGroups } = await import('@spiracha/lib/antigravity-db');
-    const groups = await listAntigravityWorkspaceGroups();
+    const { listAntigravityConversations, listAntigravityWorkspaceGroups } = await import(
+        '@spiracha/lib/antigravity-db'
+    );
+    const [groups, conversations] = await Promise.all([
+        listAntigravityWorkspaceGroups(),
+        listAntigravityConversations(),
+    ]);
     const groupsByKey = new Map(groups.map((group) => [group.key, group]));
+    const conversationsById = new Map(conversations.map((conversation) => [conversation.conversationId, conversation]));
     const entries = await Promise.all(
         data.conversationIds.map(async (conversationId) => {
-            const result = await loadAntigravityConversationExport(conversationId, {
-                includeCommentary: data.includeCommentary,
-                includeMetadata: data.includeMetadata,
-                includeTools: data.includeTools,
-                outputFormat: data.outputFormat,
-            });
+            const loadedConversation = conversationsById.get(conversationId);
+            if (!loadedConversation) {
+                throw new Error(`Antigravity conversation not found: ${conversationId}`);
+            }
+            const result = await loadAntigravityConversationExport(
+                conversationId,
+                {
+                    includeCommentary: data.includeCommentary,
+                    includeMetadata: data.includeMetadata,
+                    includeTools: data.includeTools,
+                    outputFormat: data.outputFormat,
+                },
+                loadedConversation,
+            );
             const conversation = result.conversation;
             const projectGroup = conversation.projectId
                 ? groupsByKey.get(`project:${conversation.projectId}`)

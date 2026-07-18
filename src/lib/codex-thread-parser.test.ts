@@ -217,6 +217,52 @@ describe('parseCodexTranscriptFile', () => {
         });
     });
 
+    it('should parse token counts and web searches from event messages', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-parser-event-messages-test-'));
+        tempPaths.push(tempRoot);
+        const sessionFile = path.join(tempRoot, 'event-messages.jsonl');
+        await Bun.write(
+            sessionFile,
+            [
+                JSON.stringify({
+                    payload: {
+                        info: { total_token_usage: { total_tokens: 42 } },
+                        type: 'token_count',
+                    },
+                    timestamp: '2026-07-17T12:00:00.000Z',
+                    type: 'event_msg',
+                }),
+                JSON.stringify({
+                    payload: {
+                        call_id: 'search-1',
+                        query: 'Codex transcript format',
+                        type: 'web_search_call',
+                    },
+                    timestamp: '2026-07-17T12:00:01.000Z',
+                    type: 'event_msg',
+                }),
+                JSON.stringify({
+                    payload: {
+                        call_id: 'search-1',
+                        status: 'completed',
+                        type: 'web_search_end',
+                    },
+                    timestamp: '2026-07-17T12:00:02.000Z',
+                    type: 'event_msg',
+                }),
+            ].join('\n'),
+        );
+
+        const transcript = await parseCodexTranscriptFile(sessionFile);
+
+        expect(transcript.events).toMatchObject([
+            { kind: 'token_count' },
+            { callId: 'search-1', kind: 'web_search', phase: 'call', query: 'Codex transcript format' },
+            { callId: 'search-1', kind: 'web_search', phase: 'end', status: 'completed' },
+        ]);
+        expect(transcript.stats.webSearchEventCount).toBe(2);
+    });
+
     it('should strip Codex memory citation XML from visible message text', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-parser-memory-citation-test-'));
         tempPaths.push(tempRoot);

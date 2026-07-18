@@ -5,9 +5,17 @@ import {
 } from '../antigravity-db';
 import type { AntigravityConversation } from '../antigravity-exporter-types';
 import { resolveAntigravityRoots } from '../antigravity-exporter-types';
+import { mapWithConcurrency } from '../concurrency';
 import { cleanInlineTitle } from '../shared';
 import { runWithTranscriptLoadLimit } from '../transcript-load-limiter';
-import { createDeepLinks, decodeFileUri, finalizeMessages } from './adapter-helpers';
+import { getFileFingerprint, hashCacheKeyPartsIterable, withCachedJson } from '../ui-cache';
+import {
+    createConversationUiPath,
+    createDeepLinks,
+    decodeFileUri,
+    finalizeMessages,
+    isWithinUpdatedWindow,
+} from './adapter-helpers';
 import { selectConversationMessages } from './message-selector';
 import { getConversationPathMatch, getFirstConversationPathMatch } from './path-match';
 import type {
@@ -27,22 +35,33 @@ const getWorkspacePath = (conversation: AntigravityConversation) =>
     conversation.workspaceFolder ?? decodeFileUri(conversation.workspaceUri);
 
 const stripTrailingPathPunctuation = (value: string) => value.replace(/[),.;:\]`]+$/u, '');
+const PATH_REFERENCE_FALLBACK_LIMIT = 100;
+const PATH_REFERENCE_CONCURRENCY = 4;
 
 const extractAbsolutePathReferences = (text: string): string[] => {
     return [...new Set((text.match(/\/[^\s"'`)\]]+/gu) ?? []).map(stripTrailingPathPunctuation))];
 };
 
 const readMessages = async (conversation: AntigravityConversation) => {
-    const messages = await runWithTranscriptLoadLimit(() => readAntigravityConversationMessages(conversation), {
-        id: conversation.conversationId,
-        path: conversation.transcriptPath ?? conversation.conversationPath ?? undefined,
-        source: 'antigravity-api',
-    });
+    const load = () =>
+        runWithTranscriptLoadLimit(() => readAntigravityConversationMessages(conversation), {
+            id: conversation.conversationId,
+            path: conversation.transcriptPath ?? conversation.conversationPath ?? undefined,
+            source: 'antigravity-api',
+        });
+    const transcriptPath = conversation.transcriptPath;
+    const messages = transcriptPath
+        ? await getFileFingerprint(transcriptPath)
+              .then((fingerprint) =>
+                  withCachedJson(`antigravity-api-messages-${hashCacheKeyPartsIterable([fingerprint])}`, load),
+              )
+              .catch(load)
+        : await load();
     return finalizeMessages(
         messages.map(
-            (message): ConversationMessage => ({
+            (message, entryIndex): ConversationMessage => ({
                 ...message,
-                id: `${conversation.conversationId}:${message.order}:${message.role}:${message.phase}`,
+                id: `${conversation.conversationId}:${message.order}:${message.role}:${message.phase}:${entryIndex}`,
                 metadata: {
                     ...message.metadata,
                     model: conversation.model,
@@ -70,7 +89,7 @@ const buildConversation = async (
         deepLinks: createDeepLinks(
             'antigravity',
             conversation.conversationId,
-            `/antigravity-conversations/${conversation.conversationId}`,
+            createConversationUiPath('antigravity-conversations', conversation.conversationId),
         ),
         id: conversation.conversationId,
         matches,
@@ -90,20 +109,6 @@ const buildConversation = async (
     };
 };
 
-const isWithinUpdatedWindow = (
-    conversation: AntigravityConversation,
-    options: Pick<ListConversationsForPathOptions, 'updatedAfterMs' | 'updatedBeforeMs'>,
-) => {
-    const updatedAtMs = conversation.lastUpdatedAtMs ?? conversation.conversationMtimeMs ?? 0;
-    if (options.updatedAfterMs !== undefined && updatedAtMs < options.updatedAfterMs) {
-        return false;
-    }
-    if (options.updatedBeforeMs !== undefined && updatedAtMs > options.updatedBeforeMs) {
-        return false;
-    }
-    return true;
-};
-
 const getReferencedPathMatch = async (
     requestedPath: string,
     messages: ConversationMessage[],
@@ -116,9 +121,10 @@ const listAntigravityConversationsForPath = async (options: ListConversationsFor
     const roots = getRoots(options);
     const conversations = await listAntigravityConversations(roots);
     const result: ConversationDetail[] = [];
+    const pathReferenceCandidates: AntigravityConversation[] = [];
 
     for (const conversation of conversations) {
-        if (!isWithinUpdatedWindow(conversation, options)) {
+        if (!isWithinUpdatedWindow(conversation.lastUpdatedAtMs ?? conversation.conversationMtimeMs, options)) {
             continue;
         }
 
@@ -129,12 +135,31 @@ const listAntigravityConversationsForPath = async (options: ListConversationsFor
             continue;
         }
 
-        const messages = await readMessages(conversation);
-        const referencedPathMatch = await getReferencedPathMatch(options.cwd, messages);
-        if (referencedPathMatch) {
-            result.push(await buildConversation(conversation, [referencedPathMatch], options, messages));
-        }
+        pathReferenceCandidates.push(conversation);
     }
+
+    const referencedConversations = await mapWithConcurrency(
+        pathReferenceCandidates.slice(0, PATH_REFERENCE_FALLBACK_LIMIT),
+        PATH_REFERENCE_CONCURRENCY,
+        async (conversation) => {
+            let messages: ConversationMessage[];
+            try {
+                messages = await readMessages(conversation);
+            } catch (error) {
+                console.warn('[spiracha:antigravity] skipped unreadable path-reference transcript', {
+                    conversationId: conversation.conversationId,
+                    error: error instanceof Error ? error.message : String(error),
+                });
+                return null;
+            }
+            const referencedPathMatch = await getReferencedPathMatch(options.cwd, messages);
+            if (referencedPathMatch) {
+                return buildConversation(conversation, [referencedPathMatch], options, messages);
+            }
+            return null;
+        },
+    );
+    result.push(...referencedConversations.flatMap((conversation) => (conversation ? [conversation] : [])));
 
     return result;
 };

@@ -20,6 +20,7 @@ import {
     recoverCursorWorkspaceFn,
 } from '#/lib/cursor-server';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
+import { getMutationErrorMessage } from '#/lib/mutation-error';
 import { matchesTextQuery } from '#/lib/text-filter';
 import { isWorkspaceEmptiedByDelete } from '#/lib/workspace-delete-navigation';
 
@@ -149,6 +150,7 @@ const CursorWorkspacePage = () => {
         onSuccess: async (_result, target) => {
             if (target.kind === 'workspace') {
                 await navigate({ to: '/cursor' });
+                queryClient.removeQueries({ queryKey: ['cursor-thread'] });
                 await queryClient.invalidateQueries({ queryKey: ['cursor-workspaces'] });
                 setPendingDelete(null);
                 return;
@@ -159,6 +161,9 @@ const CursorWorkspacePage = () => {
                 target.threads.map((thread) => thread.composerId),
                 (thread) => thread.composerId,
             );
+            for (const thread of target.threads) {
+                queryClient.removeQueries({ queryKey: ['cursor-thread', thread.composerId] });
+            }
             setPendingDelete(null);
             if (workspaceEmptied) {
                 await navigate({ to: '/cursor' });
@@ -257,6 +262,7 @@ const CursorWorkspacePage = () => {
             />
 
             <CursorWorkspaceDeleteDialog
+                errorMessage={getMutationErrorMessage(deleteMutation.error, 'Delete failed')}
                 pending={deleteMutation.isPending}
                 pendingDelete={pendingDelete}
                 onConfirm={() => {
@@ -269,6 +275,7 @@ const CursorWorkspacePage = () => {
                 onOpenChange={(open) => {
                     if (!open) {
                         setPendingDelete(null);
+                        deleteMutation.reset();
                     }
                 }}
             />
@@ -390,11 +397,13 @@ const CursorWorkspaceErrors = ({
 };
 
 const CursorWorkspaceDeleteDialog = ({
+    errorMessage,
     pending,
     pendingDelete,
     onConfirm,
     onOpenChange,
 }: {
+    errorMessage: string | null;
     pending: boolean;
     pendingDelete: PendingCursorDelete | null;
     onConfirm: () => void;
@@ -404,6 +413,7 @@ const CursorWorkspaceDeleteDialog = ({
         <DeleteConfirmDialog
             confirmLabel={getCursorDeleteConfirmLabel(pendingDelete, pending)}
             description={getCursorDeleteDescription(pendingDelete)}
+            errorMessage={errorMessage}
             open={pendingDelete !== null}
             title={getCursorDeleteTitle(pendingDelete)}
             onConfirm={onConfirm}

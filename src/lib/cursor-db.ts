@@ -1,5 +1,6 @@
 import { constants, Database } from 'bun:sqlite';
 import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import {
@@ -19,7 +20,8 @@ import {
     getCursorWorkspaceStorageDir,
     resolveCursorUserDir,
 } from './cursor-exporter-types';
-import { asNumber, asObject, asString, type JsonValue, pathExists } from './shared';
+import { buildCursorBubbleKeyLikePattern, isSafeCursorComposerId } from './cursor-id';
+import { asNumber, asObject, asString, type JsonValue, pathExists, toFileUri } from './shared';
 
 type ComposerEntry = Record<string, JsonValue> & {
     composerId?: string;
@@ -34,7 +36,7 @@ export const CURSOR_READONLY_DB_OPEN_FLAGS = constants.SQLITE_OPEN_READONLY | co
 // the constructor never sees it). immutable=1 reads the main database file directly, which works
 // whether or not Cursor is running and whether or not the WAL sidecars are present. The explicit URI
 // flag keeps this portable across SQLite builds where URI filename parsing is not enabled globally.
-export const getCursorReadonlyDbUri = (dbPath: string): string => {
+export const getCursorReadonlyDbUri = (dbPath: string, immutable = true): string => {
     const normalizedPath = dbPath.replace(/\\/gu, '/');
     const absolutePath = normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`;
     const encodedPath = absolutePath
@@ -42,11 +44,12 @@ export const getCursorReadonlyDbUri = (dbPath: string): string => {
         .map((segment) => (/^[A-Za-z]:$/u.test(segment) ? segment : encodeURIComponent(segment)))
         .join('/');
 
-    return `file://${encodedPath}?immutable=1`;
+    return `file://${encodedPath}?${immutable ? 'immutable=1' : 'mode=ro'}`;
 };
 
 export const openCursorReadonlyDb = (dbPath: string): Database => {
-    return new Database(getCursorReadonlyDbUri(dbPath), CURSOR_READONLY_DB_OPEN_FLAGS);
+    const hasWalSidecars = existsSync(`${dbPath}-wal`) || existsSync(`${dbPath}-shm`);
+    return new Database(getCursorReadonlyDbUri(dbPath, !hasWalSidecars), CURSOR_READONLY_DB_OPEN_FLAGS);
 };
 
 const isMissingOrUnreadableCursorStoreError = (error: unknown): boolean => {
@@ -86,7 +89,12 @@ export const decodeCursorUri = (uri: string): string => {
     }
 
     if (uri.startsWith('file://')) {
-        return decodeURIComponent(uri.slice('file://'.length));
+        const rawPath = uri.slice('file://'.length);
+        try {
+            return decodeURIComponent(rawPath);
+        } catch {
+            return rawPath;
+        }
     }
 
     return uri;
@@ -431,8 +439,10 @@ export const findCursorWorkspaceGroups = (groups: CursorWorkspaceGroup[], query:
 
 const countBubbles = (db: Database, composerId: string): { count: number; bytes: number } => {
     const row = db
-        .query('SELECT COUNT(*) AS count, COALESCE(SUM(length(value)), 0) AS bytes FROM cursorDiskKV WHERE key LIKE ?')
-        .get(`bubbleId:${composerId}:%`) as { count: number; bytes: number };
+        .query(
+            `SELECT COUNT(*) AS count, COALESCE(SUM(length(value)), 0) AS bytes FROM cursorDiskKV WHERE key LIKE ? ESCAPE '\\'`,
+        )
+        .get(buildCursorBubbleKeyLikePattern(composerId)) as { count: number; bytes: number };
     return { bytes: row.bytes, count: row.count };
 };
 
@@ -440,6 +450,10 @@ export const findCursorTranscriptDirs = async (
     composerId: string,
     userDir = resolveCursorUserDir(),
 ): Promise<string[]> => {
+    if (!isSafeCursorComposerId(composerId)) {
+        return [];
+    }
+
     const projectsDir = getCursorProjectsDir(userDir);
     if (!(await pathExists(projectsDir))) {
         return [];
@@ -454,7 +468,13 @@ export const findCursorTranscriptDirs = async (
     }
 
     for (const projectDir of projectDirs) {
-        const transcriptDir = path.join(projectsDir, projectDir, 'agent-transcripts', composerId);
+        const agentTranscriptsDir = path.resolve(projectsDir, projectDir, 'agent-transcripts');
+        const transcriptDir = path.resolve(agentTranscriptsDir, composerId);
+        const relativePath = path.relative(agentTranscriptsDir, transcriptDir);
+        if (!relativePath || relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath)) {
+            continue;
+        }
+
         if (await pathExists(transcriptDir)) {
             matches.push(transcriptDir);
         }
@@ -639,8 +659,8 @@ const readCursorFileHistoryProjectActivity = async (userDir: string): Promise<Ma
 
 const inferFolderFromBubbles = (db: Database, composerId: string): string | null => {
     const rows = db
-        .query('SELECT value FROM cursorDiskKV WHERE key LIKE ? LIMIT 80')
-        .all(`bubbleId:${composerId}:%`) as Array<{ value: string }>;
+        .query(`SELECT value FROM cursorDiskKV WHERE key LIKE ? ESCAPE '\\' LIMIT 80`)
+        .all(buildCursorBubbleKeyLikePattern(composerId)) as Array<{ value: string }>;
     const paths: string[] = [];
 
     for (const { value } of rows) {
@@ -964,7 +984,7 @@ const buildBucketlessGroup = (key: string, threadCount: number, lastActiveMs: nu
         lastActiveMs,
         needsRecovery: false,
         threadCount,
-        uri: folder ? `file://${folder}` : '',
+        uri: folder ? toFileUri(folder) : '',
     };
 };
 
@@ -1466,8 +1486,8 @@ export const readCursorThreadTranscriptWithAgentFiles = async (
 
 const readAllBubbleIds = (db: Database, composerId: string): string[] => {
     const prefix = `bubbleId:${composerId}:`;
-    const rows = db.query('SELECT key FROM cursorDiskKV WHERE key LIKE ? ORDER BY key ASC').all(`${prefix}%`) as Array<{
-        key: string;
-    }>;
+    const rows = db
+        .query(`SELECT key FROM cursorDiskKV WHERE key LIKE ? ESCAPE '\\' ORDER BY key ASC`)
+        .all(buildCursorBubbleKeyLikePattern(composerId)) as Array<{ key: string }>;
     return rows.map((row) => row.key.slice(prefix.length));
 };

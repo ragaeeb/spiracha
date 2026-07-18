@@ -1,7 +1,8 @@
 import { createReadStream } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import path from 'node:path';
-import { finished } from 'node:stream/promises';
+import type { Readable, Writable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import {
     parseCodexTranscriptRecord,
     shouldHideCodexTranscriptText,
@@ -35,6 +36,10 @@ import {
     stripCodexAppDirectiveLines,
 } from './shared';
 import { runWithTranscriptLoadLimit } from './transcript-load-limiter';
+
+export const pipeCodexExportStream = async (source: Readable, destination: Writable) => {
+    await pipeline(source, destination, { end: false });
+};
 
 export const renderCodexSessionFile = async (
     target: CodexTranscriptExportTarget,
@@ -128,8 +133,7 @@ export const writeCodexSessionFileExport = async (
             }
 
             const transcriptReadStream = createReadStream(transcriptOutputPath, { encoding: 'utf8' });
-            transcriptReadStream.pipe(outputStream, { end: false });
-            await finished(transcriptReadStream);
+            await pipeCodexExportStream(transcriptReadStream, outputStream);
             outputStream.write('\n');
             await finalizeExportWriteStream(outputStream);
         } catch (error) {
@@ -597,7 +601,7 @@ const stripPreviewBlock = (text: string): string => {
 
     const first = parts[0];
     const second = parts[1];
-    const isTranscriptHeading = (value: string) => /^##\s+.+$/i.test(value);
+    const isTranscriptHeading = (value: string) => /^##\s+(?:assistant|user)$/i.test(value);
     const looksLikePreview =
         !/^([UA]):/i.test(first) &&
         !isTranscriptHeading(first) &&

@@ -109,4 +109,46 @@ describe('DataTable', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
         expect(screen.getByText('0 selected')).toBeTruthy();
     });
+
+    it('should discard selection state for rows removed from the data set', () => {
+        const renderToolbar = ({ selectedRows }: { selectedRows: typeof rows }) => (
+            <span>{selectedRows.map((row) => row.id).join(',') || 'none'}</span>
+        );
+        const { rerender } = render(
+            <DataTable
+                columns={columns}
+                data={rows}
+                emptyMessage="No rows"
+                enableRowSelection
+                getRowId={(row) => row.id}
+                renderToolbar={renderToolbar}
+            />,
+        );
+        fireEvent.click(screen.getByRole('checkbox', { name: 'Select row row-1' }));
+        expect(screen.getByText('row-1')).toBeTruthy();
+
+        rerender(
+            <DataTable
+                columns={columns}
+                data={rows.slice(1)}
+                emptyMessage="No rows"
+                enableRowSelection
+                getRowId={(row) => row.id}
+                renderToolbar={renderToolbar}
+            />,
+        );
+        rerender(
+            <DataTable
+                columns={columns}
+                data={rows}
+                emptyMessage="No rows"
+                enableRowSelection
+                getRowId={(row) => row.id}
+                renderToolbar={renderToolbar}
+            />,
+        );
+
+        expect(screen.getByText('none')).toBeTruthy();
+        expect(screen.getByRole('checkbox', { name: 'Select row row-1' }).getAttribute('aria-checked')).toBe('false');
+    });
 });

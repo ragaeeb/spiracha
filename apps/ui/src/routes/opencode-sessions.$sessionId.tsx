@@ -19,9 +19,10 @@ import { Checkbox } from '#/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import { formatDateTime, formatList, formatNumber, formatTokens } from '#/lib/formatters';
-import { openCodeSessionDetailQueryOptions } from '#/lib/opencode-queries';
+import { openCodeSessionDetailQueryOptions, openCodeWorkspacesQueryOptions } from '#/lib/opencode-queries';
 import { deleteOpenCodeSessionFn, exportOpenCodeSessionFn } from '#/lib/opencode-server';
 import { getOpenCodeThreadTranscriptStats, openCodeTranscriptToThreadEvents } from '#/lib/opencode-transcript-events';
+import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
 type ExportDialogOptions = {
     includeCommentary: boolean;
@@ -220,6 +221,17 @@ const OpenCodeSessionDetailPage = () => {
                 queryClient.invalidateQueries({ queryKey: ['opencode-sessions', detail.session.workspaceKey] }),
                 queryClient.invalidateQueries({ queryKey: ['opencode-session', detail.session.sessionId] }),
             ]);
+            const workspaces = await queryClient.fetchQuery(openCodeWorkspacesQueryOptions());
+            if (
+                shouldNavigateToSourceIndexAfterDelete(
+                    workspaces,
+                    detail.session.workspaceKey,
+                    (workspace) => workspace.key,
+                )
+            ) {
+                navigate({ to: '/opencode' });
+                return;
+            }
             navigate({
                 params: { workspaceKey: detail.session.workspaceKey },
                 to: '/opencode/$workspaceKey',

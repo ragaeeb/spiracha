@@ -2,11 +2,13 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { access, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { Readable, Writable } from 'node:stream';
 import { getThreadBrowseData } from './codex-browser-db';
 import { createCodexFixture } from './codex-test-helpers';
 import {
     formatToolOutputSummary,
     parseExecCommandArguments,
+    pipeCodexExportStream,
     renderCodexSessionFile,
     writeCodexSessionFileExport,
 } from './codex-transcript-renderer';
@@ -18,6 +20,17 @@ afterEach(async () => {
 });
 
 describe('codex transcript renderer helpers', () => {
+    it('should reject when the export destination fails while piping a transcript', async () => {
+        const source = Readable.from(['transcript']);
+        const destination = new Writable({
+            write(_chunk, _encoding, callback) {
+                callback(new Error('disk full'));
+            },
+        });
+
+        await expect(pipeCodexExportStream(source, destination)).rejects.toThrow('disk full');
+    });
+
     it('extracts only stable command metadata from tool output', () => {
         const summary = formatToolOutputSummary(
             ['Command: echo hi', 'Chunk ID: abc', 'Process exited with code 0', 'Wall time: 0.1 seconds'].join('\n'),
@@ -399,6 +412,45 @@ describe('codex transcript renderer helpers', () => {
         expect(content).toContain('Implemented the fix.');
         expect(content).not.toContain('::git-stage');
         expect(content).not.toContain('::git-commit');
+    });
+
+    it('should preserve an introductory paragraph before a markdown heading', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-transcript-renderer-heading-intro-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexFixture(tempRoot);
+
+        await Bun.write(
+            fixture.sessionFile,
+            JSON.stringify({
+                payload: {
+                    message: 'Intro sentence.\n\n## Findings\n\nFirst finding.',
+                    phase: 'final_answer',
+                    type: 'agent_message',
+                },
+                type: 'response_item',
+            }),
+        );
+
+        const browseData = getThreadBrowseData(fixture.dbPath, fixture.threadId);
+        const content = await renderCodexSessionFile(
+            {
+                fallbackReason: null,
+                outputRelativePath: 'Test export.md',
+                relations: browseData.relations,
+                sessionFile: fixture.sessionFile,
+                thread: browseData.thread,
+            },
+            {
+                includeCommentary: false,
+                includeMetadata: false,
+                includeTools: false,
+                outputFormat: 'md',
+            },
+        );
+
+        expect(content).toContain('Intro sentence.');
+        expect(content).toContain('## Findings');
+        expect(content).toContain('First finding.');
     });
 
     it('should omit memory citation XML and injected context records hidden by the transcript UI', async () => {

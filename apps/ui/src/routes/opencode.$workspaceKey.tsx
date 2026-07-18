@@ -177,13 +177,7 @@ function OpenCodeWorkspaceContent({
             sessionIds.length === 1
                 ? deleteOpenCodeSessionFn({ data: { sessionId: sessionIds[0]! } })
                 : deleteOpenCodeSessionsFn({ data: { sessionIds } }),
-        onSuccess: async (_result, sessionIds) => {
-            const workspaceEmptied = isWorkspaceEmptiedByDelete(sessions, sessionIds, (session) => session.sessionId);
-            setPendingDelete(null);
-            if (workspaceEmptied) {
-                await navigate({ to: '/opencode' });
-            }
-
+        onSettled: async (_result, _error, sessionIds) => {
             await Promise.all([
                 queryClient.invalidateQueries({ queryKey: ['opencode-workspaces'] }),
                 queryClient.invalidateQueries({ queryKey: ['opencode-sessions', workspace.key] }),
@@ -191,6 +185,13 @@ function OpenCodeWorkspaceContent({
                     queryClient.invalidateQueries({ queryKey: ['opencode-session', sessionId] }),
                 ),
             ]);
+        },
+        onSuccess: async (_result, sessionIds) => {
+            const workspaceEmptied = isWorkspaceEmptiedByDelete(sessions, sessionIds, (session) => session.sessionId);
+            setPendingDelete(null);
+            if (workspaceEmptied) {
+                await navigate({ to: '/opencode' });
+            }
         },
     });
 

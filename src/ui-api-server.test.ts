@@ -90,9 +90,9 @@ describe('UI API server routes', () => {
                 });
                 const conversations = (await waitForJson(`http://127.0.0.1:${port}/api/v1/conversations?${query}`)) as {
                     data: Array<{ id: string; messages: Array<{ phase: string; role: string }>; source: string }>;
-                    meta: { hasNext: boolean; next_cursor: string | null };
+                    meta: { has_next: boolean; next_cursor: string | null };
                 };
-                expect(conversations.meta).toEqual({ hasNext: false, next_cursor: null });
+                expect(conversations.meta).toEqual({ has_next: false, next_cursor: null });
                 expect(conversations.data[0]).toMatchObject({
                     id: fixture.threads[0]!.threadId,
                     messages: [

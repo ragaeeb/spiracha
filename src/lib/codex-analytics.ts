@@ -4,7 +4,7 @@ import type { ThreadRow } from './codex-thread-types';
 import { mapWithConcurrency } from './concurrency';
 import { getPortablePathBasename } from './portable-path';
 import { asObject, asString, readJsonlObjects } from './shared';
-import { hashCacheKeyParts, hashCacheKeyPartsIterable, withCachedJson } from './ui-cache';
+import { hashCacheKeyPartsIterable, withCachedJson } from './ui-cache';
 
 export type CodexAnalyticsInput = {
     dbPath: string;
@@ -112,7 +112,7 @@ export const buildCodexAnalyticsCacheKey = (dbPath: string, threads: ThreadRow[]
 };
 
 const buildThreadAnalyticsCacheKey = (thread: ThreadRow) => {
-    return `thread-analytics-${hashCacheKeyParts('v1', ...threadMetadataCacheKeyParts(thread))}`;
+    return `thread-analytics-${hashCacheKeyPartsIterable(['v1', ...threadMetadataCacheKeyParts(thread)])}`;
 };
 
 const parseThreadAnalyticsFile = async (sessionFile: string): Promise<ThreadAnalyticsSummary> => {
@@ -130,7 +130,7 @@ const parseThreadAnalyticsFile = async (sessionFile: string): Promise<ThreadAnal
         }
 
         const payloadType = asString(payload.type);
-        if (payloadType === 'function_call') {
+        if (payloadType === 'function_call' || payloadType === 'custom_tool_call') {
             toolNames.push(asString(payload.name) ?? 'unknown');
             continue;
         }

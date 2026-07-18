@@ -10,6 +10,7 @@ import { ProjectsTable } from '#/components/projects-table';
 import { ReloadErrorPanel } from '#/components/reload-error-panel';
 import { projectsQueryOptions } from '#/lib/codex-queries';
 import { deleteProjectFn } from '#/lib/codex-server';
+import { getMutationErrorMessage } from '#/lib/mutation-error';
 import { parseTextQuerySearch, withTextQuerySearch } from '#/lib/route-search';
 import { matchesTextQuery } from '#/lib/text-filter';
 
@@ -93,6 +94,7 @@ function ProjectsPage() {
                         ? `Delete ${pendingDelete.threadCount} thread records for the derived project "${pendingDelete.name}" from the Codex database. Enable Delete Session files to remove the rollout JSONL files too.`
                         : ''
                 }
+                errorMessage={getMutationErrorMessage(deleteProjectMutation.error, 'Project delete failed')}
                 open={pendingDelete !== null}
                 showDeleteSessionFilesOption
                 title="Delete Codex project?"
@@ -108,6 +110,7 @@ function ProjectsPage() {
                 onOpenChange={(open) => {
                     if (!open) {
                         setPendingDelete(null);
+                        deleteProjectMutation.reset();
                     }
                 }}
             />

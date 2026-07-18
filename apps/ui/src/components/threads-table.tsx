@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router';
 import type { SortingState } from '@tanstack/react-table';
 import { createColumnHelper } from '@tanstack/react-table';
 import { Download, MoreHorizontal, Trash2 } from 'lucide-react';
+import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
 import { SelectionActionsToolbar } from '#/components/selection-actions-toolbar';
 import { Button } from '#/components/ui/button';
@@ -103,6 +104,7 @@ const columns = (
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                         <Button
+                            aria-label={`Actions for ${info.row.original.thread.title}`}
                             className="rounded-full"
                             size="icon"
                             type="button"
@@ -140,9 +142,10 @@ export function ThreadsTable({
     onExportThread,
     onExportThreads,
 }: ThreadsTableProps) {
+    const memoizedColumns = useMemo(() => columns(onDeleteThread, onExportThread), [onDeleteThread, onExportThread]);
     return (
         <DataTable
-            columns={columns(onDeleteThread, onExportThread)}
+            columns={memoizedColumns}
             data={threads}
             emptyMessage="No threads match the current project filter."
             enableRowSelection

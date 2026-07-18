@@ -20,6 +20,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
 import {
     claudeCodeSessionDetailQueryOptions,
     claudeCodeSessionTranscriptQueryOptions,
+    claudeCodeWorkspacesQueryOptions,
 } from '#/lib/claude-code-queries';
 import { deleteClaudeCodeSessionFn, exportClaudeCodeSessionFn } from '#/lib/claude-code-server';
 import {
@@ -28,6 +29,7 @@ import {
 } from '#/lib/claude-code-transcript-events';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import { formatDateTime, formatList, formatNumber, formatTokens } from '#/lib/formatters';
+import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
 type ExportDialogOptions = {
     includeCommentary: boolean;
@@ -285,6 +287,17 @@ function ClaudeCodeSessionDetailPage() {
                 queryClient.invalidateQueries({ queryKey: ['claude-code-session', params.sessionId] }),
                 queryClient.invalidateQueries({ queryKey: ['claude-code-session-transcript', params.sessionId] }),
             ]);
+            const workspaces = await queryClient.fetchQuery(claudeCodeWorkspacesQueryOptions());
+            if (
+                shouldNavigateToSourceIndexAfterDelete(
+                    workspaces,
+                    detail.session.workspaceKey,
+                    (workspace) => workspace.key,
+                )
+            ) {
+                navigate({ to: '/claude-code' });
+                return;
+            }
             navigate({
                 params: { workspaceKey: detail.session.workspaceKey },
                 to: '/claude-code/$workspaceKey',

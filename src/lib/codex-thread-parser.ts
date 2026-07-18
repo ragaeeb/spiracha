@@ -235,15 +235,7 @@ const buildEventMessage = (
     sequence: number,
     timestamp: string | null,
 ) => {
-    if (payloadType === 'task_started') {
-        return createTaskStartedEvent(payload, raw, sequence, timestamp);
-    }
-
-    if (payloadType === 'task_complete') {
-        return createTaskCompleteEvent(payload, raw, sequence, timestamp);
-    }
-
-    return null;
+    return buildSupplementalEvent(payload, payloadType, raw, sequence, timestamp);
 };
 
 const buildResponseItemEvent = (
@@ -277,6 +269,16 @@ const buildResponseItemEvent = (
         return createReasoningEvent(payload, raw, sequence, timestamp);
     }
 
+    return buildSupplementalEvent(payload, payloadType, raw, sequence, timestamp);
+};
+
+const buildSupplementalEvent = (
+    payload: Record<string, JsonValue>,
+    payloadType: string | null,
+    raw: Record<string, JsonValue>,
+    sequence: number,
+    timestamp: string | null,
+) => {
     if (payloadType === 'token_count') {
         return createTokenCountEvent(payload, raw, sequence, timestamp);
     }

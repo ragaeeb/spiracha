@@ -14,6 +14,7 @@ const {
     readCursorThreadTranscriptWithAgentFilesMock,
     recoverCursorWorkspaceGroupMock,
     renderCursorTranscriptMock,
+    renderSourceSessionDownloadMock,
     renderSourceSessionsDownloadMock,
 } = vi.hoisted(() => ({
     collectCursorThreadsForDeletionMock: vi.fn(),
@@ -24,14 +25,28 @@ const {
     readCursorThreadTranscriptWithAgentFilesMock: vi.fn(),
     recoverCursorWorkspaceGroupMock: vi.fn(),
     renderCursorTranscriptMock: vi.fn(),
+    renderSourceSessionDownloadMock: vi.fn(),
     renderSourceSessionsDownloadMock: vi.fn(),
 }));
 
 vi.mock('@tanstack/react-start', () => ({
     createServerFn: () => {
+        let inputValidator: { parse: (value: unknown) => unknown } | undefined;
         const serverFn = {
-            handler: (callback: unknown) => callback,
-            validator: () => serverFn,
+            handler: (callback: unknown) => {
+                const handler = callback as (args?: { data?: unknown }) => unknown;
+                return async (args?: { data?: unknown }) => {
+                    if (!inputValidator) {
+                        return await handler(args);
+                    }
+
+                    return await handler({ ...args, data: inputValidator.parse(args?.data) });
+                };
+            },
+            validator: (validator: unknown) => {
+                inputValidator = validator as { parse: (value: unknown) => unknown };
+                return serverFn;
+            },
         };
 
         return serverFn;
@@ -61,6 +76,7 @@ vi.mock('@spiracha/lib/cursor-transcript', () => ({
 }));
 
 vi.mock('./source-session-export-server', () => ({
+    renderSourceSessionDownload: renderSourceSessionDownloadMock,
     renderSourceSessionsDownload: renderSourceSessionsDownloadMock,
 }));
 
@@ -190,6 +206,16 @@ describe('deleteCursorThreadsFn', () => {
         expect(collectCursorThreadsForDeletionMock).not.toHaveBeenCalled();
         expect(pruneCursorThreadsMock).not.toHaveBeenCalled();
     });
+
+    it('should reject traversal and wildcard composer ids before delete work starts', async () => {
+        for (const composerId of ['../../..', '%', 'thread%']) {
+            await expect(deleteCursorThreadsFn({ data: { composerIds: [composerId] } })).rejects.toThrow();
+        }
+
+        expect(isCursorRunningMock).not.toHaveBeenCalled();
+        expect(collectCursorThreadsForDeletionMock).not.toHaveBeenCalled();
+        expect(pruneCursorThreadsMock).not.toHaveBeenCalled();
+    });
 });
 
 describe('deleteCursorWorkspaceFn', () => {
@@ -230,6 +256,12 @@ describe('Cursor export server functions', () => {
         listCursorWorkspaceGroupsMock.mockResolvedValue([workspaceOne]);
         readCursorThreadTranscriptWithAgentFilesMock.mockResolvedValue(transcript);
         renderCursorTranscriptMock.mockReturnValue('rendered transcript');
+        renderSourceSessionDownloadMock.mockResolvedValue({
+            content: 'rendered transcript',
+            fileName: 'cursor-thread.txt',
+            mimeType: 'text/plain',
+            mode: 'download',
+        });
         renderSourceSessionsDownloadMock.mockResolvedValue({ mode: 'download_url' });
     });
 
@@ -253,6 +285,9 @@ describe('Cursor export server functions', () => {
         });
         expect(result).toMatchObject({ content: 'rendered transcript', mode: 'download' });
         expect(result.fileName).toMatch(/\.txt$/u);
+        expect(renderSourceSessionDownloadMock).toHaveBeenCalledWith(
+            expect.objectContaining({ outputFormat: 'txt', sessionId: 'thread-1', zipArchive: false }),
+        );
     });
 
     it('should forward every batch export option to the renderer', async () => {

@@ -1,4 +1,5 @@
 import {
+    CodexThreadNotFoundError,
     deleteCodexThread,
     getThreadBrowseData,
     listScopedThreads,
@@ -9,14 +10,22 @@ import { parseCodexTranscriptFile } from '../codex-thread-parser';
 import type { ThreadRow } from '../codex-thread-types';
 import { cleanInlineTitle } from '../shared';
 import { runWithTranscriptLoadLimit } from '../transcript-load-limiter';
-import { createDeepLinks, finalizeMessages, normalizeRole, toDateMs } from './adapter-helpers';
+import {
+    createConversationUiPath,
+    createDeepLinks,
+    createTextMessage,
+    finalizeMessages,
+    isWithinUpdatedWindow,
+    normalizeAssistantPhase,
+    normalizeRole,
+    toDateMs,
+} from './adapter-helpers';
 import { selectConversationMessages } from './message-selector';
 import { getConversationPathMatch } from './path-match';
 import type {
     ConversationAdapter,
     ConversationDetail,
     ConversationMessage,
-    ConversationMessagePhase,
     ConversationPathMatch,
     DeleteConversationOptions,
     GetConversationOptions,
@@ -35,22 +44,6 @@ const toCreatedAtMs = (thread: ThreadRow) => {
     return thread.created_at_ms ?? thread.created_at * 1000;
 };
 
-const normalizeMessagePhase = (event: MessageEvent): ConversationMessagePhase => {
-    if (event.role !== 'assistant') {
-        return 'unknown';
-    }
-
-    if (event.phase === 'final_answer' || event.phase === 'final') {
-        return 'final_answer';
-    }
-
-    if (event.phase === 'commentary' || event.isHiddenByDefault) {
-        return 'commentary';
-    }
-
-    return 'unknown';
-};
-
 const toMessageEventMessage = (event: MessageEvent): ConversationMessage | null => {
     const text = event.text.trim();
     if (!text) {
@@ -65,7 +58,10 @@ const toMessageEventMessage = (event: MessageEvent): ConversationMessage | null 
             variant: event.variant,
         },
         order: event.sequence,
-        phase: normalizeMessagePhase(event),
+        phase:
+            event.role === 'assistant'
+                ? normalizeAssistantPhase(event.isHiddenByDefault ? 'commentary' : event.phase, 'unknown')
+                : 'unknown',
         role: normalizeRole(event.role),
         text,
     };
@@ -73,37 +69,41 @@ const toMessageEventMessage = (event: MessageEvent): ConversationMessage | null 
 
 const toToolMessage = (event: ThreadEvent): ConversationMessage | null => {
     if (event.kind === 'tool_call') {
-        return {
-            createdAtMs: toDateMs(event.timestamp),
-            id: `codex:${event.sequence}`,
-            metadata: {
-                callId: event.callId,
-                command: event.command,
-                name: event.name,
-                workdir: event.workdir,
-            },
-            order: event.sequence,
-            phase: 'tool_call',
-            role: 'tool',
-            text: event.command ?? event.name,
-        };
+        return (
+            createTextMessage({
+                createdAtMs: toDateMs(event.timestamp),
+                id: `codex:${event.sequence}`,
+                metadata: {
+                    callId: event.callId,
+                    command: event.command,
+                    name: event.name,
+                    workdir: event.workdir,
+                },
+                order: event.sequence,
+                phase: 'tool_call',
+                role: 'tool',
+                text: event.command || event.name,
+            })[0] ?? null
+        );
     }
 
     if (event.kind === 'tool_output') {
         const text = event.summary || event.outputText;
-        return {
-            createdAtMs: toDateMs(event.timestamp),
-            id: `codex:${event.sequence}`,
-            metadata: {
-                callId: event.callId,
-                exitCode: event.exitCode,
-                wallTime: event.wallTime,
-            },
-            order: event.sequence,
-            phase: 'tool_output',
-            role: 'tool',
-            text,
-        };
+        return (
+            createTextMessage({
+                createdAtMs: toDateMs(event.timestamp),
+                id: `codex:${event.sequence}`,
+                metadata: {
+                    callId: event.callId,
+                    exitCode: event.exitCode,
+                    wallTime: event.wallTime,
+                },
+                order: event.sequence,
+                phase: 'tool_output',
+                role: 'tool',
+                text,
+            })[0] ?? null
+        );
     }
 
     return null;
@@ -111,6 +111,10 @@ const toToolMessage = (event: ThreadEvent): ConversationMessage | null => {
 
 const toConversationMessage = (event: ThreadEvent): ConversationMessage | null => {
     if (event.kind === 'message') {
+        if (event.isHiddenByDefault) {
+            return null;
+        }
+
         return toMessageEventMessage(event);
     }
 
@@ -135,17 +139,26 @@ const toConversationMessage = (event: ThreadEvent): ConversationMessage | null =
 };
 
 const readCodexMessages = async (thread: ThreadRow): Promise<ConversationMessage[]> => {
-    const transcript = await runWithTranscriptLoadLimit(
-        () =>
-            parseCodexTranscriptFile(thread.rollout_path, {
-                includeRaw: false,
-            }),
-        {
-            id: thread.id,
-            path: thread.rollout_path,
-            source: 'codex-api',
-        },
-    );
+    let transcript: Awaited<ReturnType<typeof parseCodexTranscriptFile>>;
+    try {
+        transcript = await runWithTranscriptLoadLimit(
+            () =>
+                parseCodexTranscriptFile(thread.rollout_path, {
+                    includeRaw: false,
+                }),
+            {
+                id: thread.id,
+                path: thread.rollout_path,
+                source: 'codex-api',
+            },
+        );
+    } catch (error) {
+        if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+            return [];
+        }
+
+        throw error;
+    }
 
     return finalizeMessages(
         transcript.events.flatMap((event) => {
@@ -167,7 +180,12 @@ const buildCodexConversation = async (
 
     return {
         createdAtMs: toCreatedAtMs(thread),
-        deepLinks: createDeepLinks('codex', thread.id, `/threads/${thread.id}`, `codex://threads/${thread.id}`),
+        deepLinks: createDeepLinks(
+            'codex',
+            thread.id,
+            createConversationUiPath('threads', thread.id),
+            `codex://threads/${encodeURIComponent(thread.id)}`,
+        ),
         id: thread.id,
         matches,
         messageCount: options.includeMessages ? allMessages.length : null,
@@ -209,8 +227,13 @@ const listCodexConversationsForPath = async (
     options: ListConversationsForPathOptions,
 ): Promise<ConversationDetail[]> => {
     const dbPath = getCodexDbPath(options);
+    if (!(await Bun.file(dbPath).exists())) {
+        return [];
+    }
     const threads = listScopedThreads(dbPath, null);
-    const matchedThreads = await filterThreadsForPath(threads, options.cwd);
+    const matchedThreads = (await filterThreadsForPath(threads, options.cwd)).filter(({ thread }) =>
+        isWithinUpdatedWindow(toTimestampMs(thread), options),
+    );
 
     return Promise.all(
         matchedThreads.map(({ matches, thread }) =>
@@ -228,7 +251,7 @@ const getCodexConversation = async (options: GetConversationOptions): Promise<Co
     try {
         browseData = getThreadBrowseData(dbPath, options.id);
     } catch (error) {
-        if (error instanceof Error && /not found/i.test(error.message)) {
+        if (error instanceof CodexThreadNotFoundError) {
             return null;
         }
 

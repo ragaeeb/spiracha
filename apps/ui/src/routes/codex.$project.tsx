@@ -20,6 +20,7 @@ import {
     recoverProjectThreadsFn,
 } from '#/lib/codex-server';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
+import { getMutationErrorMessage } from '#/lib/mutation-error';
 import { parseTextQuerySearch, withTextQuerySearch } from '#/lib/route-search';
 import { useSettings } from '#/lib/settings-store';
 import { matchesTextQuery } from '#/lib/text-filter';
@@ -362,6 +363,7 @@ function ProjectDetailPage() {
                 confirmLabel={getDeleteConfirmLabel(pendingDelete, deleteThreadMutation.isPending)}
                 defaultDeleteSessionFiles
                 description={getDeleteDescription(pendingDelete)}
+                errorMessage={getMutationErrorMessage(deleteThreadMutation.error, 'Thread delete failed')}
                 open={pendingDelete !== null}
                 showDeleteSessionFilesOption
                 title={getDeleteTitle(pendingDelete)}
@@ -377,6 +379,7 @@ function ProjectDetailPage() {
                 onOpenChange={(open) => {
                     if (!open) {
                         setPendingDelete(null);
+                        deleteThreadMutation.reset();
                     }
                 }}
             />

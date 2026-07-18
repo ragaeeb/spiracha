@@ -196,6 +196,17 @@ const startQoderAcpServer = async (socketPath: string, updates: Record<string, u
 };
 
 describe('qoder workspace discovery', () => {
+    it('should surface corrupt global-state databases instead of returning empty history', async () => {
+        const tempRoot = await makeTempRoot();
+        const globalStateDb = path.join(tempRoot, 'globalStorage', 'state.vscdb');
+        const workspaceStorageDir = path.join(tempRoot, 'workspaceStorage');
+        await mkdir(path.dirname(globalStateDb), { recursive: true });
+        await mkdir(workspaceStorageDir, { recursive: true });
+        await Bun.write(globalStateDb, 'not a sqlite database');
+
+        await expect(listQoderWorkspaceGroups(globalStateDb, workspaceStorageDir)).rejects.toThrow();
+    });
+
     afterEach(async () => {
         await Promise.all(tempRoots.splice(0).map((root) => rm(root, { force: true, recursive: true })));
     });

@@ -52,10 +52,14 @@ Codex browser/export modules:
   - project/thread browsing queries, delete flows, dashboard summaries, DB path resolution
 - `src/lib/codex-browser-export.ts`
   - UI-facing thread download rendering
+- `src/lib/codex-browser-types.ts`
+  - Codex browser query and presentation contracts
 - `src/lib/codex-thread-types.ts`
   - Codex DB row and transcript rendering types
 - `src/lib/codex-transcript-renderer.ts`
   - Markdown/plain text rendering for Codex session files
+- `src/lib/codex-transcript-filter.ts`
+  - centralized hidden bootstrap and transcript-text filtering
 - `src/lib/codex-thread-parser.ts`
   - structured Codex event parsing used by analytics and the UI
 - `src/lib/codex-analytics.ts`
@@ -66,24 +70,29 @@ Codex browser/export modules:
   - Codex project recovery helpers
 
 Source-specific browser/export modules:
-- `src/lib/claude-code-db.ts`, `src/lib/claude-code-transcript-phase.ts`, `src/lib/claude-code-transcript.ts`
-- `src/lib/grok-db.ts`, `src/lib/grok-transcript-phase.ts`, `src/lib/grok-transcript.ts`
-- `src/lib/kiro-db.ts`, `src/lib/kiro-transcript-phase.ts`, `src/lib/kiro-transcript.ts`
-- `src/lib/qoder-db.ts`, `src/lib/qoder-transcript-phase.ts`, `src/lib/qoder-transcript.ts`
-- `src/lib/cursor-db.ts`, `src/lib/cursor-recovery.ts`, `src/lib/cursor-transcript.ts`
-- `src/lib/antigravity-db.ts`, `src/lib/antigravity-keychain.ts`
-- `src/lib/opencode-db.ts`, `src/lib/opencode-transcript-phase.ts`, `src/lib/opencode-think-tags.ts`, `src/lib/opencode-transcript.ts`
+- `src/lib/claude-code-db.ts`, `src/lib/claude-code-exporter-types.ts`, `src/lib/claude-code-transcript-phase.ts`, `src/lib/claude-code-transcript.ts`
+- `src/lib/grok-db.ts`, `src/lib/grok-exporter-types.ts`, `src/lib/grok-transcript-phase.ts`, `src/lib/grok-transcript.ts`
+- `src/lib/kiro-db.ts`, `src/lib/kiro-exporter-types.ts`, `src/lib/kiro-transcript-phase.ts`, `src/lib/kiro-transcript.ts`
+- `src/lib/qoder-db.ts`, `src/lib/qoder-acp-client.ts`, `src/lib/qoder-exporter-types.ts`, `src/lib/qoder-transcript-phase.ts`, `src/lib/qoder-transcript.ts`
+- `src/lib/cursor-db.ts`, `src/lib/cursor-exporter-types.ts`, `src/lib/cursor-recovery.ts`, `src/lib/cursor-transcript-phase.ts`, `src/lib/cursor-transcript.ts`
+- `src/lib/antigravity-db.ts`, `src/lib/antigravity-exporter-types.ts`, `src/lib/antigravity-keychain.ts`, `src/lib/antigravity-projects.ts`, `src/lib/antigravity-transcript-phase.ts`
+- `src/lib/opencode-db.ts`, `src/lib/opencode-exporter-types.ts`, `src/lib/opencode-transcript-phase.ts`, `src/lib/opencode-think-tags.ts`, `src/lib/opencode-transcript.ts`
 
 Shared utilities:
 - `src/lib/concurrency.ts`
 - `src/lib/model-label.ts`
 - `src/lib/path-transforms.ts`
+- `src/lib/portable-path.ts`
 - `src/lib/shared.ts`
 - `src/lib/sqlite-error.ts`
 - `src/lib/sqlite-retry.ts`
 - `src/lib/ui-cache.ts`
 - `src/lib/ui-export-archive.ts`
 - `src/lib/ui-export-files.ts`
+- `src/lib/ui-export-zip.ts`
+- `src/lib/conversation-zip-export.ts`
+- `src/lib/transcript-load-limiter.ts`
+- `src/coverage-check.ts`
 
 UI source tree:
 - `apps/ui/`
@@ -106,6 +115,9 @@ The local UI server exposes:
 - `POST /api/v1/conversation-query`
 - `GET /api/v1/conversations/:source/:id`
 - `GET /api/v1/conversations/:source/:id/export`
+- `DELETE /api/v1/conversations/:source/:id`
+- `POST /api/v1/conversations/delete`
+- `POST /api/v1/conversations/export`
 - `GET /api/v1/resolve?ref=<url-or-deeplink>`
 
 Defaults:
@@ -129,6 +141,7 @@ Current tests cover:
 - OpenCode MiniMax `<think>` tag extraction, including code-literal preservation
 - UI component and adapter behavior through the Vitest suite wrapped by `src/ui-suite.test.ts`
 - package manifest hard-cut guarantees through `src/package-manifest.test.ts`
+- a 90% line-coverage gate for both the root Bun suite and UI Vitest suite, with function and hotspot reporting
 
 When changing risky areas:
 - Stable API changes: update `src/lib/conversation-api.test.ts` and focused tests under `src/lib/conversation-data/`.

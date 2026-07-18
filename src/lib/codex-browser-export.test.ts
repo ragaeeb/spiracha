@@ -152,7 +152,7 @@ describe('renderCodexThreadDownload', () => {
         if (download.mode !== 'download') {
             throw new Error('expected inline download mode');
         }
-        expect(download.content).not.toContain('Reviewing the repo guidance first.');
+        expect(download.content).not.toContain('Checking repo structure before planning.');
         expect(download.content).toContain('## GPT 5.4');
         expect(download.content).not.toContain('## Assistant');
     });

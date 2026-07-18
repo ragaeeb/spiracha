@@ -9,6 +9,7 @@ import { PageHeader } from '#/components/page-header';
 import { ReloadErrorPanel } from '#/components/reload-error-panel';
 import { cursorWorkspacesQueryOptions } from '#/lib/cursor-queries';
 import { deleteCursorWorkspaceFn, recoverCursorWorkspaceFn } from '#/lib/cursor-server';
+import { getMutationErrorMessage } from '#/lib/mutation-error';
 import { matchesTextQuery } from '#/lib/text-filter';
 
 const CursorErrorComponent = ({ error }: { error: Error }) => {
@@ -94,6 +95,7 @@ const CursorPage = () => {
                         ? `Permanently delete every thread for "${pendingDelete.label}" from Cursor's database and remove any on-disk transcript directories. Quit Cursor first. This cannot be undone.`
                         : ''
                 }
+                errorMessage={getMutationErrorMessage(deleteWorkspaceMutation.error, 'Workspace deletion failed')}
                 open={pendingDelete !== null}
                 title="Delete Cursor workspace?"
                 onConfirm={() => {
@@ -106,6 +108,7 @@ const CursorPage = () => {
                 onOpenChange={(open) => {
                     if (!open) {
                         setPendingDelete(null);
+                        deleteWorkspaceMutation.reset();
                     }
                 }}
             />

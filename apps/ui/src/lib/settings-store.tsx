@@ -37,20 +37,44 @@ const loadSettings = (): Settings => {
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
     const [settings, setSettings] = useState<Settings>(defaultSettings);
+    const [loaded, setLoaded] = useState(false);
 
     // Load from localStorage on mount (client only — avoids SSR hydration mismatch)
     useEffect(() => {
         setSettings(loadSettings());
+        setLoaded(true);
+    }, []);
+
+    useEffect(() => {
+        if (!loaded) {
+            return;
+        }
+        try {
+            window.localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+        } catch {}
+    }, [loaded, settings]);
+
+    useEffect(() => {
+        const synchronizeSettings = (event: StorageEvent) => {
+            if (event.key !== STORAGE_KEY) {
+                return;
+            }
+            try {
+                setSettings(
+                    event.newValue
+                        ? { ...defaultSettings, ...(JSON.parse(event.newValue) as Partial<Settings>) }
+                        : defaultSettings,
+                );
+            } catch {
+                setSettings(defaultSettings);
+            }
+        };
+        window.addEventListener('storage', synchronizeSettings);
+        return () => window.removeEventListener('storage', synchronizeSettings);
     }, []);
 
     const updateSetting = <K extends keyof Settings>(key: K, value: Settings[K]) => {
-        setSettings((prev) => {
-            const next = { ...prev, [key]: value };
-            try {
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-            } catch {}
-            return next;
-        });
+        setSettings((prev) => ({ ...prev, [key]: value }));
     };
 
     return <SettingsContext.Provider value={{ settings, updateSetting }}>{children}</SettingsContext.Provider>;

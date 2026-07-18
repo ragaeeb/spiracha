@@ -26,7 +26,6 @@
             "*.js",
             "*.json",
             "*.md",
-            "*.json",
             "!!apps/ui/src/styles.css",
             "!!apps/ui/src/routeTree.gen.ts",
             "!!**/node_modules",

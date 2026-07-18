@@ -136,7 +136,10 @@ describe('Kiro server exports', () => {
         listKiroWorkspaceGroupsMock.mockResolvedValue(['workspace']);
         listKiroSessionsForGroupMock.mockResolvedValue(['session']);
         readKiroSessionTranscriptMock.mockResolvedValue(transcript);
-        deleteKiroSessionMock.mockResolvedValue(true);
+        deleteKiroSessionMock.mockImplementation(async (_sessionsDir: string, sessionId: string) => ({
+            deletedFiles: [`${sessionId}.json`],
+            deletedSessionIds: [sessionId],
+        }));
 
         await expect(listKiroWorkspacesFn({} as never)).resolves.toEqual(['workspace']);
         await expect(listKiroSessionsFn({ data: { workspaceKey: 'workspace-a' } } as never)).resolves.toEqual([
@@ -145,10 +148,15 @@ describe('Kiro server exports', () => {
         await expect(getKiroSessionDetailFn({ data: { sessionId: 'session-first' } } as never)).resolves.toBe(
             transcript,
         );
-        await expect(deleteKiroSessionFn({ data: { sessionId: 'session-first' } } as never)).resolves.toBe(true);
+        await expect(deleteKiroSessionFn({ data: { sessionId: 'session-first' } } as never)).resolves.toMatchObject({
+            deletedSessionIds: ['session-first'],
+        });
         await expect(
             deleteKiroSessionsFn({ data: { sessionIds: ['session-first', 'session-second'] } } as never),
-        ).resolves.toEqual([true, true]);
+        ).resolves.toEqual({
+            deletedFiles: ['session-first.json', 'session-second.json'],
+            deletedSessionIds: ['session-first', 'session-second'],
+        });
 
         expect(listKiroSessionsForGroupMock).toHaveBeenCalledWith('workspace-a');
         expect(deleteKiroSessionMock).toHaveBeenCalledTimes(3);
@@ -157,6 +165,10 @@ describe('Kiro server exports', () => {
     it('should reject missing and empty Kiro session exports', async () => {
         readKiroSessionTranscriptMock.mockResolvedValueOnce(null);
         await expect(getKiroSessionDetailFn({ data: { sessionId: 'missing' } } as never)).rejects.toThrow(
+            'Kiro session not found: missing',
+        );
+        deleteKiroSessionMock.mockResolvedValueOnce({ deletedFiles: [], deletedSessionIds: [] });
+        await expect(deleteKiroSessionFn({ data: { sessionId: 'missing' } } as never)).rejects.toThrow(
             'Kiro session not found: missing',
         );
 

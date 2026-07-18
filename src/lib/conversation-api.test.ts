@@ -71,7 +71,22 @@ describe('conversation API handler', () => {
         expect(response.status).toBe(200);
         await expect(response.json()).resolves.toEqual({
             data: [conversation],
-            meta: { hasNext: false, next_cursor: null },
+            meta: { has_next: false, next_cursor: null },
+        });
+    });
+
+    it('should reject a relative cwd instead of resolving it against the server process', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations?cwd=relative/repo'),
+            {},
+        );
+
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toMatchObject({
+            error: {
+                code: 'validation_error',
+                details: { field: 'cwd' },
+            },
         });
     });
 
@@ -111,6 +126,20 @@ describe('conversation API handler', () => {
         expect(response.status).toBe(200);
     });
 
+    it('should deduplicate repeated source filters before adapter fan-out', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations?cwd=/repo&source=codex,codex'),
+            {
+                listConversationsForPath: async (options) => {
+                    expect(options.sources).toEqual(['codex']);
+                    return { data: [], meta: { hasNext: false, nextCursor: null } };
+                },
+            },
+        );
+
+        expect(response.status).toBe(200);
+    });
+
     it('should return typed errors for missing required input', async () => {
         const response = await handleConversationApiRequest(createRequest('/api/v1/conversations'), {});
 
@@ -120,6 +149,25 @@ describe('conversation API handler', () => {
                 code: 'validation_error',
             },
         });
+    });
+
+    it('should not dispatch GET batch-action paths to the conversation list handler', async () => {
+        for (const action of ['delete', 'export']) {
+            let listCalled = false;
+            const response = await handleConversationApiRequest(
+                createRequest(`/api/v1/conversations/${action}?cwd=/repo`),
+                {
+                    listConversationsForPath: async () => {
+                        listCalled = true;
+                        return { data: [], meta: { hasNext: false, nextCursor: null } };
+                    },
+                },
+            );
+
+            expect(response.status).toBe(405);
+            expect(response.headers.get('Allow')).toBe('POST');
+            expect(listCalled).toBe(false);
+        }
     });
 
     it('should reject unsupported source filters', async () => {

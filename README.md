@@ -24,15 +24,17 @@ Spiracha asks Vite for port 3000 and automatically uses the next available port 
 For repository development:
 
 ```bash
-rtk bun install
-rtk bun start
+bun install
+bun start
 ```
 
 Open the local URL printed by Vite.
 
+Spiracha requires Bun 1.3.14 or newer. Set `PORT` to request a different starting port, for example `PORT=4100 bunx spiracha`; the launcher uses the next available port if that one is occupied.
+
 ## What It Does
 
-- Browse local conversations across Codex, Claude Code, Kiro, Qoder, Cursor, Antigravity, and OpenCode.
+- Browse local conversations across Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, and OpenCode.
 - Inspect source-specific detail pages with transcript, tool, reasoning, metadata, raw event, export, and delete flows where supported by the source.
 - Export transcripts from the UI as Markdown, text, or zip bundles with source-specific commentary/final-answer filtering.
 - Expose a stable API for local clients that need normalized conversation metadata and message payloads.
@@ -95,7 +97,7 @@ Response envelope:
     }
   ],
   "meta": {
-    "hasNext": false,
+    "has_next": false,
     "next_cursor": null
   }
 }
@@ -120,6 +122,7 @@ const page = await client.listConversations({
 | --- | --- | --- |
 | Codex | shared Codex DB probe list | `SPIRACHA_CODEX_DB` |
 | Claude Code | `~/.claude/projects` | `SPIRACHA_CLAUDE_CODE_PROJECTS_DIR` |
+| Grok | `~/.grok/sessions` | `SPIRACHA_GROK_SESSIONS_DIR` |
 | Kiro | `~/Library/Application Support/Kiro/User/globalStorage/kiro.kiroagent/workspace-sessions` | `SPIRACHA_KIRO_WORKSPACE_SESSIONS_DIR` |
 | Qoder | `~/Library/Application Support/Qoder/User/globalStorage/state.vscdb` and `~/Library/Application Support/Qoder/User/workspaceStorage` | `SPIRACHA_QODER_GLOBAL_STATE_DB`, `SPIRACHA_QODER_WORKSPACE_STORAGE_DIR` |
 | Cursor | `~/Library/Application Support/Cursor/User` on macOS | `SPIRACHA_CURSOR_USER_DIR`, `SPIRACHA_CURSOR_PROJECTS_DIR` |
@@ -127,27 +130,38 @@ const page = await client.listConversations({
 | OpenCode | `${XDG_DATA_HOME:-~/.local/share}/opencode/opencode.db` | `SPIRACHA_OPENCODE_DB` |
 | UI exports | OS temp directory under `spiracha-ui-exports` | `SPIRACHA_UI_EXPORT_DIR` |
 
+### Qoder live ACP hydration
+
+Qoder detail/export reads first use persisted state and CLI transcript files. When those do not contain assistant messages and Qoder is running, Spiracha can connect to Qoder's local JSON-RPC ACP Unix socket, issue `initialize` and `session/load`, and collect the streamed session updates. The default socket is the Qoder `SharedClientCache/qoder.sock`; override it with `SPIRACHA_QODER_SOCKET_PATH` (or the legacy environment spelling `SPIRACHA_QODER_SOCKET`). Connection failures and timeouts fall back to the persisted transcript rather than preventing the session from loading.
+
 ## UI Routes
 
 - `/codex` and `/codex/$project` for Codex inventory and project threads.
 - `/threads/$threadId` for Codex thread detail.
-- `/claude-code`, `/kiro`, `/qoder`, `/cursor`, `/antigravity`, and `/opencode` for source inventories.
-- Source detail routes include `/claude-code-sessions/$sessionId`, `/kiro-sessions/$sessionId`, `/qoder-sessions/$sessionId`, `/cursor-threads/$composerId`, `/antigravity-conversations/$conversationId`, and `/opencode-sessions/$sessionId`.
+- `/claude-code`, `/grok`, `/kiro`, `/qoder`, `/cursor`, `/antigravity`, and `/opencode` for source inventories.
+- Source detail routes include `/claude-code-sessions/$sessionId`, `/grok-sessions/$sessionId`, `/kiro-sessions/$sessionId`, `/qoder-sessions/$sessionId`, `/cursor-threads/$composerId`, `/antigravity-conversations/$conversationId`, and `/opencode-sessions/$sessionId`.
 - `/analytics` for Codex token and tool-call analytics.
+- `/settings` for display, path-redaction, and transcript defaults.
 
 ## Development
 
 ```bash
-rtk bun test
-rtk bun run lint
-rtk bun run typecheck
-rtk bun run build
-rtk bun run coverage
-rtk bun start
-rtk bun run test:ui
+bun test
+bun run lint
+bun run typecheck
+bun run build
+bun run coverage
+bun start
+bun run test:ui
 ```
 
+`bun run coverage` enforces at least 90% line coverage independently for the root Bun suite and the UI Vitest suite, and reports function coverage and per-file hotspots for follow-up.
+
+Run one root test file with `bun test src/lib/shared.test.ts`. Run one UI test file with `bun run test:ui --run apps/ui/src/components/export-dialog.vitest.tsx`.
+
 Spiracha has one package manifest. The `apps/ui` directory remains a source boundary, but all UI and direct-client commands and dependencies are owned at the repository root. Root-owned Vite commands use `apps/ui` as their internal working directory and run through `bun --bun` because TanStack server functions import Bun-only modules such as `bun:sqlite`; Vitest uses its normal Node runtime.
+
+TanStack Router generates `apps/ui/src/routeTree.gen.ts` during development/build. Do not edit it manually; after adding or renaming route files, run `bun run build` (or start the dev server) and include the generated update.
 
 ## Breaking Consequences
 

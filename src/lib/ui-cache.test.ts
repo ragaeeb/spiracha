@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { mkdir, readdir, rm, stat } from 'node:fs/promises';
+import { mkdir, readdir, rm, stat, utimes } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
     getCachedJson,
     hashCacheKeyPartsIterable,
     invalidateCacheByPrefix,
+    purgeStaleUiCacheEntries,
     setCachedJson,
     withCachedJson,
 } from './ui-cache';
@@ -14,7 +15,7 @@ import {
 const CACHE_DIR = path.join(os.tmpdir(), 'spiracha-ui-cache');
 const getCacheFilePath = (key: string) => {
     const safeKey = key.replace(/[^a-zA-Z0-9._-]/gu, '_');
-    const hash = createHash('sha1').update(key).digest('hex');
+    const hash = createHash('sha1').update(String(key.length)).update(':').update(key).update(';').digest('hex');
     return path.join(CACHE_DIR, `${safeKey}-${hash}.json`);
 };
 
@@ -48,6 +49,19 @@ describe('ui cache', () => {
         await setCachedJson('private-cache', { ok: true });
 
         expect((await stat(CACHE_DIR)).mode & 0o777).toBe(0o700);
+    });
+
+    it('should purge cache entries older than the retention window', async () => {
+        await setCachedJson('stale-entry', { stale: true });
+        await setCachedJson('fresh-entry', { fresh: true });
+        const stalePath = getCacheFilePath('stale-entry');
+        const staleTime = new Date(Date.now() - 48 * 60 * 60 * 1000);
+        await utimes(stalePath, staleTime, staleTime);
+
+        await purgeStaleUiCacheEntries(CACHE_DIR, 24 * 60 * 60 * 1000);
+
+        expect(await Bun.file(stalePath).exists()).toBe(false);
+        expect(await Bun.file(getCacheFilePath('fresh-entry')).exists()).toBe(true);
     });
 
     it('should remove temporary files when the final cache rename fails', async () => {
@@ -84,6 +98,20 @@ describe('ui cache', () => {
             { loadedBy: 1 },
             { loadedBy: 1 },
         ]);
+        expect(loadCount).toBe(1);
+    });
+
+    it('should register coalescing before concurrent disk cache reads finish', async () => {
+        let loadCount = 0;
+        const requests = Array.from({ length: 20 }, () =>
+            withCachedJson('cold-coalesced-entry', async () => {
+                loadCount += 1;
+                await Bun.sleep(5);
+                return { loadedBy: loadCount };
+            }),
+        );
+
+        await expect(Promise.all(requests)).resolves.toEqual(Array.from({ length: 20 }, () => ({ loadedBy: 1 })));
         expect(loadCount).toBe(1);
     });
 

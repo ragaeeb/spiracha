@@ -16,6 +16,22 @@ type ConversationMarkdownZipOptions = {
     fileBaseName: string;
 };
 
+const EXPORT_BASE_NAME_BYTE_LIMIT = 120;
+
+const truncateUtf8 = (value: string, maxBytes: number) => {
+    let bytes = 0;
+    let result = '';
+    for (const character of value) {
+        const characterBytes = Buffer.byteLength(character);
+        if (bytes + characterBytes > maxBytes) {
+            break;
+        }
+        bytes += characterBytes;
+        result += character;
+    }
+    return result;
+};
+
 export type ConversationMarkdownZip = {
     blob: Blob;
     fileName: string;
@@ -23,7 +39,8 @@ export type ConversationMarkdownZip = {
 };
 
 const toSafeFileBaseName = (value: string | null, fallback: string) => {
-    return sanitizeExportFileName(value?.trim() || '') || sanitizeExportFileName(fallback) || 'conversation';
+    const sanitized = sanitizeExportFileName(value?.trim() || '') || sanitizeExportFileName(fallback) || 'conversation';
+    return truncateUtf8(sanitized, EXPORT_BASE_NAME_BYTE_LIMIT) || 'conversation';
 };
 
 export const createConversationMarkdownZip = async ({

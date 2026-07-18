@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdtemp, rm, utimes } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, stat, utimes } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -7,7 +7,9 @@ import {
     buildUiExportDownloadUrl,
     ensureUiExportDir,
     getUiExportDir,
+    purgeStaleUiExportFile,
     purgeStaleUiExports,
+    resolveReadableUiExportFileFromRequestPath,
     resolveUiExportFilePathFromRequestPath,
     UI_EXPORT_DIR_ENV,
     UI_EXPORT_URL_PREFIX,
@@ -27,6 +29,24 @@ afterEach(async () => {
 });
 
 describe('ui export file helpers', () => {
+    it('should create the export directory with owner-only permissions', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'spiracha-ui-export-mode-test-'));
+        tempPaths.push(tempRoot);
+        const exportDir = path.join(tempRoot, 'exports');
+        process.env[UI_EXPORT_DIR_ENV] = exportDir;
+
+        await ensureUiExportDir();
+
+        expect((await stat(exportDir)).mode & 0o777).toBe(0o700);
+    });
+
+    it('should tolerate an export disappearing during stale-file purging', async () => {
+        const missingPath = path.join(os.tmpdir(), 'spiracha-already-purged-export.zip');
+        await rm(missingPath, { force: true });
+
+        await expect(purgeStaleUiExportFile(missingPath, Date.now())).resolves.toBeUndefined();
+    });
+
     it('should resolve request paths inside the configured export directory and reject traversal', async () => {
         const exportDir = await mkdtemp(path.join(os.tmpdir(), 'spiracha-ui-export-files-test-'));
         tempPaths.push(exportDir);
@@ -38,9 +58,24 @@ describe('ui export file helpers', () => {
         expect(resolveUiExportFilePathFromRequestPath(`${UI_EXPORT_URL_PREFIX}nested/file.zip`)).toBeNull();
         expect(resolveUiExportFilePathFromRequestPath(`${UI_EXPORT_URL_PREFIX}..%2Fescape.zip`)).toBeNull();
         expect(resolveUiExportFilePathFromRequestPath(`${UI_EXPORT_URL_PREFIX}..%5Cescape.zip`)).toBeNull();
+        expect(resolveUiExportFilePathFromRequestPath(`${UI_EXPORT_URL_PREFIX}.`)).toBeNull();
+        expect(resolveUiExportFilePathFromRequestPath(`${UI_EXPORT_URL_PREFIX}..`)).toBeNull();
         expect(resolveUiExportFilePathFromRequestPath(`${UI_EXPORT_URL_PREFIX}report%20bundle.zip`)).toBe(
             path.join(exportDir, 'report bundle.zip'),
         );
+    });
+
+    it('should resolve only readable regular export files', async () => {
+        const exportDir = await mkdtemp(path.join(os.tmpdir(), 'spiracha-ui-export-readable-test-'));
+        tempPaths.push(exportDir);
+        process.env[UI_EXPORT_DIR_ENV] = exportDir;
+        const filePath = path.join(exportDir, 'report.zip');
+        await Bun.write(filePath, 'export');
+        await mkdir(path.join(exportDir, 'directory.zip'));
+
+        expect(await resolveReadableUiExportFileFromRequestPath(`${UI_EXPORT_URL_PREFIX}report.zip`)).toBe(filePath);
+        expect(await resolveReadableUiExportFileFromRequestPath(`${UI_EXPORT_URL_PREFIX}directory.zip`)).toBeNull();
+        expect(await resolveReadableUiExportFileFromRequestPath(`${UI_EXPORT_URL_PREFIX}missing.zip`)).toBeNull();
     });
 
     it('should build download urls from exported file paths', () => {

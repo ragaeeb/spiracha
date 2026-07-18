@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { mkdir, utimes } from 'node:fs/promises';
+import { chmod, mkdir, utimes } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -476,6 +476,21 @@ describe('antigravity db discovery', () => {
         ]);
     });
 
+    it('should surface corrupt transcripts during explicit conversation reads', async () => {
+        const root = await makeRoot();
+        const conversationId = '99999999-aaaa-4aaa-8aaa-bbbbbbbbbbbb';
+        const logsDir = path.join(root, 'brain', conversationId, '.system_generated', 'logs');
+        await mkdir(logsDir, { recursive: true });
+        await Bun.write(
+            path.join(root, 'agyhub_summaries_proto.pb'),
+            encodeSummaryIndex([{ id: conversationId, title: 'Corrupt transcript' }]),
+        );
+        await Bun.write(path.join(logsDir, 'transcript.jsonl'), '{not-json');
+        const [conversation] = await listAntigravityConversations([root]);
+
+        await expect(readAntigravityConversationMessages(conversation!)).rejects.toThrow('corrupt');
+    });
+
     it('should derive a workspace group from the source root when a conversation has no summary metadata', async () => {
         const root = await makeRoot();
         const conversationId = '77777777-7777-4777-8777-777777777777';
@@ -570,5 +585,26 @@ describe('antigravity db discovery', () => {
 
         const conversations = await listAntigravityConversations([root]);
         expect(conversations.map((conversation) => conversation.conversationId)).toEqual([retainedId]);
+    });
+
+    it('should replace a read-only Antigravity summary index atomically', async () => {
+        const root = await makeRoot();
+        const deletedId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        const retainedId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+        const summaryPath = path.join(root, 'agyhub_summaries_proto.pb');
+        await Bun.write(
+            summaryPath,
+            encodeSummaryIndex([
+                { id: deletedId, title: 'Delete me', workspaceUri: 'file:///tmp/delete-me' },
+                { id: retainedId, title: 'Keep me', workspaceUri: 'file:///tmp/keep-me' },
+            ]),
+        );
+        await chmod(summaryPath, 0o444);
+
+        const result = await deleteAntigravityConversation([root], deletedId);
+
+        expect(result.deletedConversationIds).toEqual([deletedId]);
+        const summaries = await listAntigravityConversations([root]);
+        expect(summaries.map((conversation) => conversation.conversationId)).toEqual([retainedId]);
     });
 });

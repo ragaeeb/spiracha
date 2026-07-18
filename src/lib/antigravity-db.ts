@@ -1,4 +1,5 @@
-import { readdir, rm, stat } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { chmod, readdir, rename, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import {
     type AntigravityArtifact,
@@ -418,7 +419,15 @@ const removeConversationFromSummaryIndex = async (summaryPath: string, conversat
         return false;
     }
 
-    await Bun.write(summaryPath, Buffer.concat(retained));
+    const tempPath = `${summaryPath}.${randomUUID()}.tmp`;
+    const mode = (await stat(summaryPath)).mode & 0o777;
+    try {
+        await Bun.write(tempPath, Buffer.concat(retained));
+        await chmod(tempPath, mode);
+        await rename(tempPath, summaryPath);
+    } finally {
+        await rm(tempPath, { force: true });
+    }
     return true;
 };
 
@@ -595,15 +604,6 @@ const mergeArtifactMaps = async (roots: string[]): Promise<Map<string, Antigravi
     return merged;
 };
 
-const countJsonlEntries = async (filePath: string): Promise<number> => {
-    try {
-        const text = await Bun.file(filePath).text();
-        return text.split(/\r?\n/u).filter((line) => line.trim().length > 0).length;
-    } catch {
-        return 0;
-    }
-};
-
 const stripModelQualifier = (value: string): string => value.replace(/\s*\([^)]*\)\s*$/u, '').trim();
 
 const extractModelSelection = (content: string): string | null => {
@@ -628,18 +628,31 @@ const extractModelSelection = (content: string): string | null => {
     return rawModel ? stripModelQualifier(rawModel) : null;
 };
 
-const extractTranscriptModel = async (filePath: string): Promise<string | null> => {
-    const text = await Bun.file(filePath)
-        .text()
-        .catch(() => '');
+const transcriptAnalysisCache = new Map<string, { entryCount: number; model: string | null }>();
+
+const analyzeTranscriptFile = async (filePath: string, size: number, mtimeMs: number) => {
+    const cacheKey = `${filePath}:${size}:${mtimeMs}`;
+    const cached = transcriptAnalysisCache.get(cacheKey);
+    if (cached) {
+        return cached;
+    }
+    const text = await Bun.file(filePath).text();
+    let model: string | null = null;
     for (const entry of parseLogEntries(text)) {
-        const model = extractModelSelection(getString(entry.content) ?? '');
-        if (model) {
-            return model;
+        model = extractModelSelection(getString(entry.content) ?? '') ?? model;
+        if (model !== null) {
+            break;
         }
     }
-
-    return null;
+    const analysis = {
+        entryCount: text.split(/\r?\n/u).filter((line) => line.trim().length > 0).length,
+        model,
+    };
+    if (transcriptAnalysisCache.size >= 256) {
+        transcriptAnalysisCache.delete(transcriptAnalysisCache.keys().next().value ?? '');
+    }
+    transcriptAnalysisCache.set(cacheKey, analysis);
+    return analysis;
 };
 
 const preferTranscriptFile = (current: TranscriptFile | undefined, candidate: TranscriptFile): TranscriptFile => {
@@ -676,11 +689,12 @@ const readTranscriptFileCandidate = async (
         if (!info.isFile()) {
             return null;
         }
+        const analysis = await analyzeTranscriptFile(transcriptPath, info.size, info.mtimeMs);
 
         return {
             bytes: info.size,
-            entryCount: await countJsonlEntries(transcriptPath),
-            model: await extractTranscriptModel(transcriptPath),
+            entryCount: analysis.entryCount,
+            model: analysis.model,
             mtimeMs: info.mtimeMs,
             path: transcriptPath,
             root,
@@ -1297,13 +1311,13 @@ export const readAntigravityConversationMessages = async (
         return [];
     }
 
-    try {
-        const entries = parseLogEntries(await Bun.file(conversation.transcriptPath).text());
-        const finalAssistantSequences = getFinalAntigravityAssistantSequences(getAntigravityPhaseItems(entries));
-        return entries.flatMap((entry, index) => logEntryToMessages(entry, index, finalAssistantSequences));
-    } catch {
-        return [];
+    const content = await Bun.file(conversation.transcriptPath).text();
+    const entries = parseLogEntries(content);
+    if (content.trim() && entries.length === 0) {
+        throw new Error(`Antigravity transcript is corrupt: ${conversation.transcriptPath}`);
     }
+    const finalAssistantSequences = getFinalAntigravityAssistantSequences(getAntigravityPhaseItems(entries));
+    return entries.flatMap((entry, index) => logEntryToMessages(entry, index, finalAssistantSequences));
 };
 
 const renderAntigravityMetadata = (entries: MetadataEntry[], outputFormat: ExportFormat): string => {

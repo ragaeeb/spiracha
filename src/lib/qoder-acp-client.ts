@@ -9,11 +9,20 @@ const INITIALIZE_REQUEST_ID = 1;
 const LOAD_REQUEST_ID = 2;
 
 type JsonRpcMessage = {
+    error?: JsonValue;
     id?: number;
     jsonrpc?: '2.0';
     method?: string;
     params?: Record<string, JsonValue>;
     result?: JsonValue;
+};
+
+export const isQoderAcpResponse = (message: JsonRpcMessage, requestId: number) => {
+    return (
+        message.id === requestId &&
+        message.method === undefined &&
+        (Object.hasOwn(message, 'result') || Object.hasOwn(message, 'error'))
+    );
 };
 
 export type QoderAcpSessionUpdate = {
@@ -207,7 +216,7 @@ export const loadQoderAcpSession = async (
         };
 
         const markLoadCompleted = (message: JsonRpcMessage) => {
-            if (message.id !== LOAD_REQUEST_ID || loadCompleted) {
+            if (!isQoderAcpResponse(message, LOAD_REQUEST_ID) || loadCompleted) {
                 return false;
             }
 
@@ -221,7 +230,7 @@ export const loadQoderAcpSession = async (
         };
 
         const handleMessage = (message: JsonRpcMessage) => {
-            if (message.id === INITIALIZE_REQUEST_ID) {
+            if (isQoderAcpResponse(message, INITIALIZE_REQUEST_ID)) {
                 sendLoadRequest();
                 return;
             }

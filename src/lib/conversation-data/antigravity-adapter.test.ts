@@ -225,4 +225,31 @@ describe('antigravity conversation adapter', () => {
             }),
         ]);
     });
+
+    it('should assign unique ids when transcript entries reuse a step index and phase', async () => {
+        const root = await makeTempRoot();
+        const project = path.join(root, 'project');
+        await mkdir(project, { recursive: true });
+        const conversationId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+        await Bun.write(
+            path.join(root, 'agyhub_summaries_proto.pb'),
+            encodeSummaryIndex([{ id: conversationId, title: 'Duplicate steps', workspaceUri: `file://${project}` }]),
+        );
+        await writeAntigravityTranscript(root, conversationId, [
+            { content: 'First user input', source: 'USER_EXPLICIT', step_index: 0, type: 'USER_INPUT' },
+            { content: 'Second user input', source: 'USER_EXPLICIT', step_index: 0, type: 'USER_INPUT' },
+            { content: 'Final answer', source: 'MODEL', step_index: 1, type: 'PLANNER_RESPONSE' },
+        ]);
+
+        const page = await listConversationsForPath({
+            cwd: project,
+            includeMessages: true,
+            locations: { antigravityRoots: [root] },
+            messageSelector: 'all',
+            sources: ['antigravity'],
+        });
+        const ids = page.data[0]?.messages.map((message) => message.id) ?? [];
+
+        expect(new Set(ids).size).toBe(ids.length);
+    });
 });

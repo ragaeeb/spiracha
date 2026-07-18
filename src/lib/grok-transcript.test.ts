@@ -5,6 +5,22 @@ import { renderGrokTranscript } from './grok-transcript';
 const transcript: GrokSessionTranscript = {
     entries: [
         {
+            createdAtMs: 1_700_000_000_500,
+            entryId: 'system-1',
+            parts: [
+                {
+                    partId: 'system-1:text',
+                    raw: {},
+                    text: '<system-reminder>Use tools.</system-reminder>',
+                    type: 'text',
+                },
+            ],
+            raw: {},
+            role: 'system',
+            timestamp: '2026-07-17T12:00:00.500Z',
+            type: 'system',
+        },
+        {
             createdAtMs: 1_700_000_000_000,
             entryId: 'user-1',
             parts: [{ partId: 'user-1:text', raw: {}, text: 'Audit the exporter.', type: 'text' }],
@@ -119,6 +135,7 @@ describe('renderGrokTranscript', () => {
         expect(markdown).toContain('# Export audit');
         expect(markdown).toContain('exported_from: "grok_local_session"');
         expect(markdown).toContain('Inspecting the export path.');
+        expect(markdown).toContain('<system-reminder>Use tools.</system-reminder>');
         expect(markdown).toContain('Tool: `read_file`');
         expect(markdown).toContain('export const fixed = true;');
         expect(markdown).toContain('The export path is fixed.');
@@ -135,6 +152,7 @@ describe('renderGrokTranscript', () => {
         expect(markdown).toContain('Audit the exporter.');
         expect(markdown).toContain('The export path is fixed.');
         expect(markdown).not.toContain('Inspecting the export path.');
+        expect(markdown).not.toContain('<system-reminder>');
         expect(markdown).not.toContain('exported_from');
         expect(markdown).not.toContain('read_file');
         expect(markdown).not.toContain('export const fixed = true;');

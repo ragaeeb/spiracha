@@ -7,6 +7,7 @@ import path from 'node:path';
 import { createCodexBrowserFixture } from '../codex-test-helpers';
 import { createCursorFixture } from '../cursor-test-helpers';
 import { createOpenCodeFixture } from '../opencode-test-helpers';
+import { deleteCursorConversation } from './cursor-adapter';
 import { deleteConversation, deleteConversations, getConversation, listConversationsForPath } from './index';
 
 const tempRoots: string[] = [];
@@ -231,11 +232,14 @@ describe('conversation delete adapters', () => {
             ],
         });
 
-        const result = await deleteConversation({
-            id: 'thread-delete',
-            locations: { cursorUserDir: userDir },
-            source: 'cursor',
-        });
+        const result = await deleteCursorConversation(
+            {
+                id: 'thread-delete',
+                locations: { cursorUserDir: userDir },
+                source: 'cursor',
+            },
+            async () => false,
+        );
 
         expect(result).toEqual({ deletedFiles: [], deletedIds: ['thread-delete'] });
         expect(

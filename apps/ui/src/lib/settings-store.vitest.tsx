@@ -63,4 +63,23 @@ describe('settings store', () => {
 
         expect(screen.getByText('{"convertToProjectRoot":false,"redactUsername":false}')).toBeTruthy();
     });
+
+    it('should synchronize settings changed in another tab', () => {
+        render(
+            <SettingsProvider>
+                <SettingsConsumer />
+            </SettingsProvider>,
+        );
+
+        act(() => {
+            window.dispatchEvent(
+                new StorageEvent('storage', {
+                    key: 'spiracha-settings',
+                    newValue: '{"convertToProjectRoot":true,"redactUsername":true}',
+                }),
+            );
+        });
+
+        expect(screen.getByText('{"convertToProjectRoot":true,"redactUsername":true}')).toBeTruthy();
+    });
 });

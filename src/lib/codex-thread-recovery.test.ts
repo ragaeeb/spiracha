@@ -278,4 +278,23 @@ describe('codex thread recovery', () => {
         expect(state['electron-saved-workspace-roots']).toContain('/Users/user/workspace/recover-me');
         expect(state['project-order']).toContain('/Users/user/workspace/recover-me');
     });
+
+    it('should preserve corrupt session-index lines while recovering valid threads', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-recovery-corrupt-index-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createRecoveryFixture(tempRoot);
+        const sessionIndex = await Bun.file(fixture.sessionIndexPath).text();
+        await Bun.write(fixture.sessionIndexPath, `${sessionIndex.trimEnd()}\n{not-json}\n`);
+
+        const result = await recoverCodexProjectThreads(fixture.dbPath, 'recover-me');
+
+        expect(result.sessionIndexRowsUpdated).toBe(1);
+        expect(await Bun.file(fixture.sessionIndexPath).text()).toContain('{not-json}');
+        const db = new Database(fixture.dbPath, { readonly: true });
+        const topLevel = db
+            .query('SELECT has_user_event FROM threads WHERE id = ?')
+            .get(fixture.threadIds.topLevel) as { has_user_event: number };
+        db.close();
+        expect(topLevel.has_user_event).toBe(1);
+    });
 });

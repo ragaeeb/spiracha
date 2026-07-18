@@ -150,13 +150,7 @@ function ClaudeCodeWorkspacePage() {
             sessionIds.length === 1
                 ? deleteClaudeCodeSessionFn({ data: { sessionId: sessionIds[0]! } })
                 : deleteClaudeCodeSessionsFn({ data: { sessionIds } }),
-        onSuccess: async (_result, sessionIds) => {
-            const workspaceEmptied = isWorkspaceEmptiedByDelete(sessions, sessionIds, (session) => session.sessionId);
-            setPendingDelete(null);
-            if (workspaceEmptied) {
-                await navigate({ to: '/claude-code' });
-            }
-
+        onSettled: async (_result, _error, sessionIds) => {
             await Promise.all([
                 queryClient.invalidateQueries({ queryKey: ['claude-code-workspaces'] }),
                 queryClient.invalidateQueries({ queryKey: ['claude-code-sessions', workspace.key] }),
@@ -164,6 +158,13 @@ function ClaudeCodeWorkspacePage() {
                     queryClient.invalidateQueries({ queryKey: ['claude-code-session', sessionId] }),
                 ),
             ]);
+        },
+        onSuccess: async (_result, sessionIds) => {
+            const workspaceEmptied = isWorkspaceEmptiedByDelete(sessions, sessionIds, (session) => session.sessionId);
+            setPendingDelete(null);
+            if (workspaceEmptied) {
+                await navigate({ to: '/claude-code' });
+            }
         },
     });
 

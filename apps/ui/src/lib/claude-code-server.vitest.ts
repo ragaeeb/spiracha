@@ -51,6 +51,7 @@ vi.mock('./source-session-export-server', () => ({
 
 import {
     buildClaudeCodeSessionDetailPreview,
+    deleteClaudeCodeSessionFn,
     deleteClaudeCodeSessionsFn,
     exportClaudeCodeSessionFn,
     exportClaudeCodeSessionsFn,
@@ -168,6 +169,14 @@ describe('Claude Code server transcript loading', () => {
         });
     });
 
+    it('should reject a missing Claude Code session delete', async () => {
+        deleteClaudeCodeSessionMock.mockResolvedValue({ deletedFiles: [], deletedSessionIds: [] });
+
+        await expect(deleteClaudeCodeSessionFn({ data: { sessionId: 'missing' } } as never)).rejects.toThrow(
+            'Claude Code session not found: missing',
+        );
+    });
+
     it('should forward every export option for single and batch Claude Code sessions', async () => {
         const first = buildTranscript(1);
         const second = buildTranscript(1);
@@ -189,6 +198,12 @@ describe('Claude Code server transcript loading', () => {
             data: { ...options, sessionIds: [first.session.sessionId, second.session.sessionId] },
         } as never);
 
+        expect(readClaudeCodeSessionTranscriptMock).toHaveBeenCalledTimes(3);
+        for (const sessionId of [first.session.sessionId, first.session.sessionId, second.session.sessionId]) {
+            expect(readClaudeCodeSessionTranscriptMock).toHaveBeenCalledWith('/tmp/projects', sessionId, {
+                includeRawPayloads: false,
+            });
+        }
         expect(renderClaudeCodeTranscriptMock).toHaveBeenCalledTimes(3);
         for (const transcript of [first, first, second]) {
             expect(renderClaudeCodeTranscriptMock).toHaveBeenCalledWith(transcript, {

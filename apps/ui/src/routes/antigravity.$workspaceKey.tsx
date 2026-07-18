@@ -190,14 +190,7 @@ function AntigravityWorkspacePage() {
             conversationIds.length === 1
                 ? deleteAntigravityConversationFn({ data: { conversationId: conversationIds[0]! } })
                 : deleteAntigravityConversationsFn({ data: { conversationIds } }),
-        onSuccess: async (result) => {
-            const conversationIds = result.deletedConversationIds;
-            const workspaceEmptied = isWorkspaceEmptiedByDelete(
-                conversations,
-                conversationIds,
-                (conversation) => conversation.conversationId,
-            );
-            setPendingDelete(null);
+        onSettled: async (_result, _error, conversationIds) => {
             await Promise.all([
                 queryClient.invalidateQueries({ queryKey: ['antigravity-workspaces'] }),
                 queryClient.invalidateQueries({ queryKey: ['antigravity-conversations', workspace.key] }),
@@ -207,6 +200,15 @@ function AntigravityWorkspacePage() {
                     }),
                 ),
             ]);
+        },
+        onSuccess: async (result) => {
+            const conversationIds = result.deletedConversationIds;
+            const workspaceEmptied = isWorkspaceEmptiedByDelete(
+                conversations,
+                conversationIds,
+                (conversation) => conversation.conversationId,
+            );
+            setPendingDelete(null);
             if (workspaceEmptied) {
                 await navigate({ to: '/antigravity' });
             }

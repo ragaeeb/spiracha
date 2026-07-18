@@ -19,9 +19,10 @@ import { Checkbox } from '#/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import { formatDateTime, formatList, formatNumber } from '#/lib/formatters';
-import { kiroSessionDetailQueryOptions } from '#/lib/kiro-queries';
+import { kiroSessionDetailQueryOptions, kiroWorkspacesQueryOptions } from '#/lib/kiro-queries';
 import { deleteKiroSessionFn, exportKiroSessionFn } from '#/lib/kiro-server';
 import { getKiroThreadTranscriptStats, kiroTranscriptToThreadEvents } from '#/lib/kiro-transcript-events';
+import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
 type ExportDialogOptions = {
     includeCommentary: boolean;
@@ -216,6 +217,17 @@ const KiroSessionDetailPage = () => {
                 queryClient.invalidateQueries({ queryKey: ['kiro-sessions', detail.session.workspaceKey] }),
                 queryClient.invalidateQueries({ queryKey: ['kiro-session', detail.session.sessionId] }),
             ]);
+            const workspaces = await queryClient.fetchQuery(kiroWorkspacesQueryOptions());
+            if (
+                shouldNavigateToSourceIndexAfterDelete(
+                    workspaces,
+                    detail.session.workspaceKey,
+                    (workspace) => workspace.key,
+                )
+            ) {
+                navigate({ to: '/kiro' });
+                return;
+            }
             navigate({
                 params: { workspaceKey: detail.session.workspaceKey },
                 to: '/kiro/$workspaceKey',

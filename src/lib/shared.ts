@@ -1,9 +1,10 @@
 import { createReadStream, createWriteStream } from 'node:fs';
-import { mkdir, stat } from 'node:fs/promises';
+import { mkdir, readdir, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { finished } from 'node:stream/promises';
+import { pathToFileURL } from 'node:url';
 import { formatModelLabel as formatSharedModelLabel } from './model-label';
 
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
@@ -16,6 +17,19 @@ export type MetadataEntry = {
 };
 
 export class CliUsageError extends Error {}
+
+export const readDirectoryEntriesIfExists = async (directoryPath: string) => {
+    try {
+        return await readdir(directoryPath, { withFileTypes: true });
+    } catch (error) {
+        if ((error as { code?: unknown }).code === 'ENOENT') {
+            return [];
+        }
+        throw error;
+    }
+};
+
+export const toFileUri = (filePath: string): string => pathToFileURL(filePath).href;
 
 export const expandHome = (value: string): string => {
     if (!value) {
@@ -161,9 +175,16 @@ export const readJsonlObjects = (filePath: string): AsyncIterableIterator<Record
             }
 
             try {
+                const parsed = JSON.parse(trimmed) as JsonValue;
+                const object = asObject(parsed);
+                if (!object) {
+                    console.warn('[spiracha:jsonl] invalid_json_line', { filePath, lineNumber });
+                    continue;
+                }
+
                 return {
                     done: false,
-                    value: JSON.parse(trimmed) as Record<string, JsonValue>,
+                    value: object,
                 };
             } catch {
                 console.warn('[spiracha:jsonl] invalid_json_line', { filePath, lineNumber });

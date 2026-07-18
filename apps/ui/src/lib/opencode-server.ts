@@ -1,5 +1,6 @@
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
+import { requireDeletedItems, runDeleteBatch } from './delete-batch';
 import { renderSourceSessionDownload, renderSourceSessionsDownload } from './source-session-export-server';
 
 const workspaceSchema = z.object({
@@ -139,7 +140,9 @@ export const deleteOpenCodeSessionFn = createServerFn({ method: 'POST' })
     .validator(sessionSchema)
     .handler(async ({ data }) => {
         const { deleteOpenCodeSession, resolveOpenCodeDbPath } = await import('@spiracha/lib/opencode-db');
-        return deleteOpenCodeSession(resolveOpenCodeDbPath(), data.sessionId);
+        const result = await deleteOpenCodeSession(resolveOpenCodeDbPath(), data.sessionId);
+        requireDeletedItems(result.deletedSessionIds, 'OpenCode session', data.sessionId);
+        return result;
     });
 
 export const deleteOpenCodeSessionsFn = createServerFn({ method: 'POST' })
@@ -147,5 +150,13 @@ export const deleteOpenCodeSessionsFn = createServerFn({ method: 'POST' })
     .handler(async ({ data }) => {
         const { deleteOpenCodeSession, resolveOpenCodeDbPath } = await import('@spiracha/lib/opencode-db');
         const dbPath = resolveOpenCodeDbPath();
-        return Promise.all(data.sessionIds.map((sessionId) => deleteOpenCodeSession(dbPath, sessionId)));
+        const results = await runDeleteBatch(data.sessionIds, (sessionId) => deleteOpenCodeSession(dbPath, sessionId));
+        requireDeletedItems(
+            results.flatMap((result) => result.deletedSessionIds),
+            'OpenCode sessions',
+            'batch',
+        );
+        return {
+            deletedSessionIds: [...new Set(results.flatMap((result) => result.deletedSessionIds))],
+        };
     });

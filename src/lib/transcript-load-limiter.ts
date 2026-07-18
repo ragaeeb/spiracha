@@ -19,7 +19,12 @@ export const resolveTranscriptLoadConcurrency = (value = process.env.SPIRACHA_TR
         : DEFAULT_TRANSCRIPT_LOAD_CONCURRENCY;
 };
 
-const transcriptLoadLimiter = createConcurrencyLimiter(resolveTranscriptLoadConcurrency());
+let transcriptLoadLimiter: ReturnType<typeof createConcurrencyLimiter> | null = null;
+
+const getTranscriptLoadLimiter = () => {
+    transcriptLoadLimiter ??= createConcurrencyLimiter(resolveTranscriptLoadConcurrency());
+    return transcriptLoadLimiter;
+};
 
 const shouldLogTranscriptLoads = () => process.env.SPIRACHA_TRANSCRIPT_LOAD_LOGS !== '0';
 
@@ -38,7 +43,7 @@ export const runWithTranscriptLoadLimit = async <T>(
     queuedTranscriptLoads += 1;
     const queuedAt = Date.now();
 
-    return transcriptLoadLimiter(async () => {
+    return getTranscriptLoadLimiter()(async () => {
         queuedTranscriptLoads -= 1;
         activeTranscriptLoads += 1;
         const startedAt = Date.now();

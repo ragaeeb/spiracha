@@ -16,11 +16,13 @@ import {
     formatModelLabel,
     inlineCode,
     pathExists,
+    readDirectoryEntriesIfExists,
     readJsonlObjects,
     renderCodeBlock,
     renderDocumentTitle,
     renderMetadataBlock,
     renderSection,
+    toFileUri,
     writeExportFile,
 } from './shared';
 
@@ -36,6 +38,20 @@ describe('shared helpers', () => {
         expect(expandHome('~')).toBe(os.homedir());
         expect(expandHome('~/workspace/spiracha')).toBe(path.join(os.homedir(), 'workspace/spiracha'));
         expect(expandHome('~\\workspace\\spiracha')).toBe(path.join(os.homedir(), 'workspace', 'spiracha'));
+    });
+
+    it('should ignore only missing directories while listing entries', async () => {
+        const root = await mkdtemp(path.join(os.tmpdir(), 'shared-directory-test-'));
+        tempPaths.push(root);
+        const filePath = path.join(root, 'file.txt');
+        await Bun.write(filePath, 'content');
+
+        await expect(readDirectoryEntriesIfExists(path.join(root, 'missing'))).resolves.toEqual([]);
+        await expect(readDirectoryEntriesIfExists(filePath)).rejects.toMatchObject({ code: 'ENOTDIR' });
+    });
+
+    it('should percent-encode filesystem paths in file URIs', () => {
+        expect(toFileUri('/tmp/project #1')).toBe('file:///tmp/project%20%231');
     });
 
     it('should clean titles and extracted transcript text', () => {
@@ -110,7 +126,7 @@ describe('shared helpers', () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'shared-test-'));
         tempPaths.push(tempRoot);
         const jsonlPath = path.join(tempRoot, 'session.jsonl');
-        await Bun.write(jsonlPath, [' ', '{oops', '{"type":"message"}', '{"type":"tool"}'].join('\n'));
+        await Bun.write(jsonlPath, [' ', '{oops', 'null', '{"type":"message"}', '{"type":"tool"}'].join('\n'));
 
         const originalWarn = console.warn;
         const warnings: unknown[][] = [];
@@ -125,7 +141,10 @@ describe('shared helpers', () => {
         }
 
         expect(entries).toEqual([{ type: 'message' }, { type: 'tool' }]);
-        expect(warnings).toEqual([['[spiracha:jsonl] invalid_json_line', { filePath: jsonlPath, lineNumber: 2 }]]);
+        expect(warnings).toEqual([
+            ['[spiracha:jsonl] invalid_json_line', { filePath: jsonlPath, lineNumber: 2 }],
+            ['[spiracha:jsonl] invalid_json_line', { filePath: jsonlPath, lineNumber: 3 }],
+        ]);
 
         const outputPath = path.join(tempRoot, 'exports', 'thread.txt');
         await writeExportFile(outputPath, 'hello world');

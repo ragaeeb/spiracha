@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { mapWithConcurrency } from './concurrency';
 import {
     type ConversationDetail,
@@ -98,10 +99,14 @@ const parseSources = (value: string | null): ParseResult<ConversationSource[] | 
         return { value: 'all' };
     }
 
-    const sources = value
-        .split(',')
-        .map((source) => source.trim())
-        .filter(Boolean);
+    const sources = [
+        ...new Set(
+            value
+                .split(',')
+                .map((source) => source.trim())
+                .filter(Boolean),
+        ),
+    ];
     const invalidSource = sources.find((source) => !isConversationSource(source));
 
     return invalidSource ? { error: invalidSourceResponse(invalidSource) } : { value: sources as ConversationSource[] };
@@ -169,6 +174,9 @@ const validatePathLength = (field: string, value: string): Response | null => {
         : invalidFieldResponse(field, value.length, `\`${field}\` is too long.`);
 };
 
+const validateAbsoluteCwd = (cwd: string): Response | null =>
+    path.isAbsolute(cwd) ? null : invalidFieldResponse('cwd', cwd, '`cwd` must be an absolute path.');
+
 const validateTimestamp = (field: string, value: number | undefined): Response | null => {
     if (value === undefined) {
         return null;
@@ -232,6 +240,10 @@ const buildListOptions = (url: URL): ParseResult<ListConversationsForPathOptions
     if (cwdLengthError) {
         return { error: cwdLengthError };
     }
+    const cwdAbsoluteError = validateAbsoluteCwd(cwd);
+    if (cwdAbsoluteError) {
+        return { error: cwdAbsoluteError };
+    }
 
     const cursor = url.searchParams.get('cursor');
     const cursorError = validateCursor(cursor);
@@ -279,7 +291,7 @@ const buildListOptions = (url: URL): ParseResult<ListConversationsForPathOptions
 };
 
 const normalizeMeta = (meta: { hasNext: boolean; nextCursor: string | null }) => ({
-    hasNext: meta.hasNext,
+    has_next: meta.hasNext,
     next_cursor: meta.nextCursor,
 });
 
@@ -845,8 +857,8 @@ const parseJsonCwd = (body: Record<string, unknown>): ParseResult<string> => {
         return { error: errorResponse('validation_error', '`cwd` is required.', 400, { field: 'cwd' }) };
     }
 
-    const cwdLengthError = validatePathLength('cwd', cwd);
-    return cwdLengthError ? { error: cwdLengthError } : { value: cwd };
+    const cwdError = validatePathLength('cwd', cwd) ?? validateAbsoluteCwd(cwd);
+    return cwdError ? { error: cwdError } : { value: cwd };
 };
 
 const parseJsonCursor = (body: Record<string, unknown>): ParseResult<string | null> => {
@@ -954,6 +966,7 @@ const validateListQueryOptions = (options: ListConversationsForPathOptions): Res
 
     return (
         validatePathLength('cwd', options.cwd) ??
+        validateAbsoluteCwd(options.cwd) ??
         validateCursor(options.cursor) ??
         validateLimit(options.limit) ??
         validateTimestamp('updated_after_ms', options.updatedAfterMs) ??
@@ -1017,7 +1030,7 @@ const API_ROUTES: ApiRoute[] = [
     },
     {
         handle: ({ dependencies, url }) => handleListConversations(url, dependencies),
-        matches: ({ source }) => !source,
+        matches: ({ action, source }) => !source && !action,
         method: 'GET',
         resource: 'conversations',
     },

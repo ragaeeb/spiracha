@@ -1,5 +1,6 @@
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
+import { requireDeletedItems, runDeleteBatch } from './delete-batch';
 import { renderSourceSessionDownload, renderSourceSessionsDownload } from './source-session-export-server';
 
 const workspaceSchema = z.object({
@@ -139,7 +140,9 @@ export const deleteKiroSessionFn = createServerFn({ method: 'POST' })
     .validator(sessionSchema)
     .handler(async ({ data }) => {
         const { deleteKiroSession, resolveKiroWorkspaceSessionsDir } = await import('@spiracha/lib/kiro-db');
-        return deleteKiroSession(resolveKiroWorkspaceSessionsDir(), data.sessionId);
+        const result = await deleteKiroSession(resolveKiroWorkspaceSessionsDir(), data.sessionId);
+        requireDeletedItems(result.deletedSessionIds, 'Kiro session', data.sessionId);
+        return result;
     });
 
 export const deleteKiroSessionsFn = createServerFn({ method: 'POST' })
@@ -147,5 +150,14 @@ export const deleteKiroSessionsFn = createServerFn({ method: 'POST' })
     .handler(async ({ data }) => {
         const { deleteKiroSession, resolveKiroWorkspaceSessionsDir } = await import('@spiracha/lib/kiro-db');
         const sessionsDir = resolveKiroWorkspaceSessionsDir();
-        return Promise.all(data.sessionIds.map((sessionId) => deleteKiroSession(sessionsDir, sessionId)));
+        const results = await runDeleteBatch(data.sessionIds, (sessionId) => deleteKiroSession(sessionsDir, sessionId));
+        requireDeletedItems(
+            results.flatMap((result) => result.deletedSessionIds),
+            'Kiro sessions',
+            'batch',
+        );
+        return {
+            deletedFiles: [...new Set(results.flatMap((result) => result.deletedFiles))],
+            deletedSessionIds: [...new Set(results.flatMap((result) => result.deletedSessionIds))],
+        };
     });

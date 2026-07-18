@@ -2,6 +2,8 @@ import type { QoderSessionTranscript } from '@spiracha/lib/qoder-exporter-types'
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
+    listQoderSessionsForGroupMock,
+    listQoderWorkspaceGroupsMock,
     readQoderSessionTranscriptMock,
     renderQoderTranscriptMock,
     renderSourceSessionDownloadMock,
@@ -9,6 +11,8 @@ const {
     resolveQoderGlobalStateDbMock,
     resolveQoderWorkspaceStorageDirMock,
 } = vi.hoisted(() => ({
+    listQoderSessionsForGroupMock: vi.fn(),
+    listQoderWorkspaceGroupsMock: vi.fn(),
     readQoderSessionTranscriptMock: vi.fn(),
     renderQoderTranscriptMock: vi.fn(),
     renderSourceSessionDownloadMock: vi.fn(),
@@ -28,8 +32,8 @@ vi.mock('@tanstack/react-start', () => ({
 }));
 
 vi.mock('@spiracha/lib/qoder-db', () => ({
-    listQoderSessionsForGroup: vi.fn(),
-    listQoderWorkspaceGroups: vi.fn(),
+    listQoderSessionsForGroup: listQoderSessionsForGroupMock,
+    listQoderWorkspaceGroups: listQoderWorkspaceGroupsMock,
     readQoderSessionTranscript: readQoderSessionTranscriptMock,
     resolveQoderGlobalStateDb: resolveQoderGlobalStateDbMock,
     resolveQoderWorkspaceStorageDir: resolveQoderWorkspaceStorageDirMock,
@@ -48,7 +52,13 @@ vi.mock('./source-session-export-server', () => ({
     renderSourceSessionsDownload: renderSourceSessionsDownloadMock,
 }));
 
-import { exportQoderSessionFn, exportQoderSessionsFn } from './qoder-server';
+import {
+    exportQoderSessionFn,
+    exportQoderSessionsFn,
+    getQoderSessionDetailFn,
+    listQoderSessionsFn,
+    listQoderWorkspacesFn,
+} from './qoder-server';
 
 const buildTranscript = (sessionId: string, title: string): QoderSessionTranscript =>
     ({
@@ -118,5 +128,61 @@ describe('Qoder server exports', () => {
         expect(renderSourceSessionsDownloadMock).toHaveBeenCalledWith(
             expect.objectContaining({ outputFormat: 'txt', zipArchive: true }),
         );
+    });
+
+    it('should list and load Qoder sessions through the source database', async () => {
+        const transcript = buildTranscript('session-first', 'First session');
+        listQoderWorkspaceGroupsMock.mockResolvedValue(['workspace']);
+        listQoderSessionsForGroupMock.mockResolvedValue(['session']);
+        readQoderSessionTranscriptMock.mockResolvedValue(transcript);
+
+        await expect(listQoderWorkspacesFn({} as never)).resolves.toEqual(['workspace']);
+        await expect(listQoderSessionsFn({ data: { workspaceKey: 'workspace-a' } } as never)).resolves.toEqual([
+            'session',
+        ]);
+        await expect(getQoderSessionDetailFn({ data: { sessionId: 'session-first' } } as never)).resolves.toBe(
+            transcript,
+        );
+
+        expect(listQoderSessionsForGroupMock).toHaveBeenCalledWith('workspace-a');
+        expect(readQoderSessionTranscriptMock).toHaveBeenCalledWith(
+            '/tmp/qoder-state.vscdb',
+            '/tmp/qoder-workspaces',
+            'session-first',
+        );
+    });
+
+    it('should reject missing and empty Qoder session exports', async () => {
+        readQoderSessionTranscriptMock.mockResolvedValueOnce(null);
+        await expect(getQoderSessionDetailFn({ data: { sessionId: 'missing' } } as never)).rejects.toThrow(
+            'Qoder session not found: missing',
+        );
+
+        readQoderSessionTranscriptMock.mockResolvedValue(buildTranscript('empty', 'Empty'));
+        renderQoderTranscriptMock.mockReturnValue('');
+        await expect(
+            exportQoderSessionFn({
+                data: {
+                    includeCommentary: true,
+                    includeMetadata: true,
+                    includeTools: true,
+                    outputFormat: 'md',
+                    sessionId: 'empty',
+                    zipArchive: false,
+                },
+            } as never),
+        ).rejects.toThrow('Qoder session has no exportable content: empty');
+        await expect(
+            exportQoderSessionsFn({
+                data: {
+                    includeCommentary: true,
+                    includeMetadata: true,
+                    includeTools: true,
+                    outputFormat: 'md',
+                    sessionIds: ['empty'],
+                    zipArchive: true,
+                },
+            } as never),
+        ).rejects.toThrow('Qoder session has no exportable content: empty');
     });
 });

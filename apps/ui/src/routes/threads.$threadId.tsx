@@ -43,12 +43,14 @@ import {
     formatModelLabel,
     formatTokens,
 } from '#/lib/formatters';
+import { getMutationErrorMessage } from '#/lib/mutation-error';
 import { applyPathTransforms } from '#/lib/path-utils';
 import {
     parseThreadTranscriptSearch,
     type ThreadTranscriptSearch,
     withThreadTranscriptSearch,
 } from '#/lib/route-search';
+import { RouteStateResetBoundary } from '#/lib/route-state-reset';
 import { useSettings } from '#/lib/settings-store';
 import { shouldLoadFullThreadTranscript } from '#/lib/thread-transcript-load';
 
@@ -640,16 +642,7 @@ const getThreadExportErrorMessage = (transcriptMissing: boolean, error: unknown)
 export const Route = createFileRoute('/threads/$threadId')({
     component: ThreadDetailPage,
     errorComponent: ThreadErrorComponent,
-    loader: ({ context, deps, params }) =>
-        context.queryClient.ensureQueryData(
-            threadSnapshotQueryOptions(
-                params.threadId,
-                (deps as { transcriptFilters: ThreadTranscriptFilters }).transcriptFilters,
-            ),
-        ),
-    loaderDeps: ({ search }) => ({
-        transcriptFilters: getTranscriptFiltersFromSearch(parseThreadTranscriptSearch(search)),
-    }),
+    loader: ({ context, params }) => context.queryClient.ensureQueryData(threadSnapshotQueryOptions(params.threadId)),
     pendingComponent: () => (
         <LoadingPanel
             description="Loading the transcript, metadata, and parsed event stream for this thread."
@@ -811,11 +804,11 @@ function ThreadTranscriptTab({
     );
 }
 
-function ThreadDetailPage() {
+function ThreadDetailPageContent() {
     const { navigate, search, transcriptFilters, updateTranscriptSearch } = useThreadTranscriptRouteSearch();
     const queryClient = useQueryClient();
     const params = Route.useParams();
-    const snapshot = useSuspenseQuery(threadSnapshotQueryOptions(params.threadId, transcriptFilters)).data;
+    const snapshot = useSuspenseQuery(threadSnapshotQueryOptions(params.threadId)).data;
     const { settings } = useSettings();
     const transcriptMissing = snapshot.transcriptState === 'missing';
     const [shouldLoadTranscript, setShouldLoadTranscript] = useState(
@@ -959,6 +952,9 @@ function ThreadDetailPage() {
                 },
             }),
         onSuccess: async () => {
+            queryClient.removeQueries({ queryKey: ['thread', snapshot.thread.id] });
+            queryClient.removeQueries({ queryKey: ['thread-transcript-preview', snapshot.thread.id] });
+            queryClient.removeQueries({ queryKey: ['thread-transcript', snapshot.thread.id] });
             await Promise.all([
                 queryClient.invalidateQueries({ queryKey: ['analytics'] }),
                 queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
@@ -1079,11 +1075,17 @@ function ThreadDetailPage() {
                 confirmLabel={deleteThreadMutation.isPending ? 'Deleting...' : 'Delete thread'}
                 defaultDeleteSessionFiles
                 description="Delete this thread from the Codex database. Enable Delete Session files if you also want to remove the rollout JSONL from disk."
+                errorMessage={getMutationErrorMessage(deleteThreadMutation.error, 'Thread delete failed')}
                 open={deleteOpen}
                 showDeleteSessionFilesOption
                 title="Delete this thread from Codex DB?"
                 onConfirm={({ deleteSessionFiles }) => deleteThreadMutation.mutate({ deleteSessionFiles })}
-                onOpenChange={setDeleteOpen}
+                onOpenChange={(open) => {
+                    setDeleteOpen(open);
+                    if (!open) {
+                        deleteThreadMutation.reset();
+                    }
+                }}
             />
 
             <ExportDialog
@@ -1096,8 +1098,22 @@ function ThreadDetailPage() {
                         exportThreadMutation.mutate(options);
                     }
                 }}
-                onOpenChange={setExportOpen}
+                onOpenChange={(open) => {
+                    setExportOpen(open);
+                    if (!open) {
+                        exportThreadMutation.reset();
+                    }
+                }}
             />
         </div>
+    );
+}
+
+function ThreadDetailPage() {
+    const { threadId } = Route.useParams();
+    return (
+        <RouteStateResetBoundary routeKey={threadId}>
+            <ThreadDetailPageContent />
+        </RouteStateResetBoundary>
     );
 }
