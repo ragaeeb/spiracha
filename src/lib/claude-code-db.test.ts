@@ -788,6 +788,105 @@ describe('claude code workspace discovery', () => {
         ]);
     });
 
+    it('should classify status responses followed by user-message task notifications as commentary', async () => {
+        const projectsDir = await makeTempRoot();
+        const waitingMessage =
+            "Waiting on two signals: my fast-tier baseline finishing, and the other session's `test:all` clearing out so I can run an uncontended validation of the new parallel pipeline.";
+        await writeSession(projectsDir, '-Users-rhaq-workspace-ushman-corpus', 'session-background-task', [
+            {
+                cwd: corpusCwd,
+                message: { content: 'Optimize the test pipeline', role: 'user' },
+                sessionId: 'session-background-task',
+                timestamp: '2026-06-01T10:00:00.000Z',
+                type: 'user',
+                uuid: 'user-request',
+            },
+            {
+                cwd: corpusCwd,
+                message: {
+                    content: [{ thinking: "I'm waiting for notifications before wrapping up.", type: 'thinking' }],
+                    role: 'assistant',
+                    stop_reason: 'end_turn',
+                },
+                parentUuid: 'user-request',
+                sessionId: 'session-background-task',
+                timestamp: '2026-06-01T10:00:01.000Z',
+                type: 'assistant',
+                uuid: 'assistant-reasoning',
+            },
+            {
+                cwd: corpusCwd,
+                message: { content: waitingMessage, role: 'assistant', stop_reason: 'end_turn' },
+                parentUuid: 'assistant-reasoning',
+                sessionId: 'session-background-task',
+                timestamp: '2026-06-01T10:00:02.000Z',
+                type: 'assistant',
+                uuid: 'assistant-waiting',
+            },
+            {
+                cwd: corpusCwd,
+                message: { content: [], role: 'system' },
+                parentUuid: 'assistant-waiting',
+                sessionId: 'session-background-task',
+                subtype: 'stop_hook_summary',
+                timestamp: '2026-06-01T10:00:03.000Z',
+                type: 'system',
+                uuid: 'stop-hook',
+            },
+            {
+                cwd: corpusCwd,
+                message: {
+                    content:
+                        '<task-notification>\n<task-id>fast-tier</task-id>\n<status>completed</status>\n</task-notification>',
+                    role: 'user',
+                },
+                parentUuid: 'stop-hook',
+                sessionId: 'session-background-task',
+                timestamp: '2026-06-01T10:00:04.000Z',
+                type: 'user',
+                uuid: 'task-notification',
+            },
+            {
+                cwd: corpusCwd,
+                message: {
+                    content: 'The parallel pipeline is validated. Here are the results.',
+                    role: 'assistant',
+                    stop_reason: 'end_turn',
+                },
+                parentUuid: 'task-notification',
+                sessionId: 'session-background-task',
+                timestamp: '2026-06-01T10:00:05.000Z',
+                type: 'assistant',
+                uuid: 'assistant-complete',
+            },
+        ]);
+
+        const transcript = await readClaudeCodeSessionTranscript(projectsDir, 'session-background-task', {
+            includeRawPayloads: false,
+        });
+        const assistantMessages = transcript?.entries
+            .filter((entry) => entry.role === 'assistant' && entry.parts.some((part) => part.type === 'text'))
+            .map((entry) => ({
+                phase: getClaudeCodeAssistantMessagePhase(entry),
+                text: entry.parts.find((part) => part.type === 'text')?.text,
+            }));
+        const finalOnlyExport = transcript
+            ? renderClaudeCodeTranscript(transcript, {
+                  includeCommentary: false,
+                  includeMetadata: false,
+                  includeTools: false,
+                  outputFormat: 'md',
+              })
+            : null;
+
+        expect(assistantMessages).toEqual([
+            { phase: 'commentary', text: waitingMessage },
+            { phase: 'final_answer', text: 'The parallel pipeline is validated. Here are the results.' },
+        ]);
+        expect(finalOnlyExport).not.toContain(waitingMessage);
+        expect(finalOnlyExport).toContain('The parallel pipeline is validated. Here are the results.');
+    });
+
     it('should classify an assistant response interrupted by the user as commentary', async () => {
         const projectsDir = await makeTempRoot();
         await writeSession(projectsDir, '-Users-rhaq-workspace-ushman-corpus', 'session-interrupted', [

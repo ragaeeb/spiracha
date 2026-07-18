@@ -579,13 +579,14 @@ const markLatestAssistantAsCommentary = (entries: ClaudeCodeTranscriptEntry[]): 
     }
 };
 
-const isSubagentTaskNotification = (raw: Record<string, JsonValue>): boolean => {
-    return (
-        raw.type === 'queue-operation' &&
-        asString(raw.content ?? null)
-            ?.trimStart()
-            .startsWith('<task-notification>') === true
-    );
+const isTaskNotification = (raw: Record<string, JsonValue>): boolean => {
+    const content =
+        raw.type === 'queue-operation'
+            ? asString(raw.content ?? null)
+            : raw.type === 'user'
+              ? textFromContentValue(asObject(raw.message ?? null)?.content)
+              : null;
+    return content?.trimStart().startsWith('<task-notification>') === true;
 };
 
 const buildTranscriptFromRawEvents = (
@@ -612,7 +613,7 @@ const buildTranscriptFromRawEvents = (
         updateTimeline(timeline, raw);
         updateIdentityFromRaw(identity, raw);
 
-        if (isSubagentTaskNotification(raw)) {
+        if (isTaskNotification(raw)) {
             markLatestAssistantAsCommentary(entries);
         }
 

@@ -8,6 +8,7 @@ export default defineConfig({
             '#': path.resolve(__dirname, './src'),
         },
     },
+    root: __dirname,
     test: {
         coverage: {
             exclude: ['src/routeTree.gen.ts', 'src/integrations/**', 'src/router.tsx', 'src/routes/**'],

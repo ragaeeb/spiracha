@@ -42,19 +42,19 @@ The browser UI for browsing local Codex, Claude Code, Grok, Kiro, Qoder, Cursor,
 ## Commands
 
 ```bash
-rtk bun run dev
+rtk bun start
 rtk bun run build
-rtk bun run test
+rtk bun run test:ui
 rtk bun run typecheck
 ```
 
 ## Runtime Note
 
-This package runs `vite` through `bun --bun ...`.
+Run these commands from the repository root. The UI is part of the root package and intentionally has no nested package manifest.
 
-That is required because the TanStack Start server functions import shared root-package modules that use Bun-only features such as `bun:sqlite`.
+Root-owned Vite commands use `apps/ui` as their internal working directory and run through `bun --bun`. That is required because TanStack Start derives part of its server plan from the application directory and the server functions use Bun-only modules such as `bun:sqlite`.
 
-If you change the scripts back to plain `vite` or a Node execution path, the UI server functions will fail at runtime.
+Vitest uses its normal Node runtime.
 
 ## Configuration
 
@@ -185,4 +185,4 @@ Transcript detail pages expose the same display controls across sources: user me
 - UI component tests live under `src/**/*.vitest.tsx`.
 - Source-specific transcript event adapter tests live under `src/lib/*.vitest.ts`.
 - Route search parsing tests live in `src/lib/route-search.vitest.ts`.
-- The repo root wraps this Vitest suite from `src/ui-package.test.ts`, so `rtk bun test` at the root covers both the Bun tests and the UI tests.
+- The repo root wraps this Vitest suite from `src/ui-suite.test.ts`, so `rtk bun test` at the root covers both the Bun tests and the UI tests.

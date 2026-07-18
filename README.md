@@ -7,7 +7,7 @@
 [![license](https://img.shields.io/npm/l/spiracha)](LICENSE.md)
 [![runtime](https://img.shields.io/badge/runtime-Bun-000000?logo=bun)](https://bun.sh)
 
-Spiracha is a local TanStack Start app for browsing and exporting agent conversation history from Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, and OpenCode.
+Spiracha is a Bun package with a local TanStack Start UI and a direct data client for browsing and exporting agent conversation history from Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, and OpenCode.
 
 The legacy CLI, MCP server, and Codex plugin surfaces have been removed in the 2.0 hard cut. Spiracha now exposes the UI and a stable local data API; client-specific workflows such as review collection belong in the client that calls the API.
 
@@ -101,7 +101,7 @@ Response envelope:
 }
 ```
 
-For serverless access from Bun, use the public client export:
+For direct access from Bun scripts and CLIs, use the public client export. Local mode reads the source data without starting the TanStack server:
 
 ```ts
 import { createConversationClient } from "spiracha/client";
@@ -144,10 +144,10 @@ rtk bun run typecheck
 rtk bun run build
 rtk bun run coverage
 rtk bun start
-rtk bun run --cwd apps/ui test
+rtk bun run test:ui
 ```
 
-The UI package runs Vite through `bun --bun` because server functions import Bun-only modules such as `bun:sqlite`.
+Spiracha has one package manifest. The `apps/ui` directory remains a source boundary, but all UI and direct-client commands and dependencies are owned at the repository root. Root-owned Vite commands use `apps/ui` as their internal working directory and run through `bun --bun` because TanStack server functions import Bun-only modules such as `bun:sqlite`; Vitest uses its normal Node runtime.
 
 ## Breaking Consequences
 

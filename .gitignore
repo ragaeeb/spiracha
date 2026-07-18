@@ -1,5 +1,4 @@
-# Repo-root shared tooling only.
-# App workspaces live under `projects/<app>/` and may be separate nested git repos.
+# Repository-wide dependencies and tooling.
 
 /node_modules/
 /playwright-report/

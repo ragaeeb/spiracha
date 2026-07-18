@@ -40,9 +40,17 @@
     },
     "description": "Browse and expose local Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, and OpenCode conversation history through a local UI and stable data API.",
     "devDependencies": {
+        "@biomejs/biome": "2.5.3",
+        "@testing-library/dom": "10.4.1",
+        "@testing-library/react": "16.3.2",
         "@types/bun": "^1.3.14",
         "@types/node": "^26.1.1",
-        "typescript": "^7.0.2"
+        "@types/react": "19.2.17",
+        "@types/react-dom": "19.2.3",
+        "@vitest/coverage-v8": "4.1.8",
+        "jsdom": "29.1.1",
+        "typescript": "^7.0.2",
+        "vitest": "4.1.8"
     },
     "engines": {
         "bun": ">=1.3.14"
@@ -64,7 +72,6 @@
     "files": [
         "bin/spiracha.ts",
         "apps/ui/components.json",
-        "apps/ui/package.json",
         "apps/ui/public/**/*",
         "apps/ui/src/**/*",
         "!apps/ui/src/**/*.vitest.ts",
@@ -79,6 +86,9 @@
         "AGENTS.md"
     ],
     "homepage": "https://github.com/ragaeeb/spiracha",
+    "imports": {
+        "#/*": "./apps/ui/src/*"
+    },
     "keywords": [
         "codex",
         "claude",
@@ -101,21 +111,19 @@
         "url": "git+https://github.com/ragaeeb/spiracha.git"
     },
     "scripts": {
-        "build": "bun run typecheck && bun run --cwd apps/ui build",
+        "build": "bun run typecheck && bun --cwd apps/ui --bun vite build",
         "coverage": "bun run coverage:root && bun run coverage:ui",
         "coverage:root": "bun test --coverage --coverage-reporter=lcov --coverage-dir coverage && bun run ./src/coverage-check.ts root",
-        "coverage:ui": "bun run --cwd apps/ui coverage && bun run ./src/coverage-check.ts ui",
+        "coverage:ui": "vitest run --coverage --config apps/ui/vitest.config.ts && bun run ./src/coverage-check.ts ui",
         "format": "biome check . --write && biome lint . --write",
         "lint": "biome check .",
-        "start": "bun run --cwd apps/ui dev",
+        "start": "bun --cwd apps/ui --bun vite dev --host 127.0.0.1 --port 3000",
+        "test:ui": "vitest run --config apps/ui/vitest.config.ts",
         "typecheck": "bun run typecheck:root && bun run typecheck:ui",
         "typecheck:root": "bunx tsc --noEmit",
-        "typecheck:ui": "bun run --cwd apps/ui typecheck",
-        "ui:preview": "bun run --cwd apps/ui preview"
+        "typecheck:ui": "bunx tsc --noEmit -p apps/ui/tsconfig.json",
+        "ui:preview": "bun --cwd apps/ui --bun vite preview"
     },
     "type": "module",
-    "version": "2.2.0",
-    "workspaces": [
-        "apps/*"
-    ]
+    "version": "2.2.0"
 }

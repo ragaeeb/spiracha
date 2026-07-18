@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'bun:test';
-import path from 'node:path';
 
 const UI_SUITE_TIMEOUT_MS = 60_000;
 
@@ -9,9 +8,9 @@ type SpawnResult = {
     stdoutText: string;
 };
 
-const runUiVitestSuite = async (uiDir: string): Promise<SpawnResult> => {
-    const proc = Bun.spawn(['bun', 'run', 'test'], {
-        cwd: uiDir,
+const runUiVitestSuite = async (packageRoot: string): Promise<SpawnResult> => {
+    const proc = Bun.spawn(['bun', 'run', 'test:ui'], {
+        cwd: packageRoot,
         stderr: 'pipe',
         stdout: 'pipe',
     });
@@ -67,12 +66,12 @@ const runUiVitestSuite = async (uiDir: string): Promise<SpawnResult> => {
     }
 };
 
-describe('ui package tests', () => {
+describe('UI tests', () => {
     it(
         'should pass the Vitest UI suite',
         async () => {
-            const uiDir = path.join(process.cwd(), 'apps', 'ui');
-            const { exitCode, stderrText, stdoutText } = await runUiVitestSuite(uiDir);
+            const packageRoot = process.cwd();
+            const { exitCode, stderrText, stdoutText } = await runUiVitestSuite(packageRoot);
 
             expect(exitCode).toBe(0);
             expect(`${stdoutText}\n${stderrText}`).not.toContain('FAIL');

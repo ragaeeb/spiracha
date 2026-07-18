@@ -8,6 +8,8 @@ import viteReact from '@vitejs/plugin-react';
 import { defineConfig, type Plugin } from 'vite';
 import { buildUiExportContentDisposition, resolveUiExportFilePathFromRequestPath } from '../../src/lib/ui-export-files';
 
+const uiRoot = __dirname;
+
 const getExportContentType = (filePath: string) => {
     if (filePath.endsWith('.zip')) {
         return 'application/zip';
@@ -70,13 +72,14 @@ const config = defineConfig({
     plugins: [spirachaExportFiles(), devtools(), tailwindcss(), tanstackStart(), viteReact()],
     resolve: {
         alias: {
-            '@spiracha': path.resolve(__dirname, '..', '..', 'src'),
+            '@spiracha': path.resolve(uiRoot, '..', '..', 'src'),
         },
         tsconfigPaths: true,
     },
+    root: uiRoot,
     server: {
         fs: {
-            allow: [path.resolve(__dirname, '..', '..')],
+            allow: [path.resolve(uiRoot, '..', '..')],
         },
     },
 });

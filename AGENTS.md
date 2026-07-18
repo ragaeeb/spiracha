@@ -85,7 +85,7 @@ Shared utilities:
 - `src/lib/ui-export-archive.ts`
 - `src/lib/ui-export-files.ts`
 
-UI package:
+UI source tree:
 - `apps/ui/`
   - TanStack Start browser UI
   - API routes live under `apps/ui/src/routes/api.v1.*.ts`
@@ -127,7 +127,7 @@ Current tests cover:
 - Cursor recovery/prune behavior
 - Antigravity discovery, transcript parsing, Keychain state, and artifact export rendering
 - OpenCode MiniMax `<think>` tag extraction, including code-literal preservation
-- UI component and adapter behavior through the Vitest suite wrapped by `src/ui-package.test.ts`
+- UI component and adapter behavior through the Vitest suite wrapped by `src/ui-suite.test.ts`
 - package manifest hard-cut guarantees through `src/package-manifest.test.ts`
 
 When changing risky areas:
@@ -148,13 +148,14 @@ rtk bun run build
 rtk bun run coverage
 rtk bun start
 rtk bun run ui:preview
-rtk bun run --cwd apps/ui test
+rtk bun run test:ui
 ```
 
 ## Notes
 
 - Keep root-package source modules imported by the UI available through `@spiracha/lib/*`.
-- The UI package runs Vite through `bun --bun` because server functions depend on Bun-only modules like `bun:sqlite`.
+- The repository has one package manifest. Keep UI runtime dependencies needed by packaged `bunx spiracha` in root `dependencies` and build/test-only tooling in root `devDependencies`.
+- Root-owned UI Vite commands use `apps/ui` as their internal working directory and run through `bun --bun` because TanStack and server functions depend on that application root and Bun-only modules like `bun:sqlite`. Do not add a nested manifest to achieve this. UI Vitest commands use the normal Node runtime.
 - TanStack Start server functions should use `.validator(...)`, not deprecated `.inputValidator(...)`.
 - API routes should use route-level `server.handlers`.
 - Keep `*-transcript-phase.ts` modules browser-safe; UI client adapters import them directly.

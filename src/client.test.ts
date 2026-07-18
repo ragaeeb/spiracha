@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createConversationClient, SpirachaClientError } from './client';
@@ -34,6 +34,20 @@ const conversation = {
     workspacePath: '/repo',
 } satisfies ConversationDetail;
 
+const runBunCommand = async (args: string[], cwd: string) => {
+    const proc = Bun.spawn([process.execPath, ...args], {
+        cwd,
+        stderr: 'pipe',
+        stdout: 'pipe',
+    });
+    const [exitCode, stderrText, stdoutText] = await Promise.all([
+        proc.exited,
+        new Response(proc.stderr).text(),
+        new Response(proc.stdout).text(),
+    ]);
+    return { exitCode, stderrText, stdoutText };
+};
+
 describe('conversation client', () => {
     it('should list conversations locally without a running HTTP server', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'spiracha-client-local-'));
@@ -66,6 +80,62 @@ describe('conversation client', () => {
             await rm(tempRoot, { force: true, recursive: true });
         }
     });
+
+    it('should support direct CLI imports from the installed package without starting a TanStack server', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'spiracha-client-cli-'));
+        try {
+            const packageDirectory = path.join(tempRoot, 'package');
+            const consumerDirectory = path.join(tempRoot, 'consumer');
+            await Promise.all([mkdir(packageDirectory), mkdir(consumerDirectory)]);
+            const { version } = (await Bun.file(path.join(process.cwd(), 'package.json')).json()) as {
+                version: string;
+            };
+            const packagePath = path.join(packageDirectory, `spiracha-${version}.tgz`);
+            const packResult = await runBunCommand(
+                ['pm', 'pack', '--destination', packageDirectory, '--ignore-scripts', '--quiet'],
+                process.cwd(),
+            );
+            expect(packResult.stderrText).toBe('');
+            expect(packResult.exitCode, packResult.stderrText).toBe(0);
+
+            await Bun.write(
+                path.join(consumerDirectory, 'package.json'),
+                `${JSON.stringify({ dependencies: { spiracha: `file:${packagePath}` }, private: true, type: 'module' }, null, 4)}\n`,
+            );
+            const installResult = await runBunCommand(['install', '--offline', '--ignore-scripts'], consumerDirectory);
+            expect(installResult.stderrText).not.toContain('error:');
+            expect(installResult.exitCode, installResult.stderrText).toBe(0);
+
+            const locations = {
+                antigravityRoots: [path.join(tempRoot, 'antigravity')],
+                claudeCodeProjectsDir: path.join(tempRoot, 'claude'),
+                codexDbPath: path.join(tempRoot, 'missing-codex.sqlite'),
+                cursorUserDir: path.join(tempRoot, 'cursor'),
+                kiroWorkspaceSessionsDir: path.join(tempRoot, 'kiro'),
+                opencodeDbPath: path.join(tempRoot, 'missing-opencode.sqlite'),
+                qoderGlobalStateDb: path.join(tempRoot, 'missing-qoder.sqlite'),
+                qoderWorkspaceStorageDir: path.join(tempRoot, 'qoder-workspaces'),
+            };
+            const script = `
+                import { createConversationClient } from 'spiracha/client';
+                const client = createConversationClient({ locations: ${JSON.stringify(locations)}, mode: 'local' });
+                const page = await client.listConversations({ cwd: ${JSON.stringify(path.join(tempRoot, 'repo'))} });
+                console.log(JSON.stringify(page));
+            `;
+            const scriptPath = path.join(consumerDirectory, 'collect.ts');
+            await Bun.write(scriptPath, script);
+            const collectResult = await runBunCommand([scriptPath], consumerDirectory);
+
+            expect(collectResult.stderrText).toBe('');
+            expect(collectResult.exitCode, collectResult.stderrText).toBe(0);
+            expect(JSON.parse(collectResult.stdoutText)).toEqual({
+                data: [],
+                meta: { hasNext: false, nextCursor: null },
+            });
+        } finally {
+            await rm(tempRoot, { force: true, recursive: true });
+        }
+    }, 30_000);
 
     it('should call the HTTP API using stable query names and normalize pagination metadata', async () => {
         const requestedUrls: string[] = [];
