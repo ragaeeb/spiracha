@@ -135,6 +135,28 @@ describe('getCachedThreadTranscriptPreview', () => {
 });
 
 describe('getCachedCodexTranscriptStats', () => {
+    it('should reuse cached list statistics without parsing the rollout again', async () => {
+        await invalidateCacheByPrefix('thread-list-stats-');
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-list-stats-hit-test-'));
+        tempPaths.push(tempRoot);
+        const sessionFile = path.join(tempRoot, 'rollout.jsonl');
+        await Bun.write(
+            sessionFile,
+            JSON.stringify({
+                payload: { message: 'cached final answer', phase: 'final_answer', type: 'agent_message' },
+                type: 'response_item',
+            }),
+        );
+
+        const first = await getCachedCodexTranscriptStats(sessionFile);
+        const cached = await getCachedCodexTranscriptStats(sessionFile, async () => {
+            throw new Error('rollout was parsed on a cache hit');
+        });
+
+        expect(cached).toEqual(first);
+        expect(cached.finalAnswerCount).toBe(1);
+    });
+
     it('should cache only transcript statistics for thread listings', async () => {
         await invalidateCacheByPrefix('thread-list-stats-');
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-list-stats-test-'));

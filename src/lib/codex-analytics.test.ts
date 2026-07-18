@@ -31,6 +31,7 @@ describe('getCodexAnalytics', () => {
         expect(analytics.summary).toMatchObject({
             archivedThreads: 1,
             averageTokensPerThread: 243930.33,
+            medianTokensPerThread: 180123,
             totalProjects: 2,
             totalThreads: 3,
             totalTokens: 731791,
@@ -41,6 +42,30 @@ describe('getCodexAnalytics', () => {
         ]);
         expect(analytics.summary.threadsWithWebSearch).toBe(3);
         expect(analytics.summary.distinctToolNames).toBe(2);
+    });
+
+    it('should report median tokens and source-specific breakdowns', async () => {
+        const threads = [
+            createThreadRow({ id: 'thread-1', reasoning_effort: 'high', source: 'vscode', tokens_used: 1 }),
+            createThreadRow({ id: 'thread-2', reasoning_effort: 'medium', source: 'cli', tokens_used: 2 }),
+            createThreadRow({ id: 'thread-3', reasoning_effort: 'high', source: 'vscode', tokens_used: 8 }),
+            createThreadRow({ id: 'thread-4', reasoning_effort: null, source: 'vscode', tokens_used: 9 }),
+        ];
+
+        const analytics = await computeCodexAnalyticsFromThreads(threads, {
+            loadThreadAnalytics: async () => ({ hasWebSearch: false, toolNames: [] }),
+        });
+
+        expect(analytics.summary.medianTokensPerThread).toBe(5);
+        expect(analytics.sources).toEqual([
+            { count: 3, label: 'vscode' },
+            { count: 1, label: 'cli' },
+        ]);
+        expect(analytics.reasoningEfforts).toEqual([
+            { count: 2, label: 'high' },
+            { count: 1, label: 'medium' },
+            { count: 1, label: 'unspecified' },
+        ]);
     });
 
     it('should include custom tool calls in tool usage analytics', async () => {
@@ -107,9 +132,17 @@ describe('getCodexAnalytics', () => {
             [{ ...thread, updated_at_ms: 1779037925000 }],
             null,
         );
+        const updatedSourceKey = buildCodexAnalyticsCacheKey('/tmp/state.sqlite', [{ ...thread, source: 'cli' }], null);
+        const updatedReasoningKey = buildCodexAnalyticsCacheKey(
+            '/tmp/state.sqlite',
+            [{ ...thread, reasoning_effort: 'medium' }],
+            null,
+        );
 
         expect(firstKey).toStartWith('analytics-');
         expect(updatedKey).not.toBe(firstKey);
+        expect(updatedSourceKey).not.toBe(firstKey);
+        expect(updatedReasoningKey).not.toBe(firstKey);
     });
 
     it('should reuse the analytics cache without touching rollout files when DB metadata is unchanged', async () => {

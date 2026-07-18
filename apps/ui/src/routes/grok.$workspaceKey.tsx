@@ -9,9 +9,10 @@ import { GrokSessionsTable } from '#/components/grok-sessions-table';
 import { ListSearchInput } from '#/components/list-search-input';
 import { LoadingPanel } from '#/components/loading-panel';
 import { PageHeader } from '#/components/page-header';
-import { ReloadErrorPanel } from '#/components/reload-error-panel';
+import { RouteErrorPanel } from '#/components/route-error-panel';
 import { Button } from '#/components/ui/button';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
+import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { grokSessionsQueryOptions, grokWorkspacesQueryOptions } from '#/lib/grok-queries';
 import {
     deleteGrokSessionFn,
@@ -21,14 +22,6 @@ import {
 } from '#/lib/grok-server';
 import { matchesTextQuery } from '#/lib/text-filter';
 import { isWorkspaceEmptiedByDelete } from '#/lib/workspace-delete-navigation';
-
-type ExportDialogOptions = {
-    includeCommentary: boolean;
-    includeMetadata: boolean;
-    includeTools: boolean;
-    outputFormat: 'md' | 'txt';
-    zipArchive: boolean;
-};
 
 type PendingSessionDelete = {
     scope: 'all' | 'selected';
@@ -104,7 +97,7 @@ export const Route = createFileRoute('/grok/$workspaceKey')({
 });
 
 function GrokWorkspaceErrorComponent({ error }: { error: Error }) {
-    return <ReloadErrorPanel description={error.message} title="Failed to load Grok workspace" />;
+    return <RouteErrorPanel error={error} title="Failed to load Grok workspace" />;
 }
 
 function GrokWorkspacePage() {
@@ -120,20 +113,16 @@ function GrokWorkspacePage() {
     const deferredSearch = useDeferredValue(searchInput);
 
     const exportMutation = useMutation({
-        mutationFn: async (options: ExportDialogOptions) => {
-            if (!pendingExport) {
-                throw new Error('No Grok session selected for export');
-            }
-
+        mutationFn: async ({ ids, options }: ExportSelectionMutationInput) => {
             const download =
-                pendingExport.sessionIds.length === 1
+                ids.length === 1
                     ? await exportGrokSessionFn({
                           data: {
                               includeCommentary: options.includeCommentary,
                               includeMetadata: options.includeMetadata,
                               includeTools: options.includeTools,
                               outputFormat: options.outputFormat,
-                              sessionId: pendingExport.sessionIds[0]!,
+                              sessionId: ids[0]!,
                               zipArchive: options.zipArchive,
                           },
                       })
@@ -143,7 +132,7 @@ function GrokWorkspacePage() {
                               includeMetadata: options.includeMetadata,
                               includeTools: options.includeTools,
                               outputFormat: options.outputFormat,
-                              sessionIds: pendingExport.sessionIds,
+                              sessionIds: [...ids],
                               zipArchive: options.zipArchive,
                           },
                       });
@@ -264,7 +253,11 @@ function GrokWorkspacePage() {
                 open={pendingExport !== null}
                 pending={exportMutation.isPending}
                 title={pendingExport ? `Export ${pendingExport.label}` : 'Export session'}
-                onExport={(options) => exportMutation.mutate(options)}
+                onExport={(options) => {
+                    if (pendingExport) {
+                        exportMutation.mutate(createExportSelectionMutationInput(pendingExport.sessionIds, options));
+                    }
+                }}
                 onOpenChange={(open) => {
                     if (!open) {
                         setPendingExport(null);

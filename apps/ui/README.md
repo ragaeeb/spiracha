@@ -17,8 +17,9 @@ The browser UI for browsing local Codex, Claude Code, Grok, Kiro, Qoder, Cursor,
 
 - lists derived Codex projects from the Codex SQLite database
 - lists Codex threads within a project in chronological order
-- shows Codex thread timelines, tool calls, metadata, and raw event context
-- exports Codex, Claude Code, Grok, Kiro, Qoder, Cursor, and OpenCode sessions or threads as Markdown, plain text, or optional zip archives with optional metadata, commentary, and tool-call inclusion
+- shows Codex thread timelines, a dedicated tool activity and definition view, recorded goals, readable sandbox policy, metadata, and raw event context
+- searches Codex projects from the app shell through the URL-backed `/codex?q=...` inventory filter
+- exports Codex, Claude Code, Grok, Kiro, Qoder, Cursor, and OpenCode sessions or threads as Markdown, plain text, or optional zip archives with optional metadata, commentary, and tool-call inclusion; the last submitted choices persist while canceled drafts are discarded
 - lists Claude Code workspaces and sessions from local `~/.claude/projects` JSONL files
 - shows dedicated Claude Code session detail pages with reasoning, tool calls, token metadata, and export actions
 - lists Grok workspaces and sessions from local Grok session archives
@@ -35,7 +36,7 @@ The browser UI for browsing local Codex, Claude Code, Grok, Kiro, Qoder, Cursor,
 - unlocks Antigravity transcript export through macOS Keychain and exports conversations or artifacts as Markdown
 - lists OpenCode workspaces and sessions from the local OpenCode SQLite database
 - shows dedicated OpenCode session detail pages with reasoning, tool parts, MiniMax `<think>` blocks, token metadata, and export actions
-- shows dashboard and analytics summaries, including Codex token totals and tool-call frequency
+- shows dashboard and project-scoped Codex analytics for token totals, average and median thread size, archive counts, tool usage, model tokens, client sources, and reasoning effort
 - keeps Codex inventory search and analytics project filters in URL search params for reloadable and shareable views
 - keeps source-specific commentary hidden by default while preserving final answers, with matching export filtering for Claude Code, Kiro, Qoder, and OpenCode
 
@@ -121,6 +122,8 @@ Default source locations:
 
 Codex analytics cache keys are based on Codex DB row metadata instead of statting every rollout file before cache hits. That keeps large histories responsive. The tradeoff is that manual JSONL edits outside Codex do not invalidate analytics unless DB row metadata changes or the temporary UI cache is cleared.
 
+The temporary UI cache is pruned opportunistically at read/write boundaries, with cleanup scans throttled to once per minute. Entries expire after 24 hours and the retained cache is capped at 256 MiB; recently accessed entries refresh their age so hot data survives eviction.
+
 Transcript detail pages expose the same display controls across sources: user messages, commentary, tool calls, extra events, and raw JSON. Claude Code assistant lead-ins are classified from `stop_reason`, Kiro assistant phases are classified per user turn from session and execution files, Qoder shows local prompt history plus checkpoint file operations, and OpenCode assistant phases are classified per assistant run after stripping MiniMax `<think>` blocks into commentary. OpenCode think-tag extraction preserves literal `<think>` examples inside Markdown code spans and fenced code blocks.
 
 ## Routes
@@ -178,7 +181,7 @@ Transcript detail pages expose the same display controls across sources: user me
 - `/$threadId`
   - shortcut redirect to the thread detail page for pasted Codex thread UUIDs
 - `/analytics`
-  - Codex token and tool-call analytics, with `project` as the route search param
+  - project-scoped Codex token, archive, tool, model, client-source, and reasoning-effort analytics, with `project` as the route search param
 
 ## Testing
 

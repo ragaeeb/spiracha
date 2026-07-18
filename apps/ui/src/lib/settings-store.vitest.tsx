@@ -1,6 +1,10 @@
 import { act, cleanup, render, screen } from '@testing-library/react';
+import { renderToString } from 'react-dom/server';
 import { afterEach, describe, expect, it } from 'vitest';
-import { SettingsProvider, useSettings } from './settings-store';
+import type { Settings } from './settings-store';
+import { DEFAULT_SETTINGS, SettingsProvider, useSettings } from './settings-store';
+
+const renderSnapshots: Settings[] = [];
 
 const SettingsConsumer = () => {
     const { settings, updateSetting } = useSettings();
@@ -15,8 +19,15 @@ const SettingsConsumer = () => {
     );
 };
 
+const RecordingSettingsConsumer = () => {
+    const { settings } = useSettings();
+    renderSnapshots.push(settings);
+    return <span>{settings.redactUsername ? 'redacted' : 'visible'}</span>;
+};
+
 afterEach(() => {
     cleanup();
+    renderSnapshots.length = 0;
     window.localStorage.clear();
 });
 
@@ -35,15 +46,17 @@ describe('settings store', () => {
             </SettingsProvider>,
         );
 
-        expect(screen.getByText('{"convertToProjectRoot":true,"redactUsername":false}')).toBeTruthy();
+        expect(screen.getByText(JSON.stringify({ ...DEFAULT_SETTINGS, convertToProjectRoot: true }))).toBeTruthy();
 
         act(() => {
             screen.getByRole('button', { name: 'Toggle redact' }).click();
         });
 
-        expect(window.localStorage.getItem('spiracha-settings')).toBe(
-            '{"convertToProjectRoot":true,"redactUsername":true}',
-        );
+        expect(JSON.parse(window.localStorage.getItem('spiracha-settings') ?? 'null')).toEqual({
+            ...DEFAULT_SETTINGS,
+            convertToProjectRoot: true,
+            redactUsername: true,
+        });
     });
 
     it('should fall back to default settings when local storage is invalid', () => {
@@ -55,13 +68,38 @@ describe('settings store', () => {
             </SettingsProvider>,
         );
 
-        expect(screen.getByText('{"convertToProjectRoot":false,"redactUsername":false}')).toBeTruthy();
+        expect(screen.getByText(JSON.stringify(DEFAULT_SETTINGS))).toBeTruthy();
     });
 
     it('should expose default settings even without a provider', () => {
         render(<SettingsConsumer />);
 
-        expect(screen.getByText('{"convertToProjectRoot":false,"redactUsername":false}')).toBeTruthy();
+        expect(screen.getByText(JSON.stringify(DEFAULT_SETTINGS))).toBeTruthy();
+    });
+
+    it('should expose persisted preferences on the first client render', () => {
+        window.localStorage.setItem('spiracha-settings', JSON.stringify({ redactUsername: true }));
+
+        render(
+            <SettingsProvider>
+                <RecordingSettingsConsumer />
+            </SettingsProvider>,
+        );
+
+        expect(renderSnapshots[0]?.redactUsername).toBe(true);
+        expect(screen.getByText('redacted')).toBeTruthy();
+    });
+
+    it('should use a stable default snapshot during server rendering', () => {
+        window.localStorage.setItem('spiracha-settings', JSON.stringify({ redactUsername: true }));
+
+        const html = renderToString(
+            <SettingsProvider>
+                <RecordingSettingsConsumer />
+            </SettingsProvider>,
+        );
+
+        expect(html).toContain('visible');
     });
 
     it('should synchronize settings changed in another tab', () => {
@@ -71,15 +109,28 @@ describe('settings store', () => {
             </SettingsProvider>,
         );
 
+        const synchronizedSettings = {
+            convertToProjectRoot: true,
+            redactUsername: true,
+        };
+        window.localStorage.setItem('spiracha-settings', JSON.stringify(synchronizedSettings));
         act(() => {
             window.dispatchEvent(
                 new StorageEvent('storage', {
                     key: 'spiracha-settings',
-                    newValue: '{"convertToProjectRoot":true,"redactUsername":true}',
+                    newValue: JSON.stringify(synchronizedSettings),
                 }),
             );
         });
 
-        expect(screen.getByText('{"convertToProjectRoot":true,"redactUsername":true}')).toBeTruthy();
+        expect(
+            screen.getByText(
+                JSON.stringify({
+                    ...DEFAULT_SETTINGS,
+                    convertToProjectRoot: true,
+                    redactUsername: true,
+                }),
+            ),
+        ).toBeTruthy();
     });
 });

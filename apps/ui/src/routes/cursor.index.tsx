@@ -6,14 +6,14 @@ import { CursorWorkspacesTable } from '#/components/cursor-workspaces-table';
 import { DeleteConfirmDialog } from '#/components/delete-confirm-dialog';
 import { ListSearchInput } from '#/components/list-search-input';
 import { PageHeader } from '#/components/page-header';
-import { ReloadErrorPanel } from '#/components/reload-error-panel';
+import { RouteErrorPanel } from '#/components/route-error-panel';
 import { cursorWorkspacesQueryOptions } from '#/lib/cursor-queries';
 import { deleteCursorWorkspaceFn, recoverCursorWorkspaceFn } from '#/lib/cursor-server';
 import { getMutationErrorMessage } from '#/lib/mutation-error';
 import { matchesTextQuery } from '#/lib/text-filter';
 
 const CursorErrorComponent = ({ error }: { error: Error }) => {
-    return <ReloadErrorPanel description={error.message} title="Failed to load Cursor workspaces" />;
+    return <RouteErrorPanel error={error} title="Failed to load Cursor workspaces" />;
 };
 
 const CursorPage = () => {

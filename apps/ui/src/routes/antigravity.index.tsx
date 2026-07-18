@@ -5,7 +5,7 @@ import { AntigravityKeychainPanel } from '#/components/antigravity-keychain-pane
 import { AntigravityWorkspacesTable } from '#/components/antigravity-workspaces-table';
 import { ListSearchInput } from '#/components/list-search-input';
 import { PageHeader } from '#/components/page-header';
-import { ReloadErrorPanel } from '#/components/reload-error-panel';
+import { RouteErrorPanel } from '#/components/route-error-panel';
 import { antigravityWorkspacesQueryOptions } from '#/lib/antigravity-queries';
 import { matchesTextQuery } from '#/lib/text-filter';
 
@@ -16,7 +16,7 @@ export const Route = createFileRoute('/antigravity/')({
 });
 
 function AntigravityErrorComponent({ error }: { error: Error }) {
-    return <ReloadErrorPanel description={error.message} title="Failed to load Antigravity workspaces" />;
+    return <RouteErrorPanel error={error} title="Failed to load Antigravity workspaces" />;
 }
 
 function AntigravityPage() {

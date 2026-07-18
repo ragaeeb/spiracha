@@ -11,7 +11,7 @@ import { LoadingPanel } from '#/components/loading-panel';
 import { MetadataSection } from '#/components/metadata-section';
 import { MetricCard } from '#/components/metric-card';
 import { PageHeader } from '#/components/page-header';
-import { ReloadErrorPanel } from '#/components/reload-error-panel';
+import { RouteErrorPanel } from '#/components/route-error-panel';
 import { DEFAULT_SHOW_USER_MESSAGES, TranscriptView } from '#/components/transcript-view';
 import { Button } from '#/components/ui/button';
 import { Checkbox } from '#/components/ui/checkbox';
@@ -20,18 +20,11 @@ import { cursorThreadDetailQueryOptions, cursorWorkspacesQueryOptions } from '#/
 import { deleteCursorThreadsFn, exportCursorThreadFn, type getCursorThreadDetailFn } from '#/lib/cursor-server';
 import { cursorTranscriptToThreadEvents, getCursorThreadTranscriptStats } from '#/lib/cursor-transcript-events';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
+import type { ExportDialogOptions } from '#/lib/export-options';
 import { formatBytes, formatDateTime, formatList, formatNumber } from '#/lib/formatters';
 import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
 type CursorThreadDetail = Awaited<ReturnType<typeof getCursorThreadDetailFn>>;
-
-type ExportDialogOptions = {
-    includeCommentary: boolean;
-    includeMetadata: boolean;
-    includeTools: boolean;
-    outputFormat: 'md' | 'txt';
-    zipArchive: boolean;
-};
 
 type TranscriptControlsProps = {
     rawJsonDisabled?: boolean;
@@ -209,7 +202,7 @@ const CursorThreadRawPanels = ({ detail, events }: { detail: CursorThreadDetail;
 };
 
 const CursorThreadDetailErrorComponent = ({ error }: { error: Error }) => {
-    return <ReloadErrorPanel description={error.message} title="Failed to load Cursor thread" />;
+    return <RouteErrorPanel error={error} title="Failed to load Cursor thread" />;
 };
 
 const CursorThreadDetailPage = () => {

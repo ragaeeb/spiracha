@@ -9,7 +9,7 @@ import { ExportDialog } from '#/components/export-dialog';
 import { ListSearchInput } from '#/components/list-search-input';
 import { LoadingPanel } from '#/components/loading-panel';
 import { PageHeader } from '#/components/page-header';
-import { ReloadErrorPanel } from '#/components/reload-error-panel';
+import { RouteErrorPanel } from '#/components/route-error-panel';
 import { Button } from '#/components/ui/button';
 import { cursorThreadsQueryOptions, cursorWorkspacesQueryOptions } from '#/lib/cursor-queries';
 import {
@@ -20,6 +20,7 @@ import {
     recoverCursorWorkspaceFn,
 } from '#/lib/cursor-server';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
+import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { getMutationErrorMessage } from '#/lib/mutation-error';
 import { matchesTextQuery } from '#/lib/text-filter';
 import { isWorkspaceEmptiedByDelete } from '#/lib/workspace-delete-navigation';
@@ -31,14 +32,6 @@ type PendingCursorDelete =
 type PendingCursorExport = {
     composerIds: string[];
     label: string;
-};
-
-type ExportDialogOptions = {
-    includeCommentary: boolean;
-    includeMetadata: boolean;
-    includeTools: boolean;
-    outputFormat: 'md' | 'txt';
-    zipArchive: boolean;
 };
 
 const findWorkspaceOrThrow = (workspaces: CursorWorkspaceGroup[], workspaceKey: string) => {
@@ -115,7 +108,7 @@ const getCursorDeleteTitle = (pendingDelete: PendingCursorDelete | null) => {
 };
 
 const CursorWorkspaceErrorComponent = ({ error }: { error: Error }) => {
-    return <ReloadErrorPanel description={error.message} title="Failed to load Cursor workspace" />;
+    return <RouteErrorPanel error={error} title="Failed to load Cursor workspace" />;
 };
 
 const CursorWorkspacePage = () => {
@@ -174,23 +167,19 @@ const CursorWorkspacePage = () => {
     });
 
     const exportMutation = useMutation({
-        mutationFn: async (options: ExportDialogOptions) => {
-            if (!pendingExport) {
-                throw new Error('No thread selected for export');
-            }
-
+        mutationFn: async ({ ids, options }: ExportSelectionMutationInput) => {
             const download =
-                pendingExport.composerIds.length === 1
+                ids.length === 1
                     ? await exportCursorThreadFn({
                           data: {
                               ...options,
-                              composerId: pendingExport.composerIds[0]!,
+                              composerId: ids[0]!,
                           },
                       })
                     : await exportCursorThreadsFn({
                           data: {
                               ...options,
-                              composerIds: pendingExport.composerIds,
+                              composerIds: [...ids],
                           },
                       });
 
@@ -292,7 +281,11 @@ const CursorWorkspacePage = () => {
                 open={pendingExport !== null}
                 pending={exportMutation.isPending}
                 title={pendingExport ? `Export ${pendingExport.label}` : 'Export thread'}
-                onExport={(options) => exportMutation.mutate(options)}
+                onExport={(options) => {
+                    if (pendingExport) {
+                        exportMutation.mutate(createExportSelectionMutationInput(pendingExport.composerIds, options));
+                    }
+                }}
                 onOpenChange={(open) => {
                     if (!open) {
                         setPendingExport(null);

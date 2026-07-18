@@ -1,4 +1,4 @@
-import { Link, useRouterState } from '@tanstack/react-router';
+import { Link, useNavigate, useRouterState } from '@tanstack/react-router';
 import {
     BarChart3,
     Bot,
@@ -6,12 +6,13 @@ import {
     Code2,
     FolderOpen,
     LayoutDashboard,
+    Search,
     Settings2,
     Sparkles,
     SquareTerminal,
     Workflow,
 } from 'lucide-react';
-import type { PropsWithChildren } from 'react';
+import { type FormEvent, type PropsWithChildren, useEffect, useState } from 'react';
 import { packageMetadata } from '#/lib/package-metadata';
 import { cn } from '#/lib/utils';
 import { ThemeToggle } from './theme-toggle';
@@ -59,9 +60,33 @@ const GitHubIcon = ({ className }: { className?: string }) => (
 );
 
 export function AppShell({ children }: PropsWithChildren) {
+    const navigate = useNavigate();
     const pathname = useRouterState({
         select: (state) => state.location.pathname,
     });
+    const routeProjectQuery = useRouterState({
+        select: (state) => {
+            if (state.location.pathname !== '/codex' && state.location.pathname !== '/codex/') {
+                return '';
+            }
+            const query = (state.location.search as Record<string, unknown>).q;
+            return typeof query === 'string' ? query : '';
+        },
+    });
+    const [projectQuery, setProjectQuery] = useState(routeProjectQuery);
+
+    useEffect(() => {
+        setProjectQuery(routeProjectQuery);
+    }, [routeProjectQuery]);
+
+    const handleProjectSearch = (event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+        const query = projectQuery.trim();
+        void navigate({
+            search: query ? { q: query } : {},
+            to: '/codex',
+        });
+    };
 
     return (
         <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
@@ -92,7 +117,24 @@ export function AppShell({ children }: PropsWithChildren) {
                         <ThemeToggle />
                     </div>
 
-                    <nav className="mt-5 grid gap-1">
+                    <search aria-label="Global project search" className="mt-5">
+                        <form className="relative" onSubmit={handleProjectSearch}>
+                            <Search
+                                aria-hidden="true"
+                                className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-[var(--muted-foreground)]"
+                            />
+                            <input
+                                aria-label="Search Codex projects"
+                                className="h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--panel-secondary)] pr-3 pl-9 text-sm outline-none transition placeholder:text-[var(--muted-foreground)] focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)]/20"
+                                placeholder="Search Codex projects"
+                                type="search"
+                                value={projectQuery}
+                                onChange={(event) => setProjectQuery(event.target.value)}
+                            />
+                        </form>
+                    </search>
+
+                    <nav className="mt-3 grid gap-1">
                         {navItems.map((item) => {
                             const active = isNavItemActive(pathname, item);
                             const Icon = item.icon;

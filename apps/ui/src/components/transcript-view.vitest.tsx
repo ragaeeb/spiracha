@@ -744,6 +744,7 @@ describe('TranscriptView', () => {
         vi.spyOn(settingsStore, 'useSettings').mockReturnValue({
             settings: {
                 convertToProjectRoot: true,
+                exportDefaults: settingsStore.DEFAULT_SETTINGS.exportDefaults,
                 redactUsername: true,
             },
             updateSetting: vi.fn(),
@@ -786,6 +787,7 @@ describe('TranscriptView', () => {
         vi.spyOn(settingsStore, 'useSettings').mockReturnValue({
             settings: {
                 convertToProjectRoot: true,
+                exportDefaults: settingsStore.DEFAULT_SETTINGS.exportDefaults,
                 redactUsername: true,
             },
             updateSetting: vi.fn(),

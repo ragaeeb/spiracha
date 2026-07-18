@@ -4,12 +4,12 @@ import { useDeferredValue, useState } from 'react';
 import { GrokWorkspacesTable } from '#/components/grok-workspaces-table';
 import { ListSearchInput } from '#/components/list-search-input';
 import { PageHeader } from '#/components/page-header';
-import { ReloadErrorPanel } from '#/components/reload-error-panel';
+import { RouteErrorPanel } from '#/components/route-error-panel';
 import { grokWorkspacesQueryOptions } from '#/lib/grok-queries';
 import { matchesTextQuery } from '#/lib/text-filter';
 
 const GrokErrorComponent = ({ error }: { error: Error }) => {
-    return <ReloadErrorPanel description={error.message} title="Failed to load Grok workspaces" />;
+    return <RouteErrorPanel error={error} title="Failed to load Grok workspaces" />;
 };
 
 const GrokPage = () => {

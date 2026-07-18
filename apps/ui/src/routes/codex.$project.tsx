@@ -8,7 +8,7 @@ import { ExportDialog } from '#/components/export-dialog';
 import { ListSearchInput } from '#/components/list-search-input';
 import { LoadingPanel } from '#/components/loading-panel';
 import { PageHeader } from '#/components/page-header';
-import { ReloadErrorPanel } from '#/components/reload-error-panel';
+import { RouteErrorPanel } from '#/components/route-error-panel';
 import { ThreadsTable } from '#/components/threads-table';
 import { Button } from '#/components/ui/button';
 import { projectThreadsQueryOptions } from '#/lib/codex-queries';
@@ -20,6 +20,7 @@ import {
     recoverProjectThreadsFn,
 } from '#/lib/codex-server';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
+import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { getMutationErrorMessage } from '#/lib/mutation-error';
 import { parseTextQuerySearch, withTextQuerySearch } from '#/lib/route-search';
 import { useSettings } from '#/lib/settings-store';
@@ -85,15 +86,7 @@ export const Route = createFileRoute('/codex/$project')({
 });
 
 function ProjectDetailErrorComponent({ error }: { error: Error }) {
-    const isSqlite = error.message.includes('unable to open database') || error.message.includes('database is locked');
-    return (
-        <ReloadErrorPanel
-            description={
-                isSqlite ? 'Codex may have an exclusive lock on the database. Reload to retry.' : error.message
-            }
-            title={isSqlite ? 'Database unavailable' : 'Failed to load Codex project'}
-        />
-    );
+    return <RouteErrorPanel error={error} title="Failed to load Codex project" />;
 }
 
 function ProjectThreadsLoadingState({ project }: { project: string }) {
@@ -177,39 +170,29 @@ function ProjectDetailPage() {
     });
 
     const exportThreadMutation = useMutation({
-        mutationFn: async (options: {
-            includeCommentary: boolean;
-            includeTools: boolean;
-            includeMetadata: boolean;
-            outputFormat: 'md' | 'txt';
-            zipArchive: boolean;
-        }) => {
-            if (!pendingExport) {
-                throw new Error('No thread selected for export');
-            }
-
+        mutationFn: async ({ ids, options }: ExportSelectionMutationInput) => {
             console.info('[spiracha:export-ui] request', {
                 outputFormat: options.outputFormat,
                 project,
-                selectedThreadCount: pendingExport.threadIds.length,
-                selectedThreadIds: pendingExport.threadIds,
+                selectedThreadCount: ids.length,
+                selectedThreadIds: ids,
                 zipArchive: options.zipArchive,
             });
 
             const download =
-                pendingExport.threadIds.length === 1
+                ids.length === 1
                     ? await exportThreadFn({
                           data: {
                               ...options,
                               ...settings,
-                              threadId: pendingExport.threadIds[0]!,
+                              threadId: ids[0]!,
                           },
                       })
                     : await exportThreadsFn({
                           data: {
                               ...options,
                               ...settings,
-                              threadIds: pendingExport.threadIds,
+                              threadIds: [...ids],
                           },
                       });
 
@@ -218,7 +201,7 @@ function ProjectDetailPage() {
                 fileName: download.fileName,
                 mode: download.mode,
                 project,
-                selectedThreadCount: pendingExport.threadIds.length,
+                selectedThreadCount: ids.length,
             });
 
             if (download.mode === 'download') {
@@ -228,12 +211,12 @@ function ProjectDetailPage() {
 
             await downloadUrlFile(download.fileName, download.downloadUrl);
         },
-        onError: (error) => {
+        onError: (error, variables) => {
             console.error('[spiracha:export-ui] failed', {
                 error: error instanceof Error ? error.message : String(error),
                 project,
-                selectedThreadCount: pendingExport?.threadIds.length ?? 0,
-                selectedThreadIds: pendingExport?.threadIds ?? [],
+                selectedThreadCount: variables.ids.length,
+                selectedThreadIds: variables.ids,
             });
         },
         onSuccess: () => {
@@ -390,7 +373,13 @@ function ProjectDetailPage() {
                 open={pendingExport !== null}
                 pending={exportThreadMutation.isPending}
                 title={pendingExport ? `Export ${pendingExport.threadLabel}` : 'Export thread'}
-                onExport={(options) => exportThreadMutation.mutate(options)}
+                onExport={(options) => {
+                    if (pendingExport) {
+                        exportThreadMutation.mutate(
+                            createExportSelectionMutationInput(pendingExport.threadIds, options),
+                        );
+                    }
+                }}
                 onOpenChange={(open) => {
                     if (!open) {
                         setPendingExport(null);

@@ -3,7 +3,7 @@ import { createRootRouteWithContext, HeadContent, Outlet, Scripts } from '@tanst
 import type { ReactNode } from 'react';
 import { AppShell } from '#/components/app-shell';
 import { TooltipProvider } from '#/components/ui/tooltip';
-import { getRootErrorPresentation } from '#/lib/root-error-message';
+import { getErrorPresentation } from '#/lib/error-presentation';
 import { SettingsProvider } from '#/lib/settings-store';
 import appCss from '#/styles.css?url';
 
@@ -24,7 +24,7 @@ const themeInitScript = `
 `;
 
 function RootErrorComponent({ error }: { error: Error }) {
-    const presentation = getRootErrorPresentation(error);
+    const presentation = getErrorPresentation(error, { fallbackTitle: 'Something went wrong' });
 
     return (
         <div className="flex min-h-screen items-center justify-center bg-[#101418] px-4 text-[#eef3f7]">

@@ -12,7 +12,7 @@ import { LoadingPanel } from '#/components/loading-panel';
 import { MetadataSection } from '#/components/metadata-section';
 import { MetricCard } from '#/components/metric-card';
 import { PageHeader } from '#/components/page-header';
-import { ReloadErrorPanel } from '#/components/reload-error-panel';
+import { RouteErrorPanel } from '#/components/route-error-panel';
 import { DEFAULT_SHOW_USER_MESSAGES, TranscriptView } from '#/components/transcript-view';
 import { Button } from '#/components/ui/button';
 import { Checkbox } from '#/components/ui/checkbox';
@@ -28,16 +28,9 @@ import {
     getClaudeCodeThreadTranscriptStats,
 } from '#/lib/claude-code-transcript-events';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
+import type { ExportDialogOptions } from '#/lib/export-options';
 import { formatDateTime, formatList, formatNumber, formatTokens } from '#/lib/formatters';
 import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
-
-type ExportDialogOptions = {
-    includeCommentary: boolean;
-    includeMetadata: boolean;
-    includeTools: boolean;
-    outputFormat: 'md' | 'txt';
-    zipArchive: boolean;
-};
 
 type TranscriptControlsProps = {
     rawJsonDisabled?: boolean;
@@ -67,7 +60,7 @@ export const Route = createFileRoute('/claude-code-sessions/$sessionId')({
 });
 
 function ClaudeCodeSessionDetailErrorComponent({ error }: { error: Error }) {
-    return <ReloadErrorPanel description={error.message} title="Failed to load Claude Code session" />;
+    return <RouteErrorPanel error={error} title="Failed to load Claude Code session" />;
 }
 
 const buildSessionMetadata = (detail: ClaudeCodeSessionTranscript) => [

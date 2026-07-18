@@ -17,6 +17,9 @@ import { LoadingPanel } from '#/components/loading-panel';
 import { MetadataSection } from '#/components/metadata-section';
 import { MetricCard } from '#/components/metric-card';
 import { PageHeader } from '#/components/page-header';
+import { RouteErrorPanel } from '#/components/route-error-panel';
+import { ThreadGoalsPanel } from '#/components/thread-goals-panel';
+import { ThreadToolsPanel } from '#/components/thread-tools-panel';
 import {
     getTranscriptEventKey,
     shouldShowEvent,
@@ -52,6 +55,7 @@ import {
 } from '#/lib/route-search';
 import { RouteStateResetBoundary } from '#/lib/route-state-reset';
 import { useSettings } from '#/lib/settings-store';
+import { formatSandboxPolicy } from '#/lib/thread-metadata';
 import { shouldLoadFullThreadTranscript } from '#/lib/thread-transcript-load';
 
 type ThreadSnapshotResponse = Awaited<ReturnType<typeof getThreadSnapshotFn>>;
@@ -244,6 +248,7 @@ const buildRuntimeItems = (snapshot: ThreadSnapshot) => {
         { label: 'Reasoning effort', value: snapshot.thread.reasoning_effort ?? 'n/a' },
         { label: 'CLI version', value: snapshot.thread.cli_version },
         { label: 'Approval mode', value: snapshot.thread.approval_mode },
+        { label: 'Sandbox policy', value: formatSandboxPolicy(snapshot.thread.sandbox_policy) },
         { label: 'Memory mode', value: snapshot.thread.memory_mode },
         { label: 'Has user event', value: formatBooleanLabel(Boolean(snapshot.thread.has_user_event)) },
     ];
@@ -496,29 +501,7 @@ function ThreadMetadataPanels({ snapshot }: ThreadMetadataProps) {
 
             <div className="space-y-4">
                 <MetadataSection items={buildRelationItems(snapshot)} title="Relations and summary" />
-
-                <section className="rounded-[1.6rem] border border-[var(--border)] bg-[var(--panel)] p-5 shadow-[var(--panel-shadow)]">
-                    <h3 className="font-semibold text-[var(--muted-foreground)] text-sm uppercase tracking-[0.18em]">
-                        Available tools
-                    </h3>
-                    <div className="mt-4 space-y-3">
-                        {snapshot.availableTools.map((tool) => (
-                            <div
-                                key={`${tool.name}-${tool.namespace ?? 'global'}`}
-                                className="rounded-xl border border-[var(--border)] bg-[var(--panel-secondary)] p-3.5"
-                            >
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <p className="font-medium font-mono text-sm">{tool.name}</p>
-                                    {tool.namespace ? <Badge variant="outline">{tool.namespace}</Badge> : null}
-                                </div>
-                                <p className="mt-1.5 text-[var(--muted-foreground)] text-sm">
-                                    {tool.description || 'No description.'}
-                                </p>
-                            </div>
-                        ))}
-                    </div>
-                </section>
-
+                <ThreadGoalsPanel goals={snapshot.goals} />
                 <MetadataSection items={buildTranscriptStatsItems(snapshot)} title="Transcript stats" />
             </div>
         </div>
@@ -611,24 +594,7 @@ function LargeThreadPreviewNotice({
 }
 
 function ThreadErrorComponent({ error }: { error: Error }) {
-    const isSqlite = error.message.includes('unable to open database') || error.message.includes('database is locked');
-    return (
-        <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] px-6 py-10 text-center">
-            <p className="font-medium text-[var(--destructive)] text-sm">
-                {isSqlite ? 'Database unavailable' : 'Failed to load thread'}
-            </p>
-            <p className="mt-2 text-[var(--muted-foreground)] text-sm">
-                {isSqlite ? 'Codex may have an exclusive lock on the database. Reload to retry.' : error.message}
-            </p>
-            <button
-                className="mt-4 text-[var(--accent)] text-sm underline-offset-2 hover:underline"
-                type="button"
-                onClick={() => window.location.reload()}
-            >
-                Reload
-            </button>
-        </div>
-    );
+    return <RouteErrorPanel error={error} title="Failed to load thread" />;
 }
 
 const getThreadExportErrorMessage = (transcriptMissing: boolean, error: unknown): string | null => {
@@ -800,6 +766,42 @@ function ThreadTranscriptTab({
                     {loadError instanceof Error ? loadError.message : 'Unknown error'}
                 </p>
             ) : null}
+        </TabsContent>
+    );
+}
+
+function ThreadToolsTab({
+    loadingTranscript,
+    showRawJson,
+    snapshot,
+    sortOrder,
+    transcript,
+    onLoadTranscript,
+    onSortOrderChange,
+}: {
+    loadingTranscript: boolean;
+    showRawJson: boolean;
+    snapshot: ThreadSnapshot;
+    sortOrder: TranscriptSortOrder;
+    transcript: ThreadTranscript | null;
+    onLoadTranscript: () => void;
+    onSortOrderChange: (value: TranscriptSortOrder) => void;
+}) {
+    return (
+        <TabsContent value="tools">
+            <ThreadToolsPanel
+                assistantModel={snapshot.thread.model}
+                availableTools={snapshot.availableTools}
+                events={transcript?.events ?? null}
+                loadingTranscript={loadingTranscript}
+                projectPath={snapshot.thread.cwd}
+                showRawJson={showRawJson && Boolean(transcript?.rawIncluded)}
+                sortOrder={sortOrder}
+                transcriptIsPartial={transcript?.isPartial}
+                transcriptState={transcript ? 'available' : snapshot.transcriptState}
+                onLoadTranscript={onLoadTranscript}
+                onSortOrderChange={onSortOrderChange}
+            />
         </TabsContent>
     );
 }
@@ -1023,9 +1025,12 @@ function ThreadDetailPageContent() {
             </div>
 
             <Tabs className="space-y-4" defaultValue="transcript">
-                <TabsList className="grid w-fit min-w-[24rem] grid-cols-3 rounded-full border border-[var(--border)] bg-[var(--panel)] p-1">
+                <TabsList className="grid w-full grid-cols-4 rounded-full border border-[var(--border)] bg-[var(--panel)] p-1 sm:w-fit sm:min-w-[30rem]">
                     <TabsTrigger className="rounded-full px-5 text-sm" value="transcript">
                         Transcript
+                    </TabsTrigger>
+                    <TabsTrigger className="rounded-full px-5 text-sm" value="tools">
+                        Tools
                     </TabsTrigger>
                     <TabsTrigger className="rounded-full px-5 text-sm" value="metadata">
                         Metadata
@@ -1060,6 +1065,16 @@ function ThreadDetailPageContent() {
                     onSearchInputChange={updateTranscriptSearchInput}
                     onSortOrderChange={updateSortOrder}
                     onTranscriptFilterChange={updateTranscriptFilter}
+                />
+
+                <ThreadToolsTab
+                    loadingTranscript={transcriptQuery.isFetching}
+                    showRawJson={showRawJson}
+                    snapshot={viewSnapshot}
+                    sortOrder={sortOrder}
+                    transcript={transcript}
+                    onLoadTranscript={() => setShouldLoadTranscript(true)}
+                    onSortOrderChange={updateSortOrder}
                 />
 
                 <TabsContent value="metadata">

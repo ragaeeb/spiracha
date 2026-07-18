@@ -1,9 +1,11 @@
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import packageJsonRaw from '../../../../package.json?raw';
 
 const useRouterStateMock = vi.fn();
+const searchQueryMock = vi.fn();
+const navigateMock = vi.fn();
 const linkActiveOptionsMock = vi.fn();
 const packageJson = JSON.parse(packageJsonRaw) as { homepage: string; version: string };
 
@@ -28,8 +30,13 @@ vi.mock('@tanstack/react-router', () => ({
             </a>
         );
     },
-    useRouterState: (input: { select: (state: { location: { pathname: string } }) => string }) =>
-        input.select({ location: { pathname: useRouterStateMock() } }),
+    useNavigate: () => navigateMock,
+    useRouterState: (input: {
+        select: (state: { location: { pathname: string; search: { q?: string } } }) => unknown;
+    }) =>
+        input.select({
+            location: { pathname: useRouterStateMock(), search: { q: searchQueryMock() } },
+        }),
 }));
 
 vi.mock('./theme-toggle', () => ({
@@ -84,6 +91,41 @@ describe('AppShell', () => {
             'Analytics',
             'Settings',
         ]);
+    });
+
+    it('should navigate global project searches into the URL-backed Codex inventory filter', () => {
+        useRouterStateMock.mockReturnValue('/codex');
+        searchQueryMock.mockReturnValue('existing project');
+
+        render(
+            <AppShell>
+                <div>Content area</div>
+            </AppShell>,
+        );
+
+        const searchInput = screen.getByRole('searchbox', { name: 'Search Codex projects' });
+        expect(searchInput.getAttribute('value')).toBe('existing project');
+
+        fireEvent.change(searchInput, { target: { value: '  Spiracha workspace  ' } });
+        fireEvent.submit(searchInput.closest('form')!);
+
+        expect(navigateMock).toHaveBeenCalledWith({
+            search: { q: 'Spiracha workspace' },
+            to: '/codex',
+        });
+    });
+
+    it('should not borrow unrelated route query text for the global project search', () => {
+        useRouterStateMock.mockReturnValue('/threads/thread-1');
+        searchQueryMock.mockReturnValue('transcript phrase');
+
+        render(
+            <AppShell>
+                <div>Content area</div>
+            </AppShell>,
+        );
+
+        expect(screen.getByRole('searchbox', { name: 'Search Codex projects' }).getAttribute('value')).toBe('');
     });
 
     it('should keep Claude Code active on standalone session detail routes', () => {

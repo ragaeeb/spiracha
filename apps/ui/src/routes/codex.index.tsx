@@ -7,7 +7,7 @@ import { ListSearchInput } from '#/components/list-search-input';
 import { PageHeader } from '#/components/page-header';
 import { ProjectsLoadingState } from '#/components/projects-loading-state';
 import { ProjectsTable } from '#/components/projects-table';
-import { ReloadErrorPanel } from '#/components/reload-error-panel';
+import { RouteErrorPanel } from '#/components/route-error-panel';
 import { projectsQueryOptions } from '#/lib/codex-queries';
 import { deleteProjectFn } from '#/lib/codex-server';
 import { getMutationErrorMessage } from '#/lib/mutation-error';
@@ -23,15 +23,7 @@ export const Route = createFileRoute('/codex/')({
 });
 
 function ProjectsErrorComponent({ error }: { error: Error }) {
-    const isSqlite = error.message.includes('unable to open database') || error.message.includes('database is locked');
-    return (
-        <ReloadErrorPanel
-            description={
-                isSqlite ? 'Codex may have an exclusive lock on the database. Reload to retry.' : error.message
-            }
-            title={isSqlite ? 'Database unavailable' : 'Failed to load Codex inventory'}
-        />
-    );
+    return <RouteErrorPanel error={error} title="Failed to load Codex inventory" />;
 }
 
 function ProjectsPage() {

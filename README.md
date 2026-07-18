@@ -35,8 +35,9 @@ Spiracha requires Bun 1.3.14 or newer. Set `PORT` to request a different startin
 ## What It Does
 
 - Browse local conversations across Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, and OpenCode.
-- Inspect source-specific detail pages with transcript, tool, reasoning, metadata, raw event, export, and delete flows where supported by the source.
-- Export transcripts from the UI as Markdown, text, or zip bundles with source-specific commentary/final-answer filtering.
+- Search Codex projects from the app shell, with results delegated to the shareable `/codex?q=...` inventory filter.
+- Inspect source-specific detail pages with transcript, tool, reasoning, metadata, raw event, export, and delete flows where supported by the source. Codex thread detail includes a tool-focused activity view plus recorded goals and sandbox policy.
+- Export transcripts from the UI as Markdown, text, or zip bundles with source-specific commentary/final-answer filtering. The last submitted export choices persist across dialog openings; canceled drafts do not.
 - Expose a stable API for local clients that need normalized conversation metadata and message payloads.
 - Resolve Spiracha UI links and native source links into normalized `{ source, id }` references for cross-thread context lookup.
 
@@ -140,8 +141,8 @@ Qoder detail/export reads first use persisted state and CLI transcript files. Wh
 - `/threads/$threadId` for Codex thread detail.
 - `/claude-code`, `/grok`, `/kiro`, `/qoder`, `/cursor`, `/antigravity`, and `/opencode` for source inventories.
 - Source detail routes include `/claude-code-sessions/$sessionId`, `/grok-sessions/$sessionId`, `/kiro-sessions/$sessionId`, `/qoder-sessions/$sessionId`, `/cursor-threads/$composerId`, `/antigravity-conversations/$conversationId`, and `/opencode-sessions/$sessionId`.
-- `/analytics` for Codex token and tool-call analytics.
-- `/settings` for display, path-redaction, and transcript defaults.
+- `/analytics` for project-scoped Codex token totals, average and median thread size, archive counts, tool usage, model tokens, client sources, and reasoning-effort breakdowns.
+- `/settings` for transcript path conversion and username redaction. Export dialogs remember their own last submitted options.
 
 ## Development
 

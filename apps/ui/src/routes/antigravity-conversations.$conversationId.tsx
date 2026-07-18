@@ -11,7 +11,7 @@ import { LoadingPanel } from '#/components/loading-panel';
 import { MetadataSection } from '#/components/metadata-section';
 import { MetricCard } from '#/components/metric-card';
 import { PageHeader } from '#/components/page-header';
-import { ReloadErrorPanel } from '#/components/reload-error-panel';
+import { RouteErrorPanel } from '#/components/route-error-panel';
 import { TextDocumentPanel } from '#/components/text-document-panel';
 import { DEFAULT_SHOW_USER_MESSAGES, TranscriptView } from '#/components/transcript-view';
 import { Button } from '#/components/ui/button';
@@ -34,6 +34,7 @@ import {
     getAntigravityThreadTranscriptStats,
 } from '#/lib/antigravity-transcript-events';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
+import type { ExportDialogOptions } from '#/lib/export-options';
 import { formatBytes, formatDateTime, formatList, formatNumber } from '#/lib/formatters';
 import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
@@ -51,14 +52,6 @@ type TranscriptControlsProps = {
     onShowRawJsonChange: (checked: boolean) => void;
     onShowToolCallsChange: (checked: boolean) => void;
     onShowUserMessagesChange: (checked: boolean) => void;
-};
-
-type ExportDialogOptions = {
-    includeCommentary: boolean;
-    includeMetadata: boolean;
-    includeTools: boolean;
-    outputFormat: 'md' | 'txt';
-    zipArchive: boolean;
 };
 
 const buildConversationMetadata = (detail: AntigravityConversationDetail) => {
@@ -145,7 +138,7 @@ export const Route = createFileRoute('/antigravity-conversations/$conversationId
 });
 
 function AntigravityConversationDetailErrorComponent({ error }: { error: Error }) {
-    return <ReloadErrorPanel description={error.message} title="Failed to load Antigravity conversation" />;
+    return <RouteErrorPanel error={error} title="Failed to load Antigravity conversation" />;
 }
 
 function AntigravityConversationHeaderActions({

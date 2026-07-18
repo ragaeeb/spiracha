@@ -7,6 +7,7 @@ import { StringDecoder } from 'node:string_decoder';
 import { pathToFileURL } from 'node:url';
 import type {
     DashboardSummary,
+    DashboardThreadSummary,
     DeleteProjectResult,
     DeleteThreadsResult,
     DynamicToolRow,
@@ -56,6 +57,47 @@ const PROJECT_CWD_FILTER = `
         OR SUBSTR(RTRIM(cwd, '/\\'), -(LENGTH(?) + 1)) = '\\' || ?
     )
 `;
+
+type ActivityTimestampedThread = {
+    id: string;
+    rollout_path: string;
+    updated_at: number;
+    updated_at_ms: number | null;
+};
+
+type DashboardThreadCandidate = DashboardThreadSummary & Pick<ThreadRow, 'first_user_message' | 'rollout_path'>;
+
+type ProjectAggregateRow = {
+    archived_thread_count: number;
+    cwd: string;
+    last_updated_at_ms: number | null;
+    model: string | null;
+    thread_count: number;
+    total_tokens: number;
+};
+
+type ThreadGoalRow = {
+    created_at_ms: number;
+    goal_id: string;
+    objective: string;
+    status: string;
+    time_used_seconds: number;
+    token_budget: number | null;
+    tokens_used: number;
+    updated_at_ms: number;
+};
+
+type ProjectSummaryAccumulator = {
+    archivedThreadCount: number;
+    cwdPaths: Set<string>;
+    lastUpdatedAtMs: number | null;
+    modelNames: Set<string>;
+    name: string;
+    threadCount: number;
+    totalTokens: number;
+};
+
+type ProjectSummaryMap = Map<string, ProjectSummaryAccumulator>;
 type SessionFileIndexCacheEntry = {
     fingerprint: string;
     sessionFilesByThreadId: Map<string, string>;
@@ -157,7 +199,7 @@ const openWritableDb = (dbPath: string, busyTimeoutMs: number) => {
     }
 };
 
-const toTimestampMs = (thread: ThreadRow) => {
+const toTimestampMs = (thread: Pick<ThreadRow, 'updated_at' | 'updated_at_ms'>) => {
     return thread.updated_at_ms ?? thread.updated_at * 1000;
 };
 
@@ -860,30 +902,29 @@ const mergeFallbackThreadRows = (dbPath: string, threads: ThreadRow[], projectNa
     });
 };
 
-const applyRolloutActivityTimestamps = async (dbPath: string, threads: ThreadRow[]) => {
-    const activeThreads = await mapWithConcurrency(
-        threads,
-        THREAD_LIST_IO_CONCURRENCY,
-        async (thread): Promise<ThreadRow> => {
-            const rolloutPath = resolveCodexRolloutPath(dbPath, thread.rollout_path);
-            const normalizedThread =
-                rolloutPath === thread.rollout_path ? thread : { ...thread, rollout_path: rolloutPath };
-            let rolloutUpdatedAtMs = toTimestampMs(thread);
-            try {
-                rolloutUpdatedAtMs = Math.max(rolloutUpdatedAtMs, (await stat(rolloutPath)).mtimeMs);
-            } catch {}
+const applyRolloutActivityTimestamps = async <T extends ActivityTimestampedThread>(
+    dbPath: string,
+    threads: T[],
+): Promise<T[]> => {
+    const activeThreads = await mapWithConcurrency(threads, THREAD_LIST_IO_CONCURRENCY, async (thread): Promise<T> => {
+        const rolloutPath = resolveCodexRolloutPath(dbPath, thread.rollout_path);
+        const normalizedThread =
+            rolloutPath === thread.rollout_path ? thread : { ...thread, rollout_path: rolloutPath };
+        let rolloutUpdatedAtMs = toTimestampMs(thread);
+        try {
+            rolloutUpdatedAtMs = Math.max(rolloutUpdatedAtMs, (await stat(rolloutPath)).mtimeMs);
+        } catch {}
 
-            if (rolloutUpdatedAtMs <= toTimestampMs(thread)) {
-                return normalizedThread;
-            }
+        if (rolloutUpdatedAtMs <= toTimestampMs(thread)) {
+            return normalizedThread;
+        }
 
-            return {
-                ...normalizedThread,
-                updated_at: Math.floor(rolloutUpdatedAtMs / 1000),
-                updated_at_ms: Math.floor(rolloutUpdatedAtMs),
-            };
-        },
-    );
+        return {
+            ...normalizedThread,
+            updated_at: Math.floor(rolloutUpdatedAtMs / 1000),
+            updated_at_ms: Math.floor(rolloutUpdatedAtMs),
+        };
+    });
 
     return activeThreads.sort((left, right) => {
         const updatedDifference = toTimestampMs(right) - toTimestampMs(left);
@@ -895,8 +936,21 @@ const applyRolloutActivityTimestamps = async (dbPath: string, threads: ThreadRow
     });
 };
 
-const buildDashboardRecentThreads = (threads: ThreadRow[]) => {
-    const bestThreadByProject = new Map<string, ThreadRow>();
+const compactDashboardThread = (thread: DashboardThreadCandidate): DashboardThreadSummary => {
+    return {
+        cwd: thread.cwd,
+        id: thread.id,
+        model: thread.model,
+        preview: cleanInlineTitle(thread.preview || thread.first_user_message || ''),
+        title: cleanInlineTitle(thread.title),
+        tokens_used: thread.tokens_used,
+        updated_at: thread.updated_at,
+        updated_at_ms: thread.updated_at_ms,
+    };
+};
+
+const buildDashboardRecentThreads = (threads: DashboardThreadCandidate[]) => {
+    const bestThreadByProject = new Map<string, DashboardThreadCandidate>();
     for (const thread of threads) {
         const project = getPortablePathBasename(thread.cwd);
         if (!project) {
@@ -921,23 +975,12 @@ const buildDashboardRecentThreads = (threads: ThreadRow[]) => {
         .slice(0, 5)
         .map((thread) => ({
             project: getPortablePathBasename(thread.cwd),
-            thread: compactThreadListRow(thread),
+            thread: compactDashboardThread(thread),
         }));
 };
 
 const buildProjectSummaryMap = (threads: ThreadRow[]) => {
-    const projectMap = new Map<
-        string,
-        {
-            archivedThreadCount: number;
-            cwdPaths: Set<string>;
-            lastUpdatedAtMs: number | null;
-            modelNames: Set<string>;
-            name: string;
-            threadCount: number;
-            totalTokens: number;
-        }
-    >();
+    const projectMap: ProjectSummaryMap = new Map();
 
     for (const thread of threads) {
         const projectName = getPortablePathBasename(thread.cwd);
@@ -968,7 +1011,37 @@ const buildProjectSummaryMap = (threads: ThreadRow[]) => {
     return projectMap;
 };
 
-const mapProjectSummaries = (projectMap: ReturnType<typeof buildProjectSummaryMap>): ProjectSummary[] => {
+const mergeProjectAggregateRows = (projectMap: ProjectSummaryMap, rows: ProjectAggregateRow[]) => {
+    for (const row of rows) {
+        const projectName = getPortablePathBasename(row.cwd);
+        if (!projectName) {
+            continue;
+        }
+
+        const current = projectMap.get(projectName) ?? {
+            archivedThreadCount: 0,
+            cwdPaths: new Set<string>(),
+            lastUpdatedAtMs: null,
+            modelNames: new Set<string>(),
+            name: projectName,
+            threadCount: 0,
+            totalTokens: 0,
+        };
+        current.archivedThreadCount += Number(row.archived_thread_count);
+        current.cwdPaths.add(row.cwd);
+        current.lastUpdatedAtMs = Math.max(current.lastUpdatedAtMs ?? 0, Number(row.last_updated_at_ms ?? 0));
+        if (row.model) {
+            current.modelNames.add(row.model);
+        }
+        current.threadCount += Number(row.thread_count);
+        current.totalTokens += Number(row.total_tokens);
+        projectMap.set(projectName, current);
+    }
+
+    return projectMap;
+};
+
+const mapProjectSummaries = (projectMap: ProjectSummaryMap): ProjectSummary[] => {
     return [...projectMap.values()]
         .map((project) => {
             return {
@@ -1282,11 +1355,41 @@ const deleteSessionIndexEntriesForThreads = async (
     };
 };
 
+const readProjectAggregateRows = (db: Database) => {
+    return db
+        .query(`
+            SELECT
+                cwd,
+                model,
+                SUM(CASE WHEN archived <> 0 THEN 1 ELSE 0 END) AS archived_thread_count,
+                MAX(COALESCE(updated_at_ms, updated_at * 1000)) AS last_updated_at_ms,
+                COUNT(*) AS thread_count,
+                COALESCE(SUM(tokens_used), 0) AS total_tokens
+            FROM threads
+            WHERE typeof(cwd) = 'text' AND TRIM(cwd) <> ''
+            GROUP BY cwd, model
+        `)
+        .all() as ProjectAggregateRow[];
+};
+
+const readDbThreadIds = (db: Database) => {
+    const rows = db.query('SELECT id FROM threads').all() as Array<{ id: string }>;
+    return new Set(rows.map((row) => row.id));
+};
+
+const readProjectSummaryDatabaseData = (dbPath: string) => {
+    return withReadonlyDb(dbPath, (db) => ({
+        existingThreadIds: readDbThreadIds(db),
+        projectAggregates: readProjectAggregateRows(db),
+    }));
+};
+
 export const listCodexProjects = async (dbPath: string): Promise<ProjectSummary[]> => {
+    const database = readProjectSummaryDatabaseData(dbPath);
+    const fallbackThreads = readFallbackThreadRows(dbPath, database.existingThreadIds);
+
     return mapProjectSummaries(
-        buildProjectSummaryMap(
-            await applyRolloutActivityTimestamps(dbPath, mergeFallbackThreadRows(dbPath, readThreads(dbPath))),
-        ),
+        mergeProjectAggregateRows(buildProjectSummaryMap(fallbackThreads), database.projectAggregates),
     );
 };
 
@@ -1380,9 +1483,27 @@ export const getThreadBrowseData = (dbPath: string, threadId: string): ThreadBro
                       )
                       .all(threadId) as Array<Record<string, number | string | null>>)
                 : [];
+        const goals =
+            dbThread && existingTableNames.has('thread_goals')
+                ? (db
+                      .query(
+                          'SELECT goal_id, objective, status, token_budget, tokens_used, time_used_seconds, created_at_ms, updated_at_ms FROM thread_goals WHERE thread_id = ? ORDER BY updated_at_ms DESC, goal_id ASC',
+                      )
+                      .all(threadId) as ThreadGoalRow[])
+                : [];
 
         return {
             dynamicTools: dynamicTools.map((row) => parseDynamicToolRow(row)),
+            goals: goals.map((goal) => ({
+                createdAtMs: goal.created_at_ms,
+                goalId: goal.goal_id,
+                objective: goal.objective,
+                status: goal.status,
+                timeUsedSeconds: goal.time_used_seconds,
+                tokenBudget: goal.token_budget,
+                tokensUsed: goal.tokens_used,
+                updatedAtMs: goal.updated_at_ms,
+            })),
             project: getPortablePathBasename(normalizedThread.cwd),
             relations: getRelationsForThread(db, threadId, existingTableNames),
             thread: normalizedThread,
@@ -1390,27 +1511,85 @@ export const getThreadBrowseData = (dbPath: string, threadId: string): ThreadBro
     });
 };
 
-export const getCodexDashboardSummary = async (dbPath: string): Promise<DashboardSummary> => {
-    const threads = await applyRolloutActivityTimestamps(dbPath, mergeFallbackThreadRows(dbPath, readThreads(dbPath)));
-    const projects = mapProjectSummaries(buildProjectSummaryMap(threads));
-    const threadsWithRelations = withReadonlyDb(dbPath, (db) => {
-        if (!getExistingTableNames(db).has('thread_spawn_edges')) {
-            return 0;
-        }
+type DashboardDatabaseTotals = {
+    archived_threads: number;
+    total_threads: number;
+    total_tokens: number;
+};
 
-        const rows = db.query('SELECT parent_thread_id, child_thread_id FROM thread_spawn_edges').all() as Array<{
-            child_thread_id: string;
-            parent_thread_id: string;
-        }>;
-        const relatedThreadIds = new Set(rows.flatMap((row) => [row.parent_thread_id, row.child_thread_id]));
-        return relatedThreadIds.size;
+const readDashboardDatabaseData = (dbPath: string) => {
+    return withReadonlyDb(dbPath, (db) => {
+        const totals = db
+            .query(`
+                SELECT
+                    SUM(CASE WHEN archived <> 0 THEN 1 ELSE 0 END) AS archived_threads,
+                    COUNT(*) AS total_threads,
+                    COALESCE(SUM(tokens_used), 0) AS total_tokens
+                FROM threads
+            `)
+            .get() as DashboardDatabaseTotals;
+        const recentCandidates = db
+            .query(`
+                SELECT
+                    id,
+                    rollout_path,
+                    cwd,
+                    title,
+                    preview,
+                    first_user_message,
+                    model,
+                    tokens_used,
+                    updated_at,
+                    updated_at_ms
+                FROM threads
+                WHERE typeof(cwd) = 'text' AND TRIM(cwd) <> ''
+            `)
+            .all() as DashboardThreadCandidate[];
+        const existingTableNames = getExistingTableNames(db);
+        const relationCount = existingTableNames.has('thread_spawn_edges')
+            ? (
+                  db
+                      .query(`
+                      SELECT COUNT(*) AS count
+                      FROM (
+                          SELECT parent_thread_id AS thread_id FROM thread_spawn_edges
+                          UNION
+                          SELECT child_thread_id AS thread_id FROM thread_spawn_edges
+                      )
+                  `)
+                      .get() as { count: number }
+              ).count
+            : 0;
+
+        return {
+            existingThreadIds: readDbThreadIds(db),
+            projectAggregates: readProjectAggregateRows(db),
+            recentCandidates,
+            relationCount: Number(relationCount),
+            totals,
+        };
     });
+};
+
+export const getCodexDashboardSummary = async (dbPath: string): Promise<DashboardSummary> => {
+    const database = readDashboardDatabaseData(dbPath);
+    const fallbackThreads = readFallbackThreadRows(dbPath, database.existingThreadIds);
+    const recentCandidates = await applyRolloutActivityTimestamps(dbPath, [
+        ...database.recentCandidates,
+        ...fallbackThreads,
+    ]);
+    const projects = mapProjectSummaries(
+        mergeProjectAggregateRows(buildProjectSummaryMap(fallbackThreads), database.projectAggregates),
+    );
+    const fallbackArchivedThreads = fallbackThreads.filter((thread) => Boolean(thread.archived)).length;
+    const archivedThreads = Number(database.totals.archived_threads ?? 0) + fallbackArchivedThreads;
+    const totalThreads = Number(database.totals.total_threads) + fallbackThreads.length;
 
     return {
-        activeThreads: threads.filter((thread) => !thread.archived).length,
-        archivedThreads: threads.filter((thread) => Boolean(thread.archived)).length,
-        recentThreads: buildDashboardRecentThreads(threads),
-        threadsWithRelations,
+        activeThreads: totalThreads - archivedThreads,
+        archivedThreads,
+        recentThreads: buildDashboardRecentThreads(recentCandidates),
+        threadsWithRelations: database.relationCount,
         topProjectsByThreadCount: [...projects]
             .sort((left, right) => {
                 if (left.threadCount !== right.threadCount) {
@@ -1422,8 +1601,9 @@ export const getCodexDashboardSummary = async (dbPath: string): Promise<Dashboar
             .slice(0, 5),
         topProjectsByTokens: projects.slice(0, 5),
         totalProjects: projects.length,
-        totalThreads: threads.length,
-        totalTokens: threads.reduce((sum, thread) => sum + thread.tokens_used, 0),
+        totalThreads,
+        totalTokens:
+            Number(database.totals.total_tokens) + fallbackThreads.reduce((sum, thread) => sum + thread.tokens_used, 0),
     };
 };
 

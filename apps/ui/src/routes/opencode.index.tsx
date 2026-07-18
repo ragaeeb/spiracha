@@ -5,12 +5,12 @@ import { ListSearchInput } from '#/components/list-search-input';
 import { LoadingPanel } from '#/components/loading-panel';
 import { OpenCodeWorkspacesTable } from '#/components/opencode-workspaces-table';
 import { PageHeader } from '#/components/page-header';
-import { ReloadErrorPanel } from '#/components/reload-error-panel';
+import { RouteErrorPanel } from '#/components/route-error-panel';
 import { openCodeWorkspacesQueryOptions } from '#/lib/opencode-queries';
 import { matchesTextQuery } from '#/lib/text-filter';
 
 const OpenCodeErrorComponent = ({ error }: { error: Error }) => {
-    return <ReloadErrorPanel description={error.message} title="Failed to load OpenCode workspaces" />;
+    return <RouteErrorPanel error={error} title="Failed to load OpenCode workspaces" />;
 };
 
 const OpenCodePage = () => {

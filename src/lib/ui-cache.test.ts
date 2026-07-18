@@ -7,7 +7,7 @@ import {
     getCachedJson,
     hashCacheKeyPartsIterable,
     invalidateCacheByPrefix,
-    purgeStaleUiCacheEntries,
+    pruneUiCacheEntries,
     setCachedJson,
     withCachedJson,
 } from './ui-cache';
@@ -58,10 +58,56 @@ describe('ui cache', () => {
         const staleTime = new Date(Date.now() - 48 * 60 * 60 * 1000);
         await utimes(stalePath, staleTime, staleTime);
 
-        await purgeStaleUiCacheEntries(CACHE_DIR, 24 * 60 * 60 * 1000);
+        await pruneUiCacheEntries(CACHE_DIR, 24 * 60 * 60 * 1000);
 
         expect(await Bun.file(stalePath).exists()).toBe(false);
         expect(await Bun.file(getCacheFilePath('fresh-entry')).exists()).toBe(true);
+    });
+
+    it('should prune the oldest entries until the cache is within its size ceiling', async () => {
+        await setCachedJson('oldest-entry', { payload: 'a'.repeat(100) });
+        await setCachedJson('middle-entry', { payload: 'b'.repeat(100) });
+        await setCachedJson('newest-entry', { payload: 'c'.repeat(100) });
+        const oldestPath = getCacheFilePath('oldest-entry');
+        const middlePath = getCacheFilePath('middle-entry');
+        const newestPath = getCacheFilePath('newest-entry');
+        const now = Date.now();
+        await utimes(oldestPath, new Date(now - 3_000), new Date(now - 3_000));
+        await utimes(middlePath, new Date(now - 2_000), new Date(now - 2_000));
+        await utimes(newestPath, new Date(now - 1_000), new Date(now - 1_000));
+        const newestSize = (await stat(newestPath)).size;
+
+        await pruneUiCacheEntries(CACHE_DIR, Number.POSITIVE_INFINITY, newestSize);
+
+        expect(await Bun.file(oldestPath).exists()).toBe(false);
+        expect(await Bun.file(middlePath).exists()).toBe(false);
+        expect(await Bun.file(newestPath).exists()).toBe(true);
+    });
+
+    it('should refresh accessed entries so hot cache data survives age eviction', async () => {
+        await setCachedJson('cold-entry', { temperature: 'cold' });
+        await setCachedJson('hot-entry', { temperature: 'hot' });
+        const coldPath = getCacheFilePath('cold-entry');
+        const hotPath = getCacheFilePath('hot-entry');
+        const staleTime = new Date(Date.now() - 48 * 60 * 60 * 1000);
+        await utimes(coldPath, staleTime, staleTime);
+        await utimes(hotPath, staleTime, staleTime);
+
+        expect(await getCachedJson<{ temperature: string }>('hot-entry')).toEqual({ temperature: 'hot' });
+        await pruneUiCacheEntries(CACHE_DIR, 24 * 60 * 60 * 1000, Number.POSITIVE_INFINITY);
+
+        expect(await Bun.file(coldPath).exists()).toBe(false);
+        expect(await Bun.file(hotPath).exists()).toBe(true);
+    });
+
+    it('should not size-evict an in-progress temporary cache write', async () => {
+        const activeTempPath = path.join(CACHE_DIR, 'active-write.tmp');
+        await mkdir(CACHE_DIR, { recursive: true });
+        await Bun.write(activeTempPath, 'in progress');
+
+        await pruneUiCacheEntries(CACHE_DIR, Number.POSITIVE_INFINITY, 0);
+
+        expect(await Bun.file(activeTempPath).exists()).toBe(true);
     });
 
     it('should remove temporary files when the final cache rename fails', async () => {

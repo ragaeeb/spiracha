@@ -12,25 +12,18 @@ import { LoadingPanel } from '#/components/loading-panel';
 import { MetadataSection } from '#/components/metadata-section';
 import { MetricCard } from '#/components/metric-card';
 import { PageHeader } from '#/components/page-header';
-import { ReloadErrorPanel } from '#/components/reload-error-panel';
+import { RouteErrorPanel } from '#/components/route-error-panel';
 import { DEFAULT_SHOW_USER_MESSAGES, TranscriptView } from '#/components/transcript-view';
 import { Button } from '#/components/ui/button';
 import { Checkbox } from '#/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
+import type { ExportDialogOptions } from '#/lib/export-options';
 import { formatDateTime, formatList, formatNumber } from '#/lib/formatters';
 import { grokSessionDetailQueryOptions, grokWorkspacesQueryOptions } from '#/lib/grok-queries';
 import { deleteGrokSessionFn, exportGrokSessionFn } from '#/lib/grok-server';
 import { getGrokThreadTranscriptStats, grokTranscriptToThreadEvents } from '#/lib/grok-transcript-events';
 import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
-
-type ExportDialogOptions = {
-    includeCommentary: boolean;
-    includeMetadata: boolean;
-    includeTools: boolean;
-    outputFormat: 'md' | 'txt';
-    zipArchive: boolean;
-};
 
 type TranscriptControlsProps = {
     rawJsonDisabled?: boolean;
@@ -47,7 +40,7 @@ type TranscriptControlsProps = {
 };
 
 const GrokSessionDetailErrorComponent = ({ error }: { error: Error }) => {
-    return <ReloadErrorPanel description={error.message} title="Failed to load Grok session" />;
+    return <RouteErrorPanel error={error} title="Failed to load Grok session" />;
 };
 
 const buildSessionMetadata = (detail: GrokSessionTranscript) => [

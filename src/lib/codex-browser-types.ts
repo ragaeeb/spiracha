@@ -14,6 +14,17 @@ export type DynamicToolRow = DynamicToolDefinition & {
     threadId: string;
 };
 
+export type ThreadGoal = {
+    createdAtMs: number;
+    goalId: string;
+    objective: string;
+    status: string;
+    timeUsedSeconds: number;
+    tokenBudget: number | null;
+    tokensUsed: number;
+    updatedAtMs: number;
+};
+
 export type SessionMetaExtended = SessionMeta & {
     baseInstructions: JsonValue | null;
     dynamicTools: DynamicToolDefinition[];
@@ -165,14 +176,20 @@ export type ThreadListEntry = {
 
 export type ThreadBrowseData = {
     dynamicTools: DynamicToolRow[];
+    goals: ThreadGoal[];
     project: string;
     relations: ThreadRelations;
     thread: ThreadRow;
 };
 
+export type DashboardThreadSummary = Pick<
+    ThreadRow,
+    'cwd' | 'id' | 'model' | 'preview' | 'title' | 'tokens_used' | 'updated_at' | 'updated_at_ms'
+>;
+
 export type DashboardRecentThread = {
     project: string;
-    thread: ThreadRow;
+    thread: DashboardThreadSummary;
 };
 
 export type DashboardSummary = {
@@ -232,6 +249,7 @@ export type CodexAnalyticsSummary = {
     archivedThreads: number;
     averageTokensPerThread: number;
     distinctToolNames: number;
+    medianTokensPerThread: number;
     threadsWithWebSearch: number;
     totalProjects: number;
     totalThreads: number;
@@ -240,6 +258,8 @@ export type CodexAnalyticsSummary = {
 
 export type CodexAnalytics = {
     modelsByTokens: ModelTokenSummary[];
+    reasoningEfforts: DistributionItem[];
+    sources: DistributionItem[];
     summary: CodexAnalyticsSummary;
     toolUsage: ToolUsageSummary[];
 };

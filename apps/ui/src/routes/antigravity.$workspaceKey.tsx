@@ -10,7 +10,7 @@ import { ExportDialog } from '#/components/export-dialog';
 import { ListSearchInput } from '#/components/list-search-input';
 import { LoadingPanel } from '#/components/loading-panel';
 import { PageHeader } from '#/components/page-header';
-import { ReloadErrorPanel } from '#/components/reload-error-panel';
+import { RouteErrorPanel } from '#/components/route-error-panel';
 import { Button } from '#/components/ui/button';
 import {
     antigravityConversationsQueryOptions,
@@ -24,16 +24,9 @@ import {
     exportAntigravityConversationsFn,
 } from '#/lib/antigravity-server';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
+import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { matchesTextQuery } from '#/lib/text-filter';
 import { isWorkspaceEmptiedByDelete } from '#/lib/workspace-delete-navigation';
-
-type ExportDialogOptions = {
-    includeCommentary: boolean;
-    includeMetadata: boolean;
-    includeTools: boolean;
-    outputFormat: 'md' | 'txt';
-    zipArchive: boolean;
-};
 
 type PendingConversationDelete = {
     conversations: AntigravityConversation[];
@@ -132,7 +125,7 @@ export const Route = createFileRoute('/antigravity/$workspaceKey')({
 });
 
 function AntigravityWorkspaceErrorComponent({ error }: { error: Error }) {
-    return <ReloadErrorPanel description={error.message} title="Failed to load Antigravity workspace" />;
+    return <RouteErrorPanel error={error} title="Failed to load Antigravity workspace" />;
 }
 
 function AntigravityWorkspacePage() {
@@ -157,14 +150,10 @@ function AntigravityWorkspacePage() {
     });
 
     const exportConversationsMutation = useMutation({
-        mutationFn: async (options: ExportDialogOptions) => {
-            if (!pendingExport) {
-                throw new Error('No Antigravity conversation selected for export');
-            }
-
+        mutationFn: async ({ ids, options }: ExportSelectionMutationInput) => {
             const download = await exportAntigravityConversationsFn({
                 data: {
-                    conversationIds: pendingExport.conversationIds,
+                    conversationIds: [...ids],
                     includeCommentary: options.includeCommentary,
                     includeMetadata: options.includeMetadata,
                     includeTools: options.includeTools,
@@ -312,7 +301,13 @@ function AntigravityWorkspacePage() {
                 showCommentaryOption={pendingExport?.supportsTranscriptFilters ?? true}
                 showToolsOption={pendingExport?.supportsTranscriptFilters ?? true}
                 title={pendingExport ? `Export ${pendingExport.label}` : 'Export conversation'}
-                onExport={(options) => exportConversationsMutation.mutate(options)}
+                onExport={(options) => {
+                    if (pendingExport) {
+                        exportConversationsMutation.mutate(
+                            createExportSelectionMutationInput(pendingExport.conversationIds, options),
+                        );
+                    }
+                }}
                 onOpenChange={(open) => {
                     if (!open) {
                         setPendingExport(null);

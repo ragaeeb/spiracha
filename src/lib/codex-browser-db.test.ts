@@ -378,6 +378,73 @@ describe('codex browser db', () => {
         });
     });
 
+    it('should query only aggregate and recent-thread columns for dashboard summaries', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-targeted-dashboard-test-'));
+        tempPaths.push(tempRoot);
+        const dbPath = path.join(tempRoot, 'state.sqlite');
+        const db = new Database(dbPath);
+        db.exec(`
+            CREATE TABLE threads (
+                id TEXT PRIMARY KEY,
+                rollout_path TEXT NOT NULL,
+                cwd TEXT NOT NULL,
+                title TEXT NOT NULL,
+                preview TEXT NOT NULL,
+                first_user_message TEXT NOT NULL,
+                model TEXT,
+                tokens_used INTEGER NOT NULL,
+                archived INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                updated_at_ms INTEGER
+            );
+            INSERT INTO threads VALUES (
+                'targeted-thread',
+                'missing-rollout.jsonl',
+                '/workspace/spiracha',
+                'Targeted queries',
+                'Keep dashboard payloads compact',
+                'Keep dashboard payloads compact',
+                'gpt-5.4',
+                1200,
+                0,
+                1779037924,
+                1779037924000
+            );
+        `);
+        db.close();
+
+        const projects = await listCodexProjects(dbPath);
+        const dashboard = await getCodexDashboardSummary(dbPath);
+
+        expect(projects).toEqual([
+            {
+                archivedThreadCount: 0,
+                cwdPaths: ['/workspace/spiracha'],
+                lastUpdatedAtMs: 1779037924000,
+                modelNames: ['gpt-5.4'],
+                name: 'spiracha',
+                threadCount: 1,
+                totalTokens: 1200,
+            },
+        ]);
+        expect(dashboard).toMatchObject({
+            activeThreads: 1,
+            archivedThreads: 0,
+            recentThreads: [
+                {
+                    project: 'spiracha',
+                    thread: {
+                        id: 'targeted-thread',
+                        title: 'Targeted queries',
+                    },
+                },
+            ],
+            totalProjects: 1,
+            totalThreads: 1,
+            totalTokens: 1200,
+        });
+    });
+
     it('should read rollout activity without blocking the synchronous request path', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-async-activity-test-'));
         tempPaths.push(tempRoot);
@@ -827,6 +894,21 @@ describe('codex browser db', () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-threads-test-'));
         tempPaths.push(tempRoot);
         const fixture = await createCodexBrowserFixture(tempRoot);
+        const db = new Database(fixture.dbPath);
+        db.query(
+            'INSERT INTO thread_goals (thread_id, goal_id, objective, status, token_budget, tokens_used, time_used_seconds, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        ).run(
+            fixture.threads[0]!.threadId,
+            'goal-1',
+            'Ship the thread tools view',
+            'in_progress',
+            20_000,
+            3_400,
+            125,
+            1_779_036_500_000,
+            1_779_037_900_000,
+        );
+        db.close();
 
         const threads = await listProjectThreads(fixture.dbPath, 'spiracha');
         const threadDetails = getThreadBrowseData(fixture.dbPath, fixture.threads[0]!.threadId);
@@ -837,6 +919,18 @@ describe('codex browser db', () => {
             fixture.threads[1]!.threadId,
         ]);
         expect(threadDetails.dynamicTools).toHaveLength(2);
+        expect(threadDetails.goals).toEqual([
+            {
+                createdAtMs: 1_779_036_500_000,
+                goalId: 'goal-1',
+                objective: 'Ship the thread tools view',
+                status: 'in_progress',
+                timeUsedSeconds: 125,
+                tokenBudget: 20_000,
+                tokensUsed: 3_400,
+                updatedAtMs: 1_779_037_900_000,
+            },
+        ]);
         expect(threadDetails.relations.childEdges).toHaveLength(1);
         expect(threadDetails.thread.preview).toBe('Build the Spiracha UI');
         expect(threads[0]?.stats.deferred).toBe(false);
@@ -851,6 +945,7 @@ describe('codex browser db', () => {
         const threadDetails = getThreadBrowseData(fixture.dbPath, fixture.threadId);
 
         expect(threadDetails.dynamicTools).toEqual([]);
+        expect(threadDetails.goals).toEqual([]);
         expect(threadDetails.relations.childEdges).toEqual([]);
         expect(threadDetails.relations.parentThreadId).toBeNull();
     });

@@ -13,6 +13,8 @@ export const LARGE_THREAD_PREVIEW_EVENT_LIMIT = 200;
 const CODEX_TRANSCRIPT_CACHE_VERSION = 'v3';
 const CODEX_TRANSCRIPT_STATS_CACHE_VERSION = 'v1';
 
+type CodexTranscriptStatsLoader = (sessionFile: string) => Promise<ThreadTranscriptStats>;
+
 const isMissingFileError = (error: unknown) => {
     return error instanceof Error && 'code' in error && error.code === 'ENOENT';
 };
@@ -29,7 +31,19 @@ export const getCachedParsedCodexTranscript = async (sessionFile: string): Promi
     );
 };
 
-export const getCachedCodexTranscriptStats = async (sessionFile: string): Promise<ThreadTranscriptStats> => {
+const loadCodexTranscriptStats: CodexTranscriptStatsLoader = async (sessionFile) => {
+    const transcript = await parseCodexTranscriptFile(sessionFile, {
+        includeRaw: false,
+        maxTurnContexts: 0,
+    });
+
+    return transcript.stats;
+};
+
+export const getCachedCodexTranscriptStats = async (
+    sessionFile: string,
+    loadStats: CodexTranscriptStatsLoader = loadCodexTranscriptStats,
+): Promise<ThreadTranscriptStats> => {
     const fingerprint = await getFileFingerprint(sessionFile);
     const key = `thread-list-stats-${hashCacheKeyPartsIterable([
         CODEX_TRANSCRIPT_STATS_CACHE_VERSION,
@@ -37,21 +51,12 @@ export const getCachedCodexTranscriptStats = async (sessionFile: string): Promis
         fingerprint,
     ])}`;
 
-    return withCachedJson(key, async () => {
-        const transcript = await runWithTranscriptLoadLimit(
-            () =>
-                parseCodexTranscriptFile(sessionFile, {
-                    includeRaw: false,
-                    maxTurnContexts: 0,
-                }),
-            {
-                path: sessionFile,
-                source: 'codex-list-stats',
-            },
-        );
-
-        return transcript.stats;
-    });
+    return withCachedJson(key, () =>
+        runWithTranscriptLoadLimit(() => loadStats(sessionFile), {
+            path: sessionFile,
+            source: 'codex-list-stats',
+        }),
+    );
 };
 
 type CachedThreadTranscriptPreviewOptions = {

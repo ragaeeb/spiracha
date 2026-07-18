@@ -4,12 +4,12 @@ import { useDeferredValue, useState } from 'react';
 import { ListSearchInput } from '#/components/list-search-input';
 import { PageHeader } from '#/components/page-header';
 import { QoderWorkspacesTable } from '#/components/qoder-workspaces-table';
-import { ReloadErrorPanel } from '#/components/reload-error-panel';
+import { RouteErrorPanel } from '#/components/route-error-panel';
 import { qoderWorkspacesQueryOptions } from '#/lib/qoder-queries';
 import { matchesTextQuery } from '#/lib/text-filter';
 
 const QoderErrorComponent = ({ error }: { error: Error }) => {
-    return <ReloadErrorPanel description={error.message} title="Failed to load Qoder workspaces" />;
+    return <RouteErrorPanel error={error} title="Failed to load Qoder workspaces" />;
 };
 
 const QoderPage = () => {

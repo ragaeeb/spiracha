@@ -4,6 +4,7 @@ import { isRetryableSqliteError } from './sqlite-error';
 describe('retryable SQLite error detection', () => {
     it('should recognize supported transient SQLite failures', () => {
         for (const message of [
+            'unable to open database',
             'unable to open database file',
             'database is locked',
             'SQLITE_BUSY: retry later',

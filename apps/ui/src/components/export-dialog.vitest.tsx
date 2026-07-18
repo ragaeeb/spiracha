@@ -1,6 +1,12 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { SettingsProvider } from '#/lib/settings-store';
 import { ExportDialog } from './export-dialog';
+
+afterEach(() => {
+    cleanup();
+    window.localStorage.clear();
+});
 
 describe('ExportDialog', () => {
     it('should submit default export options before any changes', async () => {
@@ -115,17 +121,80 @@ describe('ExportDialog', () => {
         });
     });
 
-    it('should reset local options after closing and reopening', () => {
+    it('should remember successfully submitted options after closing and reopening', () => {
         const onExport = vi.fn();
-        const { rerender } = render(<ExportDialog open onExport={onExport} onOpenChange={vi.fn()} />);
+        const renderDialog = (open: boolean) => (
+            <SettingsProvider>
+                <ExportDialog open={open} onExport={onExport} onOpenChange={vi.fn()} />
+            </SettingsProvider>
+        );
+        const { rerender } = render(renderDialog(true));
 
         fireEvent.click(screen.getByRole('checkbox', { name: /include metadata/i }));
         fireEvent.click(screen.getByRole('checkbox', { name: /include commentary/i }));
         fireEvent.click(screen.getByRole('checkbox', { name: /zip archive/i }));
+        fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
 
-        rerender(<ExportDialog open={false} onExport={onExport} onOpenChange={vi.fn()} />);
-        rerender(<ExportDialog open onExport={onExport} onOpenChange={vi.fn()} />);
+        rerender(renderDialog(false));
+        rerender(renderDialog(true));
 
+        fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
+
+        expect(onExport).toHaveBeenLastCalledWith({
+            includeCommentary: true,
+            includeMetadata: false,
+            includeTools: true,
+            outputFormat: 'md',
+            zipArchive: true,
+        });
+    });
+
+    it('should discard canceled drafts without overwriting submitted defaults', () => {
+        const onExport = vi.fn();
+        const onOpenChange = vi.fn();
+        const renderDialog = (open: boolean) => (
+            <SettingsProvider>
+                <ExportDialog open={open} onExport={onExport} onOpenChange={onOpenChange} />
+            </SettingsProvider>
+        );
+        const { rerender } = render(renderDialog(true));
+
+        fireEvent.click(screen.getByRole('checkbox', { name: /include commentary/i }));
+        fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
+        rerender(renderDialog(false));
+        rerender(renderDialog(true));
+        fireEvent.click(screen.getByRole('checkbox', { name: /include commentary/i }));
+        fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+        rerender(renderDialog(false));
+        rerender(renderDialog(true));
+        fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
+
+        expect(onExport).toHaveBeenLastCalledWith({
+            includeCommentary: true,
+            includeMetadata: true,
+            includeTools: true,
+            outputFormat: 'md',
+            zipArchive: false,
+        });
+    });
+
+    it('should not persist forced multi-thread zip as the single-thread default', () => {
+        const onExport = vi.fn();
+        const renderDialog = (open: boolean, forceZipArchive: boolean) => (
+            <SettingsProvider>
+                <ExportDialog
+                    forceZipArchive={forceZipArchive}
+                    open={open}
+                    onExport={onExport}
+                    onOpenChange={vi.fn()}
+                />
+            </SettingsProvider>
+        );
+        const { rerender } = render(renderDialog(true, true));
+
+        fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
+        rerender(renderDialog(false, true));
+        rerender(renderDialog(true, false));
         fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
 
         expect(onExport).toHaveBeenLastCalledWith({

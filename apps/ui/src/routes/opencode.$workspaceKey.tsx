@@ -9,9 +9,10 @@ import { ListSearchInput } from '#/components/list-search-input';
 import { LoadingPanel } from '#/components/loading-panel';
 import { OpenCodeSessionsTable } from '#/components/opencode-sessions-table';
 import { PageHeader } from '#/components/page-header';
-import { ReloadErrorPanel } from '#/components/reload-error-panel';
+import { RouteErrorPanel } from '#/components/route-error-panel';
 import { Button } from '#/components/ui/button';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
+import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { openCodeSessionsQueryOptions, openCodeWorkspacesQueryOptions } from '#/lib/opencode-queries';
 import {
     deleteOpenCodeSessionFn,
@@ -21,14 +22,6 @@ import {
 } from '#/lib/opencode-server';
 import { matchesTextQuery } from '#/lib/text-filter';
 import { isWorkspaceEmptiedByDelete } from '#/lib/workspace-delete-navigation';
-
-type ExportDialogOptions = {
-    includeCommentary: boolean;
-    includeMetadata: boolean;
-    includeTools: boolean;
-    outputFormat: 'md' | 'txt';
-    zipArchive: boolean;
-};
 
 type PendingSessionDelete = {
     scope: 'all' | 'selected';
@@ -97,7 +90,7 @@ export const Route = createFileRoute('/opencode/$workspaceKey')({
 });
 
 function OpenCodeWorkspaceErrorComponent({ error }: { error: Error }) {
-    return <ReloadErrorPanel description={error.message} title="Failed to load OpenCode workspace" />;
+    return <RouteErrorPanel error={error} title="Failed to load OpenCode workspace" />;
 }
 
 const findWorkspaceOrThrow = (workspaces: OpenCodeWorkspaceGroup[], workspaceKey: string) => {
@@ -133,20 +126,16 @@ function OpenCodeWorkspaceContent({
     const deferredSearch = useDeferredValue(searchInput);
 
     const exportMutation = useMutation({
-        mutationFn: async (options: ExportDialogOptions) => {
-            if (!pendingExport) {
-                throw new Error('No OpenCode session selected for export');
-            }
-
+        mutationFn: async ({ ids, options }: ExportSelectionMutationInput) => {
             const download =
-                pendingExport.sessionIds.length === 1
+                ids.length === 1
                     ? await exportOpenCodeSessionFn({
                           data: {
                               includeCommentary: options.includeCommentary,
                               includeMetadata: options.includeMetadata,
                               includeTools: options.includeTools,
                               outputFormat: options.outputFormat,
-                              sessionId: pendingExport.sessionIds[0]!,
+                              sessionId: ids[0]!,
                               zipArchive: options.zipArchive,
                           },
                       })
@@ -156,7 +145,7 @@ function OpenCodeWorkspaceContent({
                               includeMetadata: options.includeMetadata,
                               includeTools: options.includeTools,
                               outputFormat: options.outputFormat,
-                              sessionIds: pendingExport.sessionIds,
+                              sessionIds: [...ids],
                               zipArchive: options.zipArchive,
                           },
                       });
@@ -280,7 +269,11 @@ function OpenCodeWorkspaceContent({
                 open={pendingExport !== null}
                 pending={exportMutation.isPending}
                 title={pendingExport ? `Export ${pendingExport.label}` : 'Export session'}
-                onExport={(options) => exportMutation.mutate(options)}
+                onExport={(options) => {
+                    if (pendingExport) {
+                        exportMutation.mutate(createExportSelectionMutationInput(pendingExport.sessionIds, options));
+                    }
+                }}
                 onOpenChange={(open) => {
                     if (!open) {
                         setPendingExport(null);
