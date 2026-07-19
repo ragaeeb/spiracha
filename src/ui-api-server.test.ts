@@ -82,6 +82,31 @@ describe('UI API server routes', () => {
                     data: expect.arrayContaining([{ label: 'Codex', source: 'codex' }]),
                 });
 
+                const savedSettings = encodeURIComponent(
+                    JSON.stringify({
+                        convertToProjectRoot: true,
+                        exportDefaults: {
+                            includeCommentary: true,
+                            includeMetadata: true,
+                            includeTools: true,
+                            outputFormat: 'md',
+                            zipArchive: false,
+                        },
+                        redactUsername: true,
+                    }),
+                );
+                const settingsResponse = await fetchWithTimeout(`http://127.0.0.1:${port}/settings`, {
+                    headers: {
+                        Cookie: `spiracha-settings=${savedSettings}`,
+                    },
+                });
+                expect(settingsResponse.status).toBe(200);
+                const settingsHtml = await settingsResponse.text();
+                const redactControl = settingsHtml.match(/<button(?=[^>]*id="redact-username")[^>]*>/)?.[0];
+                const projectRootControl = settingsHtml.match(/<button(?=[^>]*id="convert-project-root")[^>]*>/)?.[0];
+                expect(redactControl).toContain('data-state="checked"');
+                expect(projectRootControl).toContain('data-state="checked"');
+
                 const query = new URLSearchParams({
                     cwd: fixture.threads[0]!.cwd,
                     include_messages: 'true',

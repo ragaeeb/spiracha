@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { AppShell } from '#/components/app-shell';
 import { TooltipProvider } from '#/components/ui/tooltip';
 import { getErrorPresentation } from '#/lib/error-presentation';
+import { getInitialSettingsFn } from '#/lib/settings-server';
 import { SettingsProvider } from '#/lib/settings-store';
 import appCss from '#/styles.css?url';
 
@@ -88,12 +89,15 @@ export const Route = createRootRouteWithContext<RouterContext>()({
             },
         ],
     }),
+    loader: () => getInitialSettingsFn(),
 });
 
 function RootComponent() {
+    const initialSettings = Route.useLoaderData();
+
     return (
         <RootDocument>
-            <SettingsProvider>
+            <SettingsProvider initialSettings={initialSettings}>
                 <TooltipProvider>
                     <AppShell>
                         <Outlet />
