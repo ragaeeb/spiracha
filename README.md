@@ -67,6 +67,10 @@ GET  /api/v1/resolve?ref=<url-or-deeplink>
 
 The default list selector is `last_final_answer`, which keeps `fgh --collect` style clients fast and small. Use `message_selector=all` when a client needs the full normalized thread.
 
+Conversation lists use opaque keyset cursors ordered by update time, source, and conversation ID. Pass `meta.next_cursor` unchanged with the same filters to request the next page. The 2.0 offset cursor format is intentionally unsupported; clients must begin a fresh traversal after upgrading.
+
+Workspace matching is lexical and performs no filesystem reads, so missing and network-mounted transcript paths cannot delay collection. Symlink aliases are intentionally not resolved; callers that require alias equivalence should pass the canonical workspace path recorded by the source.
+
 Batch delete requires an explicit source and ID list. It returns `deletedIds`, `missingIds`, and a result for each requested ID, so partial success is represented in a `200` response body. Batch export also requires an explicit source and ID list, but is atomic: any missing ID returns an error instead of a partial archive.
 
 Example:

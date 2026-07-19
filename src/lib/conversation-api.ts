@@ -20,6 +20,7 @@ import {
 } from './conversation-data';
 import { validateEvidenceLens } from './conversation-data/evidence-lens';
 import { buildEvidenceExport } from './conversation-data/evidence-markdown';
+import { decodeConversationCursor } from './conversation-data/pagination';
 import { createConversationMarkdownZip } from './conversation-zip-export';
 
 type ConversationApiDependencies = {
@@ -42,7 +43,6 @@ type ApiErrorCode =
     | 'validation_error';
 type ParseResult<T> = { error: Response } | { value: T };
 
-const MAX_CURSOR_OFFSET = 1_000_000;
 const BATCH_LOAD_CONCURRENCY = 4;
 const MAX_ID_BATCH_SIZE = 200;
 const MAX_ID_LENGTH = 2048;
@@ -126,20 +126,6 @@ const parseMessageSelector = (
     return isMessageSelector(value) ? { value } : { error: invalidMessageSelectorResponse(value) };
 };
 
-const decodeCursorOffset = (cursor: string) => {
-    try {
-        const decoded = Buffer.from(cursor, 'base64url').toString('utf8');
-        if (!/^\d+$/u.test(decoded)) {
-            return null;
-        }
-
-        const offset = Number(decoded);
-        return Number.isSafeInteger(offset) && offset >= 0 && offset <= MAX_CURSOR_OFFSET ? offset : null;
-    } catch {
-        return null;
-    }
-};
-
 const invalidFieldResponse = (field: string, value: unknown, message: string) =>
     errorResponse('validation_error', message, 400, { field, value });
 
@@ -156,9 +142,14 @@ const validateCursor = (cursor: string | null | undefined): Response | null => {
         return null;
     }
 
-    return decodeCursorOffset(cursor) === null
-        ? invalidFieldResponse('cursor', cursor, '`cursor` must be a valid pagination cursor.')
-        : null;
+    try {
+        if (!decodeConversationCursor(cursor)) {
+            throw new Error('Invalid cursor');
+        }
+        return null;
+    } catch {
+        return invalidFieldResponse('cursor', cursor, '`cursor` must be a valid pagination cursor.');
+    }
 };
 
 const validateLimit = (limit: number | undefined): Response | null => {

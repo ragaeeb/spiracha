@@ -33,15 +33,19 @@ type DeleteProjectOptions = {
 };
 
 const SQLITE_DELETE_BATCH_SIZE = 400;
+const SQLITE_BUSY_TIMEOUT_MS = 5_000;
 const SESSION_FILE_DELETE_CONCURRENCY = 16;
 const THREAD_LIST_IO_CONCURRENCY = 8;
+const DASHBOARD_RESULT_LIMIT = 5;
 const CODEX_READONLY_DB_OPEN_FLAGS = constants.SQLITE_OPEN_READONLY | constants.SQLITE_OPEN_URI;
 const JSONL_READ_CHUNK_BYTES = 64 * 1024;
+const SESSION_META_READ_CHUNK_BYTES = 64 * 1024;
 const SESSION_META_READ_LIMIT_BYTES = 4 * 1024 * 1024;
 const FALLBACK_STATS_HEAD_READ_LIMIT_BYTES = 512 * 1024;
 const FALLBACK_STATS_TAIL_READ_LIMIT_BYTES = 512 * 1024;
 const FALLBACK_STATS_RECORD_PATTERN = /"type"\s*:\s*"(?:agent_message|message|token_count|turn_context)"/u;
 const THREAD_ID_PATTERN = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/iu;
+const CODEX_UI_CACHE_PREFIXES = ['analytics-', 'thread-', 'thread-preview-'] as const;
 const THREAD_ROW_COLUMNS = `
     id, rollout_path, created_at, updated_at, source, model_provider, cwd, title,
     sandbox_policy, approval_mode, tokens_used, has_user_event, archived, archived_at,
@@ -155,6 +159,8 @@ const isSqliteCantOpenError = (error: unknown) => {
 
 const uniqueValues = <T>(values: T[]) => [...new Set(values)];
 
+const compareCodeUnits = (left: string, right: string) => (left < right ? -1 : left > right ? 1 : 0);
+
 const chunkValues = <T>(values: T[], chunkSize: number) => {
     const chunks: T[][] = [];
 
@@ -200,9 +206,14 @@ const openWritableDb = (dbPath: string, busyTimeoutMs: number) => {
     }
 };
 
-const toTimestampMs = (thread: Pick<ThreadRow, 'updated_at' | 'updated_at_ms'>) => {
+const getThreadUpdatedAtMs = (thread: Pick<ThreadRow, 'updated_at' | 'updated_at_ms'>) => {
     return thread.updated_at_ms ?? thread.updated_at * 1000;
 };
+
+const compareThreadsByRecentActivity = (
+    left: Pick<ThreadRow, 'id' | 'updated_at' | 'updated_at_ms'>,
+    right: Pick<ThreadRow, 'id' | 'updated_at' | 'updated_at_ms'>,
+) => getThreadUpdatedAtMs(right) - getThreadUpdatedAtMs(left) || compareCodeUnits(right.id, left.id);
 
 const parseDynamicToolRow = (row: Record<string, number | string | null>): DynamicToolRow => {
     return {
@@ -249,7 +260,7 @@ export const withReadonlyDb = <T>(dbPath: string, callback: (db: Database) => T)
 const withWritableDb = <T>(dbPath: string, callback: (db: Database) => T): T => {
     const db = runWithSqliteRetry({
         action: () => {
-            return openWritableDb(dbPath, 5000);
+            return openWritableDb(dbPath, SQLITE_BUSY_TIMEOUT_MS);
         },
     });
     try {
@@ -525,7 +536,9 @@ const readSessionMetaLine = (sessionFile: string): string | null => {
         let totalBytes = 0;
 
         while (totalBytes < SESSION_META_READ_LIMIT_BYTES) {
-            const buffer = Buffer.alloc(Math.min(64 * 1024, SESSION_META_READ_LIMIT_BYTES - totalBytes));
+            const buffer = Buffer.alloc(
+                Math.min(SESSION_META_READ_CHUNK_BYTES, SESSION_META_READ_LIMIT_BYTES - totalBytes),
+            );
             const bytesRead = readSync(descriptor, buffer, 0, buffer.length, totalBytes);
             if (bytesRead === 0) {
                 break;
@@ -943,14 +956,7 @@ const readFallbackThreadRowById = (
 
 const mergeFallbackThreadRows = (dbPath: string, threads: ThreadRow[], projectName: string | null = null) => {
     const threadIds = new Set(threads.map((thread) => thread.id));
-    return [...threads, ...readFallbackThreadRows(dbPath, threadIds, projectName)].sort((left, right) => {
-        const updatedDifference = toTimestampMs(right) - toTimestampMs(left);
-        if (updatedDifference !== 0) {
-            return updatedDifference;
-        }
-
-        return right.id.localeCompare(left.id);
-    });
+    return [...threads, ...readFallbackThreadRows(dbPath, threadIds, projectName)].sort(compareThreadsByRecentActivity);
 };
 
 const applyRolloutActivityTimestamps = async <T extends ActivityTimestampedThread>(
@@ -961,12 +967,12 @@ const applyRolloutActivityTimestamps = async <T extends ActivityTimestampedThrea
         const rolloutPath = resolveCodexRolloutPath(dbPath, thread.rollout_path);
         const normalizedThread =
             rolloutPath === thread.rollout_path ? thread : { ...thread, rollout_path: rolloutPath };
-        let rolloutUpdatedAtMs = toTimestampMs(thread);
+        let rolloutUpdatedAtMs = getThreadUpdatedAtMs(thread);
         try {
             rolloutUpdatedAtMs = Math.max(rolloutUpdatedAtMs, (await stat(rolloutPath)).mtimeMs);
         } catch {}
 
-        if (rolloutUpdatedAtMs <= toTimestampMs(thread)) {
+        if (rolloutUpdatedAtMs <= getThreadUpdatedAtMs(thread)) {
             return normalizedThread;
         }
 
@@ -977,14 +983,7 @@ const applyRolloutActivityTimestamps = async <T extends ActivityTimestampedThrea
         };
     });
 
-    return activeThreads.sort((left, right) => {
-        const updatedDifference = toTimestampMs(right) - toTimestampMs(left);
-        if (updatedDifference !== 0) {
-            return updatedDifference;
-        }
-
-        return right.id.localeCompare(left.id);
-    });
+    return activeThreads.sort(compareThreadsByRecentActivity);
 };
 
 const compactDashboardThread = (thread: DashboardThreadCandidate): DashboardThreadSummary => {
@@ -1009,21 +1008,14 @@ const buildDashboardRecentThreads = (threads: DashboardThreadCandidate[]) => {
         }
 
         const current = bestThreadByProject.get(project);
-        if (!current || toTimestampMs(thread) > toTimestampMs(current)) {
+        if (!current || getThreadUpdatedAtMs(thread) > getThreadUpdatedAtMs(current)) {
             bestThreadByProject.set(project, thread);
         }
     }
 
     return [...bestThreadByProject.values()]
-        .sort((left, right) => {
-            const updatedDifference = toTimestampMs(right) - toTimestampMs(left);
-            if (updatedDifference !== 0) {
-                return updatedDifference;
-            }
-
-            return right.id.localeCompare(left.id);
-        })
-        .slice(0, 5)
+        .sort(compareThreadsByRecentActivity)
+        .slice(0, DASHBOARD_RESULT_LIMIT)
         .map((thread) => ({
             project: getPortablePathBasename(thread.cwd),
             thread: compactDashboardThread(thread),
@@ -1050,7 +1042,7 @@ const buildProjectSummaryMap = (threads: ThreadRow[]) => {
         };
         current.archivedThreadCount += thread.archived ? 1 : 0;
         current.cwdPaths.add(thread.cwd);
-        current.lastUpdatedAtMs = Math.max(current.lastUpdatedAtMs ?? 0, toTimestampMs(thread));
+        current.lastUpdatedAtMs = Math.max(current.lastUpdatedAtMs ?? 0, getThreadUpdatedAtMs(thread));
         if (thread.model) {
             current.modelNames.add(thread.model);
         }
@@ -1110,7 +1102,7 @@ const mapProjectSummaries = (projectMap: ProjectSummaryMap): ProjectSummary[] =>
                 return right.totalTokens - left.totalTokens;
             }
 
-            return left.name.localeCompare(right.name);
+            return compareCodeUnits(left.name, right.name);
         });
 };
 
@@ -1517,7 +1509,7 @@ export const listProjectThreads = async (
         };
     });
 
-    return entries.sort((left, right) => toTimestampMs(right.thread) - toTimestampMs(left.thread));
+    return entries.sort((left, right) => compareThreadsByRecentActivity(left.thread, right.thread));
 };
 
 export const getThreadBrowseData = (dbPath: string, threadId: string): ThreadBrowseData => {
@@ -1656,10 +1648,10 @@ export const getCodexDashboardSummary = async (dbPath: string): Promise<Dashboar
                     return right.threadCount - left.threadCount;
                 }
 
-                return left.name.localeCompare(right.name);
+                return compareCodeUnits(left.name, right.name);
             })
-            .slice(0, 5),
-        topProjectsByTokens: projects.slice(0, 5),
+            .slice(0, DASHBOARD_RESULT_LIMIT),
+        topProjectsByTokens: projects.slice(0, DASHBOARD_RESULT_LIMIT),
         totalProjects: projects.length,
         totalThreads,
         totalTokens:
@@ -1781,5 +1773,5 @@ export const listScopedThreads = (dbPath: string, projectName: string | null): T
 };
 
 export const invalidateCodexUiCaches = async () => {
-    await invalidateCacheByPrefix('analytics-', 'thread-', 'thread-preview-');
+    await invalidateCacheByPrefix(...CODEX_UI_CACHE_PREFIXES);
 };

@@ -7,6 +7,7 @@ import { grokConversationAdapter } from './grok-adapter';
 import { kiroConversationAdapter } from './kiro-adapter';
 import { selectConversationMessages } from './message-selector';
 import { opencodeConversationAdapter } from './opencode-adapter';
+import { decodeConversationCursor, paginateConversations } from './pagination';
 import { qoderConversationAdapter } from './qoder-adapter';
 import {
     CONVERSATION_SOURCES,
@@ -121,25 +122,6 @@ const getAdapter = (source: ConversationSource): ConversationAdapter | null => {
     return ADAPTERS[source] ?? null;
 };
 
-const decodeCursor = (cursor: string | null | undefined) => {
-    if (!cursor) {
-        return 0;
-    }
-
-    const decoded = Buffer.from(cursor, 'base64url').toString('utf8');
-    if (!/^\d+$/u.test(decoded)) {
-        throw new Error('Invalid conversation pagination cursor.');
-    }
-
-    const parsed = Number(decoded);
-    if (!Number.isSafeInteger(parsed) || parsed < 0) {
-        throw new Error('Invalid conversation pagination cursor.');
-    }
-    return parsed;
-};
-
-const encodeCursor = (offset: number) => Buffer.from(String(offset), 'utf8').toString('base64url');
-
 const getLimit = (limit: number | undefined) => {
     if (!limit || limit <= 0) {
         return DEFAULT_LIMIT;
@@ -164,21 +146,13 @@ const filterByUpdatedAt = (
     });
 };
 
-const sortConversations = (conversations: Awaited<ReturnType<ConversationAdapter['listConversationsForPath']>>) => {
-    return [...conversations].sort(
-        (left, right) =>
-            (right.updatedAtMs ?? 0) - (left.updatedAtMs ?? 0) ||
-            left.source.localeCompare(right.source) ||
-            left.id.localeCompare(right.id),
-    );
-};
-
 export const listConversationSources = async (): Promise<ConversationSourceInfo[]> => [...SOURCE_INFOS];
 
 const listSourceConversationsForPath = async (
     source: ConversationSource,
     options: ListConversationsForPathOptions,
     ignoreSourceFailures: boolean,
+    paginationCursor: string | null | undefined,
 ) => {
     const adapter = getAdapter(source);
     if (!adapter) {
@@ -186,7 +160,10 @@ const listSourceConversationsForPath = async (
     }
 
     try {
-        return await adapter.listConversationsForPath(options);
+        const conversations = filterByUpdatedAt(await adapter.listConversationsForPath(options), options);
+        return options.limit === undefined
+            ? conversations
+            : paginateConversations(conversations, paginationCursor, options.limit).data;
     } catch (error) {
         if (!ignoreSourceFailures) {
             throw error;
@@ -200,28 +177,28 @@ const listSourceConversationsForPath = async (
 };
 
 export const listConversationsForPath = async (options: ListConversationsForPathOptions): Promise<ConversationPage> => {
+    const cursorKey = decodeConversationCursor(options.cursor);
+    const limit = getLimit(options.limit);
+    const cursorUpdatedBeforeMs = cursorKey?.updatedAtMs;
+    const collectionOptions: ListConversationsForPathOptions = {
+        ...options,
+        cursor: null,
+        limit: limit + 1,
+        updatedBeforeMs:
+            cursorUpdatedBeforeMs === undefined
+                ? options.updatedBeforeMs
+                : Math.min(options.updatedBeforeMs ?? cursorUpdatedBeforeMs, cursorUpdatedBeforeMs),
+    };
     const ignoreSourceFailures = isAllSourcesRequest(options.sources);
     const conversations = (
         await Promise.all(
             getEnabledSources(options.sources).map((source) =>
-                listSourceConversationsForPath(source, options, ignoreSourceFailures),
+                listSourceConversationsForPath(source, collectionOptions, ignoreSourceFailures, options.cursor),
             ),
         )
     ).flat();
 
-    const sorted = sortConversations(filterByUpdatedAt(conversations, options));
-    const offset = decodeCursor(options.cursor);
-    const limit = getLimit(options.limit);
-    const data = sorted.slice(offset, offset + limit);
-    const nextOffset = offset + data.length;
-
-    return {
-        data,
-        meta: {
-            hasNext: nextOffset < sorted.length,
-            nextCursor: nextOffset < sorted.length ? encodeCursor(nextOffset) : null,
-        },
-    };
+    return paginateConversations(conversations, options.cursor, limit);
 };
 
 export const getConversation = async (options: GetConversationOptions) => {
