@@ -340,6 +340,7 @@ const GrokSessionDetailPage = () => {
             </Tabs>
 
             <ExportDialog
+                focusedEvidenceTarget={{ id: detail.session.sessionId, source: 'grok' }}
                 errorMessage={
                     exportSessionMutation.isError
                         ? exportSessionMutation.error instanceof Error

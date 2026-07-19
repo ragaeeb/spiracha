@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { listConversationsForPath } from '.';
+import { getConversation, listConversationsForPath } from '.';
 
 type SummaryFixture = {
     id: string;
@@ -162,6 +162,16 @@ describe('antigravity conversation adapter', () => {
                 text: 'Final answer with Unhandled Optional Chaining in Manifest.',
             }),
         ]);
+        const detail = await getConversation({
+            id: conversationId,
+            locations: { antigravityRoots: [root] },
+            messageSelector: 'all',
+            source: 'antigravity',
+        });
+        expect(detail?.messages.find((message) => message.phase === 'tool_call')?.toolEvidence).toMatchObject({
+            callId: null,
+            name: 'view_file',
+        });
     });
 
     it('should match conversations that explicitly reference the requested project path', async () => {

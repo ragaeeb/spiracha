@@ -23,6 +23,7 @@ import {
     isWithinUpdatedWindow,
     normalizeAssistantPhase,
     normalizeRole,
+    normalizeToolStatus,
     toDateMs,
 } from './adapter-helpers';
 import { selectConversationMessages } from './message-selector';
@@ -64,22 +65,38 @@ const partToMessages = (
     finalEntryIds: Set<string>,
 ): ConversationMessage[] => {
     if (entry.entryType === 'tool_call') {
+        const toolName = getPartString(part, 'toolName') ?? 'unknown';
+        const callId = getPartString(part, 'toolCallId') ?? entry.entryId;
         return createTextMessage({
             createdAtMs: toDateMs(entry.timestamp),
             id: `${entry.entryId}:${partIndex}`,
             metadata: {
                 requestId: entry.requestId,
-                toolCallId: getPartString(part, 'toolCallId') ?? entry.entryId,
-                toolName: getPartString(part, 'toolName'),
+                toolCallId: callId,
+                toolName,
             },
             order: partIndex,
             phase: 'tool_call',
             role: 'tool',
             text: part.text,
+            toolEvidence: {
+                callId,
+                command: getPartString(part, 'command'),
+                durationMs: null,
+                exitCode: null,
+                inputText: part.text ?? null,
+                name: toolName,
+                namespace: toolName.includes('.') ? (toolName.split('.')[0] ?? null) : null,
+                outputText: null,
+                status: 'unknown',
+                workdir: getPartString(part, 'workdir'),
+            },
         });
     }
 
     if (entry.entryType === 'tool_output') {
+        const toolName = getPartString(part, 'toolName') ?? 'unknown';
+        const status = getPartString(part, 'status');
         return createTextMessage({
             createdAtMs: toDateMs(entry.timestamp),
             id: `${entry.entryId}:${partIndex}`,
@@ -92,6 +109,18 @@ const partToMessages = (
             phase: 'tool_output',
             role: 'tool',
             text: part.text,
+            toolEvidence: {
+                callId: getPartString(part, 'toolCallId'),
+                command: null,
+                durationMs: null,
+                exitCode: null,
+                inputText: null,
+                name: toolName,
+                namespace: toolName.includes('.') ? (toolName.split('.')[0] ?? null) : null,
+                outputText: part.text ?? null,
+                status: normalizeToolStatus(status),
+                workdir: null,
+            },
         });
     }
 

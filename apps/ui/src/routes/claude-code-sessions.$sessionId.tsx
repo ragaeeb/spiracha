@@ -438,6 +438,7 @@ function ClaudeCodeSessionDetailPage() {
             </Tabs>
 
             <ExportDialog
+                focusedEvidenceTarget={{ id: detail.session.sessionId, source: 'claude-code' }}
                 errorMessage={
                     exportSessionMutation.isError
                         ? exportSessionMutation.error instanceof Error

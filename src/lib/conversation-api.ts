@@ -18,9 +18,12 @@ import {
     renderConversationMarkdown,
     resolveConversationRef,
 } from './conversation-data';
+import { validateEvidenceLens } from './conversation-data/evidence-lens';
+import { buildEvidenceExport } from './conversation-data/evidence-markdown';
 import { createConversationMarkdownZip } from './conversation-zip-export';
 
 type ConversationApiDependencies = {
+    buildEvidenceExport?: typeof buildEvidenceExport;
     deleteConversation?: typeof deleteConversation;
     deleteConversations?: typeof deleteConversations;
     getConversation?: typeof getConversation;
@@ -292,6 +295,7 @@ const normalizeMeta = (meta: { hasNext: boolean; nextCursor: string | null }) =>
 });
 
 const getDeps = (dependencies: ConversationApiDependencies) => ({
+    buildEvidenceExport: dependencies.buildEvidenceExport ?? buildEvidenceExport,
     deleteConversation: dependencies.deleteConversation ?? deleteConversation,
     deleteConversations: dependencies.deleteConversations ?? deleteConversations,
     getConversation: dependencies.getConversation ?? getConversation,
@@ -444,6 +448,65 @@ const handleExportConversation = async (
             },
         },
     );
+};
+
+const handleExportEvidence = async (
+    source: string | undefined,
+    id: string | undefined,
+    request: Request,
+    dependencies: ReturnType<typeof getDeps>,
+) => {
+    const getOptions = buildGetConversationOptions(source, id, new URL(request.url));
+    if ('error' in getOptions) {
+        return getOptions.error;
+    }
+    let body: unknown;
+    try {
+        body = await request.json();
+    } catch {
+        return errorResponse('validation_error', 'Request body must be JSON.', 400);
+    }
+    if (!isRecord(body)) {
+        return errorResponse('validation_error', 'Request body must be a JSON object.', 400);
+    }
+    const unknownField = Object.keys(body).find((field) => field !== 'lens' && field !== 'generated_at');
+    if (unknownField) {
+        return invalidFieldResponse(unknownField, body[unknownField], 'Unknown request field.');
+    }
+    const validated = validateEvidenceLens(body.lens);
+    if (!validated.ok) {
+        const field = validated.error.path ? `lens.${validated.error.path}` : 'lens';
+        return invalidFieldResponse(field, undefined, validated.error.message);
+    }
+    const generatedAt = body.generated_at;
+    const canonicalGeneratedAt = (() => {
+        if (generatedAt === undefined) {
+            return undefined;
+        }
+        if (typeof generatedAt !== 'string' || generatedAt.length > 64) {
+            return null;
+        }
+        try {
+            return new Date(generatedAt).toISOString() === generatedAt ? generatedAt : null;
+        } catch {
+            return null;
+        }
+    })();
+    if (canonicalGeneratedAt === null) {
+        return invalidFieldResponse('generated_at', generatedAt, '`generated_at` must be an ISO-8601 timestamp.');
+    }
+    const conversation = await dependencies.getConversation({ ...getOptions.value, messageSelector: 'all' });
+    if (!conversation) {
+        return errorResponse('conversation_not_found', 'No conversation exists for that source and id.', 404, {
+            id: getOptions.value.id,
+            source: getOptions.value.source,
+        });
+    }
+    return jsonResponse({
+        data: dependencies.buildEvidenceExport(conversation, validated.value, {
+            generatedAt: canonicalGeneratedAt,
+        }),
+    });
 };
 
 const handleDeleteConversation = async (
@@ -1037,6 +1100,12 @@ const API_ROUTES: ApiRoute[] = [
         resource: 'conversations',
     },
     {
+        handle: ({ dependencies, id, request, source }) => handleExportEvidence(source, id, request, dependencies),
+        matches: ({ action, id, source }) => Boolean(source && id && action === 'evidence'),
+        method: 'POST',
+        resource: 'conversations',
+    },
+    {
         handle: ({ dependencies, id, source }) => handleDeleteConversation(source, id, dependencies),
         matches: ({ action, id, source }) => Boolean(source && id && !action),
         method: 'DELETE',
@@ -1095,8 +1164,8 @@ const parseConversationApiSegments = (segments: string[], resource: string) => {
     if (segments.length === 5) {
         return { action: undefined, id: segments[4], resource, source: segments[3] };
     }
-    if (segments.length === 6 && segments[5] === 'export') {
-        return { action: 'export', id: segments[4], resource, source: segments[3] };
+    if (segments.length === 6 && (segments[5] === 'export' || segments[5] === 'evidence')) {
+        return { action: segments[5], id: segments[4], resource, source: segments[3] };
     }
     return { action: '__invalid__', id: undefined, resource, source: undefined };
 };

@@ -24,6 +24,7 @@ const conversation = {
             phase: 'final_answer',
             role: 'assistant',
             text: 'Collected review output.',
+            toolEvidence: null,
         },
     ],
     metadata: {},
@@ -49,6 +50,80 @@ const runBunCommand = async (args: string[], cwd: string) => {
 };
 
 describe('conversation client', () => {
+    it('should export focused evidence through the HTTP client contract', async () => {
+        const requests: Array<{ body: unknown; method: string; pathname: string }> = [];
+        const server = Bun.serve({
+            async fetch(request) {
+                requests.push({
+                    body: await request.json(),
+                    method: request.method,
+                    pathname: new URL(request.url).pathname,
+                });
+                return Response.json({
+                    data: {
+                        markdown: '# Focused evidence: Thread 1\n',
+                        meta: {
+                            approximateTokens: 8,
+                            episodeCount: 1,
+                            generatedAt: '2026-07-19T12:00:00.000Z',
+                            omission: {
+                                budgetReached: false,
+                                deduplicatedDiagnostics: 0,
+                                inputCharacters: 100,
+                                inputEvents: 2,
+                                omittedBinaryPayloads: 0,
+                                omittedEvents: 0,
+                                selectedEvents: 2,
+                                truncatedArrays: 0,
+                                truncatedFields: 0,
+                            },
+                            projectedCharacters: 29,
+                            rendererVersion: 'focused-evidence/v1',
+                        },
+                    },
+                });
+            },
+            port: 0,
+        });
+        const evidenceLens = {
+            anchors: [{ kind: 'tool' as const, names: ['exec'] }],
+            budget: {
+                commentaryCharactersPerEpisode: 200,
+                failedOutputCharacters: 500,
+                successfulOutputCharacters: 200,
+                totalCharacters: 3000,
+            },
+            context: {
+                commentaryAfter: 1,
+                commentaryBefore: 1,
+                followRetries: true,
+                followWorkarounds: true,
+                includeReasoningSummaries: false,
+                maxOrderGap: 5,
+            },
+            name: 'CLI evidence',
+        };
+
+        try {
+            const client = createConversationClient({ baseUrl: `http://127.0.0.1:${server.port}`, mode: 'http' });
+            const result = await client.exportConversationEvidenceMarkdown({
+                generatedAt: '2026-07-19T12:00:00.000Z',
+                id: 'thread-1',
+                lens: evidenceLens,
+                source: 'codex',
+            });
+            expect(result?.markdown).toBe('# Focused evidence: Thread 1\n');
+            expect(requests).toEqual([
+                {
+                    body: { generated_at: '2026-07-19T12:00:00.000Z', lens: evidenceLens },
+                    method: 'POST',
+                    pathname: '/api/v1/conversations/codex/thread-1/evidence',
+                },
+            ]);
+        } finally {
+            server.stop(true);
+        }
+    });
     it('should list conversations locally without a running HTTP server', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'spiracha-client-local-'));
         try {
@@ -119,6 +194,9 @@ describe('conversation client', () => {
             const script = `
                 import { createConversationClient } from 'spiracha/client';
                 const client = createConversationClient({ locations: ${JSON.stringify(locations)}, mode: 'local' });
+                if (typeof client.exportConversationEvidenceMarkdown !== 'function') {
+                    throw new Error('The installed client is missing focused evidence export.');
+                }
                 const page = await client.listConversations({ cwd: ${JSON.stringify(path.join(tempRoot, 'repo'))} });
                 console.log(JSON.stringify(page));
             `;

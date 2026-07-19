@@ -349,6 +349,7 @@ const OpenCodeSessionDetailPage = () => {
             </Tabs>
 
             <ExportDialog
+                focusedEvidenceTarget={{ id: detail.session.sessionId, source: 'opencode' }}
                 errorMessage={
                     exportSessionMutation.isError
                         ? exportSessionMutation.error instanceof Error

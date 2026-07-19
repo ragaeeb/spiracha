@@ -20,9 +20,11 @@ import {
     createDeepLinks,
     createTextMessage,
     finalizeMessages,
+    getToolNamespace,
     isWithinUpdatedWindow,
     normalizeAssistantPhase,
     normalizeRole,
+    normalizeToolStatus,
 } from './adapter-helpers';
 import { selectConversationMessages } from './message-selector';
 import { getConversationPathMatch } from './path-match';
@@ -79,6 +81,18 @@ const partToMessages = (
             phase: 'tool_call',
             role: 'tool',
             text: [part.toolName, part.argumentsText].filter(Boolean).join('\n'),
+            toolEvidence: {
+                callId: part.toolCallId ?? null,
+                command: null,
+                durationMs: null,
+                exitCode: null,
+                inputText: part.argumentsText ?? null,
+                name: part.toolName ?? 'unknown',
+                namespace: getToolNamespace(part.toolName ?? 'unknown'),
+                outputText: null,
+                status: 'unknown',
+                workdir: null,
+            },
         });
     }
 
@@ -91,6 +105,18 @@ const partToMessages = (
             phase: 'tool_output',
             role: 'tool',
             text: part.outputText,
+            toolEvidence: {
+                callId: part.toolCallId ?? null,
+                command: null,
+                durationMs: null,
+                exitCode: null,
+                inputText: null,
+                name: part.toolName ?? 'unknown',
+                namespace: getToolNamespace(part.toolName ?? 'unknown'),
+                outputText: part.outputText ?? null,
+                status: normalizeToolStatus(null),
+                workdir: null,
+            },
         });
     }
 

@@ -38,6 +38,7 @@ Spiracha requires Bun 1.3.14 or newer. Set `PORT` to request a different startin
 - Search Codex projects from the app shell, with results delegated to the shareable `/codex?q=...` inventory filter.
 - Inspect source-specific detail pages with transcript, tool, reasoning, metadata, raw event, export, and delete flows where supported by the source. Codex thread detail includes a tool-focused activity view plus recorded goals and sandbox policy.
 - Export transcripts from the UI as Markdown, text, or zip bundles with source-specific commentary/final-answer filtering. The last submitted export choices persist across dialog openings; canceled drafts do not.
+- Export source-independent focused evidence: bounded failure/retry/tool episodes selected by a reusable JSON lens, with trace IDs and an omission ledger.
 - Expose a stable API for local clients that need normalized conversation metadata and message payloads.
 - Resolve Spiracha UI links and native source links into normalized `{ source, id }` references for cross-thread context lookup.
 
@@ -57,6 +58,7 @@ GET  /api/v1/conversations?cwd=/absolute/project&include_messages=true
 POST /api/v1/conversation-query
 GET  /api/v1/conversations/:source/:id
 GET  /api/v1/conversations/:source/:id/export
+POST /api/v1/conversations/:source/:id/evidence
 DELETE /api/v1/conversations/:source/:id
 POST /api/v1/conversations/delete
 POST /api/v1/conversations/export
@@ -120,6 +122,8 @@ const page = await client.listConversations({
 Library and CLI use is quiet by default. Set `SPIRACHA_TRANSCRIPT_LOAD_LOGS=1` or
 `SPIRACHA_OPENCODE_DB_LOGS=1` only when diagnosing loader or OpenCode database timing.
 
+Focused evidence is a deterministic, lossy Markdown export for qualitative DX analysis. It does not change full-transcript exports. See [Focused evidence lenses](docs/focused-evidence.md) for the complete lens schema, bounds, local and HTTP examples, UI workflow, privacy behavior, omission accounting, and performance limits.
+
 ## Source Locations
 
 | Source | Default location | Primary override |
@@ -175,3 +179,4 @@ TanStack Router generates `apps/ui/src/routeTree.gen.ts` during development/buil
 - No standalone Claude or Cursor export CLI remains.
 - No MCP server or local Codex plugin remains.
 - Programmatic consumers should call the stable local HTTP API or import `spiracha/client` from Bun.
+- Normalized conversation messages now always include `toolEvidence` (`null` for non-tool messages); consumers that construct these DTOs must provide that explicit field.

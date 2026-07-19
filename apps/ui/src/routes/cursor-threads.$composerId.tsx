@@ -405,6 +405,7 @@ const CursorThreadDetailPage = () => {
             />
 
             <ExportDialog
+                focusedEvidenceTarget={{ id: detail.thread.composerId, source: 'cursor' }}
                 errorMessage={
                     exportThreadMutation.isError
                         ? exportThreadMutation.error instanceof Error

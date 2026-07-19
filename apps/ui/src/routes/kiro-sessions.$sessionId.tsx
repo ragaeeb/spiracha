@@ -345,6 +345,7 @@ const KiroSessionDetailPage = () => {
             </Tabs>
 
             <ExportDialog
+                focusedEvidenceTarget={{ id: detail.session.sessionId, source: 'kiro' }}
                 errorMessage={
                     exportSessionMutation.isError
                         ? exportSessionMutation.error instanceof Error

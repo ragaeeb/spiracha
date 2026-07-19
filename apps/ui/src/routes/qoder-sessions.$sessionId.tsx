@@ -302,6 +302,7 @@ const QoderSessionDetailPage = () => {
             </Tabs>
 
             <ExportDialog
+                focusedEvidenceTarget={{ id: detail.session.sessionId, source: 'qoder' }}
                 errorMessage={
                     exportSessionMutation.isError
                         ? exportSessionMutation.error instanceof Error

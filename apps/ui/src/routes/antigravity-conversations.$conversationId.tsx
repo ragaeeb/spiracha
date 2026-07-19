@@ -512,6 +512,7 @@ function AntigravityConversationDetailPage() {
             ) : null}
 
             <ExportDialog
+                focusedEvidenceTarget={{ id: detail.conversation.conversationId, source: 'antigravity' }}
                 errorMessage={
                     exportConversationMutation.isError
                         ? exportConversationMutation.error instanceof Error

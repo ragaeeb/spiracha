@@ -64,6 +64,17 @@ describe('codex conversation adapter', () => {
         });
         expect(detail?.messages).toHaveLength(1);
         expect(detail?.deepLinks.spiracha).toBe(`spiracha://conversation/codex/${fixture.threads[0]!.threadId}`);
+
+        const completeDetail = await getConversation({
+            id: fixture.threads[0]!.threadId,
+            locations: { codexDbPath: fixture.dbPath },
+            messageSelector: 'all',
+            source: 'codex',
+        });
+        expect(completeDetail?.messages.find((message) => message.phase === 'tool_call')?.toolEvidence).toMatchObject({
+            callId: expect.any(String),
+            name: expect.any(String),
+        });
     });
 
     it('should keep Codex conversations available when one rollout file disappears', async () => {

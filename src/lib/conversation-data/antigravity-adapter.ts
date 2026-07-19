@@ -15,6 +15,7 @@ import {
     decodeFileUri,
     finalizeMessages,
     isWithinUpdatedWindow,
+    normalizeToolStatus,
 } from './adapter-helpers';
 import { selectConversationMessages } from './message-selector';
 import { getConversationPathMatch, getFirstConversationPathMatch } from './path-match';
@@ -42,6 +43,36 @@ const extractAbsolutePathReferences = (text: string): string[] => {
     return [...new Set((text.match(/\/[^\s"'`)\]]+/gu) ?? []).map(stripTrailingPathPunctuation))];
 };
 
+const antigravityToolEvidence = (message: Pick<ConversationMessage, 'metadata' | 'phase' | 'text'>) => {
+    if (message.phase !== 'tool_call' && message.phase !== 'tool_output') {
+        return null;
+    }
+    let name = 'unknown';
+    let inputText: string | null = null;
+    if (message.phase === 'tool_call') {
+        try {
+            const first = JSON.parse(message.text.split('\n')[0] ?? '') as { args?: unknown; name?: unknown };
+            name = typeof first.name === 'string' ? first.name : name;
+            inputText = first.args === undefined ? message.text : JSON.stringify(first.args);
+        } catch {
+            inputText = message.text;
+        }
+    }
+    const status = typeof message.metadata.status === 'string' ? message.metadata.status : null;
+    return {
+        callId: null,
+        command: null,
+        durationMs: null,
+        exitCode: null,
+        inputText,
+        name,
+        namespace: name.includes('.') ? (name.split('.')[0] ?? null) : null,
+        outputText: message.phase === 'tool_output' ? message.text : null,
+        status: normalizeToolStatus(status),
+        workdir: null,
+    } as const;
+};
+
 const readMessages = async (conversation: AntigravityConversation) => {
     const load = () =>
         runWithTranscriptLoadLimit(() => readAntigravityConversationMessages(conversation), {
@@ -64,9 +95,11 @@ const readMessages = async (conversation: AntigravityConversation) => {
                 id: `${conversation.conversationId}:${message.order}:${message.role}:${message.phase}:${entryIndex}`,
                 metadata: {
                     ...message.metadata,
+                    evidenceLimitation: 'Antigravity transcript records do not expose stable call/result IDs.',
                     model: conversation.model,
                     transcriptSource: conversation.transcriptSource,
                 },
+                toolEvidence: antigravityToolEvidence(message),
             }),
         ),
     );

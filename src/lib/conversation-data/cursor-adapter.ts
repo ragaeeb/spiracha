@@ -21,6 +21,7 @@ import {
     createTextMessage,
     finalizeMessages,
     isWithinUpdatedWindow,
+    normalizeToolStatus,
 } from './adapter-helpers';
 import { selectConversationMessages } from './message-selector';
 import { getFirstConversationPathMatch } from './path-match';
@@ -69,6 +70,18 @@ const bubbleToMessages = (
               phase: 'tool_call',
               role: 'tool',
               text: [bubble.toolCall.name, bubble.toolCall.argumentsText].filter(Boolean).join('\n'),
+              toolEvidence: {
+                  callId: bubble.toolCall.callId,
+                  command: null,
+                  durationMs: null,
+                  exitCode: null,
+                  inputText: bubble.toolCall.argumentsText,
+                  name: bubble.toolCall.name,
+                  namespace: bubble.toolCall.name.includes('.') ? (bubble.toolCall.name.split('.')[0] ?? null) : null,
+                  outputText: null,
+                  status: normalizeToolStatus(bubble.toolCall.status),
+                  workdir: null,
+              },
           })
         : [];
     const toolOutput = bubble.toolCall
@@ -80,6 +93,18 @@ const bubbleToMessages = (
               phase: 'tool_output',
               role: 'tool',
               text: bubble.toolCall.resultText,
+              toolEvidence: {
+                  callId: bubble.toolCall.callId,
+                  command: null,
+                  durationMs: null,
+                  exitCode: null,
+                  inputText: null,
+                  name: bubble.toolCall.name,
+                  namespace: bubble.toolCall.name.includes('.') ? (bubble.toolCall.name.split('.')[0] ?? null) : null,
+                  outputText: bubble.toolCall.resultText,
+                  status: normalizeToolStatus(bubble.toolCall.status),
+                  workdir: null,
+              },
           })
         : [];
 

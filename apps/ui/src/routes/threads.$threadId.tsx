@@ -1106,6 +1106,7 @@ function ThreadDetailPageContent() {
             <ExportDialog
                 disabled={transcriptMissing}
                 errorMessage={getThreadExportErrorMessage(transcriptMissing, exportThreadMutation.error)}
+                focusedEvidenceTarget={{ id: snapshot.thread.id, source: 'codex' }}
                 open={exportOpen}
                 pending={exportThreadMutation.isPending}
                 onExport={(options) => {

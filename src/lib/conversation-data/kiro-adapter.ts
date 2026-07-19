@@ -42,7 +42,7 @@ const KIRO_CONVERSATION_HYDRATION_CONCURRENCY = 4;
 const getSessionsDir = (options: { locations?: { kiroWorkspaceSessionsDir?: string } }) =>
     options.locations?.kiroWorkspaceSessionsDir ?? resolveKiroWorkspaceSessionsDir();
 
-const partToMessages = (
+export const normalizeKiroTranscriptPart = (
     entry: KiroTranscriptEntry,
     part: KiroTranscriptPart,
     partIndex: number,
@@ -50,14 +50,30 @@ const partToMessages = (
 ): ConversationMessage[] => {
     const createdAtMs = toDateMs(entry.timestamp);
     if (entry.entryType === 'tool_call') {
+        const toolName = typeof part.raw.toolName === 'string' ? part.raw.toolName : 'unknown';
         return createTextMessage({
             createdAtMs,
             id: `${entry.entryId}:${partIndex}`,
-            metadata: { executionId: entry.executionId },
+            metadata: {
+                evidenceLimitation: 'Kiro does not expose a separate structured result record.',
+                executionId: entry.executionId,
+            },
             order: partIndex,
             phase: 'tool_call',
             role: 'tool',
             text: part.text,
+            toolEvidence: {
+                callId: entry.executionId,
+                command: null,
+                durationMs: null,
+                exitCode: null,
+                inputText: part.text ?? null,
+                name: toolName,
+                namespace: toolName.includes('.') ? (toolName.split('.')[0] ?? null) : null,
+                outputText: null,
+                status: 'unknown',
+                workdir: null,
+            },
         });
     }
 
@@ -76,7 +92,9 @@ const transcriptToMessages = (transcript: KiroSessionTranscript) => {
     const finalEntryIds = getFinalKiroAssistantMessageEntryIds(transcript.entries);
     return finalizeMessages(
         transcript.entries.flatMap((entry) =>
-            entry.parts.flatMap((part, partIndex) => partToMessages(entry, part, partIndex, finalEntryIds)),
+            entry.parts.flatMap((part, partIndex) =>
+                normalizeKiroTranscriptPart(entry, part, partIndex, finalEntryIds),
+            ),
         ),
     );
 };

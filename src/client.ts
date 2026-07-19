@@ -8,9 +8,12 @@ import {
     renderConversationMarkdown as renderLocalConversationMarkdown,
     resolveConversationRef as resolveLocalConversationRef,
 } from './lib/conversation-data';
+import { validateEvidenceLens } from './lib/conversation-data/evidence-lens';
+import { buildEvidenceExport } from './lib/conversation-data/evidence-markdown';
 import type {
     ConversationDataLocations,
     ConversationDetail,
+    ConversationEvidenceExport,
     ConversationMessageSelector,
     ConversationPage,
     ConversationSourceInfo,
@@ -19,6 +22,7 @@ import type {
     DeleteConversationResult,
     DeleteConversationsOptions,
     DeleteConversationsResult,
+    ExportConversationEvidenceOptions,
     ExportConversationsZipOptions,
     GetConversationOptions,
     ListConversationsForPathOptions,
@@ -30,6 +34,9 @@ export type {
     ConversationDataLocations,
     ConversationDeepLinks,
     ConversationDetail,
+    ConversationEvidenceEvent,
+    ConversationEvidenceExport,
+    ConversationEvidencePairingConfidence,
     ConversationMessage,
     ConversationMessagePhase,
     ConversationMessageRole,
@@ -38,11 +45,16 @@ export type {
     ConversationPathMatch,
     ConversationSource,
     ConversationSourceInfo,
+    ConversationToolEvidence,
     ConversationZipDownload,
     DeleteConversationOptions,
     DeleteConversationResult,
     DeleteConversationsOptions,
     DeleteConversationsResult,
+    EvidenceAnchor,
+    EvidenceLens,
+    EvidenceOmissionStats,
+    ExportConversationEvidenceOptions,
     ExportConversationsZipOptions,
     GetConversationOptions,
     ListConversationsForPathOptions,
@@ -91,6 +103,9 @@ export type ConversationClient = {
     deleteConversation: (options: DeleteConversationOptions) => Promise<DeleteConversationResult | null>;
     deleteConversations: (options: DeleteConversationsOptions) => Promise<DeleteConversationsResult | null>;
     exportConversationMarkdown: (options: ExportConversationMarkdownOptions) => Promise<string | null>;
+    exportConversationEvidenceMarkdown: (
+        options: ExportConversationEvidenceOptions,
+    ) => Promise<ConversationEvidenceExport | null>;
     exportConversationsZip: (options: ExportConversationsZipOptions) => Promise<ConversationZipDownload | null>;
     getConversation: (options: GetConversationOptions) => Promise<ConversationDetail | null>;
     listConversations: (options: ListConversationsForPathOptions) => Promise<ConversationPage>;
@@ -367,6 +382,19 @@ const makeLocalClient = (options: LocalConversationClientOptions): ConversationC
         deleteLocalConversation(withDefaultLocations(deleteOptions, options.locations)),
     deleteConversations: (deleteOptions) =>
         deleteLocalConversations(withDefaultLocations(deleteOptions, options.locations)),
+    exportConversationEvidenceMarkdown: async (exportOptions) => {
+        const validated = validateEvidenceLens(exportOptions.lens);
+        if (!validated.ok) {
+            const path = validated.error.path ? `lens.${validated.error.path}` : 'lens';
+            throw new SpirachaClientError(`Invalid evidence lens at ${path}: ${validated.error.message}`);
+        }
+        const conversation = await getLocalConversation(
+            withDefaultLocations({ ...exportOptions, messageSelector: 'all' }, options.locations),
+        );
+        return conversation
+            ? buildEvidenceExport(conversation, validated.value, { generatedAt: exportOptions.generatedAt })
+            : null;
+    },
     exportConversationMarkdown: async (getOptions) => {
         const conversation = await getLocalConversation(withDefaultLocations(getOptions, options.locations));
         return conversation
@@ -414,6 +442,17 @@ const makeHttpClient = (options: HttpConversationClientOptions): ConversationCli
                 return null;
             }
             return requireData(envelope, 'a delete result');
+        },
+        exportConversationEvidenceMarkdown: async (exportOptions) => {
+            rejectHttpLocations(exportOptions.locations);
+            const { generatedAt, id, lens, source } = exportOptions;
+            const url = makeHttpUrl(baseUrl, `/api/v1/conversations/${source}/${encodeURIComponent(id)}/evidence`);
+            const envelope = await fetchJsonOrNull<ConversationEvidenceExport>(url, {
+                body: JSON.stringify({ generated_at: generatedAt, lens }),
+                headers: { 'Content-Type': 'application/json' },
+                method: 'POST',
+            });
+            return envelope ? requireData(envelope, 'an evidence export') : null;
         },
         exportConversationMarkdown: async (getOptions) => {
             rejectHttpLocations(getOptions.locations);

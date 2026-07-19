@@ -34,6 +34,9 @@ export {
     type ConversationDataLocations,
     type ConversationDeepLinks,
     type ConversationDetail,
+    type ConversationEvidenceEvent,
+    type ConversationEvidenceExport,
+    type ConversationEvidencePairingConfidence,
     type ConversationIdSetOptions,
     type ConversationMessage,
     type ConversationMessagePhase,
@@ -43,12 +46,17 @@ export {
     type ConversationPathMatch,
     type ConversationSource,
     type ConversationSourceInfo,
+    type ConversationToolEvidence,
     type ConversationZipDownload,
     type DeleteConversationItemResult,
     type DeleteConversationOptions,
     type DeleteConversationResult,
     type DeleteConversationsOptions,
     type DeleteConversationsResult,
+    type EvidenceAnchor,
+    type EvidenceLens,
+    type EvidenceOmissionStats,
+    type ExportConversationEvidenceOptions,
     type ExportConversationsZipOptions,
     type GetConversationOptions,
     type ListConversationsForPathOptions,
@@ -330,7 +338,7 @@ const refFromPathSegments = (segments: string[]): ResolvedConversationRef | null
         segments[0] === 'api' &&
         segments[1] === 'v1' &&
         segments[2] === 'conversations' &&
-        (segments.length === 5 || (segments.length === 6 && segments[5] === 'export'))
+        (segments.length === 5 || (segments.length === 6 && (segments[5] === 'export' || segments[5] === 'evidence')))
     ) {
         return refFromPathSegmentAt(segments, 2);
     }

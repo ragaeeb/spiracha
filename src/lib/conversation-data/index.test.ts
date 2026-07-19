@@ -18,6 +18,7 @@ const createMessage = (overrides: Partial<ConversationMessage>): ConversationMes
     phase: 'unknown',
     role: 'unknown',
     text: 'text',
+    toolEvidence: null,
     ...overrides,
 });
 

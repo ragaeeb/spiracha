@@ -10,6 +10,7 @@ const baseMessage = (overrides: Partial<ConversationMessage>): ConversationMessa
     phase: 'unknown',
     role: 'unknown',
     text: 'text',
+    toolEvidence: null,
     ...overrides,
 });
 
