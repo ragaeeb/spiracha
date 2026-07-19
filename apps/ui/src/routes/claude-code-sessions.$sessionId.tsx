@@ -12,7 +12,7 @@ import { LoadingPanel } from '#/components/loading-panel';
 import { MetadataSection } from '#/components/metadata-section';
 import { MetricCard } from '#/components/metric-card';
 import { PageHeader } from '#/components/page-header';
-import { ReloadErrorPanel } from '#/components/reload-error-panel';
+import { RouteErrorPanel } from '#/components/route-error-panel';
 import { DEFAULT_SHOW_USER_MESSAGES, TranscriptView } from '#/components/transcript-view';
 import { Button } from '#/components/ui/button';
 import { Checkbox } from '#/components/ui/checkbox';
@@ -20,6 +20,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
 import {
     claudeCodeSessionDetailQueryOptions,
     claudeCodeSessionTranscriptQueryOptions,
+    claudeCodeWorkspacesQueryOptions,
 } from '#/lib/claude-code-queries';
 import { deleteClaudeCodeSessionFn, exportClaudeCodeSessionFn } from '#/lib/claude-code-server';
 import {
@@ -27,15 +28,10 @@ import {
     getClaudeCodeThreadTranscriptStats,
 } from '#/lib/claude-code-transcript-events';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
+import type { ExportDialogOptions } from '#/lib/export-options';
 import { formatDateTime, formatList, formatNumber, formatTokens } from '#/lib/formatters';
-
-type ExportDialogOptions = {
-    includeCommentary: boolean;
-    includeMetadata: boolean;
-    includeTools: boolean;
-    outputFormat: 'md' | 'txt';
-    zipArchive: boolean;
-};
+import { RouteStateResetBoundary } from '#/lib/route-state-reset';
+import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
 type TranscriptControlsProps = {
     rawJsonDisabled?: boolean;
@@ -52,7 +48,14 @@ type TranscriptControlsProps = {
 };
 
 export const Route = createFileRoute('/claude-code-sessions/$sessionId')({
-    component: ClaudeCodeSessionDetailPage,
+    component: () => {
+        const { sessionId } = Route.useParams();
+        return (
+            <RouteStateResetBoundary routeKey={sessionId}>
+                <ClaudeCodeSessionDetailPage />
+            </RouteStateResetBoundary>
+        );
+    },
     errorComponent: ClaudeCodeSessionDetailErrorComponent,
     loader: ({ context, params }) =>
         context.queryClient.ensureQueryData(claudeCodeSessionDetailQueryOptions(params.sessionId)),
@@ -65,7 +68,7 @@ export const Route = createFileRoute('/claude-code-sessions/$sessionId')({
 });
 
 function ClaudeCodeSessionDetailErrorComponent({ error }: { error: Error }) {
-    return <ReloadErrorPanel description={error.message} title="Failed to load Claude Code session" />;
+    return <RouteErrorPanel error={error} title="Failed to load Claude Code session" />;
 }
 
 const buildSessionMetadata = (detail: ClaudeCodeSessionTranscript) => [
@@ -285,6 +288,17 @@ function ClaudeCodeSessionDetailPage() {
                 queryClient.invalidateQueries({ queryKey: ['claude-code-session', params.sessionId] }),
                 queryClient.invalidateQueries({ queryKey: ['claude-code-session-transcript', params.sessionId] }),
             ]);
+            const workspaces = await queryClient.fetchQuery(claudeCodeWorkspacesQueryOptions());
+            if (
+                shouldNavigateToSourceIndexAfterDelete(
+                    workspaces,
+                    detail.session.workspaceKey,
+                    (workspace) => workspace.key,
+                )
+            ) {
+                navigate({ to: '/claude-code' });
+                return;
+            }
             navigate({
                 params: { workspaceKey: detail.session.workspaceKey },
                 to: '/claude-code/$workspaceKey',

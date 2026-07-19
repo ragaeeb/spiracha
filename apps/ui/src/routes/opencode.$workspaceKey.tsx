@@ -1,5 +1,5 @@
 import type { OpenCodeSessionSummary, OpenCodeWorkspaceGroup } from '@spiracha/lib/opencode-exporter-types';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { Trash2 } from 'lucide-react';
 import { useDeferredValue, useMemo, useState } from 'react';
@@ -9,9 +9,10 @@ import { ListSearchInput } from '#/components/list-search-input';
 import { LoadingPanel } from '#/components/loading-panel';
 import { OpenCodeSessionsTable } from '#/components/opencode-sessions-table';
 import { PageHeader } from '#/components/page-header';
-import { ReloadErrorPanel } from '#/components/reload-error-panel';
+import { RouteErrorPanel } from '#/components/route-error-panel';
 import { Button } from '#/components/ui/button';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
+import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { openCodeSessionsQueryOptions, openCodeWorkspacesQueryOptions } from '#/lib/opencode-queries';
 import {
     deleteOpenCodeSessionFn,
@@ -21,14 +22,6 @@ import {
 } from '#/lib/opencode-server';
 import { matchesTextQuery } from '#/lib/text-filter';
 import { isWorkspaceEmptiedByDelete } from '#/lib/workspace-delete-navigation';
-
-type ExportDialogOptions = {
-    includeCommentary: boolean;
-    includeMetadata: boolean;
-    includeTools: boolean;
-    outputFormat: 'md' | 'txt';
-    zipArchive: boolean;
-};
 
 type PendingSessionDelete = {
     scope: 'all' | 'selected';
@@ -86,47 +79,36 @@ const getDeleteTitle = (pendingDelete: PendingSessionDelete | null) => {
 export const Route = createFileRoute('/opencode/$workspaceKey')({
     component: OpenCodeWorkspacePage,
     errorComponent: OpenCodeWorkspaceErrorComponent,
+    loader: async ({ context, params }) => {
+        const workspaces = await context.queryClient.ensureQueryData(openCodeWorkspacesQueryOptions());
+        findWorkspaceOrThrow(workspaces, params.workspaceKey);
+        await context.queryClient.ensureQueryData(openCodeSessionsQueryOptions(params.workspaceKey));
+    },
     pendingComponent: () => (
         <LoadingPanel description="Loading OpenCode sessions and transcript metadata." title="Loading workspace" />
     ),
 });
 
 function OpenCodeWorkspaceErrorComponent({ error }: { error: Error }) {
-    return <ReloadErrorPanel description={error.message} title="Failed to load OpenCode workspace" />;
+    return <RouteErrorPanel error={error} title="Failed to load OpenCode workspace" />;
 }
 
-const toError = (error: unknown) => (error instanceof Error ? error : new Error(String(error)));
+const findWorkspaceOrThrow = (workspaces: OpenCodeWorkspaceGroup[], workspaceKey: string) => {
+    const workspace = workspaces.find((candidate) => candidate.key === workspaceKey);
+    if (!workspace) {
+        throw new Error(`OpenCode workspace not found: ${workspaceKey}`);
+    }
+
+    return workspace;
+};
 
 function OpenCodeWorkspacePage() {
     const params = Route.useParams();
-    const workspacesQuery = useQuery(openCodeWorkspacesQueryOptions());
-    const workspaces = workspacesQuery.data ?? [];
-    const workspace = workspaces.find((candidate) => candidate.key === params.workspaceKey) ?? null;
-    const sessionsQuery = useQuery(openCodeSessionsQueryOptions(workspace?.key ?? null));
+    const workspaces = useSuspenseQuery(openCodeWorkspacesQueryOptions()).data;
+    const workspace = findWorkspaceOrThrow(workspaces, params.workspaceKey);
+    const sessions = useSuspenseQuery(openCodeSessionsQueryOptions(workspace.key)).data;
 
-    if (workspacesQuery.isLoading || (workspace && sessionsQuery.isLoading)) {
-        return (
-            <LoadingPanel description="Loading OpenCode sessions and transcript metadata." title="Loading workspace" />
-        );
-    }
-
-    if (workspacesQuery.isError) {
-        return <OpenCodeWorkspaceErrorComponent error={toError(workspacesQuery.error)} />;
-    }
-
-    if (!workspace) {
-        return (
-            <OpenCodeWorkspaceErrorComponent
-                error={new Error(`OpenCode workspace not found: ${params.workspaceKey}`)}
-            />
-        );
-    }
-
-    if (sessionsQuery.isError) {
-        return <OpenCodeWorkspaceErrorComponent error={toError(sessionsQuery.error)} />;
-    }
-
-    return <OpenCodeWorkspaceContent sessions={sessionsQuery.data ?? []} workspace={workspace} />;
+    return <OpenCodeWorkspaceContent sessions={sessions} workspace={workspace} />;
 }
 
 function OpenCodeWorkspaceContent({
@@ -144,20 +126,16 @@ function OpenCodeWorkspaceContent({
     const deferredSearch = useDeferredValue(searchInput);
 
     const exportMutation = useMutation({
-        mutationFn: async (options: ExportDialogOptions) => {
-            if (!pendingExport) {
-                throw new Error('No OpenCode session selected for export');
-            }
-
+        mutationFn: async ({ ids, options }: ExportSelectionMutationInput) => {
             const download =
-                pendingExport.sessionIds.length === 1
+                ids.length === 1
                     ? await exportOpenCodeSessionFn({
                           data: {
                               includeCommentary: options.includeCommentary,
                               includeMetadata: options.includeMetadata,
                               includeTools: options.includeTools,
                               outputFormat: options.outputFormat,
-                              sessionId: pendingExport.sessionIds[0]!,
+                              sessionId: ids[0]!,
                               zipArchive: options.zipArchive,
                           },
                       })
@@ -167,7 +145,7 @@ function OpenCodeWorkspaceContent({
                               includeMetadata: options.includeMetadata,
                               includeTools: options.includeTools,
                               outputFormat: options.outputFormat,
-                              sessionIds: pendingExport.sessionIds,
+                              sessionIds: [...ids],
                               zipArchive: options.zipArchive,
                           },
                       });
@@ -188,13 +166,7 @@ function OpenCodeWorkspaceContent({
             sessionIds.length === 1
                 ? deleteOpenCodeSessionFn({ data: { sessionId: sessionIds[0]! } })
                 : deleteOpenCodeSessionsFn({ data: { sessionIds } }),
-        onSuccess: async (_result, sessionIds) => {
-            const workspaceEmptied = isWorkspaceEmptiedByDelete(sessions, sessionIds, (session) => session.sessionId);
-            setPendingDelete(null);
-            if (workspaceEmptied) {
-                await navigate({ to: '/opencode' });
-            }
-
+        onSettled: async (_result, _error, sessionIds) => {
             await Promise.all([
                 queryClient.invalidateQueries({ queryKey: ['opencode-workspaces'] }),
                 queryClient.invalidateQueries({ queryKey: ['opencode-sessions', workspace.key] }),
@@ -202,6 +174,13 @@ function OpenCodeWorkspaceContent({
                     queryClient.invalidateQueries({ queryKey: ['opencode-session', sessionId] }),
                 ),
             ]);
+        },
+        onSuccess: async (_result, sessionIds) => {
+            const workspaceEmptied = isWorkspaceEmptiedByDelete(sessions, sessionIds, (session) => session.sessionId);
+            setPendingDelete(null);
+            if (workspaceEmptied) {
+                await navigate({ to: '/opencode' });
+            }
         },
     });
 
@@ -279,11 +258,22 @@ function OpenCodeWorkspaceContent({
             />
 
             <ExportDialog
+                errorMessage={
+                    exportMutation.isError
+                        ? exportMutation.error instanceof Error
+                            ? exportMutation.error.message
+                            : 'Session export failed'
+                        : null
+                }
                 forceZipArchive={pendingExport ? pendingExport.sessionIds.length > 1 : false}
                 open={pendingExport !== null}
                 pending={exportMutation.isPending}
                 title={pendingExport ? `Export ${pendingExport.label}` : 'Export session'}
-                onExport={(options) => exportMutation.mutate(options)}
+                onExport={(options) => {
+                    if (pendingExport) {
+                        exportMutation.mutate(createExportSelectionMutationInput(pendingExport.sessionIds, options));
+                    }
+                }}
                 onOpenChange={(open) => {
                     if (!open) {
                         setPendingExport(null);
@@ -291,12 +281,6 @@ function OpenCodeWorkspaceContent({
                     }
                 }}
             />
-
-            {exportMutation.isError ? (
-                <p className="text-[var(--destructive)] text-sm">
-                    {exportMutation.error instanceof Error ? exportMutation.error.message : 'Session export failed'}
-                </p>
-            ) : null}
 
             <DeleteConfirmDialog
                 confirmLabel={getDeleteConfirmLabel(pendingDelete, deleteMutation.isPending)}

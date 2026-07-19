@@ -92,7 +92,7 @@ describe('renderKiroTranscript', () => {
         expect(rendered).toContain('Vendor detection is present.');
     });
 
-    it('should omit optional metadata and commentary attachments', () => {
+    it('should omit optional metadata while preserving user attachments', () => {
         const rendered = renderKiroTranscript(transcript, {
             includeCommentary: false,
             includeMetadata: false,
@@ -101,7 +101,46 @@ describe('renderKiroTranscript', () => {
         });
 
         expect(rendered).not.toContain('exported_from');
-        expect(rendered).not.toContain('Image attachment');
+        expect(rendered).toContain('Image attachment');
+        expect(rendered).toContain('Vendor detection is present.');
+    });
+
+    it('should omit assistant commentary attachments while preserving user attachments', () => {
+        const rendered = renderKiroTranscript(
+            {
+                ...transcript,
+                entries: [
+                    transcript.entries[0]!,
+                    {
+                        entryId: 'a-commentary',
+                        entryType: 'message',
+                        executionId: 'execution-a',
+                        parts: [
+                            {
+                                imageUrl: 'data:image/png;base64,BBB',
+                                raw: { type: 'imageUrl' },
+                                text: 'Assistant progress image',
+                                type: 'image',
+                            },
+                        ],
+                        promptLogCount: 0,
+                        raw: { message: { role: 'assistant' } },
+                        role: 'assistant',
+                        timestamp: null,
+                    },
+                    transcript.entries[1]!,
+                ],
+            },
+            {
+                includeCommentary: false,
+                includeMetadata: false,
+                includeTools: false,
+                outputFormat: 'md',
+            },
+        );
+
+        expect(rendered).toContain('Image attachment');
+        expect(rendered).not.toContain('Assistant progress image');
         expect(rendered).toContain('Vendor detection is present.');
     });
 

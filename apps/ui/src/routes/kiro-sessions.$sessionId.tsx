@@ -12,24 +12,19 @@ import { LoadingPanel } from '#/components/loading-panel';
 import { MetadataSection } from '#/components/metadata-section';
 import { MetricCard } from '#/components/metric-card';
 import { PageHeader } from '#/components/page-header';
-import { ReloadErrorPanel } from '#/components/reload-error-panel';
+import { RouteErrorPanel } from '#/components/route-error-panel';
 import { DEFAULT_SHOW_USER_MESSAGES, TranscriptView } from '#/components/transcript-view';
 import { Button } from '#/components/ui/button';
 import { Checkbox } from '#/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
+import type { ExportDialogOptions } from '#/lib/export-options';
 import { formatDateTime, formatList, formatNumber } from '#/lib/formatters';
-import { kiroSessionDetailQueryOptions } from '#/lib/kiro-queries';
+import { kiroSessionDetailQueryOptions, kiroWorkspacesQueryOptions } from '#/lib/kiro-queries';
 import { deleteKiroSessionFn, exportKiroSessionFn } from '#/lib/kiro-server';
 import { getKiroThreadTranscriptStats, kiroTranscriptToThreadEvents } from '#/lib/kiro-transcript-events';
-
-type ExportDialogOptions = {
-    includeCommentary: boolean;
-    includeMetadata: boolean;
-    includeTools: boolean;
-    outputFormat: 'md' | 'txt';
-    zipArchive: boolean;
-};
+import { RouteStateResetBoundary } from '#/lib/route-state-reset';
+import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
 type TranscriptControlsProps = {
     rawJsonDisabled?: boolean;
@@ -46,7 +41,7 @@ type TranscriptControlsProps = {
 };
 
 const KiroSessionDetailErrorComponent = ({ error }: { error: Error }) => {
-    return <ReloadErrorPanel description={error.message} title="Failed to load Kiro session" />;
+    return <RouteErrorPanel error={error} title="Failed to load Kiro session" />;
 };
 
 const getKiroModelLabel = (detail: KiroSessionTranscript): string => {
@@ -216,6 +211,17 @@ const KiroSessionDetailPage = () => {
                 queryClient.invalidateQueries({ queryKey: ['kiro-sessions', detail.session.workspaceKey] }),
                 queryClient.invalidateQueries({ queryKey: ['kiro-session', detail.session.sessionId] }),
             ]);
+            const workspaces = await queryClient.fetchQuery(kiroWorkspacesQueryOptions());
+            if (
+                shouldNavigateToSourceIndexAfterDelete(
+                    workspaces,
+                    detail.session.workspaceKey,
+                    (workspace) => workspace.key,
+                )
+            ) {
+                navigate({ to: '/kiro' });
+                return;
+            }
             navigate({
                 params: { workspaceKey: detail.session.workspaceKey },
                 to: '/kiro/$workspaceKey',
@@ -383,7 +389,14 @@ const KiroSessionDetailPage = () => {
 };
 
 export const Route = createFileRoute('/kiro-sessions/$sessionId')({
-    component: KiroSessionDetailPage,
+    component: () => {
+        const { sessionId } = Route.useParams();
+        return (
+            <RouteStateResetBoundary routeKey={sessionId}>
+                <KiroSessionDetailPage />
+            </RouteStateResetBoundary>
+        );
+    },
     errorComponent: KiroSessionDetailErrorComponent,
     loader: ({ context, params }) =>
         context.queryClient.ensureQueryData(kiroSessionDetailQueryOptions(params.sessionId)),

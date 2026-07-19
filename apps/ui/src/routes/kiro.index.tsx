@@ -4,12 +4,12 @@ import { useDeferredValue, useState } from 'react';
 import { KiroWorkspacesTable } from '#/components/kiro-workspaces-table';
 import { ListSearchInput } from '#/components/list-search-input';
 import { PageHeader } from '#/components/page-header';
-import { ReloadErrorPanel } from '#/components/reload-error-panel';
+import { RouteErrorPanel } from '#/components/route-error-panel';
 import { kiroWorkspacesQueryOptions } from '#/lib/kiro-queries';
 import { matchesTextQuery } from '#/lib/text-filter';
 
 const KiroErrorComponent = ({ error }: { error: Error }) => {
-    return <ReloadErrorPanel description={error.message} title="Failed to load Kiro workspaces" />;
+    return <RouteErrorPanel error={error} title="Failed to load Kiro workspaces" />;
 };
 
 const KiroPage = () => {

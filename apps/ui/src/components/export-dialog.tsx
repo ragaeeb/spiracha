@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Button } from '#/components/ui/button';
 import { Checkbox } from '#/components/ui/checkbox';
 import {
@@ -10,6 +10,8 @@ import {
     DialogTitle,
 } from '#/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '#/components/ui/select';
+import type { ExportDialogOptions } from '#/lib/export-options';
+import { useSettings } from '#/lib/settings-store';
 
 type ExportDialogProps = {
     disabled?: boolean;
@@ -17,14 +19,10 @@ type ExportDialogProps = {
     forceZipArchive?: boolean;
     open: boolean;
     pending?: boolean;
+    showCommentaryOption?: boolean;
+    showToolsOption?: boolean;
     title?: string;
-    onExport: (options: {
-        includeCommentary: boolean;
-        includeMetadata: boolean;
-        includeTools: boolean;
-        outputFormat: 'md' | 'txt';
-        zipArchive: boolean;
-    }) => void;
+    onExport: (options: ExportDialogOptions) => void;
     onOpenChange: (open: boolean) => void;
 };
 
@@ -34,27 +32,49 @@ export function ExportDialog({
     forceZipArchive = false,
     open,
     pending = false,
+    showCommentaryOption = true,
+    showToolsOption = true,
     title = 'Export thread',
     onExport,
     onOpenChange,
 }: ExportDialogProps) {
-    const [outputFormat, setOutputFormat] = useState<'md' | 'txt'>('md');
-    const [includeMetadata, setIncludeMetadata] = useState(true);
-    const [includeCommentary, setIncludeCommentary] = useState(false);
-    const [includeTools, setIncludeTools] = useState(true);
-    const [zipArchive, setZipArchive] = useState(false);
-    const effectiveZipArchive = forceZipArchive || zipArchive;
+    const { settings, updateSetting } = useSettings();
+    const [options, setOptions] = useState<ExportDialogOptions>(settings.exportDefaults);
+    const [submitted, setSubmitted] = useState(false);
+    const submissionInProgress = useRef(false);
+    const previousPending = useRef(pending);
+    const effectiveZipArchive = forceZipArchive || options.zipArchive;
     const zipDescriptionId = useId();
 
     useEffect(() => {
         if (!open) {
-            setOutputFormat('md');
-            setIncludeMetadata(true);
-            setIncludeCommentary(false);
-            setIncludeTools(true);
-            setZipArchive(false);
+            setOptions(settings.exportDefaults);
+            setSubmitted(false);
+            submissionInProgress.current = false;
         }
-    }, [open]);
+    }, [open, settings.exportDefaults]);
+
+    useEffect(() => {
+        if ((previousPending.current && !pending) || errorMessage) {
+            setSubmitted(false);
+            submissionInProgress.current = false;
+        }
+        previousPending.current = pending;
+    }, [errorMessage, pending]);
+
+    const updateOption = <K extends keyof ExportDialogOptions>(key: K, value: ExportDialogOptions[K]) => {
+        setOptions((current) => ({ ...current, [key]: value }));
+    };
+
+    const submitExport = () => {
+        if (submissionInProgress.current) {
+            return;
+        }
+        submissionInProgress.current = true;
+        setSubmitted(true);
+        updateSetting('exportDefaults', options);
+        onExport({ ...options, zipArchive: effectiveZipArchive });
+    };
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -62,7 +82,7 @@ export function ExportDialog({
                 <DialogHeader>
                     <DialogTitle>{title}</DialogTitle>
                     <DialogDescription className="text-[var(--muted-foreground)]">
-                        Choose the transcript format and whether the export includes tool calls.
+                        Choose the transcript format and export options.
                     </DialogDescription>
                 </DialogHeader>
 
@@ -71,7 +91,10 @@ export function ExportDialog({
                         <label className="font-medium text-sm" htmlFor="output-format">
                             Output format
                         </label>
-                        <Select value={outputFormat} onValueChange={(value) => setOutputFormat(value as 'md' | 'txt')}>
+                        <Select
+                            value={options.outputFormat}
+                            onValueChange={(value) => updateOption('outputFormat', value as 'md' | 'txt')}
+                        >
                             <SelectTrigger
                                 id="output-format"
                                 className="border-[var(--border)] bg-[var(--panel-secondary)] text-[var(--foreground)]"
@@ -88,8 +111,8 @@ export function ExportDialog({
                     <div className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--panel-secondary)] p-3">
                         <Checkbox
                             aria-label="Include metadata"
-                            checked={includeMetadata}
-                            onCheckedChange={(checked) => setIncludeMetadata(checked === true)}
+                            checked={options.includeMetadata}
+                            onCheckedChange={(checked) => updateOption('includeMetadata', checked === true)}
                         />
                         <span className="space-y-1">
                             <span className="block font-medium text-sm">Include metadata</span>
@@ -99,33 +122,37 @@ export function ExportDialog({
                         </span>
                     </div>
 
-                    <div className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--panel-secondary)] p-3">
-                        <Checkbox
-                            aria-label="Include commentary"
-                            checked={includeCommentary}
-                            onCheckedChange={(checked) => setIncludeCommentary(checked === true)}
-                        />
-                        <span className="space-y-1">
-                            <span className="block font-medium text-sm">Include commentary</span>
-                            <span className="block text-[var(--muted-foreground)] text-sm">
-                                Includes assistant commentary-phase updates in the exported transcript.
+                    {showCommentaryOption ? (
+                        <div className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--panel-secondary)] p-3">
+                            <Checkbox
+                                aria-label="Include commentary"
+                                checked={options.includeCommentary}
+                                onCheckedChange={(checked) => updateOption('includeCommentary', checked === true)}
+                            />
+                            <span className="space-y-1">
+                                <span className="block font-medium text-sm">Include commentary</span>
+                                <span className="block text-[var(--muted-foreground)] text-sm">
+                                    Includes assistant commentary-phase updates in the exported transcript.
+                                </span>
                             </span>
-                        </span>
-                    </div>
+                        </div>
+                    ) : null}
 
-                    <div className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--panel-secondary)] p-3">
-                        <Checkbox
-                            aria-label="Include tool calls"
-                            checked={includeTools}
-                            onCheckedChange={(checked) => setIncludeTools(checked === true)}
-                        />
-                        <span className="space-y-1">
-                            <span className="block font-medium text-sm">Include tool calls</span>
-                            <span className="block text-[var(--muted-foreground)] text-sm">
-                                Includes tool-call summaries and tool-output summaries in the export.
+                    {showToolsOption ? (
+                        <div className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--panel-secondary)] p-3">
+                            <Checkbox
+                                aria-label="Include tool calls"
+                                checked={options.includeTools}
+                                onCheckedChange={(checked) => updateOption('includeTools', checked === true)}
+                            />
+                            <span className="space-y-1">
+                                <span className="block font-medium text-sm">Include tool calls</span>
+                                <span className="block text-[var(--muted-foreground)] text-sm">
+                                    Includes tool-call summaries and tool-output summaries in the export.
+                                </span>
                             </span>
-                        </span>
-                    </div>
+                        </div>
+                    ) : null}
 
                     <div className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--panel-secondary)] p-3">
                         <Checkbox
@@ -133,7 +160,7 @@ export function ExportDialog({
                             aria-describedby={zipDescriptionId}
                             checked={effectiveZipArchive}
                             disabled={forceZipArchive}
-                            onCheckedChange={(checked) => setZipArchive(checked === true)}
+                            onCheckedChange={(checked) => updateOption('zipArchive', checked === true)}
                         />
                         <span className="space-y-1">
                             <span className="block font-medium text-sm">Zip archive</span>
@@ -152,19 +179,7 @@ export function ExportDialog({
                     <Button className="rounded-full" variant="outline" onClick={() => onOpenChange(false)}>
                         Cancel
                     </Button>
-                    <Button
-                        className="rounded-full"
-                        disabled={pending || disabled}
-                        onClick={() =>
-                            onExport({
-                                includeCommentary,
-                                includeMetadata,
-                                includeTools,
-                                outputFormat,
-                                zipArchive: effectiveZipArchive,
-                            })
-                        }
-                    >
+                    <Button className="rounded-full" disabled={pending || disabled || submitted} onClick={submitExport}>
                         {pending ? 'Exporting...' : 'Download export'}
                     </Button>
                 </DialogFooter>

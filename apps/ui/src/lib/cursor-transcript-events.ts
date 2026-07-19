@@ -1,6 +1,8 @@
 import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/codex-browser-types';
 import type { CursorBubble, CursorThreadTranscript, CursorToolCall } from '@spiracha/lib/cursor-exporter-types';
+import { getCursorTextBubblePhase, getFinalCursorAssistantTextBubbleIds } from '@spiracha/lib/cursor-transcript-phase';
 import type { JsonValue } from '@spiracha/lib/shared';
+import { getThreadTranscriptStats } from './thread-transcript-stats';
 
 const toTimestamp = (value: number | null): string | null => {
     if (value === null || !Number.isFinite(value)) {
@@ -110,36 +112,10 @@ const buildToolOutputEvent = (bubble: CursorBubble, sequence: number, toolCall: 
     };
 };
 
-const getAssistantFinalTextIndexes = (bubbles: CursorBubble[]) => {
-    const finalTextIndexes = new Set<number>();
-    let currentAssistantTextIndex: number | null = null;
-
-    const flushAssistantRun = () => {
-        if (currentAssistantTextIndex !== null) {
-            finalTextIndexes.add(currentAssistantTextIndex);
-            currentAssistantTextIndex = null;
-        }
-    };
-
-    bubbles.forEach((bubble, index) => {
-        if (bubble.kind !== 'assistant') {
-            flushAssistantRun();
-            return;
-        }
-
-        if (bubble.text.trim()) {
-            currentAssistantTextIndex = index;
-        }
-    });
-
-    flushAssistantRun();
-    return finalTextIndexes;
-};
-
 const cursorBubbleToThreadEvents = (
     bubble: CursorBubble,
     bubbleIndex: number,
-    finalTextIndexes: Set<number>,
+    finalAssistantTextBubbleIds: Set<string>,
 ): ThreadEvent[] => {
     if (bubble.kind !== 'assistant' && bubble.kind !== 'user') {
         return [];
@@ -152,9 +128,8 @@ const cursorBubbleToThreadEvents = (
     }
 
     if (bubble.text.trim()) {
-        const phase =
-            bubble.kind === 'assistant' ? (finalTextIndexes.has(bubbleIndex) ? 'final_answer' : 'commentary') : null;
-        events.push(buildMessageEvent(bubble, baseSequence + 1, bubble.kind, bubble.text, phase));
+        const phase = getCursorTextBubblePhase(bubble, finalAssistantTextBubbleIds);
+        events.push(buildMessageEvent(bubble, baseSequence + 1, bubble.kind, bubble.text.trim(), phase));
     }
 
     if (bubble.kind === 'assistant' && bubble.toolCall) {
@@ -169,61 +144,11 @@ const cursorBubbleToThreadEvents = (
 };
 
 export const cursorTranscriptToThreadEvents = (transcript: CursorThreadTranscript): ThreadEvent[] => {
-    const finalTextIndexes = getAssistantFinalTextIndexes(transcript.bubbles);
-    return transcript.bubbles.flatMap((bubble, index) => cursorBubbleToThreadEvents(bubble, index, finalTextIndexes));
+    const finalAssistantTextBubbleIds = getFinalCursorAssistantTextBubbleIds(transcript.bubbles);
+    return transcript.bubbles.flatMap((bubble, index) =>
+        cursorBubbleToThreadEvents(bubble, index, finalAssistantTextBubbleIds),
+    );
 };
 
-const updateMessageStats = (stats: ThreadTranscriptStats, event: Extract<ThreadEvent, { kind: 'message' }>) => {
-    stats.messageCount += 1;
-    if (event.role === 'assistant') {
-        stats.assistantMessageCount += 1;
-    }
-    if (event.role === 'user') {
-        stats.userMessageCount += 1;
-    }
-    if (event.phase === 'commentary') {
-        stats.commentaryCount += 1;
-    }
-    if (event.phase === 'final_answer') {
-        stats.finalAnswerCount += 1;
-    }
-};
-
-const updateCursorStats = (stats: ThreadTranscriptStats, event: ThreadEvent) => {
-    switch (event.kind) {
-        case 'message':
-            updateMessageStats(stats, event);
-            break;
-        case 'tool_call':
-            stats.toolCallCount += 1;
-            break;
-        case 'tool_output':
-            stats.toolOutputCount += 1;
-            break;
-        case 'web_search':
-            stats.webSearchEventCount += 1;
-            break;
-        default:
-            break;
-    }
-};
-
-export const getCursorThreadTranscriptStats = (events: ThreadEvent[]): ThreadTranscriptStats => {
-    const stats: ThreadTranscriptStats = {
-        assistantMessageCount: 0,
-        commentaryCount: 0,
-        execCommandCount: 0,
-        finalAnswerCount: 0,
-        messageCount: 0,
-        toolCallCount: 0,
-        toolOutputCount: 0,
-        userMessageCount: 0,
-        webSearchEventCount: 0,
-    };
-
-    for (const event of events) {
-        updateCursorStats(stats, event);
-    }
-
-    return stats;
-};
+export const getCursorThreadTranscriptStats = (events: ThreadEvent[]): ThreadTranscriptStats =>
+    getThreadTranscriptStats(events);

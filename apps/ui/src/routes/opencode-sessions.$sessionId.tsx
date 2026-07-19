@@ -1,6 +1,6 @@
 import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/codex-browser-types';
 import type { OpenCodeSessionTranscript } from '@spiracha/lib/opencode-exporter-types';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { Download, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -12,24 +12,19 @@ import { LoadingPanel } from '#/components/loading-panel';
 import { MetadataSection } from '#/components/metadata-section';
 import { MetricCard } from '#/components/metric-card';
 import { PageHeader } from '#/components/page-header';
-import { ReloadErrorPanel } from '#/components/reload-error-panel';
+import { RouteErrorPanel } from '#/components/route-error-panel';
 import { DEFAULT_SHOW_USER_MESSAGES, TranscriptView } from '#/components/transcript-view';
 import { Button } from '#/components/ui/button';
 import { Checkbox } from '#/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
+import type { ExportDialogOptions } from '#/lib/export-options';
 import { formatDateTime, formatList, formatNumber, formatTokens } from '#/lib/formatters';
-import { openCodeSessionDetailQueryOptions } from '#/lib/opencode-queries';
+import { openCodeSessionDetailQueryOptions, openCodeWorkspacesQueryOptions } from '#/lib/opencode-queries';
 import { deleteOpenCodeSessionFn, exportOpenCodeSessionFn } from '#/lib/opencode-server';
 import { getOpenCodeThreadTranscriptStats, openCodeTranscriptToThreadEvents } from '#/lib/opencode-transcript-events';
-
-type ExportDialogOptions = {
-    includeCommentary: boolean;
-    includeMetadata: boolean;
-    includeTools: boolean;
-    outputFormat: 'md' | 'txt';
-    zipArchive: boolean;
-};
+import { RouteStateResetBoundary } from '#/lib/route-state-reset';
+import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
 type TranscriptControlsProps = {
     rawJsonDisabled?: boolean;
@@ -46,10 +41,8 @@ type TranscriptControlsProps = {
 };
 
 const OpenCodeSessionDetailErrorComponent = ({ error }: { error: Error }) => {
-    return <ReloadErrorPanel description={error.message} title="Failed to load OpenCode session" />;
+    return <RouteErrorPanel error={error} title="Failed to load OpenCode session" />;
 };
-
-const toError = (error: unknown) => (error instanceof Error ? error : new Error(String(error)));
 
 const buildSessionMetadata = (detail: OpenCodeSessionTranscript) => [
     { label: 'Session ID', value: <span data-mono="true">{detail.session.sessionId}</span> },
@@ -165,8 +158,7 @@ const OpenCodeSessionDetailPage = () => {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const params = Route.useParams();
-    const detailQuery = useQuery(openCodeSessionDetailQueryOptions(params.sessionId));
-    const detail = detailQuery.data ?? null;
+    const detail = useSuspenseQuery(openCodeSessionDetailQueryOptions(params.sessionId)).data;
     const [deleteOpen, setDeleteOpen] = useState(false);
     const [pendingExport, setPendingExport] = useState(false);
     const [showToolCalls, setShowToolCalls] = useState(false);
@@ -223,31 +215,23 @@ const OpenCodeSessionDetailPage = () => {
                 queryClient.invalidateQueries({ queryKey: ['opencode-sessions', detail.session.workspaceKey] }),
                 queryClient.invalidateQueries({ queryKey: ['opencode-session', detail.session.sessionId] }),
             ]);
+            const workspaces = await queryClient.fetchQuery(openCodeWorkspacesQueryOptions());
+            if (
+                shouldNavigateToSourceIndexAfterDelete(
+                    workspaces,
+                    detail.session.workspaceKey,
+                    (workspace) => workspace.key,
+                )
+            ) {
+                navigate({ to: '/opencode' });
+                return;
+            }
             navigate({
                 params: { workspaceKey: detail.session.workspaceKey },
                 to: '/opencode/$workspaceKey',
             });
         },
     });
-
-    if (detailQuery.isLoading) {
-        return (
-            <LoadingPanel
-                description="Loading the OpenCode transcript, parts, and session metadata."
-                title="Loading session"
-            />
-        );
-    }
-
-    if (detailQuery.isError) {
-        return <OpenCodeSessionDetailErrorComponent error={toError(detailQuery.error)} />;
-    }
-
-    if (!detail) {
-        return (
-            <OpenCodeSessionDetailErrorComponent error={new Error(`OpenCode session not found: ${params.sessionId}`)} />
-        );
-    }
 
     return (
         <div className="space-y-6">
@@ -409,8 +393,17 @@ const OpenCodeSessionDetailPage = () => {
 };
 
 export const Route = createFileRoute('/opencode-sessions/$sessionId')({
-    component: OpenCodeSessionDetailPage,
+    component: () => {
+        const { sessionId } = Route.useParams();
+        return (
+            <RouteStateResetBoundary routeKey={sessionId}>
+                <OpenCodeSessionDetailPage />
+            </RouteStateResetBoundary>
+        );
+    },
     errorComponent: OpenCodeSessionDetailErrorComponent,
+    loader: ({ context, params }) =>
+        context.queryClient.ensureQueryData(openCodeSessionDetailQueryOptions(params.sessionId)),
     pendingComponent: () => (
         <LoadingPanel
             description="Loading the OpenCode transcript, parts, and session metadata."

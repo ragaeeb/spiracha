@@ -24,6 +24,24 @@ describe('DeleteConfirmDialog', () => {
         });
     });
 
+    it('should stay open after confirmation so pending and error states remain visible', () => {
+        const onOpenChange = vi.fn();
+        render(
+            <DeleteConfirmDialog
+                description="Delete this thread."
+                open
+                title="Delete thread?"
+                onConfirm={vi.fn()}
+                onOpenChange={onOpenChange}
+            />,
+        );
+
+        fireEvent.click(screen.getAllByRole('button', { name: 'Delete' })[0]!);
+
+        expect(onOpenChange).not.toHaveBeenCalledWith(false);
+        expect(screen.getByRole('alertdialog')).toBeTruthy();
+    });
+
     it('should allow threads to opt into a checked delete session files default', () => {
         const onConfirm = vi.fn();
 

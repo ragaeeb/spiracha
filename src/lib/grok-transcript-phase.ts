@@ -1,6 +1,11 @@
 import type { GrokTranscriptEntry, GrokTranscriptPart } from './grok-exporter-types';
 
-export type GrokAssistantMessagePhase = 'commentary' | 'final_answer' | 'unknown';
+export type GrokAssistantMessagePhase = 'commentary' | 'final_answer' | null;
+
+const isGrokCommentaryEnvelope = (entry: GrokTranscriptEntry, part: GrokTranscriptPart): boolean => {
+    const text = part.text?.trim() ?? '';
+    return entry.role === 'system' || text.startsWith('<user_info>') || text.startsWith('<system-reminder>');
+};
 
 export const getFinalGrokAssistantTextPartIds = (entries: GrokTranscriptEntry[]): Set<string> => {
     const finalPartIds = new Set<string>();
@@ -44,8 +49,12 @@ export const getGrokTextPartPhase = (
     part: GrokTranscriptPart,
     finalTextPartIds: Set<string>,
 ): GrokAssistantMessagePhase => {
+    if (isGrokCommentaryEnvelope(entry, part)) {
+        return 'commentary';
+    }
+
     if (entry.role !== 'assistant') {
-        return 'unknown';
+        return null;
     }
 
     return finalTextPartIds.has(part.partId) ? 'final_answer' : 'commentary';

@@ -1,3 +1,4 @@
+import { mapWithConcurrency } from '../concurrency';
 import {
     deleteKiroSession,
     listKiroSessionsForGroup,
@@ -15,9 +16,11 @@ import { getFinalKiroAssistantMessageEntryIds, getKiroMessagePhase } from '../ki
 import { cleanInlineTitle } from '../shared';
 import { runWithTranscriptLoadLimit } from '../transcript-load-limiter';
 import {
+    createConversationUiPath,
     createDeepLinks,
     createTextMessage,
     finalizeMessages,
+    isWithinUpdatedWindow,
     normalizeAssistantPhase,
     normalizeRole,
     toDateMs,
@@ -33,6 +36,8 @@ import type {
     GetConversationOptions,
     ListConversationsForPathOptions,
 } from './types';
+
+const KIRO_CONVERSATION_HYDRATION_CONCURRENCY = 4;
 
 const getSessionsDir = (options: { locations?: { kiroWorkspaceSessionsDir?: string } }) =>
     options.locations?.kiroWorkspaceSessionsDir ?? resolveKiroWorkspaceSessionsDir();
@@ -98,7 +103,11 @@ const buildConversation = async (
 
     return {
         createdAtMs: session.createdAtMs,
-        deepLinks: createDeepLinks('kiro', session.sessionId, `/kiro-sessions/${session.sessionId}`),
+        deepLinks: createDeepLinks(
+            'kiro',
+            session.sessionId,
+            createConversationUiPath('kiro-sessions', session.sessionId),
+        ),
         id: session.sessionId,
         matches,
         messageCount: options.includeMessages ? allMessages.length : session.messageCount,
@@ -128,10 +137,14 @@ const listKiroConversationsForPath = async (options: ListConversationsForPathOpt
         if (!match) {
             continue;
         }
-        const sessions = await listKiroSessionsForGroup(group.key, sessionsDir);
-        for (const session of sessions) {
-            conversations.push(await buildConversation(session, sessionsDir, [match], options));
-        }
+        const sessions = (await listKiroSessionsForGroup(group.key, sessionsDir)).filter((session) =>
+            isWithinUpdatedWindow(session.lastActiveAtMs, options),
+        );
+        conversations.push(
+            ...(await mapWithConcurrency(sessions, KIRO_CONVERSATION_HYDRATION_CONCURRENCY, (session) =>
+                buildConversation(session, sessionsDir, [match], options),
+            )),
+        );
     }
 
     return conversations;

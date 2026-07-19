@@ -7,19 +7,12 @@ import { ListSearchInput } from '#/components/list-search-input';
 import { LoadingPanel } from '#/components/loading-panel';
 import { PageHeader } from '#/components/page-header';
 import { QoderSessionsTable } from '#/components/qoder-sessions-table';
-import { ReloadErrorPanel } from '#/components/reload-error-panel';
+import { RouteErrorPanel } from '#/components/route-error-panel';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
+import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { qoderSessionsQueryOptions, qoderWorkspacesQueryOptions } from '#/lib/qoder-queries';
 import { exportQoderSessionFn, exportQoderSessionsFn } from '#/lib/qoder-server';
 import { matchesTextQuery } from '#/lib/text-filter';
-
-type ExportDialogOptions = {
-    includeCommentary: boolean;
-    includeMetadata: boolean;
-    includeTools: boolean;
-    outputFormat: 'md' | 'txt';
-    zipArchive: boolean;
-};
 
 type PendingSessionExport = {
     label: string;
@@ -36,7 +29,7 @@ const findWorkspaceOrThrow = (workspaces: QoderWorkspaceGroup[], workspaceKey: s
 };
 
 const QoderWorkspaceErrorComponent = ({ error }: { error: Error }) => {
-    return <ReloadErrorPanel description={error.message} title="Failed to load Qoder workspace" />;
+    return <RouteErrorPanel error={error} title="Failed to load Qoder workspace" />;
 };
 
 const QoderWorkspacePage = () => {
@@ -49,20 +42,16 @@ const QoderWorkspacePage = () => {
     const deferredSearch = useDeferredValue(searchInput);
 
     const exportMutation = useMutation({
-        mutationFn: async (options: ExportDialogOptions) => {
-            if (!pendingExport) {
-                throw new Error('No Qoder session selected for export');
-            }
-
+        mutationFn: async ({ ids, options }: ExportSelectionMutationInput) => {
             const download =
-                pendingExport.sessionIds.length === 1
+                ids.length === 1
                     ? await exportQoderSessionFn({
                           data: {
                               includeCommentary: options.includeCommentary,
                               includeMetadata: options.includeMetadata,
                               includeTools: options.includeTools,
                               outputFormat: options.outputFormat,
-                              sessionId: pendingExport.sessionIds[0]!,
+                              sessionId: ids[0]!,
                               zipArchive: options.zipArchive,
                           },
                       })
@@ -72,7 +61,7 @@ const QoderWorkspacePage = () => {
                               includeMetadata: options.includeMetadata,
                               includeTools: options.includeTools,
                               outputFormat: options.outputFormat,
-                              sessionIds: pendingExport.sessionIds,
+                              sessionIds: [...ids],
                               zipArchive: options.zipArchive,
                           },
                       });
@@ -150,11 +139,22 @@ const QoderWorkspacePage = () => {
             />
 
             <ExportDialog
+                errorMessage={
+                    exportMutation.isError
+                        ? exportMutation.error instanceof Error
+                            ? exportMutation.error.message
+                            : 'Session export failed'
+                        : null
+                }
                 forceZipArchive={pendingExport ? pendingExport.sessionIds.length > 1 : false}
                 open={pendingExport !== null}
                 pending={exportMutation.isPending}
                 title={pendingExport ? `Export ${pendingExport.label}` : 'Export session'}
-                onExport={(options) => exportMutation.mutate(options)}
+                onExport={(options) => {
+                    if (pendingExport) {
+                        exportMutation.mutate(createExportSelectionMutationInput(pendingExport.sessionIds, options));
+                    }
+                }}
                 onOpenChange={(open) => {
                     if (!open) {
                         setPendingExport(null);
@@ -162,12 +162,6 @@ const QoderWorkspacePage = () => {
                     }
                 }}
             />
-
-            {exportMutation.isError ? (
-                <p className="text-[var(--destructive)] text-sm">
-                    {exportMutation.error instanceof Error ? exportMutation.error.message : 'Session export failed'}
-                </p>
-            ) : null}
         </div>
     );
 };

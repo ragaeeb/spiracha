@@ -129,6 +129,27 @@ const writeSession = async ({
 };
 
 describe('kiro workspace discovery', () => {
+    it('should treat empty timestamps as missing and omit empty sessions from listings', async () => {
+        const sessionsDir = await makeTempRoot();
+        const workspacePath = '/workspace/empty';
+        const workspaceDir = path.join(sessionsDir, encodeKiroWorkspaceDirectoryName(workspacePath));
+        await mkdir(workspaceDir, { recursive: true });
+        await Bun.write(
+            path.join(workspaceDir, 'sessions.json'),
+            JSON.stringify([{ dateCreated: '', sessionId: 'empty-session', workspaceDirectory: workspacePath }]),
+        );
+        await Bun.write(
+            path.join(workspaceDir, 'empty-session.json'),
+            JSON.stringify({ history: [], sessionId: 'empty-session' }),
+        );
+
+        const transcript = await readKiroSessionTranscript(sessionsDir, 'empty-session');
+        const groups = await listKiroWorkspaceGroups(sessionsDir);
+
+        expect(transcript?.session.createdAtMs).not.toBe(0);
+        expect(groups).toEqual([]);
+    });
+
     afterEach(async () => {
         await Promise.all(tempRoots.splice(0).map((root) => rm(root, { force: true, recursive: true })));
     });
@@ -263,6 +284,32 @@ describe('kiro workspace discovery', () => {
         expect(await readKiroSessionTranscript(sessionsDir, sessionId)).toBeNull();
     });
 
+    it('should serialize concurrent deletes that update the same session index', async () => {
+        const sessionsDir = await makeTempRoot();
+        const workspacePath = corpusCwd;
+        for (const sessionId of ['session-delete-a', 'session-delete-b']) {
+            await writeSession({
+                createdAtMs: 1_781_212_901_555,
+                sessionId,
+                sessionsDir,
+                title: sessionId,
+                updatedAtMs: 1_781_212_904_000,
+                workspacePath,
+            });
+        }
+
+        const results = await Promise.all(
+            ['session-delete-a', 'session-delete-b'].map((sessionId) => deleteKiroSession(sessionsDir, sessionId)),
+        );
+        const workspaceDir = path.join(sessionsDir, encodeKiroWorkspaceDirectoryName(workspacePath));
+
+        expect(results.flatMap((result) => result.deletedSessionIds).sort()).toEqual([
+            'session-delete-a',
+            'session-delete-b',
+        ]);
+        expect(await Bun.file(path.join(workspaceDir, 'sessions.json')).json()).toEqual([]);
+    });
+
     it('should keep Kiro text blocks in one user entry and append execution assistant messages', async () => {
         const sessionsDir = await makeTempRoot();
         const sessionId = 'session-with-execution';
@@ -385,7 +432,7 @@ describe('kiro workspace discovery', () => {
                     ],
                     chatSessionId: sessionId,
                     endTime: 1_781_464_236_222,
-                    executionId: 'rich-execution',
+                    executionId: 'placeholder-execution',
                     startTime: 1_781_464_088_075,
                     status: 'succeed',
                 },
@@ -551,6 +598,127 @@ describe('kiro workspace discovery', () => {
             'Second task',
             'Second task complete',
         ]);
+    });
+
+    it('should keep unmatched placeholders and interleave unmatched executions by start time', async () => {
+        const sessionsDir = await makeTempRoot();
+        const sessionId = 'session-mismatched-execution';
+        const workspacePath = path.join(homeDir, 'workspace', 'ushman-mismatched');
+        const workspaceDir = path.join(sessionsDir, encodeKiroWorkspaceDirectoryName(workspacePath));
+        await mkdir(workspaceDir, { recursive: true });
+        await Bun.write(
+            path.join(workspaceDir, 'sessions.json'),
+            JSON.stringify([{ dateCreated: '1781464088', sessionId, title: 'Mismatched execution' }]),
+        );
+        await Bun.write(
+            path.join(workspaceDir, `${sessionId}.json`),
+            JSON.stringify({
+                history: [
+                    {
+                        message: { content: 'First task', id: 'user-1', role: 'user' },
+                        timestamp: '2026-06-14T12:00:00.000Z',
+                    },
+                    {
+                        executionId: 'missing-execution',
+                        message: { content: 'On it.', id: 'placeholder-1', role: 'assistant' },
+                        timestamp: '2026-06-14T12:00:01.000Z',
+                    },
+                    {
+                        message: { content: 'Second task', id: 'user-2', role: 'user' },
+                        timestamp: '2026-06-14T12:00:03.000Z',
+                    },
+                    {
+                        executionId: 'execution-two',
+                        message: { content: 'On it!', id: 'placeholder-2', role: 'assistant' },
+                        timestamp: '2026-06-14T12:00:04.000Z',
+                    },
+                ],
+                sessionId,
+                workspaceDirectory: workspacePath,
+                workspacePath,
+            }),
+        );
+
+        const executionRoot = path.join(sessionsDir, getKiroWorkspaceHash(workspacePath));
+        await mkdir(path.join(executionRoot, 'one'), { recursive: true });
+        await mkdir(path.join(executionRoot, 'two'), { recursive: true });
+        await Bun.write(
+            path.join(executionRoot, 'one', 'execution.json'),
+            JSON.stringify({
+                actions: [
+                    {
+                        actionId: 'assistant-one',
+                        actionType: 'assistantMessage',
+                        chatSessionId: sessionId,
+                        output: { message: 'First task complete' },
+                    },
+                ],
+                chatSessionId: sessionId,
+                executionId: 'actual-execution-one',
+                startTime: '2026-06-14T12:00:02.000Z',
+            }),
+        );
+        await Bun.write(
+            path.join(executionRoot, 'two', 'execution.json'),
+            JSON.stringify({
+                actions: [
+                    {
+                        actionId: 'assistant-two',
+                        actionType: 'assistantMessage',
+                        chatSessionId: sessionId,
+                        output: { message: 'Second task complete' },
+                    },
+                ],
+                chatSessionId: sessionId,
+                executionId: 'execution-two',
+                startTime: '2026-06-14T12:00:05.000Z',
+            }),
+        );
+
+        const transcript = await readKiroSessionTranscript(sessionsDir, sessionId);
+
+        expect(transcript?.entries.map((entry) => entry.parts[0]?.text)).toEqual([
+            'First task',
+            'On it.',
+            'First task complete',
+            'Second task',
+            'Second task complete',
+        ]);
+    });
+
+    it('should locate and delete a Kiro session by its body session id when the filename differs', async () => {
+        const sessionsDir = await makeTempRoot();
+        const sessionId = 'canonical-session-id';
+        const workspacePath = path.join(homeDir, 'workspace', 'kiro-body-id');
+        const workspaceDir = path.join(sessionsDir, encodeKiroWorkspaceDirectoryName(workspacePath));
+        const filePath = path.join(workspaceDir, 'stale-storage-name.json');
+        await mkdir(workspaceDir, { recursive: true });
+        await Bun.write(
+            path.join(workspaceDir, 'sessions.json'),
+            JSON.stringify([{ dateCreated: '1781464088', sessionId, title: 'Canonical session' }]),
+        );
+        await Bun.write(
+            filePath,
+            JSON.stringify({
+                history: [
+                    {
+                        message: { content: 'Use the body id', id: 'user-1', role: 'user' },
+                        timestamp: '2026-06-14T12:00:00.000Z',
+                    },
+                ],
+                sessionId,
+                workspaceDirectory: workspacePath,
+                workspacePath,
+            }),
+        );
+
+        const transcript = await readKiroSessionTranscript(sessionsDir, sessionId);
+        const deleted = await deleteKiroSession(sessionsDir, sessionId);
+
+        expect(transcript?.session.sessionId).toBe(sessionId);
+        expect(deleted.deletedSessionIds).toEqual([sessionId]);
+        expect(deleted.deletedFiles).toContain(filePath);
+        expect(await Bun.file(filePath).exists()).toBe(false);
     });
 
     it('should return empty results when Kiro data is missing', async () => {

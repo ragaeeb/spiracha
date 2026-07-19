@@ -5,12 +5,16 @@ const {
     getCachedThreadTranscriptPreviewMock,
     getThreadBrowseDataMock,
     getThreadRolloutLoadStateMock,
+    renderCodexThreadDownloadMock,
+    renderCodexThreadsDownloadMock,
     resolveCodexThreadDbPathMock,
 } = vi.hoisted(() => ({
     getCachedParsedCodexTranscriptMock: vi.fn(),
     getCachedThreadTranscriptPreviewMock: vi.fn(),
     getThreadBrowseDataMock: vi.fn(),
     getThreadRolloutLoadStateMock: vi.fn(),
+    renderCodexThreadDownloadMock: vi.fn(),
+    renderCodexThreadsDownloadMock: vi.fn(),
     resolveCodexThreadDbPathMock: vi.fn(),
 }));
 
@@ -37,8 +41,8 @@ vi.mock('@spiracha/lib/codex-browser-db', () => ({
 }));
 
 vi.mock('@spiracha/lib/codex-browser-export', () => ({
-    renderCodexThreadDownload: vi.fn(),
-    renderCodexThreadsDownload: vi.fn(),
+    renderCodexThreadDownload: renderCodexThreadDownloadMock,
+    renderCodexThreadsDownload: renderCodexThreadsDownloadMock,
 }));
 
 vi.mock('@spiracha/lib/codex-analytics', () => ({
@@ -55,7 +59,13 @@ vi.mock('@spiracha/lib/codex-thread-recovery', () => ({
     recoverCodexProjectThreads: vi.fn(),
 }));
 
-import { getThreadSnapshotFn, loadThreadTranscript, loadThreadTranscriptPreview } from './codex-server';
+import {
+    exportThreadFn,
+    exportThreadsFn,
+    getThreadSnapshotFn,
+    loadThreadTranscript,
+    loadThreadTranscriptPreview,
+} from './codex-server';
 
 describe('loadThreadTranscript', () => {
     beforeEach(() => {
@@ -140,5 +150,57 @@ describe('loadThreadTranscript', () => {
 
         expect(getThreadBrowseDataMock).toHaveBeenCalledWith('/tmp/state.sqlite', 'thread-1');
         expect(getCachedParsedCodexTranscriptMock).toHaveBeenCalledWith('/tmp/rollout.jsonl');
+    });
+
+    it('should forward every export dialog option for single and batch Codex exports', async () => {
+        const options = {
+            convertToProjectRoot: true,
+            includeCommentary: false,
+            includeMetadata: false,
+            includeTools: true,
+            outputFormat: 'txt' as const,
+            redactUsername: true,
+            zipArchive: true,
+        };
+
+        await exportThreadFn({
+            data: {
+                ...options,
+                threadId: 'thread-1',
+            },
+        });
+        await exportThreadsFn({
+            data: {
+                ...options,
+                threadIds: ['thread-1', 'thread-2'],
+            },
+        });
+
+        expect(renderCodexThreadDownloadMock).toHaveBeenCalledWith({
+            dbPath: '/tmp/state.sqlite',
+            includeCommentary: false,
+            includeMetadata: false,
+            includeTools: true,
+            outputFormat: 'txt',
+            pathDisplaySettings: {
+                convertToProjectRoot: true,
+                redactUsername: true,
+            },
+            threadId: 'thread-1',
+            zipArchive: true,
+        });
+        expect(renderCodexThreadsDownloadMock).toHaveBeenCalledWith({
+            dbPath: '/tmp/state.sqlite',
+            includeCommentary: false,
+            includeMetadata: false,
+            includeTools: true,
+            outputFormat: 'txt',
+            pathDisplaySettings: {
+                convertToProjectRoot: true,
+                redactUsername: true,
+            },
+            threadIds: ['thread-1', 'thread-2'],
+            zipArchive: true,
+        });
     });
 });

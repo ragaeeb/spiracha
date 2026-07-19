@@ -155,6 +155,7 @@ const columns = (
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                             <Button
+                                aria-label={`Actions for ${info.row.original.title}`}
                                 className="rounded-full"
                                 size="icon"
                                 type="button"

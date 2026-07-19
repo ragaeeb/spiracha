@@ -9,7 +9,7 @@ import { ExportDialog } from '#/components/export-dialog';
 import { ListSearchInput } from '#/components/list-search-input';
 import { LoadingPanel } from '#/components/loading-panel';
 import { PageHeader } from '#/components/page-header';
-import { ReloadErrorPanel } from '#/components/reload-error-panel';
+import { RouteErrorPanel } from '#/components/route-error-panel';
 import { Button } from '#/components/ui/button';
 import { cursorThreadsQueryOptions, cursorWorkspacesQueryOptions } from '#/lib/cursor-queries';
 import {
@@ -20,6 +20,8 @@ import {
     recoverCursorWorkspaceFn,
 } from '#/lib/cursor-server';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
+import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
+import { getMutationErrorMessage } from '#/lib/mutation-error';
 import { matchesTextQuery } from '#/lib/text-filter';
 import { isWorkspaceEmptiedByDelete } from '#/lib/workspace-delete-navigation';
 
@@ -30,14 +32,6 @@ type PendingCursorDelete =
 type PendingCursorExport = {
     composerIds: string[];
     label: string;
-};
-
-type ExportDialogOptions = {
-    includeCommentary: boolean;
-    includeMetadata: boolean;
-    includeTools: boolean;
-    outputFormat: 'md' | 'txt';
-    zipArchive: boolean;
 };
 
 const findWorkspaceOrThrow = (workspaces: CursorWorkspaceGroup[], workspaceKey: string) => {
@@ -114,7 +108,7 @@ const getCursorDeleteTitle = (pendingDelete: PendingCursorDelete | null) => {
 };
 
 const CursorWorkspaceErrorComponent = ({ error }: { error: Error }) => {
-    return <ReloadErrorPanel description={error.message} title="Failed to load Cursor workspace" />;
+    return <RouteErrorPanel error={error} title="Failed to load Cursor workspace" />;
 };
 
 const CursorWorkspacePage = () => {
@@ -149,6 +143,7 @@ const CursorWorkspacePage = () => {
         onSuccess: async (_result, target) => {
             if (target.kind === 'workspace') {
                 await navigate({ to: '/cursor' });
+                queryClient.removeQueries({ queryKey: ['cursor-thread'] });
                 await queryClient.invalidateQueries({ queryKey: ['cursor-workspaces'] });
                 setPendingDelete(null);
                 return;
@@ -159,6 +154,9 @@ const CursorWorkspacePage = () => {
                 target.threads.map((thread) => thread.composerId),
                 (thread) => thread.composerId,
             );
+            for (const thread of target.threads) {
+                queryClient.removeQueries({ queryKey: ['cursor-thread', thread.composerId] });
+            }
             setPendingDelete(null);
             if (workspaceEmptied) {
                 await navigate({ to: '/cursor' });
@@ -169,23 +167,19 @@ const CursorWorkspacePage = () => {
     });
 
     const exportMutation = useMutation({
-        mutationFn: async (options: ExportDialogOptions) => {
-            if (!pendingExport) {
-                throw new Error('No thread selected for export');
-            }
-
+        mutationFn: async ({ ids, options }: ExportSelectionMutationInput) => {
             const download =
-                pendingExport.composerIds.length === 1
+                ids.length === 1
                     ? await exportCursorThreadFn({
                           data: {
                               ...options,
-                              composerId: pendingExport.composerIds[0]!,
+                              composerId: ids[0]!,
                           },
                       })
                     : await exportCursorThreadsFn({
                           data: {
                               ...options,
-                              composerIds: pendingExport.composerIds,
+                              composerIds: [...ids],
                           },
                       });
 
@@ -253,11 +247,11 @@ const CursorWorkspacePage = () => {
 
             <CursorWorkspaceErrors
                 deleteError={deleteMutation.isError ? deleteMutation.error : null}
-                exportError={exportMutation.isError ? exportMutation.error : null}
                 recoverError={recoverWorkspaceMutation.isError ? recoverWorkspaceMutation.error : null}
             />
 
             <CursorWorkspaceDeleteDialog
+                errorMessage={getMutationErrorMessage(deleteMutation.error, 'Delete failed')}
                 pending={deleteMutation.isPending}
                 pendingDelete={pendingDelete}
                 onConfirm={() => {
@@ -270,19 +264,32 @@ const CursorWorkspacePage = () => {
                 onOpenChange={(open) => {
                     if (!open) {
                         setPendingDelete(null);
+                        deleteMutation.reset();
                     }
                 }}
             />
 
             <ExportDialog
+                errorMessage={
+                    exportMutation.isError
+                        ? exportMutation.error instanceof Error
+                            ? exportMutation.error.message
+                            : 'Thread export failed'
+                        : null
+                }
                 forceZipArchive={pendingExport ? pendingExport.composerIds.length > 1 : false}
                 open={pendingExport !== null}
                 pending={exportMutation.isPending}
                 title={pendingExport ? `Export ${pendingExport.label}` : 'Export thread'}
-                onExport={(options) => exportMutation.mutate(options)}
+                onExport={(options) => {
+                    if (pendingExport) {
+                        exportMutation.mutate(createExportSelectionMutationInput(pendingExport.composerIds, options));
+                    }
+                }}
                 onOpenChange={(open) => {
                     if (!open) {
                         setPendingExport(null);
+                        exportMutation.reset();
                     }
                 }}
             />
@@ -358,18 +365,14 @@ const CursorWorkspaceRecoveryNotice = ({ workspace }: { workspace: CursorWorkspa
 
 const CursorWorkspaceErrors = ({
     deleteError,
-    exportError,
     recoverError,
 }: {
     deleteError: Error | null;
-    exportError: Error | null;
     recoverError: Error | null;
 }) => {
-    const entries = [
-        recoverError ? recoverError.message : null,
-        deleteError ? deleteError.message : null,
-        exportError ? exportError.message : null,
-    ].filter(Boolean);
+    const entries = [recoverError ? recoverError.message : null, deleteError ? deleteError.message : null].filter(
+        Boolean,
+    );
 
     if (entries.length === 0) {
         return null;
@@ -387,11 +390,13 @@ const CursorWorkspaceErrors = ({
 };
 
 const CursorWorkspaceDeleteDialog = ({
+    errorMessage,
     pending,
     pendingDelete,
     onConfirm,
     onOpenChange,
 }: {
+    errorMessage: string | null;
     pending: boolean;
     pendingDelete: PendingCursorDelete | null;
     onConfirm: () => void;
@@ -401,6 +406,7 @@ const CursorWorkspaceDeleteDialog = ({
         <DeleteConfirmDialog
             confirmLabel={getCursorDeleteConfirmLabel(pendingDelete, pending)}
             description={getCursorDeleteDescription(pendingDelete)}
+            errorMessage={errorMessage}
             open={pendingDelete !== null}
             title={getCursorDeleteTitle(pendingDelete)}
             onConfirm={onConfirm}

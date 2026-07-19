@@ -248,6 +248,34 @@ describe('antigravityMarkdownToThreadEvents', () => {
         );
     });
 
+    it('should not split transcript sections on headings inside fenced code blocks', () => {
+        const events = antigravityMarkdownToThreadEvents(
+            [
+                '## User',
+                '',
+                'Show the example',
+                '',
+                '## Assistant',
+                '',
+                '```markdown',
+                '## User',
+                'This is sample text, not a transcript turn.',
+                '```',
+                '',
+                'The example is complete.',
+            ].join('\n'),
+        );
+
+        expect(events.filter((event) => event.kind === 'message' && event.role === 'user')).toHaveLength(1);
+        expect(events).toContainEqual(
+            expect.objectContaining({
+                kind: 'message',
+                phase: 'final_answer',
+                text: expect.stringContaining('## User'),
+            }),
+        );
+    });
+
     it('should not promote pre-tool assistant text to final answer when the transcript ends after tool use', () => {
         const events = antigravityMarkdownToThreadEvents(
             [
@@ -333,5 +361,19 @@ describe('getAntigravityThreadTranscriptStats', () => {
             messageCount: 1,
             toolOutputCount: 1,
         });
+    });
+});
+
+describe('Antigravity transcript event ordering', () => {
+    it('should keep event sequences unique across sections with many tool calls', () => {
+        const toolCalls = Array.from({ length: 12 }, (_value, index) => `- \`tool_${index}\``);
+        const events = antigravityMarkdownToThreadEvents(
+            ['## Assistant', '', 'Working', '', '### Tool Calls', '', ...toolCalls, '', '## User', '', 'Continue'].join(
+                '\n',
+            ),
+        );
+        const sequences = events.map((event) => event.sequence);
+
+        expect(new Set(sequences).size).toBe(sequences.length);
     });
 });

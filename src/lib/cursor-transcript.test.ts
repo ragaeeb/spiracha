@@ -94,6 +94,7 @@ describe('renderCursorToolCall', () => {
         const block = renderCursorToolCall(buildTranscript().bubbles[1]!.toolCall!, 'md');
         expect(block).toContain('Tool Call');
         expect(block).toContain('read_file');
+        expect(block).toContain('Call ID: call-1');
         expect(block).toContain('src/index.ts');
         expect(block).toContain('export const x = 1;');
     });
@@ -138,5 +139,30 @@ describe('renderCursorTranscript', () => {
         expect(content).toContain('created_at_unix_ms: Infinity');
         expect(content).not.toContain('created_at_iso');
         expect(content).not.toContain('last_updated_at_iso');
+    });
+
+    it('should omit intermediate assistant progress when commentary is disabled', () => {
+        const transcript = buildTranscript({
+            bubbles: [
+                buildTranscript().bubbles[0]!,
+                {
+                    ...buildTranscript().bubbles[1]!,
+                    text: 'I will inspect the component first.',
+                },
+                {
+                    bubbleId: 'b3',
+                    createdAtMs: null,
+                    kind: 'assistant',
+                    text: 'Fixed the dialog styling and export behavior.',
+                    thinking: null,
+                    toolCall: null,
+                },
+            ],
+        });
+
+        const content = renderCursorTranscript(transcript, options({ includeCommentary: false }));
+
+        expect(content).not.toContain('I will inspect the component first.');
+        expect(content).toContain('Fixed the dialog styling and export behavior.');
     });
 });

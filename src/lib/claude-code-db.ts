@@ -15,6 +15,7 @@ import {
     isClaudeCodeSyntheticTranscriptEntry,
 } from './claude-code-transcript-phase';
 import { mapWithConcurrency } from './concurrency';
+import { getPortablePathBasename } from './portable-path';
 import {
     asBoolean,
     asNumber,
@@ -22,9 +23,9 @@ import {
     asString,
     cleanExtractedText,
     cleanInlineTitle,
-    getPortablePathBasename,
     isWorkspacePathQuery,
     type JsonValue,
+    readDirectoryEntriesIfExists,
     readJsonlObjects,
     workspacePathMatchesQuery,
 } from './shared';
@@ -579,13 +580,14 @@ const markLatestAssistantAsCommentary = (entries: ClaudeCodeTranscriptEntry[]): 
     }
 };
 
-const isSubagentTaskNotification = (raw: Record<string, JsonValue>): boolean => {
-    return (
-        raw.type === 'queue-operation' &&
-        asString(raw.content ?? null)
-            ?.trimStart()
-            .startsWith('<task-notification>') === true
-    );
+const isTaskNotification = (raw: Record<string, JsonValue>): boolean => {
+    const content =
+        raw.type === 'queue-operation'
+            ? asString(raw.content ?? null)
+            : raw.type === 'user'
+              ? textFromContentValue(asObject(raw.message ?? null)?.content)
+              : null;
+    return content?.trimStart().startsWith('<task-notification>') === true;
 };
 
 const buildTranscriptFromRawEvents = (
@@ -612,7 +614,7 @@ const buildTranscriptFromRawEvents = (
         updateTimeline(timeline, raw);
         updateIdentityFromRaw(identity, raw);
 
-        if (isSubagentTaskNotification(raw)) {
+        if (isTaskNotification(raw)) {
             markLatestAssistantAsCommentary(entries);
         }
 
@@ -669,7 +671,7 @@ const readTranscriptFile = async (
 
 const listTranscriptFilesForProject = async (projectsDir: string, directoryName: string): Promise<TranscriptFile[]> => {
     const projectDir = path.join(projectsDir, directoryName);
-    const entries = await readdir(projectDir, { withFileTypes: true }).catch(() => []);
+    const entries = await readDirectoryEntriesIfExists(projectDir);
     return entries
         .filter((entry) => entry.isFile() && entry.name.endsWith('.jsonl'))
         .map((entry) => ({
@@ -928,7 +930,11 @@ const compareNullableMsDesc = (left: number | null, right: number | null): numbe
 };
 
 const toWorkspaceGroup = (directoryName: string, sessions: ClaudeCodeSessionSummary[]): ClaudeCodeWorkspaceGroup => {
-    const worktree = sessions[0]?.worktree ?? decodeWorktreeFromDirectoryName(directoryName);
+    const decodedWorktree = decodeWorktreeFromDirectoryName(directoryName);
+    const worktree =
+        sessions.find((session) => session.worktree !== decodedWorktree)?.worktree ??
+        sessions[0]?.worktree ??
+        decodedWorktree;
     const lastActiveAtMs = sessions.reduce<number | null>((latest, session) => {
         if (session.lastActiveAtMs === null) {
             return latest;
@@ -1014,17 +1020,17 @@ export const findClaudeCodeWorkspaceGroups = (
     return groups.filter((group) => claudeCodeWorkspaceMatchesQuery(group, query));
 };
 
+const compareSessions = (left: ClaudeCodeSessionSummary, right: ClaudeCodeSessionSummary) =>
+    compareNullableMsDesc(left.lastActiveAtMs, right.lastActiveAtMs) || left.title.localeCompare(right.title);
+
 const sortSessions = (sessions: ClaudeCodeSessionSummary[]): ClaudeCodeSessionSummary[] => {
-    return [...sessions].sort(
-        (left, right) =>
-            compareNullableMsDesc(left.lastActiveAtMs, right.lastActiveAtMs) || left.title.localeCompare(right.title),
-    );
+    return [...sessions].sort(compareSessions);
 };
 
-export const listClaudeCodeSessionsForGroup = async (
+export const listClaudeCodeSessionTranscriptsForGroup = async (
     workspaceKey: string,
     projectsDir = resolveClaudeCodeProjectsDir(),
-): Promise<ClaudeCodeSessionSummary[]> => {
+): Promise<ClaudeCodeSessionTranscript[]> => {
     const directoryName = getDirectoryNameFromWorkspaceKey(workspaceKey);
     if (!directoryName || !(await pathExists(projectsDir))) {
         return [];
@@ -1032,12 +1038,32 @@ export const listClaudeCodeSessionsForGroup = async (
 
     const files = await listTranscriptFilesForProject(projectsDir, directoryName);
     const transcripts = coalesceTranscriptLineages(await readTranscriptFiles(files));
-    return sortSessions(transcripts.filter(hasSessionContent).map((transcript) => transcript.session));
+    return transcripts.filter(hasSessionContent).sort((left, right) => compareSessions(left.session, right.session));
+};
+
+export const listClaudeCodeSessionsForGroup = async (
+    workspaceKey: string,
+    projectsDir = resolveClaudeCodeProjectsDir(),
+): Promise<ClaudeCodeSessionSummary[]> => {
+    return sortSessions(
+        (await listClaudeCodeSessionTranscriptsForGroup(workspaceKey, projectsDir)).map(
+            (transcript) => transcript.session,
+        ),
+    );
 };
 
 const locateSessionFile = async (projectsDir: string, sessionId: string): Promise<TranscriptFile | null> => {
     const files = await listTranscriptFiles(projectsDir);
-    return files.find((file) => path.basename(file.filePath, '.jsonl') === sessionId) ?? null;
+    const filenameMatch = files.find((file) => path.basename(file.filePath, '.jsonl') === sessionId);
+    if (filenameMatch) {
+        return filenameMatch;
+    }
+
+    const bodyMatches = await mapWithConcurrency(files, READ_CONCURRENCY, async (file) => {
+        const parsed = await readTranscriptFile(file, { includeRawPayloads: false });
+        return parsed?.transcript.session.sessionId === sessionId ? file : null;
+    });
+    return bodyMatches.find((file): file is TranscriptFile => file !== null) ?? null;
 };
 
 export const readClaudeCodeSessionTranscript = async (

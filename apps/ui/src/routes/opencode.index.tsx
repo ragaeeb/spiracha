@@ -1,39 +1,26 @@
-import { useQuery } from '@tanstack/react-query';
+import { useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import { useDeferredValue, useState } from 'react';
 import { ListSearchInput } from '#/components/list-search-input';
 import { LoadingPanel } from '#/components/loading-panel';
 import { OpenCodeWorkspacesTable } from '#/components/opencode-workspaces-table';
 import { PageHeader } from '#/components/page-header';
-import { ReloadErrorPanel } from '#/components/reload-error-panel';
+import { RouteErrorPanel } from '#/components/route-error-panel';
 import { openCodeWorkspacesQueryOptions } from '#/lib/opencode-queries';
 import { matchesTextQuery } from '#/lib/text-filter';
 
 const OpenCodeErrorComponent = ({ error }: { error: Error }) => {
-    return <ReloadErrorPanel description={error.message} title="Failed to load OpenCode workspaces" />;
+    return <RouteErrorPanel error={error} title="Failed to load OpenCode workspaces" />;
 };
 
-const toError = (error: unknown) => (error instanceof Error ? error : new Error(String(error)));
-
 const OpenCodePage = () => {
-    const workspacesQuery = useQuery(openCodeWorkspacesQueryOptions());
+    const workspaces = useSuspenseQuery(openCodeWorkspacesQueryOptions()).data;
     const [searchInput, setSearchInput] = useState('');
     const deferredSearch = useDeferredValue(searchInput);
-    const workspaces = workspacesQuery.data ?? [];
 
     const visibleWorkspaces = workspaces.filter((workspace) =>
         matchesTextQuery(deferredSearch, [workspace.label, workspace.worktree, workspace.key, workspace.projectId]),
     );
-
-    if (workspacesQuery.isLoading) {
-        return (
-            <LoadingPanel description="Loading OpenCode workspaces and database metadata." title="Loading OpenCode" />
-        );
-    }
-
-    if (workspacesQuery.isError) {
-        return <OpenCodeErrorComponent error={toError(workspacesQuery.error)} />;
-    }
 
     return (
         <div className="space-y-6">
@@ -58,4 +45,8 @@ const OpenCodePage = () => {
 export const Route = createFileRoute('/opencode/')({
     component: OpenCodePage,
     errorComponent: OpenCodeErrorComponent,
+    loader: ({ context }) => context.queryClient.ensureQueryData(openCodeWorkspacesQueryOptions()),
+    pendingComponent: () => (
+        <LoadingPanel description="Loading OpenCode workspaces and database metadata." title="Loading OpenCode" />
+    ),
 });

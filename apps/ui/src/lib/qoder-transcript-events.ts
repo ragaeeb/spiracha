@@ -57,7 +57,7 @@ const buildToolCallEvent = (
 ): ThreadEvent => ({
     argumentsParseFailed: false,
     argumentsText: command,
-    callId: entry.entryId,
+    callId: getPartString(part, 'toolCallId') ?? entry.entryId,
     command,
     kind: 'tool_call',
     name: getPartString(part, 'toolName') ?? 'qoder_file_operation',

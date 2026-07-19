@@ -33,6 +33,26 @@ describe('mapWithConcurrency', () => {
         expect(results).toEqual([1, 2, 3]);
         expect(maxActive).toBe(1);
     });
+
+    it('should stop starting queued work after a mapper rejects', async () => {
+        const started: number[] = [];
+        let inFlightWorkFinished = false;
+
+        await expect(
+            mapWithConcurrency([1, 2, 3, 4, 5], 2, async (value) => {
+                started.push(value);
+                if (value === 1) {
+                    throw new Error('mapper failed');
+                }
+                await Bun.sleep(5);
+                inFlightWorkFinished = true;
+                return value;
+            }),
+        ).rejects.toThrow('mapper failed');
+
+        expect(started).toEqual([1, 2]);
+        expect(inFlightWorkFinished).toBe(true);
+    });
 });
 
 describe('createConcurrencyLimiter', () => {

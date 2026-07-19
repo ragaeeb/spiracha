@@ -2,22 +2,26 @@
 
 ## Purpose
 
-This package is the local browser UI for Spiracha. It reads Codex, Claude Code, Kiro, Qoder, Cursor, Antigravity, and OpenCode local data through TanStack Start server functions and shared root-package helpers.
+This directory is the local browser UI source tree for Spiracha. It reads Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, and OpenCode local data through TanStack Start server functions and shared root-package helpers.
 
 ## Commands
 
 ```bash
-rtk bun run dev
+rtk bun start
 rtk bun run build
-rtk bun run test
+rtk bun run test:ui
 rtk bun run typecheck
 rtk bun run coverage
 ```
 
+Run these commands from the repository root. There is intentionally no nested UI package manifest.
+
 Important:
 
-- `dev`, `build`, and `preview` run through `bun --bun ...` on purpose. Do not switch them back to plain `vite` or Node execution, because the server functions import Bun-only modules such as `bun:sqlite`.
-- The root package mirrors UI runtime dependencies needed by the packaged `bunx spiracha` launcher. Keep `apps/ui/package.json` and the root `dependencies` aligned when browser/runtime dependencies change.
+- `start`, `build`, and `ui:preview` run Vite through `bun --bun ...` on purpose. Do not switch them back to Node execution, because the server functions import Bun-only modules such as `bun:sqlite`.
+- Those root-owned Vite scripts use `apps/ui` as their internal working directory because TanStack Start derives part of its dev-server plan from the process working directory.
+- Keep UI runtime dependencies needed by the packaged `bunx spiracha` launcher in the root `dependencies`. Keep build and test tooling in the root `devDependencies`.
+- Keep Vitest on its normal Node runtime; forcing it through `bun --bun` breaks test-environment module and global behavior.
 
 ## Routing
 
@@ -29,12 +33,13 @@ Important:
 - Codex project inventory and project-thread search use route search params. `/codex` and `/codex/$project` use `q`.
 - Codex analytics uses the `project` route search param so filtered analytics links can be bookmarked and reloaded.
 - Claude Code session detail lives at `/claude-code-sessions/$sessionId`.
+- Grok session detail lives at `/grok-sessions/$sessionId`.
 - Kiro session detail lives at `/kiro-sessions/$sessionId`.
 - Qoder session detail lives at `/qoder-sessions/$sessionId`.
 - Cursor thread detail lives at `/cursor-threads/$composerId`.
 - Antigravity conversation detail lives at `/antigravity-conversations/$conversationId`.
 - OpenCode session detail lives at `/opencode-sessions/$sessionId`.
-- Keep the Codex, Claude Code, Kiro, Qoder, Cursor, Antigravity, and OpenCode list/detail pages aligned around the same table-driven index/detail pattern when adding new source integrations.
+- Keep the Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, and OpenCode list/detail pages aligned around the same table-driven index/detail pattern when adding new source integrations.
 
 ## Shared Data Layer
 
@@ -48,6 +53,9 @@ The UI depends on root-package helpers via `@spiracha/*` path aliases:
 - `@spiracha/lib/claude-code-db`
 - `@spiracha/lib/claude-code-transcript-phase`
 - `@spiracha/lib/claude-code-transcript`
+- `@spiracha/lib/grok-db`
+- `@spiracha/lib/grok-transcript-phase`
+- `@spiracha/lib/grok-transcript`
 - `@spiracha/lib/kiro-db`
 - `@spiracha/lib/kiro-transcript-phase`
 - `@spiracha/lib/kiro-transcript`
@@ -73,10 +81,10 @@ The `*-transcript-phase` helpers are intentionally browser-safe and may be impor
 
 Use the existing layers consistently:
 
-- TanStack Start server functions in `src/lib/codex-server.ts`, `src/lib/claude-code-server.ts`, `src/lib/kiro-server.ts`, `src/lib/qoder-server.ts`, `src/lib/cursor-server.ts`, `src/lib/antigravity-server.ts`, and `src/lib/opencode-server.ts`
+- TanStack Start server functions in `src/lib/codex-server.ts`, `src/lib/claude-code-server.ts`, `src/lib/grok-server.ts`, `src/lib/kiro-server.ts`, `src/lib/qoder-server.ts`, `src/lib/cursor-server.ts`, `src/lib/antigravity-server.ts`, and `src/lib/opencode-server.ts`
   - Use for any browser-triggered read/write that needs Bun-only modules, DB access, filesystem access, Keychain access, or shared root-package helpers.
   - Use `.validator(...)` for input validation. Do not add new `.inputValidator(...)` calls.
-- TanStack Query query options in `src/lib/codex-queries.ts`, `src/lib/claude-code-queries.ts`, `src/lib/kiro-queries.ts`, `src/lib/qoder-queries.ts`, `src/lib/cursor-queries.ts`, `src/lib/antigravity-queries.ts`, and `src/lib/opencode-queries.ts`
+- TanStack Query query options in `src/lib/codex-queries.ts`, `src/lib/claude-code-queries.ts`, `src/lib/grok-queries.ts`, `src/lib/kiro-queries.ts`, `src/lib/qoder-queries.ts`, `src/lib/cursor-queries.ts`, `src/lib/antigravity-queries.ts`, and `src/lib/opencode-queries.ts`
   - Use for client-side fetching, caching, retries, and invalidation of server-function results.
 - Shared root-package helpers under `@spiracha/lib/*`
   - Extend these when the behavior should stay shared between the UI and the stable data API.
@@ -103,7 +111,7 @@ For URL-backed route state, use `src/lib/route-search.ts` instead of ad hoc pars
 - UI component tests live under `src/**/*.vitest.tsx`.
 - Source-specific transcript adapter tests live next to their adapter files under `src/lib/*.vitest.ts`.
 - Route search parsing tests live next to the helper in `src/lib/route-search.vitest.ts`.
-- The root package wraps this Vitest suite from `src/ui-package.test.ts` so `rtk bun test` at the repo root exercises both the Bun suite and the UI suite.
+- The root package wraps this Vitest suite from `src/ui-suite.test.ts` so `rtk bun test` exercises both the Bun suite and the UI suite.
 
 ## Design
 
@@ -113,5 +121,5 @@ For URL-backed route state, use `src/lib/route-search.ts` instead of ad hoc pars
 ## Constraints
 
 - Do not add a second database.
-- Do not duplicate transcript parsing or export rendering in this package.
+- Do not duplicate transcript parsing or export rendering in the UI source tree.
 - Use the shared root-package helpers instead.

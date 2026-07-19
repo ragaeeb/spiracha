@@ -127,12 +127,20 @@ describe('antigravity conversation adapter', () => {
                 type: 'PLANNER_RESPONSE',
             },
             {
-                content: 'Final answer with Unhandled Optional Chaining in Manifest.',
+                content: 'I will inspect the manifest before answering.',
                 created_at: '2026-06-17T16:00:03Z',
                 source: 'MODEL',
                 status: 'DONE',
                 step_index: 3,
                 tool_calls: [{ args: { AbsolutePath: '/tmp/project/README.md' }, name: 'view_file' }],
+                type: 'PLANNER_RESPONSE',
+            },
+            {
+                content: 'Final answer with Unhandled Optional Chaining in Manifest.',
+                created_at: '2026-06-17T16:00:04Z',
+                source: 'MODEL',
+                status: 'DONE',
+                step_index: 4,
                 type: 'PLANNER_RESPONSE',
             },
         ]);
@@ -216,5 +224,32 @@ describe('antigravity conversation adapter', () => {
                 text: 'Final answer for requested project.',
             }),
         ]);
+    });
+
+    it('should assign unique ids when transcript entries reuse a step index and phase', async () => {
+        const root = await makeTempRoot();
+        const project = path.join(root, 'project');
+        await mkdir(project, { recursive: true });
+        const conversationId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+        await Bun.write(
+            path.join(root, 'agyhub_summaries_proto.pb'),
+            encodeSummaryIndex([{ id: conversationId, title: 'Duplicate steps', workspaceUri: `file://${project}` }]),
+        );
+        await writeAntigravityTranscript(root, conversationId, [
+            { content: 'First user input', source: 'USER_EXPLICIT', step_index: 0, type: 'USER_INPUT' },
+            { content: 'Second user input', source: 'USER_EXPLICIT', step_index: 0, type: 'USER_INPUT' },
+            { content: 'Final answer', source: 'MODEL', step_index: 1, type: 'PLANNER_RESPONSE' },
+        ]);
+
+        const page = await listConversationsForPath({
+            cwd: project,
+            includeMessages: true,
+            locations: { antigravityRoots: [root] },
+            messageSelector: 'all',
+            sources: ['antigravity'],
+        });
+        const ids = page.data[0]?.messages.map((message) => message.id) ?? [];
+
+        expect(new Set(ids).size).toBe(ids.length);
     });
 });

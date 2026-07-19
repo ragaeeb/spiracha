@@ -4,6 +4,7 @@ import {
     decryptAntigravitySafeStoragePayload,
     deriveAntigravitySafeStorageKey,
     getAntigravityDecryptionState,
+    getAntigravityKeychainExecOptions,
 } from './antigravity-keychain';
 
 const encryptSafeStorageFixture = (value: string, keychainSecret: string): Buffer => {
@@ -42,5 +43,9 @@ describe('antigravity keychain helpers', () => {
             provider: 'keychain',
             status: 'locked',
         });
+    });
+
+    it('should bound Keychain subprocess execution time', () => {
+        expect(getAntigravityKeychainExecOptions().timeout).toBeGreaterThan(0);
     });
 });

@@ -1,13 +1,15 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createCodexBrowserFixture } from './codex-test-helpers';
 import {
+    getCachedCodexTranscriptStats,
     getCachedThreadTranscriptPreview,
     getThreadRolloutLoadState,
     LARGE_THREAD_SIZE_BYTES,
 } from './codex-thread-cache';
+import { invalidateCacheByPrefix } from './ui-cache';
 
 const tempPaths: string[] = [];
 
@@ -129,5 +131,84 @@ describe('getCachedThreadTranscriptPreview', () => {
         expect(transcript.isPartial).toBe(true);
         expect(transcript.rawIncluded).toBe(false);
         expect(transcript.sourceFileSizeBytes).toBeGreaterThan(LARGE_THREAD_SIZE_BYTES);
+    });
+});
+
+describe('getCachedCodexTranscriptStats', () => {
+    it('should retry when the rollout changes while statistics are loading', async () => {
+        await invalidateCacheByPrefix('thread-list-stats-');
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-list-stats-race-test-'));
+        tempPaths.push(tempRoot);
+        const sessionFile = path.join(tempRoot, 'rollout.jsonl');
+        await Bun.write(sessionFile, 'first');
+        let loadCount = 0;
+
+        const stats = await getCachedCodexTranscriptStats(sessionFile, async () => {
+            loadCount += 1;
+            if (loadCount === 1) {
+                await Bun.write(sessionFile, 'second version');
+            }
+            return { finalAnswerCount: loadCount } as never;
+        });
+
+        expect(loadCount).toBe(2);
+        expect(stats.finalAnswerCount).toBe(2);
+    });
+
+    it('should reuse cached list statistics without parsing the rollout again', async () => {
+        await invalidateCacheByPrefix('thread-list-stats-');
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-list-stats-hit-test-'));
+        tempPaths.push(tempRoot);
+        const sessionFile = path.join(tempRoot, 'rollout.jsonl');
+        await Bun.write(
+            sessionFile,
+            JSON.stringify({
+                payload: { message: 'cached final answer', phase: 'final_answer', type: 'agent_message' },
+                type: 'response_item',
+            }),
+        );
+
+        const first = await getCachedCodexTranscriptStats(sessionFile);
+        const cached = await getCachedCodexTranscriptStats(sessionFile, async () => {
+            throw new Error('rollout was parsed on a cache hit');
+        });
+
+        expect(cached).toEqual(first);
+        expect(cached.finalAnswerCount).toBe(1);
+    });
+
+    it('should cache only transcript statistics for thread listings', async () => {
+        await invalidateCacheByPrefix('thread-list-stats-');
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-list-stats-test-'));
+        tempPaths.push(tempRoot);
+        const sessionFile = path.join(tempRoot, 'rollout.jsonl');
+        const privateMessage = 'private-message-that-must-not-enter-the-list-cache';
+        await Bun.write(
+            sessionFile,
+            [
+                JSON.stringify({
+                    payload: { message: privateMessage, phase: 'final_answer', type: 'agent_message' },
+                    type: 'response_item',
+                }),
+                JSON.stringify({
+                    payload: { arguments: '{}', name: 'exec_command', type: 'function_call' },
+                    type: 'response_item',
+                }),
+            ].join('\n'),
+        );
+
+        const stats = await getCachedCodexTranscriptStats(sessionFile);
+        const cacheDir = path.join(os.tmpdir(), 'spiracha-ui-cache');
+        const cacheEntries = (await readdir(cacheDir)).filter((entry) => entry.startsWith('thread-list-stats-'));
+        const cachedPayloads = await Promise.all(
+            cacheEntries.map((entry) => Bun.file(path.join(cacheDir, entry)).text()),
+        );
+
+        expect(stats).toMatchObject({
+            finalAnswerCount: 1,
+            toolCallCount: 1,
+        });
+        expect(cacheEntries).toHaveLength(1);
+        expect(cachedPayloads.join('\n')).not.toContain(privateMessage);
     });
 });

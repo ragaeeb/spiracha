@@ -1,51 +1,32 @@
 import { describe, expect, it } from 'bun:test';
 import type { QoderTranscriptEntry } from './qoder-exporter-types';
-import { getFinalQoderAssistantMessageEntryIds, getQoderMessagePhase } from './qoder-transcript-phase';
+import { coalesceQoderMessageChunks, getFinalQoderAssistantMessageEntryIds } from './qoder-transcript-phase';
 
-const entry = (
-    entryId: string,
-    role: string,
-    entryType: QoderTranscriptEntry['entryType'] = 'message',
-): QoderTranscriptEntry => ({
+const chunk = (entryId: string, text: string): QoderTranscriptEntry => ({
     entryId,
-    entryType,
-    parts: [],
-    raw: {},
-    requestId: null,
-    role,
+    entryType: 'message',
+    parts: [
+        {
+            raw: { sessionUpdate: 'agent_message_chunk', source: 'qoderAcpSessionLoad' },
+            text,
+            type: 'text',
+        },
+    ],
+    raw: { sessionUpdate: 'agent_message_chunk' },
+    requestId: 'request-1',
+    role: 'assistant',
     timestamp: null,
 });
 
-describe('qoder transcript phase helpers', () => {
-    it('should classify the last assistant message before each user turn as final', () => {
-        const entries = [
-            entry('u1', 'user'),
-            entry('a1-commentary', 'assistant'),
-            entry('tool-1', 'tool', 'tool_call'),
-            entry('a1-final', 'assistant'),
-            entry('u2', 'user'),
-            entry('a2-final', 'assistant'),
-        ];
+describe('Qoder transcript phases', () => {
+    it('should coalesce consecutive streamed final-answer chunks', () => {
+        const entries = coalesceQoderMessageChunks([
+            chunk('chunk-1', 'The complete answer '),
+            chunk('chunk-2', 'continues here.'),
+        ]);
 
-        const finalIds = getFinalQoderAssistantMessageEntryIds(entries);
-
-        expect(getQoderMessagePhase(entries[1]!, finalIds)).toBe('commentary');
-        expect(getQoderMessagePhase(entries[3]!, finalIds)).toBe('final_answer');
-        expect(getQoderMessagePhase(entries[5]!, finalIds)).toBe('final_answer');
-        expect(getQoderMessagePhase(entries[0]!, finalIds)).toBeNull();
-    });
-
-    it('should ignore every tool entry type when choosing final assistant messages', () => {
-        const entries = [
-            entry('u1', 'user'),
-            entry('a1-final', 'assistant'),
-            entry('tool-call', 'tool', 'tool_call'),
-            entry('tool-output', 'tool', 'tool_output'),
-            entry('u2', 'user'),
-        ];
-
-        const finalIds = getFinalQoderAssistantMessageEntryIds(entries);
-
-        expect(finalIds).toEqual(new Set(['a1-final']));
+        expect(entries).toHaveLength(1);
+        expect(entries[0]?.parts[0]?.text).toBe('The complete answer continues here.');
+        expect(getFinalQoderAssistantMessageEntryIds(entries)).toEqual(new Set(['chunk-1']));
     });
 });

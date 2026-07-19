@@ -104,7 +104,7 @@ const getEnabledSources = (sources: ListConversationsForPathOptions['sources']):
         return SOURCE_INFOS.map((sourceInfo) => sourceInfo.source);
     }
 
-    return sources;
+    return [...new Set(sources)];
 };
 
 const isAllSourcesRequest = (sources: ListConversationsForPathOptions['sources']) => !sources || sources === 'all';
@@ -118,8 +118,16 @@ const decodeCursor = (cursor: string | null | undefined) => {
         return 0;
     }
 
-    const parsed = Number.parseInt(Buffer.from(cursor, 'base64url').toString('utf8'), 10);
-    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+    const decoded = Buffer.from(cursor, 'base64url').toString('utf8');
+    if (!/^\d+$/u.test(decoded)) {
+        throw new Error('Invalid conversation pagination cursor.');
+    }
+
+    const parsed = Number(decoded);
+    if (!Number.isSafeInteger(parsed) || parsed < 0) {
+        throw new Error('Invalid conversation pagination cursor.');
+    }
+    return parsed;
 };
 
 const encodeCursor = (offset: number) => Buffer.from(String(offset), 'utf8').toString('base64url');
@@ -157,7 +165,7 @@ const sortConversations = (conversations: Awaited<ReturnType<ConversationAdapter
     );
 };
 
-export const listConversationSources = async (): Promise<ConversationSourceInfo[]> => SOURCE_INFOS;
+export const listConversationSources = async (): Promise<ConversationSourceInfo[]> => [...SOURCE_INFOS];
 
 const listSourceConversationsForPath = async (
     source: ConversationSource,
@@ -175,6 +183,10 @@ const listSourceConversationsForPath = async (
         if (!ignoreSourceFailures) {
             throw error;
         }
+        console.warn(`[spiracha:conversation-data] skipped ${source} during all-source collection`, {
+            error: error instanceof Error ? error.message : String(error),
+            source,
+        });
         return [];
     }
 };
@@ -314,14 +326,21 @@ const refFromPathSegmentAt = (segments: string[], index: number): ResolvedConver
 };
 
 const refFromPathSegments = (segments: string[]): ResolvedConversationRef | null => {
-    for (let index = 0; index < segments.length - 1; index += 1) {
-        const ref = refFromPathSegmentAt(segments, index);
-        if (ref) {
-            return ref;
-        }
+    if (
+        segments[0] === 'api' &&
+        segments[1] === 'v1' &&
+        segments[2] === 'conversations' &&
+        (segments.length === 5 || (segments.length === 6 && segments[5] === 'export'))
+    ) {
+        return refFromPathSegmentAt(segments, 2);
     }
 
-    return null;
+    if (segments[0] === 'app') {
+        return refFromPathSegments(segments.slice(1));
+    }
+
+    const expectedLength = segments[0] === 'conversations' ? 3 : 2;
+    return segments.length === expectedLength ? refFromPathSegmentAt(segments, 0) : null;
 };
 
 const parseUrlRef = (ref: string): ResolvedConversationRef | null => {

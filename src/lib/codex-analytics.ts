@@ -2,8 +2,9 @@ import { listScopedThreads } from './codex-browser-db';
 import type { CodexAnalytics, DistributionItem, ModelTokenSummary } from './codex-browser-types';
 import type { ThreadRow } from './codex-thread-types';
 import { mapWithConcurrency } from './concurrency';
-import { asObject, asString, getPortablePathBasename, readJsonlObjects } from './shared';
-import { hashCacheKeyParts, hashCacheKeyPartsIterable, withCachedJson } from './ui-cache';
+import { getPortablePathBasename } from './portable-path';
+import { asObject, asString, readJsonlObjects } from './shared';
+import { hashCacheKeyPartsIterable, withCachedJson } from './ui-cache';
 
 export type CodexAnalyticsInput = {
     dbPath: string;
@@ -36,6 +37,20 @@ export const resolveAnalyticsTranscriptConcurrency = (
 
 const roundToTwoDecimals = (value: number) => {
     return Number(value.toFixed(2));
+};
+
+const median = (values: number[]) => {
+    if (values.length === 0) {
+        return 0;
+    }
+
+    const sorted = [...values].sort((left, right) => left - right);
+    const midpoint = Math.floor(sorted.length / 2);
+    if (sorted.length % 2 === 1) {
+        return sorted[midpoint]!;
+    }
+
+    return roundToTwoDecimals((sorted[midpoint - 1]! + sorted[midpoint]!) / 2);
 };
 
 const incrementCount = (counts: Map<string, number>, key: string) => {
@@ -90,6 +105,8 @@ const threadMetadataCacheKeyParts = (thread: ThreadRow) => [
     String(thread.archived_at ?? ''),
     thread.cwd,
     thread.model ?? '',
+    thread.reasoning_effort ?? '',
+    thread.source,
     thread.model_provider,
     thread.cli_version,
     thread.title,
@@ -98,7 +115,7 @@ const threadMetadataCacheKeyParts = (thread: ThreadRow) => [
 
 export const buildCodexAnalyticsCacheKey = (dbPath: string, threads: ThreadRow[], project: string | null) => {
     const parts = (function* () {
-        yield 'v2';
+        yield 'v3';
         yield dbPath;
         yield project ?? 'all';
         yield String(threads.length);
@@ -111,7 +128,7 @@ export const buildCodexAnalyticsCacheKey = (dbPath: string, threads: ThreadRow[]
 };
 
 const buildThreadAnalyticsCacheKey = (thread: ThreadRow) => {
-    return `thread-analytics-${hashCacheKeyParts('v1', ...threadMetadataCacheKeyParts(thread))}`;
+    return `thread-analytics-${hashCacheKeyPartsIterable(['v1', ...threadMetadataCacheKeyParts(thread)])}`;
 };
 
 const parseThreadAnalyticsFile = async (sessionFile: string): Promise<ThreadAnalyticsSummary> => {
@@ -129,7 +146,7 @@ const parseThreadAnalyticsFile = async (sessionFile: string): Promise<ThreadAnal
         }
 
         const payloadType = asString(payload.type);
-        if (payloadType === 'function_call') {
+        if (payloadType === 'function_call' || payloadType === 'custom_tool_call') {
             toolNames.push(asString(payload.name) ?? 'unknown');
             continue;
         }
@@ -155,6 +172,8 @@ export const computeCodexAnalyticsFromThreads = async (
 ): Promise<CodexAnalytics> => {
     const totalTokens = threads.reduce((sum, thread) => sum + thread.tokens_used, 0);
     const projectNames = new Set(threads.map((thread) => getPortablePathBasename(thread.cwd)).filter(Boolean));
+    const reasoningEfforts = new Map<string, number>();
+    const sources = new Map<string, number>();
     const toolUsage = new Map<string, number>();
     let threadsWithWebSearch = 0;
     const loadThreadAnalytics = options.loadThreadAnalytics ?? getCachedThreadAnalytics;
@@ -162,6 +181,11 @@ export const computeCodexAnalyticsFromThreads = async (
     const threadAnalytics = await mapWithConcurrency(threads, transcriptConcurrency, (thread) =>
         loadThreadAnalytics(thread),
     );
+
+    for (const thread of threads) {
+        incrementCount(reasoningEfforts, thread.reasoning_effort?.trim() || 'unspecified');
+        incrementCount(sources, thread.source.trim() || 'unknown');
+    }
 
     for (const analytics of threadAnalytics) {
         if (analytics.hasWebSearch) {
@@ -175,10 +199,13 @@ export const computeCodexAnalyticsFromThreads = async (
 
     return {
         modelsByTokens: buildModelsByTokens(threads),
+        reasoningEfforts: toDistribution(reasoningEfforts),
+        sources: toDistribution(sources),
         summary: {
             archivedThreads: threads.filter((thread) => Boolean(thread.archived)).length,
             averageTokensPerThread: threads.length === 0 ? 0 : roundToTwoDecimals(totalTokens / threads.length),
             distinctToolNames: toolUsage.size,
+            medianTokensPerThread: median(threads.map((thread) => thread.tokens_used)),
             threadsWithWebSearch,
             totalProjects: projectNames.size,
             totalThreads: threads.length,

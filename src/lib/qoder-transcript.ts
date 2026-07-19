@@ -9,6 +9,7 @@ import { getFinalQoderAssistantMessageEntryIds, getQoderMessagePhase } from './q
 import {
     cleanExtractedText,
     cleanInlineTitle,
+    formatInlineLiteral,
     type MetadataEntry,
     renderDocumentTitle,
     renderMetadataBlock,
@@ -61,6 +62,33 @@ const renderTextPart = (part: QoderTranscriptPart, title: string, options: Qoder
     return text ? renderSection(title, text, options.outputFormat) : '';
 };
 
+const getPartString = (part: QoderTranscriptPart, key: string): string | null => {
+    const value = part.raw[key];
+    return typeof value === 'string' && value.trim() ? value : null;
+};
+
+const renderToolPart = (part: QoderTranscriptPart, title: string, options: QoderExportOptions): string => {
+    const text = cleanExtractedText(part.text ?? '').trim();
+    if (!text) {
+        return '';
+    }
+
+    const lines: string[] = [];
+    const toolName = getPartString(part, 'toolName');
+    const toolCallId = getPartString(part, 'toolCallId');
+    if (toolName) {
+        lines.push(`Tool: ${formatInlineLiteral(toolName, options.outputFormat)}`);
+    }
+    if (toolCallId) {
+        lines.push(`Call ID: ${toolCallId}`);
+    }
+    if (lines.length > 0) {
+        lines.push('');
+    }
+    lines.push(text);
+    return renderSection(title, lines.join('\n'), options.outputFormat);
+};
+
 const renderPart = (
     entry: QoderTranscriptEntry,
     part: QoderTranscriptPart,
@@ -68,11 +96,11 @@ const renderPart = (
     finalAssistantMessageEntryIds: Set<string>,
 ): string => {
     if (entry.entryType === 'tool_call') {
-        return options.includeTools && part.type === 'text' ? renderTextPart(part, 'Tool call', options) : '';
+        return options.includeTools && part.type === 'text' ? renderToolPart(part, 'Tool call', options) : '';
     }
 
     if (entry.entryType === 'tool_output') {
-        return options.includeTools && part.type === 'text' ? renderTextPart(part, 'Tool output', options) : '';
+        return options.includeTools && part.type === 'text' ? renderToolPart(part, 'Tool output', options) : '';
     }
 
     if (getQoderMessagePhase(entry, finalAssistantMessageEntryIds) === 'commentary' && !options.includeCommentary) {

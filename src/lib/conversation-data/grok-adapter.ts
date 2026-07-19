@@ -1,6 +1,7 @@
+import { mapWithConcurrency } from '../concurrency';
 import {
     deleteGrokSession,
-    listGrokSessionsForGroup,
+    listGrokSessionTranscriptsForGroup,
     listGrokWorkspaceGroups,
     readGrokSessionTranscript,
     resolveGrokSessionsDir,
@@ -15,9 +16,11 @@ import { getFinalGrokAssistantTextPartIds, getGrokTextPartPhase } from '../grok-
 import { cleanInlineTitle } from '../shared';
 import { runWithTranscriptLoadLimit } from '../transcript-load-limiter';
 import {
+    createConversationUiPath,
     createDeepLinks,
     createTextMessage,
     finalizeMessages,
+    isWithinUpdatedWindow,
     normalizeAssistantPhase,
     normalizeRole,
 } from './adapter-helpers';
@@ -32,6 +35,8 @@ import type {
     GetConversationOptions,
     ListConversationsForPathOptions,
 } from './types';
+
+const GROK_CONVERSATION_HYDRATION_CONCURRENCY = 4;
 
 const getSessionsDir = (options: { locations?: { grokSessionsDir?: string } }) =>
     options.locations?.grokSessionsDir ?? resolveGrokSessionsDir();
@@ -129,7 +134,11 @@ const buildConversation = async (
 
     return {
         createdAtMs: session.createdAtMs,
-        deepLinks: createDeepLinks('grok', session.sessionId, `/grok-sessions/${session.sessionId}`),
+        deepLinks: createDeepLinks(
+            'grok',
+            session.sessionId,
+            createConversationUiPath('grok-sessions', session.sessionId),
+        ),
         id: session.sessionId,
         matches,
         messageCount: options.includeMessages ? allMessages.length : session.messageCount,
@@ -161,10 +170,14 @@ const listGrokConversationsForPath = async (options: ListConversationsForPathOpt
         if (!match) {
             continue;
         }
-        const sessions = await listGrokSessionsForGroup(group.key, sessionsDir);
-        for (const session of sessions) {
-            conversations.push(await buildConversation(session, sessionsDir, [match], options));
-        }
+        const transcripts = (await listGrokSessionTranscriptsForGroup(group.key, sessionsDir)).filter((transcript) =>
+            isWithinUpdatedWindow(transcript.session.lastActiveAtMs, options),
+        );
+        conversations.push(
+            ...(await mapWithConcurrency(transcripts, GROK_CONVERSATION_HYDRATION_CONCURRENCY, (transcript) =>
+                buildConversation(transcript.session, sessionsDir, [match], options, transcript),
+            )),
+        );
     }
 
     return conversations;

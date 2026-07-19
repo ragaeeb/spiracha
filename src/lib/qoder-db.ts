@@ -2,6 +2,7 @@ import { Database } from 'bun:sqlite';
 import { readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { mapWithConcurrency } from './concurrency';
+import { getPortablePathBasename } from './portable-path';
 import { loadQoderAcpSession, type QoderAcpSessionUpdate, resolveQoderAcpSocketPath } from './qoder-acp-client';
 import {
     getDefaultQoderUserDir,
@@ -14,16 +15,18 @@ import {
     resolveQoderGlobalStateDb,
     resolveQoderWorkspaceStorageDir,
 } from './qoder-exporter-types';
+import { coalesceQoderMessageChunks } from './qoder-transcript-phase';
 import {
     asObject,
     asString,
     cleanExtractedText,
     cleanInlineTitle,
-    getPortablePathBasename,
     isWorkspacePathQuery,
     type JsonValue,
+    toFileUri,
     workspacePathMatchesQuery,
 } from './shared';
+import { runWithSqliteRetry } from './sqlite-retry';
 
 export {
     getDefaultQoderUserDir,
@@ -202,7 +205,7 @@ const getWorkspaceLabel = (worktree: string): string => {
 };
 
 const getWorkspaceUri = (worktree: string): string => {
-    return worktree.startsWith(path.sep) ? `file://${worktree}` : worktree;
+    return worktree.startsWith(path.sep) ? toFileUri(worktree) : worktree;
 };
 
 const parseJsonValue = (value: string): JsonValue | null => {
@@ -213,23 +216,50 @@ const parseJsonValue = (value: string): JsonValue | null => {
     }
 };
 
+export const isUnavailableQoderGlobalStateError = (error: unknown): boolean => {
+    if (!(error instanceof Error)) {
+        return false;
+    }
+
+    const code = 'code' in error && typeof error.code === 'string' ? error.code : '';
+    return (
+        code === 'SQLITE_CANTOPEN' ||
+        code === 'SQLITE_IOERR_READ' ||
+        /^(?:SQLite operation failed after \d+ attempts?:\s*)?(?:SQLITE_CANTOPEN:.*|unable to open database file)$/iu.test(
+            error.message,
+        )
+    );
+};
+
 const readGlobalRows = async (globalStateDb = resolveQoderGlobalStateDb()): Promise<ItemTableRow[]> => {
-    if (!(await pathExists(globalStateDb))) {
+    const isDatabaseFile = await stat(globalStateDb)
+        .then((metadata) => metadata.isFile())
+        .catch(() => false);
+    if (!isDatabaseFile) {
         return [];
     }
 
-    let db: Database | null = null;
     try {
-        db = new Database(globalStateDb, { readonly: true, strict: true });
-        return db
-            .query(
-                "select key, value from ItemTable where key like 'lingma.chat.localHistory.%.quest' or key = 'aicoding.questTaskListSnapshot' or key in ('aicoding.modelConfigs.cache.assistant', 'aicoding.modelConfigs.cache.quest')",
-            )
-            .all() as ItemTableRow[];
-    } catch {
-        return [];
-    } finally {
-        db?.close();
+        return runWithSqliteRetry({
+            action: () => {
+                const db = new Database(globalStateDb, { readonly: true, strict: true });
+                try {
+                    db.exec('PRAGMA busy_timeout = 1000');
+                    return db
+                        .query(
+                            "select key, value from ItemTable where key like 'lingma.chat.localHistory.%.quest' or key = 'aicoding.questTaskListSnapshot' or key in ('aicoding.modelConfigs.cache.assistant', 'aicoding.modelConfigs.cache.quest')",
+                        )
+                        .all() as ItemTableRow[];
+                } finally {
+                    db.close();
+                }
+            },
+        });
+    } catch (error) {
+        if (isUnavailableQoderGlobalStateError(error)) {
+            return [];
+        }
+        throw error;
     }
 };
 
@@ -800,6 +830,7 @@ const readRecordSummary = async (
     modelFallback: string | null,
 ): Promise<QoderSessionSummary> => {
     const state = await readStateData(workspaceStorageDir, workspaceStorageIds, record);
+    // List stats describe persisted Qoder state only; detail reads may additionally hydrate CLI or live ACP messages.
     const entries = buildLocalTranscriptEntries(record, state);
     const stats = createStatsFromEntries(entries, state.snapshotFileCount);
     return toSessionSummary(record, state, stats, modelFallback);
@@ -1128,6 +1159,7 @@ const cliToolCallPartToTranscriptPart = (part: Record<string, JsonValue>): Qoder
               raw: {
                   ...part,
                   command: text,
+                  toolCallId: asString(data.id ?? data.tool_use_id ?? part.id ?? part.tool_use_id ?? null),
                   toolName: getCliToolName(part, data),
               },
               role: 'tool',
@@ -1494,9 +1526,11 @@ const readAcpTranscriptEntries = async (
     }
 
     return {
-        entries: loaded.events
-            .map((event, index) => acpUpdateToEntry(event, index))
-            .filter((entry): entry is QoderTranscriptEntry => Boolean(entry)),
+        entries: coalesceQoderMessageChunks(
+            loaded.events
+                .map((event, index) => acpUpdateToEntry(event, index))
+                .filter((entry): entry is QoderTranscriptEntry => Boolean(entry)),
+        ),
         model: getAcpModel(loaded.events),
         socketPath: loaded.socketPath,
     };

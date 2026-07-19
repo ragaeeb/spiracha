@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This repo is a Bun-first local app for browsing, exporting, and exposing agent conversation history from Codex, Claude Code, Kiro, Qoder, Cursor, Antigravity, and OpenCode.
+This repo is a Bun-first local app for browsing, exporting, and exposing agent conversation history from Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, and OpenCode.
 
 The command-line exporter, MCP server, and Codex plugin were removed in the 2.0 hard cut. Do not add bridge commands, compatibility aliases, or deprecated entrypoints back. New client workflows should use the stable HTTP API exposed by the UI server or the stable `spiracha/client` package export.
 
@@ -52,10 +52,14 @@ Codex browser/export modules:
   - project/thread browsing queries, delete flows, dashboard summaries, DB path resolution
 - `src/lib/codex-browser-export.ts`
   - UI-facing thread download rendering
+- `src/lib/codex-browser-types.ts`
+  - Codex browser query and presentation contracts
 - `src/lib/codex-thread-types.ts`
   - Codex DB row and transcript rendering types
 - `src/lib/codex-transcript-renderer.ts`
   - Markdown/plain text rendering for Codex session files
+- `src/lib/codex-transcript-filter.ts`
+  - centralized hidden bootstrap and transcript-text filtering
 - `src/lib/codex-thread-parser.ts`
   - structured Codex event parsing used by analytics and the UI
 - `src/lib/codex-analytics.ts`
@@ -66,29 +70,35 @@ Codex browser/export modules:
   - Codex project recovery helpers
 
 Source-specific browser/export modules:
-- `src/lib/claude-code-db.ts`, `src/lib/claude-code-transcript-phase.ts`, `src/lib/claude-code-transcript.ts`
-- `src/lib/kiro-db.ts`, `src/lib/kiro-transcript-phase.ts`, `src/lib/kiro-transcript.ts`
-- `src/lib/qoder-db.ts`, `src/lib/qoder-transcript-phase.ts`, `src/lib/qoder-transcript.ts`
-- `src/lib/cursor-db.ts`, `src/lib/cursor-recovery.ts`, `src/lib/cursor-transcript.ts`
-- `src/lib/antigravity-db.ts`, `src/lib/antigravity-keychain.ts`
-- `src/lib/opencode-db.ts`, `src/lib/opencode-transcript-phase.ts`, `src/lib/opencode-think-tags.ts`, `src/lib/opencode-transcript.ts`
+- `src/lib/claude-code-db.ts`, `src/lib/claude-code-exporter-types.ts`, `src/lib/claude-code-transcript-phase.ts`, `src/lib/claude-code-transcript.ts`
+- `src/lib/grok-db.ts`, `src/lib/grok-exporter-types.ts`, `src/lib/grok-transcript-phase.ts`, `src/lib/grok-transcript.ts`
+- `src/lib/kiro-db.ts`, `src/lib/kiro-exporter-types.ts`, `src/lib/kiro-transcript-phase.ts`, `src/lib/kiro-transcript.ts`
+- `src/lib/qoder-db.ts`, `src/lib/qoder-acp-client.ts`, `src/lib/qoder-exporter-types.ts`, `src/lib/qoder-transcript-phase.ts`, `src/lib/qoder-transcript.ts`
+- `src/lib/cursor-db.ts`, `src/lib/cursor-exporter-types.ts`, `src/lib/cursor-recovery.ts`, `src/lib/cursor-transcript-phase.ts`, `src/lib/cursor-transcript.ts`
+- `src/lib/antigravity-db.ts`, `src/lib/antigravity-exporter-types.ts`, `src/lib/antigravity-keychain.ts`, `src/lib/antigravity-projects.ts`, `src/lib/antigravity-transcript-phase.ts`
+- `src/lib/opencode-db.ts`, `src/lib/opencode-exporter-types.ts`, `src/lib/opencode-transcript-phase.ts`, `src/lib/opencode-think-tags.ts`, `src/lib/opencode-transcript.ts`
 
 Shared utilities:
 - `src/lib/concurrency.ts`
 - `src/lib/model-label.ts`
 - `src/lib/path-transforms.ts`
+- `src/lib/portable-path.ts`
 - `src/lib/shared.ts`
 - `src/lib/sqlite-error.ts`
 - `src/lib/sqlite-retry.ts`
 - `src/lib/ui-cache.ts`
 - `src/lib/ui-export-archive.ts`
 - `src/lib/ui-export-files.ts`
+- `src/lib/ui-export-zip.ts`
+- `src/lib/conversation-zip-export.ts`
+- `src/lib/transcript-load-limiter.ts`
+- `src/coverage-check.ts`
 
-UI package:
+UI source tree:
 - `apps/ui/`
   - TanStack Start browser UI
   - API routes live under `apps/ui/src/routes/api.v1.*.ts`
-  - source routes include `/threads/$threadId`, `/claude-code-sessions/$sessionId`, `/kiro-sessions/$sessionId`, `/qoder-sessions/$sessionId`, `/cursor-threads/$composerId`, `/antigravity-conversations/$conversationId`, and `/opencode-sessions/$sessionId`
+  - source routes include `/threads/$threadId`, `/claude-code-sessions/$sessionId`, `/grok-sessions/$sessionId`, `/kiro-sessions/$sessionId`, `/qoder-sessions/$sessionId`, `/cursor-threads/$composerId`, `/antigravity-conversations/$conversationId`, and `/opencode-sessions/$sessionId`
 
 ## Stable API Contract
 
@@ -105,6 +115,9 @@ The local UI server exposes:
 - `POST /api/v1/conversation-query`
 - `GET /api/v1/conversations/:source/:id`
 - `GET /api/v1/conversations/:source/:id/export`
+- `DELETE /api/v1/conversations/:source/:id`
+- `POST /api/v1/conversations/delete`
+- `POST /api/v1/conversations/export`
 - `GET /api/v1/resolve?ref=<url-or-deeplink>`
 
 Defaults:
@@ -126,8 +139,9 @@ Current tests cover:
 - Cursor recovery/prune behavior
 - Antigravity discovery, transcript parsing, Keychain state, and artifact export rendering
 - OpenCode MiniMax `<think>` tag extraction, including code-literal preservation
-- UI component and adapter behavior through the Vitest suite wrapped by `src/ui-package.test.ts`
+- UI component and adapter behavior through the Vitest suite wrapped by `src/ui-suite.test.ts`
 - package manifest hard-cut guarantees through `src/package-manifest.test.ts`
+- a 90% line-coverage gate for both the root Bun suite and UI Vitest suite, with function and hotspot reporting
 
 When changing risky areas:
 - Stable API changes: update `src/lib/conversation-api.test.ts` and focused tests under `src/lib/conversation-data/`.
@@ -147,13 +161,14 @@ rtk bun run build
 rtk bun run coverage
 rtk bun start
 rtk bun run ui:preview
-rtk bun run --cwd apps/ui test
+rtk bun run test:ui
 ```
 
 ## Notes
 
 - Keep root-package source modules imported by the UI available through `@spiracha/lib/*`.
-- The UI package runs Vite through `bun --bun` because server functions depend on Bun-only modules like `bun:sqlite`.
+- The repository has one package manifest. Keep UI runtime dependencies needed by packaged `bunx spiracha` in root `dependencies` and build/test-only tooling in root `devDependencies`.
+- Root-owned UI Vite commands use `apps/ui` as their internal working directory and run through `bun --bun` because TanStack and server functions depend on that application root and Bun-only modules like `bun:sqlite`. Do not add a nested manifest to achieve this. UI Vitest commands use the normal Node runtime.
 - TanStack Start server functions should use `.validator(...)`, not deprecated `.inputValidator(...)`.
 - API routes should use route-level `server.handlers`.
 - Keep `*-transcript-phase.ts` modules browser-safe; UI client adapters import them directly.

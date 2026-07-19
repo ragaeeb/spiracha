@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'bun:test';
-import { mkdir, utimes } from 'node:fs/promises';
+import { chmod, mkdir, utimes } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
     deleteAntigravityConversation,
     groupAntigravityConversations,
     listAntigravityConversations,
+    readAntigravityConversationMessages,
     renderAntigravityArtifactsMarkdown,
     renderAntigravityConversationMarkdown,
 } from './antigravity-db';
@@ -409,6 +410,87 @@ describe('antigravity db discovery', () => {
         expect(markdown).not.toContain('## Assistant\n\n_Timestamp: 2026-06-07T03:10:07Z_');
     });
 
+    it('should honor transcript export options for metadata, commentary, tools, and plain text', async () => {
+        const root = await makeRoot();
+        const conversationId = '99999999-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        const logsDir = path.join(root, 'brain', conversationId, '.system_generated', 'logs');
+        await mkdir(logsDir, { recursive: true });
+        await Bun.write(
+            path.join(root, 'agyhub_summaries_proto.pb'),
+            encodeSummaryIndex([{ id: conversationId, title: 'Audit exports' }]),
+        );
+        await Bun.write(
+            path.join(logsDir, 'transcript.jsonl'),
+            [
+                JSON.stringify({
+                    content: 'Audit the export path.',
+                    source: 'USER_EXPLICIT',
+                    type: 'USER_INPUT',
+                }),
+                JSON.stringify({
+                    content: 'Inspecting the export path.',
+                    source: 'MODEL',
+                    thinking: 'Inspecting the renderer.',
+                    tool_calls: [{ args: { path: 'src/index.ts' }, name: 'view_file' }],
+                    type: 'PLANNER_RESPONSE',
+                }),
+                JSON.stringify({
+                    content: 'Hidden tool output',
+                    source: 'MODEL',
+                    type: 'VIEW_FILE',
+                }),
+                JSON.stringify({
+                    content: 'The export path is fixed.',
+                    source: 'MODEL',
+                    type: 'PLANNER_RESPONSE',
+                }),
+            ].join('\n'),
+        );
+
+        const [conversation] = await listAntigravityConversations([root]);
+        const messages = await readAntigravityConversationMessages(conversation!);
+        const text = await renderAntigravityConversationMarkdown(conversation!, {
+            includeCommentary: false,
+            includeMetadata: false,
+            includeTools: false,
+            outputFormat: 'txt',
+        });
+
+        expect(text).toContain('Audit exports\n=============');
+        expect(text).toContain('User\n----\nAudit the export path.');
+        expect(text).toContain('Assistant\n---------\nThe export path is fixed.');
+        expect(text).not.toContain('Inspecting the export path.');
+        expect(text).not.toContain('exported_from');
+        expect(text).not.toContain('Inspecting the renderer.');
+        expect(text).not.toContain('view_file');
+        expect(text).not.toContain('Hidden tool output');
+        expect(text).not.toContain('#');
+        expect(text).not.toContain('`');
+        expect(
+            messages
+                .filter((message) => message.role === 'assistant' && message.phase !== 'reasoning')
+                .map((message) => ({ phase: message.phase, text: message.text })),
+        ).toEqual([
+            { phase: 'commentary', text: 'Inspecting the export path.' },
+            { phase: 'final_answer', text: 'The export path is fixed.' },
+        ]);
+    });
+
+    it('should surface corrupt transcripts during explicit conversation reads', async () => {
+        const root = await makeRoot();
+        const conversationId = '99999999-aaaa-4aaa-8aaa-bbbbbbbbbbbb';
+        const logsDir = path.join(root, 'brain', conversationId, '.system_generated', 'logs');
+        await mkdir(logsDir, { recursive: true });
+        await Bun.write(
+            path.join(root, 'agyhub_summaries_proto.pb'),
+            encodeSummaryIndex([{ id: conversationId, title: 'Corrupt transcript' }]),
+        );
+        await Bun.write(path.join(logsDir, 'transcript.jsonl'), '{not-json');
+        const [conversation] = await listAntigravityConversations([root]);
+
+        await expect(readAntigravityConversationMessages(conversation!)).rejects.toThrow('corrupt');
+    });
+
     it('should derive a workspace group from the source root when a conversation has no summary metadata', async () => {
         const root = await makeRoot();
         const conversationId = '77777777-7777-4777-8777-777777777777';
@@ -503,5 +585,26 @@ describe('antigravity db discovery', () => {
 
         const conversations = await listAntigravityConversations([root]);
         expect(conversations.map((conversation) => conversation.conversationId)).toEqual([retainedId]);
+    });
+
+    it('should replace a read-only Antigravity summary index atomically', async () => {
+        const root = await makeRoot();
+        const deletedId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        const retainedId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+        const summaryPath = path.join(root, 'agyhub_summaries_proto.pb');
+        await Bun.write(
+            summaryPath,
+            encodeSummaryIndex([
+                { id: deletedId, title: 'Delete me', workspaceUri: 'file:///tmp/delete-me' },
+                { id: retainedId, title: 'Keep me', workspaceUri: 'file:///tmp/keep-me' },
+            ]),
+        );
+        await chmod(summaryPath, 0o444);
+
+        const result = await deleteAntigravityConversation([root], deletedId);
+
+        expect(result.deletedConversationIds).toEqual([deletedId]);
+        const summaries = await listAntigravityConversations([root]);
+        expect(summaries.map((conversation) => conversation.conversationId)).toEqual([retainedId]);
     });
 });

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdtemp, rm, utimes } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, stat, utimes } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -7,7 +7,9 @@ import {
     buildUiExportDownloadUrl,
     ensureUiExportDir,
     getUiExportDir,
+    purgeStaleUiExportFile,
     purgeStaleUiExports,
+    resolveReadableUiExportFileFromRequestPath,
     resolveUiExportFilePathFromRequestPath,
     UI_EXPORT_DIR_ENV,
     UI_EXPORT_URL_PREFIX,
@@ -27,6 +29,24 @@ afterEach(async () => {
 });
 
 describe('ui export file helpers', () => {
+    it('should create the export directory with owner-only permissions', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'spiracha-ui-export-mode-test-'));
+        tempPaths.push(tempRoot);
+        const exportDir = path.join(tempRoot, 'exports');
+        process.env[UI_EXPORT_DIR_ENV] = exportDir;
+
+        await ensureUiExportDir();
+
+        expect((await stat(exportDir)).mode & 0o777).toBe(0o700);
+    });
+
+    it('should tolerate an export disappearing during stale-file purging', async () => {
+        const missingPath = path.join(os.tmpdir(), 'spiracha-already-purged-export.zip');
+        await rm(missingPath, { force: true });
+
+        await expect(purgeStaleUiExportFile(missingPath, Date.now())).resolves.toBeUndefined();
+    });
+
     it('should resolve request paths inside the configured export directory and reject traversal', async () => {
         const exportDir = await mkdtemp(path.join(os.tmpdir(), 'spiracha-ui-export-files-test-'));
         tempPaths.push(exportDir);
@@ -38,9 +58,25 @@ describe('ui export file helpers', () => {
         expect(resolveUiExportFilePathFromRequestPath(`${UI_EXPORT_URL_PREFIX}nested/file.zip`)).toBeNull();
         expect(resolveUiExportFilePathFromRequestPath(`${UI_EXPORT_URL_PREFIX}..%2Fescape.zip`)).toBeNull();
         expect(resolveUiExportFilePathFromRequestPath(`${UI_EXPORT_URL_PREFIX}..%5Cescape.zip`)).toBeNull();
+        expect(resolveUiExportFilePathFromRequestPath(`${UI_EXPORT_URL_PREFIX}.`)).toBeNull();
+        expect(resolveUiExportFilePathFromRequestPath(`${UI_EXPORT_URL_PREFIX}..`)).toBeNull();
+        expect(resolveUiExportFilePathFromRequestPath(`${UI_EXPORT_URL_PREFIX}${'a'.repeat(201)}`)).toBeNull();
         expect(resolveUiExportFilePathFromRequestPath(`${UI_EXPORT_URL_PREFIX}report%20bundle.zip`)).toBe(
             path.join(exportDir, 'report bundle.zip'),
         );
+    });
+
+    it('should resolve only readable regular export files', async () => {
+        const exportDir = await mkdtemp(path.join(os.tmpdir(), 'spiracha-ui-export-readable-test-'));
+        tempPaths.push(exportDir);
+        process.env[UI_EXPORT_DIR_ENV] = exportDir;
+        const filePath = path.join(exportDir, 'report.zip');
+        await Bun.write(filePath, 'export');
+        await mkdir(path.join(exportDir, 'directory.zip'));
+
+        expect(await resolveReadableUiExportFileFromRequestPath(`${UI_EXPORT_URL_PREFIX}report.zip`)).toBe(filePath);
+        expect(await resolveReadableUiExportFileFromRequestPath(`${UI_EXPORT_URL_PREFIX}directory.zip`)).toBeNull();
+        expect(await resolveReadableUiExportFileFromRequestPath(`${UI_EXPORT_URL_PREFIX}missing.zip`)).toBeNull();
     });
 
     it('should build download urls from exported file paths', () => {
@@ -64,5 +100,22 @@ describe('ui export file helpers', () => {
 
         expect(await Bun.file(stalePath).exists()).toBe(false);
         expect(await Bun.file(freshPath).exists()).toBe(true);
+    });
+
+    it('should evict oldest exports until the directory is within its size ceiling', async () => {
+        const exportDir = await mkdtemp(path.join(os.tmpdir(), 'spiracha-ui-export-size-test-'));
+        tempPaths.push(exportDir);
+        const oldestPath = path.join(exportDir, 'oldest.zip');
+        const newestPath = path.join(exportDir, 'newest.zip');
+        await Bun.write(oldestPath, 'a'.repeat(100));
+        await Bun.write(newestPath, 'b'.repeat(100));
+        const now = Date.now();
+        await utimes(oldestPath, new Date(now - 2_000), new Date(now - 2_000));
+        await utimes(newestPath, new Date(now - 1_000), new Date(now - 1_000));
+
+        await purgeStaleUiExports(exportDir, Number.POSITIVE_INFINITY, 100);
+
+        expect(await Bun.file(oldestPath).exists()).toBe(false);
+        expect(await Bun.file(newestPath).exists()).toBe(true);
     });
 });

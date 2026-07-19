@@ -1,5 +1,7 @@
+import { getFinalAntigravityAssistantSequences } from '@spiracha/lib/antigravity-transcript-phase';
 import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/codex-browser-types';
 import type { JsonValue } from '@spiracha/lib/shared';
+import { getThreadTranscriptStats } from './thread-transcript-stats';
 
 type MarkdownSection = {
     body: string;
@@ -23,6 +25,18 @@ const TIMESTAMP_PATTERN = /^_Timestamp:\s*(.+?)_$/u;
 const TOOL_HEADING_PATTERN = /^tool:\s*(.+)$/iu;
 const CONTROL_SUBHEADING_PATTERN = /^###\s+(Thinking|Tool Calls)\s*$/iu;
 
+type MarkdownFence = { character: string; length: number };
+
+const updateMarkdownFence = (fence: MarkdownFence | null, token: string | null): MarkdownFence | null => {
+    if (!token) {
+        return fence;
+    }
+    if (!fence) {
+        return { character: token[0]!, length: token.length };
+    }
+    return token[0] === fence.character && token.length >= fence.length ? null : fence;
+};
+
 const splitMarkdownSections = (markdown: string | null): MarkdownSection[] => {
     if (!markdown?.trim()) {
         return [];
@@ -32,6 +46,7 @@ const splitMarkdownSections = (markdown: string | null): MarkdownSection[] => {
     const lines = markdown.split(/\r?\n/u);
     let currentHeading: string | null = null;
     let currentLines: string[] = [];
+    let fence: MarkdownFence | null = null;
 
     const flush = () => {
         if (!currentHeading) {
@@ -41,12 +56,13 @@ const splitMarkdownSections = (markdown: string | null): MarkdownSection[] => {
         sections.push({
             body: currentLines.join('\n').trim(),
             heading: currentHeading,
-            sequence: sections.length * 10,
+            sequence: sections.length * 1000,
         });
     };
 
     for (const line of lines) {
-        const heading = HEADING_PATTERN.exec(line);
+        const fenceToken = /^\s*(`{3,}|~{3,})/u.exec(line)?.[1] ?? null;
+        const heading = fence === null && fenceToken === null ? HEADING_PATTERN.exec(line) : null;
         if (heading) {
             flush();
             currentHeading = heading[1]!.trim();
@@ -57,6 +73,8 @@ const splitMarkdownSections = (markdown: string | null): MarkdownSection[] => {
         if (currentHeading) {
             currentLines.push(line);
         }
+
+        fence = updateMarkdownFence(fence, fenceToken);
     }
 
     flush();
@@ -195,38 +213,37 @@ const buildToolOutputEvent = (
 });
 
 const getFinalAssistantSectionSequences = (sections: MarkdownSection[]): Set<number> => {
-    const finalAssistantSectionSequences = new Set<number>();
-    let currentAssistantContentSequence: number | null = null;
-
-    const flushAssistantRun = () => {
-        if (currentAssistantContentSequence !== null) {
-            finalAssistantSectionSequences.add(currentAssistantContentSequence);
-        }
-        currentAssistantContentSequence = null;
-    };
-
-    for (const section of sections) {
+    const items = sections.map((section) => {
         const heading = section.heading.toLowerCase();
         if (heading === 'user') {
-            flushAssistantRun();
-            continue;
+            return {
+                hasContent: Boolean(section.body),
+                hasToolCalls: false,
+                role: 'user' as const,
+                sequence: section.sequence,
+            };
         }
 
-        if (heading !== 'assistant') {
-            continue;
+        if (heading === 'assistant') {
+            const { body } = extractTimestamp(section.body);
+            const parsed = parseAssistantSection(body);
+            return {
+                hasContent: Boolean(parsed.content),
+                hasToolCalls: parsed.toolCalls.length > 0,
+                role: 'assistant' as const,
+                sequence: section.sequence,
+            };
         }
 
-        const { body } = extractTimestamp(section.body);
-        const parsed = parseAssistantSection(body);
-        if (parsed.toolCalls.length > 0) {
-            currentAssistantContentSequence = null;
-        } else if (parsed.content) {
-            currentAssistantContentSequence = section.sequence;
-        }
-    }
+        return {
+            hasContent: Boolean(section.body),
+            hasToolCalls: false,
+            role: 'other' as const,
+            sequence: section.sequence,
+        };
+    });
 
-    flushAssistantRun();
-    return finalAssistantSectionSequences;
+    return getFinalAntigravityAssistantSequences(items);
 };
 
 const textSectionToEvents = (
@@ -298,46 +315,5 @@ export const antigravityMarkdownToThreadEvents = (markdown: string | null): Thre
     return sections.flatMap((section) => sectionToEvents(section, finalAssistantSectionSequences));
 };
 
-const updateMessageStats = (stats: ThreadTranscriptStats, event: Extract<ThreadEvent, { kind: 'message' }>) => {
-    stats.messageCount += 1;
-    if (event.role === 'assistant') {
-        stats.assistantMessageCount += 1;
-    }
-    if (event.role === 'user') {
-        stats.userMessageCount += 1;
-    }
-    if (event.phase === 'commentary') {
-        stats.commentaryCount += 1;
-    }
-    if (event.phase === 'final_answer') {
-        stats.finalAnswerCount += 1;
-    }
-};
-
-export const getAntigravityThreadTranscriptStats = (events: ThreadEvent[]): ThreadTranscriptStats => {
-    const stats: ThreadTranscriptStats = {
-        assistantMessageCount: 0,
-        commentaryCount: 0,
-        execCommandCount: 0,
-        finalAnswerCount: 0,
-        messageCount: 0,
-        toolCallCount: 0,
-        toolOutputCount: 0,
-        userMessageCount: 0,
-        webSearchEventCount: 0,
-    };
-
-    for (const event of events) {
-        if (event.kind === 'message') {
-            updateMessageStats(stats, event);
-        }
-        if (event.kind === 'tool_call') {
-            stats.toolCallCount += 1;
-        }
-        if (event.kind === 'tool_output') {
-            stats.toolOutputCount += 1;
-        }
-    }
-
-    return stats;
-};
+export const getAntigravityThreadTranscriptStats = (events: ThreadEvent[]): ThreadTranscriptStats =>
+    getThreadTranscriptStats(events);

@@ -1,5 +1,6 @@
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
+import { runDeleteBatch } from './delete-batch';
 import { renderSourceSessionDownload, renderSourceSessionsDownload } from './source-session-export-server';
 
 const workspaceSchema = z.object({
@@ -154,9 +155,7 @@ export const deleteGrokSessionsFn = createServerFn({ method: 'POST' })
     .handler(async ({ data }) => {
         const { deleteGrokSession, resolveGrokSessionsDir } = await import('@spiracha/lib/grok-db');
         const sessionsDir = resolveGrokSessionsDir();
-        const results = await Promise.all(
-            data.sessionIds.map((sessionId) => deleteGrokSession(sessionsDir, sessionId)),
-        );
+        const results = await runDeleteBatch(data.sessionIds, (sessionId) => deleteGrokSession(sessionsDir, sessionId));
         const deletedSessionIds = results.flatMap((result) => result.deletedSessionIds);
         if (deletedSessionIds.length === 0) {
             throw new Error('No Grok sessions were deleted');

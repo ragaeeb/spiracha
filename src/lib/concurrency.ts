@@ -11,16 +11,28 @@ export const mapWithConcurrency = async <T, TResult>(
     const workerLimit = Math.max(1, requestedLimit);
     const results = new Array<TResult>(values.length);
     let nextIndex = 0;
+    let failed = false;
 
     const worker = async () => {
-        while (nextIndex < values.length) {
+        while (!failed && nextIndex < values.length) {
             const currentIndex = nextIndex;
             nextIndex += 1;
-            results[currentIndex] = await mapper(values[currentIndex]!, currentIndex);
+            try {
+                results[currentIndex] = await mapper(values[currentIndex]!, currentIndex);
+            } catch (error) {
+                failed = true;
+                throw error;
+            }
         }
     };
 
-    await Promise.all(Array.from({ length: Math.min(workerLimit, values.length) }, () => worker()));
+    const settledWorkers = await Promise.allSettled(
+        Array.from({ length: Math.min(workerLimit, values.length) }, () => worker()),
+    );
+    const failure = settledWorkers.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+    if (failure) {
+        throw failure.reason;
+    }
     return results;
 };
 

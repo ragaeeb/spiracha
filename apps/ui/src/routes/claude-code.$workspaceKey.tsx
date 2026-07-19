@@ -8,7 +8,7 @@ import { ExportDialog } from '#/components/export-dialog';
 import { ListSearchInput } from '#/components/list-search-input';
 import { LoadingPanel } from '#/components/loading-panel';
 import { PageHeader } from '#/components/page-header';
-import { ReloadErrorPanel } from '#/components/reload-error-panel';
+import { RouteErrorPanel } from '#/components/route-error-panel';
 import { claudeCodeSessionsQueryOptions, claudeCodeWorkspacesQueryOptions } from '#/lib/claude-code-queries';
 import {
     deleteClaudeCodeSessionFn,
@@ -17,16 +17,9 @@ import {
     exportClaudeCodeSessionsFn,
 } from '#/lib/claude-code-server';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
+import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { matchesTextQuery } from '#/lib/text-filter';
 import { isWorkspaceEmptiedByDelete } from '#/lib/workspace-delete-navigation';
-
-type ExportDialogOptions = {
-    includeCommentary: boolean;
-    includeMetadata: boolean;
-    includeTools: boolean;
-    outputFormat: 'md' | 'txt';
-    zipArchive: boolean;
-};
 
 type PendingSessionDelete = {
     sessions: ClaudeCodeSessionSummary[];
@@ -90,7 +83,7 @@ export const Route = createFileRoute('/claude-code/$workspaceKey')({
 });
 
 function ClaudeCodeWorkspaceErrorComponent({ error }: { error: Error }) {
-    return <ReloadErrorPanel description={error.message} title="Failed to load Claude Code workspace" />;
+    return <RouteErrorPanel error={error} title="Failed to load Claude Code workspace" />;
 }
 
 function ClaudeCodeWorkspacePage() {
@@ -106,20 +99,16 @@ function ClaudeCodeWorkspacePage() {
     const deferredSearch = useDeferredValue(searchInput);
 
     const exportMutation = useMutation({
-        mutationFn: async (options: ExportDialogOptions) => {
-            if (!pendingExport) {
-                throw new Error('No Claude Code session selected for export');
-            }
-
+        mutationFn: async ({ ids, options }: ExportSelectionMutationInput) => {
             const download =
-                pendingExport.sessionIds.length === 1
+                ids.length === 1
                     ? await exportClaudeCodeSessionFn({
                           data: {
                               includeCommentary: options.includeCommentary,
                               includeMetadata: options.includeMetadata,
                               includeTools: options.includeTools,
                               outputFormat: options.outputFormat,
-                              sessionId: pendingExport.sessionIds[0]!,
+                              sessionId: ids[0]!,
                               zipArchive: options.zipArchive,
                           },
                       })
@@ -129,7 +118,7 @@ function ClaudeCodeWorkspacePage() {
                               includeMetadata: options.includeMetadata,
                               includeTools: options.includeTools,
                               outputFormat: options.outputFormat,
-                              sessionIds: pendingExport.sessionIds,
+                              sessionIds: [...ids],
                               zipArchive: options.zipArchive,
                           },
                       });
@@ -150,13 +139,7 @@ function ClaudeCodeWorkspacePage() {
             sessionIds.length === 1
                 ? deleteClaudeCodeSessionFn({ data: { sessionId: sessionIds[0]! } })
                 : deleteClaudeCodeSessionsFn({ data: { sessionIds } }),
-        onSuccess: async (_result, sessionIds) => {
-            const workspaceEmptied = isWorkspaceEmptiedByDelete(sessions, sessionIds, (session) => session.sessionId);
-            setPendingDelete(null);
-            if (workspaceEmptied) {
-                await navigate({ to: '/claude-code' });
-            }
-
+        onSettled: async (_result, _error, sessionIds) => {
             await Promise.all([
                 queryClient.invalidateQueries({ queryKey: ['claude-code-workspaces'] }),
                 queryClient.invalidateQueries({ queryKey: ['claude-code-sessions', workspace.key] }),
@@ -164,6 +147,13 @@ function ClaudeCodeWorkspacePage() {
                     queryClient.invalidateQueries({ queryKey: ['claude-code-session', sessionId] }),
                 ),
             ]);
+        },
+        onSuccess: async (_result, sessionIds) => {
+            const workspaceEmptied = isWorkspaceEmptiedByDelete(sessions, sessionIds, (session) => session.sessionId);
+            setPendingDelete(null);
+            if (workspaceEmptied) {
+                await navigate({ to: '/claude-code' });
+            }
         },
     });
 
@@ -226,11 +216,22 @@ function ClaudeCodeWorkspacePage() {
             />
 
             <ExportDialog
+                errorMessage={
+                    exportMutation.isError
+                        ? exportMutation.error instanceof Error
+                            ? exportMutation.error.message
+                            : 'Session export failed'
+                        : null
+                }
                 forceZipArchive={pendingExport ? pendingExport.sessionIds.length > 1 : false}
                 open={pendingExport !== null}
                 pending={exportMutation.isPending}
                 title={pendingExport ? `Export ${pendingExport.label}` : 'Export session'}
-                onExport={(options) => exportMutation.mutate(options)}
+                onExport={(options) => {
+                    if (pendingExport) {
+                        exportMutation.mutate(createExportSelectionMutationInput(pendingExport.sessionIds, options));
+                    }
+                }}
                 onOpenChange={(open) => {
                     if (!open) {
                         setPendingExport(null);
@@ -238,12 +239,6 @@ function ClaudeCodeWorkspacePage() {
                     }
                 }}
             />
-
-            {exportMutation.isError ? (
-                <p className="text-[var(--destructive)] text-sm">
-                    {exportMutation.error instanceof Error ? exportMutation.error.message : 'Session export failed'}
-                </p>
-            ) : null}
 
             <DeleteConfirmDialog
                 confirmLabel={getDeleteConfirmLabel(pendingDelete, deleteMutation.isPending)}

@@ -71,7 +71,22 @@ describe('conversation API handler', () => {
         expect(response.status).toBe(200);
         await expect(response.json()).resolves.toEqual({
             data: [conversation],
-            meta: { hasNext: false, next_cursor: null },
+            meta: { has_next: false, next_cursor: null },
+        });
+    });
+
+    it('should reject a relative cwd instead of resolving it against the server process', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations?cwd=relative/repo'),
+            {},
+        );
+
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toMatchObject({
+            error: {
+                code: 'validation_error',
+                details: { field: 'cwd' },
+            },
         });
     });
 
@@ -111,6 +126,20 @@ describe('conversation API handler', () => {
         expect(response.status).toBe(200);
     });
 
+    it('should deduplicate repeated source filters before adapter fan-out', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations?cwd=/repo&source=codex,codex'),
+            {
+                listConversationsForPath: async (options) => {
+                    expect(options.sources).toEqual(['codex']);
+                    return { data: [], meta: { hasNext: false, nextCursor: null } };
+                },
+            },
+        );
+
+        expect(response.status).toBe(200);
+    });
+
     it('should return typed errors for missing required input', async () => {
         const response = await handleConversationApiRequest(createRequest('/api/v1/conversations'), {});
 
@@ -120,6 +149,25 @@ describe('conversation API handler', () => {
                 code: 'validation_error',
             },
         });
+    });
+
+    it('should not dispatch GET batch-action paths to the conversation list handler', async () => {
+        for (const action of ['delete', 'export']) {
+            let listCalled = false;
+            const response = await handleConversationApiRequest(
+                createRequest(`/api/v1/conversations/${action}?cwd=/repo`),
+                {
+                    listConversationsForPath: async () => {
+                        listCalled = true;
+                        return { data: [], meta: { hasNext: false, nextCursor: null } };
+                    },
+                },
+            );
+
+            expect(response.status).toBe(405);
+            expect(response.headers.get('Allow')).toBe('POST');
+            expect(listCalled).toBe(false);
+        }
     });
 
     it('should reject unsupported source filters', async () => {
@@ -308,6 +356,43 @@ describe('conversation API handler', () => {
         });
     });
 
+    it('should return conversation detail with all messages by default', async () => {
+        const response = await handleConversationApiRequest(createRequest('/api/v1/conversations/codex/thread-1'), {
+            getConversation: async (options) => {
+                expect(options).toEqual({ id: 'thread-1', messageSelector: 'all', source: 'codex' });
+                return conversation;
+            },
+        });
+
+        expect(response.status).toBe(200);
+        await expect(response.json()).resolves.toEqual({ data: conversation });
+    });
+
+    it('should export one conversation with the requested message selector', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/codex/thread-1/export?message_selector=last_final_answer'),
+            {
+                getConversation: async (options) => {
+                    expect(options).toEqual({
+                        id: 'thread-1',
+                        messageSelector: 'last_final_answer',
+                        source: 'codex',
+                    });
+                    return conversation;
+                },
+                renderConversationMarkdown: (renderedConversation, options) => {
+                    expect(renderedConversation).toBe(conversation);
+                    expect(options).toEqual({ messageSelector: 'last_final_answer' });
+                    return '# Thread 1\n';
+                },
+            },
+        );
+
+        expect(response.status).toBe(200);
+        expect(response.headers.get('Content-Type')).toBe('text/markdown; charset=utf-8');
+        await expect(response.text()).resolves.toBe('# Thread 1\n');
+    });
+
     it('should delete supported conversations through the public API', async () => {
         const response = await handleConversationApiRequest(
             createRequest('/api/v1/conversations/grok/019f2e0a-a16c-7120-97da-8fae66e36731', { method: 'DELETE' }),
@@ -475,6 +560,25 @@ describe('conversation API handler', () => {
                 },
             },
         });
+    });
+
+    it('should reject unsafe ids in batch exports before reaching source adapters', async () => {
+        let called = false;
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/export', {
+                body: JSON.stringify({ ids: ['../outside'], source: 'cursor' }),
+                method: 'POST',
+            }),
+            {
+                getConversation: async () => {
+                    called = true;
+                    return null;
+                },
+            },
+        );
+
+        expect(response.status).toBe(400);
+        expect(called).toBe(false);
     });
 
     it('should zip an explicit set of conversations through the public API with all messages by default', async () => {

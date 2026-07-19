@@ -24,7 +24,7 @@ const transcript: QoderSessionTranscript = {
             entryType: 'tool_call',
             parts: [
                 {
-                    raw: { toolName: 'edit_file', type: 'qoderFileOperation' },
+                    raw: { toolCallId: 'call-1', toolName: 'edit_file', type: 'qoderFileOperation' },
                     text: 'Edit file: /workspace/project/src/index.ts\nEdits: 1',
                     type: 'text',
                 },
@@ -101,6 +101,9 @@ describe('renderQoderTranscript', () => {
         expect(rendered).toContain('Edit file: /workspace/project/src/index.ts');
         expect(rendered).toContain('## Tool output');
         expect(rendered).toContain('const value = 1;');
+        expect(rendered?.match(/Call ID: call-1/gu)).toHaveLength(2);
+        expect(rendered).toContain('Tool: `edit_file`');
+        expect(rendered).toContain('Tool: `Read`');
     });
 
     it('should omit optional metadata and tool calls', () => {
@@ -129,5 +132,40 @@ describe('renderQoderTranscript', () => {
         expect(rendered).toContain('Tool call\n---------');
         expect(rendered).toContain('Tool output\n-----------');
         expect(rendered).not.toContain('```');
+    });
+
+    it('should omit explicit reasoning from an incomplete turn when commentary is disabled', () => {
+        const rendered = renderQoderTranscript(
+            {
+                ...transcript,
+                entries: [
+                    transcript.entries[0]!,
+                    {
+                        entryId: 'assistant-reasoning',
+                        entryType: 'message',
+                        parts: [
+                            {
+                                raw: { sourceType: 'thinking' },
+                                text: 'I need to inspect the current implementation.',
+                                type: 'text',
+                            },
+                        ],
+                        raw: {},
+                        requestId: 'request-a',
+                        role: 'assistant',
+                        timestamp: '2026-06-01T10:00:01.000Z',
+                    },
+                ],
+            },
+            {
+                includeCommentary: false,
+                includeMetadata: false,
+                includeTools: false,
+                outputFormat: 'md',
+            },
+        );
+
+        expect(rendered).toContain('Review wizard step 9');
+        expect(rendered).not.toContain('I need to inspect the current implementation.');
     });
 });

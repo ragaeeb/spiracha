@@ -50,9 +50,9 @@ const fetchWithTimeout = (url: string, init?: RequestInit) => {
 };
 
 const startUiDevServer = (port: number, env: NodeJS.ProcessEnv) => {
-    const uiDir = path.join(process.cwd(), 'apps', 'ui');
+    const uiDirectory = path.join(process.cwd(), 'apps', 'ui');
     return Bun.spawn(['bun', '--bun', 'vite', 'dev', '--host', '127.0.0.1', '--port', String(port), '--strictPort'], {
-        cwd: uiDir,
+        cwd: uiDirectory,
         env,
         stderr: 'pipe',
         stdout: 'pipe',
@@ -82,6 +82,31 @@ describe('UI API server routes', () => {
                     data: expect.arrayContaining([{ label: 'Codex', source: 'codex' }]),
                 });
 
+                const savedSettings = encodeURIComponent(
+                    JSON.stringify({
+                        convertToProjectRoot: true,
+                        exportDefaults: {
+                            includeCommentary: true,
+                            includeMetadata: true,
+                            includeTools: true,
+                            outputFormat: 'md',
+                            zipArchive: false,
+                        },
+                        redactUsername: true,
+                    }),
+                );
+                const settingsResponse = await fetchWithTimeout(`http://127.0.0.1:${port}/settings`, {
+                    headers: {
+                        Cookie: `spiracha-settings=${savedSettings}`,
+                    },
+                });
+                expect(settingsResponse.status).toBe(200);
+                const settingsHtml = await settingsResponse.text();
+                const redactControl = settingsHtml.match(/<button(?=[^>]*id="redact-username")[^>]*>/)?.[0];
+                const projectRootControl = settingsHtml.match(/<button(?=[^>]*id="convert-project-root")[^>]*>/)?.[0];
+                expect(redactControl).toContain('data-state="checked"');
+                expect(projectRootControl).toContain('data-state="checked"');
+
                 const query = new URLSearchParams({
                     cwd: fixture.threads[0]!.cwd,
                     include_messages: 'true',
@@ -90,9 +115,9 @@ describe('UI API server routes', () => {
                 });
                 const conversations = (await waitForJson(`http://127.0.0.1:${port}/api/v1/conversations?${query}`)) as {
                     data: Array<{ id: string; messages: Array<{ phase: string; role: string }>; source: string }>;
-                    meta: { hasNext: boolean; next_cursor: string | null };
+                    meta: { has_next: boolean; next_cursor: string | null };
                 };
-                expect(conversations.meta).toEqual({ hasNext: false, next_cursor: null });
+                expect(conversations.meta).toEqual({ has_next: false, next_cursor: null });
                 expect(conversations.data[0]).toMatchObject({
                     id: fixture.threads[0]!.threadId,
                     messages: [

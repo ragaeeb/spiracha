@@ -1,59 +1,103 @@
-import type { ReactNode } from 'react';
-import { createContext, useContext, useEffect, useState } from 'react';
-
-export type Settings = {
-    convertToProjectRoot: boolean;
-    redactUsername: boolean;
-};
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { DEFAULT_SETTINGS, normalizeSettings, type Settings } from '#/lib/settings';
+import { getInitialSettingsFn, saveSettingsFn } from '#/lib/settings-server';
 
 type SettingsContextValue = {
     settings: Settings;
     updateSetting: <K extends keyof Settings>(key: K, value: Settings[K]) => void;
 };
 
-const STORAGE_KEY = 'spiracha-settings';
-
-const defaultSettings: Settings = {
-    convertToProjectRoot: false,
-    redactUsername: false,
-};
+const SETTINGS_CHANNEL_NAME = 'spiracha-settings';
 
 const SettingsContext = createContext<SettingsContextValue>({
-    settings: defaultSettings,
+    settings: DEFAULT_SETTINGS,
     updateSetting: () => {},
 });
 
-const loadSettings = (): Settings => {
-    if (typeof window === 'undefined') {
-        return defaultSettings;
-    }
-    try {
-        const stored = window.localStorage.getItem(STORAGE_KEY);
-        return stored ? { ...defaultSettings, ...(JSON.parse(stored) as Partial<Settings>) } : defaultSettings;
-    } catch {
-        return defaultSettings;
-    }
-};
+export function SettingsProvider({
+    children,
+    initialSettings = DEFAULT_SETTINGS,
+}: {
+    children: ReactNode;
+    initialSettings?: Settings;
+}) {
+    const [settings, setSettings] = useState(initialSettings);
+    const channelRef = useRef<BroadcastChannel | null>(null);
+    const pendingSaveCountRef = useRef(0);
+    const settingsRef = useRef(initialSettings);
+    const settingsRevisionRef = useRef(0);
+    const synchronizationRequestRef = useRef(0);
+    const persistenceQueueRef = useRef(Promise.resolve());
 
-export function SettingsProvider({ children }: { children: ReactNode }) {
-    const [settings, setSettings] = useState<Settings>(defaultSettings);
-
-    // Load from localStorage on mount (client only — avoids SSR hydration mismatch)
     useEffect(() => {
-        setSettings(loadSettings());
+        const synchronizeFromCookie = () => {
+            const hadPendingSave = pendingSaveCountRef.current > 0;
+            const requestId = synchronizationRequestRef.current + 1;
+            const revision = settingsRevisionRef.current;
+            synchronizationRequestRef.current = requestId;
+            void getInitialSettingsFn()
+                .then((savedSettings) => {
+                    if (
+                        hadPendingSave ||
+                        pendingSaveCountRef.current > 0 ||
+                        requestId !== synchronizationRequestRef.current ||
+                        revision !== settingsRevisionRef.current
+                    ) {
+                        return;
+                    }
+                    settingsRef.current = savedSettings;
+                    setSettings(savedSettings);
+                })
+                .catch((error: unknown) => {
+                    console.error('[spiracha:settings] synchronization failed', {
+                        error: error instanceof Error ? error.message : String(error),
+                    });
+                });
+        };
+        const channel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel(SETTINGS_CHANNEL_NAME);
+        if (channel) {
+            channel.onmessage = (event: MessageEvent<unknown>) => {
+                if (pendingSaveCountRef.current > 0) {
+                    return;
+                }
+                const synchronizedSettings = normalizeSettings(event.data);
+                settingsRevisionRef.current += 1;
+                settingsRef.current = synchronizedSettings;
+                setSettings(synchronizedSettings);
+            };
+            channelRef.current = channel;
+        }
+        window.addEventListener('focus', synchronizeFromCookie);
+
+        return () => {
+            window.removeEventListener('focus', synchronizeFromCookie);
+            channel?.close();
+            channelRef.current = null;
+        };
     }, []);
 
-    const updateSetting = <K extends keyof Settings>(key: K, value: Settings[K]) => {
-        setSettings((prev) => {
-            const next = { ...prev, [key]: value };
+    const updateSetting = useCallback(<K extends keyof Settings>(key: K, value: Settings[K]) => {
+        const nextSettings = { ...settingsRef.current, [key]: value };
+        pendingSaveCountRef.current += 1;
+        settingsRevisionRef.current += 1;
+        settingsRef.current = nextSettings;
+        setSettings(nextSettings);
+        persistenceQueueRef.current = persistenceQueueRef.current.then(async () => {
             try {
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-            } catch {}
-            return next;
+                await saveSettingsFn({ data: nextSettings });
+                channelRef.current?.postMessage(nextSettings);
+            } catch (error) {
+                console.error('[spiracha:settings] persistence failed', {
+                    error: error instanceof Error ? error.message : String(error),
+                });
+            } finally {
+                pendingSaveCountRef.current -= 1;
+            }
         });
-    };
+    }, []);
+    const contextValue = useMemo(() => ({ settings, updateSetting }), [settings, updateSetting]);
 
-    return <SettingsContext.Provider value={{ settings, updateSetting }}>{children}</SettingsContext.Provider>;
+    return <SettingsContext.Provider value={contextValue}>{children}</SettingsContext.Provider>;
 }
 
 export const useSettings = () => useContext(SettingsContext);

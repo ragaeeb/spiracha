@@ -1,12 +1,17 @@
 import { createReadStream } from 'node:fs';
-import { access, constants } from 'node:fs/promises';
 import path from 'node:path';
 import tailwindcss from '@tailwindcss/vite';
 import { devtools } from '@tanstack/devtools-vite';
 import { tanstackStart } from '@tanstack/react-start/plugin/vite';
 import viteReact from '@vitejs/plugin-react';
 import { defineConfig, type Plugin } from 'vite';
-import { buildUiExportContentDisposition, resolveUiExportFilePathFromRequestPath } from '../../src/lib/ui-export-files';
+import {
+    buildUiExportContentDisposition,
+    resolveReadableUiExportFileFromRequestPath,
+    UI_EXPORT_URL_PREFIX,
+} from '../../src/lib/ui-export-files';
+
+const uiRoot = __dirname;
 
 const getExportContentType = (filePath: string) => {
     if (filePath.endsWith('.zip')) {
@@ -33,17 +38,14 @@ const spirachaExportFiles = (): Plugin => {
                     return;
                 }
 
-                const exportFilePath = resolveUiExportFilePathFromRequestPath(
-                    new URL(req.url, 'http://spiracha.local').pathname,
-                );
-                if (!exportFilePath) {
+                const pathname = new URL(req.url, 'http://spiracha.local').pathname;
+                if (!pathname.startsWith(UI_EXPORT_URL_PREFIX)) {
                     next();
                     return;
                 }
 
-                try {
-                    await access(exportFilePath, constants.R_OK);
-                } catch {
+                const exportFilePath = await resolveReadableUiExportFileFromRequestPath(pathname);
+                if (!exportFilePath) {
                     res.statusCode = 404;
                     res.end('Not Found');
                     return;
@@ -59,7 +61,14 @@ const spirachaExportFiles = (): Plugin => {
                     return;
                 }
 
-                createReadStream(exportFilePath).pipe(res);
+                const stream = createReadStream(exportFilePath);
+                stream.once('error', () => {
+                    if (!res.headersSent) {
+                        res.statusCode = 500;
+                    }
+                    res.end('Internal Server Error');
+                });
+                stream.pipe(res);
             });
         },
         name: 'spiracha-export-files',
@@ -70,13 +79,14 @@ const config = defineConfig({
     plugins: [spirachaExportFiles(), devtools(), tailwindcss(), tanstackStart(), viteReact()],
     resolve: {
         alias: {
-            '@spiracha': path.resolve(__dirname, '..', '..', 'src'),
+            '@spiracha': path.resolve(uiRoot, '..', '..', 'src'),
         },
         tsconfigPaths: true,
     },
+    root: uiRoot,
     server: {
         fs: {
-            allow: [path.resolve(__dirname, '..', '..')],
+            allow: [path.resolve(uiRoot, '..', '..')],
         },
     },
 });

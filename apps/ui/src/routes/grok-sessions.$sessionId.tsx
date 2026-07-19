@@ -12,24 +12,19 @@ import { LoadingPanel } from '#/components/loading-panel';
 import { MetadataSection } from '#/components/metadata-section';
 import { MetricCard } from '#/components/metric-card';
 import { PageHeader } from '#/components/page-header';
-import { ReloadErrorPanel } from '#/components/reload-error-panel';
+import { RouteErrorPanel } from '#/components/route-error-panel';
 import { DEFAULT_SHOW_USER_MESSAGES, TranscriptView } from '#/components/transcript-view';
 import { Button } from '#/components/ui/button';
 import { Checkbox } from '#/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
+import type { ExportDialogOptions } from '#/lib/export-options';
 import { formatDateTime, formatList, formatNumber } from '#/lib/formatters';
-import { grokSessionDetailQueryOptions } from '#/lib/grok-queries';
+import { grokSessionDetailQueryOptions, grokWorkspacesQueryOptions } from '#/lib/grok-queries';
 import { deleteGrokSessionFn, exportGrokSessionFn } from '#/lib/grok-server';
 import { getGrokThreadTranscriptStats, grokTranscriptToThreadEvents } from '#/lib/grok-transcript-events';
-
-type ExportDialogOptions = {
-    includeCommentary: boolean;
-    includeMetadata: boolean;
-    includeTools: boolean;
-    outputFormat: 'md' | 'txt';
-    zipArchive: boolean;
-};
+import { RouteStateResetBoundary } from '#/lib/route-state-reset';
+import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
 type TranscriptControlsProps = {
     rawJsonDisabled?: boolean;
@@ -46,7 +41,7 @@ type TranscriptControlsProps = {
 };
 
 const GrokSessionDetailErrorComponent = ({ error }: { error: Error }) => {
-    return <ReloadErrorPanel description={error.message} title="Failed to load Grok session" />;
+    return <RouteErrorPanel error={error} title="Failed to load Grok session" />;
 };
 
 const buildSessionMetadata = (detail: GrokSessionTranscript) => [
@@ -205,6 +200,17 @@ const GrokSessionDetailPage = () => {
                 queryClient.invalidateQueries({ queryKey: ['grok-sessions', detail.session.workspaceKey] }),
                 queryClient.invalidateQueries({ queryKey: ['grok-session', detail.session.sessionId] }),
             ]);
+            const workspaces = await queryClient.fetchQuery(grokWorkspacesQueryOptions());
+            if (
+                shouldNavigateToSourceIndexAfterDelete(
+                    workspaces,
+                    detail.session.workspaceKey,
+                    (workspace) => workspace.key,
+                )
+            ) {
+                navigate({ to: '/grok' });
+                return;
+            }
             navigate({
                 params: { workspaceKey: detail.session.workspaceKey },
                 to: '/grok/$workspaceKey',
@@ -378,7 +384,14 @@ const GrokSessionDetailPage = () => {
 };
 
 export const Route = createFileRoute('/grok-sessions/$sessionId')({
-    component: GrokSessionDetailPage,
+    component: () => {
+        const { sessionId } = Route.useParams();
+        return (
+            <RouteStateResetBoundary routeKey={sessionId}>
+                <GrokSessionDetailPage />
+            </RouteStateResetBoundary>
+        );
+    },
     errorComponent: GrokSessionDetailErrorComponent,
     loader: ({ context, params }) =>
         context.queryClient.ensureQueryData(grokSessionDetailQueryOptions(params.sessionId)),

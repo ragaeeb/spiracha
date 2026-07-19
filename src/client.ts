@@ -1,3 +1,4 @@
+import { mapWithConcurrency } from './lib/concurrency';
 import {
     deleteConversation as deleteLocalConversation,
     deleteConversations as deleteLocalConversations,
@@ -51,9 +52,11 @@ export type {
 type HttpEnvelope<T> = {
     data?: T;
     error?: {
+        code?: string | null;
         message?: string | null;
     } | null;
     meta?: {
+        has_next?: boolean | null;
         hasNext?: boolean | null;
         nextCursor?: string | null;
         next_cursor?: string | null;
@@ -196,10 +199,44 @@ const fetchJson = async <T>(url: URL, init?: RequestInit): Promise<HttpEnvelope<
     return readJsonEnvelope(response);
 };
 
+const isMissingConversationResponse = async (response: Response): Promise<boolean> => {
+    if (response.status !== 404) {
+        return false;
+    }
+
+    try {
+        const envelope = (await response.clone().json()) as HttpEnvelope<unknown>;
+        return envelope.error?.code === 'conversation_not_found';
+    } catch {
+        return false;
+    }
+};
+
 const fetchJsonOrNull = async <T>(url: URL, init?: RequestInit): Promise<HttpEnvelope<T> | null> => {
     const response = await fetchResponse(url, init);
-    if (response.status === 404) {
+    if (await isMissingConversationResponse(response)) {
         return null;
+    }
+
+    await assertOkResponse(response);
+    return readJsonEnvelope(response);
+};
+
+const fetchDeleteJsonOrNull = async <T>(url: URL, init?: RequestInit): Promise<HttpEnvelope<T> | null> => {
+    const response = await fetchResponse(url, init);
+    if (await isMissingConversationResponse(response)) {
+        return null;
+    }
+
+    if (response.status === 405) {
+        try {
+            const envelope = (await response.clone().json()) as HttpEnvelope<T>;
+            if (envelope.error?.code === 'unsupported_operation') {
+                return null;
+            }
+        } catch {
+            // Let the normal error path report malformed error responses.
+        }
     }
 
     await assertOkResponse(response);
@@ -208,7 +245,7 @@ const fetchJsonOrNull = async <T>(url: URL, init?: RequestInit): Promise<HttpEnv
 
 const fetchTextOrNull = async (url: URL, init?: RequestInit): Promise<string | null> => {
     const response = await fetchResponse(url, init);
-    if (response.status === 404) {
+    if (await isMissingConversationResponse(response)) {
         return null;
     }
 
@@ -232,7 +269,7 @@ const fileNameFromContentDisposition = (contentDisposition: string | null, fallb
 
 const fetchZipOrNull = async (url: URL, init?: RequestInit): Promise<ConversationZipDownload | null> => {
     const response = await fetchResponse(url, init);
-    if (response.status === 404) {
+    if (await isMissingConversationResponse(response)) {
         return null;
     }
 
@@ -261,13 +298,20 @@ const normalizePage = (envelope: HttpEnvelope<ConversationDetail[]>): Conversati
     return {
         data,
         meta: {
-            hasNext: envelope.meta?.hasNext === true,
+            hasNext: envelope.meta?.has_next === true || envelope.meta?.hasNext === true,
             nextCursor: envelope.meta?.nextCursor ?? envelope.meta?.next_cursor ?? null,
         },
     };
 };
 
-const makeHttpUrl = (baseUrl: URL, pathname: string): URL => new URL(pathname, baseUrl);
+const makeHttpUrl = (baseUrl: URL, pathname: string): URL => {
+    const url = new URL(baseUrl);
+    const basePath = url.pathname.replace(/\/+$/u, '');
+    url.pathname = `${basePath}/${pathname.replace(/^\/+/, '')}`;
+    url.search = '';
+    url.hash = '';
+    return url;
+};
 
 const rejectHttpLocations = (locations: ConversationDataLocations | undefined): void => {
     if (locations) {
@@ -287,15 +331,16 @@ const exportLocalConversationsZip = async (
     locations: ConversationDataLocations | undefined,
 ) => {
     const options = withDefaultLocations(exportOptions, locations);
-    const conversations = await Promise.all(
-        options.ids.map((id) =>
-            getLocalConversation({
-                id,
-                locations: options.locations,
-                messageSelector: options.messageSelector ?? 'all',
-                source: options.source,
-            }),
-        ),
+    if (options.ids.length > 200) {
+        throw new SpirachaClientError('At most 200 conversation ids may be exported at once.');
+    }
+    const conversations = await mapWithConcurrency(options.ids, 4, (id) =>
+        getLocalConversation({
+            id,
+            locations: options.locations,
+            messageSelector: options.messageSelector ?? 'all',
+            source: options.source,
+        }),
     );
 
     if (conversations.some((conversation) => conversation === null)) {
@@ -346,7 +391,7 @@ const makeHttpClient = (options: HttpConversationClientOptions): ConversationCli
             rejectHttpLocations(deleteOptions.locations);
             const { id, source } = deleteOptions;
             const url = makeHttpUrl(baseUrl, `/api/v1/conversations/${source}/${encodeURIComponent(id)}`);
-            const envelope = await fetchJsonOrNull<DeleteConversationResult>(url, { method: 'DELETE' });
+            const envelope = await fetchDeleteJsonOrNull<DeleteConversationResult>(url, { method: 'DELETE' });
             if (!envelope) {
                 return null;
             }
@@ -354,7 +399,7 @@ const makeHttpClient = (options: HttpConversationClientOptions): ConversationCli
         },
         deleteConversations: async (deleteOptions) => {
             rejectHttpLocations(deleteOptions.locations);
-            const envelope = await fetchJsonOrNull<DeleteConversationsResult>(
+            const envelope = await fetchDeleteJsonOrNull<DeleteConversationsResult>(
                 makeHttpUrl(baseUrl, '/api/v1/conversations/delete'),
                 {
                     body: JSON.stringify({

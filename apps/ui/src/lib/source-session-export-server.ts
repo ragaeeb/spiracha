@@ -8,9 +8,9 @@ import {
     getExportMimeType,
     resolveUniqueExportFileBaseName,
     sanitizeExportFileName,
-    zipExportDirectory,
 } from '@spiracha/lib/ui-export-archive';
 import { buildUiExportDownloadUrl, ensureUiExportDir } from '@spiracha/lib/ui-export-files';
+import { zipExportDirectory } from '@spiracha/lib/ui-export-zip';
 
 type ExportFormat = 'md' | 'txt';
 

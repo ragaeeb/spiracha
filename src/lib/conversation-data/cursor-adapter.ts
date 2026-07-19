@@ -12,9 +12,16 @@ import type {
 } from '../cursor-exporter-types';
 import { getCursorGlobalDbPath, resolveCursorUserDir } from '../cursor-exporter-types';
 import { collectCursorThreadsForDeletion, isCursorRunning, pruneCursorThreads } from '../cursor-recovery';
+import { getCursorTextBubblePhase, getFinalCursorAssistantTextBubbleIds } from '../cursor-transcript-phase';
 import { cleanInlineTitle } from '../shared';
 import { runWithTranscriptLoadLimit } from '../transcript-load-limiter';
-import { createDeepLinks, createTextMessage, finalizeMessages } from './adapter-helpers';
+import {
+    createConversationUiPath,
+    createDeepLinks,
+    createTextMessage,
+    finalizeMessages,
+    isWithinUpdatedWindow,
+} from './adapter-helpers';
 import { selectConversationMessages } from './message-selector';
 import { getFirstConversationPathMatch } from './path-match';
 import type {
@@ -32,21 +39,11 @@ const CURSOR_CONVERSATION_HYDRATION_CONCURRENCY = 4;
 const getUserDir = (options: { locations?: { cursorUserDir?: string } }) =>
     options.locations?.cursorUserDir ?? resolveCursorUserDir();
 
-const isWithinUpdatedWindow = (
-    thread: CursorThreadSummary,
-    options: Pick<ListConversationsForPathOptions, 'updatedAfterMs' | 'updatedBeforeMs'>,
-): boolean => {
-    const updatedAtMs = thread.lastUpdatedAtMs ?? 0;
-    if (options.updatedAfterMs !== undefined && updatedAtMs < options.updatedAfterMs) {
-        return false;
-    }
-    if (options.updatedBeforeMs !== undefined && updatedAtMs > options.updatedBeforeMs) {
-        return false;
-    }
-    return true;
-};
-
-const bubbleToMessages = (bubble: CursorBubble, order: number): ConversationMessage[] => {
+const bubbleToMessages = (
+    bubble: CursorBubble,
+    finalAssistantTextBubbleIds: Set<string>,
+    order: number,
+): ConversationMessage[] => {
     const thinking = createTextMessage({
         createdAtMs: bubble.createdAtMs,
         id: `${bubble.bubbleId}:thinking`,
@@ -59,27 +56,41 @@ const bubbleToMessages = (bubble: CursorBubble, order: number): ConversationMess
         createdAtMs: bubble.createdAtMs,
         id: bubble.bubbleId,
         order,
-        phase: bubble.kind === 'assistant' ? 'final_answer' : 'unknown',
+        phase: getCursorTextBubblePhase(bubble, finalAssistantTextBubbleIds) ?? 'unknown',
         role: bubble.kind === 'assistant' ? 'assistant' : bubble.kind === 'user' ? 'user' : 'unknown',
         text: bubble.text,
     });
-    const tool = bubble.toolCall
+    const toolCall = bubble.toolCall
         ? createTextMessage({
               createdAtMs: bubble.createdAtMs,
-              id: `${bubble.bubbleId}:tool`,
+              id: `${bubble.bubbleId}:tool_call`,
               metadata: { callId: bubble.toolCall.callId, status: bubble.toolCall.status },
               order,
-              phase: bubble.toolCall.resultText ? 'tool_output' : 'tool_call',
+              phase: 'tool_call',
               role: 'tool',
-              text: bubble.toolCall.resultText ?? bubble.toolCall.argumentsText ?? bubble.toolCall.name,
+              text: [bubble.toolCall.name, bubble.toolCall.argumentsText].filter(Boolean).join('\n'),
+          })
+        : [];
+    const toolOutput = bubble.toolCall
+        ? createTextMessage({
+              createdAtMs: bubble.createdAtMs,
+              id: `${bubble.bubbleId}:tool_output`,
+              metadata: { callId: bubble.toolCall.callId, status: bubble.toolCall.status },
+              order,
+              phase: 'tool_output',
+              role: 'tool',
+              text: bubble.toolCall.resultText,
           })
         : [];
 
-    return [...thinking, ...text, ...tool];
+    return [...thinking, ...text, ...toolCall, ...toolOutput];
 };
 
 const transcriptToMessages = (transcript: CursorThreadTranscript) => {
-    return finalizeMessages(transcript.bubbles.flatMap((bubble, order) => bubbleToMessages(bubble, order)));
+    const finalAssistantTextBubbleIds = getFinalCursorAssistantTextBubbleIds(transcript.bubbles);
+    return finalizeMessages(
+        transcript.bubbles.flatMap((bubble, order) => bubbleToMessages(bubble, finalAssistantTextBubbleIds, order)),
+    );
 };
 
 const getWorkspacePath = (group: CursorWorkspaceGroup) => {
@@ -111,7 +122,11 @@ const buildConversation = async (
 
     return {
         createdAtMs: thread.createdAtMs,
-        deepLinks: createDeepLinks('cursor', thread.composerId, `/cursor-threads/${thread.composerId}`),
+        deepLinks: createDeepLinks(
+            'cursor',
+            thread.composerId,
+            createConversationUiPath('cursor-threads', thread.composerId),
+        ),
         id: thread.composerId,
         matches,
         messageCount: options.includeMessages ? allMessages.length : thread.bubbleCount,
@@ -120,7 +135,6 @@ const buildConversation = async (
             bubbleBytes: thread.bubbleBytes,
             bucketId: thread.bucketId,
             mode: thread.mode,
-            transcriptDirs: thread.transcriptDirs,
         },
         source: 'cursor',
         title: cleanInlineTitle(thread.name),
@@ -132,7 +146,7 @@ const buildConversation = async (
 
 const listCursorConversationsForPath = async (options: ListConversationsForPathOptions) => {
     const userDir = getUserDir(options);
-    const groups = await listCursorWorkspaceGroups(userDir, { updatedAfterMs: options.updatedAfterMs });
+    const groups = await listCursorWorkspaceGroups(userDir);
     const candidates: { group: CursorWorkspaceGroup; match: ConversationPathMatch; thread: CursorThreadSummary }[] = [];
 
     for (const group of groups) {
@@ -142,10 +156,9 @@ const listCursorConversationsForPath = async (options: ListConversationsForPathO
         }
         const threads = await listCursorThreadsForGroup(group, userDir, {
             includeTranscriptDirs: false,
-            updatedAfterMs: options.updatedAfterMs,
         });
         for (const thread of threads) {
-            if (!isWithinUpdatedWindow(thread, options)) {
+            if (!isWithinUpdatedWindow(thread.lastUpdatedAtMs, options)) {
                 continue;
             }
 
@@ -175,20 +188,21 @@ const getCursorConversation = async (options: GetConversationOptions): Promise<C
     return null;
 };
 
-const deleteCursorConversation = async (options: DeleteConversationOptions) => {
+export const deleteCursorConversation = async (
+    options: DeleteConversationOptions,
+    checkCursorRunning: () => Promise<boolean> = isCursorRunning,
+) => {
     const userDir = getUserDir(options);
-    if (!options.locations?.cursorUserDir && (await isCursorRunning())) {
+    if (await checkCursorRunning()) {
         throw new Error(
             'Quit Cursor before deleting. It rewrites chat history on exit, which can resurrect deleted threads.',
         );
     }
 
-    const existing = await getCursorConversation(options);
-    if (!existing) {
+    const threads = await collectCursorThreadsForDeletion([options.id], userDir);
+    if (threads.length === 0) {
         return { deletedFiles: [], deletedIds: [] };
     }
-
-    const threads = await collectCursorThreadsForDeletion([options.id], userDir);
     const deletedFiles = threads.flatMap((thread) => thread.transcriptDirs);
     const result = await pruneCursorThreads(threads, true, userDir);
     return {

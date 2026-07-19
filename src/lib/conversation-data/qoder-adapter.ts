@@ -16,9 +16,11 @@ import { getFinalQoderAssistantMessageEntryIds, getQoderMessagePhase } from '../
 import { cleanInlineTitle } from '../shared';
 import { runWithTranscriptLoadLimit } from '../transcript-load-limiter';
 import {
+    createConversationUiPath,
     createDeepLinks,
     createTextMessage,
     finalizeMessages,
+    isWithinUpdatedWindow,
     normalizeAssistantPhase,
     normalizeRole,
     toDateMs,
@@ -36,6 +38,11 @@ import type {
 
 const QODER_CONVERSATION_HYDRATION_CONCURRENCY = 4;
 
+const getPartString = (part: QoderTranscriptPart, key: string): string | null => {
+    const value = part.raw[key];
+    return typeof value === 'string' && value.trim() ? value : null;
+};
+
 const getQoderLocations = (options: {
     locations?: {
         qoderAcpSocketPath?: string;
@@ -50,20 +57,6 @@ const getQoderLocations = (options: {
     workspaceStorageDir: options.locations?.qoderWorkspaceStorageDir ?? resolveQoderWorkspaceStorageDir(),
 });
 
-const isWithinUpdatedWindow = (
-    session: QoderSessionSummary,
-    options: Pick<ListConversationsForPathOptions, 'updatedAfterMs' | 'updatedBeforeMs'>,
-): boolean => {
-    const updatedAtMs = session.lastActiveAtMs ?? 0;
-    if (options.updatedAfterMs !== undefined && updatedAtMs < options.updatedAfterMs) {
-        return false;
-    }
-    if (options.updatedBeforeMs !== undefined && updatedAtMs > options.updatedBeforeMs) {
-        return false;
-    }
-    return true;
-};
-
 const partToMessages = (
     entry: QoderTranscriptEntry,
     part: QoderTranscriptPart,
@@ -74,7 +67,11 @@ const partToMessages = (
         return createTextMessage({
             createdAtMs: toDateMs(entry.timestamp),
             id: `${entry.entryId}:${partIndex}`,
-            metadata: { requestId: entry.requestId },
+            metadata: {
+                requestId: entry.requestId,
+                toolCallId: getPartString(part, 'toolCallId') ?? entry.entryId,
+                toolName: getPartString(part, 'toolName'),
+            },
             order: partIndex,
             phase: 'tool_call',
             role: 'tool',
@@ -86,7 +83,11 @@ const partToMessages = (
         return createTextMessage({
             createdAtMs: toDateMs(entry.timestamp),
             id: `${entry.entryId}:${partIndex}`,
-            metadata: { requestId: entry.requestId },
+            metadata: {
+                requestId: entry.requestId,
+                toolCallId: getPartString(part, 'toolCallId'),
+                toolName: getPartString(part, 'toolName'),
+            },
             order: partIndex,
             phase: 'tool_output',
             role: 'tool',
@@ -155,7 +156,11 @@ const buildConversation = async (
 
     return {
         createdAtMs: session.createdAtMs,
-        deepLinks: createDeepLinks('qoder', session.sessionId, `/qoder-sessions/${session.sessionId}`),
+        deepLinks: createDeepLinks(
+            'qoder',
+            session.sessionId,
+            createConversationUiPath('qoder-sessions', session.sessionId),
+        ),
         id: session.sessionId,
         matches,
         messageCount: options.includeMessages ? allMessages.length : session.messageCount,
@@ -201,7 +206,7 @@ const listQoderConversationsForPath = async (options: ListConversationsForPathOp
             locations.workspaceStorageDir,
         );
         for (const session of sessions) {
-            if (!isWithinUpdatedWindow(session, options)) {
+            if (!isWithinUpdatedWindow(session.lastActiveAtMs, options)) {
                 continue;
             }
 

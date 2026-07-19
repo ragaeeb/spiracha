@@ -14,12 +14,9 @@ const selectLastAssistantMessage = (messages: ConversationMessage[]) => {
     return latestByOrder(messages.filter((message) => message.role === 'assistant'));
 };
 
-// Not every integration can identify final answers. In that case, API list/export defaults still
-// return the latest assistant message instead of silently omitting the conversation.
 const selectLastFinalAnswer = (messages: ConversationMessage[]) => {
-    return (
-        latestByOrder(messages.filter((message) => message.role === 'assistant' && message.phase === 'final_answer')) ??
-        selectLastAssistantMessage(messages)
+    return latestByOrder(
+        messages.filter((message) => message.role === 'assistant' && message.phase === 'final_answer'),
     );
 };
 

@@ -7,9 +7,10 @@ import { ListSearchInput } from '#/components/list-search-input';
 import { PageHeader } from '#/components/page-header';
 import { ProjectsLoadingState } from '#/components/projects-loading-state';
 import { ProjectsTable } from '#/components/projects-table';
-import { ReloadErrorPanel } from '#/components/reload-error-panel';
+import { RouteErrorPanel } from '#/components/route-error-panel';
 import { projectsQueryOptions } from '#/lib/codex-queries';
 import { deleteProjectFn } from '#/lib/codex-server';
+import { getMutationErrorMessage } from '#/lib/mutation-error';
 import { parseTextQuerySearch, withTextQuerySearch } from '#/lib/route-search';
 import { matchesTextQuery } from '#/lib/text-filter';
 
@@ -22,15 +23,7 @@ export const Route = createFileRoute('/codex/')({
 });
 
 function ProjectsErrorComponent({ error }: { error: Error }) {
-    const isSqlite = error.message.includes('unable to open database') || error.message.includes('database is locked');
-    return (
-        <ReloadErrorPanel
-            description={
-                isSqlite ? 'Codex may have an exclusive lock on the database. Reload to retry.' : error.message
-            }
-            title={isSqlite ? 'Database unavailable' : 'Failed to load Codex inventory'}
-        />
-    );
+    return <RouteErrorPanel error={error} title="Failed to load Codex inventory" />;
 }
 
 function ProjectsPage() {
@@ -93,6 +86,7 @@ function ProjectsPage() {
                         ? `Delete ${pendingDelete.threadCount} thread records for the derived project "${pendingDelete.name}" from the Codex database. Enable Delete Session files to remove the rollout JSONL files too.`
                         : ''
                 }
+                errorMessage={getMutationErrorMessage(deleteProjectMutation.error, 'Project delete failed')}
                 open={pendingDelete !== null}
                 showDeleteSessionFilesOption
                 title="Delete Codex project?"
@@ -108,6 +102,7 @@ function ProjectsPage() {
                 onOpenChange={(open) => {
                     if (!open) {
                         setPendingDelete(null);
+                        deleteProjectMutation.reset();
                     }
                 }}
             />

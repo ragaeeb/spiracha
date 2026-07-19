@@ -4,7 +4,7 @@ import { useDeferredValue, useState } from 'react';
 import { ClaudeCodeWorkspacesTable } from '#/components/claude-code-workspaces-table';
 import { ListSearchInput } from '#/components/list-search-input';
 import { PageHeader } from '#/components/page-header';
-import { ReloadErrorPanel } from '#/components/reload-error-panel';
+import { RouteErrorPanel } from '#/components/route-error-panel';
 import { claudeCodeWorkspacesQueryOptions } from '#/lib/claude-code-queries';
 import { matchesTextQuery } from '#/lib/text-filter';
 
@@ -15,7 +15,7 @@ export const Route = createFileRoute('/claude-code/')({
 });
 
 function ClaudeCodeErrorComponent({ error }: { error: Error }) {
-    return <ReloadErrorPanel description={error.message} title="Failed to load Claude Code workspaces" />;
+    return <RouteErrorPanel error={error} title="Failed to load Claude Code workspaces" />;
 }
 
 function ClaudeCodePage() {

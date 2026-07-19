@@ -122,6 +122,82 @@ const writeGrokSessionFixture = async ({
 };
 
 describe('grok db helpers', () => {
+    it('should preserve structured assistant content arrays', async () => {
+        const grokHome = await makeTempRoot();
+        const fixture = await writeGrokSessionFixture({ grokHome, workspacePath: '/workspace/structured' });
+        await writeJsonl(path.join(fixture.sessionDir, 'chat_history.jsonl'), [
+            { content: [{ text: '<user_query>Question</user_query>', type: 'text' }], type: 'user' },
+            {
+                content: [
+                    { text: 'First paragraph', type: 'text' },
+                    { text: 'Second paragraph', type: 'text' },
+                ],
+                type: 'assistant',
+            },
+        ]);
+
+        const transcript = await readGrokSessionTranscript(fixture.sessionsDir, fixture.sessionId);
+
+        expect(transcript?.entries.find((entry) => entry.role === 'assistant')?.parts[0]).toMatchObject({
+            text: 'First paragraph\n\nSecond paragraph',
+        });
+    });
+
+    it('should not duplicate an archived prefix when a compaction checkpoint is missing', async () => {
+        const grokHome = await makeTempRoot();
+        const fixture = await writeGrokSessionFixture({ grokHome, workspacePath: '/workspace/no-checkpoint' });
+        const archivedPrefix = [
+            { content: [{ text: '<user_query>First</user_query>', type: 'text' }], type: 'user' },
+            { content: 'First answer', type: 'assistant' },
+        ];
+        await writeJsonl(path.join(fixture.sessionDir, 'chat_history.jsonl'), [
+            ...archivedPrefix,
+            { content: [{ text: '<user_query>Second</user_query>', type: 'text' }], type: 'user' },
+            { content: 'Second answer', type: 'assistant' },
+        ]);
+        await mkdir(path.join(fixture.sessionDir, 'compaction_requests'), { recursive: true });
+        await writeJson(path.join(fixture.sessionDir, 'compaction_requests', 'request.json'), {
+            chat_history: archivedPrefix,
+            created_at: '2026-07-04T16:52:00.000Z',
+        });
+
+        const transcript = await readGrokSessionTranscript(fixture.sessionsDir, fixture.sessionId);
+        const texts = transcript?.entries.flatMap((entry) => entry.parts.flatMap((part) => part.text ?? [])) ?? [];
+
+        expect(texts.filter((text) => text === 'First answer')).toHaveLength(1);
+        expect(texts.filter((text) => text === 'Second answer')).toHaveLength(1);
+    });
+
+    it('should compare compaction prefixes independently of object key order', async () => {
+        const grokHome = await makeTempRoot();
+        const fixture = await writeGrokSessionFixture({ grokHome, workspacePath: '/workspace/key-order' });
+        const archivedPrefix = [
+            { content: [{ text: '<user_query>First</user_query>', type: 'text' }], type: 'user' },
+            { content: 'First answer', model_id: 'grok', type: 'assistant' },
+        ];
+        await writeJsonl(path.join(fixture.sessionDir, 'chat_history.jsonl'), [
+            ...archivedPrefix,
+            { content: 'Second answer', type: 'assistant' },
+        ]);
+        await mkdir(path.join(fixture.sessionDir, 'compaction_requests'), { recursive: true });
+        await Bun.write(
+            path.join(fixture.sessionDir, 'compaction_requests', 'request.json'),
+            JSON.stringify({
+                chat_history: [
+                    { content: [{ text: '<user_query>First</user_query>', type: 'text' }], type: 'user' },
+                    { content: 'First answer', model_id: 'grok', type: 'assistant' },
+                ],
+                created_at: '2026-07-04T16:52:00.000Z',
+            }),
+        );
+
+        const transcript = await readGrokSessionTranscript(fixture.sessionsDir, fixture.sessionId);
+        const texts = transcript?.entries.flatMap((entry) => entry.parts.flatMap((part) => part.text ?? [])) ?? [];
+
+        expect(texts.filter((text) => text === 'First answer')).toHaveLength(1);
+        expect(texts).toContain('Second answer');
+    });
+
     afterEach(async () => {
         await Promise.all(tempRoots.splice(0).map((root) => rm(root, { force: true, recursive: true })));
     });
@@ -178,6 +254,24 @@ describe('grok db helpers', () => {
         ]);
         expect(transcript?.entries[2]?.parts[0]?.text).toBe('Please review the seed refresh implementation.');
         expect(transcript?.renderablePartCount).toBe(7);
+    });
+
+    it('should skip null JSONL records without losing valid Grok messages', async () => {
+        const grokHome = await makeTempRoot();
+        const fixture = await writeGrokSessionFixture({ grokHome, workspacePath: path.join(grokHome, 'project') });
+        const historyPath = path.join(fixture.sessionDir, 'chat_history.jsonl');
+        await Bun.write(historyPath, `null\n${await Bun.file(historyPath).text()}`);
+
+        const originalWarn = console.warn;
+        console.warn = () => undefined;
+        try {
+            const transcript = await readGrokSessionTranscript(fixture.sessionsDir, fixture.sessionId);
+
+            expect(transcript?.entries).toHaveLength(7);
+            expect(transcript?.session.messageCount).toBe(2);
+        } finally {
+            console.warn = originalWarn;
+        }
     });
 
     it('should omit Grok sessions that contain only system bootstrap messages', async () => {
@@ -310,6 +404,60 @@ describe('grok db helpers', () => {
         expect(text).toContain('First answer');
         expect(text).toContain('Second prompt');
         expect(text).toContain('Second answer');
+    });
+
+    it('should rehydrate messages across multiple Grok compactions', async () => {
+        const grokHome = await makeTempRoot();
+        const fixture = await writeGrokSessionFixture({ grokHome, workspacePath: path.join(grokHome, 'project') });
+        const firstArchive = [
+            { content: 'System prompt', type: 'system' },
+            { content: [{ text: '<user_query>First prompt</user_query>', type: 'text' }], type: 'user' },
+            { content: 'First answer', type: 'assistant' },
+        ];
+        const firstCheckpoint = [firstArchive[0], { content: 'Summary of the first turn', type: 'user' }];
+        const secondArchive = [
+            ...firstCheckpoint,
+            { content: [{ text: '<user_query>Second prompt</user_query>', type: 'text' }], type: 'user' },
+            { content: 'Second answer', type: 'assistant' },
+        ];
+        const secondCheckpoint = [firstArchive[0], { content: 'Summary of the first two turns', type: 'user' }];
+        await mkdir(path.join(fixture.sessionDir, 'compaction_requests'), { recursive: true });
+        await mkdir(path.join(fixture.sessionDir, 'compaction_checkpoints'), { recursive: true });
+        await writeJson(path.join(fixture.sessionDir, 'compaction_requests', 'request-1.json'), {
+            chat_history: firstArchive,
+            created_at: '2026-07-04T16:52:00.000Z',
+        });
+        await writeJson(path.join(fixture.sessionDir, 'compaction_checkpoints', 'checkpoint-1.json'), {
+            compacted_history: firstCheckpoint,
+            created_at: '2026-07-04T16:52:10.000Z',
+            prompt_index_at_compaction: 1,
+        });
+        await writeJson(path.join(fixture.sessionDir, 'compaction_requests', 'request-2.json'), {
+            chat_history: secondArchive,
+            created_at: '2026-07-04T16:53:00.000Z',
+        });
+        await writeJson(path.join(fixture.sessionDir, 'compaction_checkpoints', 'checkpoint-2.json'), {
+            compacted_history: secondCheckpoint,
+            created_at: '2026-07-04T16:53:10.000Z',
+            prompt_index_at_compaction: 1,
+        });
+        await writeJsonl(path.join(fixture.sessionDir, 'chat_history.jsonl'), [
+            ...secondCheckpoint,
+            { content: [{ text: '<user_query>Third prompt</user_query>', type: 'text' }], type: 'user' },
+            { content: 'Third answer', type: 'assistant' },
+        ]);
+
+        const transcript = await readGrokSessionTranscript(fixture.sessionsDir, fixture.sessionId);
+        const text = transcript?.entries.flatMap((entry) => entry.parts.map((part) => part.text)).filter(Boolean);
+
+        expect(text).toContain('First prompt');
+        expect(text).toContain('First answer');
+        expect(text).toContain('Second prompt');
+        expect(text).toContain('Second answer');
+        expect(text).toContain('Third prompt');
+        expect(text).toContain('Third answer');
+        expect(text).not.toContain('Summary of the first turn');
+        expect(text).not.toContain('Summary of the first two turns');
     });
 
     it('should omit raw Grok payloads when requested for large UI responses', async () => {

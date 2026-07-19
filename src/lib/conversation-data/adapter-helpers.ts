@@ -4,7 +4,22 @@ import type {
     ConversationMessagePhase,
     ConversationMessageRole,
     ConversationSource,
+    ListConversationsForPathOptions,
 } from './types';
+
+export const isWithinUpdatedWindow = (
+    updatedAtMs: number | null | undefined,
+    options: Pick<ListConversationsForPathOptions, 'updatedAfterMs' | 'updatedBeforeMs'>,
+) => {
+    const comparableUpdatedAtMs = updatedAtMs ?? 0;
+    if (options.updatedAfterMs !== undefined && comparableUpdatedAtMs < options.updatedAfterMs) {
+        return false;
+    }
+    if (options.updatedBeforeMs !== undefined && comparableUpdatedAtMs > options.updatedBeforeMs) {
+        return false;
+    }
+    return true;
+};
 
 export const toDateMs = (value: string | number | null | undefined): number | null => {
     if (typeof value === 'number') {
@@ -36,8 +51,12 @@ export const decodeFileUri = (value: string | null | undefined): string | null =
         }
         return pathname.replace(/^\/([A-Za-z]:)/u, '$1');
     } catch {
-        const pathValue = decodeURIComponent(value.slice('file://'.length));
-        return pathValue.replace(/^\/([A-Za-z]:)/u, '$1');
+        const rawPathValue = value.slice('file://'.length);
+        try {
+            return decodeURIComponent(rawPathValue).replace(/^\/([A-Za-z]:)/u, '$1');
+        } catch {
+            return rawPathValue.replace(/^\/([A-Za-z]:)/u, '$1');
+        }
     }
 };
 
@@ -48,9 +67,12 @@ export const createDeepLinks = (
     native: string | null = null,
 ): ConversationDeepLinks => ({
     native,
-    spiracha: `spiracha://conversation/${source}/${id}`,
+    spiracha: `spiracha://conversation/${source}/${encodeURIComponent(id)}`,
     ui: uiPath,
 });
+
+export const createConversationUiPath = (routeSegment: string, id: string) =>
+    `/${routeSegment}/${encodeURIComponent(id)}`;
 
 export const normalizeRole = (role: string | null | undefined): ConversationMessageRole => {
     if (role === 'assistant' || role === 'system' || role === 'tool' || role === 'user') {

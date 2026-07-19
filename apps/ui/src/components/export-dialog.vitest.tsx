@@ -1,6 +1,12 @@
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { SettingsProvider } from '#/lib/settings-store';
 import { ExportDialog } from './export-dialog';
+
+afterEach(() => {
+    cleanup();
+    window.localStorage.clear();
+});
 
 describe('ExportDialog', () => {
     it('should submit default export options before any changes', async () => {
@@ -49,6 +55,18 @@ describe('ExportDialog', () => {
         render(<ExportDialog open pending onExport={vi.fn()} onOpenChange={vi.fn()} />);
 
         expect((screen.getByRole('button', { name: 'Exporting...' }) as HTMLButtonElement).disabled).toBe(true);
+    });
+
+    it('should prevent duplicate submissions before pending state propagates', () => {
+        const onExport = vi.fn();
+        render(<ExportDialog open onExport={onExport} onOpenChange={vi.fn()} />);
+        const submit = screen.getByRole('button', { name: 'Download export' });
+
+        fireEvent.click(submit);
+        fireEvent.click(submit);
+
+        expect(onExport).toHaveBeenCalledTimes(1);
+        expect((submit as HTMLButtonElement).disabled).toBe(true);
     });
 
     it('should disable export submission without showing pending text when disabled', () => {
@@ -115,17 +133,80 @@ describe('ExportDialog', () => {
         });
     });
 
-    it('should reset local options after closing and reopening', () => {
+    it('should remember successfully submitted options after closing and reopening', () => {
         const onExport = vi.fn();
-        const { rerender } = render(<ExportDialog open onExport={onExport} onOpenChange={vi.fn()} />);
+        const renderDialog = (open: boolean) => (
+            <SettingsProvider>
+                <ExportDialog open={open} onExport={onExport} onOpenChange={vi.fn()} />
+            </SettingsProvider>
+        );
+        const { rerender } = render(renderDialog(true));
 
         fireEvent.click(screen.getByRole('checkbox', { name: /include metadata/i }));
         fireEvent.click(screen.getByRole('checkbox', { name: /include commentary/i }));
         fireEvent.click(screen.getByRole('checkbox', { name: /zip archive/i }));
+        fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
 
-        rerender(<ExportDialog open={false} onExport={onExport} onOpenChange={vi.fn()} />);
-        rerender(<ExportDialog open onExport={onExport} onOpenChange={vi.fn()} />);
+        rerender(renderDialog(false));
+        rerender(renderDialog(true));
 
+        fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
+
+        expect(onExport).toHaveBeenLastCalledWith({
+            includeCommentary: true,
+            includeMetadata: false,
+            includeTools: true,
+            outputFormat: 'md',
+            zipArchive: true,
+        });
+    });
+
+    it('should discard canceled drafts without overwriting submitted defaults', () => {
+        const onExport = vi.fn();
+        const onOpenChange = vi.fn();
+        const renderDialog = (open: boolean) => (
+            <SettingsProvider>
+                <ExportDialog open={open} onExport={onExport} onOpenChange={onOpenChange} />
+            </SettingsProvider>
+        );
+        const { rerender } = render(renderDialog(true));
+
+        fireEvent.click(screen.getByRole('checkbox', { name: /include commentary/i }));
+        fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
+        rerender(renderDialog(false));
+        rerender(renderDialog(true));
+        fireEvent.click(screen.getByRole('checkbox', { name: /include commentary/i }));
+        fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+        rerender(renderDialog(false));
+        rerender(renderDialog(true));
+        fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
+
+        expect(onExport).toHaveBeenLastCalledWith({
+            includeCommentary: true,
+            includeMetadata: true,
+            includeTools: true,
+            outputFormat: 'md',
+            zipArchive: false,
+        });
+    });
+
+    it('should not persist forced multi-thread zip as the single-thread default', () => {
+        const onExport = vi.fn();
+        const renderDialog = (open: boolean, forceZipArchive: boolean) => (
+            <SettingsProvider>
+                <ExportDialog
+                    forceZipArchive={forceZipArchive}
+                    open={open}
+                    onExport={onExport}
+                    onOpenChange={vi.fn()}
+                />
+            </SettingsProvider>
+        );
+        const { rerender } = render(renderDialog(true, true));
+
+        fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
+        rerender(renderDialog(false, true));
+        rerender(renderDialog(true, false));
         fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
 
         expect(onExport).toHaveBeenLastCalledWith({
@@ -141,5 +222,35 @@ describe('ExportDialog', () => {
         render(<ExportDialog errorMessage="Could not export thread" open onExport={vi.fn()} onOpenChange={vi.fn()} />);
 
         expect(screen.getByText('Could not export thread')).toBeTruthy();
+    });
+
+    it('should hide unsupported transcript filters instead of offering ignored options', () => {
+        const onExport = vi.fn();
+        render(
+            <ExportDialog
+                open
+                showCommentaryOption={false}
+                showToolsOption={false}
+                title="Export opaque conversation"
+                onExport={onExport}
+                onOpenChange={vi.fn()}
+            />,
+        );
+        const dialog = screen.getByRole('dialog', { name: 'Export opaque conversation' });
+        const dialogQueries = within(dialog);
+
+        expect(dialogQueries.queryByRole('checkbox', { name: /include commentary/i })).toBeNull();
+        expect(dialogQueries.queryByRole('checkbox', { name: /include tool calls/i })).toBeNull();
+        expect(dialogQueries.queryByText(/whether the export includes tool calls/i)).toBeNull();
+        expect(dialogQueries.getByText('Choose the transcript format and export options.')).toBeTruthy();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
+        expect(onExport).toHaveBeenCalledWith({
+            includeCommentary: false,
+            includeMetadata: true,
+            includeTools: true,
+            outputFormat: 'md',
+            zipArchive: false,
+        });
     });
 });

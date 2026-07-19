@@ -49,10 +49,10 @@ export const projectThreadsQueryOptions = (project: string) =>
         retryDelay,
     });
 
-export const threadSnapshotQueryOptions = (threadId: string, filters?: ThreadTranscriptFilters) =>
+export const threadSnapshotQueryOptions = (threadId: string) =>
     queryOptions({
-        queryFn: () => getThreadSnapshotFn({ data: { filters, threadId } }),
-        queryKey: ['thread', threadId, filters ?? 'all'],
+        queryFn: () => getThreadSnapshotFn({ data: { threadId } }),
+        queryKey: ['thread', threadId],
         retry: retrySqliteQuery,
         retryDelay,
     });

@@ -22,7 +22,7 @@ const transcriptFiltersSchema = z.object({
     showUserMessages: z.boolean(),
 });
 
-const threadSnapshotSchema = z.object({
+const threadPreviewSchema = z.object({
     filters: transcriptFiltersSchema.optional(),
     threadId: z.string().min(1),
 });
@@ -101,7 +101,7 @@ export const listProjectThreadsFn = createServerFn({ method: 'GET' })
     });
 
 export const getThreadSnapshotFn = createServerFn({ method: 'GET' })
-    .validator(threadSnapshotSchema)
+    .validator(threadSchema)
     .handler(async ({ data }) => {
         const startedAt = Date.now();
         const [{ getThreadBrowseData }, { getThreadRolloutLoadState }] = await Promise.all([
@@ -197,7 +197,7 @@ export const loadThreadTranscript = async (threadId: string) => {
 };
 
 export const getThreadTranscriptPreviewFn = createServerFn({ method: 'GET' })
-    .validator(threadSnapshotSchema)
+    .validator(threadPreviewSchema)
     .handler(async ({ data }) => {
         return loadThreadTranscriptPreview(data.threadId, data.filters);
     });

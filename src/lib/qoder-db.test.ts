@@ -7,6 +7,7 @@ import path from 'node:path';
 import {
     findQoderWorkspaceGroups,
     getDefaultQoderUserDir,
+    isUnavailableQoderGlobalStateError,
     listQoderSessionsForGroup,
     listQoderWorkspaceGroups,
     readQoderSessionTranscript,
@@ -196,6 +197,17 @@ const startQoderAcpServer = async (socketPath: string, updates: Record<string, u
 };
 
 describe('qoder workspace discovery', () => {
+    it('should surface corrupt global-state databases instead of returning empty history', async () => {
+        const tempRoot = await makeTempRoot();
+        const globalStateDb = path.join(tempRoot, 'globalStorage', 'state.vscdb');
+        const workspaceStorageDir = path.join(tempRoot, 'workspaceStorage');
+        await mkdir(path.dirname(globalStateDb), { recursive: true });
+        await mkdir(workspaceStorageDir, { recursive: true });
+        await Bun.write(globalStateDb, 'not a sqlite database');
+
+        await expect(listQoderWorkspaceGroups(globalStateDb, workspaceStorageDir)).rejects.toThrow();
+    });
+
     afterEach(async () => {
         await Promise.all(tempRoots.splice(0).map((root) => rm(root, { force: true, recursive: true })));
     });
@@ -345,6 +357,15 @@ describe('qoder workspace discovery', () => {
         expect(await listQoderWorkspaceGroups(invalidDb, workspaceStorageDir)).toEqual([]);
     });
 
+    it('should classify Linux directory-open SQLite errors as unavailable global state', () => {
+        const error = Object.assign(new Error('disk I/O error'), { code: 'SQLITE_IOERR_READ', errno: 266 });
+
+        expect(isUnavailableQoderGlobalStateError(error)).toBe(true);
+        expect(
+            isUnavailableQoderGlobalStateError(Object.assign(new Error('corrupt'), { code: 'SQLITE_CORRUPT' })),
+        ).toBe(false);
+    });
+
     it('should warn and return empty sessions for corrupted Qoder workspace keys', async () => {
         const tempRoot = await makeTempRoot();
         const missingDb = path.join(tempRoot, 'missing.vscdb');
@@ -484,7 +505,9 @@ describe('qoder workspace discovery', () => {
         });
         expect(transcript?.entries[1]?.parts[0]?.text).toBe('Inspecting the code path.');
         expect(transcript?.entries[2]?.parts[0]?.text).toContain('Read\n{"file_path":"/tmp/file.ts"}');
+        expect(transcript?.entries[2]?.parts[0]?.raw).toMatchObject({ toolCallId: 'call-1', toolName: 'Read' });
         expect(transcript?.entries[3]?.parts[0]?.text).toBe('const value = 1;');
+        expect(transcript?.entries[3]?.parts[0]?.raw).toMatchObject({ toolCallId: 'call-1', toolName: 'Read' });
         expect(transcript?.entries[4]?.parts[0]?.text).toBe('Final answer: race on shared mutable state.');
         expect(transcript?.rawSession.sourceCliTranscriptPath).toContain('task-a.session.execution.jsonl');
     });

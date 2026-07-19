@@ -1,6 +1,7 @@
 import type { ThreadEvent } from '@spiracha/lib/codex-browser-types';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { DEFAULT_SETTINGS } from '#/lib/settings';
 import * as settingsStore from '#/lib/settings-store';
 
 const virtualizerCalls: Array<Record<string, unknown>> = [];
@@ -744,6 +745,7 @@ describe('TranscriptView', () => {
         vi.spyOn(settingsStore, 'useSettings').mockReturnValue({
             settings: {
                 convertToProjectRoot: true,
+                exportDefaults: DEFAULT_SETTINGS.exportDefaults,
                 redactUsername: true,
             },
             updateSetting: vi.fn(),
@@ -786,6 +788,7 @@ describe('TranscriptView', () => {
         vi.spyOn(settingsStore, 'useSettings').mockReturnValue({
             settings: {
                 convertToProjectRoot: true,
+                exportDefaults: DEFAULT_SETTINGS.exportDefaults,
                 redactUsername: true,
             },
             updateSetting: vi.fn(),

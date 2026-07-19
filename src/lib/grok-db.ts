@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { chmod, readdir, rename, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { createConcurrencyLimiter, mapWithConcurrency } from './concurrency';
 import {
     type GrokSessionSummary,
@@ -12,15 +13,16 @@ import {
     resolveGrokHome,
     resolveGrokSessionsDir,
 } from './grok-exporter-types';
+import { getPortablePathBasename } from './portable-path';
 import {
     asNumber,
     asObject,
     asString,
     cleanExtractedText,
     cleanInlineTitle,
-    getPortablePathBasename,
     isWorkspacePathQuery,
     type JsonValue,
+    readDirectoryEntriesIfExists,
     readJsonlObjects,
     workspacePathMatchesQuery,
 } from './shared';
@@ -151,7 +153,7 @@ const readJsonObjectFile = async (filePath: string): Promise<Record<string, Json
 };
 
 const listJsonFiles = async (dirPath: string): Promise<string[]> => {
-    const entries = await readdir(dirPath, { withFileTypes: true }).catch(() => []);
+    const entries = await readDirectoryEntriesIfExists(dirPath);
     return entries
         .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
         .map((entry) => path.join(dirPath, entry.name))
@@ -253,7 +255,7 @@ const parseAssistantParts = (
     includeRawPayloads: boolean,
 ): GrokTranscriptPart[] => {
     const parts: GrokTranscriptPart[] = [];
-    const text = asString(raw.content ?? null) ?? '';
+    const text = textFromContentValue(raw.content);
     if (text.trim()) {
         parts.push({
             partId: `${entryId}:text`,
@@ -398,41 +400,73 @@ const readGrokChatHistory = async (
     }
 
     const requestFiles = await listJsonFiles(path.join(sessionDir, 'compaction_requests'));
-    const archivedHistory = (
+    const archivedHistories = (
         await Promise.all(
             requestFiles.map(async (filePath) => {
                 const request = await readJsonObjectFile(filePath);
-                return getJsonObjectList(request?.chat_history);
+                return {
+                    createdAtMs: parseTimestampMs(request?.created_at) ?? 0,
+                    events: getJsonObjectList(request?.chat_history),
+                    filePath,
+                };
             }),
         )
     )
-        .filter((history) => history.length > 0)
-        .sort((left, right) => right.length - left.length)[0];
+        .filter((history) => history.events.length > 0)
+        .sort((left, right) => left.createdAtMs - right.createdAtMs || left.filePath.localeCompare(right.filePath));
 
-    if (!archivedHistory) {
+    if (archivedHistories.length === 0) {
         return liveEvents;
     }
 
     const checkpointFiles = await listJsonFiles(path.join(sessionDir, 'compaction_checkpoints'));
-    const latestCheckpoint = (
+    const checkpoints = (
         await Promise.all(
             checkpointFiles.map(async (filePath) => {
                 const checkpoint = await readJsonObjectFile(filePath);
                 return {
                     compactedHistory: getJsonObjectList(checkpoint?.compacted_history),
                     createdAtMs: parseTimestampMs(checkpoint?.created_at) ?? 0,
+                    filePath,
                     promptIndex: asNumber(checkpoint?.prompt_index_at_compaction ?? null),
                 };
             }),
         )
-    ).sort((left, right) => right.createdAtMs - left.createdAtMs)[0];
+    ).sort((left, right) => left.createdAtMs - right.createdAtMs || left.filePath.localeCompare(right.filePath));
 
-    const compactedHistoryIsLivePrefix = latestCheckpoint?.compactedHistory.every(
-        (event, index) => JSON.stringify(event) === JSON.stringify(liveEvents[index]),
-    );
+    const isHistoryPrefix = (prefix: Record<string, JsonValue>[], history: Record<string, JsonValue>[]): boolean => {
+        return (
+            prefix.length > 0 &&
+            prefix.length <= history.length &&
+            prefix.every((event, index) => isDeepStrictEqual(event, history[index]))
+        );
+    };
+
+    let archivedHistory = [...archivedHistories[0]!.events];
+    for (const history of archivedHistories.slice(1)) {
+        const precedingCheckpoint = checkpoints
+            .filter(
+                (checkpoint) =>
+                    checkpoint.createdAtMs <= history.createdAtMs &&
+                    isHistoryPrefix(checkpoint.compactedHistory, history.events),
+            )
+            .at(-1);
+        if (precedingCheckpoint) {
+            archivedHistory.push(...history.events.slice(precedingCheckpoint.compactedHistory.length));
+        } else if (isHistoryPrefix(archivedHistory, history.events)) {
+            archivedHistory = [...history.events];
+        }
+    }
+
+    const latestCheckpoint = checkpoints.at(-1);
+
+    const compactedHistoryIsLivePrefix = isHistoryPrefix(latestCheckpoint?.compactedHistory ?? [], liveEvents);
+    const archivedHistoryIsLivePrefix = isHistoryPrefix(archivedHistory, liveEvents);
     const liveTailStart = compactedHistoryIsLivePrefix
         ? latestCheckpoint?.compactedHistory.length
-        : latestCheckpoint?.promptIndex;
+        : archivedHistoryIsLivePrefix
+          ? archivedHistory.length
+          : latestCheckpoint?.promptIndex;
     const liveTail = Number.isFinite(liveTailStart)
         ? liveEvents.slice(Math.max(0, Math.min(liveEvents.length, Math.floor(liveTailStart ?? 0))))
         : liveEvents;
@@ -662,23 +696,17 @@ const listSessionDirectoriesUnderWorkspace = async (
     root: string,
     directoryName: string,
 ): Promise<GrokSessionDirectory[]> => {
-    const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
-    const directories: GrokSessionDirectory[] = [];
-
-    for (const entry of entries) {
-        if (!entry.isDirectory()) {
-            continue;
-        }
-
-        const entryPath = path.join(root, entry.name);
-        if (
-            (await pathExists(path.join(entryPath, 'summary.json'))) &&
-            (await pathExists(path.join(entryPath, 'chat_history.jsonl')))
-        ) {
-            directories.push({ directoryName, sessionDir: entryPath });
-        }
-        directories.push(...(await listSessionDirectoriesUnderWorkspace(entryPath, directoryName)));
-    }
+    const entries = await readDirectoryEntriesIfExists(root);
+    const fileNames = new Set(entries.filter((entry) => entry.isFile()).map((entry) => entry.name));
+    const isSessionDirectory = fileNames.has('summary.json') && fileNames.has('chat_history.jsonl');
+    const childDirectories = entries.filter(
+        (entry) => entry.isDirectory() && (!isSessionDirectory || entry.name === 'subagents'),
+    );
+    const nested = await mapWithConcurrency(childDirectories, READ_CONCURRENCY, (entry) =>
+        listSessionDirectoriesUnderWorkspace(path.join(root, entry.name), directoryName),
+    );
+    const directories: GrokSessionDirectory[] = isSessionDirectory ? [{ directoryName, sessionDir: root }] : [];
+    directories.push(...nested.flat());
 
     return directories.sort((left, right) => left.sessionDir.localeCompare(right.sessionDir));
 };
@@ -818,6 +846,14 @@ export const listGrokSessionsForGroup = async (
     workspaceKey: string,
     sessionsDir = resolveGrokSessionsDir(),
 ): Promise<GrokSessionSummary[]> => {
+    const transcripts = await listGrokSessionTranscriptsForGroup(workspaceKey, sessionsDir);
+    return sortSessions(transcripts.map((transcript) => transcript.session));
+};
+
+export const listGrokSessionTranscriptsForGroup = async (
+    workspaceKey: string,
+    sessionsDir = resolveGrokSessionsDir(),
+): Promise<GrokSessionTranscript[]> => {
     const directoryName = getDirectoryNameFromWorkspaceKey(workspaceKey);
     if (!directoryName || !(await pathExists(sessionsDir))) {
         return [];
@@ -825,7 +861,13 @@ export const listGrokSessionsForGroup = async (
 
     const files = await listSessionDirectoriesForWorkspace(sessionsDir, directoryName);
     const transcripts = await readSessionDirectories(sessionsDir, files);
-    return sortSessions(transcripts.filter(hasConversationMessages).map((transcript) => transcript.session));
+    return transcripts
+        .filter(hasConversationMessages)
+        .sort(
+            (left, right) =>
+                compareNullableMsDesc(left.session.lastActiveAtMs, right.session.lastActiveAtMs) ||
+                left.session.title.localeCompare(right.session.title),
+        );
 };
 
 const locateSessionDirectory = async (sessionsDir: string, sessionId: string): Promise<GrokSessionDirectory | null> => {
@@ -844,7 +886,7 @@ const locateSessionDirectory = async (sessionsDir: string, sessionId: string): P
 };
 
 const listFilesRecursively = async (root: string): Promise<string[]> => {
-    const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
+    const entries = await readDirectoryEntriesIfExists(root);
     const files: string[] = [];
 
     for (const entry of entries) {
@@ -863,7 +905,7 @@ const listFilesRecursively = async (root: string): Promise<string[]> => {
 };
 
 const listDirectoriesRecursively = async (root: string): Promise<string[]> => {
-    const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
+    const entries = await readDirectoryEntriesIfExists(root);
     const directories: string[] = [];
 
     for (const entry of entries) {

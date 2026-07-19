@@ -2,6 +2,7 @@ import type { ProjectSummary } from '@spiracha/lib/codex-browser-types';
 import { Link } from '@tanstack/react-router';
 import { createColumnHelper } from '@tanstack/react-table';
 import { MoreHorizontal, Trash2 } from 'lucide-react';
+import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
 import { Button } from '#/components/ui/button';
 import {
@@ -71,6 +72,7 @@ const columns = (onDeleteProject: (project: ProjectSummary) => void) =>
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                         <Button
+                            aria-label={`Actions for ${info.row.original.name}`}
                             className="rounded-full"
                             size="icon"
                             type="button"
@@ -97,9 +99,10 @@ const columns = (onDeleteProject: (project: ProjectSummary) => void) =>
     ] as const;
 
 export function ProjectsTable({ projects, onDeleteProject }: ProjectsTableProps) {
+    const memoizedColumns = useMemo(() => columns(onDeleteProject), [onDeleteProject]);
     return (
         <DataTable
-            columns={columns(onDeleteProject)}
+            columns={memoizedColumns}
             data={projects}
             emptyMessage="No projects match the current search."
             initialSorting={[{ desc: true, id: 'lastUpdatedAtMs' }]}

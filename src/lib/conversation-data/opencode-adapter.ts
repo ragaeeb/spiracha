@@ -1,3 +1,4 @@
+import { mapWithConcurrency } from '../concurrency';
 import {
     deleteOpenCodeSession,
     listOpenCodeSessionsForGroup,
@@ -15,9 +16,11 @@ import { getFinalOpenCodeAssistantTextPartIds, getOpenCodeTextPartPhase } from '
 import { cleanInlineTitle } from '../shared';
 import { runWithTranscriptLoadLimit } from '../transcript-load-limiter';
 import {
+    createConversationUiPath,
     createDeepLinks,
     createTextMessage,
     finalizeMessages,
+    isWithinUpdatedWindow,
     normalizeAssistantPhase,
     normalizeRole,
 } from './adapter-helpers';
@@ -33,6 +36,8 @@ import type {
     ListConversationsForPathOptions,
 } from './types';
 
+const OPENCODE_CONVERSATION_HYDRATION_CONCURRENCY = 4;
+
 const getDbPath = (options: { locations?: { opencodeDbPath?: string } }) =>
     options.locations?.opencodeDbPath ?? resolveOpenCodeDbPath();
 
@@ -41,7 +46,10 @@ const textPartToMessages = (
     finalTextPartIds: Set<string>,
     order: number,
 ): ConversationMessage[] => {
-    const split = splitOpenCodeThinkTaggedText(part.text ?? '');
+    const split =
+        part.role === 'assistant'
+            ? splitOpenCodeThinkTaggedText(part.text ?? '')
+            : { reasoningBlocks: [], visibleText: part.text ?? '' };
     return [
         ...createTextMessage({
             createdAtMs: part.createdAtMs,
@@ -83,15 +91,27 @@ const partToMessages = (
     }
 
     if (part.type === 'tool') {
-        return createTextMessage({
-            createdAtMs: part.createdAtMs,
-            id: part.partId,
-            metadata: { callId: part.callId, status: part.status, toolName: part.toolName },
-            order,
-            phase: part.outputText ? 'tool_output' : 'tool_call',
-            role: 'tool',
-            text: part.outputText ?? part.argumentsText ?? part.title ?? part.toolName,
-        });
+        const metadata = { callId: part.callId, status: part.status, toolName: part.toolName };
+        return [
+            ...createTextMessage({
+                createdAtMs: part.createdAtMs,
+                id: `${part.partId}:tool_call`,
+                metadata,
+                order,
+                phase: 'tool_call',
+                role: 'tool',
+                text: [part.toolName, part.argumentsText ?? part.title].filter(Boolean).join('\n'),
+            }),
+            ...createTextMessage({
+                createdAtMs: part.createdAtMs,
+                id: `${part.partId}:tool_output`,
+                metadata,
+                order,
+                phase: 'tool_output',
+                role: 'tool',
+                text: part.outputText,
+            }),
+        ];
     }
 
     return [];
@@ -126,7 +146,11 @@ const buildConversation = async (
 
     return {
         createdAtMs: session.createdAtMs,
-        deepLinks: createDeepLinks('opencode', session.sessionId, `/opencode-sessions/${session.sessionId}`),
+        deepLinks: createDeepLinks(
+            'opencode',
+            session.sessionId,
+            createConversationUiPath('opencode-sessions', session.sessionId),
+        ),
         id: session.sessionId,
         matches,
         messageCount: options.includeMessages ? allMessages.length : session.messageCount,
@@ -156,10 +180,14 @@ const listOpenCodeConversationsForPath = async (options: ListConversationsForPat
         if (!match) {
             continue;
         }
-        const sessions = await listOpenCodeSessionsForGroup(group.key, dbPath);
-        for (const session of sessions) {
-            conversations.push(await buildConversation(session, dbPath, [match], options));
-        }
+        const sessions = (await listOpenCodeSessionsForGroup(group.key, dbPath)).filter((session) =>
+            isWithinUpdatedWindow(session.lastUpdatedAtMs, options),
+        );
+        conversations.push(
+            ...(await mapWithConcurrency(sessions, OPENCODE_CONVERSATION_HYDRATION_CONCURRENCY, (session) =>
+                buildConversation(session, dbPath, [match], options),
+            )),
+        );
     }
 
     return conversations;

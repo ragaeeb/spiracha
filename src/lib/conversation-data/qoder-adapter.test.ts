@@ -146,11 +146,21 @@ describe('qoder conversation adapter', () => {
                 text: 'Inspecting shared mutable state.',
             }),
             expect.objectContaining({
+                metadata: {
+                    requestId: null,
+                    toolCallId: 'call-1',
+                    toolName: 'Read',
+                },
                 phase: 'tool_call',
                 role: 'tool',
                 text: 'Read\n{"file_path":"src/index.ts"}',
             }),
             expect.objectContaining({
+                metadata: {
+                    requestId: null,
+                    toolCallId: 'call-1',
+                    toolName: 'Read',
+                },
                 phase: 'tool_output',
                 role: 'tool',
                 text: 'const shared = {};',

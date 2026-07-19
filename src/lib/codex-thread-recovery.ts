@@ -1,8 +1,8 @@
 import { Database } from 'bun:sqlite';
-import { copyFile, utimes } from 'node:fs/promises';
+import { copyFile, readdir, rm, utimes } from 'node:fs/promises';
 import path from 'node:path';
 import type { RecoverProjectThreadsResult } from './codex-browser-types';
-import { getPortablePathBasename } from './shared';
+import { getPortablePathBasename } from './portable-path';
 import { runWithSqliteRetry } from './sqlite-retry';
 
 type RecoveryThreadRow = {
@@ -18,6 +18,8 @@ type GlobalState = {
     'project-order'?: string[];
 };
 
+const RECOVERY_BACKUP_RETENTION_COUNT = 5;
+
 const backupFile = async (filePath: string, label: string) => {
     const stamp = new Date()
         .toISOString()
@@ -26,6 +28,14 @@ const backupFile = async (filePath: string, label: string) => {
         .replace('T', '-');
     const backupPath = `${filePath}.bak-${label}-${stamp}`;
     await copyFile(filePath, backupPath);
+    const directory = path.dirname(filePath);
+    const prefix = `${path.basename(filePath)}.bak-${label}-`;
+    const backups = (await readdir(directory))
+        .filter((entry) => entry.startsWith(prefix))
+        .sort((left, right) => right.localeCompare(left));
+    await Promise.all(
+        backups.slice(RECOVERY_BACKUP_RETENTION_COUNT).map((entry) => rm(path.join(directory, entry), { force: true })),
+    );
     return backupPath;
 };
 
@@ -100,9 +110,9 @@ const refreshThreadRows = (db: Database, threadIds: string[]) => {
     return Number(result.changes);
 };
 
-const refreshSessionIndex = async (sessionIndexPath: string, threadIds: string[]) => {
+const prepareSessionIndexRefresh = async (sessionIndexPath: string, threadIds: string[]) => {
     if (threadIds.length === 0) {
-        return 0;
+        return { content: null, updated: 0 };
     }
 
     const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
@@ -116,7 +126,19 @@ const refreshSessionIndex = async (sessionIndexPath: string, threadIds: string[]
             continue;
         }
 
-        const parsed = JSON.parse(line) as { id?: string; updated_at?: string };
+        let parsed: { id?: string; updated_at?: string };
+        try {
+            const value: unknown = JSON.parse(line);
+            if (!value || typeof value !== 'object' || Array.isArray(value)) {
+                rewrittenLines.push(line);
+                continue;
+            }
+            parsed = value as { id?: string; updated_at?: string };
+        } catch {
+            rewrittenLines.push(line);
+            continue;
+        }
+
         if (parsed.id && threadIdSet.has(parsed.id)) {
             parsed.updated_at = now;
             updated += 1;
@@ -125,8 +147,10 @@ const refreshSessionIndex = async (sessionIndexPath: string, threadIds: string[]
         rewrittenLines.push(JSON.stringify(parsed));
     }
 
-    await Bun.write(sessionIndexPath, `${rewrittenLines.join('\n')}\n`);
-    return updated;
+    return {
+        content: `${rewrittenLines.join('\n')}\n`,
+        updated,
+    };
 };
 
 const touchRolloutFiles = async (codexDir: string, rolloutPaths: string[]) => {
@@ -177,12 +201,15 @@ export const recoverCodexProjectThreads = async (
         const topLevelThreads = getProjectTopLevelThreads(db, projectName);
         const projectCwds = [...new Set(topLevelThreads.map((thread) => thread.cwd))];
         const rootUpdateResult = updateGlobalRoots(globalState, projectCwds);
-        await writeGlobalState(globalStatePath, rootUpdateResult.state);
-
         const threadIds = topLevelThreads.map((thread) => thread.id);
         const rolloutPaths = topLevelThreads.map((thread) => thread.rollout_path);
+        const sessionIndexRefresh = await prepareSessionIndexRefresh(sessionIndexPath, threadIds);
+
+        await writeGlobalState(globalStatePath, rootUpdateResult.state);
         const threadDbRowsUpdated = refreshThreadRows(db, threadIds);
-        const sessionIndexRowsUpdated = await refreshSessionIndex(sessionIndexPath, threadIds);
+        if (sessionIndexRefresh.content !== null) {
+            await Bun.write(sessionIndexPath, sessionIndexRefresh.content);
+        }
         const rolloutFilesTouched = await touchRolloutFiles(codexDir, rolloutPaths);
 
         return {
@@ -192,7 +219,7 @@ export const recoverCodexProjectThreads = async (
             resolvedCwds: projectCwds,
             rolloutFilesTouched,
             savedRootsAdded: rootUpdateResult.savedRootsAdded,
-            sessionIndexRowsUpdated,
+            sessionIndexRowsUpdated: sessionIndexRefresh.updated,
             threadDbRowsUpdated,
             topLevelThreadsFound: threadIds.length,
         };

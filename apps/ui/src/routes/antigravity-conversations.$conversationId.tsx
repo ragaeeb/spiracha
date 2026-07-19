@@ -5,12 +5,13 @@ import { useMemo, useState } from 'react';
 import { AntigravityKeychainPanel } from '#/components/antigravity-keychain-panel';
 import { Breadcrumbs } from '#/components/breadcrumbs';
 import { DeleteConfirmDialog } from '#/components/delete-confirm-dialog';
+import { ExportDialog } from '#/components/export-dialog';
 import { JsonPanel } from '#/components/json-panel';
 import { LoadingPanel } from '#/components/loading-panel';
 import { MetadataSection } from '#/components/metadata-section';
 import { MetricCard } from '#/components/metric-card';
 import { PageHeader } from '#/components/page-header';
-import { ReloadErrorPanel } from '#/components/reload-error-panel';
+import { RouteErrorPanel } from '#/components/route-error-panel';
 import { TextDocumentPanel } from '#/components/text-document-panel';
 import { DEFAULT_SHOW_USER_MESSAGES, TranscriptView } from '#/components/transcript-view';
 import { Button } from '#/components/ui/button';
@@ -20,6 +21,7 @@ import { canExportAntigravityConversation } from '#/lib/antigravity-conversation
 import {
     antigravityConversationDetailQueryOptions,
     antigravityDecryptionQueryOptions,
+    antigravityWorkspacesQueryOptions,
 } from '#/lib/antigravity-queries';
 import {
     deleteAntigravityConversationFn,
@@ -31,8 +33,11 @@ import {
     antigravityMarkdownToThreadEvents,
     getAntigravityThreadTranscriptStats,
 } from '#/lib/antigravity-transcript-events';
-import { downloadTextFile } from '#/lib/download';
-import { formatBytes, formatDateTime, formatNumber } from '#/lib/formatters';
+import { downloadTextFile, downloadUrlFile } from '#/lib/download';
+import type { ExportDialogOptions } from '#/lib/export-options';
+import { formatBytes, formatDateTime, formatList, formatNumber } from '#/lib/formatters';
+import { RouteStateResetBoundary } from '#/lib/route-state-reset';
+import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
 type AntigravityConversationDetail = Awaited<ReturnType<typeof getAntigravityConversationDetailFn>>;
 
@@ -97,7 +102,7 @@ const buildTranscriptStatsItems = (
 
     const stats = getAntigravityThreadTranscriptStats(events);
     return [
-        { label: 'Event kinds', value: [...new Set(events.map((event) => event.kind))].join(', ') || 'n/a' },
+        { label: 'Event kinds', value: formatList([...new Set(events.map((event) => event.kind))]) },
         { label: 'Messages', value: formatNumber(stats.messageCount) },
         { label: 'User messages', value: formatNumber(stats.userMessageCount) },
         { label: 'Assistant messages', value: formatNumber(stats.assistantMessageCount) },
@@ -117,7 +122,14 @@ const getConversationSizeLabel = (detail: AntigravityConversationDetail): string
 };
 
 export const Route = createFileRoute('/antigravity-conversations/$conversationId')({
-    component: AntigravityConversationDetailPage,
+    component: () => {
+        const { conversationId } = Route.useParams();
+        return (
+            <RouteStateResetBoundary routeKey={conversationId}>
+                <AntigravityConversationDetailPage />
+            </RouteStateResetBoundary>
+        );
+    },
     errorComponent: AntigravityConversationDetailErrorComponent,
     loader: async ({ context, params }) => {
         await Promise.all([
@@ -134,7 +146,7 @@ export const Route = createFileRoute('/antigravity-conversations/$conversationId
 });
 
 function AntigravityConversationDetailErrorComponent({ error }: { error: Error }) {
-    return <ReloadErrorPanel description={error.message} title="Failed to load Antigravity conversation" />;
+    return <RouteErrorPanel error={error} title="Failed to load Antigravity conversation" />;
 }
 
 function AntigravityConversationHeaderActions({
@@ -307,6 +319,7 @@ function AntigravityConversationDetailPage() {
     const decryptionState = useSuspenseQuery(antigravityDecryptionQueryOptions()).data;
     const detail = useSuspenseQuery(antigravityConversationDetailQueryOptions(Route.useParams().conversationId)).data;
     const [deleteOpen, setDeleteOpen] = useState(false);
+    const [exportOpen, setExportOpen] = useState(false);
     const [showToolCalls, setShowToolCalls] = useState(false);
     const [showCommentary, setShowCommentary] = useState(false);
     const [showExtraEvents, setShowExtraEvents] = useState(false);
@@ -324,10 +337,26 @@ function AntigravityConversationDetailPage() {
     const showConversationExport = canExportConversation || detail.transcriptLocked;
 
     const exportConversationMutation = useMutation({
-        mutationFn: () =>
-            exportAntigravityConversationFn({ data: { conversationId: detail.conversation.conversationId } }),
-        onSuccess: (result) => {
-            downloadTextFile(result.filename, result.content, 'text/markdown; charset=utf-8');
+        mutationFn: async (options: ExportDialogOptions) => {
+            const download = await exportAntigravityConversationFn({
+                data: {
+                    conversationId: detail.conversation.conversationId,
+                    includeCommentary: options.includeCommentary,
+                    includeMetadata: options.includeMetadata,
+                    includeTools: options.includeTools,
+                    outputFormat: options.outputFormat,
+                    zipArchive: options.zipArchive,
+                },
+            });
+            if (download.mode === 'download') {
+                downloadTextFile(download.fileName, download.content, download.mimeType);
+                return;
+            }
+
+            await downloadUrlFile(download.fileName, download.downloadUrl);
+        },
+        onSuccess: () => {
+            setExportOpen(false);
         },
     });
 
@@ -352,6 +381,17 @@ function AntigravityConversationDetailPage() {
                     queryKey: ['antigravity-conversation', detail.conversation.conversationId],
                 }),
             ]);
+            const workspaces = await queryClient.fetchQuery(antigravityWorkspacesQueryOptions());
+            if (
+                shouldNavigateToSourceIndexAfterDelete(
+                    workspaces,
+                    detail.conversationGroup.key,
+                    (workspace) => workspace.key,
+                )
+            ) {
+                navigate({ to: '/antigravity' });
+                return;
+            }
             navigate({
                 params: { workspaceKey: detail.conversationGroup.key },
                 to: '/antigravity/$workspaceKey',
@@ -371,7 +411,7 @@ function AntigravityConversationDetailPage() {
                         showConversationExport={showConversationExport}
                         onDeleteConversation={() => setDeleteOpen(true)}
                         onExportArtifacts={() => exportArtifactsMutation.mutate()}
-                        onExportConversation={() => exportConversationMutation.mutate()}
+                        onExportConversation={() => setExportOpen(true)}
                     />
                 }
                 breadcrumb={
@@ -463,14 +503,6 @@ function AntigravityConversationDetailPage() {
                 </TabsContent>
             </Tabs>
 
-            {exportConversationMutation.isError ? (
-                <p className="text-[var(--destructive)] text-sm">
-                    {exportConversationMutation.error instanceof Error
-                        ? exportConversationMutation.error.message
-                        : 'Conversation export failed'}
-                </p>
-            ) : null}
-
             {exportArtifactsMutation.isError ? (
                 <p className="text-[var(--destructive)] text-sm">
                     {exportArtifactsMutation.error instanceof Error
@@ -478,6 +510,28 @@ function AntigravityConversationDetailPage() {
                         : 'Artifact export failed'}
                 </p>
             ) : null}
+
+            <ExportDialog
+                errorMessage={
+                    exportConversationMutation.isError
+                        ? exportConversationMutation.error instanceof Error
+                            ? exportConversationMutation.error.message
+                            : 'Conversation export failed'
+                        : null
+                }
+                open={exportOpen}
+                pending={exportConversationMutation.isPending}
+                showCommentaryOption={detail.conversation.transcriptSource !== 'safe-storage'}
+                showToolsOption={detail.conversation.transcriptSource !== 'safe-storage'}
+                title={`Export ${detail.conversation.title}`}
+                onExport={(options) => exportConversationMutation.mutate(options)}
+                onOpenChange={(open) => {
+                    setExportOpen(open);
+                    if (!open) {
+                        exportConversationMutation.reset();
+                    }
+                }}
+            />
 
             <DeleteConfirmDialog
                 confirmLabel={deleteConversationMutation.isPending ? 'Deleting...' : 'Delete conversation'}

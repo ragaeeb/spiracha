@@ -1,9 +1,10 @@
 import { createReadStream, createWriteStream } from 'node:fs';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readdir, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { finished } from 'node:stream/promises';
+import { pathToFileURL } from 'node:url';
 import { formatModelLabel as formatSharedModelLabel } from './model-label';
 
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
@@ -17,6 +18,19 @@ export type MetadataEntry = {
 
 export class CliUsageError extends Error {}
 
+export const readDirectoryEntriesIfExists = async (directoryPath: string) => {
+    try {
+        return await readdir(directoryPath, { withFileTypes: true });
+    } catch (error) {
+        if ((error as { code?: unknown }).code === 'ENOENT') {
+            return [];
+        }
+        throw error;
+    }
+};
+
+export const toFileUri = (filePath: string): string => pathToFileURL(filePath).href;
+
 export const expandHome = (value: string): string => {
     if (!value) {
         return value;
@@ -26,20 +40,26 @@ export const expandHome = (value: string): string => {
         return os.homedir();
     }
 
-    if (value.startsWith('~/')) {
-        return path.join(os.homedir(), value.slice(2));
+    if (value.startsWith('~/') || value.startsWith('~\\')) {
+        return path.join(
+            os.homedir(),
+            ...value
+                .slice(2)
+                .split(/[\\/]+/u)
+                .filter(Boolean),
+        );
     }
 
     return value;
 };
 
-export const getPortablePathBasename = (value: string): string => {
-    const trimmed = value.replace(/[\\/]+$/u, '');
-    if (!trimmed) {
-        return '';
+export const pathExists = async (target: string): Promise<boolean> => {
+    try {
+        await stat(target);
+        return true;
+    } catch {
+        return false;
     }
-
-    return path.win32.basename(path.posix.basename(trimmed));
 };
 
 export const isWorkspacePathQuery = (value: string): boolean => {
@@ -128,6 +148,7 @@ export const readJsonlObjects = (filePath: string): AsyncIterableIterator<Record
     });
     const lineIterator = lines[Symbol.asyncIterator]();
     let closed = false;
+    let lineNumber = 0;
 
     const close = () => {
         if (closed) {
@@ -147,17 +168,27 @@ export const readJsonlObjects = (filePath: string): AsyncIterableIterator<Record
                 return { done: true, value: undefined as never };
             }
 
+            lineNumber += 1;
             const trimmed = nextLine.value.trim();
             if (!trimmed) {
                 continue;
             }
 
             try {
+                const parsed = JSON.parse(trimmed) as JsonValue;
+                const object = asObject(parsed);
+                if (!object) {
+                    console.warn('[spiracha:jsonl] invalid_json_line', { filePath, lineNumber });
+                    continue;
+                }
+
                 return {
                     done: false,
-                    value: JSON.parse(trimmed) as Record<string, JsonValue>,
+                    value: object,
                 };
-            } catch {}
+            } catch {
+                console.warn('[spiracha:jsonl] invalid_json_line', { filePath, lineNumber });
+            }
         }
     };
 
@@ -225,7 +256,8 @@ export const renderSection = (title: string, body: string, format: ExportFormat)
 
 export const renderCodeBlock = (text: string, format: ExportFormat): string => {
     if (format === 'md') {
-        return `\`\`\`text\n${text}\n\`\`\``;
+        const fence = getBacktickFence(text, 3);
+        return `${fence}text\n${text}\n${fence}`;
     }
 
     return text;
@@ -235,10 +267,14 @@ export const formatInlineLiteral = (value: string, format: ExportFormat): string
     return format === 'md' ? inlineCode(value) : value;
 };
 
-export const inlineCode = (value: string): string => {
-    const backtickRuns = value.match(/`+/g) ?? [];
+const getBacktickFence = (value: string, minimumLength: number): string => {
+    const backtickRuns = value.match(/`+/gu) ?? [];
     const maxRunLength = backtickRuns.reduce((max, run) => Math.max(max, run.length), 0);
-    const fence = '`'.repeat(maxRunLength + 1);
+    return '`'.repeat(Math.max(minimumLength, maxRunLength + 1));
+};
+
+export const inlineCode = (value: string): string => {
+    const fence = getBacktickFence(value, 1);
     const padded = value.startsWith('`') || value.endsWith('`') ? ` ${value} ` : value;
     return `${fence}${padded}${fence}`;
 };

@@ -6,14 +6,9 @@ import type { CodexTranscriptRenderOptions } from './codex-thread-types';
 import { renderCodexSessionFile, writeCodexSessionFileExport } from './codex-transcript-renderer';
 import { applyPathTransforms, type PathDisplaySettings } from './path-transforms';
 import type { ExportFormat } from './shared';
-import {
-    buildBatchExportBaseName,
-    buildConversationExportBaseName,
-    getExportMimeType,
-    zipExportDirectory,
-    zipExportFile,
-} from './ui-export-archive';
+import { buildBatchExportBaseName, buildConversationExportBaseName, getExportMimeType } from './ui-export-archive';
 import { buildUiExportDownloadUrl, ensureUiExportDir } from './ui-export-files';
+import { zipExportDirectory, zipExportFile } from './ui-export-zip';
 
 type RenderCodexThreadDownloadInput = {
     dbPath: string;

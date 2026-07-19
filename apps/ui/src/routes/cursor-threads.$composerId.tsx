@@ -11,26 +11,21 @@ import { LoadingPanel } from '#/components/loading-panel';
 import { MetadataSection } from '#/components/metadata-section';
 import { MetricCard } from '#/components/metric-card';
 import { PageHeader } from '#/components/page-header';
-import { ReloadErrorPanel } from '#/components/reload-error-panel';
+import { RouteErrorPanel } from '#/components/route-error-panel';
 import { DEFAULT_SHOW_USER_MESSAGES, TranscriptView } from '#/components/transcript-view';
 import { Button } from '#/components/ui/button';
 import { Checkbox } from '#/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
-import { cursorThreadDetailQueryOptions } from '#/lib/cursor-queries';
+import { cursorThreadDetailQueryOptions, cursorWorkspacesQueryOptions } from '#/lib/cursor-queries';
 import { deleteCursorThreadsFn, exportCursorThreadFn, type getCursorThreadDetailFn } from '#/lib/cursor-server';
 import { cursorTranscriptToThreadEvents, getCursorThreadTranscriptStats } from '#/lib/cursor-transcript-events';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
+import type { ExportDialogOptions } from '#/lib/export-options';
 import { formatBytes, formatDateTime, formatList, formatNumber } from '#/lib/formatters';
+import { RouteStateResetBoundary } from '#/lib/route-state-reset';
+import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
 type CursorThreadDetail = Awaited<ReturnType<typeof getCursorThreadDetailFn>>;
-
-type ExportDialogOptions = {
-    includeCommentary: boolean;
-    includeMetadata: boolean;
-    includeTools: boolean;
-    outputFormat: 'md' | 'txt';
-    zipArchive: boolean;
-};
 
 type TranscriptControlsProps = {
     rawJsonDisabled?: boolean;
@@ -208,7 +203,7 @@ const CursorThreadRawPanels = ({ detail, events }: { detail: CursorThreadDetail;
 };
 
 const CursorThreadDetailErrorComponent = ({ error }: { error: Error }) => {
-    return <ReloadErrorPanel description={error.message} title="Failed to load Cursor thread" />;
+    return <RouteErrorPanel error={error} title="Failed to load Cursor thread" />;
 };
 
 const CursorThreadDetailPage = () => {
@@ -231,15 +226,26 @@ const CursorThreadDetailPage = () => {
     const deleteThreadMutation = useMutation({
         mutationFn: () => deleteCursorThreadsFn({ data: { composerIds: [detail.thread.composerId] } }),
         onSuccess: async () => {
-            await navigate({
-                params: { workspaceKey: detail.thread.workspaceKey },
-                to: '/cursor/$workspaceKey',
-            });
             await Promise.all([
                 queryClient.invalidateQueries({ queryKey: ['cursor-thread', detail.thread.composerId] }),
                 queryClient.invalidateQueries({ queryKey: ['cursor-threads', detail.thread.workspaceKey] }),
                 queryClient.invalidateQueries({ queryKey: ['cursor-workspaces'] }),
             ]);
+            const workspaces = await queryClient.fetchQuery(cursorWorkspacesQueryOptions());
+            if (
+                shouldNavigateToSourceIndexAfterDelete(
+                    workspaces,
+                    detail.thread.workspaceKey,
+                    (workspace) => workspace.key,
+                )
+            ) {
+                await navigate({ to: '/cursor' });
+                return;
+            }
+            await navigate({
+                params: { workspaceKey: detail.thread.workspaceKey },
+                to: '/cursor/$workspaceKey',
+            });
         },
     });
 
@@ -422,7 +428,14 @@ const CursorThreadDetailPage = () => {
 };
 
 export const Route = createFileRoute('/cursor-threads/$composerId')({
-    component: CursorThreadDetailPage,
+    component: () => {
+        const { composerId } = Route.useParams();
+        return (
+            <RouteStateResetBoundary routeKey={composerId}>
+                <CursorThreadDetailPage />
+            </RouteStateResetBoundary>
+        );
+    },
     errorComponent: CursorThreadDetailErrorComponent,
     loader: ({ context, params }) =>
         context.queryClient.ensureQueryData(cursorThreadDetailQueryOptions(params.composerId)),

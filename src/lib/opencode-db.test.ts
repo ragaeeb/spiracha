@@ -1,5 +1,5 @@
 import { Database } from 'bun:sqlite';
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import { chmod, mkdir, mkdtemp, readdir, rm, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -18,8 +18,14 @@ import {
 import { createOpenCodeFixture } from './opencode-test-helpers';
 
 const tempDirs: string[] = [];
+const originalLogSetting = process.env.SPIRACHA_OPENCODE_DB_LOGS;
 
 afterEach(async () => {
+    if (originalLogSetting === undefined) {
+        delete process.env.SPIRACHA_OPENCODE_DB_LOGS;
+    } else {
+        process.env.SPIRACHA_OPENCODE_DB_LOGS = originalLogSetting;
+    }
     await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { force: true, recursive: true })));
 });
 
@@ -136,6 +142,24 @@ const createFixtureDb = async () => {
 };
 
 describe('opencode db helpers', () => {
+    it('should keep database diagnostics quiet unless explicitly enabled', async () => {
+        const dbPath = await createFixtureDb();
+        delete process.env.SPIRACHA_OPENCODE_DB_LOGS;
+        const infoSpy = spyOn(console, 'info').mockImplementation(() => undefined);
+
+        try {
+            await listOpenCodeWorkspaceGroups(dbPath);
+            expect(infoSpy).not.toHaveBeenCalled();
+
+            process.env.SPIRACHA_OPENCODE_DB_LOGS = '1';
+            await listOpenCodeWorkspaceGroups(dbPath);
+            expect(infoSpy).toHaveBeenCalledWith('[spiracha:opencode-db] start', expect.any(Object));
+            expect(infoSpy).toHaveBeenCalledWith('[spiracha:opencode-db] finish', expect.any(Object));
+        } finally {
+            infoSpy.mockRestore();
+        }
+    });
+
     it('should resolve the default XDG data directory', () => {
         expect(getDefaultOpenCodeDataDir({}, '/Users/alice')).toBe('/Users/alice/.local/share/opencode');
         expect(getDefaultOpenCodeDataDir({ XDG_DATA_HOME: '/tmp/xdg' }, '/Users/alice')).toBe('/tmp/xdg/opencode');
@@ -319,6 +343,51 @@ describe('opencode db helpers', () => {
             callId: 'call_read',
             outputText: 'file contents',
             status: 'completed',
+            toolName: 'read',
+            type: 'tool',
+        });
+    });
+
+    it('should preserve failed tool errors as tool output', async () => {
+        const dbPath = await makeDbPath();
+        await createOpenCodeFixture(dbPath, {
+            projects: [{ id: 'pro_error', worktree: '/repo' }],
+            sessions: [
+                {
+                    id: 'ses_error',
+                    messages: [
+                        {
+                            id: 'msg_assistant',
+                            parts: [
+                                {
+                                    data: {
+                                        callID: 'call_failed',
+                                        state: {
+                                            error: 'Permission denied',
+                                            input: { filePath: '/root/secret' },
+                                            status: 'error',
+                                        },
+                                        tool: 'read',
+                                        type: 'tool',
+                                    },
+                                    id: 'prt_failed_tool',
+                                },
+                            ],
+                            role: 'assistant',
+                        },
+                    ],
+                    projectId: 'pro_error',
+                    title: 'Failed tool',
+                },
+            ],
+        });
+
+        const transcript = await readOpenCodeSessionTranscript(dbPath, 'ses_error');
+
+        expect(transcript?.messages[0]?.parts[0]).toMatchObject({
+            callId: 'call_failed',
+            outputText: 'Permission denied',
+            status: 'error',
             toolName: 'read',
             type: 'tool',
         });

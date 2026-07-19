@@ -24,6 +24,7 @@ import {
     asString,
     isWorkspacePathQuery,
     type JsonValue,
+    pathExists,
     workspacePathMatchesQuery,
 } from './shared';
 import { runWithSqliteRetry } from './sqlite-retry';
@@ -120,7 +121,7 @@ const openCodeDbLimiter = createConcurrencyLimiter(resolveOpenCodeDbConcurrency(
 const openCodeDesktopStateLimiter = createConcurrencyLimiter(1);
 
 const logOpenCodeDb = (event: string, details: Record<string, unknown>) => {
-    if (process.env.SPIRACHA_OPENCODE_DB_LOGS !== '0') {
+    if (process.env.SPIRACHA_OPENCODE_DB_LOGS === '1') {
         console.info(`[spiracha:opencode-db] ${event}`, details);
     }
 };
@@ -183,12 +184,6 @@ const getDefaultOpenCodeDesktopStateDir = (
     return process.platform === 'darwin'
         ? path.join(homeDir, 'Library', 'Application Support', 'ai.opencode.desktop')
         : null;
-};
-
-const pathExists = async (target: string): Promise<boolean> => {
-    return await stat(target)
-        .then(() => true)
-        .catch(() => false);
 };
 
 export const getOpenCodeReadDbUri = (dbPath: string, mode: 'ro' | 'rw' = 'rw'): string => {
@@ -1014,12 +1009,13 @@ const parseTextOpenCodePart = (base: BaseOpenCodePart): OpenCodeTranscriptPart =
 
 const parseToolOpenCodePart = (base: BaseOpenCodePart): OpenCodeTranscriptPart => {
     const state = asObject(base.raw.state ?? null);
+    const metadata = asObject(state?.metadata ?? null);
     return {
         ...base,
         argumentsText: formatJsonLike(state?.input),
         callId: asString(base.raw.callID ?? null) ?? asString(base.raw.callId ?? null),
         endTimeMs: parseToolTimeMs(base.raw, 'end'),
-        outputText: formatJsonLike(state?.output),
+        outputText: formatJsonLike(state?.output ?? metadata?.output ?? state?.error),
         startTimeMs: parseToolTimeMs(base.raw, 'start'),
         status: asString(state?.status ?? null),
         title: asString(state?.title ?? null),

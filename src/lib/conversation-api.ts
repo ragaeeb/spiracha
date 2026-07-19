@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { mapWithConcurrency } from './concurrency';
 import {
     type ConversationDetail,
@@ -98,10 +99,14 @@ const parseSources = (value: string | null): ParseResult<ConversationSource[] | 
         return { value: 'all' };
     }
 
-    const sources = value
-        .split(',')
-        .map((source) => source.trim())
-        .filter(Boolean);
+    const sources = [
+        ...new Set(
+            value
+                .split(',')
+                .map((source) => source.trim())
+                .filter(Boolean),
+        ),
+    ];
     const invalidSource = sources.find((source) => !isConversationSource(source));
 
     return invalidSource ? { error: invalidSourceResponse(invalidSource) } : { value: sources as ConversationSource[] };
@@ -169,6 +174,9 @@ const validatePathLength = (field: string, value: string): Response | null => {
         : invalidFieldResponse(field, value.length, `\`${field}\` is too long.`);
 };
 
+const validateAbsoluteCwd = (cwd: string): Response | null =>
+    path.isAbsolute(cwd) ? null : invalidFieldResponse('cwd', cwd, '`cwd` must be an absolute path.');
+
 const validateTimestamp = (field: string, value: number | undefined): Response | null => {
     if (value === undefined) {
         return null;
@@ -179,14 +187,10 @@ const validateTimestamp = (field: string, value: number | undefined): Response |
         : invalidFieldResponse(field, value, `\`${field}\` must be a non-negative epoch millisecond timestamp.`);
 };
 
-const validateDeleteId = (id: string): Response | null => {
+const validateConversationId = (id: string): Response | null => {
     return /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u.test(id) && !id.includes('..')
         ? null
-        : invalidFieldResponse(
-              'id',
-              id,
-              'Conversation id contains characters that are not allowed for destructive requests.',
-          );
+        : invalidFieldResponse('id', id, 'Conversation id contains characters that are not allowed by the stable API.');
 };
 
 const parseListLimitParam = (value: string | null): ParseResult<number | undefined> => {
@@ -231,6 +235,10 @@ const buildListOptions = (url: URL): ParseResult<ListConversationsForPathOptions
     const cwdLengthError = validatePathLength('cwd', cwd);
     if (cwdLengthError) {
         return { error: cwdLengthError };
+    }
+    const cwdAbsoluteError = validateAbsoluteCwd(cwd);
+    if (cwdAbsoluteError) {
+        return { error: cwdAbsoluteError };
     }
 
     const cursor = url.searchParams.get('cursor');
@@ -279,7 +287,7 @@ const buildListOptions = (url: URL): ParseResult<ListConversationsForPathOptions
 };
 
 const normalizeMeta = (meta: { hasNext: boolean; nextCursor: string | null }) => ({
-    hasNext: meta.hasNext,
+    has_next: meta.hasNext,
     next_cursor: meta.nextCursor,
 });
 
@@ -370,9 +378,9 @@ const buildDeleteConversationOptions = (
     if (!decodedId.trim() || decodedId.length > MAX_ID_LENGTH) {
         return { error: invalidFieldResponse('id', decodedId.length, 'Conversation id is invalid.') };
     }
-    const deleteIdError = validateDeleteId(decodedId);
-    if (deleteIdError) {
-        return { error: deleteIdError };
+    const idError = validateConversationId(decodedId);
+    if (idError) {
+        return { error: idError };
     }
 
     return {
@@ -497,10 +505,7 @@ const parseJsonSourceOption = (body: Record<string, unknown>): ParseResult<Conve
     return isConversationSource(source) ? { value: source } : { error: invalidSourceResponse(source) };
 };
 
-const parseJsonIdsOption = (
-    body: Record<string, unknown>,
-    options: { destructive: boolean },
-): ParseResult<string[]> => {
+const parseJsonIdsOption = (body: Record<string, unknown>): ParseResult<string[]> => {
     const idsValue = getOption(body, 'ids', 'ids');
     if (!Array.isArray(idsValue) || idsValue.length === 0) {
         return {
@@ -534,9 +539,9 @@ const parseJsonIdsOption = (
             };
         }
 
-        const deleteIdError = options.destructive ? validateDeleteId(id) : null;
-        if (deleteIdError) {
-            return { error: deleteIdError };
+        const idError = validateConversationId(id);
+        if (idError) {
+            return { error: idError };
         }
 
         if (!seenIds.has(id)) {
@@ -570,16 +575,13 @@ const parseJsonExportMessageSelector = (body: Record<string, unknown>): ParseRes
     return parseMessageSelector(messageSelectorValue.value ?? null, 'all');
 };
 
-const parseConversationIdSetRecord = (
-    body: Record<string, unknown>,
-    options: { destructive: boolean },
-): ParseResult<DeleteConversationsOptions> => {
+const parseConversationIdSetRecord = (body: Record<string, unknown>): ParseResult<DeleteConversationsOptions> => {
     const source = parseJsonSourceOption(body);
     if ('error' in source) {
         return source;
     }
 
-    const ids = parseJsonIdsOption(body, options);
+    const ids = parseJsonIdsOption(body);
     if ('error' in ids) {
         return ids;
     }
@@ -598,7 +600,7 @@ const parseExportConversationsBody = async (request: Request): Promise<ParseResu
         return body;
     }
 
-    const idSet = parseConversationIdSetRecord(body.value, { destructive: false });
+    const idSet = parseConversationIdSetRecord(body.value);
     if ('error' in idSet) {
         return idSet;
     }
@@ -629,7 +631,7 @@ const handleDeleteConversations = async (request: Request, dependencies: ReturnT
         return body.error;
     }
 
-    const result = parseConversationIdSetRecord(body.value, { destructive: true });
+    const result = parseConversationIdSetRecord(body.value);
     if ('error' in result) {
         return result.error;
     }
@@ -845,8 +847,8 @@ const parseJsonCwd = (body: Record<string, unknown>): ParseResult<string> => {
         return { error: errorResponse('validation_error', '`cwd` is required.', 400, { field: 'cwd' }) };
     }
 
-    const cwdLengthError = validatePathLength('cwd', cwd);
-    return cwdLengthError ? { error: cwdLengthError } : { value: cwd };
+    const cwdError = validatePathLength('cwd', cwd) ?? validateAbsoluteCwd(cwd);
+    return cwdError ? { error: cwdError } : { value: cwd };
 };
 
 const parseJsonCursor = (body: Record<string, unknown>): ParseResult<string | null> => {
@@ -954,6 +956,7 @@ const validateListQueryOptions = (options: ListConversationsForPathOptions): Res
 
     return (
         validatePathLength('cwd', options.cwd) ??
+        validateAbsoluteCwd(options.cwd) ??
         validateCursor(options.cursor) ??
         validateLimit(options.limit) ??
         validateTimestamp('updated_after_ms', options.updatedAfterMs) ??
@@ -1017,7 +1020,7 @@ const API_ROUTES: ApiRoute[] = [
     },
     {
         handle: ({ dependencies, url }) => handleListConversations(url, dependencies),
-        matches: ({ source }) => !source,
+        matches: ({ action, source }) => !source && !action,
         method: 'GET',
         resource: 'conversations',
     },

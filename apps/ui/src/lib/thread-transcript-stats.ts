@@ -1,6 +1,15 @@
 import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/codex-browser-types';
 
-const EXEC_TOOL_NAMES = new Set(['bash', 'exec', 'execute', 'execute_command', 'run_command', 'shell', 'terminal']);
+const EXEC_TOOL_NAMES = new Set([
+    'bash',
+    'exec',
+    'exec_command',
+    'execute',
+    'execute_command',
+    'run_command',
+    'shell',
+    'terminal',
+]);
 
 const isExecToolName = (name: string | null | undefined): boolean => {
     return EXEC_TOOL_NAMES.has((name ?? '').trim().toLowerCase());

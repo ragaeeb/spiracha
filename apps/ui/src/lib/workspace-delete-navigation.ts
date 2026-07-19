@@ -10,3 +10,11 @@ export const isWorkspaceEmptiedByDelete = <TItem>(
     const deletedIdSet = new Set(deletedIds);
     return items.every((item) => deletedIdSet.has(getItemId(item)));
 };
+
+export const shouldNavigateToSourceIndexAfterDelete = <TWorkspace>(
+    workspaces: TWorkspace[],
+    deletedWorkspaceKey: string,
+    getWorkspaceKey: (workspace: TWorkspace) => string,
+) => {
+    return !workspaces.some((workspace) => getWorkspaceKey(workspace) === deletedWorkspaceKey);
+};

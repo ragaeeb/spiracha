@@ -4,13 +4,17 @@ import { mkdir, mkdtemp, rm, utimes } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
+    CodexThreadNotFoundError,
     deleteCodexProject,
     deleteCodexThread,
+    deleteCodexThreads,
     getCodexDashboardSummary,
     getThreadBrowseData,
     listCodexProjects,
     listProjectThreads,
     listScopedThreads,
+    mergeSessionIndexLinesForRewrite,
+    resolveCodexThreadDbPath,
     withReadonlyDb,
 } from './codex-browser-db';
 import { createCodexBrowserFixture } from './codex-test-helpers';
@@ -315,6 +319,23 @@ const createLargeProjectDeleteFixture = async (tempRoot: string, threadCount: nu
 };
 
 describe('codex browser db', () => {
+    it('should preserve concurrent session-index appends while removing deleted threads', () => {
+        const initialLines = [
+            JSON.stringify({ id: 'keep', thread_name: 'Keep' }),
+            JSON.stringify({ id: 'delete', thread_name: 'Delete' }),
+        ];
+        const appendedLine = JSON.stringify({ id: 'appended', thread_name: 'Appended by Codex' });
+
+        expect(
+            mergeSessionIndexLinesForRewrite(
+                initialLines,
+                [initialLines[0]!],
+                [...initialLines, appendedLine],
+                new Set(['delete']),
+            ),
+        ).toEqual([initialLines[0], appendedLine]);
+    });
+
     it('should read a WAL database after a clean shutdown removed the sidecar files', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-wal-'));
         tempPaths.push(tempRoot);
@@ -340,7 +361,7 @@ describe('codex browser db', () => {
         tempPaths.push(tempRoot);
         const fixture = await createCodexBrowserFixture(tempRoot);
 
-        const projects = listCodexProjects(fixture.dbPath);
+        const projects = await listCodexProjects(fixture.dbPath);
 
         expect(projects.map((project) => project.name)).toEqual(['spiracha', 'shibuk']);
         expect(projects[0]).toMatchObject({
@@ -355,6 +376,118 @@ describe('codex browser db', () => {
             threadCount: 1,
             totalTokens: 91000,
         });
+    });
+
+    it('should query only aggregate and recent-thread columns for dashboard summaries', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-targeted-dashboard-test-'));
+        tempPaths.push(tempRoot);
+        const dbPath = path.join(tempRoot, 'state.sqlite');
+        const db = new Database(dbPath);
+        db.exec(`
+            CREATE TABLE threads (
+                id TEXT PRIMARY KEY,
+                rollout_path TEXT NOT NULL,
+                cwd TEXT NOT NULL,
+                title TEXT NOT NULL,
+                preview TEXT NOT NULL,
+                first_user_message TEXT NOT NULL,
+                model TEXT,
+                tokens_used INTEGER NOT NULL,
+                archived INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                updated_at_ms INTEGER
+            );
+            INSERT INTO threads VALUES (
+                'targeted-thread',
+                'missing-rollout.jsonl',
+                '/workspace/spiracha',
+                'Targeted queries',
+                'Keep dashboard payloads compact',
+                'Keep dashboard payloads compact',
+                'gpt-5.4',
+                1200,
+                0,
+                1779037924,
+                1779037924000
+            );
+        `);
+        db.close();
+
+        const projects = await listCodexProjects(dbPath);
+        const dashboard = await getCodexDashboardSummary(dbPath);
+
+        expect(projects).toEqual([
+            {
+                archivedThreadCount: 0,
+                cwdPaths: ['/workspace/spiracha'],
+                lastUpdatedAtMs: 1779037924000,
+                modelNames: ['gpt-5.4'],
+                name: 'spiracha',
+                threadCount: 1,
+                totalTokens: 1200,
+            },
+        ]);
+        expect(dashboard).toMatchObject({
+            activeThreads: 1,
+            archivedThreads: 0,
+            recentThreads: [
+                {
+                    project: 'spiracha',
+                    thread: {
+                        id: 'targeted-thread',
+                        title: 'Targeted queries',
+                    },
+                },
+            ],
+            totalProjects: 1,
+            totalThreads: 1,
+            totalTokens: 1200,
+        });
+    });
+
+    it('should read rollout activity without blocking the synchronous request path', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-async-activity-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+
+        const projects = listCodexProjects(fixture.dbPath);
+        const dashboard = getCodexDashboardSummary(fixture.dbPath);
+
+        expect(projects).toBeInstanceOf(Promise);
+        expect(dashboard).toBeInstanceOf(Promise);
+        await Promise.all([projects, dashboard]);
+    });
+
+    it('should filter project threads in SQLite before hydrating rows', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-sql-filter-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const db = new Database(fixture.dbPath);
+        db.exec("UPDATE threads SET cwd = zeroblob(16) WHERE cwd LIKE '%shibuk'");
+        db.close();
+
+        const threads = await listProjectThreads(fixture.dbPath, 'spiracha', {
+            includeTranscriptStats: false,
+        });
+
+        expect(threads).toHaveLength(2);
+        expect(threads.every((entry) => entry.project === 'spiracha')).toBe(true);
+    });
+
+    it('should select only declared thread columns for project listings', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-column-list-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const db = new Database(fixture.dbPath);
+        db.exec("ALTER TABLE threads ADD COLUMN private_data TEXT DEFAULT 'must-not-leak'");
+        db.close();
+
+        const threads = await listProjectThreads(fixture.dbPath, 'spiracha', {
+            includeTranscriptStats: false,
+        });
+
+        expect(threads).toHaveLength(2);
+        expect(threads[0]?.thread).not.toHaveProperty('private_data');
     });
 
     it('should include project threads that only exist in the session index and rollout files', async () => {
@@ -379,6 +512,15 @@ describe('codex browser db', () => {
                     payload: {
                         cli_version: '0.140.0-alpha.2',
                         cwd: '/Users/user/workspace/spiracha',
+                        dynamic_tools: [
+                            {
+                                defer_loading: true,
+                                description: 'Run a command.',
+                                input_schema: { properties: { cmd: { type: 'string' } }, type: 'object' },
+                                name: 'exec_command',
+                                namespace: 'codex',
+                            },
+                        ],
                         id: fallbackThreadId,
                         model_provider: 'openai',
                         originator: 'Codex Desktop',
@@ -423,8 +565,8 @@ describe('codex browser db', () => {
         );
 
         const threads = await listProjectThreads(fixture.dbPath, 'spiracha');
-        const projects = listCodexProjects(fixture.dbPath);
-        const dashboard = getCodexDashboardSummary(fixture.dbPath);
+        const projects = await listCodexProjects(fixture.dbPath);
+        const dashboard = await getCodexDashboardSummary(fixture.dbPath);
         const fallbackDetails = getThreadBrowseData(fixture.dbPath, fallbackThreadId);
         const scopedThreads = listScopedThreads(fixture.dbPath, 'spiracha');
 
@@ -451,7 +593,17 @@ describe('codex browser db', () => {
             },
         });
         expect(fallbackDetails).toMatchObject({
-            dynamicTools: [],
+            dynamicTools: [
+                {
+                    deferLoading: true,
+                    description: 'Run a command.',
+                    inputSchema: { properties: { cmd: { type: 'string' } }, type: 'object' },
+                    name: 'exec_command',
+                    namespace: 'codex',
+                    position: 0,
+                    threadId: fallbackThreadId,
+                },
+            ],
             project: 'spiracha',
             relations: {
                 childEdges: [],
@@ -501,7 +653,7 @@ describe('codex browser db', () => {
                 },
                 {
                     payload: {
-                        message: 'x'.repeat(256 * 1024),
+                        message: 'x'.repeat(400 * 1024),
                     },
                     timestamp: '2026-06-14T01:57:29.000Z',
                     type: 'event_msg',
@@ -509,6 +661,7 @@ describe('codex browser db', () => {
                 {
                     payload: {
                         model: 'gpt-5.5',
+                        padding: 'y'.repeat(300 * 1024),
                         turn_id: 'turn-1',
                     },
                     timestamp: '2026-06-14T01:57:30.000Z',
@@ -557,6 +710,44 @@ describe('codex browser db', () => {
         } finally {
             Buffer.alloc = originalAlloc;
         }
+    });
+
+    it('should omit fallback threads whose ID resolves to multiple rollout files', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-ambiguous-fallback-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const fallbackThreadId = '019ec3d5-859d-77d0-b851-256ae567ff69';
+        const sessionRecord = JSON.stringify({
+            payload: {
+                cwd: '/Users/user/workspace/spiracha',
+                id: fallbackThreadId,
+                timestamp: '2026-06-14T01:53:31.047Z',
+            },
+            type: 'session_meta',
+        });
+        const sessionPaths = ['13', '14'].map((day) =>
+            path.join(
+                tempRoot,
+                'sessions',
+                '2026',
+                '06',
+                day,
+                `rollout-2026-06-${day}T21-53-31-${fallbackThreadId}.jsonl`,
+            ),
+        );
+        for (const sessionPath of sessionPaths) {
+            await mkdir(path.dirname(sessionPath), { recursive: true });
+            await Bun.write(sessionPath, sessionRecord);
+        }
+        await Bun.write(
+            path.join(tempRoot, 'session_index.jsonl'),
+            JSON.stringify({ id: fallbackThreadId, thread_name: 'Ambiguous fallback thread' }),
+        );
+
+        const threads = await listProjectThreads(fixture.dbPath, 'spiracha', { includeTranscriptStats: false });
+
+        expect(threads.map((thread) => thread.thread.id)).not.toContain(fallbackThreadId);
+        expect(() => getThreadBrowseData(fixture.dbPath, fallbackThreadId)).toThrow('Thread not found');
     });
 
     it('should summarize fallback projects without parsing large irrelevant rollout records', async () => {
@@ -645,9 +836,13 @@ describe('codex browser db', () => {
         }) as typeof Buffer.alloc;
 
         try {
-            const projects = listCodexProjects(fixture.dbPath);
+            const firstProjects = await listCodexProjects(fixture.dbPath);
+            const allocatedAfterFirstRead = allocatedReadBytes;
+            const projects = await listCodexProjects(fixture.dbPath);
             const project = projects.find((candidate) => candidate.name === 'spiracha');
 
+            expect(projects).toEqual(firstProjects);
+            expect(allocatedReadBytes).toBe(allocatedAfterFirstRead);
             expect(project?.threadCount).toBe(3);
             expect(project?.totalTokens).toBe(641112);
             expect(project?.modelNames).toContain('gpt-5.5');
@@ -756,6 +951,21 @@ describe('codex browser db', () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-threads-test-'));
         tempPaths.push(tempRoot);
         const fixture = await createCodexBrowserFixture(tempRoot);
+        const db = new Database(fixture.dbPath);
+        db.query(
+            'INSERT INTO thread_goals (thread_id, goal_id, objective, status, token_budget, tokens_used, time_used_seconds, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        ).run(
+            fixture.threads[0]!.threadId,
+            'goal-1',
+            'Ship the thread tools view',
+            'in_progress',
+            20_000,
+            3_400,
+            125,
+            1_779_036_500_000,
+            1_779_037_900_000,
+        );
+        db.close();
 
         const threads = await listProjectThreads(fixture.dbPath, 'spiracha');
         const threadDetails = getThreadBrowseData(fixture.dbPath, fixture.threads[0]!.threadId);
@@ -766,6 +976,18 @@ describe('codex browser db', () => {
             fixture.threads[1]!.threadId,
         ]);
         expect(threadDetails.dynamicTools).toHaveLength(2);
+        expect(threadDetails.goals).toEqual([
+            {
+                createdAtMs: 1_779_036_500_000,
+                goalId: 'goal-1',
+                objective: 'Ship the thread tools view',
+                status: 'in_progress',
+                timeUsedSeconds: 125,
+                tokenBudget: 20_000,
+                tokensUsed: 3_400,
+                updatedAtMs: 1_779_037_900_000,
+            },
+        ]);
         expect(threadDetails.relations.childEdges).toHaveLength(1);
         expect(threadDetails.thread.preview).toBe('Build the Spiracha UI');
         expect(threads[0]?.stats.deferred).toBe(false);
@@ -780,6 +1002,7 @@ describe('codex browser db', () => {
         const threadDetails = getThreadBrowseData(fixture.dbPath, fixture.threadId);
 
         expect(threadDetails.dynamicTools).toEqual([]);
+        expect(threadDetails.goals).toEqual([]);
         expect(threadDetails.relations.childEdges).toEqual([]);
         expect(threadDetails.relations.parentThreadId).toBeNull();
     });
@@ -888,6 +1111,39 @@ describe('codex browser db', () => {
         db.close();
     });
 
+    it('should bulk-delete unique Codex thread ids and preserve rollout files by default', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-delete-threads-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const threadIds = fixture.threads.map((thread) => thread.threadId);
+
+        const result = await deleteCodexThreads(fixture.dbPath, [...threadIds, threadIds[0]!]);
+
+        expect(result.deletedThreadIds.sort()).toEqual([...threadIds].sort());
+        expect(result.deletedSessionFiles).toEqual([]);
+        expect(await Promise.all(fixture.threads.map((thread) => Bun.file(thread.sessionFile).exists()))).toEqual(
+            fixture.threads.map(() => true),
+        );
+        const db = new Database(fixture.dbPath, { readonly: true });
+        expect(db.query('SELECT COUNT(*) AS count FROM threads').get()).toEqual({ count: 0 });
+        db.close();
+    });
+
+    it('should resolve the configured Codex thread database path', () => {
+        const previous = process.env.SPIRACHA_CODEX_DB;
+        const configuredPath = path.join(os.tmpdir(), 'configured-codex-state.sqlite');
+        process.env.SPIRACHA_CODEX_DB = `  ${configuredPath}  `;
+        try {
+            expect(resolveCodexThreadDbPath()).toBe(configuredPath);
+        } finally {
+            if (previous === undefined) {
+                delete process.env.SPIRACHA_CODEX_DB;
+            } else {
+                process.env.SPIRACHA_CODEX_DB = previous;
+            }
+        }
+    });
+
     it('should delete a thread against the live schema even when optional tables are absent', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-live-delete-thread-test-'));
         tempPaths.push(tempRoot);
@@ -928,6 +1184,31 @@ describe('codex browser db', () => {
         expect(await Bun.file(sessionFile).exists()).toBe(false);
     });
 
+    it('should reject an out-of-tree rollout path before deleting thread data', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-unsafe-rollout-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const threadId = fixture.threads[0]!.threadId;
+        const externalFile = path.join(path.dirname(tempRoot), `${path.basename(tempRoot)}-external.jsonl`);
+        tempPaths.push(externalFile);
+        await Bun.write(externalFile, 'do not delete');
+
+        const db = new Database(fixture.dbPath);
+        db.query('UPDATE threads SET rollout_path = ? WHERE id = ?').run(externalFile, threadId);
+        db.close();
+
+        await expect(deleteCodexThread(fixture.dbPath, threadId, { deleteSessionFiles: true })).rejects.toThrow(
+            'Unsafe Codex rollout path',
+        );
+        expect(await Bun.file(externalFile).exists()).toBe(true);
+
+        const verificationDb = new Database(fixture.dbPath, { readonly: true });
+        expect(verificationDb.query('SELECT COUNT(*) AS count FROM threads WHERE id = ?').get(threadId)).toEqual({
+            count: 1,
+        });
+        verificationDb.close();
+    });
+
     it('should keep a deleted DB thread from reappearing through the fallback session index', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-delete-thread-index-test-'));
         tempPaths.push(tempRoot);
@@ -950,6 +1231,7 @@ describe('codex browser db', () => {
         expect(result.deletedSessionFiles).toEqual([]);
         expect(await Bun.file(sessionFile).exists()).toBe(true);
         expect(() => getThreadBrowseData(fixture.dbPath, threadId)).toThrow('Thread not found');
+        expect(() => getThreadBrowseData(fixture.dbPath, threadId)).toThrow(CodexThreadNotFoundError);
     });
 
     it('should delete fallback-only threads from the session index and disk', async () => {
@@ -1041,7 +1323,7 @@ describe('codex browser db', () => {
         const fixture = await createCodexBrowserFixture(tempRoot);
 
         const result = await deleteCodexProject(fixture.dbPath, 'spiracha');
-        const summary = getCodexDashboardSummary(fixture.dbPath);
+        const summary = await getCodexDashboardSummary(fixture.dbPath);
 
         expect(result.projectName).toBe('spiracha');
         expect(result.deletedThreadIds).toHaveLength(2);
@@ -1055,7 +1337,7 @@ describe('codex browser db', () => {
         tempPaths.push(tempRoot);
         const fixture = await createCodexBrowserFixture(tempRoot);
 
-        const summary = getCodexDashboardSummary(fixture.dbPath);
+        const summary = await getCodexDashboardSummary(fixture.dbPath);
 
         expect(summary.recentThreads[0]).toMatchObject({
             project: 'spiracha',
@@ -1074,7 +1356,7 @@ describe('codex browser db', () => {
 
         await utimes(staleThread.sessionFile, rolloutUpdatedAt, rolloutUpdatedAt);
 
-        const summary = getCodexDashboardSummary(fixture.dbPath);
+        const summary = await getCodexDashboardSummary(fixture.dbPath);
 
         expect(summary.recentThreads[0]).toMatchObject({
             project: staleThread.project,
@@ -1103,7 +1385,7 @@ describe('codex browser db', () => {
             new Date('2030-11-20T17:46:39.000Z'),
         );
 
-        const summary = getCodexDashboardSummary(fixture.dbPath);
+        const summary = await getCodexDashboardSummary(fixture.dbPath);
 
         expect(summary.recentThreads.map((entry) => entry.project).slice(0, 2)).toEqual(['spiracha', 'shibuk']);
         expect(summary.recentThreads.filter((entry) => entry.project === 'spiracha')).toHaveLength(1);
@@ -1158,7 +1440,7 @@ describe('codex browser db', () => {
             db.close();
         }
 
-        const summary = getCodexDashboardSummary(fixture.dbPath);
+        const summary = await getCodexDashboardSummary(fixture.dbPath);
         const recentThreadIds = summary.recentThreads.map((entry) => entry.thread.id);
 
         expect(recentThreadIds).not.toContain('recent-0');
