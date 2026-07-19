@@ -121,7 +121,7 @@ const openCodeDbLimiter = createConcurrencyLimiter(resolveOpenCodeDbConcurrency(
 const openCodeDesktopStateLimiter = createConcurrencyLimiter(1);
 
 const logOpenCodeDb = (event: string, details: Record<string, unknown>) => {
-    if (process.env.SPIRACHA_OPENCODE_DB_LOGS !== '0') {
+    if (process.env.SPIRACHA_OPENCODE_DB_LOGS === '1') {
         console.info(`[spiracha:opencode-db] ${event}`, details);
     }
 };

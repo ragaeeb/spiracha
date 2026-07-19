@@ -1,6 +1,6 @@
 import { Database } from 'bun:sqlite';
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { listCursorWorkspaceGroups } from './cursor-db';
@@ -110,6 +110,38 @@ describe('recoverCursorWorkspaceGroup', () => {
 });
 
 describe('pruneCursorThreads', () => {
+    it('should reject transcript directories that escape through a symbolic link', async () => {
+        const userDir = await makeUserDir('cursor-prune-symlink-');
+        const externalDir = await makeUserDir('cursor-prune-external-');
+        const projectsDir = path.join(userDir, 'projects');
+        const projectDir = path.join(projectsDir, 'demo');
+        const externalTranscriptDir = path.join(externalDir, 'thread-1');
+        await mkdir(projectDir, { recursive: true });
+        await mkdir(externalTranscriptDir, { recursive: true });
+        await Bun.write(path.join(externalTranscriptDir, 'sentinel.txt'), 'keep');
+        await symlink(externalDir, path.join(projectDir, 'agent-transcripts'));
+
+        const transcriptDir = path.join(projectDir, 'agent-transcripts', 'thread-1');
+        const thread = {
+            bubbleBytes: 0,
+            bubbleCount: 0,
+            bucketId: null,
+            composerId: 'thread-1',
+            createdAtMs: null,
+            lastUpdatedAtMs: null,
+            mode: null,
+            name: 'Unsafe thread',
+            transcriptDirs: [transcriptDir],
+            workspaceKey: '',
+            workspaceLabel: '',
+        };
+
+        await expect(pruneCursorThreads([thread], true, userDir)).rejects.toThrow(
+            `Unsafe Cursor transcript directory: ${transcriptDir}`,
+        );
+        expect(await Bun.file(path.join(externalTranscriptDir, 'sentinel.txt')).exists()).toBe(true);
+    });
+
     it('should preview deletion impact without applying', async () => {
         const userDir = await makeUserDir('cursor-prune-dry-');
         await createCursorFixture(userDir, recoverySpec());
@@ -186,6 +218,57 @@ describe('pruneCursorThreads', () => {
         expect(result.workspaceBucketsUpdated).toBe(2);
         const [group] = await listCursorWorkspaceGroups(userDir);
         expect(group?.threadCount).toBe(0);
+    });
+
+    it('should restore earlier bucket updates when a later bucket mutation fails', async () => {
+        const userDir = await makeUserDir('cursor-delete-bucket-rollback-');
+        const spec = recoverySpec();
+        spec.buckets.push({
+            bucketId: 'bucket-second',
+            composerIds: ['thread-1'],
+            folder: spec.buckets[0]!.folder,
+            threadsInComposerData: true,
+        });
+        await createCursorFixture(userDir, spec);
+        const [group] = await listCursorWorkspaceGroups(userDir);
+        const failingBucket = group!.buckets.at(-1)!;
+        const triggerDb = new Database(failingBucket.dbPath);
+        triggerDb.exec(`
+            CREATE TRIGGER fail_bucket_update
+            BEFORE UPDATE OF value ON ItemTable
+            WHEN OLD.key = 'composer.composerData'
+            BEGIN
+                SELECT RAISE(ABORT, 'forced bucket update failure');
+            END;
+        `);
+        triggerDb.close();
+        const deletable = await collectCursorThreadsForDeletion(['thread-1'], userDir);
+
+        await expect(pruneCursorThreads(deletable, true, userDir)).rejects.toThrow('forced bucket update failure');
+
+        let bucketsContainingThread = 0;
+        for (const bucket of group!.buckets) {
+            const db = new Database(bucket.dbPath, { readonly: true });
+            const row = db.query("SELECT value FROM ItemTable WHERE key = 'composer.composerData'").get() as {
+                value: string;
+            } | null;
+            db.close();
+            if (!row) {
+                continue;
+            }
+            const composerIds = (
+                JSON.parse(row.value) as { allComposers: Array<{ composerId: string }> }
+            ).allComposers.map((composer) => composer.composerId);
+            expect(composerIds).toContain('thread-1');
+            bucketsContainingThread += 1;
+        }
+        expect(bucketsContainingThread).toBe(2);
+
+        const globalDb = new Database(getCursorGlobalDbPath(userDir), { readonly: true });
+        expect(
+            globalDb.query("SELECT COUNT(*) AS count FROM cursorDiskKV WHERE key LIKE 'bubbleId:thread-1:%'").get(),
+        ).toEqual({ count: 2 });
+        globalDb.close();
     });
 
     it('should treat underscores in composer ids as literals when deleting bubble keys', async () => {

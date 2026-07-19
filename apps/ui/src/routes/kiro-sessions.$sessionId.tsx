@@ -23,6 +23,7 @@ import { formatDateTime, formatList, formatNumber } from '#/lib/formatters';
 import { kiroSessionDetailQueryOptions, kiroWorkspacesQueryOptions } from '#/lib/kiro-queries';
 import { deleteKiroSessionFn, exportKiroSessionFn } from '#/lib/kiro-server';
 import { getKiroThreadTranscriptStats, kiroTranscriptToThreadEvents } from '#/lib/kiro-transcript-events';
+import { RouteStateResetBoundary } from '#/lib/route-state-reset';
 import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
 type TranscriptControlsProps = {
@@ -388,7 +389,14 @@ const KiroSessionDetailPage = () => {
 };
 
 export const Route = createFileRoute('/kiro-sessions/$sessionId')({
-    component: KiroSessionDetailPage,
+    component: () => {
+        const { sessionId } = Route.useParams();
+        return (
+            <RouteStateResetBoundary routeKey={sessionId}>
+                <KiroSessionDetailPage />
+            </RouteStateResetBoundary>
+        );
+    },
     errorComponent: KiroSessionDetailErrorComponent,
     loader: ({ context, params }) =>
         context.queryClient.ensureQueryData(kiroSessionDetailQueryOptions(params.sessionId)),

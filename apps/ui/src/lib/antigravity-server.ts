@@ -249,21 +249,23 @@ export const exportAntigravityConversationFn = createServerFn({ method: 'POST' }
 export const exportAntigravityConversations = async (input: z.input<typeof exportConversationsSchema>) => {
     const data = exportConversationsSchema.parse(input);
     const { renderSourceSessionsDownload } = await import('./source-session-export-server');
-    const { listAntigravityConversations, listAntigravityWorkspaceGroups } = await import(
-        '@spiracha/lib/antigravity-db'
-    );
-    const [groups, conversations] = await Promise.all([
-        listAntigravityWorkspaceGroups(),
-        listAntigravityConversations(),
-    ]);
-    const groupsByKey = new Map(groups.map((group) => [group.key, group]));
+    const { listAntigravityConversations } = await import('@spiracha/lib/antigravity-db');
+    const { resolveAntigravityProjectNames } = await import('@spiracha/lib/antigravity-projects');
+    const conversations = await listAntigravityConversations();
     const conversationsById = new Map(conversations.map((conversation) => [conversation.conversationId, conversation]));
+    const selectedConversations = data.conversationIds.map((conversationId) => {
+        const conversation = conversationsById.get(conversationId);
+        if (!conversation) {
+            throw new Error(`Antigravity conversation not found: ${conversationId}`);
+        }
+        return conversation;
+    });
+    const projectNames = await resolveAntigravityProjectNames(
+        selectedConversations.flatMap((conversation) => (conversation.projectId ? [conversation.projectId] : [])),
+    );
     const entries = await Promise.all(
-        data.conversationIds.map(async (conversationId) => {
-            const loadedConversation = conversationsById.get(conversationId);
-            if (!loadedConversation) {
-                throw new Error(`Antigravity conversation not found: ${conversationId}`);
-            }
+        selectedConversations.map(async (loadedConversation) => {
+            const conversationId = loadedConversation.conversationId;
             const result = await loadAntigravityConversationExport(
                 conversationId,
                 {
@@ -275,10 +277,9 @@ export const exportAntigravityConversations = async (input: z.input<typeof expor
                 loadedConversation,
             );
             const conversation = result.conversation;
-            const projectGroup = conversation.projectId
-                ? groupsByKey.get(`project:${conversation.projectId}`)
-                : undefined;
-            const exportCwd = projectGroup?.label ?? conversation.workspaceFolder;
+            const exportCwd =
+                (conversation.projectId ? projectNames.get(conversation.projectId) : null) ??
+                conversation.workspaceFolder;
             const updatedAtMs = conversation.lastUpdatedAtMs ?? conversation.conversationMtimeMs;
             return {
                 content: result.content,

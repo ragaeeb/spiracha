@@ -22,6 +22,7 @@ import { cursorTranscriptToThreadEvents, getCursorThreadTranscriptStats } from '
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import type { ExportDialogOptions } from '#/lib/export-options';
 import { formatBytes, formatDateTime, formatList, formatNumber } from '#/lib/formatters';
+import { RouteStateResetBoundary } from '#/lib/route-state-reset';
 import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
 type CursorThreadDetail = Awaited<ReturnType<typeof getCursorThreadDetailFn>>;
@@ -427,7 +428,14 @@ const CursorThreadDetailPage = () => {
 };
 
 export const Route = createFileRoute('/cursor-threads/$composerId')({
-    component: CursorThreadDetailPage,
+    component: () => {
+        const { composerId } = Route.useParams();
+        return (
+            <RouteStateResetBoundary routeKey={composerId}>
+                <CursorThreadDetailPage />
+            </RouteStateResetBoundary>
+        );
+    },
     errorComponent: CursorThreadDetailErrorComponent,
     loader: ({ context, params }) =>
         context.queryClient.ensureQueryData(cursorThreadDetailQueryOptions(params.composerId)),

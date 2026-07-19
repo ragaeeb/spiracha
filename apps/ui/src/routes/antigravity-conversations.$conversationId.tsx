@@ -36,6 +36,7 @@ import {
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import type { ExportDialogOptions } from '#/lib/export-options';
 import { formatBytes, formatDateTime, formatList, formatNumber } from '#/lib/formatters';
+import { RouteStateResetBoundary } from '#/lib/route-state-reset';
 import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
 type AntigravityConversationDetail = Awaited<ReturnType<typeof getAntigravityConversationDetailFn>>;
@@ -121,7 +122,14 @@ const getConversationSizeLabel = (detail: AntigravityConversationDetail): string
 };
 
 export const Route = createFileRoute('/antigravity-conversations/$conversationId')({
-    component: AntigravityConversationDetailPage,
+    component: () => {
+        const { conversationId } = Route.useParams();
+        return (
+            <RouteStateResetBoundary routeKey={conversationId}>
+                <AntigravityConversationDetailPage />
+            </RouteStateResetBoundary>
+        );
+    },
     errorComponent: AntigravityConversationDetailErrorComponent,
     loader: async ({ context, params }) => {
         await Promise.all([

@@ -7,6 +7,7 @@ import path from 'node:path';
 import {
     findQoderWorkspaceGroups,
     getDefaultQoderUserDir,
+    isUnavailableQoderGlobalStateError,
     listQoderSessionsForGroup,
     listQoderWorkspaceGroups,
     readQoderSessionTranscript,
@@ -354,6 +355,15 @@ describe('qoder workspace discovery', () => {
         await mkdir(invalidDb, { recursive: true });
 
         expect(await listQoderWorkspaceGroups(invalidDb, workspaceStorageDir)).toEqual([]);
+    });
+
+    it('should classify Linux directory-open SQLite errors as unavailable global state', () => {
+        const error = Object.assign(new Error('disk I/O error'), { code: 'SQLITE_IOERR_READ', errno: 266 });
+
+        expect(isUnavailableQoderGlobalStateError(error)).toBe(true);
+        expect(
+            isUnavailableQoderGlobalStateError(Object.assign(new Error('corrupt'), { code: 'SQLITE_CORRUPT' })),
+        ).toBe(false);
     });
 
     it('should warn and return empty sessions for corrupted Qoder workspace keys', async () => {

@@ -168,6 +168,36 @@ describe('grok db helpers', () => {
         expect(texts.filter((text) => text === 'Second answer')).toHaveLength(1);
     });
 
+    it('should compare compaction prefixes independently of object key order', async () => {
+        const grokHome = await makeTempRoot();
+        const fixture = await writeGrokSessionFixture({ grokHome, workspacePath: '/workspace/key-order' });
+        const archivedPrefix = [
+            { content: [{ text: '<user_query>First</user_query>', type: 'text' }], type: 'user' },
+            { content: 'First answer', model_id: 'grok', type: 'assistant' },
+        ];
+        await writeJsonl(path.join(fixture.sessionDir, 'chat_history.jsonl'), [
+            ...archivedPrefix,
+            { content: 'Second answer', type: 'assistant' },
+        ]);
+        await mkdir(path.join(fixture.sessionDir, 'compaction_requests'), { recursive: true });
+        await Bun.write(
+            path.join(fixture.sessionDir, 'compaction_requests', 'request.json'),
+            JSON.stringify({
+                chat_history: [
+                    { content: [{ text: '<user_query>First</user_query>', type: 'text' }], type: 'user' },
+                    { content: 'First answer', model_id: 'grok', type: 'assistant' },
+                ],
+                created_at: '2026-07-04T16:52:00.000Z',
+            }),
+        );
+
+        const transcript = await readGrokSessionTranscript(fixture.sessionsDir, fixture.sessionId);
+        const texts = transcript?.entries.flatMap((entry) => entry.parts.flatMap((part) => part.text ?? [])) ?? [];
+
+        expect(texts.filter((text) => text === 'First answer')).toHaveLength(1);
+        expect(texts).toContain('Second answer');
+    });
+
     afterEach(async () => {
         await Promise.all(tempRoots.splice(0).map((root) => rm(root, { force: true, recursive: true })));
     });

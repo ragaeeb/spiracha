@@ -73,6 +73,8 @@ Runtime configuration is intentionally small:
 - `SPIRACHA_TRANSCRIPT_LOAD_CONCURRENCY`
   - Optional positive integer for detail-page transcript loading concurrency across sources.
   - Defaults to `3` and is capped at `16` to protect the server from excessive parallel disk and database work.
+- `SPIRACHA_TRANSCRIPT_LOAD_LOGS`
+  - Set to `1` to log transcript-loader queue and timing diagnostics. Disabled by default so library and CLI consumers stay quiet.
 - `SPIRACHA_CLAUDE_CODE_PROJECTS_DIR`
   - Optional absolute path to the Claude Code projects directory.
   - If unset, Spiracha reads `${SPIRACHA_CLAUDE_CODE_DATA_DIR:-~/.claude}/projects`. `SPIRACHA_CLAUDE_CODE_DIR` and `SPIRACHA_CLAUDE_HOME` are also accepted aliases for the Claude Code data directory.
@@ -94,6 +96,8 @@ Runtime configuration is intentionally small:
 - `SPIRACHA_OPENCODE_DB_CONCURRENCY`
   - Optional positive integer for concurrent OpenCode database reads.
   - Defaults to `2`.
+- `SPIRACHA_OPENCODE_DB_LOGS`
+  - Set to `1` to log OpenCode database queue and timing diagnostics. Disabled by default.
 - `SPIRACHA_CURSOR_USER_DIR`
   - Optional absolute path to Cursor's `User` directory.
   - If unset, Spiracha reads the platform default Cursor user-data directory.

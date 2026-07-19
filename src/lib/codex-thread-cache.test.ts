@@ -135,6 +135,26 @@ describe('getCachedThreadTranscriptPreview', () => {
 });
 
 describe('getCachedCodexTranscriptStats', () => {
+    it('should retry when the rollout changes while statistics are loading', async () => {
+        await invalidateCacheByPrefix('thread-list-stats-');
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-list-stats-race-test-'));
+        tempPaths.push(tempRoot);
+        const sessionFile = path.join(tempRoot, 'rollout.jsonl');
+        await Bun.write(sessionFile, 'first');
+        let loadCount = 0;
+
+        const stats = await getCachedCodexTranscriptStats(sessionFile, async () => {
+            loadCount += 1;
+            if (loadCount === 1) {
+                await Bun.write(sessionFile, 'second version');
+            }
+            return { finalAnswerCount: loadCount } as never;
+        });
+
+        expect(loadCount).toBe(2);
+        expect(stats.finalAnswerCount).toBe(2);
+    });
+
     it('should reuse cached list statistics without parsing the rollout again', async () => {
         await invalidateCacheByPrefix('thread-list-stats-');
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-list-stats-hit-test-'));

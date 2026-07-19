@@ -87,7 +87,12 @@ const getBrowserSettingsSnapshot = () => {
     try {
         serialized = window.localStorage.getItem(STORAGE_KEY);
     } catch {
-        return cachedSettings;
+        preserveVolatileSettings = true;
+        try {
+            serialized = window.sessionStorage.getItem(STORAGE_KEY);
+        } catch {
+            return cachedSettings;
+        }
     }
 
     if (serialized !== cachedSerializedSettings) {
@@ -133,15 +138,29 @@ const subscribeToSettings = (subscriber: () => void) => {
 };
 
 const storeSettings = (settings: Settings) => {
+    if (typeof window === 'undefined') {
+        return;
+    }
+
     const serialized = JSON.stringify(settings);
     cachedSettings = settings;
     cachedSerializedSettings = serialized;
-    preserveVolatileSettings = false;
+
+    if (preserveVolatileSettings) {
+        try {
+            window.sessionStorage.setItem(STORAGE_KEY, serialized);
+        } catch {}
+        notifySubscribers();
+        return;
+    }
 
     try {
         window.localStorage.setItem(STORAGE_KEY, serialized);
     } catch {
         preserveVolatileSettings = true;
+        try {
+            window.sessionStorage.setItem(STORAGE_KEY, serialized);
+        } catch {}
     }
     notifySubscribers();
 };

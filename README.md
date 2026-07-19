@@ -117,6 +117,9 @@ const page = await client.listConversations({
 });
 ```
 
+Library and CLI use is quiet by default. Set `SPIRACHA_TRANSCRIPT_LOAD_LOGS=1` or
+`SPIRACHA_OPENCODE_DB_LOGS=1` only when diagnosing loader or OpenCode database timing.
+
 ## Source Locations
 
 | Source | Default location | Primary override |

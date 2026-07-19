@@ -20,8 +20,22 @@ type ThreadToolsPanelProps = {
 const getToolActivityEvents = (events: ThreadEvent[]) =>
     events.filter((event) => event.kind === 'tool_call' || event.kind === 'tool_output' || event.kind === 'web_search');
 
+const sortJsonKeys = (value: unknown): unknown => {
+    if (Array.isArray(value)) {
+        return value.map(sortJsonKeys);
+    }
+    if (value && typeof value === 'object') {
+        return Object.fromEntries(
+            Object.entries(value)
+                .sort(([left], [right]) => left.localeCompare(right))
+                .map(([key, child]) => [key, sortJsonKeys(child)]),
+        );
+    }
+    return value;
+};
+
 const getToolDefinitionKey = (tool: DynamicToolDefinition) =>
-    JSON.stringify([tool.namespace, tool.name, tool.description, tool.deferLoading, tool.inputSchema]);
+    JSON.stringify([tool.namespace, tool.name, tool.description, tool.deferLoading, sortJsonKeys(tool.inputSchema)]);
 
 const ToolDefinitions = ({ tools }: { tools: DynamicToolDefinition[] }) => {
     const uniqueTools = [...new Map(tools.map((tool) => [getToolDefinitionKey(tool), tool])).entries()];

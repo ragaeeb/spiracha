@@ -23,6 +23,7 @@ import { formatDateTime, formatList, formatNumber } from '#/lib/formatters';
 import { grokSessionDetailQueryOptions, grokWorkspacesQueryOptions } from '#/lib/grok-queries';
 import { deleteGrokSessionFn, exportGrokSessionFn } from '#/lib/grok-server';
 import { getGrokThreadTranscriptStats, grokTranscriptToThreadEvents } from '#/lib/grok-transcript-events';
+import { RouteStateResetBoundary } from '#/lib/route-state-reset';
 import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
 type TranscriptControlsProps = {
@@ -383,7 +384,14 @@ const GrokSessionDetailPage = () => {
 };
 
 export const Route = createFileRoute('/grok-sessions/$sessionId')({
-    component: GrokSessionDetailPage,
+    component: () => {
+        const { sessionId } = Route.useParams();
+        return (
+            <RouteStateResetBoundary routeKey={sessionId}>
+                <GrokSessionDetailPage />
+            </RouteStateResetBoundary>
+        );
+    },
     errorComponent: GrokSessionDetailErrorComponent,
     loader: ({ context, params }) =>
         context.queryClient.ensureQueryData(grokSessionDetailQueryOptions(params.sessionId)),

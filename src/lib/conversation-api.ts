@@ -187,14 +187,10 @@ const validateTimestamp = (field: string, value: number | undefined): Response |
         : invalidFieldResponse(field, value, `\`${field}\` must be a non-negative epoch millisecond timestamp.`);
 };
 
-const validateDeleteId = (id: string): Response | null => {
+const validateConversationId = (id: string): Response | null => {
     return /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u.test(id) && !id.includes('..')
         ? null
-        : invalidFieldResponse(
-              'id',
-              id,
-              'Conversation id contains characters that are not allowed for destructive requests.',
-          );
+        : invalidFieldResponse('id', id, 'Conversation id contains characters that are not allowed by the stable API.');
 };
 
 const parseListLimitParam = (value: string | null): ParseResult<number | undefined> => {
@@ -382,9 +378,9 @@ const buildDeleteConversationOptions = (
     if (!decodedId.trim() || decodedId.length > MAX_ID_LENGTH) {
         return { error: invalidFieldResponse('id', decodedId.length, 'Conversation id is invalid.') };
     }
-    const deleteIdError = validateDeleteId(decodedId);
-    if (deleteIdError) {
-        return { error: deleteIdError };
+    const idError = validateConversationId(decodedId);
+    if (idError) {
+        return { error: idError };
     }
 
     return {
@@ -509,10 +505,7 @@ const parseJsonSourceOption = (body: Record<string, unknown>): ParseResult<Conve
     return isConversationSource(source) ? { value: source } : { error: invalidSourceResponse(source) };
 };
 
-const parseJsonIdsOption = (
-    body: Record<string, unknown>,
-    options: { destructive: boolean },
-): ParseResult<string[]> => {
+const parseJsonIdsOption = (body: Record<string, unknown>): ParseResult<string[]> => {
     const idsValue = getOption(body, 'ids', 'ids');
     if (!Array.isArray(idsValue) || idsValue.length === 0) {
         return {
@@ -546,9 +539,9 @@ const parseJsonIdsOption = (
             };
         }
 
-        const deleteIdError = options.destructive ? validateDeleteId(id) : null;
-        if (deleteIdError) {
-            return { error: deleteIdError };
+        const idError = validateConversationId(id);
+        if (idError) {
+            return { error: idError };
         }
 
         if (!seenIds.has(id)) {
@@ -582,16 +575,13 @@ const parseJsonExportMessageSelector = (body: Record<string, unknown>): ParseRes
     return parseMessageSelector(messageSelectorValue.value ?? null, 'all');
 };
 
-const parseConversationIdSetRecord = (
-    body: Record<string, unknown>,
-    options: { destructive: boolean },
-): ParseResult<DeleteConversationsOptions> => {
+const parseConversationIdSetRecord = (body: Record<string, unknown>): ParseResult<DeleteConversationsOptions> => {
     const source = parseJsonSourceOption(body);
     if ('error' in source) {
         return source;
     }
 
-    const ids = parseJsonIdsOption(body, options);
+    const ids = parseJsonIdsOption(body);
     if ('error' in ids) {
         return ids;
     }
@@ -610,7 +600,7 @@ const parseExportConversationsBody = async (request: Request): Promise<ParseResu
         return body;
     }
 
-    const idSet = parseConversationIdSetRecord(body.value, { destructive: false });
+    const idSet = parseConversationIdSetRecord(body.value);
     if ('error' in idSet) {
         return idSet;
     }
@@ -641,7 +631,7 @@ const handleDeleteConversations = async (request: Request, dependencies: ReturnT
         return body.error;
     }
 
-    const result = parseConversationIdSetRecord(body.value, { destructive: true });
+    const result = parseConversationIdSetRecord(body.value);
     if ('error' in result) {
         return result.error;
     }

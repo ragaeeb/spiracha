@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { chmod, readdir, rename, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { createConcurrencyLimiter, mapWithConcurrency } from './concurrency';
 import {
     type GrokSessionSummary,
@@ -437,7 +438,7 @@ const readGrokChatHistory = async (
         return (
             prefix.length > 0 &&
             prefix.length <= history.length &&
-            prefix.every((event, index) => JSON.stringify(event) === JSON.stringify(history[index]))
+            prefix.every((event, index) => isDeepStrictEqual(event, history[index]))
         );
     };
 

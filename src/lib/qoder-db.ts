@@ -216,8 +216,26 @@ const parseJsonValue = (value: string): JsonValue | null => {
     }
 };
 
+export const isUnavailableQoderGlobalStateError = (error: unknown): boolean => {
+    if (!(error instanceof Error)) {
+        return false;
+    }
+
+    const code = 'code' in error && typeof error.code === 'string' ? error.code : '';
+    return (
+        code === 'SQLITE_CANTOPEN' ||
+        code === 'SQLITE_IOERR_READ' ||
+        /^(?:SQLite operation failed after \d+ attempts?:\s*)?(?:SQLITE_CANTOPEN:.*|unable to open database file)$/iu.test(
+            error.message,
+        )
+    );
+};
+
 const readGlobalRows = async (globalStateDb = resolveQoderGlobalStateDb()): Promise<ItemTableRow[]> => {
-    if (!(await pathExists(globalStateDb))) {
+    const isDatabaseFile = await stat(globalStateDb)
+        .then((metadata) => metadata.isFile())
+        .catch(() => false);
+    if (!isDatabaseFile) {
         return [];
     }
 
@@ -238,8 +256,7 @@ const readGlobalRows = async (globalStateDb = resolveQoderGlobalStateDb()): Prom
             },
         });
     } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (/SQLITE_CANTOPEN|unable to open database file/iu.test(message)) {
+        if (isUnavailableQoderGlobalStateError(error)) {
             return [];
         }
         throw error;

@@ -10,6 +10,7 @@ const {
     renderAntigravityArtifactsMarkdownMock,
     renderAntigravityConversationMarkdownMock,
     renderSourceSessionsDownloadMock,
+    resolveAntigravityProjectNamesMock,
     resolveAntigravityRootsMock,
     unlockAntigravityDecryptionMock,
 } = vi.hoisted(() => ({
@@ -21,6 +22,7 @@ const {
     renderAntigravityArtifactsMarkdownMock: vi.fn(),
     renderAntigravityConversationMarkdownMock: vi.fn(),
     renderSourceSessionsDownloadMock: vi.fn(),
+    resolveAntigravityProjectNamesMock: vi.fn(),
     resolveAntigravityRootsMock: vi.fn(),
     unlockAntigravityDecryptionMock: vi.fn(),
 }));
@@ -49,6 +51,10 @@ vi.mock('@spiracha/lib/antigravity-keychain', () => ({
     getAntigravityDecryptionState: getAntigravityDecryptionStateMock,
     getCachedAntigravityKeychainSecret: getCachedAntigravityKeychainSecretMock,
     unlockAntigravityDecryption: unlockAntigravityDecryptionMock,
+}));
+
+vi.mock('@spiracha/lib/antigravity-projects', () => ({
+    resolveAntigravityProjectNames: resolveAntigravityProjectNamesMock,
 }));
 
 vi.mock('@spiracha/lib/antigravity-exporter-types', async (importOriginal) => {
@@ -105,6 +111,7 @@ describe('antigravity-server', () => {
         vi.clearAllMocks();
         getAntigravityDecryptionStateMock.mockResolvedValue(null);
         listAntigravityWorkspaceGroupsMock.mockResolvedValue([]);
+        resolveAntigravityProjectNamesMock.mockResolvedValue(new Map());
         resolveAntigravityRootsMock.mockReturnValue(['/tmp/root']);
         unlockAntigravityDecryptionMock.mockResolvedValue(null);
         renderSourceSessionsDownloadMock.mockImplementation(async ({ entries }) => ({
@@ -180,6 +187,7 @@ describe('antigravity-server', () => {
             }),
         ];
         listAntigravityConversationsMock.mockResolvedValue(conversations);
+        resolveAntigravityProjectNamesMock.mockResolvedValue(new Map([[projectId, 'spiracha']]));
         listAntigravityWorkspaceGroupsMock.mockResolvedValue([
             {
                 artifactCount: 0,
@@ -203,6 +211,7 @@ describe('antigravity-server', () => {
         });
 
         expect(result.fileName).toBe('spiracha-threads-2.zip');
+        expect(listAntigravityWorkspaceGroupsMock).not.toHaveBeenCalled();
         expect(renderSourceSessionsDownloadMock).toHaveBeenCalledWith(
             expect.objectContaining({
                 entries: expect.arrayContaining([

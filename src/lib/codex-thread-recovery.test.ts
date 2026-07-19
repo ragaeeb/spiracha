@@ -1,6 +1,6 @@
 import { Database } from 'bun:sqlite';
-import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdir, mkdtemp, rm, stat } from 'node:fs/promises';
+import { afterEach, describe, expect, it, setSystemTime } from 'bun:test';
+import { mkdir, mkdtemp, readdir, rm, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { recoverCodexProjectThreads } from './codex-thread-recovery';
@@ -198,6 +198,28 @@ const createRecoveryFixture = async (tempRoot: string): Promise<RecoveryFixture>
 };
 
 describe('codex thread recovery', () => {
+    it('should retain only the newest recovery backups for each state file', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-recovery-retention-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createRecoveryFixture(tempRoot);
+
+        try {
+            for (let index = 0; index < 7; index += 1) {
+                setSystemTime(new Date(Date.UTC(2026, 6, 1, 0, 0, index)));
+                await recoverCodexProjectThreads(fixture.dbPath, 'recover-me');
+            }
+        } finally {
+            setSystemTime();
+        }
+
+        const files = await readdir(fixture.codexDir);
+        expect(files.filter((file) => file.includes('.bak-recover-project-roots-')).length).toBeLessThanOrEqual(5);
+        expect(files.filter((file) => file.includes('.bak-recover-project-session-index-')).length).toBeLessThanOrEqual(
+            5,
+        );
+        expect(files.filter((file) => file.includes('.bak-recover-project-threads-')).length).toBeLessThanOrEqual(5);
+    });
+
     it('should refresh top-level project threads and add missing workspace roots', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-recovery-test-'));
         tempPaths.push(tempRoot);

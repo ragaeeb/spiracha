@@ -33,7 +33,9 @@ type ParseCodexTranscriptState = {
     maxTurnContexts: number;
     sequence: number;
     shouldStop: boolean;
+    tailEventCursor: number;
     tailEventLimit: number;
+    tailEventsWrapped: boolean;
     turnContexts: TurnContextRecord[];
 };
 
@@ -88,7 +90,9 @@ export const parseCodexTranscriptFile = async (
         maxTurnContexts,
         sequence: 0,
         shouldStop: false,
+        tailEventCursor: 0,
         tailEventLimit,
+        tailEventsWrapped: false,
         turnContexts,
     };
 
@@ -98,6 +102,15 @@ export const parseCodexTranscriptFile = async (
         if (state.shouldStop) {
             break;
         }
+    }
+
+    if (state.tailEventsWrapped && events.length > 0) {
+        events.splice(
+            0,
+            events.length,
+            ...events.slice(state.tailEventCursor),
+            ...events.slice(0, state.tailEventCursor),
+        );
     }
 
     for (const event of events) {
@@ -139,9 +152,12 @@ const captureTranscriptRecord = (parsed: Record<string, JsonValue>, state: Parse
         return;
     }
 
-    state.events.push(event);
-    if (state.events.length > state.tailEventLimit) {
-        state.events.shift();
+    if (!Number.isFinite(state.tailEventLimit) || state.events.length < state.tailEventLimit) {
+        state.events.push(event);
+    } else if (state.tailEventLimit > 0) {
+        state.events[state.tailEventCursor] = event;
+        state.tailEventCursor = (state.tailEventCursor + 1) % state.tailEventLimit;
+        state.tailEventsWrapped = true;
     }
     state.shouldStop = state.events.length >= state.maxEvents;
 };
@@ -307,7 +323,7 @@ const createMessageEvent = (
     const role = asString(payload.role);
     const content = payload.content;
     const text = extractText(content);
-    if (!role || content === undefined) {
+    if (!role || content === undefined || !text.trim()) {
         return null;
     }
 
@@ -637,7 +653,10 @@ const extractText = (content: JsonValue): string => {
 };
 
 export const stripCodexMemoryCitationBlocks = (text: string): string => {
-    return stripCodexAppDirectiveLines(text.replace(/<oai-mem-citation>[\s\S]*?<\/oai-mem-citation>/gu, ''));
+    const withoutMemoryCitations = text.includes('<oai-mem-citation>')
+        ? text.replace(/<oai-mem-citation>[\s\S]*?<\/oai-mem-citation>/gu, '')
+        : text;
+    return stripCodexAppDirectiveLines(withoutMemoryCitations);
 };
 
 const extractTextPart = (entry: JsonValue): string => {

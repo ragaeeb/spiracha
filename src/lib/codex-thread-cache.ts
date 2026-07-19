@@ -12,6 +12,7 @@ export const LARGE_THREAD_SIZE_BYTES = 8 * 1024 * 1024;
 export const LARGE_THREAD_PREVIEW_EVENT_LIMIT = 200;
 const CODEX_TRANSCRIPT_CACHE_VERSION = 'v3';
 const CODEX_TRANSCRIPT_STATS_CACHE_VERSION = 'v1';
+const FILE_STABILITY_ATTEMPTS = 3;
 
 type CodexTranscriptStatsLoader = (sessionFile: string) => Promise<ThreadTranscriptStats>;
 
@@ -19,15 +20,32 @@ const isMissingFileError = (error: unknown) => {
     return error instanceof Error && 'code' in error && error.code === 'ENOENT';
 };
 
-export const getCachedParsedCodexTranscript = async (sessionFile: string): Promise<ParsedCodexTranscript> => {
-    const fingerprint = await getFileFingerprint(sessionFile);
-    const key = `thread-${hashCacheKeyPartsIterable([CODEX_TRANSCRIPT_CACHE_VERSION, path.basename(sessionFile), fingerprint])}`;
+const withStableFileCache = async <T>(
+    sessionFile: string,
+    keyForFingerprint: (fingerprint: string) => string,
+    loader: () => Promise<T>,
+): Promise<T> => {
+    for (let attempt = 0; attempt < FILE_STABILITY_ATTEMPTS; attempt += 1) {
+        const fingerprint = await getFileFingerprint(sessionFile);
+        const value = await withCachedJson(keyForFingerprint(fingerprint), loader);
+        if ((await getFileFingerprint(sessionFile)) === fingerprint) {
+            return value;
+        }
+    }
 
-    return withCachedJson(key, async () =>
-        runWithTranscriptLoadLimit(() => parseCodexTranscriptFile(sessionFile), {
-            path: sessionFile,
-            source: 'codex-full',
-        }),
+    throw new Error(`Codex rollout changed repeatedly while loading: ${sessionFile}`);
+};
+
+export const getCachedParsedCodexTranscript = async (sessionFile: string): Promise<ParsedCodexTranscript> => {
+    return withStableFileCache(
+        sessionFile,
+        (fingerprint) =>
+            `thread-${hashCacheKeyPartsIterable([CODEX_TRANSCRIPT_CACHE_VERSION, path.basename(sessionFile), fingerprint])}`,
+        async () =>
+            runWithTranscriptLoadLimit(() => parseCodexTranscriptFile(sessionFile), {
+                path: sessionFile,
+                source: 'codex-full',
+            }),
     );
 };
 
@@ -44,18 +62,19 @@ export const getCachedCodexTranscriptStats = async (
     sessionFile: string,
     loadStats: CodexTranscriptStatsLoader = loadCodexTranscriptStats,
 ): Promise<ThreadTranscriptStats> => {
-    const fingerprint = await getFileFingerprint(sessionFile);
-    const key = `thread-list-stats-${hashCacheKeyPartsIterable([
-        CODEX_TRANSCRIPT_STATS_CACHE_VERSION,
-        path.basename(sessionFile),
-        fingerprint,
-    ])}`;
-
-    return withCachedJson(key, () =>
-        runWithTranscriptLoadLimit(() => loadStats(sessionFile), {
-            path: sessionFile,
-            source: 'codex-list-stats',
-        }),
+    return withStableFileCache(
+        sessionFile,
+        (fingerprint) =>
+            `thread-list-stats-${hashCacheKeyPartsIterable([
+                CODEX_TRANSCRIPT_STATS_CACHE_VERSION,
+                path.basename(sessionFile),
+                fingerprint,
+            ])}`,
+        () =>
+            runWithTranscriptLoadLimit(() => loadStats(sessionFile), {
+                path: sessionFile,
+                source: 'codex-list-stats',
+            }),
     );
 };
 
@@ -96,38 +115,43 @@ export const getCachedThreadTranscriptPreview = async (
     const threshold = options.largeTranscriptThresholdBytes ?? LARGE_THREAD_SIZE_BYTES;
     const previewEventLimit = options.previewEventLimit ?? LARGE_THREAD_PREVIEW_EVENT_LIMIT;
     const filters = options.filters;
-    const fingerprint = await getFileFingerprint(sessionFile);
-    const { fileSizeBytes, shouldDeferTranscriptLoad } = await getThreadRolloutLoadState(sessionFile, threshold);
     const filterKey = filters ? JSON.stringify(filters) : 'all';
-    const key = `thread-preview-${hashCacheKeyPartsIterable([CODEX_TRANSCRIPT_CACHE_VERSION, path.basename(sessionFile), fingerprint, String(threshold), String(previewEventLimit), filterKey])}`;
+    return withStableFileCache(
+        sessionFile,
+        (fingerprint) =>
+            `thread-preview-${hashCacheKeyPartsIterable([CODEX_TRANSCRIPT_CACHE_VERSION, path.basename(sessionFile), fingerprint, String(threshold), String(previewEventLimit), filterKey])}`,
+        async () => {
+            const { fileSizeBytes, shouldDeferTranscriptLoad } = await getThreadRolloutLoadState(
+                sessionFile,
+                threshold,
+            );
+            if (!shouldDeferTranscriptLoad) {
+                return runWithTranscriptLoadLimit(
+                    () =>
+                        parseCodexTranscriptFile(sessionFile, {
+                            sourceFileSizeBytes: fileSizeBytes,
+                        }),
+                    {
+                        path: sessionFile,
+                        source: 'codex-preview-full',
+                    },
+                );
+            }
 
-    return withCachedJson(key, async () => {
-        if (!shouldDeferTranscriptLoad) {
             return runWithTranscriptLoadLimit(
                 () =>
                     parseCodexTranscriptFile(sessionFile, {
+                        eventFilter: filters ? (event) => shouldShowCodexTranscriptEvent(event, filters) : undefined,
+                        includeRaw: false,
+                        maxTurnContexts: 0,
                         sourceFileSizeBytes: fileSizeBytes,
+                        tailEventLimit: previewEventLimit,
                     }),
                 {
                     path: sessionFile,
-                    source: 'codex-preview-full',
+                    source: 'codex-preview',
                 },
             );
-        }
-
-        return runWithTranscriptLoadLimit(
-            () =>
-                parseCodexTranscriptFile(sessionFile, {
-                    eventFilter: filters ? (event) => shouldShowCodexTranscriptEvent(event, filters) : undefined,
-                    includeRaw: false,
-                    maxTurnContexts: 0,
-                    sourceFileSizeBytes: fileSizeBytes,
-                    tailEventLimit: previewEventLimit,
-                }),
-            {
-                path: sessionFile,
-                source: 'codex-preview',
-            },
-        );
-    });
+        },
+    );
 };

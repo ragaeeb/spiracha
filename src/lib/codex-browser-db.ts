@@ -1,6 +1,6 @@
 import { constants, Database } from 'bun:sqlite';
 import { closeSync, openSync, readdirSync, readSync, type Stats, statSync } from 'node:fs';
-import { rename, rm, stat } from 'node:fs/promises';
+import { realpath, rename, rm, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
@@ -52,9 +52,9 @@ const THREAD_ROW_COLUMNS = `
 const PROJECT_CWD_FILTER = `
     typeof(cwd) = 'text'
     AND (
-        RTRIM(cwd, '/\\') = ?
-        OR SUBSTR(RTRIM(cwd, '/\\'), -(LENGTH(?) + 1)) = '/' || ?
-        OR SUBSTR(RTRIM(cwd, '/\\'), -(LENGTH(?) + 1)) = '\\' || ?
+        RTRIM(cwd, '/\\') = ?1
+        OR SUBSTR(RTRIM(cwd, '/\\'), -(LENGTH(?1) + 1)) = '/' || ?1
+        OR SUBSTR(RTRIM(cwd, '/\\'), -(LENGTH(?1) + 1)) = '\\' || ?1
     )
 `;
 
@@ -126,6 +126,7 @@ type FallbackSessionMeta = {
     agent_role?: string;
     cli_version?: string;
     cwd?: string;
+    dynamic_tools?: unknown;
     forked_from_id?: string;
     id?: string;
     model_provider?: string;
@@ -288,8 +289,6 @@ export const resolveCodexThreadDbPath = () => {
     throw new Error(`Unable to open Codex thread database. Tried: ${candidates.join(', ')}`);
 };
 
-const projectCwdBindings = (projectName: string) => [projectName, projectName, projectName, projectName, projectName];
-
 const readThreads = (dbPath: string, projectName: string | null = null): ThreadRow[] => {
     return withReadonlyDb(dbPath, (db) => {
         const projectFilter = projectName ? `WHERE ${PROJECT_CWD_FILTER}` : '';
@@ -298,7 +297,7 @@ const readThreads = (dbPath: string, projectName: string | null = null): ThreadR
                 `SELECT ${THREAD_ROW_COLUMNS} FROM threads ${projectFilter}
                  ORDER BY COALESCE(updated_at_ms, updated_at * 1000) DESC, id DESC`,
             )
-            .all(...(projectName ? projectCwdBindings(projectName) : [])) as ThreadRow[];
+            .all(...(projectName ? [projectName] : [])) as ThreadRow[];
     });
 };
 
@@ -309,6 +308,22 @@ const resolveCodexDirFromDbPath = (dbPath: string) => {
 
 const resolveCodexRolloutPath = (dbPath: string, rolloutPath: string) =>
     path.isAbsolute(rolloutPath) ? rolloutPath : path.join(resolveCodexDirFromDbPath(dbPath), rolloutPath);
+
+const assertSafeCodexRolloutPaths = async (dbPath: string, rolloutPaths: string[]): Promise<void> => {
+    const codexDir = path.resolve(resolveCodexDirFromDbPath(dbPath));
+    const canonicalCodexDir = await realpath(codexDir).catch(() => codexDir);
+
+    await Promise.all(
+        rolloutPaths.map(async (rolloutPath) => {
+            const resolvedPath = path.resolve(resolveCodexRolloutPath(dbPath, rolloutPath));
+            const canonicalPath = await realpath(resolvedPath).catch(() => resolvedPath);
+            const relativePath = path.relative(canonicalCodexDir, canonicalPath);
+            if (!relativePath || relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath)) {
+                throw new Error(`Unsafe Codex rollout path: ${rolloutPath}`);
+            }
+        }),
+    );
+};
 
 export class CodexThreadNotFoundError extends Error {
     readonly code = 'CODEX_THREAD_NOT_FOUND';
@@ -410,7 +425,20 @@ const readSessionIndexEntries = (codexDir: string): SessionIndexEntry[] => {
 };
 
 const collectSessionFilesByThreadId = (sessionsDir: string): Map<string, string> => {
+    const ambiguousThreadIds = new Set<string>();
     const sessionFiles = new Map<string, string>();
+    const recordSessionFile = (fileName: string, filePath: string) => {
+        const threadId = THREAD_ID_PATTERN.exec(fileName)?.[1];
+        if (!threadId || ambiguousThreadIds.has(threadId)) {
+            return;
+        }
+        if (sessionFiles.has(threadId)) {
+            sessionFiles.delete(threadId);
+            ambiguousThreadIds.add(threadId);
+        } else {
+            sessionFiles.set(threadId, filePath);
+        }
+    };
     const visit = (directory: string) => {
         const entries = (() => {
             try {
@@ -434,10 +462,7 @@ const collectSessionFilesByThreadId = (sessionsDir: string): Map<string, string>
                 continue;
             }
 
-            const threadId = THREAD_ID_PATTERN.exec(entry.name)?.[1];
-            if (threadId && !sessionFiles.has(threadId)) {
-                sessionFiles.set(threadId, entryPath);
-            }
+            recordSessionFile(entry.name, entryPath);
         }
     };
 
@@ -555,6 +580,32 @@ const objectOrNull = (value: unknown) => {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
         ? (value as Record<string, unknown>)
         : null;
+};
+
+const parseFallbackDynamicTools = (sessionMeta: FallbackSessionMeta, threadId: string): DynamicToolRow[] => {
+    if (!Array.isArray(sessionMeta.dynamic_tools)) {
+        return [];
+    }
+
+    return sessionMeta.dynamic_tools.flatMap((value, position) => {
+        const tool = objectOrNull(value);
+        if (!tool) {
+            return [];
+        }
+
+        return [
+            {
+                deferLoading: tool.deferLoading === true || tool.defer_loading === true,
+                description: stringOrNull(tool.description) ?? '',
+                inputSchema: (objectOrNull(tool.inputSchema) ??
+                    objectOrNull(tool.input_schema)) as DynamicToolRow['inputSchema'],
+                name: stringOrNull(tool.name) ?? 'unknown',
+                namespace: stringOrNull(tool.namespace),
+                position,
+                threadId,
+            },
+        ];
+    });
 };
 
 const isFallbackSubagent = (sessionMeta: FallbackSessionMeta) => {
@@ -1203,6 +1254,13 @@ const getSessionFilesForThreadIds = (dbPath: string, threadIds: string[]) => {
         .filter((value): value is string => Boolean(value));
 };
 
+const validateSessionFileDeletionTargets = async (dbPath: string, threadIds: string[]): Promise<void> => {
+    const dbSessionFiles = withReadonlyDb(dbPath, (db) =>
+        getThreadDeleteTargets(db, threadIds).map((target) => target.rollout_path),
+    );
+    await assertSafeCodexRolloutPaths(dbPath, [...dbSessionFiles, ...getSessionFilesForThreadIds(dbPath, threadIds)]);
+};
+
 const filterSessionIndexLines = (lines: string[], threadIds: Set<string>) => {
     const removedThreadIds: string[] = [];
     const retainedLines: string[] = [];
@@ -1477,12 +1535,14 @@ export const getThreadBrowseData = (dbPath: string, threadId: string): ThreadBro
 
         const dynamicTools =
             dbThread && existingTableNames.has('thread_dynamic_tools')
-                ? (db
-                      .query(
-                          'SELECT thread_id, position, name, description, input_schema, defer_loading, namespace FROM thread_dynamic_tools WHERE thread_id = ? ORDER BY position ASC',
-                      )
-                      .all(threadId) as Array<Record<string, number | string | null>>)
-                : [];
+                ? (
+                      db
+                          .query(
+                              'SELECT thread_id, position, name, description, input_schema, defer_loading, namespace FROM thread_dynamic_tools WHERE thread_id = ? ORDER BY position ASC',
+                          )
+                          .all(threadId) as Array<Record<string, number | string | null>>
+                  ).map((row) => parseDynamicToolRow(row))
+                : parseFallbackDynamicTools(readFallbackSessionMeta(thread.rollout_path) ?? {}, threadId);
         const goals =
             dbThread && existingTableNames.has('thread_goals')
                 ? (db
@@ -1493,7 +1553,7 @@ export const getThreadBrowseData = (dbPath: string, threadId: string): ThreadBro
                 : [];
 
         return {
-            dynamicTools: dynamicTools.map((row) => parseDynamicToolRow(row)),
+            dynamicTools,
             goals: goals.map((goal) => ({
                 createdAtMs: goal.created_at_ms,
                 goalId: goal.goal_id,
@@ -1613,6 +1673,9 @@ export const deleteCodexThread = async (
     options: DeleteThreadOptions = {},
 ): Promise<DeleteThreadsResult> => {
     const threadIds = [threadId];
+    if (options.deleteSessionFiles) {
+        await validateSessionFileDeletionTargets(dbPath, threadIds);
+    }
     const result = withWritableDb(dbPath, (db) => {
         return deleteThreadIds(db, threadIds);
     });
@@ -1640,6 +1703,9 @@ export const deleteCodexThreads = async (
     options: DeleteThreadOptions = {},
 ): Promise<DeleteThreadsResult> => {
     const uniqueThreadIds = uniqueValues(threadIds);
+    if (options.deleteSessionFiles) {
+        await validateSessionFileDeletionTargets(dbPath, uniqueThreadIds);
+    }
     const result = withWritableDb(dbPath, (db) => {
         return deleteThreadIds(db, uniqueThreadIds);
     });
@@ -1672,15 +1738,19 @@ export const deleteCodexProject = async (
         ),
     );
     const fallbackThreadIds = listFallbackThreadIdsForProject(dbPath, existingThreadIds, projectName);
-    const result = withWritableDb(dbPath, (db) => {
-        const threadIds = (
-            db
-                .query(`SELECT id FROM threads WHERE ${PROJECT_CWD_FILTER}`)
-                .all(...projectCwdBindings(projectName)) as Array<{
+    const projectThreadIds = withReadonlyDb(dbPath, (db) =>
+        (
+            db.query(`SELECT id FROM threads WHERE ${PROJECT_CWD_FILTER}`).all(projectName) as Array<{
                 id: string;
             }>
-        ).map(({ id }) => id);
-        const deleted = deleteThreadIds(db, threadIds);
+        ).map(({ id }) => id),
+    );
+    const allThreadIds = [...projectThreadIds, ...fallbackThreadIds];
+    if (options.deleteSessionFiles) {
+        await validateSessionFileDeletionTargets(dbPath, allThreadIds);
+    }
+    const result = withWritableDb(dbPath, (db) => {
+        const deleted = deleteThreadIds(db, projectThreadIds);
 
         return {
             ...deleted,

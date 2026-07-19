@@ -1,5 +1,5 @@
 import { Database } from 'bun:sqlite';
-import { copyFile, utimes } from 'node:fs/promises';
+import { copyFile, readdir, rm, utimes } from 'node:fs/promises';
 import path from 'node:path';
 import type { RecoverProjectThreadsResult } from './codex-browser-types';
 import { getPortablePathBasename } from './portable-path';
@@ -18,6 +18,8 @@ type GlobalState = {
     'project-order'?: string[];
 };
 
+const RECOVERY_BACKUP_RETENTION_COUNT = 5;
+
 const backupFile = async (filePath: string, label: string) => {
     const stamp = new Date()
         .toISOString()
@@ -26,6 +28,14 @@ const backupFile = async (filePath: string, label: string) => {
         .replace('T', '-');
     const backupPath = `${filePath}.bak-${label}-${stamp}`;
     await copyFile(filePath, backupPath);
+    const directory = path.dirname(filePath);
+    const prefix = `${path.basename(filePath)}.bak-${label}-`;
+    const backups = (await readdir(directory))
+        .filter((entry) => entry.startsWith(prefix))
+        .sort((left, right) => right.localeCompare(left));
+    await Promise.all(
+        backups.slice(RECOVERY_BACKUP_RETENTION_COUNT).map((entry) => rm(path.join(directory, entry), { force: true })),
+    );
     return backupPath;
 };
 

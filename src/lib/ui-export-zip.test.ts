@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, symlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { strFromU8, unzipSync } from 'fflate';
@@ -68,5 +68,22 @@ describe('UI export ZIP helpers', () => {
         expect(Object.keys(directoryEntries).sort()).toEqual(['nested/metadata.txt', 'thread.md']);
         expect(strFromU8(directoryEntries['nested/metadata.txt']!)).toBe('metadata');
         expect(strFromU8(directoryEntries['thread.md']!)).toBe(largeContent);
+    });
+
+    it('should skip symbolic links while collecting export directories', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'ui-export-zip-symlink-'));
+        tempPaths.push(tempRoot);
+        const sourceDirectory = path.join(tempRoot, 'source');
+        const outsideDirectory = path.join(tempRoot, 'outside');
+        await Bun.write(path.join(sourceDirectory, 'thread.md'), '# Safe export\n');
+        await Bun.write(path.join(outsideDirectory, 'secret.txt'), 'secret');
+        await symlink(path.join(outsideDirectory, 'secret.txt'), path.join(sourceDirectory, 'linked-secret.txt'));
+        await symlink(outsideDirectory, path.join(sourceDirectory, 'linked-directory'));
+
+        const zipPath = path.join(tempRoot, 'directory.zip');
+        await zipExportDirectory(sourceDirectory, zipPath);
+
+        const entries = unzipSync(new Uint8Array(await Bun.file(zipPath).arrayBuffer()));
+        expect(Object.keys(entries)).toEqual(['thread.md']);
     });
 });

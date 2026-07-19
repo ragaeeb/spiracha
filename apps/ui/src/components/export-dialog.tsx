@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Button } from '#/components/ui/button';
 import { Checkbox } from '#/components/ui/checkbox';
 import {
@@ -40,20 +40,38 @@ export function ExportDialog({
 }: ExportDialogProps) {
     const { settings, updateSetting } = useSettings();
     const [options, setOptions] = useState<ExportDialogOptions>(settings.exportDefaults);
+    const [submitted, setSubmitted] = useState(false);
+    const submissionInProgress = useRef(false);
+    const previousPending = useRef(pending);
     const effectiveZipArchive = forceZipArchive || options.zipArchive;
     const zipDescriptionId = useId();
 
     useEffect(() => {
         if (!open) {
             setOptions(settings.exportDefaults);
+            setSubmitted(false);
+            submissionInProgress.current = false;
         }
     }, [open, settings.exportDefaults]);
+
+    useEffect(() => {
+        if ((previousPending.current && !pending) || errorMessage) {
+            setSubmitted(false);
+            submissionInProgress.current = false;
+        }
+        previousPending.current = pending;
+    }, [errorMessage, pending]);
 
     const updateOption = <K extends keyof ExportDialogOptions>(key: K, value: ExportDialogOptions[K]) => {
         setOptions((current) => ({ ...current, [key]: value }));
     };
 
     const submitExport = () => {
+        if (submissionInProgress.current) {
+            return;
+        }
+        submissionInProgress.current = true;
+        setSubmitted(true);
         updateSetting('exportDefaults', options);
         onExport({ ...options, zipArchive: effectiveZipArchive });
     };
@@ -161,7 +179,7 @@ export function ExportDialog({
                     <Button className="rounded-full" variant="outline" onClick={() => onOpenChange(false)}>
                         Cancel
                     </Button>
-                    <Button className="rounded-full" disabled={pending || disabled} onClick={submitExport}>
+                    <Button className="rounded-full" disabled={pending || disabled || submitted} onClick={submitExport}>
                         {pending ? 'Exporting...' : 'Download export'}
                     </Button>
                 </DialogFooter>

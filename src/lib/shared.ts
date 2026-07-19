@@ -268,7 +268,7 @@ export const formatInlineLiteral = (value: string, format: ExportFormat): string
 };
 
 const getBacktickFence = (value: string, minimumLength: number): string => {
-    const backtickRuns = value.match(/`+/g) ?? [];
+    const backtickRuns = value.match(/`+/gu) ?? [];
     const maxRunLength = backtickRuns.reduce((max, run) => Math.max(max, run.length), 0);
     return '`'.repeat(Math.max(minimumLength, maxRunLength + 1));
 };

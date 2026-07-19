@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import { resolveTranscriptLoadConcurrency, runWithTranscriptLoadLimit } from './transcript-load-limiter';
 
 const originalLogSetting = process.env.SPIRACHA_TRANSCRIPT_LOAD_LOGS;
@@ -48,5 +48,22 @@ describe('transcript load limiter', () => {
         ).rejects.toThrow('load failed');
 
         await expect(runWithTranscriptLoadLimit(async () => 'recovered')).resolves.toBe('recovered');
+    });
+
+    it('should keep transcript load diagnostics quiet unless explicitly enabled', async () => {
+        delete process.env.SPIRACHA_TRANSCRIPT_LOAD_LOGS;
+        const infoSpy = spyOn(console, 'info').mockImplementation(() => undefined);
+
+        try {
+            await runWithTranscriptLoadLimit(async () => 'quiet');
+            expect(infoSpy).not.toHaveBeenCalled();
+
+            process.env.SPIRACHA_TRANSCRIPT_LOAD_LOGS = '1';
+            await runWithTranscriptLoadLimit(async () => 'logged');
+            expect(infoSpy).toHaveBeenCalledWith('[spiracha:transcript-load] start', expect.any(Object));
+            expect(infoSpy).toHaveBeenCalledWith('[spiracha:transcript-load] finish', expect.any(Object));
+        } finally {
+            infoSpy.mockRestore();
+        }
     });
 });

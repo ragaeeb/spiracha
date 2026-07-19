@@ -512,6 +512,15 @@ describe('codex browser db', () => {
                     payload: {
                         cli_version: '0.140.0-alpha.2',
                         cwd: '/Users/user/workspace/spiracha',
+                        dynamic_tools: [
+                            {
+                                defer_loading: true,
+                                description: 'Run a command.',
+                                input_schema: { properties: { cmd: { type: 'string' } }, type: 'object' },
+                                name: 'exec_command',
+                                namespace: 'codex',
+                            },
+                        ],
                         id: fallbackThreadId,
                         model_provider: 'openai',
                         originator: 'Codex Desktop',
@@ -584,7 +593,17 @@ describe('codex browser db', () => {
             },
         });
         expect(fallbackDetails).toMatchObject({
-            dynamicTools: [],
+            dynamicTools: [
+                {
+                    deferLoading: true,
+                    description: 'Run a command.',
+                    inputSchema: { properties: { cmd: { type: 'string' } }, type: 'object' },
+                    name: 'exec_command',
+                    namespace: 'codex',
+                    position: 0,
+                    threadId: fallbackThreadId,
+                },
+            ],
             project: 'spiracha',
             relations: {
                 childEdges: [],
@@ -691,6 +710,44 @@ describe('codex browser db', () => {
         } finally {
             Buffer.alloc = originalAlloc;
         }
+    });
+
+    it('should omit fallback threads whose ID resolves to multiple rollout files', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-ambiguous-fallback-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const fallbackThreadId = '019ec3d5-859d-77d0-b851-256ae567ff69';
+        const sessionRecord = JSON.stringify({
+            payload: {
+                cwd: '/Users/user/workspace/spiracha',
+                id: fallbackThreadId,
+                timestamp: '2026-06-14T01:53:31.047Z',
+            },
+            type: 'session_meta',
+        });
+        const sessionPaths = ['13', '14'].map((day) =>
+            path.join(
+                tempRoot,
+                'sessions',
+                '2026',
+                '06',
+                day,
+                `rollout-2026-06-${day}T21-53-31-${fallbackThreadId}.jsonl`,
+            ),
+        );
+        for (const sessionPath of sessionPaths) {
+            await mkdir(path.dirname(sessionPath), { recursive: true });
+            await Bun.write(sessionPath, sessionRecord);
+        }
+        await Bun.write(
+            path.join(tempRoot, 'session_index.jsonl'),
+            JSON.stringify({ id: fallbackThreadId, thread_name: 'Ambiguous fallback thread' }),
+        );
+
+        const threads = await listProjectThreads(fixture.dbPath, 'spiracha', { includeTranscriptStats: false });
+
+        expect(threads.map((thread) => thread.thread.id)).not.toContain(fallbackThreadId);
+        expect(() => getThreadBrowseData(fixture.dbPath, fallbackThreadId)).toThrow('Thread not found');
     });
 
     it('should summarize fallback projects without parsing large irrelevant rollout records', async () => {
@@ -1125,6 +1182,31 @@ describe('codex browser db', () => {
 
         expect(result.deletedThreadIds).toEqual([threadId]);
         expect(await Bun.file(sessionFile).exists()).toBe(false);
+    });
+
+    it('should reject an out-of-tree rollout path before deleting thread data', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-unsafe-rollout-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const threadId = fixture.threads[0]!.threadId;
+        const externalFile = path.join(path.dirname(tempRoot), `${path.basename(tempRoot)}-external.jsonl`);
+        tempPaths.push(externalFile);
+        await Bun.write(externalFile, 'do not delete');
+
+        const db = new Database(fixture.dbPath);
+        db.query('UPDATE threads SET rollout_path = ? WHERE id = ?').run(externalFile, threadId);
+        db.close();
+
+        await expect(deleteCodexThread(fixture.dbPath, threadId, { deleteSessionFiles: true })).rejects.toThrow(
+            'Unsafe Codex rollout path',
+        );
+        expect(await Bun.file(externalFile).exists()).toBe(true);
+
+        const verificationDb = new Database(fixture.dbPath, { readonly: true });
+        expect(verificationDb.query('SELECT COUNT(*) AS count FROM threads WHERE id = ?').get(threadId)).toEqual({
+            count: 1,
+        });
+        verificationDb.close();
     });
 
     it('should keep a deleted DB thread from reappearing through the fallback session index', async () => {

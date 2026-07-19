@@ -111,4 +111,35 @@ describe('ThreadToolsPanel', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Load tool activity' }));
         expect(onLoadTranscript).toHaveBeenCalledOnce();
     });
+
+    it('should deduplicate logically identical tool schemas with different key order', () => {
+        render(
+            <ThreadToolsPanel
+                assistantModel={null}
+                availableTools={[
+                    {
+                        deferLoading: false,
+                        description: 'Run a command.',
+                        inputSchema: { properties: { cmd: { type: 'string' } }, type: 'object' },
+                        name: 'exec_command',
+                        namespace: 'codex',
+                    },
+                    {
+                        deferLoading: false,
+                        description: 'Run a command.',
+                        inputSchema: { properties: { cmd: { type: 'string' } }, type: 'object' },
+                        name: 'exec_command',
+                        namespace: 'codex',
+                    },
+                ]}
+                events={[]}
+                projectPath={null}
+                showRawJson={false}
+                sortOrder="earliest"
+                transcriptState="available"
+            />,
+        );
+
+        expect(screen.getAllByText('exec_command')).toHaveLength(1);
+    });
 });

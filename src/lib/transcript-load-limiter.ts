@@ -26,7 +26,7 @@ const getTranscriptLoadLimiter = () => {
     return transcriptLoadLimiter;
 };
 
-const shouldLogTranscriptLoads = () => process.env.SPIRACHA_TRANSCRIPT_LOAD_LOGS !== '0';
+const shouldLogTranscriptLoads = () => process.env.SPIRACHA_TRANSCRIPT_LOAD_LOGS === '1';
 
 const logTranscriptLoad = (event: string, details: Record<string, unknown>) => {
     if (shouldLogTranscriptLoads()) {

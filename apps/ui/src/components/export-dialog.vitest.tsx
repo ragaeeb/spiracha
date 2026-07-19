@@ -57,6 +57,18 @@ describe('ExportDialog', () => {
         expect((screen.getByRole('button', { name: 'Exporting...' }) as HTMLButtonElement).disabled).toBe(true);
     });
 
+    it('should prevent duplicate submissions before pending state propagates', () => {
+        const onExport = vi.fn();
+        render(<ExportDialog open onExport={onExport} onOpenChange={vi.fn()} />);
+        const submit = screen.getByRole('button', { name: 'Download export' });
+
+        fireEvent.click(submit);
+        fireEvent.click(submit);
+
+        expect(onExport).toHaveBeenCalledTimes(1);
+        expect((submit as HTMLButtonElement).disabled).toBe(true);
+    });
+
     it('should disable export submission without showing pending text when disabled', () => {
         render(<ExportDialog disabled open onExport={vi.fn()} onOpenChange={vi.fn()} />);
 

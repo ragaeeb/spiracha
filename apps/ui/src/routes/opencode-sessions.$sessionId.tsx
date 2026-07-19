@@ -23,6 +23,7 @@ import { formatDateTime, formatList, formatNumber, formatTokens } from '#/lib/fo
 import { openCodeSessionDetailQueryOptions, openCodeWorkspacesQueryOptions } from '#/lib/opencode-queries';
 import { deleteOpenCodeSessionFn, exportOpenCodeSessionFn } from '#/lib/opencode-server';
 import { getOpenCodeThreadTranscriptStats, openCodeTranscriptToThreadEvents } from '#/lib/opencode-transcript-events';
+import { RouteStateResetBoundary } from '#/lib/route-state-reset';
 import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
 type TranscriptControlsProps = {
@@ -392,7 +393,14 @@ const OpenCodeSessionDetailPage = () => {
 };
 
 export const Route = createFileRoute('/opencode-sessions/$sessionId')({
-    component: OpenCodeSessionDetailPage,
+    component: () => {
+        const { sessionId } = Route.useParams();
+        return (
+            <RouteStateResetBoundary routeKey={sessionId}>
+                <OpenCodeSessionDetailPage />
+            </RouteStateResetBoundary>
+        );
+    },
     errorComponent: OpenCodeSessionDetailErrorComponent,
     loader: ({ context, params }) =>
         context.queryClient.ensureQueryData(openCodeSessionDetailQueryOptions(params.sessionId)),

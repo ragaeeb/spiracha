@@ -60,6 +60,7 @@ describe('ui export file helpers', () => {
         expect(resolveUiExportFilePathFromRequestPath(`${UI_EXPORT_URL_PREFIX}..%5Cescape.zip`)).toBeNull();
         expect(resolveUiExportFilePathFromRequestPath(`${UI_EXPORT_URL_PREFIX}.`)).toBeNull();
         expect(resolveUiExportFilePathFromRequestPath(`${UI_EXPORT_URL_PREFIX}..`)).toBeNull();
+        expect(resolveUiExportFilePathFromRequestPath(`${UI_EXPORT_URL_PREFIX}${'a'.repeat(201)}`)).toBeNull();
         expect(resolveUiExportFilePathFromRequestPath(`${UI_EXPORT_URL_PREFIX}report%20bundle.zip`)).toBe(
             path.join(exportDir, 'report bundle.zip'),
         );
@@ -99,5 +100,22 @@ describe('ui export file helpers', () => {
 
         expect(await Bun.file(stalePath).exists()).toBe(false);
         expect(await Bun.file(freshPath).exists()).toBe(true);
+    });
+
+    it('should evict oldest exports until the directory is within its size ceiling', async () => {
+        const exportDir = await mkdtemp(path.join(os.tmpdir(), 'spiracha-ui-export-size-test-'));
+        tempPaths.push(exportDir);
+        const oldestPath = path.join(exportDir, 'oldest.zip');
+        const newestPath = path.join(exportDir, 'newest.zip');
+        await Bun.write(oldestPath, 'a'.repeat(100));
+        await Bun.write(newestPath, 'b'.repeat(100));
+        const now = Date.now();
+        await utimes(oldestPath, new Date(now - 2_000), new Date(now - 2_000));
+        await utimes(newestPath, new Date(now - 1_000), new Date(now - 1_000));
+
+        await purgeStaleUiExports(exportDir, Number.POSITIVE_INFINITY, 100);
+
+        expect(await Bun.file(oldestPath).exists()).toBe(false);
+        expect(await Bun.file(newestPath).exists()).toBe(true);
     });
 });

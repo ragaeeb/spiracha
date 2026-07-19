@@ -1,6 +1,6 @@
 import { act, cleanup, render, screen } from '@testing-library/react';
 import { renderToString } from 'react-dom/server';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Settings } from './settings-store';
 import { DEFAULT_SETTINGS, SettingsProvider, useSettings } from './settings-store';
 
@@ -29,6 +29,7 @@ afterEach(() => {
     cleanup();
     renderSnapshots.length = 0;
     window.localStorage.clear();
+    window.sessionStorage.clear();
 });
 
 describe('settings store', () => {
@@ -88,6 +89,72 @@ describe('settings store', () => {
 
         expect(renderSnapshots[0]?.redactUsername).toBe(true);
         expect(screen.getByText('redacted')).toBeTruthy();
+    });
+
+    it('should preserve snapshot identity while storage is unchanged', () => {
+        window.localStorage.setItem('spiracha-settings', JSON.stringify({ redactUsername: true }));
+        const view = (
+            <SettingsProvider>
+                <RecordingSettingsConsumer />
+            </SettingsProvider>
+        );
+        const { rerender } = render(view);
+        const firstSnapshot = renderSnapshots.at(-1);
+
+        rerender(view);
+
+        expect(renderSnapshots.at(-1)).toBe(firstSnapshot);
+    });
+
+    it('should stop repeatedly probing unavailable local storage', () => {
+        const getItem = vi.spyOn(window.localStorage, 'getItem').mockImplementation(() => {
+            throw new Error('storage unavailable');
+        });
+
+        try {
+            const view = (
+                <SettingsProvider>
+                    <SettingsConsumer />
+                </SettingsProvider>
+            );
+            const { rerender } = render(view);
+            rerender(view);
+
+            expect(getItem).toHaveBeenCalledTimes(1);
+        } finally {
+            getItem.mockRestore();
+            act(() => {
+                window.dispatchEvent(new StorageEvent('storage', { key: 'spiracha-settings', newValue: null }));
+            });
+        }
+    });
+
+    it('should persist settings in session storage when local storage writes fail', () => {
+        const setItem = vi.spyOn(window.localStorage, 'setItem').mockImplementation(() => {
+            throw new Error('quota exceeded');
+        });
+
+        try {
+            render(
+                <SettingsProvider>
+                    <SettingsConsumer />
+                </SettingsProvider>,
+            );
+
+            act(() => {
+                screen.getByRole('button', { name: 'Toggle redact' }).click();
+            });
+
+            expect(JSON.parse(window.sessionStorage.getItem('spiracha-settings') ?? 'null')).toEqual({
+                ...DEFAULT_SETTINGS,
+                redactUsername: true,
+            });
+        } finally {
+            setItem.mockRestore();
+            act(() => {
+                window.dispatchEvent(new StorageEvent('storage', { key: 'spiracha-settings', newValue: null }));
+            });
+        }
     });
 
     it('should use a stable default snapshot during server rendering', () => {

@@ -562,6 +562,25 @@ describe('conversation API handler', () => {
         });
     });
 
+    it('should reject unsafe ids in batch exports before reaching source adapters', async () => {
+        let called = false;
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/export', {
+                body: JSON.stringify({ ids: ['../outside'], source: 'cursor' }),
+                method: 'POST',
+            }),
+            {
+                getConversation: async () => {
+                    called = true;
+                    return null;
+                },
+            },
+        );
+
+        expect(response.status).toBe(400);
+        expect(called).toBe(false);
+    });
+
     it('should zip an explicit set of conversations through the public API with all messages by default', async () => {
         const renderedSelectors: Array<string | undefined> = [];
         const response = await handleConversationApiRequest(

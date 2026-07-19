@@ -30,6 +30,7 @@ import {
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import type { ExportDialogOptions } from '#/lib/export-options';
 import { formatDateTime, formatList, formatNumber, formatTokens } from '#/lib/formatters';
+import { RouteStateResetBoundary } from '#/lib/route-state-reset';
 import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
 type TranscriptControlsProps = {
@@ -47,7 +48,14 @@ type TranscriptControlsProps = {
 };
 
 export const Route = createFileRoute('/claude-code-sessions/$sessionId')({
-    component: ClaudeCodeSessionDetailPage,
+    component: () => {
+        const { sessionId } = Route.useParams();
+        return (
+            <RouteStateResetBoundary routeKey={sessionId}>
+                <ClaudeCodeSessionDetailPage />
+            </RouteStateResetBoundary>
+        );
+    },
     errorComponent: ClaudeCodeSessionDetailErrorComponent,
     loader: ({ context, params }) =>
         context.queryClient.ensureQueryData(claudeCodeSessionDetailQueryOptions(params.sessionId)),

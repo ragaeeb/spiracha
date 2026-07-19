@@ -23,4 +23,30 @@ describe('error presentation', () => {
             title: 'Failed to load Claude Code',
         });
     });
+
+    it('should redact local filesystem paths from generic error details', () => {
+        const presentation = getErrorPresentation(
+            new Error('Failed to parse /Users/example/private/project/session.jsonl'),
+            { fallbackTitle: 'Failed to load transcript' },
+        );
+
+        expect(presentation.description).toBe('Failed to parse [local path]');
+    });
+
+    it('should preserve web URLs while redacting local paths', () => {
+        const presentation = getErrorPresentation(
+            new Error('Request to https://example.com/api failed while reading /Users/example/private.txt'),
+            { fallbackTitle: 'Load failed' },
+        );
+
+        expect(presentation.description).toBe('Request to https://example.com/api failed while reading [local path]');
+    });
+
+    it('should present coded non-retryable SQLite errors as database failures', () => {
+        const error = Object.assign(new Error('open failed'), { code: 'SQLITE_CANTOPEN' });
+
+        const presentation = getErrorPresentation(error, { fallbackTitle: 'Failed to load transcript' });
+
+        expect(presentation).toMatchObject({ isDatabaseError: true, title: 'Database unavailable' });
+    });
 });

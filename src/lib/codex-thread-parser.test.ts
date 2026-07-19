@@ -65,6 +65,28 @@ describe('parseCodexTranscriptFile', () => {
         expect(transcript.statsArePartial).toBe(true);
     });
 
+    it('should omit messages that contain no renderable text blocks', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-parser-empty-message-test-'));
+        tempPaths.push(tempRoot);
+        const sessionFile = path.join(tempRoot, 'empty-message.jsonl');
+        await Bun.write(
+            sessionFile,
+            JSON.stringify({
+                payload: {
+                    content: [{ audio_url: 'https://example.invalid/audio.wav', type: 'input_audio' }],
+                    role: 'assistant',
+                    type: 'message',
+                },
+                type: 'response_item',
+            }),
+        );
+
+        const transcript = await parseCodexTranscriptFile(sessionFile);
+
+        expect(transcript.events).toEqual([]);
+        expect(transcript.stats.assistantMessageCount).toBe(0);
+    });
+
     it('should support filtered tail preview parsing for oversized transcripts', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-parser-tail-preview-test-'));
         tempPaths.push(tempRoot);
@@ -316,12 +338,7 @@ MEMORY.md:1-2|note=[project guidance]
             role: 'assistant',
             text: 'Implemented the requested fix.',
         });
-        expect(transcript.events[1]).toMatchObject({
-            isHiddenByDefault: true,
-            kind: 'message',
-            role: 'assistant',
-            text: '',
-        });
+        expect(transcript.events).toHaveLength(1);
     });
 
     it('should strip Codex app directive lines from visible assistant text', async () => {

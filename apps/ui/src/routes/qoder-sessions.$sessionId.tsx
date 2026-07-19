@@ -22,6 +22,7 @@ import { formatDateTime, formatList, formatNumber } from '#/lib/formatters';
 import { qoderSessionDetailQueryOptions } from '#/lib/qoder-queries';
 import { exportQoderSessionFn } from '#/lib/qoder-server';
 import { getQoderThreadTranscriptStats, qoderTranscriptToThreadEvents } from '#/lib/qoder-transcript-events';
+import { RouteStateResetBoundary } from '#/lib/route-state-reset';
 
 type TranscriptControlsProps = {
     rawJsonDisabled?: boolean;
@@ -324,7 +325,14 @@ const QoderSessionDetailPage = () => {
 };
 
 export const Route = createFileRoute('/qoder-sessions/$sessionId')({
-    component: QoderSessionDetailPage,
+    component: () => {
+        const { sessionId } = Route.useParams();
+        return (
+            <RouteStateResetBoundary routeKey={sessionId}>
+                <QoderSessionDetailPage />
+            </RouteStateResetBoundary>
+        );
+    },
     errorComponent: QoderSessionDetailErrorComponent,
     loader: ({ context, params }) =>
         context.queryClient.ensureQueryData(qoderSessionDetailQueryOptions(params.sessionId)),

@@ -3,5 +3,13 @@ export const getMutationErrorMessage = (error: unknown, fallback: string): strin
         return null;
     }
 
-    return error instanceof Error ? error.message : fallback;
+    if (error instanceof Error) {
+        return error.message;
+    }
+
+    if (typeof error === 'object' && 'message' in error && typeof error.message === 'string' && error.message.trim()) {
+        return error.message;
+    }
+
+    return fallback;
 };

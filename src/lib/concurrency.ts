@@ -26,7 +26,13 @@ export const mapWithConcurrency = async <T, TResult>(
         }
     };
 
-    await Promise.all(Array.from({ length: Math.min(workerLimit, values.length) }, () => worker()));
+    const settledWorkers = await Promise.allSettled(
+        Array.from({ length: Math.min(workerLimit, values.length) }, () => worker()),
+    );
+    const failure = settledWorkers.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+    if (failure) {
+        throw failure.reason;
+    }
     return results;
 };
 
