@@ -43,6 +43,10 @@ const transcript: KiroSessionTranscript = {
             timestamp: null,
         },
     ],
+    executionEntries: [],
+    historyEntries: [],
+    rawExecutions: [],
+    rawHistory: [],
     rawSession: { sessionId: 'session-a' },
     renderablePartCount: 3,
     session: {

@@ -146,6 +146,10 @@ Focused evidence is a deterministic, lossy Markdown export for qualitative DX an
 
 Qoder detail/export reads first use persisted state and CLI transcript files. When those do not contain assistant messages and Qoder is running, Spiracha can connect to Qoder's local JSON-RPC ACP Unix socket, issue `initialize` and `session/load`, and collect the streamed session updates. The default socket is the Qoder `SharedClientCache/qoder.sock`; override it with `SPIRACHA_QODER_SOCKET_PATH` (or the legacy environment spelling `SPIRACHA_QODER_SOCKET`). Connection failures and timeouts fall back to the persisted transcript rather than preventing the session from loading.
 
+### Antigravity transcript contract
+
+Markdown transcript exports identify their parser contract with `transcript_schema: antigravity-transcript/v1`. The UI parser retains complete tool output in its event data and export, but bounds the rendered preview to 20,000 characters so a single large operation result cannot dominate the detail page.
+
 ## UI Routes
 
 - `/codex` and `/codex/$project` for Codex inventory and project threads.

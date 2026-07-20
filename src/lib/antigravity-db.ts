@@ -13,6 +13,11 @@ import {
 } from './antigravity-exporter-types';
 import { decryptAntigravitySafeStoragePayload } from './antigravity-keychain';
 import { resolveAntigravityProjectNames } from './antigravity-projects';
+import {
+    ANTIGRAVITY_TRANSCRIPT_HEADINGS,
+    ANTIGRAVITY_TRANSCRIPT_MARKDOWN_VERSION,
+    ANTIGRAVITY_TRANSCRIPT_VERSION_METADATA_KEY,
+} from './antigravity-transcript-contract';
 import { getAntigravityAssistantPhase, getFinalAntigravityAssistantSequences } from './antigravity-transcript-phase';
 import { mapWithConcurrency } from './concurrency';
 import {
@@ -502,6 +507,28 @@ const readConversationFiles = async (roots: string[]): Promise<Map<string, Conve
     return files;
 };
 
+const readConversationFileById = async (
+    roots: string[],
+    conversationId: string,
+): Promise<ConversationFile | undefined> => {
+    const candidates = await Promise.all(
+        roots.map(async (root) => {
+            const conversationDir = getAntigravityConversationDir(root);
+            return readConversationFileCandidate(root, conversationDir, {
+                isFile: () => true,
+                name: `${conversationId}.pb`,
+            });
+        }),
+    );
+    let selected: ConversationFile | undefined;
+    for (const candidate of candidates) {
+        if (candidate) {
+            selected = preferConversationFile(selected, candidate.file);
+        }
+    }
+    return selected;
+};
+
 const readArtifactMetadata = async (
     markdownPath: string,
 ): Promise<{ artifactType: string | null; summary: string | null; updatedAtMs: number | null }> => {
@@ -602,6 +629,34 @@ const mergeArtifactMaps = async (roots: string[]): Promise<Map<string, Antigravi
     }
 
     return merged;
+};
+
+const readArtifactsByConversationId = async (
+    roots: string[],
+    conversationId: string,
+): Promise<AntigravityArtifact[]> => {
+    const artifactsByName = new Map<string, AntigravityArtifact>();
+    const candidatesByRoot = await Promise.all(
+        roots.map(async (root) => {
+            const artifactDir = path.join(getAntigravityBrainDir(root), conversationId);
+            const files = await readdir(artifactDir, { withFileTypes: true }).catch(() => []);
+            return mapWithConcurrency(
+                files.filter((file) => file.isFile() && file.name.endsWith('.md')),
+                ANTIGRAVITY_ARTIFACT_READ_CONCURRENCY,
+                (file) => readArtifactCandidate(root, path.join(artifactDir, file.name), file.name),
+            );
+        }),
+    );
+    for (const candidates of candidatesByRoot) {
+        for (const artifact of candidates) {
+            if (artifact && !artifactsByName.has(artifact.name)) {
+                artifactsByName.set(artifact.name, artifact);
+            }
+        }
+    }
+    return [...artifactsByName.values()].sort(
+        (left, right) => (right.updatedAtMs ?? 0) - (left.updatedAtMs ?? 0) || left.name.localeCompare(right.name),
+    );
 };
 
 const stripModelQualifier = (value: string): string => value.replace(/\s*\([^)]*\)\s*$/u, '').trim();
@@ -748,10 +803,40 @@ const mergeTranscriptMaps = async (roots: string[]): Promise<Map<string, Transcr
     return merged;
 };
 
+const readTranscriptByConversationId = async (
+    roots: string[],
+    conversationId: string,
+): Promise<TranscriptFile | undefined> => {
+    const transcriptsByRoot = await Promise.all(
+        roots.map(async (root) => {
+            const logsDir = path.join(getAntigravityBrainDir(root), conversationId, '.system_generated', 'logs');
+            return Promise.all(
+                [
+                    { name: 'transcript_full.jsonl', source: 'transcript' as const },
+                    { name: 'transcript.jsonl', source: 'transcript' as const },
+                    { name: 'overview.txt', source: 'overview' as const },
+                ].map((candidate) => readTranscriptFileCandidate(root, logsDir, candidate)),
+            );
+        }),
+    );
+    let selected: TranscriptFile | undefined;
+    for (const transcripts of transcriptsByRoot) {
+        for (const transcript of transcripts) {
+            if (transcript) {
+                selected = preferTranscriptFile(selected, transcript);
+            }
+        }
+    }
+    return selected;
+};
+
 const readSummaryEntries = async (roots: string[]): Promise<Map<string, SummaryEntry>> => {
     const summaries = new Map<string, SummaryEntry>();
-    for (const root of roots) {
-        for (const entry of await readAntigravitySummaryIndex(getAntigravitySummaryIndexPath(root))) {
+    const entriesByRoot = await Promise.all(
+        roots.map((root) => readAntigravitySummaryIndex(getAntigravitySummaryIndexPath(root))),
+    );
+    for (const entries of entriesByRoot) {
+        for (const entry of entries) {
             const existing = summaries.get(entry.conversationId);
             if (!existing || (entry.lastUpdatedAtMs ?? 0) > (existing.lastUpdatedAtMs ?? 0)) {
                 summaries.set(entry.conversationId, entry);
@@ -872,6 +957,27 @@ export const listAntigravityConversations = async (
             ),
         )
         .sort((a, b) => (b.lastUpdatedAtMs ?? 0) - (a.lastUpdatedAtMs ?? 0) || a.title.localeCompare(b.title));
+};
+
+export const getAntigravityConversationById = async (
+    conversationId: string,
+    roots = resolveAntigravityRoots(),
+): Promise<AntigravityConversation | null> => {
+    if (!isSafeConversationId(conversationId)) {
+        return null;
+    }
+
+    const [summaries, file, artifacts, transcript] = await Promise.all([
+        readSummaryEntries(roots),
+        readConversationFileById(roots, conversationId),
+        readArtifactsByConversationId(roots, conversationId),
+        readTranscriptByConversationId(roots, conversationId),
+    ]);
+    const summary = summaries.get(conversationId);
+    if (!summary && !file && artifacts.length === 0 && !transcript) {
+        return null;
+    }
+    return toConversation(conversationId, summary, file, artifacts, transcript);
 };
 
 export const groupAntigravityConversations = (
@@ -1057,22 +1163,22 @@ const logEntryHeading = (entry: AntigravityLogEntry): string => {
     const source = getString(entry.source);
     const type = getString(entry.type);
     if (source?.startsWith('USER')) {
-        return 'User';
+        return ANTIGRAVITY_TRANSCRIPT_HEADINGS.user;
     }
 
     if (source === 'MODEL') {
         if (type && type !== 'PLANNER_RESPONSE') {
-            return `Tool: ${type}`;
+            return `${ANTIGRAVITY_TRANSCRIPT_HEADINGS.toolPrefix}${type}`;
         }
 
-        return 'Assistant';
+        return ANTIGRAVITY_TRANSCRIPT_HEADINGS.assistant;
     }
 
     if (source === 'SYSTEM') {
-        return 'System';
+        return ANTIGRAVITY_TRANSCRIPT_HEADINGS.system;
     }
 
-    return type ? `Tool: ${type}` : 'Event';
+    return type ? `${ANTIGRAVITY_TRANSCRIPT_HEADINGS.toolPrefix}${type}` : ANTIGRAVITY_TRANSCRIPT_HEADINGS.event;
 };
 
 type ResolvedAntigravityConversationRenderOptions = {
@@ -1115,7 +1221,11 @@ const renderToolCalls = (toolCalls: unknown, outputFormat: ExportFormat): string
         }
     }
 
-    return parts.length > 0 ? [renderNestedHeading('Tool Calls', outputFormat), '', ...parts].join('\n').trimEnd() : '';
+    return parts.length > 0
+        ? [renderNestedHeading(ANTIGRAVITY_TRANSCRIPT_HEADINGS.toolCalls, outputFormat), '', ...parts]
+              .join('\n')
+              .trimEnd()
+        : '';
 };
 
 const renderLogEntryBodyParts = (
@@ -1128,7 +1238,12 @@ const renderLogEntryBodyParts = (
     const bodyParts: string[] = [];
     const thinking = getString(entry.thinking) ?? '';
     if (options.includeCommentary && thinking) {
-        bodyParts.push(renderNestedHeading('Thinking', options.outputFormat), '', thinking.trim(), '');
+        bodyParts.push(
+            renderNestedHeading(ANTIGRAVITY_TRANSCRIPT_HEADINGS.thinking, options.outputFormat),
+            '',
+            thinking.trim(),
+            '',
+        );
     }
 
     const content = cleanLogContent(entry);
@@ -1335,6 +1450,7 @@ const buildAntigravityIdentityMetadata = (
     conversation: AntigravityConversation,
     exportedFrom: string,
 ): MetadataEntry[] => [
+    { key: ANTIGRAVITY_TRANSCRIPT_VERSION_METADATA_KEY, value: ANTIGRAVITY_TRANSCRIPT_MARKDOWN_VERSION },
     { key: 'exported_from', value: exportedFrom },
     { key: 'conversation_id', value: conversation.conversationId },
     { key: 'workspace', value: conversation.workspaceUri },

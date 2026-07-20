@@ -13,9 +13,9 @@ import { MetadataSection } from '#/components/metadata-section';
 import { MetricCard } from '#/components/metric-card';
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
-import { DEFAULT_SHOW_USER_MESSAGES, TranscriptView } from '#/components/transcript-view';
+import { TranscriptControls } from '#/components/transcript-controls';
+import { TranscriptView } from '#/components/transcript-view';
 import { Button } from '#/components/ui/button';
-import { Checkbox } from '#/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import type { ExportDialogOptions } from '#/lib/export-options';
@@ -23,22 +23,14 @@ import { formatDateTime, formatList, formatNumber, formatTokens } from '#/lib/fo
 import { openCodeSessionDetailQueryOptions, openCodeWorkspacesQueryOptions } from '#/lib/opencode-queries';
 import { deleteOpenCodeSessionFn, exportOpenCodeSessionFn } from '#/lib/opencode-server';
 import { getOpenCodeThreadTranscriptStats, openCodeTranscriptToThreadEvents } from '#/lib/opencode-transcript-events';
+import {
+    getTranscriptDisplayState,
+    parseThreadTranscriptSearch,
+    type ThreadTranscriptSearch,
+    withThreadTranscriptSearch,
+} from '#/lib/route-search';
 import { RouteStateResetBoundary } from '#/lib/route-state-reset';
 import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
-
-type TranscriptControlsProps = {
-    rawJsonDisabled?: boolean;
-    showCommentary: boolean;
-    showExtraEvents: boolean;
-    showRawJson: boolean;
-    showToolCalls: boolean;
-    showUserMessages: boolean;
-    onShowCommentaryChange: (checked: boolean) => void;
-    onShowExtraEventsChange: (checked: boolean) => void;
-    onShowRawJsonChange: (checked: boolean) => void;
-    onShowToolCallsChange: (checked: boolean) => void;
-    onShowUserMessagesChange: (checked: boolean) => void;
-};
 
 const OpenCodeSessionDetailErrorComponent = ({ error }: { error: Error }) => {
     return <RouteErrorPanel error={error} title="Failed to load OpenCode session" />;
@@ -84,66 +76,6 @@ const buildTranscriptStatsItems = (
     { label: 'Renderable parts', value: formatNumber(detail.renderablePartCount) },
 ];
 
-const OpenCodeTranscriptControls = ({
-    rawJsonDisabled = false,
-    showCommentary,
-    showExtraEvents,
-    showRawJson,
-    showToolCalls,
-    showUserMessages,
-    onShowCommentaryChange,
-    onShowExtraEventsChange,
-    onShowRawJsonChange,
-    onShowToolCallsChange,
-    onShowUserMessagesChange,
-}: TranscriptControlsProps) => {
-    return (
-        <div className="flex flex-wrap gap-4 rounded-xl border border-[var(--border)] bg-[var(--panel)] px-4 py-3 shadow-[var(--panel-shadow)]">
-            <div className="flex items-center gap-2 text-sm">
-                <Checkbox
-                    checked={showToolCalls}
-                    id="opencode-transcript-show-tool-calls"
-                    onCheckedChange={(checked) => onShowToolCallsChange(checked === true)}
-                />
-                <label htmlFor="opencode-transcript-show-tool-calls">Show tool calls</label>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-                <Checkbox
-                    checked={showCommentary}
-                    id="opencode-transcript-show-commentary"
-                    onCheckedChange={(checked) => onShowCommentaryChange(checked === true)}
-                />
-                <label htmlFor="opencode-transcript-show-commentary">Show commentary</label>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-                <Checkbox
-                    checked={showExtraEvents}
-                    id="opencode-transcript-show-extra-events"
-                    onCheckedChange={(checked) => onShowExtraEventsChange(checked === true)}
-                />
-                <label htmlFor="opencode-transcript-show-extra-events">Show extra events</label>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-                <Checkbox
-                    checked={showRawJson}
-                    disabled={rawJsonDisabled}
-                    id="opencode-transcript-show-raw-json"
-                    onCheckedChange={(checked) => onShowRawJsonChange(checked === true)}
-                />
-                <label htmlFor="opencode-transcript-show-raw-json">Raw JSON</label>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-                <Checkbox
-                    checked={showUserMessages}
-                    id="opencode-transcript-show-user-messages"
-                    onCheckedChange={(checked) => onShowUserMessagesChange(checked === true)}
-                />
-                <label htmlFor="opencode-transcript-show-user-messages">User</label>
-            </div>
-        </div>
-    );
-};
-
 const OpenCodeRawPanels = ({ detail, events }: { detail: OpenCodeSessionTranscript; events: ThreadEvent[] }) => {
     return (
         <div className="space-y-4">
@@ -155,17 +87,21 @@ const OpenCodeRawPanels = ({ detail, events }: { detail: OpenCodeSessionTranscri
 };
 
 const OpenCodeSessionDetailPage = () => {
-    const navigate = useNavigate();
+    const navigate = useNavigate({ from: Route.fullPath });
+    const transcriptDisplay = getTranscriptDisplayState(Route.useSearch());
     const queryClient = useQueryClient();
     const params = Route.useParams();
     const detail = useSuspenseQuery(openCodeSessionDetailQueryOptions(params.sessionId)).data;
     const [deleteOpen, setDeleteOpen] = useState(false);
     const [pendingExport, setPendingExport] = useState(false);
-    const [showToolCalls, setShowToolCalls] = useState(false);
-    const [showCommentary, setShowCommentary] = useState(false);
-    const [showExtraEvents, setShowExtraEvents] = useState(false);
-    const [showRawJson, setShowRawJson] = useState(false);
-    const [showUserMessages, setShowUserMessages] = useState(DEFAULT_SHOW_USER_MESSAGES);
+    const { showCommentary, showExtraEvents, showRawJson, showToolCalls, showUserMessages } = transcriptDisplay;
+    const updateTranscriptDisplay = (patch: Partial<ThreadTranscriptSearch>) => {
+        void navigate({
+            params: true,
+            replace: true,
+            search: (previous: Record<string, unknown>) => withThreadTranscriptSearch(previous, patch),
+        });
+    };
     const transcriptEvents = useMemo(() => (detail ? openCodeTranscriptToThreadEvents(detail) : []), [detail]);
     const transcriptStats = useMemo(() => getOpenCodeThreadTranscriptStats(transcriptEvents), [transcriptEvents]);
 
@@ -297,18 +233,18 @@ const OpenCodeSessionDetailPage = () => {
                 </TabsList>
 
                 <TabsContent className="space-y-3" value="transcript">
-                    <OpenCodeTranscriptControls
+                    <TranscriptControls
                         rawJsonDisabled={transcriptEvents.length === 0}
                         showCommentary={showCommentary}
                         showExtraEvents={showExtraEvents}
                         showRawJson={showRawJson}
                         showToolCalls={showToolCalls}
                         showUserMessages={showUserMessages}
-                        onShowCommentaryChange={setShowCommentary}
-                        onShowExtraEventsChange={setShowExtraEvents}
-                        onShowRawJsonChange={setShowRawJson}
-                        onShowToolCallsChange={setShowToolCalls}
-                        onShowUserMessagesChange={setShowUserMessages}
+                        onShowCommentaryChange={(value) => updateTranscriptDisplay({ commentary: value })}
+                        onShowExtraEventsChange={(value) => updateTranscriptDisplay({ extra: value })}
+                        onShowRawJsonChange={(value) => updateTranscriptDisplay({ raw: value })}
+                        onShowToolCallsChange={(value) => updateTranscriptDisplay({ tools: value })}
+                        onShowUserMessagesChange={(value) => updateTranscriptDisplay({ user: value })}
                     />
                     {transcriptEvents.length > 0 ? (
                         <TranscriptView
@@ -411,4 +347,5 @@ export const Route = createFileRoute('/opencode-sessions/$sessionId')({
             title="Loading session"
         />
     ),
+    validateSearch: parseThreadTranscriptSearch,
 });

@@ -1,3 +1,4 @@
+import { antigravityMarkdownToThreadEvents } from '@spiracha/lib/antigravity-transcript-events';
 import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { Download, ScrollText, Trash2 } from 'lucide-react';
@@ -13,9 +14,9 @@ import { MetricCard } from '#/components/metric-card';
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
 import { TextDocumentPanel } from '#/components/text-document-panel';
+import { TranscriptControls } from '#/components/transcript-controls';
 import { DEFAULT_SHOW_USER_MESSAGES, TranscriptView } from '#/components/transcript-view';
 import { Button } from '#/components/ui/button';
-import { Checkbox } from '#/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
 import { canExportAntigravityConversation } from '#/lib/antigravity-conversation-state';
 import {
@@ -29,31 +30,14 @@ import {
     exportAntigravityConversationFn,
     type getAntigravityConversationDetailFn,
 } from '#/lib/antigravity-server';
-import {
-    antigravityMarkdownToThreadEvents,
-    getAntigravityThreadTranscriptStats,
-} from '#/lib/antigravity-transcript-events';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import type { ExportDialogOptions } from '#/lib/export-options';
 import { formatBytes, formatDateTime, formatList, formatNumber } from '#/lib/formatters';
 import { RouteStateResetBoundary } from '#/lib/route-state-reset';
+import { getThreadTranscriptStats } from '#/lib/thread-transcript-stats';
 import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
 type AntigravityConversationDetail = Awaited<ReturnType<typeof getAntigravityConversationDetailFn>>;
-
-type TranscriptControlsProps = {
-    rawJsonDisabled?: boolean;
-    showCommentary: boolean;
-    showExtraEvents: boolean;
-    showRawJson: boolean;
-    showToolCalls: boolean;
-    showUserMessages: boolean;
-    onShowCommentaryChange: (checked: boolean) => void;
-    onShowExtraEventsChange: (checked: boolean) => void;
-    onShowRawJsonChange: (checked: boolean) => void;
-    onShowToolCallsChange: (checked: boolean) => void;
-    onShowUserMessagesChange: (checked: boolean) => void;
-};
 
 const buildConversationMetadata = (detail: AntigravityConversationDetail) => {
     return [
@@ -100,7 +84,7 @@ const buildTranscriptStatsItems = (
         return [{ label: 'Transcript load', value: 'No renderable transcript content was found.' }];
     }
 
-    const stats = getAntigravityThreadTranscriptStats(events);
+    const stats = getThreadTranscriptStats(events);
     return [
         { label: 'Event kinds', value: formatList([...new Set(events.map((event) => event.kind))]) },
         { label: 'Messages', value: formatNumber(stats.messageCount) },
@@ -206,66 +190,6 @@ function AntigravityConversationHeaderActions({
         </div>
     );
 }
-
-const AntigravityTranscriptControls = ({
-    rawJsonDisabled = false,
-    showCommentary,
-    showExtraEvents,
-    showRawJson,
-    showToolCalls,
-    showUserMessages,
-    onShowCommentaryChange,
-    onShowExtraEventsChange,
-    onShowRawJsonChange,
-    onShowToolCallsChange,
-    onShowUserMessagesChange,
-}: TranscriptControlsProps) => {
-    return (
-        <div className="flex flex-wrap gap-4 rounded-xl border border-[var(--border)] bg-[var(--panel)] px-4 py-3 shadow-[var(--panel-shadow)]">
-            <div className="flex items-center gap-2 text-sm">
-                <Checkbox
-                    checked={showToolCalls}
-                    id="antigravity-transcript-show-tool-calls"
-                    onCheckedChange={(checked) => onShowToolCallsChange(checked === true)}
-                />
-                <label htmlFor="antigravity-transcript-show-tool-calls">Show tool calls</label>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-                <Checkbox
-                    checked={showCommentary}
-                    id="antigravity-transcript-show-commentary"
-                    onCheckedChange={(checked) => onShowCommentaryChange(checked === true)}
-                />
-                <label htmlFor="antigravity-transcript-show-commentary">Show commentary</label>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-                <Checkbox
-                    checked={showExtraEvents}
-                    id="antigravity-transcript-show-extra-events"
-                    onCheckedChange={(checked) => onShowExtraEventsChange(checked === true)}
-                />
-                <label htmlFor="antigravity-transcript-show-extra-events">Show extra events</label>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-                <Checkbox
-                    checked={showRawJson}
-                    disabled={rawJsonDisabled}
-                    id="antigravity-transcript-show-raw-json"
-                    onCheckedChange={(checked) => onShowRawJsonChange(checked === true)}
-                />
-                <label htmlFor="antigravity-transcript-show-raw-json">Raw JSON</label>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-                <Checkbox
-                    checked={showUserMessages}
-                    id="antigravity-transcript-show-user-messages"
-                    onCheckedChange={(checked) => onShowUserMessagesChange(checked === true)}
-                />
-                <label htmlFor="antigravity-transcript-show-user-messages">User</label>
-            </div>
-        </div>
-    );
-};
 
 function EmptyAntigravityTranscript({ detail }: { detail: AntigravityConversationDetail }) {
     return (
@@ -459,7 +383,7 @@ function AntigravityConversationDetailPage() {
                 </TabsList>
 
                 <TabsContent className="space-y-3" value="transcript">
-                    <AntigravityTranscriptControls
+                    <TranscriptControls
                         rawJsonDisabled={transcriptEvents.length === 0}
                         showCommentary={showCommentary}
                         showExtraEvents={showExtraEvents}

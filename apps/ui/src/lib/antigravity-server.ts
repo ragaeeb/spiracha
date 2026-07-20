@@ -58,10 +58,8 @@ export const listAntigravityConversationsFn = createServerFn({ method: 'GET' })
     });
 
 const findAntigravityConversationById = async (conversationId: string) => {
-    const { listAntigravityConversations } = await import('@spiracha/lib/antigravity-db');
-    const conversation = (await listAntigravityConversations()).find(
-        (candidate) => candidate.conversationId === conversationId,
-    );
+    const { getAntigravityConversationById } = await import('@spiracha/lib/antigravity-db');
+    const conversation = await getAntigravityConversationById(conversationId);
     if (!conversation) {
         throw new Error(`Antigravity conversation not found: ${conversationId}`);
     }

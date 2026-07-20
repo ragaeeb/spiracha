@@ -16,6 +16,14 @@ export type ThreadTranscriptSearch = {
     user?: boolean;
 };
 
+export type TranscriptDisplayState = {
+    showCommentary: boolean;
+    showExtraEvents: boolean;
+    showRawJson: boolean;
+    showToolCalls: boolean;
+    showUserMessages: boolean;
+};
+
 type SearchRecord = Record<string, unknown>;
 
 const asNonBlankString = (value: unknown) => {
@@ -108,6 +116,14 @@ export const parseThreadTranscriptSearch = (search: SearchRecord): ThreadTranscr
 
     return parsed;
 };
+
+export const getTranscriptDisplayState = (search: ThreadTranscriptSearch): TranscriptDisplayState => ({
+    showCommentary: search.commentary === true,
+    showExtraEvents: search.extra === true,
+    showRawJson: search.raw === true,
+    showToolCalls: search.tools === true,
+    showUserMessages: search.user === true,
+});
 
 export const withThreadTranscriptSearch = (
     current: SearchRecord,

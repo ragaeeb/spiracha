@@ -13,9 +13,9 @@ import { MetadataSection } from '#/components/metadata-section';
 import { MetricCard } from '#/components/metric-card';
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
-import { DEFAULT_SHOW_USER_MESSAGES, TranscriptView } from '#/components/transcript-view';
+import { TranscriptControls } from '#/components/transcript-controls';
+import { TranscriptView } from '#/components/transcript-view';
 import { Button } from '#/components/ui/button';
-import { Checkbox } from '#/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import type { ExportDialogOptions } from '#/lib/export-options';
@@ -23,22 +23,14 @@ import { formatDateTime, formatList, formatNumber } from '#/lib/formatters';
 import { kiroSessionDetailQueryOptions, kiroWorkspacesQueryOptions } from '#/lib/kiro-queries';
 import { deleteKiroSessionFn, exportKiroSessionFn } from '#/lib/kiro-server';
 import { getKiroThreadTranscriptStats, kiroTranscriptToThreadEvents } from '#/lib/kiro-transcript-events';
+import {
+    getTranscriptDisplayState,
+    parseThreadTranscriptSearch,
+    type ThreadTranscriptSearch,
+    withThreadTranscriptSearch,
+} from '#/lib/route-search';
 import { RouteStateResetBoundary } from '#/lib/route-state-reset';
 import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
-
-type TranscriptControlsProps = {
-    rawJsonDisabled?: boolean;
-    showCommentary: boolean;
-    showExtraEvents: boolean;
-    showRawJson: boolean;
-    showToolCalls: boolean;
-    showUserMessages: boolean;
-    onShowCommentaryChange: (checked: boolean) => void;
-    onShowExtraEventsChange: (checked: boolean) => void;
-    onShowRawJsonChange: (checked: boolean) => void;
-    onShowToolCallsChange: (checked: boolean) => void;
-    onShowUserMessagesChange: (checked: boolean) => void;
-};
 
 const KiroSessionDetailErrorComponent = ({ error }: { error: Error }) => {
     return <RouteErrorPanel error={error} title="Failed to load Kiro session" />;
@@ -93,71 +85,15 @@ const buildTranscriptStatsItems = (
     { label: 'Renderable parts', value: formatNumber(detail.renderablePartCount) },
 ];
 
-const KiroTranscriptControls = ({
-    rawJsonDisabled = false,
-    showCommentary,
-    showExtraEvents,
-    showRawJson,
-    showToolCalls,
-    showUserMessages,
-    onShowCommentaryChange,
-    onShowExtraEventsChange,
-    onShowRawJsonChange,
-    onShowToolCallsChange,
-    onShowUserMessagesChange,
-}: TranscriptControlsProps) => {
-    return (
-        <div className="flex flex-wrap gap-4 rounded-xl border border-[var(--border)] bg-[var(--panel)] px-4 py-3 shadow-[var(--panel-shadow)]">
-            <div className="flex items-center gap-2 text-sm">
-                <Checkbox
-                    checked={showToolCalls}
-                    id="kiro-transcript-show-tool-calls"
-                    onCheckedChange={(checked) => onShowToolCallsChange(checked === true)}
-                />
-                <label htmlFor="kiro-transcript-show-tool-calls">Show tool calls</label>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-                <Checkbox
-                    checked={showCommentary}
-                    id="kiro-transcript-show-commentary"
-                    onCheckedChange={(checked) => onShowCommentaryChange(checked === true)}
-                />
-                <label htmlFor="kiro-transcript-show-commentary">Show commentary</label>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-                <Checkbox
-                    checked={showExtraEvents}
-                    id="kiro-transcript-show-extra-events"
-                    onCheckedChange={(checked) => onShowExtraEventsChange(checked === true)}
-                />
-                <label htmlFor="kiro-transcript-show-extra-events">Show extra events</label>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-                <Checkbox
-                    checked={showRawJson}
-                    disabled={rawJsonDisabled}
-                    id="kiro-transcript-show-raw-json"
-                    onCheckedChange={(checked) => onShowRawJsonChange(checked === true)}
-                />
-                <label htmlFor="kiro-transcript-show-raw-json">Raw JSON</label>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-                <Checkbox
-                    checked={showUserMessages}
-                    id="kiro-transcript-show-user-messages"
-                    onCheckedChange={(checked) => onShowUserMessagesChange(checked === true)}
-                />
-                <label htmlFor="kiro-transcript-show-user-messages">User</label>
-            </div>
-        </div>
-    );
-};
-
 const KiroRawPanels = ({ detail, events }: { detail: KiroSessionTranscript; events: ThreadEvent[] }) => {
     return (
         <div className="space-y-4">
             <JsonPanel title="Session summary" value={detail.session} />
-            <JsonPanel title="Kiro entries" value={detail.entries} />
+            <JsonPanel title="Integrated Kiro transcript" value={detail.entries} />
+            <JsonPanel title="Kiro history entries" value={detail.historyEntries} />
+            <JsonPanel title="Kiro execution entries" value={detail.executionEntries} />
+            <JsonPanel title="Raw Kiro history" value={detail.rawHistory} />
+            <JsonPanel title="Raw Kiro executions" value={detail.rawExecutions} />
             <JsonPanel title="Raw Kiro session" value={detail.rawSession} />
             <JsonPanel title="Transcript events" value={events} />
         </div>
@@ -165,16 +101,20 @@ const KiroRawPanels = ({ detail, events }: { detail: KiroSessionTranscript; even
 };
 
 const KiroSessionDetailPage = () => {
-    const navigate = useNavigate();
+    const navigate = useNavigate({ from: Route.fullPath });
+    const transcriptDisplay = getTranscriptDisplayState(Route.useSearch());
     const queryClient = useQueryClient();
     const detail = useSuspenseQuery(kiroSessionDetailQueryOptions(Route.useParams().sessionId)).data;
     const [deleteOpen, setDeleteOpen] = useState(false);
     const [pendingExport, setPendingExport] = useState(false);
-    const [showToolCalls, setShowToolCalls] = useState(false);
-    const [showCommentary, setShowCommentary] = useState(false);
-    const [showExtraEvents, setShowExtraEvents] = useState(false);
-    const [showRawJson, setShowRawJson] = useState(false);
-    const [showUserMessages, setShowUserMessages] = useState(DEFAULT_SHOW_USER_MESSAGES);
+    const { showCommentary, showExtraEvents, showRawJson, showToolCalls, showUserMessages } = transcriptDisplay;
+    const updateTranscriptDisplay = (patch: Partial<ThreadTranscriptSearch>) => {
+        void navigate({
+            params: true,
+            replace: true,
+            search: (previous: Record<string, unknown>) => withThreadTranscriptSearch(previous, patch),
+        });
+    };
     const transcriptEvents = useMemo(() => kiroTranscriptToThreadEvents(detail), [detail]);
     const transcriptStats = useMemo(() => getKiroThreadTranscriptStats(transcriptEvents), [transcriptEvents]);
     const modelLabel = getKiroModelLabel(detail);
@@ -293,18 +233,18 @@ const KiroSessionDetailPage = () => {
                 </TabsList>
 
                 <TabsContent className="space-y-3" value="transcript">
-                    <KiroTranscriptControls
+                    <TranscriptControls
                         rawJsonDisabled={transcriptEvents.length === 0}
                         showCommentary={showCommentary}
                         showExtraEvents={showExtraEvents}
                         showRawJson={showRawJson}
                         showToolCalls={showToolCalls}
                         showUserMessages={showUserMessages}
-                        onShowCommentaryChange={setShowCommentary}
-                        onShowExtraEventsChange={setShowExtraEvents}
-                        onShowRawJsonChange={setShowRawJson}
-                        onShowToolCallsChange={setShowToolCalls}
-                        onShowUserMessagesChange={setShowUserMessages}
+                        onShowCommentaryChange={(value) => updateTranscriptDisplay({ commentary: value })}
+                        onShowExtraEventsChange={(value) => updateTranscriptDisplay({ extra: value })}
+                        onShowRawJsonChange={(value) => updateTranscriptDisplay({ raw: value })}
+                        onShowToolCallsChange={(value) => updateTranscriptDisplay({ tools: value })}
+                        onShowUserMessagesChange={(value) => updateTranscriptDisplay({ user: value })}
                     />
                     {transcriptEvents.length > 0 ? (
                         <TranscriptView
@@ -407,4 +347,5 @@ export const Route = createFileRoute('/kiro-sessions/$sessionId')({
             title="Loading session"
         />
     ),
+    validateSearch: parseThreadTranscriptSearch,
 });

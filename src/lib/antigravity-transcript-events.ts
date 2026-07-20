@@ -1,7 +1,11 @@
-import { getFinalAntigravityAssistantSequences } from '@spiracha/lib/antigravity-transcript-phase';
-import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/codex-browser-types';
-import type { JsonValue } from '@spiracha/lib/shared';
-import { getThreadTranscriptStats } from './thread-transcript-stats';
+import {
+    ANTIGRAVITY_TOOL_OUTPUT_PREVIEW_MAX_CHARACTERS,
+    isAntigravityTranscriptControlSubheading,
+    matchAntigravityTranscriptSectionHeading,
+} from './antigravity-transcript-contract';
+import { getFinalAntigravityAssistantSequences } from './antigravity-transcript-phase';
+import type { ThreadEvent } from './codex-browser-types';
+import type { JsonValue } from './shared';
 
 type MarkdownSection = {
     body: string;
@@ -20,10 +24,8 @@ type ParsedToolCall = {
     name: string;
 };
 
-const HEADING_PATTERN = /^##\s+((?:User|Assistant|System|Event)|Tool:\s*.+)$/iu;
 const TIMESTAMP_PATTERN = /^_Timestamp:\s*(.+?)_$/u;
 const TOOL_HEADING_PATTERN = /^tool:\s*(.+)$/iu;
-const CONTROL_SUBHEADING_PATTERN = /^###\s+(Thinking|Tool Calls)\s*$/iu;
 
 type MarkdownFence = { character: string; length: number };
 
@@ -62,10 +64,10 @@ const splitMarkdownSections = (markdown: string | null): MarkdownSection[] => {
 
     for (const line of lines) {
         const fenceToken = /^\s*(`{3,}|~{3,})/u.exec(line)?.[1] ?? null;
-        const heading = fence === null && fenceToken === null ? HEADING_PATTERN.exec(line) : null;
+        const heading = fence === null && fenceToken === null ? matchAntigravityTranscriptSectionHeading(line) : null;
         if (heading) {
             flush();
-            currentHeading = heading[1]!.trim();
+            currentHeading = heading;
             currentLines = [];
             continue;
         }
@@ -92,7 +94,7 @@ const extractTimestamp = (body: string): { body: string; timestamp: string | nul
 
 const sectionBodyBeforeSubheading = (body: string): string => {
     const lines = body.split(/\r?\n/u);
-    const controlIndex = lines.findIndex((line) => CONTROL_SUBHEADING_PATTERN.test(line.trim()));
+    const controlIndex = lines.findIndex((line) => isAntigravityTranscriptControlSubheading(line));
     return lines
         .slice(0, controlIndex === -1 ? undefined : controlIndex)
         .join('\n')
@@ -107,7 +109,7 @@ const extractSubheadingBlock = (body: string, title: string): string => {
     }
 
     const nextSubheadingIndex = lines.findIndex(
-        (line, index) => index > startIndex && CONTROL_SUBHEADING_PATTERN.test(line.trim()),
+        (line, index) => index > startIndex && isAntigravityTranscriptControlSubheading(line),
     );
     return lines
         .slice(startIndex + 1, nextSubheadingIndex === -1 ? undefined : nextSubheadingIndex)
@@ -122,10 +124,11 @@ const parseToolCalls = (body: string): ParsedToolCall[] => {
     }
 
     const calls: ParsedToolCall[] = [];
-    const callPattern = /-\s+`([^`]+)`(?:\s*\n+```json\s*\n([\s\S]*?)\n```)?/gu;
+    const callPattern = /-\s+`([^`]+)`([\s\S]*?)(?=\n-\s+`|$)/gu;
     for (const match of toolCallsBlock.matchAll(callPattern)) {
+        const argumentsText = /(`{3,}|~{3,})[^\n]*\n([\s\S]*?)\n\1/u.exec(match[2] ?? '')?.[2]?.trim() ?? null;
         calls.push({
-            argumentsText: match[2]?.trim() ?? null,
+            argumentsText,
             name: match[1]?.trim() || 'unknown',
         });
     }
@@ -198,19 +201,27 @@ const buildToolOutputEvent = (
     toolName: string,
     outputText: string,
     timestamp: string | null,
-): ThreadEvent => ({
-    callId: null,
-    exitCode: null,
-    kind: 'tool_output',
-    outputText,
-    raw: buildRaw(section, {
-        name: toolName,
-    }),
-    sequence: section.sequence,
-    summary: outputText,
-    timestamp,
-    wallTime: null,
-});
+): ThreadEvent => {
+    const truncated = outputText.length > ANTIGRAVITY_TOOL_OUTPUT_PREVIEW_MAX_CHARACTERS;
+    const truncationNotice = `\n\n[Preview truncated. The full ${outputText.length}-character output remains in the transcript export.]`;
+    const previewLength = Math.max(0, ANTIGRAVITY_TOOL_OUTPUT_PREVIEW_MAX_CHARACTERS - truncationNotice.length);
+    const summary = truncated ? `${outputText.slice(0, previewLength)}${truncationNotice}` : outputText;
+    return {
+        callId: null,
+        exitCode: null,
+        kind: 'tool_output',
+        outputText,
+        raw: buildRaw(section, {
+            name: toolName,
+            outputCharacterCount: outputText.length,
+            outputPreviewTruncated: truncated,
+        }),
+        sequence: section.sequence,
+        summary,
+        timestamp,
+        wallTime: null,
+    };
+};
 
 const getFinalAssistantSectionSequences = (sections: MarkdownSection[]): Set<number> => {
     const items = sections.map((section) => {
@@ -314,6 +325,3 @@ export const antigravityMarkdownToThreadEvents = (markdown: string | null): Thre
     const finalAssistantSectionSequences = getFinalAssistantSectionSequences(sections);
     return sections.flatMap((section) => sectionToEvents(section, finalAssistantSectionSequences));
 };
-
-export const getAntigravityThreadTranscriptStats = (events: ThreadEvent[]): ThreadTranscriptStats =>
-    getThreadTranscriptStats(events);

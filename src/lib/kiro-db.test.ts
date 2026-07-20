@@ -247,6 +247,10 @@ describe('kiro workspace discovery', () => {
             type: 'text',
         });
         expect(transcript?.rawSession.sessionId).toBe('session-a');
+        expect(transcript?.rawHistory).toHaveLength(2);
+        expect(transcript?.historyEntries).toEqual(transcript?.entries);
+        expect(transcript?.executionEntries).toEqual([]);
+        expect(transcript?.rawExecutions).toEqual([]);
     });
 
     it('should delete a Kiro session file, index entry, and matching execution files', async () => {
@@ -451,6 +455,16 @@ describe('kiro workspace discovery', () => {
             'tool',
             'assistant',
         ]);
+        expect(transcript?.historyEntries.map((entry) => entry.role)).toEqual(['user', 'assistant']);
+        expect(transcript?.executionEntries.map((entry) => entry.role)).toEqual([
+            'tool',
+            'assistant',
+            'assistant',
+            'tool',
+            'assistant',
+        ]);
+        expect(transcript?.rawExecutions).toHaveLength(1);
+        expect(transcript?.rawExecutions[0]?.raw.executionId).toBe('placeholder-execution');
         expect(transcript?.entries.map((entry) => entry.entryType)).toEqual([
             'message',
             'tool_call',

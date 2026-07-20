@@ -85,8 +85,17 @@ export type KiroTranscriptEntry = {
     timestamp: string | null;
 };
 
+export type KiroRawExecution = {
+    filePath: string;
+    raw: Record<string, JsonValue>;
+};
+
 export type KiroSessionTranscript = {
     entries: KiroTranscriptEntry[];
+    executionEntries: KiroTranscriptEntry[];
+    historyEntries: KiroTranscriptEntry[];
+    rawExecutions: KiroRawExecution[];
+    rawHistory: JsonValue[];
     rawSession: Record<string, JsonValue>;
     renderablePartCount: number;
     session: KiroSessionSummary;

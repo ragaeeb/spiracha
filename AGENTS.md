@@ -72,10 +72,10 @@ Codex browser/export modules:
 Source-specific browser/export modules:
 - `src/lib/claude-code-db.ts`, `src/lib/claude-code-exporter-types.ts`, `src/lib/claude-code-transcript-phase.ts`, `src/lib/claude-code-transcript.ts`
 - `src/lib/grok-db.ts`, `src/lib/grok-exporter-types.ts`, `src/lib/grok-transcript-phase.ts`, `src/lib/grok-transcript.ts`
-- `src/lib/kiro-db.ts`, `src/lib/kiro-exporter-types.ts`, `src/lib/kiro-transcript-phase.ts`, `src/lib/kiro-transcript.ts`
+- `src/lib/kiro-db.ts`, `src/lib/kiro-exporter-types.ts`, `src/lib/kiro-transcript-phase.ts`, `src/lib/kiro-transcript.ts` (detail data exposes history and execution sources separately plus the integrated transcript)
 - `src/lib/qoder-db.ts`, `src/lib/qoder-acp-client.ts`, `src/lib/qoder-exporter-types.ts`, `src/lib/qoder-transcript-phase.ts`, `src/lib/qoder-transcript.ts`
 - `src/lib/cursor-db.ts`, `src/lib/cursor-exporter-types.ts`, `src/lib/cursor-recovery.ts`, `src/lib/cursor-transcript-phase.ts`, `src/lib/cursor-transcript.ts`
-- `src/lib/antigravity-db.ts`, `src/lib/antigravity-exporter-types.ts`, `src/lib/antigravity-keychain.ts`, `src/lib/antigravity-projects.ts`, `src/lib/antigravity-transcript-phase.ts`
+- `src/lib/antigravity-db.ts`, `src/lib/antigravity-exporter-types.ts`, `src/lib/antigravity-keychain.ts`, `src/lib/antigravity-projects.ts`, `src/lib/antigravity-transcript-contract.ts`, `src/lib/antigravity-transcript-events.ts`, `src/lib/antigravity-transcript-phase.ts`
 - `src/lib/opencode-db.ts`, `src/lib/opencode-exporter-types.ts`, `src/lib/opencode-transcript-phase.ts`, `src/lib/opencode-think-tags.ts`, `src/lib/opencode-transcript.ts`
 
 Shared utilities:

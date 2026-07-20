@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const {
     deleteAntigravityConversationMock,
     getAntigravityDecryptionStateMock,
+    getAntigravityConversationByIdMock,
     getCachedAntigravityKeychainSecretMock,
     listAntigravityConversationsMock,
     listAntigravityWorkspaceGroupsMock,
@@ -15,6 +16,7 @@ const {
     unlockAntigravityDecryptionMock,
 } = vi.hoisted(() => ({
     deleteAntigravityConversationMock: vi.fn(),
+    getAntigravityConversationByIdMock: vi.fn(),
     getAntigravityDecryptionStateMock: vi.fn(),
     getCachedAntigravityKeychainSecretMock: vi.fn(),
     listAntigravityConversationsMock: vi.fn(),
@@ -40,6 +42,7 @@ vi.mock('@tanstack/react-start', () => ({
 
 vi.mock('@spiracha/lib/antigravity-db', () => ({
     deleteAntigravityConversation: deleteAntigravityConversationMock,
+    getAntigravityConversationById: getAntigravityConversationByIdMock,
     listAntigravityConversations: listAntigravityConversationsMock,
     listAntigravityConversationsForGroup: vi.fn(),
     listAntigravityWorkspaceGroups: listAntigravityWorkspaceGroupsMock,
@@ -110,6 +113,11 @@ describe('antigravity-server', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         getAntigravityDecryptionStateMock.mockResolvedValue(null);
+        getAntigravityConversationByIdMock.mockImplementation(async (conversationId: string) =>
+            (await listAntigravityConversationsMock()).find(
+                (conversation: AntigravityConversation) => conversation.conversationId === conversationId,
+            ),
+        );
         listAntigravityWorkspaceGroupsMock.mockResolvedValue([]);
         resolveAntigravityProjectNamesMock.mockResolvedValue(new Map());
         resolveAntigravityRootsMock.mockReturnValue(['/tmp/root']);

@@ -1,8 +1,7 @@
+import { ANTIGRAVITY_TOOL_OUTPUT_PREVIEW_MAX_CHARACTERS } from '@spiracha/lib/antigravity-transcript-contract';
+import { antigravityMarkdownToThreadEvents } from '@spiracha/lib/antigravity-transcript-events';
 import { describe, expect, it } from 'vitest';
-import {
-    antigravityMarkdownToThreadEvents,
-    getAntigravityThreadTranscriptStats,
-} from './antigravity-transcript-events';
+import { getThreadTranscriptStats } from './thread-transcript-stats';
 
 const markdown = [
     '# Recover deleted sessions',
@@ -322,11 +321,31 @@ describe('antigravityMarkdownToThreadEvents', () => {
             }),
         );
     });
+
+    it('should bound large tool-output previews while retaining the complete output', () => {
+        const fullOutput = 'x'.repeat(ANTIGRAVITY_TOOL_OUTPUT_PREVIEW_MAX_CHARACTERS + 73);
+        const [event] = antigravityMarkdownToThreadEvents(`## Tool: READ_FILE\n\n${fullOutput}`);
+
+        expect(event).toMatchObject({
+            kind: 'tool_output',
+            outputText: fullOutput,
+            raw: {
+                outputCharacterCount: fullOutput.length,
+                outputPreviewTruncated: true,
+            },
+        });
+        expect(event?.kind === 'tool_output' ? event.summary.length : 0).toBeLessThanOrEqual(
+            ANTIGRAVITY_TOOL_OUTPUT_PREVIEW_MAX_CHARACTERS,
+        );
+        expect(event?.kind === 'tool_output' ? event.summary : '').toContain(
+            `full ${fullOutput.length}-character output`,
+        );
+    });
 });
 
 describe('getAntigravityThreadTranscriptStats', () => {
     it('should count adapted Antigravity transcript events for metadata panels', () => {
-        const stats = getAntigravityThreadTranscriptStats(antigravityMarkdownToThreadEvents(markdown));
+        const stats = getThreadTranscriptStats(antigravityMarkdownToThreadEvents(markdown));
 
         expect(stats).toMatchObject({
             assistantMessageCount: 3,
@@ -339,7 +358,7 @@ describe('getAntigravityThreadTranscriptStats', () => {
     });
 
     it('should not count Antigravity operation results as final answers', () => {
-        const stats = getAntigravityThreadTranscriptStats(
+        const stats = getThreadTranscriptStats(
             antigravityMarkdownToThreadEvents(
                 [
                     '## User',

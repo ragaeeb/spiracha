@@ -4,6 +4,7 @@ import path from 'node:path';
 import { createConcurrencyLimiter, mapWithConcurrency } from './concurrency';
 import {
     getDefaultKiroDataDir,
+    type KiroRawExecution,
     type KiroSessionSummary,
     type KiroSessionTranscript,
     type KiroTranscriptEntry,
@@ -45,10 +46,7 @@ type KiroSessionFile = {
     indexEntry: KiroSessionIndexEntry | null;
 };
 
-type KiroExecutionFile = {
-    filePath: string;
-    raw: Record<string, JsonValue>;
-};
+type KiroExecutionFile = KiroRawExecution;
 
 export type DeleteKiroSessionResult = {
     deletedFiles: string[];
@@ -692,16 +690,13 @@ const compareExecutionFiles = (left: KiroExecutionFile, right: KiroExecutionFile
     );
 };
 
-const readExecutionEntries = async (
-    sessionsDir: string,
-    session: KiroSessionSummary,
-): Promise<KiroTranscriptEntry[]> => {
+const readExecutionFiles = async (sessionsDir: string, session: KiroSessionSummary): Promise<KiroExecutionFile[]> => {
     const executions = await listExecutionFilesForSession(
         getKiroDataDirFromSessionsDir(sessionsDir),
         session.sessionId,
         session.worktree,
     );
-    return executions.sort(compareExecutionFiles).flatMap(parseExecutionEntries);
+    return executions.sort(compareExecutionFiles);
 };
 
 const groupExecutionEntriesById = (executionEntries: KiroTranscriptEntry[]) => {
@@ -821,11 +816,11 @@ const readSessionFile = async (
         workspacePath: null,
     };
     const historyEntries: KiroTranscriptEntry[] = [];
-    const history = Array.isArray(rawSession.history) ? rawSession.history : [];
+    const rawHistory = Array.isArray(rawSession.history) ? rawSession.history : [];
 
     updateIdentityFromRaw(identity, rawSession);
 
-    history.forEach((item, index) => {
+    rawHistory.forEach((item, index) => {
         const raw = asObject(item);
         if (!raw) {
             return;
@@ -841,13 +836,16 @@ const readSessionFile = async (
     });
 
     const baseSummary = toSessionSummary(file, identity, createEmptyStats(), fileStats);
-    const executionEntries = options.includeExecutions
-        ? await readExecutionEntries(options.sessionsDir, baseSummary)
-        : [];
+    const rawExecutions = options.includeExecutions ? await readExecutionFiles(options.sessionsDir, baseSummary) : [];
+    const executionEntries = rawExecutions.flatMap(parseExecutionEntries);
     const entries = getVisibleEntries(historyEntries, executionEntries);
     const stats = createStatsFromEntries(entries);
     return {
         entries,
+        executionEntries,
+        historyEntries,
+        rawExecutions,
+        rawHistory,
         rawSession,
         renderablePartCount: stats.renderablePartCount,
         session: toSessionSummary(file, identity, stats, fileStats),

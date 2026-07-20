@@ -4,12 +4,15 @@ import os from 'node:os';
 import path from 'node:path';
 import {
     deleteAntigravityConversation,
+    getAntigravityConversationById,
     groupAntigravityConversations,
     listAntigravityConversations,
     readAntigravityConversationMessages,
     renderAntigravityArtifactsMarkdown,
     renderAntigravityConversationMarkdown,
 } from './antigravity-db';
+import { ANTIGRAVITY_TRANSCRIPT_MARKDOWN_VERSION } from './antigravity-transcript-contract';
+import { antigravityMarkdownToThreadEvents } from './antigravity-transcript-events';
 
 type SummaryFixture = {
     id: string;
@@ -92,6 +95,18 @@ const mkdtemp = async (prefix: string) => {
 };
 
 describe('antigravity db discovery', () => {
+    it('should resolve one conversation without requiring a collection scan', async () => {
+        const root = await makeRoot();
+        const conversationId = '12111111-1111-4111-8111-111111111111';
+        await Bun.write(path.join(root, 'conversations', `${conversationId}.pb`), new Uint8Array([1, 2, 3]));
+
+        const conversation = await getAntigravityConversationById(conversationId, [root]);
+
+        expect(conversation?.conversationId).toBe(conversationId);
+        expect(conversation?.conversationBytes).toBe(3);
+        expect(await getAntigravityConversationById('not-a-safe-id', [root])).toBeNull();
+    });
+
     it('should discover conversations from the summary index, conversation files, and artifacts', async () => {
         const root = await makeRoot();
         const conversationId = '11111111-1111-4111-8111-111111111111';
@@ -302,6 +317,7 @@ describe('antigravity db discovery', () => {
         });
         expect(markdown).toContain('# Recover deleted sessions');
         expect(markdown).toContain('- exported_from: `antigravity_overview_transcript`');
+        expect(markdown).toContain(`- transcript_schema: \`${ANTIGRAVITY_TRANSCRIPT_MARKDOWN_VERSION}\``);
         expect(markdown).toContain('## User');
         expect(markdown).toContain('Can I recover deleted chats?');
         expect(markdown).not.toContain('ADDITIONAL_METADATA');
@@ -309,6 +325,17 @@ describe('antigravity db discovery', () => {
         expect(markdown).toContain('I will inspect the local Antigravity data directory.');
         expect(markdown).toContain('### Tool Calls');
         expect(markdown).toContain('`list_dir`');
+        const parsedEvents = antigravityMarkdownToThreadEvents(markdown);
+        expect(parsedEvents).toContainEqual(
+            expect.objectContaining({ kind: 'message', role: 'user', text: 'Can I recover deleted chats?' }),
+        );
+        expect(parsedEvents).toContainEqual(
+            expect.objectContaining({
+                argumentsText: expect.stringContaining('DirectoryPath'),
+                kind: 'tool_call',
+                name: 'list_dir',
+            }),
+        );
     });
 
     it('should prefer full Antigravity JSONL transcripts and include them in total size', async () => {
