@@ -9,6 +9,7 @@ export type AnalyticsSearch = {
 export type ThreadTranscriptSearch = {
     commentary?: boolean;
     extra?: boolean;
+    full?: boolean;
     q?: string;
     raw?: boolean;
     sort?: 'earliest' | 'latest';
@@ -92,6 +93,7 @@ export const parseThreadTranscriptSearch = (search: SearchRecord): ThreadTranscr
     const tools = asBooleanSearch(search.tools);
     const commentary = asBooleanSearch(search.commentary);
     const extra = asBooleanSearch(search.extra);
+    const full = asBooleanSearch(search.full);
     const raw = asBooleanSearch(search.raw);
     const user = asBooleanSearch(search.user);
 
@@ -103,6 +105,9 @@ export const parseThreadTranscriptSearch = (search: SearchRecord): ThreadTranscr
     }
     if (extra) {
         parsed.extra = true;
+    }
+    if (full) {
+        parsed.full = true;
     }
     if (raw) {
         parsed.raw = true;
@@ -146,6 +151,9 @@ export const withThreadTranscriptSearch = (
     }
     if ('extra' in patch && typeof patch.extra === 'boolean') {
         setBooleanSearchParam(next, 'extra', patch.extra);
+    }
+    if ('full' in patch && typeof patch.full === 'boolean') {
+        setBooleanSearchParam(next, 'full', patch.full);
     }
     if ('raw' in patch && typeof patch.raw === 'boolean') {
         setBooleanSearchParam(next, 'raw', patch.raw);

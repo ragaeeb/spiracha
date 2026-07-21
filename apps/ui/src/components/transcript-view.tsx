@@ -282,6 +282,17 @@ function TranscriptSortSelect({
     );
 }
 
+const useTranscriptSortState = (
+    controlledSortOrder: TranscriptSortOrder | undefined,
+    onSortOrderChange: ((value: TranscriptSortOrder) => void) | undefined,
+) => {
+    const [internalSortOrder, setInternalSortOrder] = useState<TranscriptSortOrder>(controlledSortOrder ?? 'earliest');
+    if (controlledSortOrder !== undefined && onSortOrderChange !== undefined) {
+        return { handleSortOrderChange: onSortOrderChange, sortOrder: controlledSortOrder };
+    }
+    return { handleSortOrderChange: setInternalSortOrder, sortOrder: internalSortOrder };
+};
+
 function TranscriptEventCard({
     assistantModel,
     copied,
@@ -366,10 +377,11 @@ export function TranscriptView({
     showRawJson,
     showToolCalls,
     showUserMessages = true,
-    sortOrder = 'earliest',
+    sortOrder: controlledSortOrder,
     onSortOrderChange,
 }: TranscriptViewProps) {
     const { settings } = useSettings();
+    const { handleSortOrderChange, sortOrder } = useTranscriptSortState(controlledSortOrder, onSortOrderChange);
     const filteredEvents = useMemo(
         () =>
             events.filter((event) =>
@@ -553,7 +565,7 @@ export function TranscriptView({
                         ) : null}
                     </div>
                     <div className="flex items-center gap-2">
-                        <TranscriptSortSelect sortOrder={sortOrder} onSortOrderChange={onSortOrderChange} />
+                        <TranscriptSortSelect sortOrder={sortOrder} onSortOrderChange={handleSortOrderChange} />
                         <Button
                             aria-label="Copy selected messages"
                             className="hover:bg-[var(--panel-secondary)] hover:text-[var(--foreground)]"
@@ -613,7 +625,7 @@ export function TranscriptView({
                     ) : null}
                 </div>
                 <div className="flex items-center gap-2">
-                    <TranscriptSortSelect sortOrder={sortOrder} onSortOrderChange={onSortOrderChange} />
+                    <TranscriptSortSelect sortOrder={sortOrder} onSortOrderChange={handleSortOrderChange} />
                     <Button
                         aria-label="Copy selected messages"
                         className="hover:bg-[var(--panel-secondary)] hover:text-[var(--foreground)]"

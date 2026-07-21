@@ -6,7 +6,7 @@ import type {
 } from '@spiracha/lib/codex-browser-types';
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
-import { ChevronDown, ChevronUp, Download, Search, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, Download, Radio, Search, Trash2 } from 'lucide-react';
 import type { KeyboardEvent } from 'react';
 import { startTransition, useEffect, useMemo, useState } from 'react';
 import { Breadcrumbs } from '#/components/breadcrumbs';
@@ -37,6 +37,11 @@ import {
     threadTranscriptQueryOptions,
 } from '#/lib/codex-queries';
 import { deleteThreadFn, exportThreadFn, type getThreadSnapshotFn } from '#/lib/codex-server';
+import {
+    type CodexThreadLiveStatus,
+    connectCodexThreadLiveUpdates,
+    refreshCodexThreadLiveQueries,
+} from '#/lib/codex-thread-live';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import {
     formatBooleanLabel,
@@ -56,7 +61,7 @@ import {
 import { RouteStateResetBoundary } from '#/lib/route-state-reset';
 import { useSettings } from '#/lib/settings-store';
 import { formatSandboxPolicy } from '#/lib/thread-metadata';
-import { shouldLoadFullThreadTranscript } from '#/lib/thread-transcript-load';
+import { shouldLoadFullThreadTranscript, shouldRequestThreadTranscript } from '#/lib/thread-transcript-load';
 
 type ThreadSnapshotResponse = Awaited<ReturnType<typeof getThreadSnapshotFn>>;
 type ThreadTranscript = ParsedCodexTranscript;
@@ -88,6 +93,47 @@ type TranscriptSearchFilters = {
     showExtraEvents: boolean;
     showToolCalls: boolean;
     showUserMessages: boolean;
+};
+
+const liveStatusLabel: Record<CodexThreadLiveStatus, string> = {
+    connected: 'Live',
+    connecting: 'Connecting',
+    reconnecting: 'Reconnecting',
+};
+
+const ThreadLiveButton = ({ threadId }: { threadId: string }) => {
+    const queryClient = useQueryClient();
+    const [enabled, setEnabled] = useState(false);
+    const [status, setStatus] = useState<CodexThreadLiveStatus>('connecting');
+
+    useEffect(() => {
+        if (!enabled) {
+            return;
+        }
+
+        return connectCodexThreadLiveUpdates({
+            onStatusChange: setStatus,
+            onTranscriptChange: () => {
+                void refreshCodexThreadLiveQueries(queryClient, threadId).catch((error) => {
+                    console.error('[spiracha:codex-live] transcript refresh failed', { error, threadId });
+                });
+            },
+            threadId,
+        });
+    }, [enabled, queryClient, threadId]);
+
+    return (
+        <Button
+            aria-pressed={enabled}
+            className="rounded-full"
+            title="Update this transcript when Codex writes new events"
+            variant={enabled ? 'secondary' : 'outline'}
+            onClick={() => setEnabled((current) => !current)}
+        >
+            <Radio className={enabled && status === 'connected' ? 'text-emerald-500' : ''} />
+            {enabled ? liveStatusLabel[status] : 'Go live'}
+        </Button>
+    );
 };
 
 const SEARCH_SNIPPET_RADIUS = 72;
@@ -813,9 +859,11 @@ function ThreadDetailPageContent() {
     const snapshot = useSuspenseQuery(threadSnapshotQueryOptions(params.threadId)).data;
     const { settings } = useSettings();
     const transcriptMissing = snapshot.transcriptState === 'missing';
-    const [shouldLoadTranscript, setShouldLoadTranscript] = useState(
-        !snapshot.rollout.shouldDeferTranscriptLoad && !transcriptMissing,
-    );
+    const shouldLoadTranscript = shouldRequestThreadTranscript({
+        fullRequested: search.full === true,
+        shouldDeferTranscriptLoad: snapshot.rollout.shouldDeferTranscriptLoad,
+        transcriptMissing,
+    });
     const showRawJson = search.raw === true;
     const sortOrder: TranscriptSortOrder = search.sort ?? 'earliest';
     const transcriptSearchInput = search.q ?? '';
@@ -978,6 +1026,7 @@ function ThreadDetailPageContent() {
             <PageHeader
                 actions={
                     <>
+                        <ThreadLiveButton threadId={params.threadId} />
                         <Button className="rounded-full" variant="outline" onClick={() => setExportOpen(true)}>
                             <Download className="mr-2 size-4" />
                             Export
@@ -1061,7 +1110,7 @@ function ThreadDetailPageContent() {
                     transcript={transcript}
                     transcriptFilters={transcriptFilters}
                     onJumpToSearchResult={jumpToTranscriptSearchResult}
-                    onLoadFullThread={() => setShouldLoadTranscript(true)}
+                    onLoadFullThread={() => updateTranscriptSearch({ full: true })}
                     onSearchInputChange={updateTranscriptSearchInput}
                     onSortOrderChange={updateSortOrder}
                     onTranscriptFilterChange={updateTranscriptFilter}
@@ -1073,7 +1122,7 @@ function ThreadDetailPageContent() {
                     snapshot={viewSnapshot}
                     sortOrder={sortOrder}
                     transcript={transcript}
-                    onLoadTranscript={() => setShouldLoadTranscript(true)}
+                    onLoadTranscript={() => updateTranscriptSearch({ full: true })}
                     onSortOrderChange={updateSortOrder}
                 />
 

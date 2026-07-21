@@ -36,7 +36,7 @@ Spiracha requires Bun 1.3.14 or newer. Set `PORT` to request a different startin
 
 - Browse local conversations across Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, and OpenCode.
 - Search Codex projects from the app shell, with results delegated to the shareable `/codex?q=...` inventory filter.
-- Inspect source-specific detail pages with transcript, tool, reasoning, metadata, raw event, export, and delete flows where supported by the source. Codex thread detail includes a tool-focused activity view plus recorded goals and sandbox policy.
+- Inspect source-specific detail pages with transcript, tool, reasoning, metadata, raw event, export, and delete flows where supported by the source. Codex thread detail includes optional live updates, a tool-focused activity view, recorded goals, and sandbox policy.
 - Export transcripts from the UI as Markdown, text, or zip bundles with source-specific commentary/final-answer filtering. The last submitted export choices persist across dialog openings; canceled drafts do not.
 - Export source-independent focused evidence: bounded failure/retry/tool episodes selected by a reusable JSON lens, with trace IDs and an omission ledger.
 - Expose a stable API for local clients that need normalized conversation metadata and message payloads.
@@ -158,6 +158,8 @@ Markdown transcript exports identify their parser contract with `transcript_sche
 - Source detail routes include `/claude-code-sessions/$sessionId`, `/grok-sessions/$sessionId`, `/kiro-sessions/$sessionId`, `/qoder-sessions/$sessionId`, `/cursor-threads/$composerId`, `/antigravity-conversations/$conversationId`, and `/opencode-sessions/$sessionId`.
 - `/analytics` for project-scoped Codex token totals, average and median thread size, archive counts, tool usage, model tokens, client sources, and reasoning-effort breakdowns.
 - `/settings` for transcript path conversion and username redaction. Export dialogs remember their own last submitted options.
+
+Codex Live mode opens an SSE connection from the thread page. While connected, the server shares one bounded rollout-file monitor across every tab viewing that thread and releases it after the final client disconnects. The browser does not poll.
 
 ## Development
 

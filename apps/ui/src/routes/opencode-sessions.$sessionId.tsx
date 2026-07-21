@@ -88,7 +88,8 @@ const OpenCodeRawPanels = ({ detail, events }: { detail: OpenCodeSessionTranscri
 
 const OpenCodeSessionDetailPage = () => {
     const navigate = useNavigate({ from: Route.fullPath });
-    const transcriptDisplay = getTranscriptDisplayState(Route.useSearch());
+    const transcriptSearch = Route.useSearch();
+    const transcriptDisplay = getTranscriptDisplayState(transcriptSearch);
     const queryClient = useQueryClient();
     const params = Route.useParams();
     const detail = useSuspenseQuery(openCodeSessionDetailQueryOptions(params.sessionId)).data;
@@ -256,6 +257,8 @@ const OpenCodeSessionDetailPage = () => {
                             showRawJson={showRawJson}
                             showToolCalls={showToolCalls}
                             showUserMessages={showUserMessages}
+                            sortOrder={transcriptSearch.sort ?? 'earliest'}
+                            onSortOrderChange={(value) => updateTranscriptDisplay({ sort: value })}
                         />
                     ) : (
                         <section className="rounded-[1.6rem] border border-[var(--border)] bg-[var(--panel)] p-5 shadow-[var(--panel-shadow)]">

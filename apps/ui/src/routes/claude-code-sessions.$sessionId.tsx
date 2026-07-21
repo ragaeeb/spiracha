@@ -168,7 +168,8 @@ const ClaudeCodeTranscriptPreviewNotice = ({
 
 function ClaudeCodeSessionDetailPage() {
     const navigate = useNavigate({ from: Route.fullPath });
-    const transcriptDisplay = getTranscriptDisplayState(Route.useSearch());
+    const transcriptSearch = Route.useSearch();
+    const transcriptDisplay = getTranscriptDisplayState(transcriptSearch);
     const queryClient = useQueryClient();
     const params = Route.useParams();
     const initialDetail = useSuspenseQuery(claudeCodeSessionDetailQueryOptions(params.sessionId)).data;
@@ -346,6 +347,8 @@ function ClaudeCodeSessionDetailPage() {
                             showRawJson={showRawJson}
                             showToolCalls={showToolCalls}
                             showUserMessages={showUserMessages}
+                            sortOrder={transcriptSearch.sort ?? 'earliest'}
+                            onSortOrderChange={(value) => updateTranscriptDisplay({ sort: value })}
                         />
                     ) : (
                         <section className="rounded-[1.6rem] border border-[var(--border)] bg-[var(--panel)] p-5 shadow-[var(--panel-shadow)]">

@@ -986,16 +986,41 @@ const applyRolloutActivityTimestamps = async <T extends ActivityTimestampedThrea
     return activeThreads.sort(compareThreadsByRecentActivity);
 };
 
-const compactDashboardThread = (thread: DashboardThreadCandidate): DashboardThreadSummary => {
+type ThreadDisplaySource = Pick<ThreadRow, 'first_user_message' | 'preview' | 'title'> &
+    Partial<Pick<ThreadRow, 'agent_nickname' | 'agent_path'>>;
+
+const normalizeThreadDisplayText = <T extends ThreadDisplaySource>(thread: T): T => {
+    const title = cleanInlineTitle(thread.title);
+    const firstUserMessage = cleanInlineTitle(thread.first_user_message);
+    const preview = cleanInlineTitle(thread.preview);
+    const agentNickname = cleanInlineTitle(thread.agent_nickname ?? '');
+    const agentPath = thread.agent_path?.trim() ?? '';
+
     return {
-        cwd: thread.cwd,
-        id: thread.id,
-        model: thread.model,
-        preview: cleanInlineTitle(thread.preview || thread.first_user_message || ''),
-        title: cleanInlineTitle(thread.title),
-        tokens_used: thread.tokens_used,
-        updated_at: thread.updated_at,
-        updated_at_ms: thread.updated_at_ms,
+        ...thread,
+        preview:
+            preview ||
+            firstUserMessage ||
+            (agentPath ? `Agent path: ${agentPath}` : 'No transcript preview available.'),
+        title:
+            title ||
+            firstUserMessage ||
+            preview ||
+            (agentNickname ? `${agentNickname} (subagent)` : 'Untitled Codex thread'),
+    };
+};
+
+const compactDashboardThread = (thread: DashboardThreadCandidate): DashboardThreadSummary => {
+    const normalizedThread = normalizeThreadDisplayText(thread);
+    return {
+        cwd: normalizedThread.cwd,
+        id: normalizedThread.id,
+        model: normalizedThread.model,
+        preview: normalizedThread.preview,
+        title: normalizedThread.title,
+        tokens_used: normalizedThread.tokens_used,
+        updated_at: normalizedThread.updated_at,
+        updated_at_ms: normalizedThread.updated_at_ms,
     };
 };
 
@@ -1449,11 +1474,7 @@ type ListProjectThreadsOptions = {
 };
 
 const compactThreadListRow = (thread: ThreadRow): ThreadRow => {
-    return {
-        ...thread,
-        preview: cleanInlineTitle(thread.preview || thread.first_user_message || ''),
-        title: cleanInlineTitle(thread.title),
-    };
+    return normalizeThreadDisplayText(thread);
 };
 
 export const listProjectThreads = async (
@@ -1520,10 +1541,10 @@ export const getThreadBrowseData = (dbPath: string, threadId: string): ThreadBro
         if (!thread) {
             throw new CodexThreadNotFoundError(threadId);
         }
-        const normalizedThread = {
+        const normalizedThread = normalizeThreadDisplayText({
             ...thread,
             rollout_path: resolveCodexRolloutPath(dbPath, thread.rollout_path),
-        };
+        });
 
         const dynamicTools =
             dbThread && existingTableNames.has('thread_dynamic_tools')

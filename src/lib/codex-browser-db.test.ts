@@ -961,6 +961,40 @@ describe('codex browser db', () => {
         expect(threads[0]?.rolloutSizeBytes).toBeGreaterThan(0);
     });
 
+    it('should give metadata-only subagent threads a navigable display title and preview', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-subagent-title-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const threadId = fixture.threads[0]!.threadId;
+        const anonymousThreadId = fixture.threads[1]!.threadId;
+        const db = new Database(fixture.dbPath);
+        db.query(
+            `UPDATE threads
+             SET title = '', first_user_message = '', preview = '', thread_source = 'subagent',
+                 agent_nickname = 'Halley', agent_path = '/root/code_review'
+             WHERE id = ?`,
+        ).run(threadId);
+        db.query(
+            `UPDATE threads
+             SET title = '', first_user_message = '', preview = '', thread_source = 'subagent',
+                 agent_nickname = NULL, agent_path = NULL
+             WHERE id = ?`,
+        ).run(anonymousThreadId);
+        db.close();
+
+        const listedThreads = await listProjectThreads(fixture.dbPath, 'spiracha');
+        const listedThread = listedThreads.find((entry) => entry.thread.id === threadId);
+        const anonymousThread = listedThreads.find((entry) => entry.thread.id === anonymousThreadId);
+        const detail = getThreadBrowseData(fixture.dbPath, threadId);
+
+        expect(listedThread?.thread.title).toBe('Halley (subagent)');
+        expect(listedThread?.thread.preview).toBe('Agent path: /root/code_review');
+        expect(anonymousThread?.thread.title).toBe('Untitled Codex thread');
+        expect(anonymousThread?.thread.preview).toBe('No transcript preview available.');
+        expect(detail.thread.title).toBe('Halley (subagent)');
+        expect(detail.thread.preview).toBe('Agent path: /root/code_review');
+    });
+
     it('should tolerate browse reads on schemas without optional relation or tool tables', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-minimal-browse-test-'));
         tempPaths.push(tempRoot);

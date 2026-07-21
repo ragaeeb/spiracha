@@ -57,6 +57,7 @@ describe('route search helpers', () => {
             parseThreadTranscriptSearch({
                 commentary: 'true',
                 extra: '1',
+                full: 'true',
                 q: '  export  ',
                 raw: 'false',
                 sort: 'latest',
@@ -66,6 +67,7 @@ describe('route search helpers', () => {
         ).toEqual({
             commentary: true,
             extra: true,
+            full: true,
             q: 'export',
             sort: 'latest',
             tools: true,
@@ -84,6 +86,7 @@ describe('route search helpers', () => {
                 },
                 {
                     extra: true,
+                    full: true,
                     q: '',
                     sort: 'latest',
                     tools: false,
@@ -93,6 +96,7 @@ describe('route search helpers', () => {
         ).toEqual({
             commentary: true,
             extra: true,
+            full: true,
             sort: 'latest',
             user: true,
         });

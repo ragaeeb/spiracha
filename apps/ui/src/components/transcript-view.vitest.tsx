@@ -447,6 +447,36 @@ describe('TranscriptView', () => {
         }
     });
 
+    it('should update visible event order when an unbound sort control changes', () => {
+        const events = [
+            { ...messageEvent, sequence: 1, text: 'First event' },
+            { ...messageEvent, sequence: 2, text: 'Last event' },
+        ];
+        const { container } = render(
+            <TranscriptView
+                assistantModel={null}
+                events={events}
+                projectPath="/Users/example/workspace/spiracha"
+                showCommentary
+                showExtraEvents={false}
+                showRawJson={false}
+                showToolCalls={false}
+            />,
+        );
+        const renderedMessageTexts = () =>
+            [...container.querySelectorAll('article')]
+                .map((article) => article.textContent ?? '')
+                .filter((text) => text.includes('First event') || text.includes('Last event'))
+                .map((text) => (text.includes('First event') ? 'First event' : 'Last event'));
+
+        expect(renderedMessageTexts()).toEqual(['First event', 'Last event']);
+
+        fireEvent.click(screen.getByRole('combobox', { name: 'Sort transcript messages' }));
+        fireEvent.click(screen.getByText('Latest first'));
+
+        expect(renderedMessageTexts()).toEqual(['Last event', 'First event']);
+    });
+
     it('should label system messages as System instead of User', () => {
         render(
             <TranscriptView
