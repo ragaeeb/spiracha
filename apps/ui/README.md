@@ -18,6 +18,7 @@ The browser UI for browsing local Codex, Claude Code, Grok, Kiro, Qoder, Cursor,
 - lists derived Codex projects from the Codex SQLite database
 - lists Codex threads within a project in chronological order
 - shows Codex thread timelines, a dedicated tool activity and definition view, recorded goals, readable sandbox policy, metadata, and raw event context
+- streams optional Codex live updates through a shared worker when available and an alternate loopback origin, keeping long-lived event connections out of the page-loading connection pool
 - searches Codex projects from the app shell through the URL-backed `/codex?q=...` inventory filter
 - exports Codex, Claude Code, Grok, Kiro, Qoder, Cursor, and OpenCode sessions or threads as Markdown, plain text, or optional zip archives with optional metadata, commentary, and tool-call inclusion; the last submitted choices persist while canceled drafts are discarded
 - lists Claude Code workspaces and sessions from local `~/.claude/projects` JSONL files
@@ -71,8 +72,8 @@ Runtime configuration is intentionally small:
   - Optional positive integer for Codex analytics transcript parsing concurrency.
   - Defaults to `8`.
 - `SPIRACHA_TRANSCRIPT_LOAD_CONCURRENCY`
-  - Optional positive integer for detail-page transcript loading concurrency across sources.
-  - Defaults to `3` and is capped at `16` to protect the server from excessive parallel disk and database work.
+  - Optional positive integer for detail-page transcript loading concurrency within each source integration.
+  - Defaults to `3` and is capped at `16`. Each integration has an independent lane, while aggregate work is capped at `16` by default (up to `32` for higher configured lane limits), so one blocked source cannot consume another source's transcript capacity.
 - `SPIRACHA_TRANSCRIPT_LOAD_LOGS`
   - Set to `1` to log transcript-loader queue and timing diagnostics. Disabled by default so library and CLI consumers stay quiet.
 - `SPIRACHA_CLAUDE_CODE_PROJECTS_DIR`

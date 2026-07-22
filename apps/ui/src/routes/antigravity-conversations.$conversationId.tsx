@@ -193,11 +193,11 @@ function AntigravityConversationHeaderActions({
 
 function EmptyAntigravityTranscript({ detail }: { detail: AntigravityConversationDetail }) {
     return (
-        <section className="rounded-[1.6rem] border border-[var(--border)] bg-[var(--panel)] p-5 shadow-[var(--panel-shadow)]">
+        <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 shadow-[var(--panel-shadow)]">
             <h3 className="font-semibold text-[var(--muted-foreground)] text-sm uppercase tracking-[0.18em]">
                 Transcript
             </h3>
-            <p className="mt-4 text-[var(--muted-foreground)] text-sm">
+            <p className="mt-3 text-[var(--muted-foreground)] text-sm">
                 {detail.transcriptLocked
                     ? 'Unlock Antigravity transcript export to inspect the rendered conversation content here.'
                     : detail.artifactsMarkdown
@@ -324,7 +324,7 @@ function AntigravityConversationDetailPage() {
     });
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-4">
             <PageHeader
                 actions={
                     <AntigravityConversationHeaderActions
@@ -369,7 +369,7 @@ function AntigravityConversationDetailPage() {
                 />
             </div>
 
-            <Tabs className="space-y-4" defaultValue="transcript">
+            <Tabs className="space-y-3" defaultValue="transcript">
                 <TabsList className="grid w-fit min-w-[24rem] grid-cols-3 rounded-full border border-[var(--border)] bg-[var(--panel)] p-1">
                     <TabsTrigger className="rounded-full px-5 text-sm" value="transcript">
                         Transcript

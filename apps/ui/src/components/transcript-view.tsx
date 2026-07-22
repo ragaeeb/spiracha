@@ -316,7 +316,7 @@ function TranscriptEventCard({
             ref={handleElement}
             aria-current={isActive ? 'location' : undefined}
             className={cn(
-                'min-w-0 scroll-mt-24 overflow-hidden rounded-xl border p-3.5 shadow-[var(--panel-shadow)]',
+                'min-w-0 scroll-mt-24 overflow-hidden rounded-xl border p-3 shadow-[var(--panel-shadow)]',
                 isSelected && 'ring-2 ring-[var(--accent)]/35',
                 isActive && 'ring-2 ring-[var(--accent)]',
                 getEventTone(event),
@@ -345,8 +345,8 @@ function TranscriptEventCard({
                     </p>
                 ) : null}
             </div>
-            <div className="mt-2.5 min-w-0">{renderEventBody(event, transform)}</div>
-            <div className="mt-3 flex justify-end">
+            <div className="mt-2 min-w-0">{renderEventBody(event, transform)}</div>
+            <div className="mt-2 flex justify-end">
                 <Button
                     aria-label="Copy message"
                     className="text-[var(--muted-foreground)] hover:bg-[var(--panel-secondary)] hover:text-[var(--foreground)]"
@@ -358,7 +358,7 @@ function TranscriptEventCard({
                 </Button>
             </div>
             {showRawJson ? (
-                <pre className="mt-3 overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--code-background)] p-3 text-[var(--code-foreground)] text-xs leading-5">
+                <pre className="mt-2 overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--code-background)] p-3 text-[var(--code-foreground)] text-xs leading-5">
                     {JSON.stringify(event.raw, null, 2)}
                 </pre>
             ) : null}
@@ -548,9 +548,9 @@ export function TranscriptView({
         return (
             <div
                 ref={parentRef}
-                className="h-[70vh] overflow-auto rounded-xl border border-[var(--border)] bg-[var(--panel)] p-3"
+                className="h-[70vh] overflow-auto rounded-xl border border-[var(--border)] bg-[var(--panel)] p-2.5"
             >
-                <div className="sticky top-0 z-10 mb-3 flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--panel)]/95 px-3 py-2 backdrop-blur">
+                <div className="sticky top-0 z-10 mb-2.5 flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--panel)]/95 px-3 py-2 backdrop-blur">
                     <div className="flex items-center gap-2">
                         <Checkbox
                             aria-label="Select visible messages"
@@ -585,7 +585,7 @@ export function TranscriptView({
                             key={item.key}
                             ref={virtualizer.measureElement}
                             data-index={item.index}
-                            className="absolute top-0 left-0 w-full pb-3.5"
+                            className="absolute top-0 left-0 w-full pb-2.5"
                             style={{ transform: `translateY(${item.start}px)` }}
                         >
                             <TranscriptEventCard
@@ -609,7 +609,7 @@ export function TranscriptView({
     }
 
     return (
-        <div className="space-y-3.5">
+        <div className="space-y-2.5">
             <div className="sticky top-0 z-10 flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--panel)]/95 px-3 py-2 backdrop-blur">
                 <div className="flex items-center gap-2">
                     <Checkbox

@@ -212,7 +212,7 @@ const CursorWorkspacePage = () => {
     };
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-4">
             <PageHeader
                 actions={
                     <CursorWorkspaceHeaderActions
@@ -353,7 +353,7 @@ const CursorWorkspaceRecoveryNotice = ({ workspace }: { workspace: CursorWorkspa
     }
 
     return (
-        <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] px-4 py-4">
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] px-3 py-3">
             <p className="font-medium text-sm">This workspace has threads in an older storage bucket.</p>
             <p className="mt-1 text-[var(--muted-foreground)] text-xs">
                 Recover merges those threads into the active bucket Cursor reads now so they reappear in Chat History.

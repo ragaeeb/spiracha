@@ -8,11 +8,11 @@ type RecentThreadsListProps = {
 
 export function RecentThreadsList({ threads }: RecentThreadsListProps) {
     return (
-        <div className="mt-4 space-y-2">
+        <div className="mt-3 space-y-2">
             {threads.map(({ project, thread }) => (
                 <article
                     key={thread.id}
-                    className="grid min-w-0 grid-cols-[minmax(0,1fr)_7.5rem] gap-3 rounded-xl border border-[var(--border)] bg-[var(--panel-secondary)] p-3.5 transition-colors hover:border-[var(--accent)]/30 hover:bg-[var(--accent-muted)]"
+                    className="grid min-w-0 grid-cols-[minmax(0,1fr)_7.5rem] gap-3 rounded-xl border border-[var(--border)] bg-[var(--panel-secondary)] p-3 transition-colors hover:border-[var(--accent)]/30 hover:bg-[var(--accent-muted)]"
                 >
                     <div className="min-w-0">
                         <Link

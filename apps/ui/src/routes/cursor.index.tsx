@@ -52,7 +52,7 @@ const CursorPage = () => {
     );
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-4">
             <PageHeader
                 actions={
                     <ListSearchInput

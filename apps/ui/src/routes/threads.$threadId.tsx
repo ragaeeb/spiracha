@@ -37,11 +37,8 @@ import {
     threadTranscriptQueryOptions,
 } from '#/lib/codex-queries';
 import { deleteThreadFn, exportThreadFn, type getThreadSnapshotFn } from '#/lib/codex-server';
-import {
-    type CodexThreadLiveStatus,
-    connectCodexThreadLiveUpdates,
-    refreshCodexThreadLiveQueries,
-} from '#/lib/codex-thread-live';
+import { connectCodexThreadLiveUpdates, refreshCodexThreadLiveQueries } from '#/lib/codex-thread-live';
+import type { CodexThreadLiveStatus } from '#/lib/codex-thread-live-types';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import {
     formatBooleanLabel,
@@ -586,17 +583,17 @@ function DeferredTranscriptNotice({
     onLoad: () => void;
 }) {
     return (
-        <section className="rounded-[1.6rem] border border-[var(--border)] bg-[var(--panel)] p-5 shadow-[var(--panel-shadow)]">
+        <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 shadow-[var(--panel-shadow)]">
             <h3 className="font-semibold text-base">
                 {missing ? 'Transcript file missing' : 'This is a very big thread'}
             </h3>
-            <p className="mt-2 text-[var(--muted-foreground)] text-sm leading-6">
+            <p className="mt-1.5 text-[var(--muted-foreground)] text-sm leading-6">
                 {missing
                     ? 'The rollout JSONL referenced by this thread is no longer present on disk. Export may still work if the file is restored, but transcript browsing is unavailable right now.'
                     : `Spiracha skipped loading the transcript automatically because the rollout file is ${formatBytes(fileSizeBytes)}. Export still works immediately. Load the full transcript when you need to inspect it here.`}
             </p>
             {missing ? null : (
-                <div className="mt-4">
+                <div className="mt-3">
                     <Button disabled={pending} variant="outline" onClick={onLoad}>
                         {pending ? 'Loading full thread...' : 'Load Full Thread'}
                     </Button>
@@ -624,9 +621,9 @@ function LargeThreadPreviewNotice({
           : 'Load Full Thread';
 
     return (
-        <section className="rounded-[1.6rem] border border-[var(--border)] bg-[var(--panel)] p-5 shadow-[var(--panel-shadow)]">
+        <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 shadow-[var(--panel-shadow)]">
             <h3 className="font-semibold text-base">Showing the latest matching messages</h3>
-            <p className="mt-2 text-[var(--muted-foreground)] text-sm leading-6">
+            <p className="mt-1.5 text-[var(--muted-foreground)] text-sm leading-6">
                 This rollout is {formatBytes(fileSizeBytes)}, so Spiracha loaded a small window from the end of the
                 thread using the current transcript filters. Load the full thread when you need earlier messages.
             </p>
@@ -1022,7 +1019,7 @@ function ThreadDetailPageContent() {
     });
 
     return (
-        <div className="space-y-5">
+        <div className="space-y-4">
             <PageHeader
                 actions={
                     <>
@@ -1073,7 +1070,7 @@ function ThreadDetailPageContent() {
                 />
             </div>
 
-            <Tabs className="space-y-4" defaultValue="transcript">
+            <Tabs className="space-y-3" defaultValue="transcript">
                 <TabsList className="grid w-full grid-cols-4 rounded-full border border-[var(--border)] bg-[var(--panel)] p-1 sm:w-fit sm:min-w-[30rem]">
                     <TabsTrigger className="rounded-full px-5 text-sm" value="transcript">
                         Transcript

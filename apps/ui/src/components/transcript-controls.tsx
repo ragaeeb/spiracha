@@ -50,7 +50,7 @@ export const TranscriptControls = ({
     const idPrefix = useId();
 
     return (
-        <div className="flex flex-wrap gap-4 rounded-xl border border-[var(--border)] bg-[var(--panel)] px-4 py-3 shadow-[var(--panel-shadow)]">
+        <div className="flex flex-wrap gap-3 rounded-xl border border-[var(--border)] bg-[var(--panel)] px-3 py-2 shadow-[var(--panel-shadow)]">
             <TranscriptControl
                 checked={showToolCalls}
                 id={`${idPrefix}-tools`}

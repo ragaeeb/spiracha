@@ -36,7 +36,7 @@ Spiracha requires Bun 1.3.14 or newer. Set `PORT` to request a different startin
 
 - Browse local conversations across Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, and OpenCode.
 - Search Codex projects from the app shell, with results delegated to the shareable `/codex?q=...` inventory filter.
-- Inspect source-specific detail pages with transcript, tool, reasoning, metadata, raw event, export, and delete flows where supported by the source. Codex thread detail includes optional live updates, a tool-focused activity view, recorded goals, and sandbox policy.
+- Inspect source-specific detail pages with transcript, tool, reasoning, metadata, raw event, export, and delete flows where supported by the source. Codex thread detail includes optional live updates isolated from page-loading connections, a tool-focused activity view, recorded goals, and sandbox policy.
 - Export transcripts from the UI as Markdown, text, or zip bundles with source-specific commentary/final-answer filtering. The last submitted export choices persist across dialog openings; canceled drafts do not.
 - Export source-independent focused evidence: bounded failure/retry/tool episodes selected by a reusable JSON lens, with trace IDs and an omission ledger.
 - Expose a stable API for local clients that need normalized conversation metadata and message payloads.

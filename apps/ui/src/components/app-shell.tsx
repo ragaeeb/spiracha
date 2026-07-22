@@ -91,25 +91,25 @@ export function AppShell({ children }: PropsWithChildren) {
     return (
         <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
             <div className="flex min-h-screen w-full flex-col lg:flex-row">
-                <aside className="border-[var(--border)] border-b bg-[var(--panel)]/90 px-5 py-5 backdrop-blur lg:sticky lg:top-0 lg:h-screen lg:w-[240px] lg:border-r lg:border-b-0 lg:px-5">
-                    <div className="flex items-start justify-between gap-4 lg:flex-col lg:items-stretch">
-                        <div className="space-y-1.5">
+                <aside className="border-[var(--border)] border-b bg-[var(--panel)]/90 px-4 py-4 backdrop-blur lg:sticky lg:top-0 lg:h-screen lg:w-[220px] lg:border-r lg:border-b-0 lg:px-4">
+                    <div className="flex items-start justify-between gap-3 lg:flex-col lg:items-stretch">
+                        <div className="space-y-1">
                             <p className="font-semibold text-[10px] text-[var(--muted-foreground)] uppercase tracking-[0.18em]">
                                 Spiracha <span className="tracking-normal">v{packageMetadata.version}</span>
                             </p>
-                            <div className="space-y-1">
-                                <h1 className="font-['IBM_Plex_Sans'] font-semibold text-lg tracking-[-0.02em]">
+                            <div className="flex items-center gap-2">
+                                <h1 className="font-['IBM_Plex_Sans'] font-semibold text-base tracking-[-0.02em]">
                                     Spiracha Console
                                 </h1>
                                 {packageMetadata.homepage ? (
                                     <a
                                         aria-label="Open Spiracha GitHub repository"
-                                        className="inline-flex size-7 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-[var(--panel-secondary)] hover:text-[var(--foreground)]"
+                                        className="inline-flex size-6 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-[var(--panel-secondary)] hover:text-[var(--foreground)]"
                                         href={packageMetadata.homepage}
                                         rel="noreferrer"
                                         target="_blank"
                                     >
-                                        <GitHubIcon className="size-4" />
+                                        <GitHubIcon className="size-3.5" />
                                     </a>
                                 ) : null}
                             </div>
@@ -117,7 +117,7 @@ export function AppShell({ children }: PropsWithChildren) {
                         <ThemeToggle />
                     </div>
 
-                    <search aria-label="Global project search" className="mt-5">
+                    <search aria-label="Global project search" className="mt-4">
                         <form className="relative" onSubmit={handleProjectSearch}>
                             <Search
                                 aria-hidden="true"
@@ -125,7 +125,7 @@ export function AppShell({ children }: PropsWithChildren) {
                             />
                             <input
                                 aria-label="Search Codex projects"
-                                className="h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--panel-secondary)] pr-3 pl-9 text-sm outline-none transition placeholder:text-[var(--muted-foreground)] focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)]/20"
+                                className="h-8 w-full rounded-lg border border-[var(--border)] bg-[var(--panel-secondary)] pr-3 pl-9 text-sm outline-none transition placeholder:text-[var(--muted-foreground)] focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)]/20"
                                 placeholder="Search Codex projects"
                                 type="search"
                                 value={projectQuery}
@@ -134,7 +134,7 @@ export function AppShell({ children }: PropsWithChildren) {
                         </form>
                     </search>
 
-                    <nav className="mt-3 grid gap-1">
+                    <nav className="mt-2 grid gap-0.5">
                         {navItems.map((item) => {
                             const active = isNavItemActive(pathname, item);
                             const Icon = item.icon;
@@ -145,7 +145,7 @@ export function AppShell({ children }: PropsWithChildren) {
                                     aria-current={active ? 'page' : undefined}
                                     key={item.to}
                                     className={cn(
-                                        'flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors',
+                                        'flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition-colors',
                                         active
                                             ? 'bg-[var(--accent-muted)] font-medium text-[var(--accent-foreground)]'
                                             : 'text-[var(--muted-foreground)] hover:bg-[var(--panel-secondary)] hover:text-[var(--foreground)]',
@@ -160,7 +160,7 @@ export function AppShell({ children }: PropsWithChildren) {
                     </nav>
                 </aside>
 
-                <main className="min-w-0 flex-1 px-4 py-4 sm:px-5 sm:py-5 lg:px-6">{children}</main>
+                <main className="min-w-0 flex-1 px-3 py-3 sm:px-4 sm:py-4">{children}</main>
             </div>
         </div>
     );

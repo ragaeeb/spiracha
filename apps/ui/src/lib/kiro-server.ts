@@ -60,8 +60,9 @@ const loadKiroSessionTranscript = async (sessionId: string) => {
         },
         {
             id: sessionId,
+            integration: 'kiro',
+            operation: 'ui-detail',
             path: sessionsDir,
-            source: 'kiro-ui',
         },
     );
 };

@@ -77,8 +77,9 @@ const readMessages = async (conversation: AntigravityConversation) => {
     const load = () =>
         runWithTranscriptLoadLimit(() => readAntigravityConversationMessages(conversation), {
             id: conversation.conversationId,
+            integration: 'antigravity',
+            operation: 'api',
             path: conversation.transcriptPath ?? conversation.conversationPath ?? undefined,
-            source: 'antigravity-api',
         });
     const transcriptPath = conversation.transcriptPath;
     const messages = transcriptPath

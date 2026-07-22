@@ -110,8 +110,9 @@ const buildConversation = async (
         ? (loadedTranscript ??
           (await runWithTranscriptLoadLimit(() => readKiroSessionTranscript(sessionsDir, session.sessionId), {
               id: session.sessionId,
+              integration: 'kiro',
+              operation: 'api',
               path: session.filePath,
-              source: 'kiro-api',
           })))
         : null;
     const allMessages = transcript ? transcriptToMessages(transcript) : [];
@@ -172,8 +173,9 @@ const getKiroConversation = async (options: GetConversationOptions): Promise<Con
     const sessionsDir = getSessionsDir(options);
     const transcript = await runWithTranscriptLoadLimit(() => readKiroSessionTranscript(sessionsDir, options.id), {
         id: options.id,
+        integration: 'kiro',
+        operation: 'api',
         path: sessionsDir,
-        source: 'kiro-api',
     });
     return transcript
         ? buildConversation(

@@ -148,8 +148,9 @@ const buildConversation = async (
                   () => readGrokSessionTranscript(sessionsDir, session.sessionId, { includeRawPayloads: false }),
                   {
                       id: session.sessionId,
+                      integration: 'grok',
+                      operation: 'api',
                       path: sessionsDir,
-                      source: 'grok-api',
                   },
               )
             : null);
@@ -215,8 +216,9 @@ const getGrokConversation = async (options: GetConversationOptions): Promise<Con
         () => readGrokSessionTranscript(sessionsDir, options.id, { includeRawPayloads: false }),
         {
             id: options.id,
+            integration: 'grok',
+            operation: 'api',
             path: sessionsDir,
-            source: 'grok-api',
         },
     );
     return transcript

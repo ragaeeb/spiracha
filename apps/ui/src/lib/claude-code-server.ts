@@ -68,8 +68,9 @@ const loadClaudeCodeSessionTranscript = async (sessionId: string) => {
         },
         {
             id: sessionId,
+            integration: 'claude-code',
+            operation: 'ui-export',
             path: projectsDir,
-            source: 'claude-code-ui',
         },
     );
 };
@@ -118,8 +119,9 @@ export const loadClaudeCodeSessionDetail = async (sessionId: string) => {
         },
         {
             id: sessionId,
+            integration: 'claude-code',
+            operation: 'ui-detail',
             path: projectsDir,
-            source: 'claude-code-ui-detail',
         },
     );
 };
@@ -142,8 +144,9 @@ export const loadClaudeCodeSessionFullDetail = async (sessionId: string) => {
         },
         {
             id: sessionId,
+            integration: 'claude-code',
+            operation: 'ui-full-detail',
             path: projectsDir,
-            source: 'claude-code-ui-full-detail',
         },
     );
 };

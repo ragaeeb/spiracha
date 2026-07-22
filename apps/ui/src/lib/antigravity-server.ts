@@ -102,8 +102,9 @@ export const loadAntigravityConversationDetail = async (conversationId: string) 
                 ]),
             {
                 id: conversation.conversationId,
+                integration: 'antigravity',
+                operation: 'ui-detail',
                 path: conversation.transcriptPath ?? conversation.conversationPath ?? undefined,
-                source: 'antigravity-ui-detail',
             },
         ),
         resolveAntigravityConversationGroup(conversation),
@@ -157,8 +158,9 @@ export const loadAntigravityConversationExport = async (
             }),
         {
             id: conversation.conversationId,
+            integration: 'antigravity',
+            operation: 'ui-export',
             path: conversation.transcriptPath ?? conversation.conversationPath ?? undefined,
-            source: 'antigravity-ui-export',
         },
     );
     if (!content) {

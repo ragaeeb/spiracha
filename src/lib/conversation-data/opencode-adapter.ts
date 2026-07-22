@@ -169,8 +169,9 @@ const buildConversation = async (
         (options.includeMessages
             ? await runWithTranscriptLoadLimit(() => readOpenCodeSessionTranscript(dbPath, session.sessionId), {
                   id: session.sessionId,
+                  integration: 'opencode',
+                  operation: 'api',
                   path: dbPath,
-                  source: 'opencode-api',
               })
             : null);
     const allMessages = transcript ? transcriptToMessages(transcript) : [];
@@ -231,8 +232,9 @@ const getOpenCodeConversation = async (options: GetConversationOptions): Promise
     const dbPath = getDbPath(options);
     const transcript = await runWithTranscriptLoadLimit(() => readOpenCodeSessionTranscript(dbPath, options.id), {
         id: options.id,
+        integration: 'opencode',
+        operation: 'api',
         path: dbPath,
-        source: 'opencode-api',
     });
     return transcript
         ? buildConversation(

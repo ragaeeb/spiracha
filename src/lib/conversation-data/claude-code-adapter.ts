@@ -156,8 +156,9 @@ const buildConversation = async (
         ? (loadedTranscript ??
           (await runWithTranscriptLoadLimit(() => readClaudeCodeSessionTranscript(projectsDir, session.sessionId), {
               id: session.sessionId,
+              integration: 'claude-code',
+              operation: 'api',
               path: session.filePath,
-              source: 'claude-code-api',
           })))
         : null;
     const allMessages = transcript ? transcriptToMessages(transcript) : [];
@@ -223,8 +224,9 @@ const getClaudeConversation = async (options: GetConversationOptions): Promise<C
         () => readClaudeCodeSessionTranscript(projectsDir, options.id),
         {
             id: options.id,
+            integration: 'claude-code',
+            operation: 'api',
             path: projectsDir,
-            source: 'claude-code-api',
         },
     );
     if (!transcript) {

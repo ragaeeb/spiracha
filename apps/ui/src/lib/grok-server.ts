@@ -62,8 +62,9 @@ const loadGrokSessionTranscript = async (sessionId: string) => {
         },
         {
             id: sessionId,
+            integration: 'grok',
+            operation: 'ui-detail',
             path: sessionsDir,
-            source: 'grok-ui',
         },
     );
 };

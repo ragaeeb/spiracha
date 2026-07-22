@@ -22,12 +22,12 @@ const formatGoalTokens = (goal: ThreadGoal) => {
 
 export function ThreadGoalsPanel({ goals }: { goals: ThreadGoal[] }) {
     return (
-        <section className="rounded-[1.6rem] border border-[var(--border)] bg-[var(--panel)] p-5 shadow-[var(--panel-shadow)]">
-            <h3 className="font-semibold text-[var(--muted-foreground)] text-sm uppercase tracking-[0.18em]">Goals</h3>
+        <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 shadow-[var(--panel-shadow)]">
+            <h3 className="font-semibold text-[var(--muted-foreground)] text-xs uppercase tracking-[0.18em]">Goals</h3>
             {goals.length === 0 ? (
-                <p className="mt-4 text-[var(--muted-foreground)] text-sm">No goals were recorded for this thread.</p>
+                <p className="mt-3 text-[var(--muted-foreground)] text-sm">No goals were recorded for this thread.</p>
             ) : (
-                <div className="mt-4 space-y-3">
+                <div className="mt-3 space-y-3">
                     {goals.map((goal) => (
                         <article
                             key={goal.goalId}

@@ -176,8 +176,9 @@ const readCodexMessages = async (thread: ThreadRow): Promise<ConversationMessage
                 }),
             {
                 id: thread.id,
+                integration: 'codex',
+                operation: 'api',
                 path: thread.rollout_path,
-                source: 'codex-api',
             },
         );
     } catch (error) {

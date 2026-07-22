@@ -99,12 +99,12 @@ describe('Codex thread events', () => {
         }
     });
 
-    it('should stream connected and transcript-changed events and release the monitor on abort', async () => {
-        let notifyChange: (() => void) | undefined;
+    it('should multiplex thread changes over one stream and release every monitor on abort', async () => {
+        const notifyChange = new Map<string, () => void>();
         let cleanupCount = 0;
         const broker = {
-            subscribe: (_rolloutPath: string, onChange: () => void) => {
-                notifyChange = onChange;
+            subscribe: (rolloutPath: string, onChange: () => void) => {
+                notifyChange.set(rolloutPath, onChange);
                 return () => {
                     cleanupCount += 1;
                 };
@@ -113,8 +113,11 @@ describe('Codex thread events', () => {
         const abortController = new AbortController();
         const response = createCodexThreadEventResponse({
             broker,
-            rolloutPath: '/tmp/rollout.jsonl',
             signal: abortController.signal,
+            threads: [
+                { rolloutPath: '/tmp/first.jsonl', threadId: 'thread-1' },
+                { rolloutPath: '/tmp/second.jsonl', threadId: 'thread-2' },
+            ],
         });
         const reader = response.body?.getReader();
         if (!reader) {
@@ -124,11 +127,13 @@ describe('Codex thread events', () => {
         expect(response.headers.get('content-type')).toBe('text/event-stream');
         expect(await readEvent(reader)).toContain('event: connected');
 
-        notifyChange?.();
-        expect(await readEvent(reader)).toContain('event: transcript-changed');
+        notifyChange.get('/tmp/second.jsonl')?.();
+        const changeEvent = await readEvent(reader);
+        expect(changeEvent).toContain('event: transcript-changed');
+        expect(changeEvent).toContain('"threadId":"thread-2"');
 
         abortController.abort();
         await reader.closed;
-        expect(cleanupCount).toBe(1);
+        expect(cleanupCount).toBe(2);
     });
 });

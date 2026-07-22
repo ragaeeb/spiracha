@@ -135,8 +135,9 @@ const buildConversation = async (
               () => readCursorThreadTranscriptWithAgentFiles(globalDbPath, thread.composerId, userDir),
               {
                   id: thread.composerId,
+                  integration: 'cursor',
+                  operation: 'api',
                   path: thread.transcriptDirs[0] ?? globalDbPath,
-                  source: 'cursor-api',
               },
           )
         : null;

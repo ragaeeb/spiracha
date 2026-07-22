@@ -111,11 +111,11 @@ const buildTranscriptStatsItems = (
 function ClaudeCodeRawPanels({ detail, events }: { detail: ClaudeCodeSessionTranscript; events: ThreadEvent[] }) {
     if (detail.rawPayloadsOmitted) {
         return (
-            <section className="rounded-[1.6rem] border border-[var(--border)] bg-[var(--panel)] p-5 shadow-[var(--panel-shadow)]">
+            <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 shadow-[var(--panel-shadow)]">
                 <h3 className="font-semibold text-[var(--muted-foreground)] text-sm uppercase tracking-[0.18em]">
                     Raw payloads omitted
                 </h3>
-                <p className="mt-4 text-[var(--muted-foreground)] text-sm">
+                <p className="mt-3 text-[var(--muted-foreground)] text-sm">
                     This Claude Code session is large, so raw JSON payload copies were omitted from the browser detail
                     response. Export still reads the full source session from disk.
                 </p>
@@ -151,13 +151,13 @@ const ClaudeCodeTranscriptPreviewNotice = ({
           : 'Load Full Transcript';
 
     return (
-        <section className="rounded-[1.6rem] border border-[var(--border)] bg-[var(--panel)] p-5 shadow-[var(--panel-shadow)]">
+        <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 shadow-[var(--panel-shadow)]">
             <h3 className="font-semibold text-base">Showing a compact transcript preview</h3>
-            <p className="mt-2 text-[var(--muted-foreground)] text-sm leading-6">
+            <p className="mt-1.5 text-[var(--muted-foreground)] text-sm leading-6">
                 Spiracha omitted {formatNumber(omittedEntryCount)} internal transcript entries from the initial page
                 load. The preview keeps the beginning and latest activity.
             </p>
-            <div className="mt-4">
+            <div className="mt-3">
                 <Button disabled={pending || fullTranscriptLoaded} variant="outline" onClick={onLoad}>
                     {buttonLabel}
                 </Button>
@@ -245,7 +245,7 @@ function ClaudeCodeSessionDetailPage() {
     });
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-4">
             <PageHeader
                 actions={
                     <>
@@ -294,7 +294,7 @@ function ClaudeCodeSessionDetailPage() {
                 <MetricCard label="Tokens" value={formatTokens(detail.session.totalTokens)} />
             </div>
 
-            <Tabs className="space-y-4" defaultValue="transcript">
+            <Tabs className="space-y-3" defaultValue="transcript">
                 <TabsList className="grid w-fit min-w-[24rem] grid-cols-3 rounded-full border border-[var(--border)] bg-[var(--panel)] p-1">
                     <TabsTrigger className="rounded-full px-5 text-sm" value="transcript">
                         Transcript
@@ -351,11 +351,11 @@ function ClaudeCodeSessionDetailPage() {
                             onSortOrderChange={(value) => updateTranscriptDisplay({ sort: value })}
                         />
                     ) : (
-                        <section className="rounded-[1.6rem] border border-[var(--border)] bg-[var(--panel)] p-5 shadow-[var(--panel-shadow)]">
-                            <h3 className="font-semibold text-[var(--muted-foreground)] text-sm uppercase tracking-[0.18em]">
+                        <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 shadow-[var(--panel-shadow)]">
+                            <h3 className="font-semibold text-[var(--muted-foreground)] text-xs uppercase tracking-[0.18em]">
                                 Transcript
                             </h3>
-                            <p className="mt-4 text-[var(--muted-foreground)] text-sm">
+                            <p className="mt-3 text-[var(--muted-foreground)] text-sm">
                                 No renderable Claude Code transcript content was found for this session.
                             </p>
                         </section>

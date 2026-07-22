@@ -41,16 +41,16 @@ const ToolDefinitions = ({ tools }: { tools: DynamicToolDefinition[] }) => {
     const uniqueTools = [...new Map(tools.map((tool) => [getToolDefinitionKey(tool), tool])).entries()];
 
     return (
-        <section className="rounded-[1.6rem] border border-[var(--border)] bg-[var(--panel)] p-5 shadow-[var(--panel-shadow)]">
-            <h3 className="font-semibold text-[var(--muted-foreground)] text-sm uppercase tracking-[0.18em]">
+        <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 shadow-[var(--panel-shadow)]">
+            <h3 className="font-semibold text-[var(--muted-foreground)] text-xs uppercase tracking-[0.18em]">
                 Available tools
             </h3>
             {uniqueTools.length === 0 ? (
-                <p className="mt-4 text-[var(--muted-foreground)] text-sm">
+                <p className="mt-3 text-[var(--muted-foreground)] text-sm">
                     No dynamic tool definitions were recorded for this thread.
                 </p>
             ) : (
-                <div className="mt-4 grid gap-3 xl:grid-cols-2">
+                <div className="mt-3 grid gap-3 xl:grid-cols-2">
                     {uniqueTools.map(([toolKey, tool]) => (
                         <article
                             key={toolKey}
@@ -99,11 +99,11 @@ export function ThreadToolsPanel({
     const canLoadMore = transcriptState === 'deferred' || transcriptIsPartial;
 
     return (
-        <div className="space-y-4">
+        <div className="space-y-3">
             <ToolDefinitions tools={availableTools} />
-            <section className="space-y-3 rounded-[1.6rem] border border-[var(--border)] bg-[var(--panel)] p-5 shadow-[var(--panel-shadow)]">
+            <section className="space-y-3 rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 shadow-[var(--panel-shadow)]">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                    <h3 className="font-semibold text-[var(--muted-foreground)] text-sm uppercase tracking-[0.18em]">
+                    <h3 className="font-semibold text-[var(--muted-foreground)] text-xs uppercase tracking-[0.18em]">
                         Tool activity
                     </h3>
                     {canLoadMore && onLoadTranscript ? (

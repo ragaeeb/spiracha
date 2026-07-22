@@ -79,21 +79,25 @@ const encoder = new TextEncoder();
 
 type CreateEventResponseOptions = {
     broker?: CodexThreadEventBroker;
-    rolloutPath: string;
     signal: AbortSignal;
+    threads: readonly {
+        rolloutPath: string;
+        threadId: string;
+    }[];
 };
 
 export const createCodexThreadEventResponse = ({
     broker = defaultBroker,
-    rolloutPath,
     signal,
+    threads,
 }: CreateEventResponseOptions) => {
-    let unsubscribe = () => {};
+    const unsubscribes: Array<() => void> = [];
     let abortListener: (() => void) | null = null;
     let closed = false;
     const cleanup = () => {
-        unsubscribe();
-        unsubscribe = () => {};
+        for (const unsubscribe of unsubscribes.splice(0)) {
+            unsubscribe();
+        }
         if (abortListener) {
             signal.removeEventListener('abort', abortListener);
             abortListener = null;
@@ -116,13 +120,22 @@ export const createCodexThreadEventResponse = ({
             abortListener = close;
             signal.addEventListener('abort', close, { once: true });
             controller.enqueue(encoder.encode('retry: 2000\nevent: connected\ndata: {}\n\n'));
-            unsubscribe = broker.subscribe(rolloutPath, () => {
-                if (!closed) {
-                    controller.enqueue(
-                        encoder.encode(`event: transcript-changed\ndata: {"revision":${Date.now()}}\n\n`),
-                    );
-                }
-            });
+            for (const { rolloutPath, threadId } of threads) {
+                unsubscribes.push(
+                    broker.subscribe(rolloutPath, () => {
+                        if (!closed) {
+                            controller.enqueue(
+                                encoder.encode(
+                                    `event: transcript-changed\ndata: ${JSON.stringify({
+                                        revision: Date.now(),
+                                        threadId,
+                                    })}\n\n`,
+                                ),
+                            );
+                        }
+                    }),
+                );
+            }
 
             if (signal.aborted) {
                 close();

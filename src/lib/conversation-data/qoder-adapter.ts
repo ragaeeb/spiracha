@@ -166,8 +166,9 @@ const buildConversation = async (
                   ),
               {
                   id: session.sessionId,
+                  integration: 'qoder',
+                  operation: 'api',
                   path: session.sourceStatePath ?? locations.globalStateDb,
-                  source: 'qoder-api',
               },
           )))
         : null;
@@ -264,8 +265,9 @@ const getQoderConversation = async (options: GetConversationOptions): Promise<Co
             ),
         {
             id: options.id,
+            integration: 'qoder',
+            operation: 'api',
             path: locations.globalStateDb,
-            source: 'qoder-api',
         },
     );
     return transcript
