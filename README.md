@@ -148,7 +148,9 @@ Qoder detail/export reads first use persisted state and CLI transcript files. Wh
 
 ### Antigravity transcript contract
 
-Markdown transcript exports identify their parser contract with `transcript_schema: antigravity-transcript/v1`. The UI parser retains complete tool output in its event data and export, but bounds the rendered preview to 20,000 characters so a single large operation result cannot dominate the detail page.
+When an Antigravity conversation has a live trajectory database, Spiracha treats it as the authoritative transcript and merges any generated JSONL-only events by step index. This preserves early reasoning plus paired command inputs, call IDs, working directories, exit codes, and complete outputs that may be absent from generated logs. The same merged data powers the detail page, stable API, and Markdown/text exports.
+
+Markdown transcript exports identify this parser contract with `transcript_schema: antigravity-transcript/v2`. The UI parser retains complete tool output in its event data and export, but bounds the rendered preview to 20,000 characters so a single large operation result cannot dominate the detail page.
 
 ## UI Routes
 

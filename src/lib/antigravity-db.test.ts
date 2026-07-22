@@ -1,5 +1,6 @@
+import { Database } from 'bun:sqlite';
 import { describe, expect, it } from 'bun:test';
-import { chmod, mkdir, utimes } from 'node:fs/promises';
+import { chmod, mkdir, rm, utimes } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -50,6 +51,156 @@ const encodeNumber = (fieldNumber: number, value: number): number[] => {
 
 const encodeTimestamp = (fieldNumber: number, seconds: number): number[] => {
     return encodeMessage(fieldNumber, [...encodeNumber(1, seconds), ...encodeNumber(2, 123_000_000)]);
+};
+
+type TrajectoryToolCallFixture = {
+    args: Record<string, unknown>;
+    id: string;
+    name: string;
+};
+
+const encodeTrajectoryToolCall = (toolCall: TrajectoryToolCallFixture): number[] =>
+    encodeMessage(7, [
+        ...encodeString(1, toolCall.id),
+        ...encodeString(2, toolCall.name),
+        ...encodeString(3, JSON.stringify(toolCall.args)),
+        ...encodeString(9, toolCall.name),
+    ]);
+
+const encodeTrajectoryMetadata = (toolCall?: TrajectoryToolCallFixture): Uint8Array =>
+    new Uint8Array([
+        ...encodeTimestamp(1, 1_784_696_184),
+        ...(toolCall
+            ? encodeMessage(4, [
+                  ...encodeString(1, toolCall.id),
+                  ...encodeString(2, toolCall.name),
+                  ...encodeString(3, JSON.stringify(toolCall.args)),
+                  ...encodeString(9, toolCall.name),
+              ])
+            : []),
+    ]);
+
+const encodeTrajectoryStepPayload = (stepType: number, body: number[]): Uint8Array =>
+    new Uint8Array([...encodeNumber(1, stepType), ...encodeNumber(4, 3), ...body]);
+
+const writeTrajectoryDatabase = async (root: string, conversationId: string) => {
+    const databasePath = path.join(root, 'conversations', `${conversationId}.db`);
+    const db = new Database(databasePath, { create: true });
+    db.exec(`
+        CREATE TABLE steps (
+            idx INTEGER PRIMARY KEY,
+            step_type INTEGER NOT NULL,
+            status INTEGER NOT NULL,
+            metadata BLOB,
+            step_payload BLOB
+        )
+    `);
+    const insert = db.prepare(
+        'INSERT INTO steps (idx, step_type, status, metadata, step_payload) VALUES (?, ?, ?, ?, ?)',
+    );
+    const capabilitiesCall: TrajectoryToolCallFixture = {
+        args: {
+            CommandLine: 'command -v kodeguard && kodeguard capabilities --json',
+            Cwd: '/Users/example/workspace/ushman',
+        },
+        id: 'call-capabilities',
+        name: 'run_command',
+    };
+    const probeCall: TrajectoryToolCallFixture = {
+        args: {
+            CommandLine: 'kodeguard drive probe src/cleanup-briefs/apply-decompose.ts --profile decomposition --json',
+            Cwd: '/Users/example/workspace/ushman',
+        },
+        id: 'call-probe',
+        name: 'run_command',
+    };
+    insert.run(
+        0,
+        14,
+        3,
+        encodeTrajectoryMetadata(),
+        encodeTrajectoryStepPayload(14, encodeMessage(19, encodeString(2, 'Test the Kodeguard workflow.'))),
+    );
+    insert.run(
+        7,
+        15,
+        3,
+        encodeTrajectoryMetadata(),
+        encodeTrajectoryStepPayload(15, encodeMessage(20, encodeTrajectoryToolCall(capabilitiesCall))),
+    );
+    insert.run(
+        8,
+        21,
+        3,
+        encodeTrajectoryMetadata(capabilitiesCall),
+        encodeTrajectoryStepPayload(
+            21,
+            encodeMessage(28, [
+                ...encodeString(2, '/Users/example/workspace/ushman'),
+                ...encodeNumber(6, 0),
+                ...encodeMessage(
+                    21,
+                    encodeString(
+                        1,
+                        '/Users/example/.bun/bin/kodeguard\n{"schemaVersion":"kodeguard/capabilities/v13"}\n',
+                    ),
+                ),
+                ...encodeString(23, 'command -v kodeguard && kodeguard capabilities --json'),
+            ]),
+        ),
+    );
+    insert.run(
+        9,
+        15,
+        3,
+        encodeTrajectoryMetadata(),
+        encodeTrajectoryStepPayload(15, encodeMessage(20, encodeTrajectoryToolCall(probeCall))),
+    );
+    insert.run(
+        10,
+        21,
+        3,
+        encodeTrajectoryMetadata(probeCall),
+        encodeTrajectoryStepPayload(
+            21,
+            encodeMessage(28, [
+                ...encodeString(2, '/Users/example/workspace/ushman'),
+                ...encodeNumber(6, 0),
+                ...encodeMessage(21, encodeString(1, '{"schemaVersion":"kodeproof/drive-probe/v1"}\n')),
+                ...encodeString(
+                    23,
+                    'kodeguard drive probe src/cleanup-briefs/apply-decompose.ts --profile decomposition --json',
+                ),
+            ]),
+        ),
+    );
+    insert.run(
+        11,
+        15,
+        3,
+        encodeTrajectoryMetadata(),
+        encodeTrajectoryStepPayload(
+            15,
+            encodeMessage(
+                20,
+                encodeString(
+                    3,
+                    '**Confirming Test Drive Success**\n\nThe test drive was successful!\n\n**Clarifying Workflow Steps**\n\nI am clarifying the workflow.',
+                ),
+            ),
+        ),
+    );
+    insert.run(
+        12,
+        15,
+        3,
+        encodeTrajectoryMetadata(),
+        encodeTrajectoryStepPayload(15, encodeMessage(20, encodeString(1, 'The test drive completed cleanly.'))),
+    );
+    db.exec('PRAGMA journal_mode = WAL');
+    db.close();
+    await Promise.all([rm(`${databasePath}-shm`, { force: true }), rm(`${databasePath}-wal`, { force: true })]);
+    return databasePath;
 };
 
 const encodeWorkspace = (uri: string): number[] => {
@@ -398,6 +549,100 @@ describe('antigravity db discovery', () => {
         expect(markdown).not.toContain('Short transcript only.');
     });
 
+    it('should merge complete SQLite trajectory commands, outputs, and reasoning into UI and export transcripts', async () => {
+        const root = await makeRoot();
+        const conversationId = '67676767-6767-4676-8676-676767676767';
+        const logsDir = path.join(root, 'brain', conversationId, '.system_generated', 'logs');
+        await mkdir(logsDir, { recursive: true });
+        await Bun.write(
+            path.join(root, 'agyhub_summaries_proto.pb'),
+            encodeSummaryIndex([{ id: conversationId, title: 'Trajectory transcript session' }]),
+        );
+        const databasePath = await writeTrajectoryDatabase(root, conversationId);
+        await Bun.write(
+            path.join(logsDir, 'transcript_full.jsonl'),
+            JSON.stringify({
+                content: 'Generated-only event retained during trajectory merge.',
+                created_at: '2026-07-22T05:00:00Z',
+                source: 'SYSTEM',
+                status: 'DONE',
+                step_index: 6,
+                type: 'SYSTEM_MESSAGE',
+            }),
+        );
+
+        const conversation = await getAntigravityConversationById(conversationId, [root]);
+        const markdown = await renderAntigravityConversationMarkdown(conversation!, {
+            includeCommentary: true,
+            includeTools: true,
+        });
+        const text = await renderAntigravityConversationMarkdown(conversation!, {
+            includeCommentary: true,
+            includeTools: true,
+            outputFormat: 'txt',
+        });
+        const messages = await readAntigravityConversationMessages(conversation!);
+        const events = antigravityMarkdownToThreadEvents(markdown);
+
+        expect(conversation).toMatchObject({
+            conversationPath: databasePath,
+            transcriptEntryCount: 8,
+            transcriptSource: 'trajectory',
+        });
+        expect(markdown).toContain('Generated-only event retained during trajectory merge.');
+        expect(markdown).toContain('command -v kodeguard && kodeguard capabilities --json');
+        expect(markdown).toContain('/Users/example/.bun/bin/kodeguard');
+        expect(markdown).toContain('kodeguard/capabilities/v13');
+        expect(markdown).toContain(
+            'kodeguard drive probe src/cleanup-briefs/apply-decompose.ts --profile decomposition --json',
+        );
+        expect(markdown).toContain('Confirming Test Drive Success');
+        expect(text).toContain('Exit code: 0');
+        expect(messages).toContainEqual(
+            expect.objectContaining({
+                metadata: expect.objectContaining({ toolCallId: 'call-capabilities' }),
+                phase: 'tool_output',
+                text: expect.stringContaining('kodeguard/capabilities/v13'),
+            }),
+        );
+        expect(events).toContainEqual(
+            expect.objectContaining({
+                callId: 'call-capabilities',
+                command: 'command -v kodeguard && kodeguard capabilities --json',
+                kind: 'tool_call',
+                workdir: '/Users/example/workspace/ushman',
+            }),
+        );
+        expect(events).toContainEqual(
+            expect.objectContaining({
+                callId: 'call-capabilities',
+                exitCode: 0,
+                kind: 'tool_output',
+                outputText: expect.stringContaining('kodeguard/capabilities/v13'),
+            }),
+        );
+        expect(events).toContainEqual(
+            expect.objectContaining({
+                kind: 'message',
+                phase: 'commentary',
+                text: expect.stringContaining('Confirming Test Drive Success'),
+            }),
+        );
+        expect(events).toContainEqual(
+            expect.objectContaining({
+                kind: 'message',
+                phase: 'commentary',
+                text: expect.stringContaining('Clarifying Workflow Steps'),
+            }),
+        );
+        expect(
+            await renderAntigravityConversationMarkdown(conversation!, {
+                includeCommentary: false,
+                includeTools: false,
+            }),
+        ).not.toContain('Confirming Test Drive Success');
+    });
+
     it('should render Antigravity operation results as tool output sections', async () => {
         const root = await makeRoot();
         const conversationId = '99999999-9999-4999-8999-999999999999';
@@ -576,13 +821,16 @@ describe('antigravity db discovery', () => {
         expect(markdown).toContain('- indexed_items: `5`');
     });
 
-    it('should delete an Antigravity conversation from summaries, protobufs, transcripts, and artifacts', async () => {
+    it('should delete an Antigravity conversation from summaries, databases, transcripts, and artifacts', async () => {
         const root = await makeRoot();
         const deletedId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
         const retainedId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
         const deletedArtifactDir = path.join(root, 'brain', deletedId);
         const deletedLogsDir = path.join(deletedArtifactDir, '.system_generated', 'logs');
         const deletedConversationPath = path.join(root, 'conversations', `${deletedId}.pb`);
+        const deletedDatabasePath = path.join(root, 'conversations', `${deletedId}.db`);
+        const deletedDatabaseShmPath = `${deletedDatabasePath}-shm`;
+        const deletedDatabaseWalPath = `${deletedDatabasePath}-wal`;
         const deletedTranscriptPath = path.join(deletedLogsDir, 'overview.txt');
         const deletedFullTranscriptPath = path.join(deletedLogsDir, 'transcript_full.jsonl');
         await mkdir(deletedLogsDir, { recursive: true });
@@ -594,6 +842,9 @@ describe('antigravity db discovery', () => {
             ]),
         );
         await Bun.write(deletedConversationPath, new Uint8Array([1, 2, 3]));
+        await Bun.write(deletedDatabasePath, new Uint8Array([4, 5, 6]));
+        await Bun.write(deletedDatabaseShmPath, new Uint8Array([7]));
+        await Bun.write(deletedDatabaseWalPath, new Uint8Array([8]));
         await Bun.write(deletedTranscriptPath, '{}\n');
         await Bun.write(deletedFullTranscriptPath, '{}\n');
         await Bun.write(path.join(deletedArtifactDir, 'artifact.md'), 'Generated artifact.\n');
@@ -603,9 +854,20 @@ describe('antigravity db discovery', () => {
 
         expect(result.deletedConversationIds).toEqual([deletedId]);
         expect(result.deletedPaths.sort()).toEqual(
-            [deletedArtifactDir, deletedConversationPath, deletedFullTranscriptPath, deletedTranscriptPath].sort(),
+            [
+                deletedArtifactDir,
+                deletedConversationPath,
+                deletedDatabasePath,
+                deletedDatabaseShmPath,
+                deletedDatabaseWalPath,
+                deletedFullTranscriptPath,
+                deletedTranscriptPath,
+            ].sort(),
         );
         expect(await Bun.file(deletedConversationPath).exists()).toBe(false);
+        expect(await Bun.file(deletedDatabasePath).exists()).toBe(false);
+        expect(await Bun.file(deletedDatabaseShmPath).exists()).toBe(false);
+        expect(await Bun.file(deletedDatabaseWalPath).exists()).toBe(false);
         expect(await Bun.file(deletedTranscriptPath).exists()).toBe(false);
         expect(await Bun.file(deletedFullTranscriptPath).exists()).toBe(false);
         expect(await Bun.file(path.join(deletedArtifactDir, 'artifact.md')).exists()).toBe(false);

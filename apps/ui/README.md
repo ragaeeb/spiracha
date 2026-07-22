@@ -34,7 +34,8 @@ The browser UI for browsing local Codex, Claude Code, Grok, Kiro, Qoder, Cursor,
 - recovers split Cursor storage buckets, exports Cursor threads, and deletes Cursor workspaces or threads
 - lists Antigravity workspaces and conversations, including transcript/artifact availability
 - shows dedicated Antigravity conversation detail pages with shared metadata and export actions
-- unlocks Antigravity transcript export through macOS Keychain and exports conversations or artifacts as Markdown
+- reads Antigravity trajectory databases plus generated-log supplements, including paired commands, outputs, and reasoning; encrypted legacy transcripts can be unlocked through macOS Keychain
+- exports the same merged Antigravity conversation data or artifacts as Markdown or text
 - lists OpenCode workspaces and sessions from the local OpenCode SQLite database
 - shows dedicated OpenCode session detail pages with reasoning, tool parts, MiniMax `<think>` blocks, token metadata, and export actions
 - shows dashboard and project-scoped Codex analytics for token totals, average and median thread size, archive counts, tool usage, model tokens, client sources, and reasoning effort

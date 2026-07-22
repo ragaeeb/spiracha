@@ -205,6 +205,94 @@ describe('antigravityMarkdownToThreadEvents', () => {
         );
     });
 
+    it('should adapt trajectory command metadata into paired command and output events', () => {
+        const events = antigravityMarkdownToThreadEvents(
+            [
+                '## Assistant',
+                '',
+                '### Thinking',
+                '',
+                'Confirming Test Drive Success',
+                '',
+                '### Tool Calls',
+                '',
+                '- `run_command`',
+                '',
+                'Call ID: `call-capabilities`',
+                '',
+                'Input:',
+                '',
+                '```',
+                '{"CommandLine":"command -v kodeguard && kodeguard capabilities --json","Cwd":"/workspace/ushman"}',
+                '```',
+                '',
+                '## Tool: RUN_COMMAND',
+                '',
+                'Call ID: `call-capabilities`',
+                '',
+                'Exit code: 0',
+                '',
+                '/Users/example/.bun/bin/kodeguard',
+                '{"schemaVersion":"kodeguard/capabilities/v13"}',
+            ].join('\n'),
+        );
+
+        expect(events).toContainEqual(
+            expect.objectContaining({
+                callId: 'call-capabilities',
+                command: 'command -v kodeguard && kodeguard capabilities --json',
+                kind: 'tool_call',
+                workdir: '/workspace/ushman',
+            }),
+        );
+        expect(events).toContainEqual(
+            expect.objectContaining({
+                callId: 'call-capabilities',
+                exitCode: 0,
+                kind: 'tool_output',
+                outputText: expect.stringContaining('kodeguard/capabilities/v13'),
+            }),
+        );
+        expect(events).toContainEqual(
+            expect.objectContaining({
+                kind: 'message',
+                phase: 'commentary',
+                text: 'Confirming Test Drive Success',
+            }),
+        );
+    });
+
+    it('should retain metadata-only command results without inventing placeholder output', () => {
+        const events = antigravityMarkdownToThreadEvents(
+            ['## Tool: RUN_COMMAND', '', 'Call ID: `call-empty`', '', 'Exit code: 0', ''].join('\n'),
+        );
+
+        expect(events).toEqual([
+            expect.objectContaining({
+                callId: 'call-empty',
+                exitCode: 0,
+                kind: 'tool_output',
+                outputText: '',
+                summary: '',
+            }),
+        ]);
+    });
+
+    it('should preserve legacy tool output that begins with metadata-like text', () => {
+        const events = antigravityMarkdownToThreadEvents(
+            ['## Tool: RUN_COMMAND', '', 'Exit code: 7', 'Actual legacy output'].join('\n'),
+        );
+
+        expect(events).toEqual([
+            expect.objectContaining({
+                callId: null,
+                exitCode: null,
+                kind: 'tool_output',
+                outputText: 'Exit code: 7\nActual legacy output',
+            }),
+        ]);
+    });
+
     it('should keep markdown headings inside assistant answers visible as assistant text', () => {
         const events = antigravityMarkdownToThreadEvents(
             [

@@ -18,7 +18,10 @@ import { TranscriptControls } from '#/components/transcript-controls';
 import { DEFAULT_SHOW_USER_MESSAGES, TranscriptView } from '#/components/transcript-view';
 import { Button } from '#/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
-import { canExportAntigravityConversation } from '#/lib/antigravity-conversation-state';
+import {
+    canExportAntigravityConversation,
+    hasEncryptedAntigravityConversation,
+} from '#/lib/antigravity-conversation-state';
 import {
     antigravityConversationDetailQueryOptions,
     antigravityDecryptionQueryOptions,
@@ -356,7 +359,7 @@ function AntigravityConversationDetailPage() {
                 title={detail.conversation.title}
             />
 
-            <AntigravityKeychainPanel />
+            {hasEncryptedAntigravityConversation(detail.conversation) ? <AntigravityKeychainPanel /> : null}
 
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <MetricCard label="Transcript entries" value={formatNumber(detail.conversation.transcriptEntryCount)} />

@@ -1,4 +1,4 @@
-export const ANTIGRAVITY_TRANSCRIPT_MARKDOWN_VERSION = 'antigravity-transcript/v1';
+export const ANTIGRAVITY_TRANSCRIPT_MARKDOWN_VERSION = 'antigravity-transcript/v2';
 export const ANTIGRAVITY_TRANSCRIPT_VERSION_METADATA_KEY = 'transcript_schema';
 export const ANTIGRAVITY_TOOL_OUTPUT_PREVIEW_MAX_CHARACTERS = 20_000;
 

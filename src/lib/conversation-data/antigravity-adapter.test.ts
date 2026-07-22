@@ -1,3 +1,4 @@
+import { Database } from 'bun:sqlite';
 import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
@@ -78,6 +79,45 @@ const writeAntigravityTranscript = async (
     const content = entries.map((entry) => JSON.stringify(entry)).join('\n');
     await Bun.write(path.join(logsDir, 'transcript.jsonl'), content);
     await Bun.write(path.join(logsDir, 'transcript_full.jsonl'), content);
+};
+
+const writeAntigravityCommandTrajectory = (root: string, conversationId: string, command: string, workdir: string) => {
+    const toolCall = [
+        ...encodeString(1, 'call-trajectory'),
+        ...encodeString(2, 'run_command'),
+        ...encodeString(3, JSON.stringify({ CommandLine: command, Cwd: workdir })),
+        ...encodeString(9, 'run_command'),
+    ];
+    const db = new Database(path.join(root, 'conversations', `${conversationId}.db`), { create: true });
+    db.exec(
+        'CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER, status INTEGER, metadata BLOB, step_payload BLOB)',
+    );
+    const insert = db.prepare(
+        'INSERT INTO steps (idx, step_type, status, metadata, step_payload) VALUES (?, ?, ?, ?, ?)',
+    );
+    insert.run(
+        1,
+        15,
+        3,
+        new Uint8Array(),
+        new Uint8Array([...encodeNumber(1, 15), ...encodeMessage(20, encodeMessage(7, toolCall))]),
+    );
+    insert.run(
+        2,
+        21,
+        3,
+        new Uint8Array(encodeMessage(4, toolCall)),
+        new Uint8Array([
+            ...encodeNumber(1, 21),
+            ...encodeMessage(28, [
+                ...encodeString(2, workdir),
+                ...encodeNumber(6, 1),
+                ...encodeMessage(21, encodeString(1, '{"status":"error"}\n')),
+                ...encodeString(23, command),
+            ]),
+        ]),
+    );
+    db.close();
 };
 
 describe('antigravity conversation adapter', () => {
@@ -172,6 +212,73 @@ describe('antigravity conversation adapter', () => {
             callId: null,
             name: 'view_file',
         });
+    });
+
+    it('should expose paired live trajectory evidence and invalidate cached messages after a WAL update', async () => {
+        const root = await makeTempRoot();
+        const project = path.join(root, 'project');
+        await mkdir(project, { recursive: true });
+        const conversationId = 'abababab-abab-4bab-8bab-abababababab';
+        await Bun.write(
+            path.join(root, 'agyhub_summaries_proto.pb'),
+            encodeSummaryIndex([
+                { id: conversationId, title: 'Command trajectory', workspaceUri: `file://${project}` },
+            ]),
+        );
+        writeAntigravityCommandTrajectory(root, conversationId, 'kodeguard capabilities --json', project);
+
+        const detail = await getConversation({
+            id: conversationId,
+            locations: { antigravityRoots: [root] },
+            messageSelector: 'all',
+            source: 'antigravity',
+        });
+
+        expect(detail?.messages).toHaveLength(2);
+        expect(detail?.messages[0]?.toolEvidence).toMatchObject({
+            callId: 'call-trajectory',
+            command: 'kodeguard capabilities --json',
+            inputText: expect.stringContaining('CommandLine'),
+            name: 'run_command',
+            workdir: project,
+        });
+        expect(detail?.messages[1]?.toolEvidence).toMatchObject({
+            callId: 'call-trajectory',
+            exitCode: 1,
+            name: 'run_command',
+            outputText: expect.stringContaining('"status":"error"'),
+            status: 'failed',
+        });
+        expect(detail?.messages[1]?.metadata).not.toHaveProperty('evidenceLimitation');
+
+        const databasePath = path.join(root, 'conversations', `${conversationId}.db`);
+        const writer = new Database(databasePath);
+        try {
+            writer.exec('PRAGMA journal_mode = WAL');
+            writer
+                .prepare('INSERT INTO steps (idx, step_type, status, metadata, step_payload) VALUES (?, ?, ?, ?, ?)')
+                .run(
+                    3,
+                    15,
+                    3,
+                    new Uint8Array(),
+                    new Uint8Array([
+                        ...encodeNumber(1, 15),
+                        ...encodeMessage(20, encodeString(1, 'Observed after the live WAL update.')),
+                    ]),
+                );
+
+            const refreshedDetail = await getConversation({
+                id: conversationId,
+                locations: { antigravityRoots: [root] },
+                messageSelector: 'all',
+                source: 'antigravity',
+            });
+            expect(refreshedDetail?.messages).toHaveLength(3);
+            expect(refreshedDetail?.messages[2]?.text).toBe('Observed after the live WAL update.');
+        } finally {
+            writer.close();
+        }
     });
 
     it('should match conversations that explicitly reference the requested project path', async () => {

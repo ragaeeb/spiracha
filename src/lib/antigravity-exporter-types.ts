@@ -32,7 +32,7 @@ export type AntigravityArtifact = {
     updatedAtMs: number | null;
 };
 
-export type AntigravityTranscriptSource = 'overview' | 'safe-storage' | 'transcript';
+export type AntigravityTranscriptSource = 'overview' | 'safe-storage' | 'trajectory' | 'transcript';
 
 export type AntigravityConversation = {
     artifactBytes: number;

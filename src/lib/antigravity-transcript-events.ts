@@ -21,11 +21,23 @@ type ParsedAssistantSection = {
 
 type ParsedToolCall = {
     argumentsText: string | null;
+    callId: string | null;
+    command: string | null;
     name: string;
+    workdir: string | null;
+};
+
+type ParsedToolOutput = {
+    callId: string | null;
+    exitCode: number | null;
+    outputText: string;
 };
 
 const TIMESTAMP_PATTERN = /^_Timestamp:\s*(.+?)_$/u;
 const TOOL_HEADING_PATTERN = /^tool:\s*(.+)$/iu;
+const TOOL_CALL_ID_PATTERN = /Call ID:\s*`([^`]+)`/iu;
+const TOOL_OUTPUT_CALL_ID_PATTERN = /^Call ID:\s*`([^`]+)`$/iu;
+const TOOL_OUTPUT_EXIT_CODE_PATTERN = /^Exit code:\s*(-?\d+)$/iu;
 
 type MarkdownFence = { character: string; length: number };
 
@@ -117,6 +129,34 @@ const extractSubheadingBlock = (body: string, title: string): string => {
         .trim();
 };
 
+const parseToolArguments = (argumentsText: string | null): Record<string, unknown> | null => {
+    if (!argumentsText) {
+        return null;
+    }
+
+    try {
+        const parsed = JSON.parse(argumentsText) as unknown;
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+            ? (parsed as Record<string, unknown>)
+            : null;
+    } catch {
+        return null;
+    }
+};
+
+const parseToolCallMatch = (match: RegExpMatchArray): ParsedToolCall => {
+    const metadata = match[2] ?? '';
+    const argumentsText = /(`{3,}|~{3,})[^\n]*\n([\s\S]*?)\n\1/u.exec(metadata)?.[2]?.trim() ?? null;
+    const args = parseToolArguments(argumentsText);
+    return {
+        argumentsText,
+        callId: TOOL_CALL_ID_PATTERN.exec(metadata)?.[1]?.trim() ?? null,
+        command: typeof args?.CommandLine === 'string' ? args.CommandLine : null,
+        name: match[1]?.trim() || 'unknown',
+        workdir: typeof args?.Cwd === 'string' ? args.Cwd : null,
+    };
+};
+
 const parseToolCalls = (body: string): ParsedToolCall[] => {
     const toolCallsBlock = extractSubheadingBlock(body, 'Tool Calls');
     if (!toolCallsBlock) {
@@ -126,11 +166,7 @@ const parseToolCalls = (body: string): ParsedToolCall[] => {
     const calls: ParsedToolCall[] = [];
     const callPattern = /-\s+`([^`]+)`([\s\S]*?)(?=\n-\s+`|$)/gu;
     for (const match of toolCallsBlock.matchAll(callPattern)) {
-        const argumentsText = /(`{3,}|~{3,})[^\n]*\n([\s\S]*?)\n\1/u.exec(match[2] ?? '')?.[2]?.trim() ?? null;
-        calls.push({
-            argumentsText,
-            name: match[1]?.trim() || 'unknown',
-        });
+        calls.push(parseToolCallMatch(match));
     }
 
     return calls;
@@ -183,8 +219,8 @@ const buildToolCallEvent = (
 ): ThreadEvent => ({
     argumentsParseFailed: false,
     argumentsText: toolCall.argumentsText,
-    callId: null,
-    command: [toolCall.name, toolCall.argumentsText].filter(Boolean).join('\n'),
+    callId: toolCall.callId,
+    command: toolCall.command ?? [toolCall.name, toolCall.argumentsText].filter(Boolean).join('\n'),
     kind: 'tool_call',
     name: toolCall.name,
     raw: buildRaw(section, {
@@ -193,22 +229,23 @@ const buildToolCallEvent = (
     }),
     sequence: section.sequence + sequenceOffset,
     timestamp,
-    workdir: null,
+    workdir: toolCall.workdir,
 });
 
 const buildToolOutputEvent = (
     section: MarkdownSection,
     toolName: string,
-    outputText: string,
+    output: ParsedToolOutput,
     timestamp: string | null,
 ): ThreadEvent => {
+    const outputText = output.outputText;
     const truncated = outputText.length > ANTIGRAVITY_TOOL_OUTPUT_PREVIEW_MAX_CHARACTERS;
     const truncationNotice = `\n\n[Preview truncated. The full ${outputText.length}-character output remains in the transcript export.]`;
     const previewLength = Math.max(0, ANTIGRAVITY_TOOL_OUTPUT_PREVIEW_MAX_CHARACTERS - truncationNotice.length);
     const summary = truncated ? `${outputText.slice(0, previewLength)}${truncationNotice}` : outputText;
     return {
-        callId: null,
-        exitCode: null,
+        callId: output.callId,
+        exitCode: output.exitCode,
         kind: 'tool_output',
         outputText,
         raw: buildRaw(section, {
@@ -220,6 +257,39 @@ const buildToolOutputEvent = (
         summary,
         timestamp,
         wallTime: null,
+    };
+};
+
+const parseToolOutput = (body: string): ParsedToolOutput => {
+    const lines = body.split(/\r?\n/u);
+    const firstContentIndex = lines.findIndex((line) => line.trim());
+    const callIdMatch = TOOL_OUTPUT_CALL_ID_PATTERN.exec(lines[firstContentIndex]?.trim() ?? '');
+    if (!callIdMatch) {
+        return { callId: null, exitCode: null, outputText: body.trim() };
+    }
+
+    const callId = callIdMatch[1]?.trim() ?? null;
+    let exitCode: number | null = null;
+    let contentStart = firstContentIndex + 1;
+    for (let index = contentStart; index < lines.length; index += 1) {
+        const line = lines[index] ?? '';
+        const trimmed = line.trim();
+        if (!trimmed) {
+            contentStart = index + 1;
+            continue;
+        }
+        const exitCodeMatch = TOOL_OUTPUT_EXIT_CODE_PATTERN.exec(trimmed);
+        if (exitCodeMatch && exitCode === null) {
+            exitCode = Number(exitCodeMatch[1]);
+            contentStart = index + 1;
+            continue;
+        }
+        break;
+    }
+    return {
+        callId,
+        exitCode,
+        outputText: lines.slice(contentStart).join('\n').trim(),
     };
 };
 
@@ -272,7 +342,10 @@ const toolOutputSectionToEvents = (
     body: string,
     timestamp: string | null,
 ): ThreadEvent[] => {
-    return body ? [buildToolOutputEvent(section, toolName, body, timestamp)] : [];
+    const output = parseToolOutput(body);
+    return output.outputText || output.callId || output.exitCode !== null
+        ? [buildToolOutputEvent(section, toolName, output, timestamp)]
+        : [];
 };
 
 const assistantSectionToEvents = (
