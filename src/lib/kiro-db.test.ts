@@ -411,6 +411,21 @@ describe('kiro workspace discovery', () => {
                             },
                         },
                         {
+                            actionId: 'run-command',
+                            actionType: 'runCommand',
+                            chatSessionId: sessionId,
+                            emittedAt: 1_781_464_088_150,
+                            input: {
+                                command: 'kodeguard status --json 2>&1 | jq -C',
+                                cwd: workspacePath,
+                                terminalId: 1,
+                            },
+                            output: {
+                                exitCode: 1,
+                                output: '{\n  "status": "error",\n  "failure": { "kind": "toolchain-drift" }\n}',
+                            },
+                        },
+                        {
                             actionId: 'assistant-2',
                             actionType: 'assistantMessage',
                             chatSessionId: sessionId,
@@ -451,6 +466,8 @@ describe('kiro workspace discovery', () => {
             'user',
             'tool',
             'assistant',
+            'tool',
+            'tool',
             'assistant',
             'tool',
             'assistant',
@@ -459,6 +476,8 @@ describe('kiro workspace discovery', () => {
         expect(transcript?.executionEntries.map((entry) => entry.role)).toEqual([
             'tool',
             'assistant',
+            'tool',
+            'tool',
             'assistant',
             'tool',
             'assistant',
@@ -469,6 +488,8 @@ describe('kiro workspace discovery', () => {
             'message',
             'tool_call',
             'message',
+            'tool_call',
+            'tool_output',
             'message',
             'tool_call',
             'message',
@@ -481,7 +502,24 @@ describe('kiro workspace discovery', () => {
         expect(transcript?.entries[1]?.parts[0]?.text).toContain(
             'Read file: /workspace/performance-bottlenecks.md:1800-2901',
         );
-        expect(transcript?.entries[4]?.parts[0]?.text).toContain(
+        expect(transcript?.entries[3]?.parts[0]).toMatchObject({
+            raw: {
+                command: 'kodeguard status --json 2>&1 | jq -C',
+                toolCallId: 'placeholder-execution:run-command',
+                toolName: 'run_command',
+                workdir: workspacePath,
+            },
+            text: 'kodeguard status --json 2>&1 | jq -C',
+        });
+        expect(transcript?.entries[4]?.parts[0]).toMatchObject({
+            raw: {
+                exitCode: 1,
+                toolCallId: 'placeholder-execution:run-command',
+                toolName: 'run_command',
+            },
+            text: expect.stringContaining('toolchain-drift'),
+        });
+        expect(transcript?.entries[6]?.parts[0]?.text).toContain(
             'Search: Searching for the shortIdentifierScan retention implementation',
         );
         expect(

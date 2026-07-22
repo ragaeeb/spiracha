@@ -23,6 +23,7 @@ import {
     isWithinUpdatedWindow,
     normalizeAssistantPhase,
     normalizeRole,
+    normalizeToolStatus,
     toDateMs,
 } from './adapter-helpers';
 import { selectConversationMessages } from './message-selector';
@@ -39,6 +40,16 @@ import type {
 
 const KIRO_CONVERSATION_HYDRATION_CONCURRENCY = 4;
 
+const getPartString = (part: KiroTranscriptPart, key: string): string | null => {
+    const value = part.raw[key];
+    return typeof value === 'string' && value.trim() ? value : null;
+};
+
+const getPartNumber = (part: KiroTranscriptPart, key: string): number | null => {
+    const value = part.raw[key];
+    return typeof value === 'number' && Number.isFinite(value) ? value : null;
+};
+
 const getSessionsDir = (options: { locations?: { kiroWorkspaceSessionsDir?: string } }) =>
     options.locations?.kiroWorkspaceSessionsDir ?? resolveKiroWorkspaceSessionsDir();
 
@@ -50,21 +61,23 @@ export const normalizeKiroTranscriptPart = (
 ): ConversationMessage[] => {
     const createdAtMs = toDateMs(entry.timestamp);
     if (entry.entryType === 'tool_call') {
-        const toolName = typeof part.raw.toolName === 'string' ? part.raw.toolName : 'unknown';
+        const toolName = getPartString(part, 'toolName') ?? 'unknown';
+        const callId = getPartString(part, 'toolCallId') ?? entry.entryId;
         return createTextMessage({
             createdAtMs,
             id: `${entry.entryId}:${partIndex}`,
             metadata: {
-                evidenceLimitation: 'Kiro does not expose a separate structured result record.',
                 executionId: entry.executionId,
+                toolCallId: callId,
+                toolName,
             },
             order: partIndex,
             phase: 'tool_call',
             role: 'tool',
             text: part.text,
             toolEvidence: {
-                callId: entry.executionId,
-                command: null,
+                callId,
+                command: getPartString(part, 'command'),
                 durationMs: null,
                 exitCode: null,
                 inputText: part.text ?? null,
@@ -72,6 +85,37 @@ export const normalizeKiroTranscriptPart = (
                 namespace: toolName.includes('.') ? (toolName.split('.')[0] ?? null) : null,
                 outputText: null,
                 status: 'unknown',
+                workdir: getPartString(part, 'workdir'),
+            },
+        });
+    }
+
+    if (entry.entryType === 'tool_output') {
+        const toolName = getPartString(part, 'toolName') ?? 'unknown';
+        const callId = getPartString(part, 'toolCallId');
+        const exitCode = getPartNumber(part, 'exitCode');
+        return createTextMessage({
+            createdAtMs,
+            id: `${entry.entryId}:${partIndex}`,
+            metadata: {
+                executionId: entry.executionId,
+                toolCallId: callId,
+                toolName,
+            },
+            order: partIndex,
+            phase: 'tool_output',
+            role: 'tool',
+            text: part.text,
+            toolEvidence: {
+                callId,
+                command: null,
+                durationMs: null,
+                exitCode,
+                inputText: null,
+                name: toolName,
+                namespace: toolName.includes('.') ? (toolName.split('.')[0] ?? null) : null,
+                outputText: part.text ?? null,
+                status: normalizeToolStatus(null, exitCode),
                 workdir: null,
             },
         });

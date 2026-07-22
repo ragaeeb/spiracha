@@ -26,7 +26,7 @@ The browser UI for browsing local Codex, Claude Code, Grok, Kiro, Qoder, Cursor,
 - lists Grok workspaces and sessions from local Grok session archives
 - shows dedicated Grok session detail pages with compacted-history recovery, tool calls, metadata, export, and delete actions
 - lists Kiro workspaces and sessions from local Kiro workspace session files
-- shows dedicated Kiro session detail pages with image attachments, prompt logs, execution-derived tool calls, metadata, and export actions
+- shows dedicated Kiro session detail pages with image attachments, prompt logs, execution-derived tool calls and paired outputs, metadata, and matching tool-inclusive exports
 - lists Qoder workspaces and sessions from local Qoder history and checkpoint storage
 - shows dedicated Qoder session detail pages with prompts, checkpoint file operations, metadata, and export actions
 - lists Cursor workspaces and workspace threads with the same table-based index/detail flow as Codex

@@ -245,6 +245,70 @@ describe('kiroTranscriptToThreadEvents', () => {
         });
     });
 
+    it('should adapt paired Kiro command calls and outputs with shared call identity', () => {
+        const events = kiroTranscriptToThreadEvents({
+            ...transcript,
+            entries: [
+                {
+                    entryId: 'execution-a:run-command',
+                    entryType: 'tool_call',
+                    executionId: 'execution-a',
+                    parts: [
+                        {
+                            raw: {
+                                command: 'kodeguard status --json 2>&1 | jq -C',
+                                toolCallId: 'execution-a:run-command',
+                                toolName: 'run_command',
+                                workdir: '/workspace/project',
+                            },
+                            text: 'kodeguard status --json 2>&1 | jq -C',
+                            type: 'text',
+                        },
+                    ],
+                    promptLogCount: 0,
+                    raw: { actionId: 'run-command' },
+                    role: 'tool',
+                    timestamp: null,
+                },
+                {
+                    entryId: 'execution-a:run-command:output',
+                    entryType: 'tool_output',
+                    executionId: 'execution-a',
+                    parts: [
+                        {
+                            raw: {
+                                exitCode: 1,
+                                toolCallId: 'execution-a:run-command',
+                                toolName: 'run_command',
+                            },
+                            text: '{ "status": "error", "kind": "toolchain-drift" }',
+                            type: 'text',
+                        },
+                    ],
+                    promptLogCount: 0,
+                    raw: { actionId: 'run-command' },
+                    role: 'tool',
+                    timestamp: null,
+                },
+            ],
+        });
+
+        expect(events).toHaveLength(2);
+        expect(events[0]).toMatchObject({
+            callId: 'execution-a:run-command',
+            command: 'kodeguard status --json 2>&1 | jq -C',
+            kind: 'tool_call',
+            name: 'run_command',
+            workdir: '/workspace/project',
+        });
+        expect(events[1]).toMatchObject({
+            callId: 'execution-a:run-command',
+            exitCode: 1,
+            kind: 'tool_output',
+            outputText: expect.stringContaining('toolchain-drift'),
+        });
+    });
+
     it('should classify the last assistant message before each user turn as a final answer', () => {
         const events = kiroTranscriptToThreadEvents({
             ...transcript,

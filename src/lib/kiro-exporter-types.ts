@@ -72,7 +72,7 @@ export type KiroTranscriptPart = {
     type: KiroPartType;
 };
 
-export type KiroTranscriptEntryType = 'message' | 'tool_call';
+export type KiroTranscriptEntryType = 'message' | 'tool_call' | 'tool_output';
 
 export type KiroTranscriptEntry = {
     entryType: KiroTranscriptEntryType;

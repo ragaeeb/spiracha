@@ -67,10 +67,10 @@ const writeKiroSession = async (sessionsDir: string, sessionId: string, workspac
 };
 
 describe('Kiro conversation adapter', () => {
-    it('should normalize Kiro tool evidence while exposing its result-pairing limitation', () => {
-        const messages = normalizeKiroTranscriptPart(
+    it('should normalize paired Kiro command evidence without a result-pairing limitation', () => {
+        const callMessages = normalizeKiroTranscriptPart(
             {
-                entryId: 'tool-entry',
+                entryId: 'execution-1:run-command',
                 entryType: 'tool_call',
                 executionId: 'execution-1',
                 parts: [],
@@ -79,18 +79,61 @@ describe('Kiro conversation adapter', () => {
                 role: 'tool',
                 timestamp: null,
             },
-            { raw: { toolName: 'read_file' }, text: 'Read file: src/index.ts', type: 'text' },
+            {
+                raw: {
+                    command: 'kodeguard status --json',
+                    toolCallId: 'execution-1:run-command',
+                    toolName: 'run_command',
+                    workdir: '/workspace/project',
+                },
+                text: 'kodeguard status --json',
+                type: 'text',
+            },
+            0,
+            new Set(),
+        );
+        const outputMessages = normalizeKiroTranscriptPart(
+            {
+                entryId: 'execution-1:run-command:output',
+                entryType: 'tool_output',
+                executionId: 'execution-1',
+                parts: [],
+                promptLogCount: 0,
+                raw: {},
+                role: 'tool',
+                timestamp: null,
+            },
+            {
+                raw: {
+                    exitCode: 1,
+                    toolCallId: 'execution-1:run-command',
+                    toolName: 'run_command',
+                },
+                text: '{ "status": "error" }',
+                type: 'text',
+            },
             0,
             new Set(),
         );
 
-        expect(messages[0]).toMatchObject({
-            metadata: { evidenceLimitation: expect.stringContaining('separate structured result') },
+        expect(callMessages[0]).toMatchObject({
             toolEvidence: {
-                callId: 'execution-1',
-                inputText: 'Read file: src/index.ts',
-                name: 'read_file',
+                callId: 'execution-1:run-command',
+                command: 'kodeguard status --json',
+                inputText: 'kodeguard status --json',
+                name: 'run_command',
                 outputText: null,
+                workdir: '/workspace/project',
+            },
+        });
+        expect(outputMessages[0]).toMatchObject({
+            phase: 'tool_output',
+            toolEvidence: {
+                callId: 'execution-1:run-command',
+                exitCode: 1,
+                name: 'run_command',
+                outputText: '{ "status": "error" }',
+                status: 'failed',
             },
         });
     });

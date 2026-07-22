@@ -14,6 +14,7 @@ import {
 } from './kiro-exporter-types';
 import { getPortablePathBasename } from './portable-path';
 import {
+    asNumber,
     asObject,
     asString,
     cleanExtractedText,
@@ -538,12 +539,24 @@ const formatToolItems = (singularPrefix: string, pluralPrefix: string, items: st
     return `${pluralPrefix}:\n${items.map((item) => `- ${item}`).join('\n')}`;
 };
 
-const getToolCallSummary = (action: Record<string, JsonValue>): { command: string; toolName: string } | null => {
-    const input = asObject(action.input ?? null);
-    if (!input) {
-        return null;
-    }
+type KiroToolCallSummary = {
+    command: string;
+    toolName: string;
+    workdir: string | null;
+};
 
+const getCommandToolCallSummary = (input: Record<string, JsonValue>): KiroToolCallSummary | null => {
+    const command = asString(input.command ?? null);
+    return command
+        ? {
+              command,
+              toolName: 'run_command',
+              workdir: asString(input.cwd ?? null),
+          }
+        : null;
+};
+
+const getFileToolCallSummary = (input: Record<string, JsonValue>): KiroToolCallSummary | null => {
     const files = Array.isArray(input.files)
         ? input.files.flatMap((item) => {
               const file = asObject(item);
@@ -551,36 +564,51 @@ const getToolCallSummary = (action: Record<string, JsonValue>): { command: strin
               return file && filePath ? [`${filePath}${formatFileRange(file)}`] : [];
           })
         : [];
-    if (files.length > 0) {
-        return {
-            command: formatToolItems('Read file', 'Read files', files),
-            toolName: 'read_file',
-        };
-    }
+    return files.length > 0
+        ? {
+              command: formatToolItems('Read file', 'Read files', files),
+              toolName: 'read_file',
+              workdir: null,
+          }
+        : null;
+};
 
+const getDocumentToolCallSummary = (input: Record<string, JsonValue>): KiroToolCallSummary | null => {
     const documents = Array.isArray(input.documents)
         ? input.documents.flatMap((item) => {
               const document = typeof item === 'string' ? item : asString(asObject(item)?.uri ?? null);
               return document ? [document] : [];
           })
         : [];
-    if (documents.length > 0) {
-        return {
-            command: formatToolItems('Read document', 'Read documents', documents),
-            toolName: 'read_file',
-        };
-    }
+    return documents.length > 0
+        ? {
+              command: formatToolItems('Read document', 'Read documents', documents),
+              toolName: 'read_file',
+              workdir: null,
+          }
+        : null;
+};
 
+const getSearchToolCallSummary = (input: Record<string, JsonValue>): KiroToolCallSummary | null => {
     const query = asString(input.query ?? null);
     const why = asString(input.why ?? null);
-    if (query || why) {
-        return {
-            command: `Search: ${why ?? query}${why && query ? `\nQuery: ${query}` : ''}`,
-            toolName: 'search',
-        };
-    }
+    return query || why
+        ? {
+              command: `Search: ${why ?? query}${why && query ? `\nQuery: ${query}` : ''}`,
+              toolName: 'search',
+              workdir: null,
+          }
+        : null;
+};
 
-    return null;
+const getToolCallSummary = (action: Record<string, JsonValue>): KiroToolCallSummary | null => {
+    const input = asObject(action.input ?? null);
+    return input
+        ? (getCommandToolCallSummary(input) ??
+              getFileToolCallSummary(input) ??
+              getDocumentToolCallSummary(input) ??
+              getSearchToolCallSummary(input))
+        : null;
 };
 
 const parseExecutionActionMessageEntry = (
@@ -627,17 +655,18 @@ const parseExecutionActionToolEntry = (
     execution: KiroExecutionFile,
     action: Record<string, JsonValue>,
     index: number,
+    summary: KiroToolCallSummary | null,
 ): KiroTranscriptEntry | null => {
-    const summary = getToolCallSummary(action);
     if (!summary) {
         return null;
     }
 
     const executionId = asString(execution.raw.executionId ?? null);
     const actionId = asString(action.actionId ?? null) ?? `action:${index}`;
+    const toolCallId = `${executionId ?? path.basename(execution.filePath)}:${actionId}`;
 
     return {
-        entryId: `${executionId ?? path.basename(execution.filePath)}:${actionId}`,
+        entryId: toolCallId,
         entryType: 'tool_call',
         executionId,
         parts: [
@@ -646,10 +675,56 @@ const parseExecutionActionToolEntry = (
                     actionId,
                     command: summary.command,
                     executionFilePath: execution.filePath,
+                    toolCallId,
                     toolName: summary.toolName,
                     type: 'toolCall',
+                    workdir: summary.workdir,
                 },
                 summary.command,
+            ),
+        ],
+        promptLogCount: 0,
+        raw: {
+            ...action,
+            executionFilePath: execution.filePath,
+            executionStartTime: execution.raw.startTime ?? null,
+        },
+        role: 'tool',
+        timestamp: getActionTimestamp(action, execution.raw),
+    };
+};
+
+const parseExecutionActionToolOutputEntry = (
+    execution: KiroExecutionFile,
+    action: Record<string, JsonValue>,
+    index: number,
+    summary: KiroToolCallSummary | null,
+): KiroTranscriptEntry | null => {
+    const output = asObject(action.output ?? null);
+    const text = cleanExtractedText(asString(output?.output ?? null) ?? '').trim();
+    if (!summary || !text) {
+        return null;
+    }
+
+    const executionId = asString(execution.raw.executionId ?? null);
+    const actionId = asString(action.actionId ?? null) ?? `action:${index}`;
+    const toolCallId = `${executionId ?? path.basename(execution.filePath)}:${actionId}`;
+
+    return {
+        entryId: `${toolCallId}:output`,
+        entryType: 'tool_output',
+        executionId,
+        parts: [
+            parseTextPart(
+                {
+                    actionId,
+                    executionFilePath: execution.filePath,
+                    exitCode: asNumber(output?.exitCode ?? null),
+                    toolCallId,
+                    toolName: summary.toolName,
+                    type: 'toolOutput',
+                },
+                text,
             ),
         ],
         promptLogCount: 0,
@@ -668,8 +743,10 @@ const parseExecutionActionEntries = (
     action: Record<string, JsonValue>,
     index: number,
 ): KiroTranscriptEntry[] => {
+    const toolCallSummary = getToolCallSummary(action);
     const entries = [
-        parseExecutionActionToolEntry(execution, action, index),
+        parseExecutionActionToolEntry(execution, action, index, toolCallSummary),
+        parseExecutionActionToolOutputEntry(execution, action, index, toolCallSummary),
         parseExecutionActionMessageEntry(execution, action, index),
     ];
     return entries.filter((entry): entry is KiroTranscriptEntry => entry !== null);

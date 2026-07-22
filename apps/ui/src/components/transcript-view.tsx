@@ -79,6 +79,14 @@ const assertNever = (value: never): never => {
     throw new Error(`Unhandled transcript event kind: ${JSON.stringify(value)}`);
 };
 
+const getToolOutputMarkdownBody = (event: Extract<ThreadEvent, { kind: 'tool_output' }>, transform: Transform) =>
+    [
+        event.exitCode === null ? null : `Exit code: ${event.exitCode}`,
+        transform(event.summary || event.outputText || ''),
+    ]
+        .filter((value): value is string => Boolean(value))
+        .join('\n\n');
+
 const getNonMessageTitle = (event: Exclude<ThreadEvent, { kind: 'message' }>) => {
     switch (event.kind) {
         case 'tool_call':
@@ -120,13 +128,13 @@ const getEventMarkdownBody = (event: ThreadEvent, transform: Transform) => {
     switch (event.kind) {
         case 'message':
             return transform(event.text || 'No text content');
-        case 'tool_call':
-            return [event.command ?? event.name, event.workdir]
-                .filter((value): value is string => Boolean(value))
-                .map(transform)
-                .join('\n\n');
+        case 'tool_call': {
+            const command = transform(event.command ?? event.name);
+            const workdir = event.workdir ? `Working directory: ${transform(event.workdir)}` : null;
+            return [command, workdir].filter((value): value is string => Boolean(value)).join('\n\n');
+        }
         case 'tool_output':
-            return transform(event.summary || event.outputText || '');
+            return getToolOutputMarkdownBody(event, transform);
         case 'task_started':
             return `Context window: ${event.modelContextWindow ?? 'n/a'}\n\nCollaboration mode: ${event.collaborationModeKind ?? 'n/a'}`;
         case 'task_complete':
@@ -173,14 +181,23 @@ const renderMessageBody = (event: Extract<ThreadEvent, { kind: 'message' }>, t: 
 const renderToolCallBody = (event: Extract<ThreadEvent, { kind: 'tool_call' }>, t: Transform) => (
     <div className="space-y-2 text-sm">
         <p className="min-w-0 break-words font-medium [overflow-wrap:anywhere]">{t(event.command ?? event.name)}</p>
-        {event.workdir ? <p className="font-mono text-[var(--muted-foreground)] text-xs">{t(event.workdir)}</p> : null}
+        {event.workdir ? (
+            <p className="font-mono text-[var(--muted-foreground)] text-xs">
+                {`Working directory: ${t(event.workdir)}`}
+            </p>
+        ) : null}
     </div>
 );
 
 const renderToolOutputBody = (event: Extract<ThreadEvent, { kind: 'tool_output' }>, t: Transform) => (
-    <p className="min-w-0 whitespace-pre-wrap break-words text-sm leading-6 [overflow-wrap:anywhere]">
-        {t(event.summary || event.outputText || '')}
-    </p>
+    <div className="space-y-2 text-sm">
+        {event.exitCode === null ? null : (
+            <p className="font-mono text-[var(--muted-foreground)] text-xs">{`Exit code: ${event.exitCode}`}</p>
+        )}
+        <p className="min-w-0 whitespace-pre-wrap break-words leading-6 [overflow-wrap:anywhere]">
+            {t(event.summary || event.outputText || '')}
+        </p>
+    </div>
 );
 
 const renderTaskStartedBody = (event: Extract<ThreadEvent, { kind: 'task_started' }>) => (

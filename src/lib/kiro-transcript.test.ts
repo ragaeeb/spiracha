@@ -268,6 +268,83 @@ describe('renderKiroTranscript', () => {
         expect(verboseRendered).toContain("I'll conduct a comprehensive code review");
     });
 
+    it('should include paired command calls and outputs only when tools are exported', () => {
+        const commandTranscript: KiroSessionTranscript = {
+            ...transcript,
+            entries: [
+                transcript.entries[0]!,
+                {
+                    entryId: 'execution-a:run-command',
+                    entryType: 'tool_call',
+                    executionId: 'execution-a',
+                    parts: [
+                        {
+                            raw: {
+                                toolCallId: 'execution-a:run-command',
+                                toolName: 'run_command',
+                                workdir: '/workspace/project',
+                            },
+                            text: 'kodeguard status --json 2>&1 | jq -C',
+                            type: 'text',
+                        },
+                    ],
+                    promptLogCount: 0,
+                    raw: { actionId: 'run-command' },
+                    role: 'tool',
+                    timestamp: null,
+                },
+                {
+                    entryId: 'execution-a:run-command:output',
+                    entryType: 'tool_output',
+                    executionId: 'execution-a',
+                    parts: [
+                        {
+                            raw: { exitCode: 1, toolCallId: 'execution-a:run-command', toolName: 'run_command' },
+                            text: '{ "status": "error", "kind": "toolchain-drift" }',
+                            type: 'text',
+                        },
+                    ],
+                    promptLogCount: 0,
+                    raw: { actionId: 'run-command' },
+                    role: 'tool',
+                    timestamp: null,
+                },
+                transcript.entries[1]!,
+            ],
+        };
+
+        const withTools = renderKiroTranscript(commandTranscript, {
+            includeCommentary: true,
+            includeMetadata: false,
+            includeTools: true,
+            outputFormat: 'md',
+        });
+        const withoutTools = renderKiroTranscript(commandTranscript, {
+            includeCommentary: true,
+            includeMetadata: false,
+            includeTools: false,
+            outputFormat: 'md',
+        });
+        const plainTextWithTools = renderKiroTranscript(commandTranscript, {
+            includeCommentary: true,
+            includeMetadata: false,
+            includeTools: true,
+            outputFormat: 'txt',
+        });
+
+        expect(withTools).toContain('## Tool call');
+        expect(withTools).toContain('kodeguard status --json 2>&1 | jq -C');
+        expect(withTools).toContain('Working directory: /workspace/project');
+        expect(withTools).toContain('## Tool output');
+        expect(withTools).toContain('Exit code: 1');
+        expect(withTools).toContain('toolchain-drift');
+        expect(withoutTools).not.toContain('kodeguard status');
+        expect(withoutTools).not.toContain('toolchain-drift');
+        expect(plainTextWithTools).toContain('Tool call\n---------');
+        expect(plainTextWithTools).toContain('Tool output\n-----------');
+        expect(plainTextWithTools).toContain('Exit code: 1');
+    });
+
     it('should keep the final answer for each Kiro user turn when commentary is disabled', () => {
         const rendered = renderKiroTranscript(
             {
