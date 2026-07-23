@@ -21,6 +21,7 @@ type NavItem = {
     activePrefixes?: readonly string[];
     icon: typeof LayoutDashboard;
     label: string;
+    preload?: 'render';
     to: string;
 };
 
@@ -40,6 +41,7 @@ const navItems: readonly NavItem[] = [
         activePrefixes: ['/antigravity', '/antigravity-conversations'],
         icon: Sparkles,
         label: 'Antigravity',
+        preload: 'render',
         to: '/antigravity',
     },
     { activePrefixes: ['/cursor', '/cursor-threads'], icon: SquareTerminal, label: 'Cursor', to: '/cursor' },
@@ -49,7 +51,13 @@ const navItems: readonly NavItem[] = [
         label: 'MiniMax Code',
         to: '/minimax-code',
     },
-    { activePrefixes: ['/opencode', '/opencode-sessions'], icon: Code2, label: 'OpenCode', to: '/opencode' },
+    {
+        activePrefixes: ['/opencode', '/opencode-sessions'],
+        icon: Code2,
+        label: 'OpenCode',
+        preload: 'render',
+        to: '/opencode',
+    },
     { icon: BarChart3, label: 'Analytics', to: '/analytics' },
     { icon: Settings2, label: 'Settings', to: '/settings' },
 ] as const;
@@ -156,6 +164,7 @@ export function AppShell({ children }: PropsWithChildren) {
                                             ? 'bg-[var(--accent-muted)] font-medium text-[var(--accent-foreground)]'
                                             : 'text-[var(--muted-foreground)] hover:bg-[var(--panel-secondary)] hover:text-[var(--foreground)]',
                                     )}
+                                    preload={item.preload}
                                     to={item.to}
                                 >
                                     <Icon className="size-4 shrink-0" />
