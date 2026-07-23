@@ -245,6 +245,17 @@ const mkdtemp = async (prefix: string) => {
     return makeTemp(prefix);
 };
 
+const runGit = async (cwd: string, args: string[]): Promise<void> => {
+    const process = Bun.spawn(['git', '-C', cwd, ...args], {
+        stderr: 'pipe',
+        stdout: 'pipe',
+    });
+    const [exitCode, stderr] = await Promise.all([process.exited, new Response(process.stderr).text()]);
+    if (exitCode !== 0) {
+        throw new Error(`git ${args.join(' ')} failed: ${stderr.trim()}`);
+    }
+};
+
 describe('antigravity db discovery', () => {
     it('should resolve one conversation without requiring a collection scan', async () => {
         const root = await makeRoot();
@@ -514,7 +525,8 @@ describe('antigravity db discovery', () => {
             fullTranscriptPath,
             [
                 JSON.stringify({
-                    content: 'Full transcript user message.',
+                    content:
+                        '<USER_REQUEST>Full transcript user message.</USER_REQUEST><USER_SETTINGS_CHANGE>The user changed setting `Model Selection` from None to Claude Sonnet 4.6 (Thinking). No need to comment.</USER_SETTINGS_CHANGE>',
                     created_at: '2026-05-30T22:10:46Z',
                     source: 'USER_EXPLICIT',
                     status: 'DONE',
@@ -537,6 +549,7 @@ describe('antigravity db discovery', () => {
         const [group] = groupAntigravityConversations([conversation!]);
 
         expect(conversation).toMatchObject({
+            model: 'Claude Sonnet 4.6',
             totalBytes: conversation!.transcriptBytes,
             transcriptEntryCount: 2,
             transcriptPath: fullTranscriptPath,
@@ -545,8 +558,110 @@ describe('antigravity db discovery', () => {
         expect(conversation!.transcriptBytes).toBeGreaterThan(0);
         expect(group?.totalBytes).toBe(conversation!.totalBytes);
         expect(markdown).toContain('Full transcript user message.');
+        expect(markdown).toContain('_Model: Claude Sonnet 4.6_');
         expect(markdown).toContain('Full transcript assistant answer.');
         expect(markdown).not.toContain('Short transcript only.');
+    });
+
+    it('should restore a compacted Antigravity transcript prefix from artifact Git snapshots', async () => {
+        const root = await makeRoot();
+        const conversationId = '69696969-6969-4696-8696-696969696969';
+        const artifactDir = path.join(root, 'brain', conversationId);
+        const logsDir = path.join(artifactDir, '.system_generated', 'logs');
+        const transcriptPath = path.join(logsDir, 'transcript_full.jsonl');
+        await mkdir(logsDir, { recursive: true });
+        await Bun.write(
+            path.join(root, 'agyhub_summaries_proto.pb'),
+            encodeSummaryIndex([{ id: conversationId, title: 'Compacted transcript session' }]),
+        );
+        await Bun.write(
+            transcriptPath,
+            [
+                JSON.stringify({
+                    content: 'Original request before compaction.',
+                    source: 'USER_EXPLICIT',
+                    status: 'DONE',
+                    step_index: 0,
+                    type: 'USER_INPUT',
+                }),
+                JSON.stringify({
+                    content: 'Stale assistant response.',
+                    source: 'MODEL',
+                    status: 'DONE',
+                    step_index: 1,
+                    type: 'PLANNER_RESPONSE',
+                }),
+            ].join('\n'),
+        );
+        await runGit(artifactDir, ['init', '--quiet']);
+        await runGit(artifactDir, ['config', 'user.email', 'antigravity@example.test']);
+        await runGit(artifactDir, ['config', 'user.name', 'Antigravity']);
+        await runGit(artifactDir, ['add', '.system_generated/logs/transcript_full.jsonl']);
+        await runGit(artifactDir, ['commit', '--quiet', '-m', 'Initial snapshot']);
+        await Bun.write(
+            transcriptPath,
+            [
+                JSON.stringify({
+                    content: 'Original request before compaction.',
+                    source: 'USER_EXPLICIT',
+                    status: 'DONE',
+                    step_index: 0,
+                    type: 'USER_INPUT',
+                }),
+                JSON.stringify({
+                    content: 'Revised assistant response.',
+                    source: 'MODEL',
+                    status: 'DONE',
+                    step_index: 1,
+                    type: 'PLANNER_RESPONSE',
+                }),
+                JSON.stringify({
+                    content: 'Last message before compaction.',
+                    source: 'MODEL',
+                    status: 'DONE',
+                    step_index: 2,
+                    type: 'PLANNER_RESPONSE',
+                }),
+            ].join('\n'),
+        );
+        await runGit(artifactDir, ['add', '.system_generated/logs/transcript_full.jsonl']);
+        await runGit(artifactDir, ['commit', '--quiet', '-m', 'Pre-compaction snapshot']);
+        await Bun.write(
+            transcriptPath,
+            [
+                JSON.stringify({
+                    content: 'Current request after compaction.',
+                    source: 'USER_EXPLICIT',
+                    status: 'DONE',
+                    step_index: 3,
+                    type: 'USER_INPUT',
+                }),
+                JSON.stringify({
+                    content: 'Current assistant response.',
+                    source: 'MODEL',
+                    status: 'DONE',
+                    step_index: 4,
+                    type: 'PLANNER_RESPONSE',
+                }),
+            ].join('\n'),
+        );
+
+        const conversation = await getAntigravityConversationById(conversationId, [root]);
+        const messages = await readAntigravityConversationMessages(conversation!);
+        const markdown = await renderAntigravityConversationMarkdown(conversation!);
+
+        expect(messages.map((message) => message.text)).toEqual([
+            'Original request before compaction.',
+            'Revised assistant response.',
+            'Last message before compaction.',
+            'Current request after compaction.',
+            'Current assistant response.',
+        ]);
+        expect(messages.map((message) => message.order)).toEqual([0, 1, 2, 3, 4]);
+        expect(messages.map((message) => message.text)).not.toContain('Stale assistant response.');
+        expect(markdown).toContain('Original request before compaction.');
+        expect(markdown).toContain('Current assistant response.');
+        expect(markdown).not.toContain('Stale assistant response.');
     });
 
     it('should merge complete SQLite trajectory commands, outputs, and reasoning into UI and export transcripts', async () => {

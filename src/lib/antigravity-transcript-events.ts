@@ -34,6 +34,7 @@ type ParsedToolOutput = {
 };
 
 const TIMESTAMP_PATTERN = /^_Timestamp:\s*(.+?)_$/u;
+const MODEL_PATTERN = /^_Model:\s*(.+?)_$/u;
 const TOOL_HEADING_PATTERN = /^tool:\s*(.+)$/iu;
 const TOOL_CALL_ID_PATTERN = /Call ID:\s*`([^`]+)`/iu;
 const TOOL_OUTPUT_CALL_ID_PATTERN = /^Call ID:\s*`([^`]+)`$/iu;
@@ -95,13 +96,25 @@ const splitMarkdownSections = (markdown: string | null): MarkdownSection[] => {
     return sections;
 };
 
-const extractTimestamp = (body: string): { body: string; timestamp: string | null } => {
+const extractSectionMetadata = (body: string): { body: string; model: string | null; timestamp: string | null } => {
     const lines = body.split(/\r?\n/u);
-    const timestamp = TIMESTAMP_PATTERN.exec(lines[0]?.trim() ?? '')?.[1]?.trim() ?? null;
-    return {
-        body: timestamp ? lines.slice(1).join('\n').trim() : body.trim(),
-        timestamp,
-    };
+    let model: string | null = null;
+    let timestamp: string | null = null;
+    let contentStart = 0;
+    for (const [index, line] of lines.entries()) {
+        const trimmed = line.trim();
+        const timestampMatch = TIMESTAMP_PATTERN.exec(trimmed);
+        const modelMatch = MODEL_PATTERN.exec(trimmed);
+        if (timestampMatch) {
+            timestamp = timestampMatch[1]?.trim() ?? null;
+        } else if (modelMatch) {
+            model = modelMatch[1]?.trim() ?? null;
+        } else if (trimmed) {
+            break;
+        }
+        contentStart = index + 1;
+    }
+    return { body: lines.slice(contentStart).join('\n').trim(), model, timestamp };
 };
 
 const sectionBodyBeforeSubheading = (body: string): string => {
@@ -196,12 +209,13 @@ const buildMessageEvent = (
     text: string,
     timestamp: string | null,
     phase: string | null,
+    model: string | null = null,
     sequenceOffset = 0,
 ): ThreadEvent => ({
     isHiddenByDefault: role !== 'assistant' && role !== 'user',
     kind: 'message',
     memoryCitation: null,
-    model: null,
+    model,
     phase,
     raw: buildRaw(section, { role }),
     role,
@@ -306,7 +320,7 @@ const getFinalAssistantSectionSequences = (sections: MarkdownSection[]): Set<num
         }
 
         if (heading === 'assistant') {
-            const { body } = extractTimestamp(section.body);
+            const { body } = extractSectionMetadata(section.body);
             const parsed = parseAssistantSection(body);
             return {
                 hasContent: Boolean(parsed.content),
@@ -352,16 +366,17 @@ const assistantSectionToEvents = (
     section: MarkdownSection,
     body: string,
     timestamp: string | null,
+    model: string | null,
     finalAssistantSectionSequences: Set<number>,
 ): ThreadEvent[] => {
     const parsed = parseAssistantSection(body);
     const events: ThreadEvent[] = [];
     if (parsed.thinking) {
-        events.push(buildMessageEvent(section, 'assistant', parsed.thinking, timestamp, 'commentary'));
+        events.push(buildMessageEvent(section, 'assistant', parsed.thinking, timestamp, 'commentary', model));
     }
     if (parsed.content) {
         const phase = finalAssistantSectionSequences.has(section.sequence) ? 'final_answer' : 'commentary';
-        events.push(buildMessageEvent(section, 'assistant', parsed.content, timestamp, phase, 1));
+        events.push(buildMessageEvent(section, 'assistant', parsed.content, timestamp, phase, model, 1));
     }
     parsed.toolCalls.forEach((toolCall, index) => {
         events.push(buildToolCallEvent(section, toolCall, timestamp, 2 + index));
@@ -370,7 +385,7 @@ const assistantSectionToEvents = (
 };
 
 const sectionToEvents = (section: MarkdownSection, finalAssistantSectionSequences: Set<number>): ThreadEvent[] => {
-    const { body, timestamp } = extractTimestamp(section.body);
+    const { body, model, timestamp } = extractSectionMetadata(section.body);
     const heading = section.heading.toLowerCase();
     const toolHeading = TOOL_HEADING_PATTERN.exec(section.heading);
 
@@ -383,7 +398,7 @@ const sectionToEvents = (section: MarkdownSection, finalAssistantSectionSequence
     }
 
     if (heading === 'assistant') {
-        return assistantSectionToEvents(section, body, timestamp, finalAssistantSectionSequences);
+        return assistantSectionToEvents(section, body, timestamp, model, finalAssistantSectionSequences);
     }
 
     if (heading === 'system') {

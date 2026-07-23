@@ -4,7 +4,7 @@ import { buildEvidenceEvents } from './evidence-events';
 import { createEvidenceProjectionState, fencedEvidenceText, projectEvidenceText } from './evidence-projector';
 import type { ConversationDetail, ConversationEvidenceEvent, ConversationEvidenceExport, EvidenceLens } from './types';
 
-export const EVIDENCE_RENDERER_VERSION = 'focused-evidence/v1';
+export const EVIDENCE_RENDERER_VERSION = 'focused-evidence/v2';
 
 type BuildEvidenceExportOptions = { generatedAt?: string };
 
@@ -108,6 +108,19 @@ const episodeMarkdown = (
         conversation,
         state,
     );
+    const anchorNeedsDirectProjection = !['commentary', 'reasoning', 'tool_call', 'tool_output'].includes(
+        episode.anchor.phase,
+    );
+    const projectedMatchedEvidence = anchorNeedsDirectProjection
+        ? projectEventTexts(
+              [episode.anchor],
+              Math.max(300, resultBudget),
+              (event) => event.text,
+              '\n\n',
+              conversation,
+              state,
+          )
+        : '';
     const callIds = unique(episode.events.map((event) => event.tool?.callId ?? null));
     const messageIds = unique(episode.events.map((event) => event.messageId));
     const pairing = unique(episode.events.map((event) => event.pairingConfidence));
@@ -123,6 +136,7 @@ const episodeMarkdown = (
         '**Result**',
         projectedResult ? fencedEvidenceText(projectedResult) : '_No paired result available._',
         '',
+        ...(projectedMatchedEvidence ? ['**Matched evidence**', fencedEvidenceText(projectedMatchedEvidence), ''] : []),
         '**Retry / workaround**',
         calls.length > 1 ? `${calls.length - 1} bounded retry event(s) retained.` : '_None retained._',
         '',

@@ -23,6 +23,7 @@ import {
     ANTIGRAVITY_TRANSCRIPT_MARKDOWN_VERSION,
     ANTIGRAVITY_TRANSCRIPT_VERSION_METADATA_KEY,
 } from './antigravity-transcript-contract';
+import { readAntigravityTranscriptHistory } from './antigravity-transcript-history';
 import { getAntigravityAssistantPhase, getFinalAntigravityAssistantSequences } from './antigravity-transcript-phase';
 import { mapWithConcurrency } from './concurrency';
 import {
@@ -681,26 +682,38 @@ const readArtifactsByConversationId = async (
 
 const stripModelQualifier = (value: string): string => value.replace(/\s*\([^)]*\)\s*$/u, '').trim();
 
-const extractModelSelection = (content: string): string | null => {
+type ModelSelectionChange = {
+    from: string | null;
+    to: string;
+};
+
+const normalizeSelectedModel = (value: string): string | null => {
+    const model = stripModelQualifier(value);
+    return model && model !== 'None' ? model : null;
+};
+
+const extractModelSelectionChange = (content: string): ModelSelectionChange | null => {
     const marker = '`Model Selection`';
     const markerIndex = content.indexOf(marker);
     if (markerIndex < 0) {
         return null;
     }
 
+    const fromIndex = content.indexOf(' from ', markerIndex + marker.length);
     const toIndex = content.indexOf(' to ', markerIndex + marker.length);
-    if (toIndex < 0) {
+    if (fromIndex < 0 || toIndex < 0 || fromIndex >= toIndex) {
         return null;
     }
 
+    const from = normalizeSelectedModel(content.slice(fromIndex + ' from '.length, toIndex));
     const candidate = content.slice(toIndex + ' to '.length);
     const endMarkers = ['. No need', '. If reporting', '</USER_SETTINGS_CHANGE>', '\n'];
     const endIndex = endMarkers.reduce<number | null>((earliest, endMarker) => {
         const index = candidate.indexOf(endMarker);
         return index < 0 || (earliest !== null && index >= earliest) ? earliest : index;
     }, null);
-    const rawModel = (endIndex === null ? candidate : candidate.slice(0, endIndex)).trim();
-    return rawModel ? stripModelQualifier(rawModel) : null;
+    const to = normalizeSelectedModel(endIndex === null ? candidate : candidate.slice(0, endIndex));
+    return to ? { from, to } : null;
 };
 
 const transcriptAnalysisCache = new Map<
@@ -718,10 +731,7 @@ const analyzeTranscriptFile = async (filePath: string, size: number, mtimeMs: nu
     let model: string | null = null;
     const entries = parseLogEntries(text);
     for (const entry of entries) {
-        model = extractModelSelection(getString(entry.content) ?? '') ?? model;
-        if (model !== null) {
-            break;
-        }
+        model = extractModelSelectionChange(getString(entry.content) ?? '')?.to ?? model;
     }
     const analysis = {
         entryCount: entries.length,
@@ -1164,6 +1174,7 @@ type AntigravityLogEntry = {
     content?: unknown;
     created_at?: unknown;
     exit_code?: unknown;
+    model?: unknown;
     source?: unknown;
     status?: unknown;
     step_index?: unknown;
@@ -1343,15 +1354,18 @@ const renderLogEntry = (
     }
 
     const timestamp = getString(entry.created_at);
+    const model = role === 'assistant' ? getString(entry.model) : null;
     const bodyParts = renderLogEntryBodyParts(entry, role, sequence, finalAssistantSequences, options);
 
     if (bodyParts.length === 0) {
         return '';
     }
 
-    const parts = timestamp
-        ? [options.outputFormat === 'md' ? `_Timestamp: ${timestamp}_` : `Timestamp: ${timestamp}`, '', ...bodyParts]
-        : bodyParts;
+    const sectionMetadata = [
+        timestamp ? (options.outputFormat === 'md' ? `_Timestamp: ${timestamp}_` : `Timestamp: ${timestamp}`) : '',
+        model ? (options.outputFormat === 'md' ? `_Model: ${model}_` : `Model: ${model}`) : '',
+    ].filter(Boolean);
+    const parts = [...sectionMetadata.flatMap((metadata) => [metadata, '']), ...bodyParts];
     return renderSection(heading, parts.join('\n').trimEnd(), options.outputFormat);
 };
 
@@ -1383,11 +1397,45 @@ const mergeLogEntries = (
         }
     }
     for (const entry of trajectoryEntries) {
-        entriesByStep.set(entry.step_index, entry);
+        const generatedEntry = entriesByStep.get(entry.step_index);
+        entriesByStep.set(entry.step_index, {
+            ...entry,
+            ...(typeof generatedEntry?.model === 'string' ? { model: generatedEntry.model } : {}),
+        });
     }
     return [...entriesByStep.values(), ...entriesWithoutStep].sort(
         (left, right) => logEntryOrder(left, 0) - logEntryOrder(right, 0),
     );
+};
+
+const getMinimumLogStepIndex = (entries: AntigravityLogEntry[]): number | null => {
+    let minimum: number | null = null;
+    for (const entry of entries) {
+        if (typeof entry.step_index === 'number' && Number.isFinite(entry.step_index)) {
+            minimum = minimum === null ? entry.step_index : Math.min(minimum, entry.step_index);
+        }
+    }
+    return minimum;
+};
+
+const annotateLogEntryModels = (entries: AntigravityLogEntry[]): AntigravityLogEntry[] => {
+    const firstSelection = entries
+        .map((entry) => extractModelSelectionChange(getString(entry.content) ?? ''))
+        .find((selection): selection is ModelSelectionChange => selection !== null);
+    let selectedModel = firstSelection?.from ?? null;
+    return entries.map((entry) => {
+        const selection = extractModelSelectionChange(getString(entry.content) ?? '');
+        selectedModel = selection?.to ?? selectedModel;
+        return { ...entry, model: selectedModel };
+    });
+};
+
+const carryForwardLogEntryModels = (entries: AntigravityLogEntry[]): AntigravityLogEntry[] => {
+    let selectedModel: string | null = null;
+    return entries.map((entry) => {
+        selectedModel = getString(entry.model) ?? selectedModel;
+        return { ...entry, model: selectedModel };
+    });
 };
 
 const readConversationLogEntries = async (conversation: AntigravityConversation): Promise<AntigravityLogEntry[]> => {
@@ -1396,11 +1444,18 @@ const readConversationLogEntries = async (conversation: AntigravityConversation)
     if (generatedContent.trim() && generatedEntries.length === 0 && conversation.transcriptSource !== 'trajectory') {
         throw new Error(`Antigravity transcript is corrupt: ${conversation.transcriptPath}`);
     }
+    const historicalContents = conversation.transcriptPath
+        ? await readAntigravityTranscriptHistory(conversation.transcriptPath, getMinimumLogStepIndex(generatedEntries))
+        : [];
+    const recoveredEntries = historicalContents.flatMap(parseLogEntries);
+    const modeledGeneratedEntries = annotateLogEntryModels(
+        mergeLogEntries([...recoveredEntries, ...generatedEntries], []),
+    );
     const trajectoryEntries =
         conversation.transcriptSource === 'trajectory' && conversation.conversationPath
             ? await readAntigravityTrajectoryEntries(conversation.conversationPath)
             : [];
-    return mergeLogEntries(generatedEntries, trajectoryEntries);
+    return carryForwardLogEntryModels(mergeLogEntries(modeledGeneratedEntries, trajectoryEntries));
 };
 
 const isAssistantLogEntry = (entry: AntigravityLogEntry): boolean => {
@@ -1442,6 +1497,7 @@ const logEntryPhase = (
 const logEntryMetadata = (entry: AntigravityLogEntry): Record<string, unknown> => ({
     command: getString(entry.command),
     exitCode: typeof entry.exit_code === 'number' ? entry.exit_code : null,
+    model: getString(entry.model),
     source: getString(entry.source),
     status: getString(entry.status),
     toolCallId: getString(entry.tool_call_id),

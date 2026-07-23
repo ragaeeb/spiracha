@@ -19,6 +19,8 @@ const markdown = [
     '',
     '_Timestamp: 2026-05-30T22:10:47Z_',
     '',
+    '_Model: Claude Sonnet 4.6_',
+    '',
     '### Thinking',
     '',
     'I should inspect the local data directory.',
@@ -42,6 +44,8 @@ const markdown = [
     '## Assistant',
     '',
     '_Timestamp: 2026-05-30T22:10:50Z_',
+    '',
+    '_Model: Gemini 3.6 Flash_',
     '',
     'I found the recoverable local transcript files.',
     '',
@@ -73,6 +77,7 @@ describe('antigravityMarkdownToThreadEvents', () => {
         });
         expect(events[1]).toMatchObject({
             kind: 'message',
+            model: 'Claude Sonnet 4.6',
             phase: 'commentary',
             role: 'assistant',
             text: 'I should inspect the local data directory.',
@@ -80,6 +85,7 @@ describe('antigravityMarkdownToThreadEvents', () => {
         });
         expect(events[2]).toMatchObject({
             kind: 'message',
+            model: 'Claude Sonnet 4.6',
             phase: 'commentary',
             role: 'assistant',
             text: 'I will inspect the local Antigravity data directory.',
@@ -99,6 +105,7 @@ describe('antigravityMarkdownToThreadEvents', () => {
         });
         expect(events[5]).toMatchObject({
             kind: 'message',
+            model: 'Gemini 3.6 Flash',
             phase: 'final_answer',
             role: 'assistant',
             text: 'I found the recoverable local transcript files.',

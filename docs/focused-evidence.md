@@ -140,6 +140,8 @@ const result = await client.exportConversationEvidenceMarkdown({
 
 The parent conversation keeps physical segments in lineage order, records their IDs as `continuationSessionIds` metadata, and uses the latest continuation metadata where appropriate. Kiro additionally removes synthetic checkpoint-summary messages. A direct child-segment ID deliberately returns only that physical segment, so clients must retain the parent ID from the list response when they need the complete conversation. Deleting a parent removes its recognized lineage; deleting a child removes only that child file. Kiro requires a strict, unambiguous continuation chain and leaves incomplete or ambiguous branches as separate sessions. Claude Code follows the source's compaction metadata and excludes abandoned branches from the parent transcript.
 
+Antigravity keeps one conversation ID but may replace its generated transcript with a rolling suffix after compaction. Spiracha reconstructs the earlier prefix from that conversation's retained artifact snapshots, then overlays the current transcript and live trajectory records by step order. Focused evidence therefore uses the same Antigravity conversation ID before and after compaction and can match retained events from either side of the boundary. If the optional artifact history is unavailable, the readable current transcript remains available without historical reconstruction.
+
 ## UI workflow
 
 Open any supported conversation detail page and choose Export. Select **Focused evidence** instead of **Full transcript**. The shared editor supports every anchor kind, context and budget controls, JSON import/export, server-backed preview statistics, validation errors, and Markdown download. Lens JSON is held only in the dialog; Spiracha does not store arbitrary lens JSON in a cookie. Keep reusable named lenses in the project repository.
@@ -149,6 +151,8 @@ Open any supported conversation detail page and choose Export. Select **Focused 
 For the same normalized conversation, lens, renderer version, and generation timestamp, Markdown is deterministic. Episodes remain in source order and retain message IDs, call IDs, pairing confidence, event-order ranges, and the original Spiracha reference. Explicit call/result IDs produce `exact` confidence. Sources without stable IDs use a deterministic bounded ordered fallback marked `ordered_fallback`; no fallback is presented as exact.
 
 Projection preserves invocations, working directories, statuses, durations, diagnostics, guidance, retry deltas, outcomes, and stable identifiers where the source exposes them. It samples large arrays, sorts object keys, truncates unknown text with markers, deduplicates diagnostics, and omits binary, base64, encrypted, and opaque payloads. The omission ledger records inspected, retained, omitted, truncated, deduplicated, and opaque counts plus budget status and retained source ranges. Approximate token counts use a character heuristic and are not tokenizer-exact.
+
+When a text anchor matches a non-tool message such as a user request or final answer, the bounded message body appears under **Matched evidence**. It is not represented only by the episode heading or trace metadata.
 
 The total character budget includes Markdown and omission metadata. Selection and projection happen before rendering; Spiracha does not first build the full transcript Markdown. Failed output receives its own typically larger section budget. Multi-megabyte success and opaque payloads are bounded before rendering.
 

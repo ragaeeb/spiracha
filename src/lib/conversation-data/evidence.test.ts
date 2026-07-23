@@ -219,13 +219,39 @@ describe('focused evidence', () => {
         const result = buildEvidenceExport(conversation(), lens, { generatedAt: '2026-07-19T12:00:00.000Z' });
         expect(result.markdown.length).toBeLessThanOrEqual(lens.budget.totalCharacters);
         expect(result.markdown).toContain('# Focused evidence: Widget repair');
-        expect(result.markdown).toContain('Renderer: focused-evidence/v1');
+        expect(result.markdown).toContain('Renderer: focused-evidence/v2');
         expect(result.markdown).toContain('## Episode 1: exec — succeeded');
         expect(result.markdown).toContain('````text');
         expect(result.markdown).toContain('## Omitted evidence');
         expect(result.markdown).toContain('Call IDs: call-1, call-2');
         expect(result.meta.episodeCount).toBe(1);
         expect(result.meta.generatedAt).toBe('2026-07-19T12:00:00.000Z');
+    });
+
+    it('should render the body of a matched non-tool message instead of retaining only its trace', () => {
+        const input = conversation('kiro');
+        input.messages = [
+            {
+                ...message(
+                    0,
+                    'final_answer',
+                    `The compacted continuation completed successfully. ${'context '.repeat(12)}MATCHED_BODY_SENTINEL`,
+                ),
+                role: 'assistant',
+            },
+        ];
+        const result = buildEvidenceExport(
+            input,
+            {
+                ...lens,
+                anchors: [{ kind: 'text', literals: ['MATCHED_BODY_SENTINEL'] }],
+            },
+            { generatedAt: '2026-07-19T12:00:00.000Z' },
+        );
+
+        expect(result.markdown).toContain('**Matched evidence**');
+        expect(result.markdown).toContain('MATCHED_BODY_SENTINEL');
+        expect(result.markdown).toContain('Message IDs: message-0');
     });
 
     it('should sanitize portable headings and retain a complete ledger at the minimum budget', () => {

@@ -71,7 +71,7 @@ describe('conversation API handler', () => {
                 markdown: expect.stringContaining('# Focused evidence: Thread 1'),
                 meta: {
                     generatedAt: '2026-07-19T12:00:00.000Z',
-                    rendererVersion: 'focused-evidence/v1',
+                    rendererVersion: 'focused-evidence/v2',
                 },
             },
         });

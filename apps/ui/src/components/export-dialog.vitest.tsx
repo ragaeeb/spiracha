@@ -32,7 +32,7 @@ describe('ExportDialog', () => {
                             truncatedFields: 0,
                         },
                         projectedCharacters: 29,
-                        rendererVersion: 'focused-evidence/v1',
+                        rendererVersion: 'focused-evidence/v2',
                     },
                 },
             }),

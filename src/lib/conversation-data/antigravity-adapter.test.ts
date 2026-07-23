@@ -183,6 +183,40 @@ describe('antigravity conversation adapter', () => {
                 step_index: 4,
                 type: 'PLANNER_RESPONSE',
             },
+            {
+                content:
+                    '<USER_REQUEST>Continue</USER_REQUEST><USER_SETTINGS_CHANGE>The user changed setting `Model Selection` from Gemini 3.1 Pro (High) to Claude Sonnet 4.6 (Thinking). No need to comment.</USER_SETTINGS_CHANGE>',
+                created_at: '2026-06-17T16:00:05Z',
+                source: 'USER_EXPLICIT',
+                status: 'DONE',
+                step_index: 5,
+                type: 'USER_INPUT',
+            },
+            {
+                content: 'Claude response after the first model switch.',
+                created_at: '2026-06-17T16:00:06Z',
+                source: 'MODEL',
+                status: 'DONE',
+                step_index: 6,
+                type: 'PLANNER_RESPONSE',
+            },
+            {
+                content:
+                    '<USER_REQUEST>Continue again</USER_REQUEST><USER_SETTINGS_CHANGE>The user changed setting `Model Selection` from Claude Sonnet 4.6 (Thinking) to Gemini 3.6 Flash (High). No need to comment.</USER_SETTINGS_CHANGE>',
+                created_at: '2026-06-17T16:00:07Z',
+                source: 'USER_EXPLICIT',
+                status: 'DONE',
+                step_index: 7,
+                type: 'USER_INPUT',
+            },
+            {
+                content: 'Gemini Flash final answer.',
+                created_at: '2026-06-17T16:00:08Z',
+                source: 'MODEL',
+                status: 'DONE',
+                step_index: 8,
+                type: 'PLANNER_RESPONSE',
+            },
         ]);
 
         const page = await listConversationsForPath({
@@ -194,12 +228,12 @@ describe('antigravity conversation adapter', () => {
         });
 
         expect(page.data).toHaveLength(1);
-        expect(page.data[0]?.metadata.model).toBe('Gemini 3.1 Pro');
+        expect(page.data[0]?.metadata.model).toBe('Gemini 3.6 Flash');
         expect(page.data[0]?.messages).toEqual([
             expect.objectContaining({
                 phase: 'final_answer',
                 role: 'assistant',
-                text: 'Final answer with Unhandled Optional Chaining in Manifest.',
+                text: 'Gemini Flash final answer.',
             }),
         ]);
         const detail = await getConversation({
@@ -212,6 +246,17 @@ describe('antigravity conversation adapter', () => {
             callId: null,
             name: 'view_file',
         });
+        expect(
+            detail?.messages
+                .filter((message) => message.role === 'assistant' && message.text)
+                .map((message) => [message.text, message.metadata.model]),
+        ).toEqual([
+            ['First draft answer that should not be selected.', 'Gemini 3.1 Pro'],
+            ['I will inspect the manifest before answering.', 'Gemini 3.1 Pro'],
+            ['Final answer with Unhandled Optional Chaining in Manifest.', 'Gemini 3.1 Pro'],
+            ['Claude response after the first model switch.', 'Claude Sonnet 4.6'],
+            ['Gemini Flash final answer.', 'Gemini 3.6 Flash'],
+        ]);
     });
 
     it('should expose paired live trajectory evidence and invalidate cached messages after a WAL update', async () => {

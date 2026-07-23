@@ -150,7 +150,7 @@ const readMessages = async (conversation: AntigravityConversation) => {
     const messages =
         fingerprints.length > 0
             ? await withCachedJson(
-                  `antigravity-api-messages-${hashCacheKeyPartsIterable(['v2', ...fingerprints])}`,
+                  `antigravity-api-messages-${hashCacheKeyPartsIterable(['v3', ...fingerprints])}`,
                   load,
               )
             : await load();
@@ -162,7 +162,7 @@ const readMessages = async (conversation: AntigravityConversation) => {
                 metadata: {
                     ...message.metadata,
                     ...getEvidenceLimitationMetadata(message),
-                    model: conversation.model,
+                    model: typeof message.metadata.model === 'string' ? message.metadata.model : null,
                     transcriptSource: conversation.transcriptSource,
                 },
                 toolEvidence: antigravityToolEvidence(message),
