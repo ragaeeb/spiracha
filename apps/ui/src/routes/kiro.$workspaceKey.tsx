@@ -11,6 +11,7 @@ import { LoadingPanel } from '#/components/loading-panel';
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
 import { Button } from '#/components/ui/button';
+import { Checkbox } from '#/components/ui/checkbox';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { kiroSessionsQueryOptions, kiroWorkspacesQueryOptions } from '#/lib/kiro-queries';
@@ -20,6 +21,7 @@ import {
     exportKiroSessionFn,
     exportKiroSessionsFn,
 } from '#/lib/kiro-server';
+import { parseMergedSearch, withMergedSearch } from '#/lib/route-search';
 import { matchesTextQuery } from '#/lib/text-filter';
 import { isWorkspaceEmptiedByDelete } from '#/lib/workspace-delete-navigation';
 
@@ -59,7 +61,7 @@ const getDeleteConfirmLabel = (pendingDelete: PendingSessionDelete | null, isPen
     return pendingDelete && pendingDelete.sessions.length > 1 ? 'Delete sessions' : 'Delete session';
 };
 
-const getDeleteDescription = (pendingDelete: PendingSessionDelete | null) => {
+const getDeleteDescription = (pendingDelete: PendingSessionDelete | null, merged: boolean) => {
     if (!pendingDelete) {
         return 'Permanently delete the selected Kiro sessions from disk.';
     }
@@ -69,7 +71,8 @@ const getDeleteDescription = (pendingDelete: PendingSessionDelete | null) => {
     }
 
     if (pendingDelete.sessions.length === 1) {
-        return `Permanently delete "${pendingDelete.sessions[0]!.title}" from Kiro history. This removes the session JSON file and matching execution files from disk.`;
+        const target = merged ? 'every physical continuation segment' : 'the session JSON file';
+        return `Permanently delete "${pendingDelete.sessions[0]!.title}" from Kiro history. This removes ${target} and matching execution files from disk.`;
     }
 
     return `Permanently delete ${pendingDelete.sessions.length} selected Kiro sessions from disk. This removes session JSON files and matching execution files.`;
@@ -92,10 +95,12 @@ const KiroWorkspaceErrorComponent = ({ error }: { error: Error }) => {
 const KiroWorkspacePage = () => {
     const navigate = useNavigate({ from: Route.fullPath });
     const params = Route.useParams();
+    const routeSearch = Route.useSearch();
     const queryClient = useQueryClient();
     const workspaces = useSuspenseQuery(kiroWorkspacesQueryOptions()).data;
     const workspace = findWorkspaceOrThrow(workspaces, params.workspaceKey);
-    const sessions = useSuspenseQuery(kiroSessionsQueryOptions(workspace.key)).data;
+    const merged = routeSearch.merged === true;
+    const sessions = useSuspenseQuery(kiroSessionsQueryOptions(workspace.key, merged)).data;
     const [searchInput, setSearchInput] = useState('');
     const [pendingDelete, setPendingDelete] = useState<PendingSessionDelete | null>(null);
     const [pendingExport, setPendingExport] = useState<PendingSessionExport | null>(null);
@@ -110,6 +115,7 @@ const KiroWorkspacePage = () => {
                               includeCommentary: options.includeCommentary,
                               includeMetadata: options.includeMetadata,
                               includeTools: options.includeTools,
+                              merged,
                               outputFormat: options.outputFormat,
                               sessionId: ids[0]!,
                               zipArchive: options.zipArchive,
@@ -120,6 +126,7 @@ const KiroWorkspacePage = () => {
                               includeCommentary: options.includeCommentary,
                               includeMetadata: options.includeMetadata,
                               includeTools: options.includeTools,
+                              merged,
                               outputFormat: options.outputFormat,
                               sessionIds: [...ids],
                               zipArchive: options.zipArchive,
@@ -140,8 +147,8 @@ const KiroWorkspacePage = () => {
     const deleteMutation = useMutation({
         mutationFn: async (sessionIds: string[]) =>
             sessionIds.length === 1
-                ? deleteKiroSessionFn({ data: { sessionId: sessionIds[0]! } })
-                : deleteKiroSessionsFn({ data: { sessionIds } }),
+                ? deleteKiroSessionFn({ data: { merged, sessionId: sessionIds[0]! } })
+                : deleteKiroSessionsFn({ data: { merged, sessionIds } }),
         onSettled: async (_result, _error, sessionIds) => {
             await Promise.all([
                 queryClient.invalidateQueries({ queryKey: ['kiro-workspaces'] }),
@@ -201,6 +208,22 @@ const KiroWorkspacePage = () => {
             <PageHeader
                 actions={
                     <div className="flex flex-col gap-2 sm:flex-row">
+                        <div className="flex items-center gap-2 rounded-full border border-[var(--border)] px-4 text-sm">
+                            <Checkbox
+                                aria-label="Merge continuations"
+                                checked={merged}
+                                id="merge-kiro-continuations"
+                                onCheckedChange={(value) => {
+                                    void navigate({
+                                        params: true,
+                                        replace: true,
+                                        search: (previous: Record<string, unknown>) =>
+                                            withMergedSearch(previous, value === true),
+                                    });
+                                }}
+                            />
+                            <label htmlFor="merge-kiro-continuations">Merge continuations</label>
+                        </div>
                         <Button
                             className="rounded-full"
                             disabled={deleteMutation.isPending || sessions.length === 0}
@@ -224,6 +247,7 @@ const KiroWorkspacePage = () => {
             />
 
             <KiroSessionsTable
+                merged={merged}
                 sessions={visibleSessions}
                 onDeleteSession={(session) => openDeleteForSessions([session], 'selected')}
                 onDeleteSessions={(sessionIds) => openDeleteForSessions(lookupSelectedSessions(sessionIds), 'selected')}
@@ -258,7 +282,7 @@ const KiroWorkspacePage = () => {
 
             <DeleteConfirmDialog
                 confirmLabel={getDeleteConfirmLabel(pendingDelete, deleteMutation.isPending)}
-                description={getDeleteDescription(pendingDelete)}
+                description={getDeleteDescription(pendingDelete, merged)}
                 errorMessage={
                     deleteMutation.isError
                         ? deleteMutation.error instanceof Error
@@ -287,12 +311,15 @@ const KiroWorkspacePage = () => {
 export const Route = createFileRoute('/kiro/$workspaceKey')({
     component: KiroWorkspacePage,
     errorComponent: KiroWorkspaceErrorComponent,
-    loader: async ({ context, params }) => {
+    loader: async ({ context, deps, params }) => {
+        const { merged } = deps as { merged: boolean };
         const workspaces = await context.queryClient.ensureQueryData(kiroWorkspacesQueryOptions());
         findWorkspaceOrThrow(workspaces, params.workspaceKey);
-        await context.queryClient.ensureQueryData(kiroSessionsQueryOptions(params.workspaceKey));
+        await context.queryClient.ensureQueryData(kiroSessionsQueryOptions(params.workspaceKey, merged));
     },
+    loaderDeps: ({ search }) => ({ merged: search.merged === true }),
     pendingComponent: () => (
         <LoadingPanel description="Loading Kiro sessions and transcript metadata." title="Loading workspace" />
     ),
+    validateSearch: parseMergedSearch,
 });

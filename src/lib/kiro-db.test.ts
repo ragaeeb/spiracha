@@ -32,18 +32,24 @@ const getKiroWorkspaceHash = (workspacePath: string) =>
     createHash('sha256').update(workspacePath).digest('hex').slice(0, 32);
 
 const writeSession = async ({
+    activeTabs,
+    assistantText = 'The vendor detection review is ready.',
     createdAtMs,
     sessionsDir,
     sessionId,
     title,
     updatedAtMs,
+    userText = 'Descope-Class Vendor-Detection review please',
     workspacePath,
 }: {
+    activeTabs?: string[];
+    assistantText?: string;
     createdAtMs: number;
     sessionsDir: string;
     sessionId: string;
     title: string;
     updatedAtMs: number;
+    userText?: string;
     workspacePath: string;
 }) => {
     const workspaceDir = path.join(sessionsDir, encodeKiroWorkspaceDirectoryName(workspacePath));
@@ -75,6 +81,7 @@ const writeSession = async ({
         JSON.stringify(
             {
                 active: false,
+                activeTabs: activeTabs ?? [sessionId],
                 autonomyMode: 'Autopilot',
                 defaultModelTitle: 'Agent',
                 history: [
@@ -83,7 +90,7 @@ const writeSession = async ({
                         editorState: { type: 'doc' },
                         message: {
                             content: [
-                                { text: 'Descope-Class Vendor-Detection review please', type: 'text' },
+                                { text: userText, type: 'text' },
                                 {
                                     imageUrl: { url: 'data:image/png;base64,AAA' },
                                     type: 'imageUrl',
@@ -98,16 +105,16 @@ const writeSession = async ({
                         editorState: { type: 'doc' },
                         executionId: `${sessionId}-execution`,
                         message: {
-                            content: 'The vendor detection review is ready.',
+                            content: assistantText,
                             id: `${sessionId}-assistant`,
                             role: 'assistant',
                         },
                         promptLogs: [
                             {
-                                completion: 'The vendor detection review is ready.',
+                                completion: assistantText,
                                 completionOptions: { model: 'agent' },
                                 modelTitle: 'Agent',
-                                prompt: '<user>Descope-Class Vendor-Detection review please',
+                                prompt: `<user>${userText}`,
                             },
                         ],
                     },
@@ -250,7 +257,122 @@ describe('kiro workspace discovery', () => {
         expect(transcript?.rawHistory).toHaveLength(2);
         expect(transcript?.historyEntries).toEqual(transcript?.entries);
         expect(transcript?.executionEntries).toEqual([]);
-        expect(transcript?.rawExecutions).toEqual([]);
+        expect(transcript && 'rawExecutions' in transcript).toBe(false);
+    });
+
+    it('should merge only explicit Kiro continuation chains when requested', async () => {
+        const sessionsDir = await makeTempRoot();
+        const rootId = 'session-root';
+        const childId = 'session-child';
+        const leafId = 'session-leaf';
+        const chain = [rootId, childId, leafId];
+        const fixtures = [
+            {
+                activeTabs: [rootId],
+                assistantText: 'Root response',
+                createdAtMs: 1_781_212_901_000,
+                sessionId: rootId,
+                title: 'Original task',
+                updatedAtMs: 1_781_212_902_000,
+                userText: 'Original request',
+            },
+            {
+                activeTabs: [rootId, childId],
+                assistantText: 'Child response',
+                createdAtMs: 1_781_212_903_000,
+                sessionId: childId,
+                title: 'Original task (checkpoint) (Continued)',
+                updatedAtMs: 1_781_212_904_000,
+                userText: '# Conversation Summary\n\nEarlier context.',
+            },
+            {
+                activeTabs: chain,
+                assistantText: 'Leaf response',
+                createdAtMs: 1_781_212_905_000,
+                sessionId: leafId,
+                title: 'Original task (checkpoint) (Continued) (Continued)',
+                updatedAtMs: 1_781_212_906_000,
+                userText: '## Summary of Conversation\n\nMore context.',
+            },
+        ];
+        for (const fixture of fixtures) {
+            await writeSession({ ...fixture, sessionsDir, workspacePath: corpusCwd });
+        }
+
+        const workspaces = await listKiroWorkspaceGroups(sessionsDir);
+        const workspaceKey = workspaces[0]?.key ?? '';
+        const physicalSessions = await listKiroSessionsForGroup(workspaceKey, sessionsDir);
+        const mergedSessions = await listKiroSessionsForGroup(workspaceKey, sessionsDir, { merged: true });
+        const physicalChild = await readKiroSessionTranscript(sessionsDir, childId);
+        const mergedFromChild = await readKiroSessionTranscript(sessionsDir, childId, { merged: true });
+
+        expect(physicalSessions).toHaveLength(3);
+        expect(physicalChild?.session.sessionId).toBe(childId);
+        expect(physicalChild?.entries[0]?.parts[0]?.text).toStartWith('# Conversation Summary');
+        expect(mergedSessions).toHaveLength(1);
+        expect(mergedSessions[0]).toMatchObject({
+            createdAtMs: 1_781_212_901_000,
+            lastActiveAtMs: 1_781_212_906_000,
+            mergedSessionIds: chain,
+            messageCount: 4,
+            sessionId: leafId,
+            title: 'Original task',
+            userMessageCount: 1,
+        });
+        expect(mergedFromChild?.session).toMatchObject({
+            mergedSessionIds: chain,
+            sessionId: leafId,
+            title: 'Original task',
+        });
+        expect(
+            mergedFromChild?.entries.flatMap((entry) => entry.parts.map((part) => part.text)).filter(Boolean),
+        ).toEqual(['Original request', 'Image attachment', 'Root response', 'Child response', 'Leaf response']);
+
+        const deleted = await deleteKiroSession(sessionsDir, childId, { merged: true });
+        expect(deleted.deletedSessionIds).toEqual(chain);
+        await expect(
+            Promise.all(chain.map((sessionId) => readKiroSessionTranscript(sessionsDir, sessionId))),
+        ).resolves.toEqual([null, null, null]);
+    });
+
+    it('should keep ambiguous Kiro tab branches as physical sessions', async () => {
+        const sessionsDir = await makeTempRoot();
+        const rootId = 'session-root';
+        for (const fixture of [
+            {
+                activeTabs: [rootId],
+                sessionId: rootId,
+                title: 'Original task',
+                userText: 'Original request',
+            },
+            {
+                activeTabs: [rootId, 'branch-a'],
+                sessionId: 'branch-a',
+                title: 'Original task (Continued)',
+                userText: '# Conversation Summary\n\nBranch A.',
+            },
+            {
+                activeTabs: [rootId, 'branch-b'],
+                sessionId: 'branch-b',
+                title: 'Original task (Continued)',
+                userText: '# Conversation Summary\n\nBranch B.',
+            },
+        ]) {
+            await writeSession({
+                ...fixture,
+                assistantText: `${fixture.sessionId} response`,
+                createdAtMs: 1_781_212_901_000,
+                sessionsDir,
+                updatedAtMs: 1_781_212_902_000,
+                workspacePath: corpusCwd,
+            });
+        }
+
+        const workspaces = await listKiroWorkspaceGroups(sessionsDir);
+        const sessions = await listKiroSessionsForGroup(workspaces[0]?.key ?? '', sessionsDir, { merged: true });
+
+        expect(sessions).toHaveLength(3);
+        expect(sessions.every((session) => session.mergedSessionIds.length === 1)).toBe(true);
     });
 
     it('should delete a Kiro session file, index entry, and matching execution files', async () => {
@@ -450,6 +572,7 @@ describe('kiro workspace discovery', () => {
                         },
                     ],
                     chatSessionId: sessionId,
+                    context: { compactedSnapshot: 'x'.repeat(1_000_000) },
                     endTime: 1_781_464_236_222,
                     executionId: 'placeholder-execution',
                     startTime: 1_781_464_088_075,
@@ -482,8 +605,8 @@ describe('kiro workspace discovery', () => {
             'tool',
             'assistant',
         ]);
-        expect(transcript?.rawExecutions).toHaveLength(1);
-        expect(transcript?.rawExecutions[0]?.raw.executionId).toBe('placeholder-execution');
+        expect(transcript && 'rawExecutions' in transcript).toBe(false);
+        expect(JSON.stringify(transcript).length).toBeLessThan(200_000);
         expect(transcript?.entries.map((entry) => entry.entryType)).toEqual([
             'message',
             'tool_call',

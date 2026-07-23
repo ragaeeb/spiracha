@@ -87,6 +87,7 @@ describe('AppShell', () => {
             'Qoder',
             'Antigravity',
             'Cursor',
+            'MiniMax Code',
             'OpenCode',
             'Analytics',
             'Settings',
@@ -210,5 +211,17 @@ describe('AppShell', () => {
         );
 
         expect(screen.getByRole('link', { name: 'OpenCode' }).className).toContain('bg-[var(--accent-muted)]');
+    });
+
+    it('should keep MiniMax Code active on standalone session detail routes', () => {
+        useRouterStateMock.mockReturnValue('/minimax-code-sessions/mvs_session');
+
+        render(
+            <AppShell>
+                <div>Content area</div>
+            </AppShell>,
+        );
+
+        expect(screen.getByRole('link', { name: 'MiniMax Code' }).className).toContain('bg-[var(--accent-muted)]');
     });
 });

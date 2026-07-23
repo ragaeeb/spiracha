@@ -9,6 +9,7 @@ import { ListSearchInput } from '#/components/list-search-input';
 import { LoadingPanel } from '#/components/loading-panel';
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
+import { Checkbox } from '#/components/ui/checkbox';
 import { claudeCodeSessionsQueryOptions, claudeCodeWorkspacesQueryOptions } from '#/lib/claude-code-queries';
 import {
     deleteClaudeCodeSessionFn,
@@ -18,6 +19,7 @@ import {
 } from '#/lib/claude-code-server';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
+import { parseMergedSearch, withMergedSearch } from '#/lib/route-search';
 import { matchesTextQuery } from '#/lib/text-filter';
 import { isWorkspaceEmptiedByDelete } from '#/lib/workspace-delete-navigation';
 
@@ -52,13 +54,14 @@ const getDeleteConfirmLabel = (pendingDelete: PendingSessionDelete | null, isPen
     return pendingDelete && pendingDelete.sessions.length > 1 ? 'Delete sessions' : 'Delete session';
 };
 
-const getDeleteDescription = (pendingDelete: PendingSessionDelete | null) => {
+const getDeleteDescription = (pendingDelete: PendingSessionDelete | null, merged: boolean) => {
     if (!pendingDelete) {
         return 'Permanently delete the selected Claude Code sessions from disk.';
     }
 
     if (pendingDelete.sessions.length === 1) {
-        return `Permanently delete "${pendingDelete.sessions[0]!.title}" from Claude Code history. This removes the session JSONL file from disk.`;
+        const target = merged ? 'every physical continuation segment' : 'the session JSONL file';
+        return `Permanently delete "${pendingDelete.sessions[0]!.title}" from Claude Code history. This removes ${target} from disk.`;
     }
 
     return `Permanently delete ${pendingDelete.sessions.length} selected Claude Code sessions from disk.`;
@@ -72,14 +75,17 @@ const getDeleteTitle = (pendingDelete: PendingSessionDelete | null) =>
 export const Route = createFileRoute('/claude-code/$workspaceKey')({
     component: ClaudeCodeWorkspacePage,
     errorComponent: ClaudeCodeWorkspaceErrorComponent,
-    loader: async ({ context, params }) => {
+    loader: async ({ context, deps, params }) => {
+        const { merged } = deps as { merged: boolean };
         const workspaces = await context.queryClient.ensureQueryData(claudeCodeWorkspacesQueryOptions());
         findWorkspaceOrThrow(workspaces, params.workspaceKey);
-        await context.queryClient.ensureQueryData(claudeCodeSessionsQueryOptions(params.workspaceKey));
+        await context.queryClient.ensureQueryData(claudeCodeSessionsQueryOptions(params.workspaceKey, merged));
     },
+    loaderDeps: ({ search }) => ({ merged: search.merged === true }),
     pendingComponent: () => (
         <LoadingPanel description="Loading Claude Code sessions and transcript metadata." title="Loading workspace" />
     ),
+    validateSearch: parseMergedSearch,
 });
 
 function ClaudeCodeWorkspaceErrorComponent({ error }: { error: Error }) {
@@ -89,10 +95,12 @@ function ClaudeCodeWorkspaceErrorComponent({ error }: { error: Error }) {
 function ClaudeCodeWorkspacePage() {
     const navigate = useNavigate({ from: Route.fullPath });
     const params = Route.useParams();
+    const routeSearch = Route.useSearch();
     const queryClient = useQueryClient();
     const workspaces = useSuspenseQuery(claudeCodeWorkspacesQueryOptions()).data;
     const workspace = findWorkspaceOrThrow(workspaces, params.workspaceKey);
-    const sessions = useSuspenseQuery(claudeCodeSessionsQueryOptions(workspace.key)).data;
+    const merged = routeSearch.merged === true;
+    const sessions = useSuspenseQuery(claudeCodeSessionsQueryOptions(workspace.key, merged)).data;
     const [searchInput, setSearchInput] = useState('');
     const [pendingDelete, setPendingDelete] = useState<PendingSessionDelete | null>(null);
     const [pendingExport, setPendingExport] = useState<PendingSessionExport | null>(null);
@@ -107,6 +115,7 @@ function ClaudeCodeWorkspacePage() {
                               includeCommentary: options.includeCommentary,
                               includeMetadata: options.includeMetadata,
                               includeTools: options.includeTools,
+                              merged,
                               outputFormat: options.outputFormat,
                               sessionId: ids[0]!,
                               zipArchive: options.zipArchive,
@@ -117,6 +126,7 @@ function ClaudeCodeWorkspacePage() {
                               includeCommentary: options.includeCommentary,
                               includeMetadata: options.includeMetadata,
                               includeTools: options.includeTools,
+                              merged,
                               outputFormat: options.outputFormat,
                               sessionIds: [...ids],
                               zipArchive: options.zipArchive,
@@ -137,8 +147,8 @@ function ClaudeCodeWorkspacePage() {
     const deleteMutation = useMutation({
         mutationFn: async (sessionIds: string[]) =>
             sessionIds.length === 1
-                ? deleteClaudeCodeSessionFn({ data: { sessionId: sessionIds[0]! } })
-                : deleteClaudeCodeSessionsFn({ data: { sessionIds } }),
+                ? deleteClaudeCodeSessionFn({ data: { merged, sessionId: sessionIds[0]! } })
+                : deleteClaudeCodeSessionsFn({ data: { merged, sessionIds } }),
         onSettled: async (_result, _error, sessionIds) => {
             await Promise.all([
                 queryClient.invalidateQueries({ queryKey: ['claude-code-workspaces'] }),
@@ -196,11 +206,29 @@ function ClaudeCodeWorkspacePage() {
         <div className="space-y-4">
             <PageHeader
                 actions={
-                    <ListSearchInput
-                        placeholder="Search session title, id, model, or version"
-                        value={searchInput}
-                        onValueChange={setSearchInput}
-                    />
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                        <div className="flex items-center gap-2 rounded-full border border-[var(--border)] px-4 text-sm">
+                            <Checkbox
+                                aria-label="Merge continuations"
+                                checked={merged}
+                                id="merge-claude-code-continuations"
+                                onCheckedChange={(value) => {
+                                    void navigate({
+                                        params: true,
+                                        replace: true,
+                                        search: (previous: Record<string, unknown>) =>
+                                            withMergedSearch(previous, value === true),
+                                    });
+                                }}
+                            />
+                            <label htmlFor="merge-claude-code-continuations">Merge continuations</label>
+                        </div>
+                        <ListSearchInput
+                            placeholder="Search session title, id, model, or version"
+                            value={searchInput}
+                            onValueChange={setSearchInput}
+                        />
+                    </div>
                 }
                 eyebrow="Claude Code workspace"
                 subtitle="Inspect local Claude Code sessions, user prompts, assistant responses, tool calls, and token totals."
@@ -208,6 +236,7 @@ function ClaudeCodeWorkspacePage() {
             />
 
             <ClaudeCodeSessionsTable
+                merged={merged}
                 sessions={visibleSessions}
                 onDeleteSession={(session) => openDeleteForSessions([session])}
                 onDeleteSessions={(sessionIds) => openDeleteForSessions(lookupSelectedSessions(sessionIds))}
@@ -242,7 +271,7 @@ function ClaudeCodeWorkspacePage() {
 
             <DeleteConfirmDialog
                 confirmLabel={getDeleteConfirmLabel(pendingDelete, deleteMutation.isPending)}
-                description={getDeleteDescription(pendingDelete)}
+                description={getDeleteDescription(pendingDelete, merged)}
                 errorMessage={
                     deleteMutation.isError
                         ? deleteMutation.error instanceof Error

@@ -7,16 +7,16 @@ export const kiroWorkspacesQueryOptions = () =>
         queryKey: ['kiro-workspaces'],
     });
 
-export const kiroSessionsQueryOptions = (workspaceKey: string | null) =>
+export const kiroSessionsQueryOptions = (workspaceKey: string | null, merged = false) =>
     queryOptions({
         enabled: workspaceKey !== null,
-        queryFn: () => listKiroSessionsFn({ data: { workspaceKey: workspaceKey ?? '' } }),
-        queryKey: ['kiro-sessions', workspaceKey ?? 'none'],
+        queryFn: () => listKiroSessionsFn({ data: { merged, workspaceKey: workspaceKey ?? '' } }),
+        queryKey: ['kiro-sessions', workspaceKey ?? 'none', { merged }],
     });
 
-export const kiroSessionDetailQueryOptions = (sessionId: string | null) =>
+export const kiroSessionDetailQueryOptions = (sessionId: string | null, merged = false) =>
     queryOptions({
         enabled: sessionId !== null,
-        queryFn: () => getKiroSessionDetailFn({ data: { sessionId: sessionId ?? '' } }),
-        queryKey: ['kiro-session', sessionId ?? 'none'],
+        queryFn: () => getKiroSessionDetailFn({ data: { merged, sessionId: sessionId ?? '' } }),
+        queryKey: ['kiro-session', sessionId ?? 'none', { merged }],
     });

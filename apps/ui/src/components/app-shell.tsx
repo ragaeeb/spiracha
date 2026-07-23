@@ -43,6 +43,12 @@ const navItems: readonly NavItem[] = [
         to: '/antigravity',
     },
     { activePrefixes: ['/cursor', '/cursor-threads'], icon: SquareTerminal, label: 'Cursor', to: '/cursor' },
+    {
+        activePrefixes: ['/minimax-code', '/minimax-code-sessions'],
+        icon: BrainCircuit,
+        label: 'MiniMax Code',
+        to: '/minimax-code',
+    },
     { activePrefixes: ['/opencode', '/opencode-sessions'], icon: Code2, label: 'OpenCode', to: '/opencode' },
     { icon: BarChart3, label: 'Analytics', to: '/analytics' },
     { icon: Settings2, label: 'Settings', to: '/settings' },

@@ -40,7 +40,7 @@ const getKiroModelLabel = (detail: KiroSessionTranscript): string => {
     return detail.session.selectedModel ?? detail.session.defaultModelTitle ?? 'unknown';
 };
 
-const buildSessionMetadata = (detail: KiroSessionTranscript) => [
+const buildSessionMetadata = (detail: KiroSessionTranscript, merged: boolean) => [
     { label: 'Session ID', value: <span data-mono="true">{detail.session.sessionId}</span> },
     {
         label: 'Workspace',
@@ -48,6 +48,7 @@ const buildSessionMetadata = (detail: KiroSessionTranscript) => [
             <Link
                 className="text-[var(--accent)]"
                 params={{ workspaceKey: detail.session.workspaceKey }}
+                search={merged ? { merged: true } : undefined}
                 to="/kiro/$workspaceKey"
             >
                 {detail.session.workspaceLabel}
@@ -86,6 +87,15 @@ const buildTranscriptStatsItems = (
 ];
 
 const KiroRawPanels = ({ detail, events }: { detail: KiroSessionTranscript; events: ThreadEvent[] }) => {
+    const executionSourcePaths = [
+        ...new Set(
+            detail.executionEntries.flatMap((entry) => {
+                const filePath = entry.raw.executionFilePath;
+                return typeof filePath === 'string' ? [filePath] : [];
+            }),
+        ),
+    ];
+
     return (
         <div className="space-y-4">
             <JsonPanel title="Session summary" value={detail.session} />
@@ -93,7 +103,7 @@ const KiroRawPanels = ({ detail, events }: { detail: KiroSessionTranscript; even
             <JsonPanel title="Kiro history entries" value={detail.historyEntries} />
             <JsonPanel title="Kiro execution entries" value={detail.executionEntries} />
             <JsonPanel title="Raw Kiro history" value={detail.rawHistory} />
-            <JsonPanel title="Raw Kiro executions" value={detail.rawExecutions} />
+            <JsonPanel title="Kiro execution source paths" value={executionSourcePaths} />
             <JsonPanel title="Raw Kiro session" value={detail.rawSession} />
             <JsonPanel title="Transcript events" value={events} />
         </div>
@@ -104,8 +114,9 @@ const KiroSessionDetailPage = () => {
     const navigate = useNavigate({ from: Route.fullPath });
     const transcriptSearch = Route.useSearch();
     const transcriptDisplay = getTranscriptDisplayState(transcriptSearch);
+    const merged = transcriptSearch.merged === true;
     const queryClient = useQueryClient();
-    const detail = useSuspenseQuery(kiroSessionDetailQueryOptions(Route.useParams().sessionId)).data;
+    const detail = useSuspenseQuery(kiroSessionDetailQueryOptions(Route.useParams().sessionId, merged)).data;
     const [deleteOpen, setDeleteOpen] = useState(false);
     const [pendingExport, setPendingExport] = useState(false);
     const { showCommentary, showExtraEvents, showRawJson, showToolCalls, showUserMessages } = transcriptDisplay;
@@ -127,6 +138,7 @@ const KiroSessionDetailPage = () => {
                     includeCommentary: options.includeCommentary,
                     includeMetadata: options.includeMetadata,
                     includeTools: options.includeTools,
+                    merged,
                     outputFormat: options.outputFormat,
                     sessionId: detail.session.sessionId,
                     zipArchive: options.zipArchive,
@@ -145,7 +157,7 @@ const KiroSessionDetailPage = () => {
     });
 
     const deleteSessionMutation = useMutation({
-        mutationFn: () => deleteKiroSessionFn({ data: { sessionId: detail.session.sessionId } }),
+        mutationFn: () => deleteKiroSessionFn({ data: { merged, sessionId: detail.session.sessionId } }),
         onSuccess: async () => {
             await Promise.all([
                 queryClient.invalidateQueries({ queryKey: ['kiro-workspaces'] }),
@@ -202,6 +214,7 @@ const KiroSessionDetailPage = () => {
                             {
                                 label: detail.session.workspaceLabel,
                                 params: { workspaceKey: detail.session.workspaceKey },
+                                search: merged ? { merged: true } : undefined,
                                 to: '/kiro/$workspaceKey',
                             },
                             { label: detail.session.title },
@@ -274,7 +287,7 @@ const KiroSessionDetailPage = () => {
 
                 <TabsContent value="metadata">
                     <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
-                        <MetadataSection items={buildSessionMetadata(detail)} title="Session metadata" />
+                        <MetadataSection items={buildSessionMetadata(detail, merged)} title="Session metadata" />
                         <MetadataSection
                             items={buildTranscriptStatsItems(detail, transcriptEvents, transcriptStats)}
                             title="Transcript stats"
@@ -288,7 +301,7 @@ const KiroSessionDetailPage = () => {
             </Tabs>
 
             <ExportDialog
-                focusedEvidenceTarget={{ id: detail.session.sessionId, source: 'kiro' }}
+                focusedEvidenceTarget={{ id: detail.session.sessionId, merged, source: 'kiro' }}
                 errorMessage={
                     exportSessionMutation.isError
                         ? exportSessionMutation.error instanceof Error
@@ -310,7 +323,11 @@ const KiroSessionDetailPage = () => {
 
             <DeleteConfirmDialog
                 confirmLabel={deleteSessionMutation.isPending ? 'Deleting...' : 'Delete session'}
-                description="Permanently delete this Kiro session from disk. This removes the session JSON file and matching execution files."
+                description={
+                    merged
+                        ? 'Permanently delete this merged Kiro conversation from disk. This removes every physical continuation segment and matching execution files.'
+                        : 'Permanently delete this Kiro session from disk. This removes the session JSON file and matching execution files.'
+                }
                 errorMessage={
                     deleteSessionMutation.isError
                         ? deleteSessionMutation.error instanceof Error
@@ -342,8 +359,11 @@ export const Route = createFileRoute('/kiro-sessions/$sessionId')({
         );
     },
     errorComponent: KiroSessionDetailErrorComponent,
-    loader: ({ context, params }) =>
-        context.queryClient.ensureQueryData(kiroSessionDetailQueryOptions(params.sessionId)),
+    loader: ({ context, deps, params }) => {
+        const { merged } = deps as { merged: boolean };
+        return context.queryClient.ensureQueryData(kiroSessionDetailQueryOptions(params.sessionId, merged));
+    },
+    loaderDeps: ({ search }) => ({ merged: search.merged === true }),
     pendingComponent: () => (
         <LoadingPanel
             description="Loading the Kiro transcript, messages, attachments, and session metadata."

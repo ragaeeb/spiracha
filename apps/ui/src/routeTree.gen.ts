@@ -15,6 +15,7 @@ import { Route as ThreadIdRouteImport } from './routes/$threadId'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as QoderIndexRouteImport } from './routes/qoder.index'
 import { Route as OpencodeIndexRouteImport } from './routes/opencode.index'
+import { Route as MinimaxCodeIndexRouteImport } from './routes/minimax-code.index'
 import { Route as KiroIndexRouteImport } from './routes/kiro.index'
 import { Route as GrokIndexRouteImport } from './routes/grok.index'
 import { Route as CursorIndexRouteImport } from './routes/cursor.index'
@@ -26,6 +27,8 @@ import { Route as QoderWorkspaceKeyRouteImport } from './routes/qoder.$workspace
 import { Route as QoderSessionsSessionIdRouteImport } from './routes/qoder-sessions.$sessionId'
 import { Route as OpencodeWorkspaceKeyRouteImport } from './routes/opencode.$workspaceKey'
 import { Route as OpencodeSessionsSessionIdRouteImport } from './routes/opencode-sessions.$sessionId'
+import { Route as MinimaxCodeWorkspaceKeyRouteImport } from './routes/minimax-code.$workspaceKey'
+import { Route as MinimaxCodeSessionsSessionIdRouteImport } from './routes/minimax-code-sessions.$sessionId'
 import { Route as KiroWorkspaceKeyRouteImport } from './routes/kiro.$workspaceKey'
 import { Route as KiroSessionsSessionIdRouteImport } from './routes/kiro-sessions.$sessionId'
 import { Route as GrokWorkspaceKeyRouteImport } from './routes/grok.$workspaceKey'
@@ -76,6 +79,11 @@ const QoderIndexRoute = QoderIndexRouteImport.update({
 const OpencodeIndexRoute = OpencodeIndexRouteImport.update({
   id: '/opencode/',
   path: '/opencode/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MinimaxCodeIndexRoute = MinimaxCodeIndexRouteImport.update({
+  id: '/minimax-code/',
+  path: '/minimax-code/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const KiroIndexRoute = KiroIndexRouteImport.update({
@@ -132,6 +140,17 @@ const OpencodeSessionsSessionIdRoute =
   OpencodeSessionsSessionIdRouteImport.update({
     id: '/opencode-sessions/$sessionId',
     path: '/opencode-sessions/$sessionId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const MinimaxCodeWorkspaceKeyRoute = MinimaxCodeWorkspaceKeyRouteImport.update({
+  id: '/minimax-code/$workspaceKey',
+  path: '/minimax-code/$workspaceKey',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MinimaxCodeSessionsSessionIdRoute =
+  MinimaxCodeSessionsSessionIdRouteImport.update({
+    id: '/minimax-code-sessions/$sessionId',
+    path: '/minimax-code-sessions/$sessionId',
     getParentRoute: () => rootRouteImport,
   } as any)
 const KiroWorkspaceKeyRoute = KiroWorkspaceKeyRouteImport.update({
@@ -263,6 +282,8 @@ export interface FileRoutesByFullPath {
   '/grok/$workspaceKey': typeof GrokWorkspaceKeyRoute
   '/kiro-sessions/$sessionId': typeof KiroSessionsSessionIdRoute
   '/kiro/$workspaceKey': typeof KiroWorkspaceKeyRoute
+  '/minimax-code-sessions/$sessionId': typeof MinimaxCodeSessionsSessionIdRoute
+  '/minimax-code/$workspaceKey': typeof MinimaxCodeWorkspaceKeyRoute
   '/opencode-sessions/$sessionId': typeof OpencodeSessionsSessionIdRoute
   '/opencode/$workspaceKey': typeof OpencodeWorkspaceKeyRoute
   '/qoder-sessions/$sessionId': typeof QoderSessionsSessionIdRoute
@@ -274,6 +295,7 @@ export interface FileRoutesByFullPath {
   '/cursor/': typeof CursorIndexRoute
   '/grok/': typeof GrokIndexRoute
   '/kiro/': typeof KiroIndexRoute
+  '/minimax-code/': typeof MinimaxCodeIndexRoute
   '/opencode/': typeof OpencodeIndexRoute
   '/qoder/': typeof QoderIndexRoute
   '/api/v1/conversation-query': typeof ApiV1ConversationQueryRoute
@@ -303,6 +325,8 @@ export interface FileRoutesByTo {
   '/grok/$workspaceKey': typeof GrokWorkspaceKeyRoute
   '/kiro-sessions/$sessionId': typeof KiroSessionsSessionIdRoute
   '/kiro/$workspaceKey': typeof KiroWorkspaceKeyRoute
+  '/minimax-code-sessions/$sessionId': typeof MinimaxCodeSessionsSessionIdRoute
+  '/minimax-code/$workspaceKey': typeof MinimaxCodeWorkspaceKeyRoute
   '/opencode-sessions/$sessionId': typeof OpencodeSessionsSessionIdRoute
   '/opencode/$workspaceKey': typeof OpencodeWorkspaceKeyRoute
   '/qoder-sessions/$sessionId': typeof QoderSessionsSessionIdRoute
@@ -314,6 +338,7 @@ export interface FileRoutesByTo {
   '/cursor': typeof CursorIndexRoute
   '/grok': typeof GrokIndexRoute
   '/kiro': typeof KiroIndexRoute
+  '/minimax-code': typeof MinimaxCodeIndexRoute
   '/opencode': typeof OpencodeIndexRoute
   '/qoder': typeof QoderIndexRoute
   '/api/v1/conversation-query': typeof ApiV1ConversationQueryRoute
@@ -344,6 +369,8 @@ export interface FileRoutesById {
   '/grok/$workspaceKey': typeof GrokWorkspaceKeyRoute
   '/kiro-sessions/$sessionId': typeof KiroSessionsSessionIdRoute
   '/kiro/$workspaceKey': typeof KiroWorkspaceKeyRoute
+  '/minimax-code-sessions/$sessionId': typeof MinimaxCodeSessionsSessionIdRoute
+  '/minimax-code/$workspaceKey': typeof MinimaxCodeWorkspaceKeyRoute
   '/opencode-sessions/$sessionId': typeof OpencodeSessionsSessionIdRoute
   '/opencode/$workspaceKey': typeof OpencodeWorkspaceKeyRoute
   '/qoder-sessions/$sessionId': typeof QoderSessionsSessionIdRoute
@@ -355,6 +382,7 @@ export interface FileRoutesById {
   '/cursor/': typeof CursorIndexRoute
   '/grok/': typeof GrokIndexRoute
   '/kiro/': typeof KiroIndexRoute
+  '/minimax-code/': typeof MinimaxCodeIndexRoute
   '/opencode/': typeof OpencodeIndexRoute
   '/qoder/': typeof QoderIndexRoute
   '/api/v1/conversation-query': typeof ApiV1ConversationQueryRoute
@@ -386,6 +414,8 @@ export interface FileRouteTypes {
     | '/grok/$workspaceKey'
     | '/kiro-sessions/$sessionId'
     | '/kiro/$workspaceKey'
+    | '/minimax-code-sessions/$sessionId'
+    | '/minimax-code/$workspaceKey'
     | '/opencode-sessions/$sessionId'
     | '/opencode/$workspaceKey'
     | '/qoder-sessions/$sessionId'
@@ -397,6 +427,7 @@ export interface FileRouteTypes {
     | '/cursor/'
     | '/grok/'
     | '/kiro/'
+    | '/minimax-code/'
     | '/opencode/'
     | '/qoder/'
     | '/api/v1/conversation-query'
@@ -426,6 +457,8 @@ export interface FileRouteTypes {
     | '/grok/$workspaceKey'
     | '/kiro-sessions/$sessionId'
     | '/kiro/$workspaceKey'
+    | '/minimax-code-sessions/$sessionId'
+    | '/minimax-code/$workspaceKey'
     | '/opencode-sessions/$sessionId'
     | '/opencode/$workspaceKey'
     | '/qoder-sessions/$sessionId'
@@ -437,6 +470,7 @@ export interface FileRouteTypes {
     | '/cursor'
     | '/grok'
     | '/kiro'
+    | '/minimax-code'
     | '/opencode'
     | '/qoder'
     | '/api/v1/conversation-query'
@@ -466,6 +500,8 @@ export interface FileRouteTypes {
     | '/grok/$workspaceKey'
     | '/kiro-sessions/$sessionId'
     | '/kiro/$workspaceKey'
+    | '/minimax-code-sessions/$sessionId'
+    | '/minimax-code/$workspaceKey'
     | '/opencode-sessions/$sessionId'
     | '/opencode/$workspaceKey'
     | '/qoder-sessions/$sessionId'
@@ -477,6 +513,7 @@ export interface FileRouteTypes {
     | '/cursor/'
     | '/grok/'
     | '/kiro/'
+    | '/minimax-code/'
     | '/opencode/'
     | '/qoder/'
     | '/api/v1/conversation-query'
@@ -507,6 +544,8 @@ export interface RootRouteChildren {
   GrokWorkspaceKeyRoute: typeof GrokWorkspaceKeyRoute
   KiroSessionsSessionIdRoute: typeof KiroSessionsSessionIdRoute
   KiroWorkspaceKeyRoute: typeof KiroWorkspaceKeyRoute
+  MinimaxCodeSessionsSessionIdRoute: typeof MinimaxCodeSessionsSessionIdRoute
+  MinimaxCodeWorkspaceKeyRoute: typeof MinimaxCodeWorkspaceKeyRoute
   OpencodeSessionsSessionIdRoute: typeof OpencodeSessionsSessionIdRoute
   OpencodeWorkspaceKeyRoute: typeof OpencodeWorkspaceKeyRoute
   QoderSessionsSessionIdRoute: typeof QoderSessionsSessionIdRoute
@@ -518,6 +557,7 @@ export interface RootRouteChildren {
   CursorIndexRoute: typeof CursorIndexRoute
   GrokIndexRoute: typeof GrokIndexRoute
   KiroIndexRoute: typeof KiroIndexRoute
+  MinimaxCodeIndexRoute: typeof MinimaxCodeIndexRoute
   OpencodeIndexRoute: typeof OpencodeIndexRoute
   QoderIndexRoute: typeof QoderIndexRoute
   ApiV1ConversationQueryRoute: typeof ApiV1ConversationQueryRoute
@@ -569,6 +609,13 @@ declare module '@tanstack/react-router' {
       path: '/opencode'
       fullPath: '/opencode/'
       preLoaderRoute: typeof OpencodeIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/minimax-code/': {
+      id: '/minimax-code/'
+      path: '/minimax-code'
+      fullPath: '/minimax-code/'
+      preLoaderRoute: typeof MinimaxCodeIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/kiro/': {
@@ -646,6 +693,20 @@ declare module '@tanstack/react-router' {
       path: '/opencode-sessions/$sessionId'
       fullPath: '/opencode-sessions/$sessionId'
       preLoaderRoute: typeof OpencodeSessionsSessionIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/minimax-code/$workspaceKey': {
+      id: '/minimax-code/$workspaceKey'
+      path: '/minimax-code/$workspaceKey'
+      fullPath: '/minimax-code/$workspaceKey'
+      preLoaderRoute: typeof MinimaxCodeWorkspaceKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/minimax-code-sessions/$sessionId': {
+      id: '/minimax-code-sessions/$sessionId'
+      path: '/minimax-code-sessions/$sessionId'
+      fullPath: '/minimax-code-sessions/$sessionId'
+      preLoaderRoute: typeof MinimaxCodeSessionsSessionIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/kiro/$workspaceKey': {
@@ -848,6 +909,8 @@ const rootRouteChildren: RootRouteChildren = {
   GrokWorkspaceKeyRoute: GrokWorkspaceKeyRoute,
   KiroSessionsSessionIdRoute: KiroSessionsSessionIdRoute,
   KiroWorkspaceKeyRoute: KiroWorkspaceKeyRoute,
+  MinimaxCodeSessionsSessionIdRoute: MinimaxCodeSessionsSessionIdRoute,
+  MinimaxCodeWorkspaceKeyRoute: MinimaxCodeWorkspaceKeyRoute,
   OpencodeSessionsSessionIdRoute: OpencodeSessionsSessionIdRoute,
   OpencodeWorkspaceKeyRoute: OpencodeWorkspaceKeyRoute,
   QoderSessionsSessionIdRoute: QoderSessionsSessionIdRoute,
@@ -859,6 +922,7 @@ const rootRouteChildren: RootRouteChildren = {
   CursorIndexRoute: CursorIndexRoute,
   GrokIndexRoute: GrokIndexRoute,
   KiroIndexRoute: KiroIndexRoute,
+  MinimaxCodeIndexRoute: MinimaxCodeIndexRoute,
   OpencodeIndexRoute: OpencodeIndexRoute,
   QoderIndexRoute: QoderIndexRoute,
   ApiV1ConversationQueryRoute: ApiV1ConversationQueryRoute,

@@ -69,6 +69,7 @@ const transcript: ClaudeCodeSessionTranscript = {
         inputTokens: 5,
         lastActiveAtIso: '2026-06-01T10:00:02.000Z',
         lastActiveAtMs: 1_780_307_202_000,
+        mergedSessionIds: ['session-a'],
         messageCount: 3,
         model: 'claude-sonnet-4-5',
         outputTokens: 8,

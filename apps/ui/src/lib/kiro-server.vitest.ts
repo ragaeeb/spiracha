@@ -142,12 +142,12 @@ describe('Kiro server exports', () => {
         }));
 
         await expect(listKiroWorkspacesFn({} as never)).resolves.toEqual(['workspace']);
-        await expect(listKiroSessionsFn({ data: { workspaceKey: 'workspace-a' } } as never)).resolves.toEqual([
-            'session',
-        ]);
-        await expect(getKiroSessionDetailFn({ data: { sessionId: 'session-first' } } as never)).resolves.toBe(
-            transcript,
-        );
+        await expect(
+            listKiroSessionsFn({ data: { merged: true, workspaceKey: 'workspace-a' } } as never),
+        ).resolves.toEqual(['session']);
+        await expect(
+            getKiroSessionDetailFn({ data: { merged: true, sessionId: 'session-first' } } as never),
+        ).resolves.toBe(transcript);
         await expect(deleteKiroSessionFn({ data: { sessionId: 'session-first' } } as never)).resolves.toMatchObject({
             deletedSessionIds: ['session-first'],
         });
@@ -158,7 +158,12 @@ describe('Kiro server exports', () => {
             deletedSessionIds: ['session-first', 'session-second'],
         });
 
-        expect(listKiroSessionsForGroupMock).toHaveBeenCalledWith('workspace-a');
+        expect(listKiroSessionsForGroupMock).toHaveBeenCalledWith('workspace-a', '/tmp/kiro-sessions', {
+            merged: true,
+        });
+        expect(readKiroSessionTranscriptMock).toHaveBeenCalledWith('/tmp/kiro-sessions', 'session-first', {
+            merged: true,
+        });
         expect(deleteKiroSessionMock).toHaveBeenCalledTimes(3);
     });
 

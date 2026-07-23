@@ -30,6 +30,7 @@ import {
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import type { ExportDialogOptions } from '#/lib/export-options';
 import { formatDateTime, formatList, formatNumber, formatTokens } from '#/lib/formatters';
+import { getMutationErrorMessage } from '#/lib/mutation-error';
 import {
     getTranscriptDisplayState,
     parseThreadTranscriptSearch,
@@ -49,8 +50,11 @@ export const Route = createFileRoute('/claude-code-sessions/$sessionId')({
         );
     },
     errorComponent: ClaudeCodeSessionDetailErrorComponent,
-    loader: ({ context, params }) =>
-        context.queryClient.ensureQueryData(claudeCodeSessionDetailQueryOptions(params.sessionId)),
+    loader: ({ context, deps, params }) => {
+        const { merged } = deps as { merged: boolean };
+        return context.queryClient.ensureQueryData(claudeCodeSessionDetailQueryOptions(params.sessionId, merged));
+    },
+    loaderDeps: ({ search }) => ({ merged: search.merged === true }),
     pendingComponent: () => (
         <LoadingPanel
             description="Loading the Claude Code transcript, messages, tool calls, and session metadata."
@@ -64,7 +68,7 @@ function ClaudeCodeSessionDetailErrorComponent({ error }: { error: Error }) {
     return <RouteErrorPanel error={error} title="Failed to load Claude Code session" />;
 }
 
-const buildSessionMetadata = (detail: ClaudeCodeSessionTranscript) => [
+const buildSessionMetadata = (detail: ClaudeCodeSessionTranscript, merged: boolean) => [
     { label: 'Session ID', value: <span data-mono="true">{detail.session.sessionId}</span> },
     {
         label: 'Workspace',
@@ -72,6 +76,7 @@ const buildSessionMetadata = (detail: ClaudeCodeSessionTranscript) => [
             <Link
                 className="text-[var(--accent)]"
                 params={{ workspaceKey: detail.session.workspaceKey }}
+                search={merged ? { merged: true } : undefined}
                 to="/claude-code/$workspaceKey"
             >
                 {detail.session.workspaceLabel}
@@ -170,12 +175,13 @@ function ClaudeCodeSessionDetailPage() {
     const navigate = useNavigate({ from: Route.fullPath });
     const transcriptSearch = Route.useSearch();
     const transcriptDisplay = getTranscriptDisplayState(transcriptSearch);
+    const merged = transcriptSearch.merged === true;
     const queryClient = useQueryClient();
     const params = Route.useParams();
-    const initialDetail = useSuspenseQuery(claudeCodeSessionDetailQueryOptions(params.sessionId)).data;
+    const initialDetail = useSuspenseQuery(claudeCodeSessionDetailQueryOptions(params.sessionId, merged)).data;
     const [shouldLoadFullTranscript, setShouldLoadFullTranscript] = useState(false);
     const fullTranscriptQuery = useQuery({
-        ...claudeCodeSessionTranscriptQueryOptions(params.sessionId),
+        ...claudeCodeSessionTranscriptQueryOptions(params.sessionId, merged),
         enabled: shouldLoadFullTranscript,
     });
     const detail = fullTranscriptQuery.data ?? initialDetail;
@@ -199,6 +205,7 @@ function ClaudeCodeSessionDetailPage() {
                     includeCommentary: options.includeCommentary,
                     includeMetadata: options.includeMetadata,
                     includeTools: options.includeTools,
+                    merged,
                     outputFormat: options.outputFormat,
                     sessionId: detail.session.sessionId,
                     zipArchive: options.zipArchive,
@@ -217,7 +224,7 @@ function ClaudeCodeSessionDetailPage() {
     });
 
     const deleteSessionMutation = useMutation({
-        mutationFn: () => deleteClaudeCodeSessionFn({ data: { sessionId: detail.session.sessionId } }),
+        mutationFn: () => deleteClaudeCodeSessionFn({ data: { merged, sessionId: detail.session.sessionId } }),
         onSuccess: async () => {
             await Promise.all([
                 queryClient.invalidateQueries({ queryKey: ['claude-code-workspaces'] }),
@@ -239,6 +246,7 @@ function ClaudeCodeSessionDetailPage() {
             }
             navigate({
                 params: { workspaceKey: detail.session.workspaceKey },
+                search: merged ? { merged: true } : undefined,
                 to: '/claude-code/$workspaceKey',
             });
         },
@@ -276,6 +284,7 @@ function ClaudeCodeSessionDetailPage() {
                             {
                                 label: detail.session.workspaceLabel,
                                 params: { workspaceKey: detail.session.workspaceKey },
+                                search: merged ? { merged: true } : undefined,
                                 to: '/claude-code/$workspaceKey',
                             },
                             { label: detail.session.title },
@@ -364,7 +373,7 @@ function ClaudeCodeSessionDetailPage() {
 
                 <TabsContent value="metadata">
                     <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
-                        <MetadataSection items={buildSessionMetadata(detail)} title="Session metadata" />
+                        <MetadataSection items={buildSessionMetadata(detail, merged)} title="Session metadata" />
                         <MetadataSection
                             items={buildTranscriptStatsItems(detail, transcriptEvents, transcriptStats)}
                             title="Transcript stats"
@@ -378,14 +387,8 @@ function ClaudeCodeSessionDetailPage() {
             </Tabs>
 
             <ExportDialog
-                focusedEvidenceTarget={{ id: detail.session.sessionId, source: 'claude-code' }}
-                errorMessage={
-                    exportSessionMutation.isError
-                        ? exportSessionMutation.error instanceof Error
-                            ? exportSessionMutation.error.message
-                            : 'Export failed'
-                        : null
-                }
+                focusedEvidenceTarget={{ id: detail.session.sessionId, merged, source: 'claude-code' }}
+                errorMessage={getMutationErrorMessage(exportSessionMutation.error, 'Export failed')}
                 open={pendingExport}
                 pending={exportSessionMutation.isPending}
                 title={`Export ${detail.session.title}`}
@@ -400,14 +403,12 @@ function ClaudeCodeSessionDetailPage() {
 
             <DeleteConfirmDialog
                 confirmLabel={deleteSessionMutation.isPending ? 'Deleting...' : 'Delete session'}
-                description="Permanently delete this Claude Code session from disk. This removes the session JSONL file."
-                errorMessage={
-                    deleteSessionMutation.isError
-                        ? deleteSessionMutation.error instanceof Error
-                            ? deleteSessionMutation.error.message
-                            : 'Session delete failed'
-                        : null
+                description={
+                    merged
+                        ? 'Permanently delete this merged Claude Code conversation from disk. This removes every physical continuation segment.'
+                        : 'Permanently delete this Claude Code session from disk. This removes the session JSONL file.'
                 }
+                errorMessage={getMutationErrorMessage(deleteSessionMutation.error, 'Session delete failed')}
                 open={deleteOpen}
                 title="Delete this Claude Code session?"
                 onConfirm={() => deleteSessionMutation.mutate()}

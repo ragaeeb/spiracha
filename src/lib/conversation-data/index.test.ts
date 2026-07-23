@@ -36,6 +36,7 @@ describe('conversation data facade', () => {
                     cursorUserDir: path.join(tempRoot, 'cursor'),
                     grokSessionsDir: path.join(tempRoot, 'grok', 'sessions'),
                     kiroWorkspaceSessionsDir: path.join(tempRoot, 'kiro'),
+                    minimaxCodeSessionsDir: path.join(tempRoot, 'minimax-code'),
                     opencodeDbPath: path.join(tempRoot, 'missing-opencode.sqlite'),
                     qoderGlobalStateDb: path.join(tempRoot, 'missing-qoder.sqlite'),
                     qoderWorkspaceStorageDir: path.join(tempRoot, 'qoder-workspaces'),
@@ -69,6 +70,7 @@ describe('conversation data facade', () => {
                     cursorUserDir: path.join(tempRoot, 'cursor'),
                     grokSessionsDir: path.join(tempRoot, 'grok', 'sessions'),
                     kiroWorkspaceSessionsDir: path.join(tempRoot, 'kiro'),
+                    minimaxCodeSessionsDir: path.join(tempRoot, 'minimax-code'),
                     opencodeDbPath: path.join(tempRoot, 'missing-opencode.sqlite'),
                     qoderGlobalStateDb: qoderDbPath,
                     qoderWorkspaceStorageDir: path.join(tempRoot, 'qoder-workspaces'),
@@ -140,6 +142,7 @@ describe('conversation data facade', () => {
 
     it('should return an isolated source metadata array', async () => {
         const first = await listConversationSources();
+        expect(first).toContainEqual({ label: 'MiniMax Code', source: 'minimax-code' });
         first.splice(0, first.length);
 
         expect(await listConversationSources()).not.toEqual([]);

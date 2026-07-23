@@ -65,6 +65,7 @@ const buildConversationMetadata = (detail: AntigravityConversationDetail) => {
             label: 'Updated',
             value: <span suppressHydrationWarning>{formatDateTime(detail.conversation.lastUpdatedAtMs)}</span>,
         },
+        { label: 'Model', value: detail.conversation.model ?? 'n/a' },
         { label: 'Transcript source', value: detail.conversation.transcriptSource ?? 'n/a' },
         { label: 'Conversation path', value: detail.conversation.conversationPath ?? 'n/a' },
         { label: 'Transcript path', value: detail.conversation.transcriptPath ?? 'n/a' },
@@ -401,7 +402,7 @@ function AntigravityConversationDetailPage() {
                     />
                     {transcriptEvents.length > 0 ? (
                         <TranscriptView
-                            assistantModel={null}
+                            assistantModel={detail.conversation.model}
                             events={transcriptEvents}
                             projectPath={detail.conversation.workspaceFolder}
                             showCommentary={showCommentary}

@@ -6,10 +6,15 @@ export type AnalyticsSearch = {
     project?: string;
 };
 
+export type MergedSearch = {
+    merged?: boolean;
+};
+
 export type ThreadTranscriptSearch = {
     commentary?: boolean;
     extra?: boolean;
     full?: boolean;
+    merged?: boolean;
     q?: string;
     raw?: boolean;
     sort?: 'earliest' | 'latest';
@@ -58,6 +63,10 @@ const asBooleanSearch = (value: unknown) => {
     return undefined;
 };
 
+export const parseMergedSearch = (search: SearchRecord): MergedSearch => {
+    return asBooleanSearch(search.merged) === true ? { merged: true } : {};
+};
+
 const setBooleanSearchParam = (target: SearchRecord, key: keyof ThreadTranscriptSearch, value: boolean) => {
     if (value) {
         target[key] = true;
@@ -86,6 +95,8 @@ const setThreadSortSearchParam = (target: SearchRecord, value: ThreadTranscriptS
     delete target.sort;
 };
 
+const BOOLEAN_THREAD_SEARCH_KEYS = ['commentary', 'extra', 'full', 'merged', 'raw', 'tools', 'user'] as const;
+
 export const parseThreadTranscriptSearch = (search: SearchRecord): ThreadTranscriptSearch => {
     const q = asNonBlankString(search.q);
     const sort = search.sort === 'latest' ? 'latest' : undefined;
@@ -94,6 +105,7 @@ export const parseThreadTranscriptSearch = (search: SearchRecord): ThreadTranscr
     const commentary = asBooleanSearch(search.commentary);
     const extra = asBooleanSearch(search.extra);
     const full = asBooleanSearch(search.full);
+    const merged = asBooleanSearch(search.merged);
     const raw = asBooleanSearch(search.raw);
     const user = asBooleanSearch(search.user);
 
@@ -108,6 +120,9 @@ export const parseThreadTranscriptSearch = (search: SearchRecord): ThreadTranscr
     }
     if (full) {
         parsed.full = true;
+    }
+    if (merged) {
+        parsed.merged = true;
     }
     if (raw) {
         parsed.raw = true;
@@ -143,23 +158,11 @@ export const withThreadTranscriptSearch = (
         setThreadSortSearchParam(next, patch.sort);
     }
 
-    if ('tools' in patch && typeof patch.tools === 'boolean') {
-        setBooleanSearchParam(next, 'tools', patch.tools);
-    }
-    if ('commentary' in patch && typeof patch.commentary === 'boolean') {
-        setBooleanSearchParam(next, 'commentary', patch.commentary);
-    }
-    if ('extra' in patch && typeof patch.extra === 'boolean') {
-        setBooleanSearchParam(next, 'extra', patch.extra);
-    }
-    if ('full' in patch && typeof patch.full === 'boolean') {
-        setBooleanSearchParam(next, 'full', patch.full);
-    }
-    if ('raw' in patch && typeof patch.raw === 'boolean') {
-        setBooleanSearchParam(next, 'raw', patch.raw);
-    }
-    if ('user' in patch && typeof patch.user === 'boolean') {
-        setBooleanSearchParam(next, 'user', patch.user);
+    for (const key of BOOLEAN_THREAD_SEARCH_KEYS) {
+        const value = patch[key];
+        if (typeof value === 'boolean') {
+            setBooleanSearchParam(next, key, value);
+        }
     }
 
     return next as SearchRecord & ThreadTranscriptSearch;
@@ -175,6 +178,12 @@ export const withTextQuerySearch = (current: SearchRecord, query: string): Searc
     }
 
     return next as SearchRecord & TextQuerySearch;
+};
+
+export const withMergedSearch = (current: SearchRecord, merged: boolean): SearchRecord & MergedSearch => {
+    const next = { ...current };
+    setBooleanSearchParam(next, 'merged', merged);
+    return next;
 };
 
 export const withAnalyticsProjectSearch = (

@@ -11,6 +11,7 @@ export type TranscriptLoadIntegration =
     | 'cursor'
     | 'grok'
     | 'kiro'
+    | 'minimax-code'
     | 'opencode'
     | 'qoder';
 

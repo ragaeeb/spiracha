@@ -2,7 +2,7 @@
 
 Focused evidence selects compact causal episodes from a normalized conversation. Use it when a full transcript contains large tool payloads but an investigation needs only matched invocations, nearby interpretation, failures, retries, workarounds, and outcomes. Use the unchanged full-transcript export for archival fidelity.
 
-The feature uses one source-independent engine for Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, and OpenCode. Source adapters only normalize events. Matching, call/result pairing, episode construction, projection, budgeting, Markdown rendering, and omission accounting are shared. The core does not assign domain meanings such as “review.”
+The feature uses one source-independent engine for Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, MiniMax Code, and OpenCode. Source adapters only normalize events. Matching, call/result pairing, episode construction, projection, budgeting, Markdown rendering, and omission accounting are shared. The core does not assign domain meanings such as “review.”
 
 ## Lens schema and bounds
 
@@ -121,6 +121,26 @@ Content-Type: application/json
 
 The response uses the standard JSON envelope and returns `{ markdown, meta }`. `meta` includes renderer version, generation time, episode and projected-character counts, approximate tokens, and structured omission statistics. Tests may pass `generated_at` as a canonical ISO timestamp to compare local and HTTP output byte-for-byte.
 
+## Compacted continuation segments
+
+Claude Code and Kiro keep compacted continuations as separate physical sessions. They remain separate by default. Pass `merged=true` when listing, reading, exporting, deleting, or generating focused evidence to treat a continuation lineage as one logical conversation:
+
+```http
+POST /api/v1/conversations/kiro/<session-id>/evidence?merged=true
+Content-Type: application/json
+```
+
+```ts
+const result = await client.exportConversationEvidenceMarkdown({
+  source: "kiro",
+  id,
+  merged: true,
+  lens,
+});
+```
+
+The merged conversation uses the newest segment ID, preserves `mergedSessionIds` in metadata, and keeps physical segments in lineage order. Kiro additionally removes its synthetic checkpoint-summary messages. Any segment ID in a recognized lineage resolves to the same merged conversation. Kiro requires a strict, unambiguous continuation chain and leaves physical sessions separate when its lineage signals are missing or ambiguous. Claude Code follows the source's compaction metadata and excludes abandoned branches from the merged transcript.
+
 ## UI workflow
 
 Open any supported conversation detail page and choose Export. Select **Focused evidence** instead of **Full transcript**. The shared editor supports every anchor kind, context and budget controls, JSON import/export, server-backed preview statistics, validation errors, and Markdown download. Lens JSON is held only in the dialog; Spiracha does not store arbitrary lens JSON in a cookie. Keep reusable named lenses in the project repository.
@@ -137,4 +157,4 @@ The total character budget includes Markdown and omission metadata. Selection an
 
 Focused evidence applies the existing project-root conversion and username redaction transforms to retained text. Lenses match only normalized transcript metadata and never cause filesystem reads for path or glob anchors. Transcript and lens data are untrusted: anchor counts, string lengths, glob complexity, context windows, budgets, unmatched pairing state, episode counts, array samples, diagnostic sets, and rendered output are bounded. Omitted raw payloads are not embedded in HTML or hidden metadata.
 
-Some sources do not expose every structured field. Kiro currently exposes tool calls without a separate structured result record, and Antigravity does not expose stable call/result IDs. Their normalized metadata reports these limitations instead of fabricating exact fields.
+Some sources do not expose every structured field. Kiro and MiniMax Code emit structured `tool_call` and `tool_output` events, including call IDs when their persisted records provide them. Antigravity does not expose stable call/result IDs, so its normalized metadata reports that limitation instead of fabricating exact fields.

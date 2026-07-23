@@ -26,7 +26,7 @@ type ExportDialogProps = {
     disabled?: boolean;
     errorMessage?: string | null;
     forceZipArchive?: boolean;
-    focusedEvidenceTarget?: { id: string; source: ConversationSource };
+    focusedEvidenceTarget?: { id: string; merged?: boolean; source: ConversationSource };
     open: boolean;
     pending?: boolean;
     showCommentaryOption?: boolean;

@@ -147,17 +147,20 @@ const buildConversation = async (
     session: KiroSessionSummary,
     sessionsDir: string,
     matches: ConversationPathMatch[],
-    options: Pick<ListConversationsForPathOptions, 'includeMessages' | 'messageSelector'>,
+    options: Pick<ListConversationsForPathOptions, 'includeMessages' | 'merged' | 'messageSelector'>,
     loadedTranscript: KiroSessionTranscript | null = null,
 ): Promise<ConversationDetail> => {
     const transcript = options.includeMessages
         ? (loadedTranscript ??
-          (await runWithTranscriptLoadLimit(() => readKiroSessionTranscript(sessionsDir, session.sessionId), {
-              id: session.sessionId,
-              integration: 'kiro',
-              operation: 'api',
-              path: session.filePath,
-          })))
+          (await runWithTranscriptLoadLimit(
+              () => readKiroSessionTranscript(sessionsDir, session.sessionId, { merged: options.merged }),
+              {
+                  id: session.sessionId,
+                  integration: 'kiro',
+                  operation: 'api',
+                  path: session.filePath,
+              },
+          )))
         : null;
     const allMessages = transcript ? transcriptToMessages(transcript) : [];
     const messages = options.includeMessages
@@ -169,7 +172,9 @@ const buildConversation = async (
         deepLinks: createDeepLinks(
             'kiro',
             session.sessionId,
-            createConversationUiPath('kiro-sessions', session.sessionId),
+            [createConversationUiPath('kiro-sessions', session.sessionId), options.merged ? '?merged=true' : ''].join(
+                '',
+            ),
         ),
         id: session.sessionId,
         matches,
@@ -178,6 +183,7 @@ const buildConversation = async (
         metadata: {
             defaultModelTitle: session.defaultModelTitle,
             filePath: session.filePath,
+            mergedSessionIds: session.mergedSessionIds,
             model: session.selectedModel ?? session.defaultModelTitle,
             selectedModel: session.selectedModel,
             sessionType: session.sessionType,
@@ -200,8 +206,8 @@ const listKiroConversationsForPath = async (options: ListConversationsForPathOpt
         if (!match) {
             continue;
         }
-        const sessions = (await listKiroSessionsForGroup(group.key, sessionsDir)).filter((session) =>
-            isWithinUpdatedWindow(session.lastActiveAtMs, options),
+        const sessions = (await listKiroSessionsForGroup(group.key, sessionsDir, { merged: options.merged })).filter(
+            (session) => isWithinUpdatedWindow(session.lastActiveAtMs, options),
         );
         conversations.push(
             ...(await mapWithConcurrency(sessions, KIRO_CONVERSATION_HYDRATION_CONCURRENCY, (session) =>
@@ -215,12 +221,15 @@ const listKiroConversationsForPath = async (options: ListConversationsForPathOpt
 
 const getKiroConversation = async (options: GetConversationOptions): Promise<ConversationDetail | null> => {
     const sessionsDir = getSessionsDir(options);
-    const transcript = await runWithTranscriptLoadLimit(() => readKiroSessionTranscript(sessionsDir, options.id), {
-        id: options.id,
-        integration: 'kiro',
-        operation: 'api',
-        path: sessionsDir,
-    });
+    const transcript = await runWithTranscriptLoadLimit(
+        () => readKiroSessionTranscript(sessionsDir, options.id, { merged: options.merged }),
+        {
+            id: options.id,
+            integration: 'kiro',
+            operation: 'api',
+            path: sessionsDir,
+        },
+    );
     return transcript
         ? buildConversation(
               transcript.session,
@@ -228,6 +237,7 @@ const getKiroConversation = async (options: GetConversationOptions): Promise<Con
               [],
               {
                   includeMessages: true,
+                  merged: options.merged,
                   messageSelector: options.messageSelector ?? 'all',
               },
               transcript,
@@ -236,7 +246,7 @@ const getKiroConversation = async (options: GetConversationOptions): Promise<Con
 };
 
 const deleteKiroConversation = async (options: DeleteConversationOptions) => {
-    const result = await deleteKiroSession(getSessionsDir(options), options.id);
+    const result = await deleteKiroSession(getSessionsDir(options), options.id, { merged: options.merged });
     return {
         deletedFiles: result.deletedFiles,
         deletedIds: result.deletedSessionIds,

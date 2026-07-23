@@ -47,6 +47,7 @@ export type KiroSessionSummary = {
     imageCount: number;
     lastActiveAtIso: string | null;
     lastActiveAtMs: number | null;
+    mergedSessionIds: string[];
     messageCount: number;
     promptLogCount: number;
     renderablePartCount: number;
@@ -85,16 +86,10 @@ export type KiroTranscriptEntry = {
     timestamp: string | null;
 };
 
-export type KiroRawExecution = {
-    filePath: string;
-    raw: Record<string, JsonValue>;
-};
-
 export type KiroSessionTranscript = {
     entries: KiroTranscriptEntry[];
     executionEntries: KiroTranscriptEntry[];
     historyEntries: KiroTranscriptEntry[];
-    rawExecutions: KiroRawExecution[];
     rawHistory: JsonValue[];
     rawSession: Record<string, JsonValue>;
     renderablePartCount: number;
@@ -106,4 +101,8 @@ export type KiroExportOptions = {
     includeMetadata: boolean;
     includeTools: boolean;
     outputFormat: ExportFormat;
+};
+
+export type KiroSessionMergeOptions = {
+    merged?: boolean;
 };

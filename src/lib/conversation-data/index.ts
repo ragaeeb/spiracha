@@ -6,6 +6,7 @@ import { cursorConversationAdapter } from './cursor-adapter';
 import { grokConversationAdapter } from './grok-adapter';
 import { kiroConversationAdapter } from './kiro-adapter';
 import { selectConversationMessages } from './message-selector';
+import { minimaxCodeConversationAdapter } from './minimax-code-adapter';
 import { opencodeConversationAdapter } from './opencode-adapter';
 import { decodeConversationCursor, paginateConversations } from './pagination';
 import { qoderConversationAdapter } from './qoder-adapter';
@@ -71,6 +72,7 @@ const SOURCE_LABELS: Record<ConversationSource, string> = {
     cursor: 'Cursor',
     grok: 'Grok',
     kiro: 'Kiro',
+    'minimax-code': 'MiniMax Code',
     opencode: 'OpenCode',
     qoder: 'Qoder',
 };
@@ -91,6 +93,7 @@ const ADAPTERS: Partial<Record<ConversationSource, ConversationAdapter>> = {
     cursor: cursorConversationAdapter,
     grok: grokConversationAdapter,
     kiro: kiroConversationAdapter,
+    'minimax-code': minimaxCodeConversationAdapter,
     opencode: opencodeConversationAdapter,
     qoder: qoderConversationAdapter,
 };
@@ -104,6 +107,7 @@ const DELETE_CONCURRENCY_BY_SOURCE: Record<ConversationSource, number> = {
     cursor: 1,
     grok: 1,
     kiro: 1,
+    'minimax-code': 1,
     opencode: 2,
     qoder: 1,
 };
@@ -228,6 +232,7 @@ export const deleteConversations = async (
             result: await deleteAdapterConversation({
                 id,
                 locations: options.locations,
+                merged: options.merged,
                 source: options.source,
             }),
         }),
@@ -269,6 +274,9 @@ const sourceFromSessionRoute = (segment: string): ConversationSource | null => {
     }
     if (segment === 'opencode-sessions') {
         return 'opencode';
+    }
+    if (segment === 'minimax-code-sessions') {
+        return 'minimax-code';
     }
     return null;
 };

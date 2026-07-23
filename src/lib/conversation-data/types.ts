@@ -6,6 +6,7 @@ export const CONVERSATION_SOURCES = [
     'qoder',
     'cursor',
     'antigravity',
+    'minimax-code',
     'opencode',
 ] as const;
 
@@ -167,6 +168,7 @@ export type ConversationDataLocations = {
     cursorUserDir?: string;
     grokSessionsDir?: string;
     kiroWorkspaceSessionsDir?: string;
+    minimaxCodeSessionsDir?: string;
     opencodeDbPath?: string;
     qoderAcpSocketPath?: string;
     qoderCliProjectsDir?: string;
@@ -180,6 +182,7 @@ export type ListConversationsForPathOptions = {
     includeMessages?: boolean;
     limit?: number;
     locations?: ConversationDataLocations;
+    merged?: boolean;
     messageSelector?: ConversationMessageSelector;
     sources?: ConversationSource[] | 'all';
     updatedAfterMs?: number;
@@ -189,6 +192,7 @@ export type ListConversationsForPathOptions = {
 export type GetConversationOptions = {
     id: string;
     locations?: ConversationDataLocations;
+    merged?: boolean;
     messageSelector?: ConversationMessageSelector;
     source: ConversationSource;
 };
@@ -196,6 +200,7 @@ export type GetConversationOptions = {
 export type DeleteConversationOptions = {
     id: string;
     locations?: ConversationDataLocations;
+    merged?: boolean;
     source: ConversationSource;
 };
 
@@ -207,6 +212,7 @@ export type DeleteConversationResult = {
 export type ConversationIdSetOptions = {
     ids: string[];
     locations?: ConversationDataLocations;
+    merged?: boolean;
     source: ConversationSource;
 };
 

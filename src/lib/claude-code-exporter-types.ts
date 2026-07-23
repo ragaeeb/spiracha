@@ -54,6 +54,7 @@ export type ClaudeCodeSessionSummary = {
     inputTokens: number;
     lastActiveAtIso: string | null;
     lastActiveAtMs: number | null;
+    mergedSessionIds: string[];
     messageCount: number;
     model: string | null;
     outputTokens: number;
@@ -112,4 +113,8 @@ export type ClaudeCodeExportOptions = {
     includeMetadata: boolean;
     includeTools: boolean;
     outputFormat: ExportFormat;
+};
+
+export type ClaudeCodeSessionMergeOptions = {
+    merged?: boolean;
 };

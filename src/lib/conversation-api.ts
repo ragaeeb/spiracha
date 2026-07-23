@@ -81,6 +81,19 @@ const errorResponse = (
 
 const parseBoolean = (value: string | null) => value === 'true' || value === '1';
 
+const parseBooleanParam = (field: string, value: string | null): ParseResult<boolean | undefined> => {
+    if (value === null) {
+        return { value: undefined };
+    }
+    if (value === 'true' || value === '1') {
+        return { value: true };
+    }
+    if (value === 'false' || value === '0') {
+        return { value: false };
+    }
+    return { error: invalidFieldResponse(field, value, `\`${field}\` must be a boolean.`) };
+};
+
 const isMessageSelector = (value: unknown): value is ConversationMessageSelector => {
     return value === 'all' || value === 'last_assistant' || value === 'last_final_answer';
 };
@@ -256,6 +269,11 @@ const buildListOptions = (url: URL): ParseResult<ListConversationsForPathOptions
         return limit;
     }
 
+    const merged = parseBooleanParam('merged', url.searchParams.get('merged'));
+    if ('error' in merged) {
+        return merged;
+    }
+
     const updatedAfterMs = parseTimestampParam('updated_after_ms', url.searchParams.get('updated_after_ms'));
     if ('error' in updatedAfterMs) {
         return updatedAfterMs;
@@ -272,6 +290,7 @@ const buildListOptions = (url: URL): ParseResult<ListConversationsForPathOptions
             cwd,
             includeMessages: parseBoolean(url.searchParams.get('include_messages')),
             limit: limit.value,
+            merged: merged.value,
             messageSelector: messageSelector.value,
             sources: sources.value,
             updatedAfterMs: updatedAfterMs.value,
@@ -343,9 +362,15 @@ const buildGetConversationOptions = (
         return messageSelector;
     }
 
+    const merged = parseBooleanParam('merged', url.searchParams.get('merged'));
+    if ('error' in merged) {
+        return merged;
+    }
+
     return {
         value: {
             id: decodedId,
+            merged: merged.value,
             messageSelector: messageSelector.value,
             source,
         },
@@ -355,6 +380,7 @@ const buildGetConversationOptions = (
 const buildDeleteConversationOptions = (
     source: string | undefined,
     id: string | undefined,
+    url: URL,
 ): ParseResult<DeleteConversationOptions> => {
     if (!source || !id) {
         return { error: errorResponse('validation_error', 'Conversation source and id are required.', 400) };
@@ -378,9 +404,15 @@ const buildDeleteConversationOptions = (
         return { error: idError };
     }
 
+    const merged = parseBooleanParam('merged', url.searchParams.get('merged'));
+    if ('error' in merged) {
+        return merged;
+    }
+
     return {
         value: {
             id: decodedId,
+            merged: merged.value,
             source,
         },
     };
@@ -503,9 +535,10 @@ const handleExportEvidence = async (
 const handleDeleteConversation = async (
     source: string | undefined,
     id: string | undefined,
+    url: URL,
     dependencies: ReturnType<typeof getDeps>,
 ) => {
-    const result = buildDeleteConversationOptions(source, id);
+    const result = buildDeleteConversationOptions(source, id, url);
     if ('error' in result) {
         return result.error;
     }
@@ -640,9 +673,15 @@ const parseConversationIdSetRecord = (body: Record<string, unknown>): ParseResul
         return ids;
     }
 
+    const merged = getBooleanOption(body, 'merged', 'merged');
+    if ('error' in merged) {
+        return merged;
+    }
+
     return {
         value: {
             ids: ids.value,
+            merged: merged.value,
             source: source.value,
         },
     };
@@ -672,6 +711,7 @@ const parseExportConversationsBody = async (request: Request): Promise<ParseResu
     return {
         value: {
             ids: idSet.value.ids,
+            merged: idSet.value.merged,
             messageSelector: messageSelector.value,
             outputFormat: outputFormat.value,
             source: idSet.value.source,
@@ -727,6 +767,7 @@ const handleExportConversations = async (request: Request, dependencies: ReturnT
     const loaded = await mapWithConcurrency(result.value.ids, BATCH_LOAD_CONCURRENCY, async (id) => {
         const conversation = await dependencies.getConversation({
             id,
+            merged: result.value.merged,
             messageSelector: result.value.messageSelector,
             source: result.value.source,
         });
@@ -989,12 +1030,18 @@ const normalizeJsonListOptions = (body: unknown): ParseResult<ListConversationsF
         return includeMessages;
     }
 
+    const merged = getBooleanOption(body, 'merged', 'merged');
+    if ('error' in merged) {
+        return merged;
+    }
+
     return {
         value: {
             cursor: cursor.value,
             cwd: cwd.value,
             includeMessages: includeMessages.value,
             limit: normalizeLimit(limit.value),
+            merged: merged.value,
             messageSelector: messageSelector.value,
             sources: sources.value,
             updatedAfterMs: updatedAfterMs.value,
@@ -1097,7 +1144,7 @@ const API_ROUTES: ApiRoute[] = [
         resource: 'conversations',
     },
     {
-        handle: ({ dependencies, id, source }) => handleDeleteConversation(source, id, dependencies),
+        handle: ({ dependencies, id, source, url }) => handleDeleteConversation(source, id, url, dependencies),
         matches: ({ action, id, source }) => Boolean(source && id && !action),
         method: 'DELETE',
         resource: 'conversations',

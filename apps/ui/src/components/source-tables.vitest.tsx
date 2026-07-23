@@ -8,16 +8,24 @@ vi.mock('@tanstack/react-router', () => ({
         children,
         className,
         params,
+        search,
         to,
     }: {
         children: ReactNode;
         className?: string;
         params: Record<string, string>;
+        search?: Record<string, unknown>;
         to: string;
     }) => {
         let href = to;
         for (const [key, value] of Object.entries(params)) {
             href = href.replace(`$${key}`, value);
+        }
+        if (search) {
+            const query = new URLSearchParams(
+                Object.entries(search).flatMap(([key, value]) => (value === undefined ? [] : [[key, String(value)]])),
+            );
+            href += query.size > 0 ? `?${query}` : '';
         }
         return (
             <a className={className} href={href}>
@@ -113,6 +121,7 @@ type SessionRow = {
 };
 
 type SessionTableProps = {
+    merged?: boolean;
     onDeleteSession: (session: SessionRow) => void;
     onDeleteSessions: (sessionIds: string[]) => void;
     onExportSession: (session: SessionRow) => void;
@@ -235,6 +244,42 @@ describe('source session tables', () => {
             expect(onDeleteSession).toHaveBeenCalledWith(session);
         });
     }
+
+    it('should preserve merged Kiro navigation in the session link', () => {
+        const session = sessionSpecs.find((spec) => spec.route.startsWith('/kiro-sessions/'))!.session;
+        render(
+            <KiroSessionsTable
+                merged
+                sessions={[session] as never}
+                onDeleteSession={vi.fn()}
+                onDeleteSessions={vi.fn()}
+                onExportSession={vi.fn()}
+                onExportSessions={vi.fn()}
+            />,
+        );
+
+        expect(screen.getByRole('link', { name: /Kiro review/i }).getAttribute('href')).toBe(
+            '/kiro-sessions/kiro-session?merged=true',
+        );
+    });
+
+    it('should preserve merged Claude Code navigation in the session link', () => {
+        const session = sessionSpecs.find((spec) => spec.route.startsWith('/claude-code-sessions/'))!.session;
+        render(
+            <ClaudeCodeSessionsTable
+                merged
+                sessions={[session] as never}
+                onDeleteSession={vi.fn()}
+                onDeleteSessions={vi.fn()}
+                onExportSession={vi.fn()}
+                onExportSessions={vi.fn()}
+            />,
+        );
+
+        expect(screen.getByRole('link', { name: /Claude review/i }).getAttribute('href')).toBe(
+            '/claude-code-sessions/claude-session?merged=true',
+        );
+    });
 });
 
 describe('source workspace tables', () => {

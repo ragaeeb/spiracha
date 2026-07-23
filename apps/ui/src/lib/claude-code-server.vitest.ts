@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
     deleteClaudeCodeSessionMock,
+    listClaudeCodeSessionsForGroupMock,
     readClaudeCodeSessionTranscriptMock,
     renderClaudeCodeTranscriptMock,
     renderSourceSessionDownloadMock,
@@ -10,6 +11,7 @@ const {
     resolveClaudeCodeProjectsDirMock,
 } = vi.hoisted(() => ({
     deleteClaudeCodeSessionMock: vi.fn(),
+    listClaudeCodeSessionsForGroupMock: vi.fn(),
     readClaudeCodeSessionTranscriptMock: vi.fn(),
     renderClaudeCodeTranscriptMock: vi.fn(),
     renderSourceSessionDownloadMock: vi.fn(),
@@ -30,7 +32,7 @@ vi.mock('@tanstack/react-start', () => ({
 
 vi.mock('@spiracha/lib/claude-code-db', () => ({
     deleteClaudeCodeSession: deleteClaudeCodeSessionMock,
-    listClaudeCodeSessionsForGroup: vi.fn(),
+    listClaudeCodeSessionsForGroup: listClaudeCodeSessionsForGroupMock,
     listClaudeCodeWorkspaceGroups: vi.fn(),
     readClaudeCodeSessionTranscript: readClaudeCodeSessionTranscriptMock,
     resolveClaudeCodeProjectsDir: resolveClaudeCodeProjectsDirMock,
@@ -55,6 +57,7 @@ import {
     deleteClaudeCodeSessionsFn,
     exportClaudeCodeSessionFn,
     exportClaudeCodeSessionsFn,
+    listClaudeCodeSessionsFn,
     loadClaudeCodeSessionDetail,
     loadClaudeCodeSessionFullDetail,
 } from './claude-code-server';
@@ -85,6 +88,7 @@ const buildTranscript = (entryCount: number, filePath = '/tmp/session-large.json
         inputTokens: 0,
         lastActiveAtIso: '2026-06-01T11:00:00.000Z',
         lastActiveAtMs: 2,
+        mergedSessionIds: ['session-large'],
         messageCount: entryCount,
         model: 'claude-opus-4-8',
         outputTokens: 0,
@@ -127,17 +131,19 @@ describe('Claude Code server transcript loading', () => {
         const transcript = buildTranscript(1_000);
         readClaudeCodeSessionTranscriptMock.mockResolvedValue(transcript);
 
-        const preview = await loadClaudeCodeSessionDetail('session-large');
-        const full = await loadClaudeCodeSessionFullDetail('session-large');
+        const preview = await loadClaudeCodeSessionDetail('session-large', true);
+        const full = await loadClaudeCodeSessionFullDetail('session-large', true);
 
         expect(preview).toMatchObject({ isPartial: true, omittedEntryCount: 600 });
         expect(preview.entries).toHaveLength(400);
         expect(full.entries).toHaveLength(1_000);
         expect(readClaudeCodeSessionTranscriptMock).toHaveBeenNthCalledWith(1, '/tmp/projects', 'session-large', {
             maxRawPayloadFileSizeBytes: 8 * 1024 * 1024,
+            merged: true,
         });
         expect(readClaudeCodeSessionTranscriptMock).toHaveBeenNthCalledWith(2, '/tmp/projects', 'session-large', {
             includeRawPayloads: false,
+            merged: true,
         });
     });
 
@@ -153,20 +159,30 @@ describe('Claude Code server transcript loading', () => {
         expect(readClaudeCodeSessionTranscriptMock).toHaveBeenCalledTimes(1);
         expect(readClaudeCodeSessionTranscriptMock).toHaveBeenCalledWith('/tmp/projects', 'session-small', {
             maxRawPayloadFileSizeBytes: 8 * 1024 * 1024,
+            merged: false,
         });
     });
 
-    it('should aggregate bulk Claude delete results', async () => {
+    it('should propagate merged mode through list and delete operations', async () => {
+        listClaudeCodeSessionsForGroupMock.mockResolvedValue([]);
         deleteClaudeCodeSessionMock
             .mockResolvedValueOnce({ deletedFiles: ['/tmp/root.jsonl'], deletedSessionIds: ['root', 'child'] })
             .mockResolvedValueOnce({ deletedFiles: [], deletedSessionIds: [] });
 
-        const result = await deleteClaudeCodeSessionsFn({ data: { sessionIds: ['root', 'child'] } } as never);
+        await listClaudeCodeSessionsFn({ data: { merged: true, workspaceKey: 'workspace-a' } } as never);
+        const result = await deleteClaudeCodeSessionsFn({
+            data: { merged: true, sessionIds: ['root', 'child'] },
+        } as never);
 
         expect(result).toEqual({
             deletedFiles: ['/tmp/root.jsonl'],
             deletedSessionIds: ['root', 'child'],
         });
+        expect(listClaudeCodeSessionsForGroupMock).toHaveBeenCalledWith('workspace-a', '/tmp/projects', {
+            merged: true,
+        });
+        expect(deleteClaudeCodeSessionMock).toHaveBeenNthCalledWith(1, '/tmp/projects', 'root', { merged: true });
+        expect(deleteClaudeCodeSessionMock).toHaveBeenNthCalledWith(2, '/tmp/projects', 'child', { merged: true });
     });
 
     it('should reject a missing Claude Code session delete', async () => {
@@ -190,6 +206,7 @@ describe('Claude Code server transcript loading', () => {
             includeCommentary: false,
             includeMetadata: false,
             includeTools: true,
+            merged: true,
             outputFormat: 'txt' as const,
             zipArchive: true,
         };
@@ -202,6 +219,7 @@ describe('Claude Code server transcript loading', () => {
         for (const sessionId of [first.session.sessionId, first.session.sessionId, second.session.sessionId]) {
             expect(readClaudeCodeSessionTranscriptMock).toHaveBeenCalledWith('/tmp/projects', sessionId, {
                 includeRawPayloads: false,
+                merged: true,
             });
         }
         expect(renderClaudeCodeTranscriptMock).toHaveBeenCalledTimes(3);

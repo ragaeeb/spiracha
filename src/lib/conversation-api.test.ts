@@ -203,6 +203,7 @@ describe('conversation API handler', () => {
                     cwd: '/repo',
                     include_messages: true,
                     limit: 250,
+                    merged: true,
                     message_selector: 'last_final_answer',
                     source: 'codex,qoder',
                     updated_after_ms: 100,
@@ -216,6 +217,7 @@ describe('conversation API handler', () => {
                         cwd: '/repo',
                         includeMessages: true,
                         limit: 200,
+                        merged: true,
                         messageSelector: 'last_final_answer',
                         sources: ['codex', 'qoder'],
                         updatedAfterMs: 100,
@@ -230,6 +232,81 @@ describe('conversation API handler', () => {
         );
 
         expect(response.status).toBe(200);
+    });
+
+    it('should pass the merged query option to list, detail, export, and evidence reads', async () => {
+        const loadedOptions: Array<{ merged?: boolean }> = [];
+        const dependencies = {
+            getConversation: async (options: { merged?: boolean }) => {
+                loadedOptions.push(options);
+                return conversation;
+            },
+            listConversationsForPath: async (options: { merged?: boolean }) => {
+                loadedOptions.push(options);
+                return { data: [conversation], meta: { hasNext: false, nextCursor: null } };
+            },
+        };
+        const evidenceBody = {
+            lens: {
+                anchors: [{ kind: 'text', literals: ['review'] }],
+                budget: {
+                    commentaryCharactersPerEpisode: 200,
+                    failedOutputCharacters: 500,
+                    successfulOutputCharacters: 200,
+                    totalCharacters: 3000,
+                },
+                context: {
+                    commentaryAfter: 1,
+                    commentaryBefore: 1,
+                    followRetries: true,
+                    followWorkarounds: true,
+                    includeReasoningSummaries: false,
+                    maxOrderGap: 5,
+                },
+                name: 'Review evidence',
+            },
+        };
+
+        const responses = await Promise.all([
+            handleConversationApiRequest(
+                createRequest('/api/v1/conversations?cwd=/repo&source=kiro&merged=true'),
+                dependencies,
+            ),
+            handleConversationApiRequest(
+                createRequest('/api/v1/conversations/kiro/session-1?merged=true'),
+                dependencies,
+            ),
+            handleConversationApiRequest(
+                createRequest('/api/v1/conversations/kiro/session-1/export?merged=true'),
+                dependencies,
+            ),
+            handleConversationApiRequest(
+                createRequest('/api/v1/conversations/kiro/session-1/evidence?merged=true', {
+                    body: JSON.stringify(evidenceBody),
+                    method: 'POST',
+                }),
+                dependencies,
+            ),
+        ]);
+
+        expect(responses.every((response) => response.status === 200)).toBe(true);
+        expect(loadedOptions).toHaveLength(4);
+        expect(loadedOptions.every((options) => options.merged === true)).toBe(true);
+    });
+
+    it('should reject invalid merged query values', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations?cwd=/repo&merged=sometimes'),
+            {},
+        );
+
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toMatchObject({
+            error: {
+                code: 'validation_error',
+                details: { field: 'merged' },
+            },
+        });
     });
 
     it('should deduplicate repeated source filters before adapter fan-out', async () => {

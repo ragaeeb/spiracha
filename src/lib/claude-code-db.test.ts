@@ -449,12 +449,20 @@ describe('claude code workspace discovery', () => {
         ]);
 
         const workspaces = await listClaudeCodeWorkspaceGroups(projectsDir);
-        const sessions = await listClaudeCodeSessionsForGroup(
+        const physicalSessions = await listClaudeCodeSessionsForGroup(
             'project:-Users-rhaq-workspace-ushman-corpus',
             projectsDir,
         );
-        const transcript = await readClaudeCodeSessionTranscript(projectsDir, 'session-active');
-        const aliasTranscript = await readClaudeCodeSessionTranscript(projectsDir, 'session-abandoned');
+        const sessions = await listClaudeCodeSessionsForGroup(
+            'project:-Users-rhaq-workspace-ushman-corpus',
+            projectsDir,
+            { merged: true },
+        );
+        const physicalTranscript = await readClaudeCodeSessionTranscript(projectsDir, 'session-abandoned');
+        const transcript = await readClaudeCodeSessionTranscript(projectsDir, 'session-active', { merged: true });
+        const aliasTranscript = await readClaudeCodeSessionTranscript(projectsDir, 'session-abandoned', {
+            merged: true,
+        });
         const exported = transcript
             ? renderClaudeCodeTranscript(transcript, {
                   includeCommentary: true,
@@ -464,7 +472,12 @@ describe('claude code workspace discovery', () => {
               })
             : null;
 
-        expect(workspaces[0]).toMatchObject({ messageCount: 4, sessionCount: 1 });
+        expect(workspaces[0]).toMatchObject({ sessionCount: 3 });
+        expect(physicalSessions).toHaveLength(3);
+        expect(physicalTranscript?.session.sessionId).toBe('session-abandoned');
+        expect(
+            physicalTranscript?.entries.flatMap((entry) => entry.parts.map((part) => part.text)).filter(Boolean),
+        ).toContain('Abandoned continuation branch');
         expect(sessions).toHaveLength(1);
         expect(sessions[0]).toMatchObject({
             assistantMessageCount: 2,
@@ -519,7 +532,7 @@ describe('claude code workspace discovery', () => {
             ),
         ]);
 
-        const result = await deleteClaudeCodeSession(projectsDir, 'session-active');
+        const result = await deleteClaudeCodeSession(projectsDir, 'session-active', { merged: true });
 
         expect(result.deletedSessionIds.sort()).toEqual([...sessionIds].sort());
         for (const sessionId of sessionIds) {

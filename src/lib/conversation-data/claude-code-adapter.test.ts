@@ -91,6 +91,13 @@ describe('Claude Code conversation adapter', () => {
             messageSelector: 'all',
             source: 'claude-code',
         });
+        const mergedConversation = await claudeCodeConversationAdapter.getConversation({
+            id: sessionId,
+            locations: { claudeCodeProjectsDir: projectsDir },
+            merged: true,
+            messageSelector: 'all',
+            source: 'claude-code',
+        });
 
         expect(conversation).toMatchObject({
             deepLinks: { ui: `/claude-code-sessions/${sessionId}` },
@@ -128,6 +135,10 @@ describe('Claude Code conversation adapter', () => {
                 }),
             ]),
         );
+        expect(mergedConversation).toMatchObject({
+            deepLinks: { ui: `/claude-code-sessions/${sessionId}?merged=true` },
+            metadata: { mergedSessionIds: [sessionId] },
+        });
     });
 
     it('should list path-scoped Claude conversations within an updated-time window', async () => {

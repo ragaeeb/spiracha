@@ -139,6 +139,12 @@ const appendOptionalNumber = (url: URL, key: string, value: number | undefined):
     }
 };
 
+const appendOptionalBoolean = (url: URL, key: string, value: boolean | undefined): void => {
+    if (value !== undefined) {
+        url.searchParams.set(key, String(value));
+    }
+};
+
 const appendListOptions = (url: URL, options: ListConversationsForPathOptions): void => {
     url.searchParams.set('cwd', options.cwd);
     if (options.cursor) {
@@ -150,6 +156,7 @@ const appendListOptions = (url: URL, options: ListConversationsForPathOptions): 
     if (options.limit !== undefined) {
         url.searchParams.set('limit', String(options.limit));
     }
+    appendOptionalBoolean(url, 'merged', options.merged);
     if (options.messageSelector) {
         url.searchParams.set('message_selector', options.messageSelector);
     }
@@ -164,6 +171,11 @@ const appendMessageSelector = (url: URL, messageSelector: ConversationMessageSel
     if (messageSelector) {
         url.searchParams.set('message_selector', messageSelector);
     }
+};
+
+const appendGetOptions = (url: URL, options: Pick<GetConversationOptions, 'merged' | 'messageSelector'>): void => {
+    appendOptionalBoolean(url, 'merged', options.merged);
+    appendMessageSelector(url, options.messageSelector);
 };
 
 const httpErrorMessage = async (response: Response): Promise<string> => {
@@ -334,8 +346,9 @@ const rejectHttpLocations = (locations: ConversationDataLocations | undefined): 
     }
 };
 
-const buildBatchBody = ({ ids, messageSelector, outputFormat, source }: ExportConversationsZipOptions) => ({
+const buildBatchBody = ({ ids, merged, messageSelector, outputFormat, source }: ExportConversationsZipOptions) => ({
     ids,
+    merged,
     message_selector: messageSelector,
     output_format: outputFormat,
     source,
@@ -353,6 +366,7 @@ const exportLocalConversationsZip = async (
         getLocalConversation({
             id,
             locations: options.locations,
+            merged: options.merged,
             messageSelector: options.messageSelector ?? 'all',
             source: options.source,
         }),
@@ -419,6 +433,7 @@ const makeHttpClient = (options: HttpConversationClientOptions): ConversationCli
             rejectHttpLocations(deleteOptions.locations);
             const { id, source } = deleteOptions;
             const url = makeHttpUrl(baseUrl, `/api/v1/conversations/${source}/${encodeURIComponent(id)}`);
+            appendOptionalBoolean(url, 'merged', deleteOptions.merged);
             const envelope = await fetchDeleteJsonOrNull<DeleteConversationResult>(url, { method: 'DELETE' });
             if (!envelope) {
                 return null;
@@ -432,6 +447,7 @@ const makeHttpClient = (options: HttpConversationClientOptions): ConversationCli
                 {
                     body: JSON.stringify({
                         ids: deleteOptions.ids,
+                        merged: deleteOptions.merged,
                         source: deleteOptions.source,
                     }),
                     headers: { 'Content-Type': 'application/json' },
@@ -445,8 +461,9 @@ const makeHttpClient = (options: HttpConversationClientOptions): ConversationCli
         },
         exportConversationEvidenceMarkdown: async (exportOptions) => {
             rejectHttpLocations(exportOptions.locations);
-            const { generatedAt, id, lens, source } = exportOptions;
+            const { generatedAt, id, lens, merged, source } = exportOptions;
             const url = makeHttpUrl(baseUrl, `/api/v1/conversations/${source}/${encodeURIComponent(id)}/evidence`);
+            appendOptionalBoolean(url, 'merged', merged);
             const envelope = await fetchJsonOrNull<ConversationEvidenceExport>(url, {
                 body: JSON.stringify({ generated_at: generatedAt, lens }),
                 headers: { 'Content-Type': 'application/json' },
@@ -456,9 +473,9 @@ const makeHttpClient = (options: HttpConversationClientOptions): ConversationCli
         },
         exportConversationMarkdown: async (getOptions) => {
             rejectHttpLocations(getOptions.locations);
-            const { id, messageSelector, source } = getOptions;
+            const { id, source } = getOptions;
             const url = makeHttpUrl(baseUrl, `/api/v1/conversations/${source}/${encodeURIComponent(id)}/export`);
-            appendMessageSelector(url, messageSelector);
+            appendGetOptions(url, getOptions);
             return fetchTextOrNull(url);
         },
         exportConversationsZip: async (exportOptions) => {
@@ -471,9 +488,9 @@ const makeHttpClient = (options: HttpConversationClientOptions): ConversationCli
         },
         getConversation: async (getOptions) => {
             rejectHttpLocations(getOptions.locations);
-            const { id, messageSelector, source } = getOptions;
+            const { id, source } = getOptions;
             const url = makeHttpUrl(baseUrl, `/api/v1/conversations/${source}/${encodeURIComponent(id)}`);
-            appendMessageSelector(url, messageSelector);
+            appendGetOptions(url, getOptions);
             const envelope = await fetchJsonOrNull<ConversationDetail>(url);
             if (!envelope) {
                 return null;
