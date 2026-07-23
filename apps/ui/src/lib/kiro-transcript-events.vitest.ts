@@ -42,6 +42,7 @@ const transcript: KiroSessionTranscript = {
     session: {
         assistantMessageCount: 1,
         autonomyMode: 'Autopilot',
+        continuationSessionIds: ['session-a'],
         createdAtIso: '2026-06-01T10:00:00.000Z',
         createdAtMs: 1_780_307_200_000,
         defaultModelTitle: 'Agent',
@@ -49,7 +50,6 @@ const transcript: KiroSessionTranscript = {
         imageCount: 1,
         lastActiveAtIso: '2026-06-01T10:00:02.000Z',
         lastActiveAtMs: 1_780_307_202_000,
-        mergedSessionIds: ['session-a'],
         messageCount: 2,
         promptLogCount: 1,
         renderablePartCount: 3,
@@ -242,6 +242,117 @@ describe('kiroTranscriptToThreadEvents', () => {
             messageCount: 3,
             toolCallCount: 2,
             userMessageCount: 1,
+        });
+    });
+
+    it('should render Kiro acknowledgement placeholders as commentary without displacing the final answer', () => {
+        const events = kiroTranscriptToThreadEvents({
+            ...transcript,
+            entries: [
+                {
+                    entryId: 'u1',
+                    entryType: 'message',
+                    executionId: null,
+                    parts: [{ raw: {}, text: 'Continue', type: 'text' }],
+                    promptLogCount: 0,
+                    raw: {},
+                    role: 'user',
+                    timestamp: null,
+                },
+                {
+                    entryId: 'final',
+                    entryType: 'message',
+                    executionId: 'execution-a',
+                    parts: [{ raw: {}, text: 'Successfully completed the refactoring.', type: 'text' }],
+                    promptLogCount: 0,
+                    raw: {},
+                    role: 'assistant',
+                    timestamp: null,
+                },
+                {
+                    entryId: 'ack',
+                    entryType: 'message',
+                    executionId: 'placeholder-execution',
+                    parts: [{ raw: {}, text: 'On it.', type: 'text' }],
+                    promptLogCount: 0,
+                    raw: {},
+                    role: 'assistant',
+                    timestamp: null,
+                },
+            ],
+        });
+
+        expect(events[1]).toMatchObject({
+            kind: 'message',
+            phase: 'final_answer',
+            text: 'Successfully completed the refactoring.',
+        });
+        expect(events[2]).toMatchObject({ kind: 'message', phase: 'commentary', text: 'On it.' });
+    });
+
+    it('should render assistant progress followed by a tool call as commentary', () => {
+        const events = kiroTranscriptToThreadEvents({
+            ...transcript,
+            entries: [
+                {
+                    entryId: 'user-1',
+                    entryType: 'message',
+                    executionId: null,
+                    parts: [{ raw: {}, text: 'Continue', type: 'text' }],
+                    promptLogCount: 0,
+                    raw: {},
+                    role: 'user',
+                    timestamp: null,
+                },
+                {
+                    entryId: 'progress',
+                    entryType: 'message',
+                    executionId: 'execution-1',
+                    parts: [
+                        {
+                            raw: {},
+                            text: "These helpers should all be removed since they're internal. Let me remove them:",
+                            type: 'text',
+                        },
+                    ],
+                    promptLogCount: 0,
+                    raw: {},
+                    role: 'assistant',
+                    timestamp: null,
+                },
+                {
+                    entryId: 'tool-1',
+                    entryType: 'tool_call',
+                    executionId: 'execution-1',
+                    parts: [
+                        {
+                            raw: { toolCallId: 'tool-1', toolName: 'replace' },
+                            text: 'Replace file contents',
+                            type: 'text',
+                        },
+                    ],
+                    promptLogCount: 0,
+                    raw: {},
+                    role: 'tool',
+                    timestamp: null,
+                },
+                {
+                    entryId: 'user-2',
+                    entryType: 'message',
+                    executionId: null,
+                    parts: [{ raw: {}, text: 'Continue', type: 'text' }],
+                    promptLogCount: 0,
+                    raw: {},
+                    role: 'user',
+                    timestamp: null,
+                },
+            ],
+        });
+
+        expect(events[1]).toMatchObject({
+            kind: 'message',
+            phase: 'commentary',
+            text: "These helpers should all be removed since they're internal. Let me remove them:",
         });
     });
 

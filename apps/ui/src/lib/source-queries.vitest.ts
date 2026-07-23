@@ -145,21 +145,21 @@ describe('source query options', () => {
 
     it('should configure Claude Code workspace, session, detail, and transcript queries', async () => {
         expect(await runQuery(claudeCodeWorkspacesQueryOptions())).toBe('claude-workspaces');
-        expect(await runQuery(claudeCodeSessionsQueryOptions('workspace-a', true))).toBe('claude-sessions');
-        expect(await runQuery(claudeCodeSessionDetailQueryOptions('session-a', true))).toBe('claude-detail');
-        expect(await runQuery(claudeCodeSessionTranscriptQueryOptions('session-a', true))).toBe('claude-transcript');
+        expect(await runQuery(claudeCodeSessionsQueryOptions('workspace-a'))).toBe('claude-sessions');
+        expect(await runQuery(claudeCodeSessionDetailQueryOptions('session-a'))).toBe('claude-detail');
+        expect(await runQuery(claudeCodeSessionTranscriptQueryOptions('session-a'))).toBe('claude-transcript');
         await expectDisabledQuery(claudeCodeSessionsQueryOptions(null));
         await expectDisabledQuery(claudeCodeSessionDetailQueryOptions(null));
         await expectDisabledQuery(claudeCodeSessionTranscriptQueryOptions(null));
 
         expect(serverFns.listClaudeCodeSessionsFn).toHaveBeenCalledWith({
-            data: { merged: true, workspaceKey: 'workspace-a' },
+            data: { workspaceKey: 'workspace-a' },
         });
         expect(serverFns.getClaudeCodeSessionDetailFn).toHaveBeenCalledWith({
-            data: { merged: true, sessionId: 'session-a' },
+            data: { sessionId: 'session-a' },
         });
         expect(serverFns.getClaudeCodeSessionTranscriptFn).toHaveBeenCalledWith({
-            data: { merged: true, sessionId: 'session-a' },
+            data: { sessionId: 'session-a' },
         });
     });
 

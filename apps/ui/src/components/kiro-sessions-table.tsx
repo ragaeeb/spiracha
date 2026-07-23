@@ -16,7 +16,6 @@ import {
 import { formatDateTime, formatNumber } from '#/lib/formatters';
 
 type KiroSessionsTableProps = {
-    merged?: boolean;
     onDeleteSession: (session: KiroSessionSummary) => void;
     onDeleteSessions: (sessionIds: string[]) => void;
     onExportSession: (session: KiroSessionSummary) => void;
@@ -28,7 +27,6 @@ const columnHelper = createColumnHelper<KiroSessionSummary>();
 const defaultSorting: SortingState = [{ desc: true, id: 'lastActive' }];
 
 const columns = (
-    merged: boolean,
     onDeleteSession: (session: KiroSessionSummary) => void,
     onExportSession: (session: KiroSessionSummary) => void,
 ) =>
@@ -38,7 +36,6 @@ const columns = (
                 <Link
                     className="block w-[16rem] max-w-[22rem] space-y-1 rounded-md outline-none transition hover:opacity-80 focus-visible:ring-2 focus-visible:ring-[var(--accent)] lg:w-auto"
                     params={{ sessionId: info.row.original.sessionId }}
-                    search={merged ? { merged: true } : undefined}
                     to="/kiro-sessions/$sessionId"
                 >
                     <p className="truncate font-medium underline-offset-2 hover:underline">{info.getValue()}</p>
@@ -116,17 +113,13 @@ const columns = (
     ] as const;
 
 export const KiroSessionsTable = ({
-    merged = false,
     onDeleteSession,
     onDeleteSessions,
     onExportSession,
     onExportSessions,
     sessions,
 }: KiroSessionsTableProps) => {
-    const tableColumns = useMemo(
-        () => columns(merged, onDeleteSession, onExportSession),
-        [merged, onDeleteSession, onExportSession],
-    );
+    const tableColumns = useMemo(() => columns(onDeleteSession, onExportSession), [onDeleteSession, onExportSession]);
 
     return (
         <DataTable

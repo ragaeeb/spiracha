@@ -1,7 +1,6 @@
 import { readdir, stat, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import {
-    type ClaudeCodeSessionMergeOptions,
     type ClaudeCodeSessionSummary,
     type ClaudeCodeSessionTranscript,
     type ClaudeCodeTranscriptEntry,
@@ -50,7 +49,7 @@ type ReadTranscriptFileOptions = {
     maxRawPayloadFileSizeBytes?: number;
 };
 
-export type ReadClaudeCodeSessionTranscriptOptions = ReadTranscriptFileOptions & ClaudeCodeSessionMergeOptions;
+export type ReadClaudeCodeSessionTranscriptOptions = ReadTranscriptFileOptions;
 
 export type DeleteClaudeCodeSessionResult = {
     deletedFiles: string[];
@@ -514,10 +513,10 @@ const toSessionSummary = (
     return {
         ...stats,
         ...timeline,
+        continuationSessionIds: [identity.sessionId],
         cwd: identity.cwd,
         filePath: file.filePath,
         gitBranch: identity.gitBranch,
-        mergedSessionIds: [identity.sessionId],
         model: identity.model,
         sessionId: identity.sessionId,
         title: getTitle(identity),
@@ -887,32 +886,54 @@ const compareTranscriptsByActivity = (
     );
 };
 
+const getTranscriptCompactionPrefixSize = (
+    transcript: ClaudeCodeSessionTranscript,
+    prefixCounts: WeakMap<ClaudeCodeSessionTranscript, number[]>,
+): number => {
+    const firstAnchorIndex = transcript.rawEvents.findIndex((raw) => getCompactionSummaryId(raw) !== null);
+    return firstAnchorIndex < 0 ? 0 : countContentEntriesBefore(transcript, firstAnchorIndex, prefixCounts);
+};
+
+const getTranscriptLineageRoot = (lineage: ClaudeCodeSessionTranscript[]): ClaudeCodeSessionTranscript | null => {
+    const prefixCounts = new WeakMap<ClaudeCodeSessionTranscript, number[]>();
+    return (
+        [...lineage].sort(
+            (left, right) =>
+                getTranscriptCompactionPrefixSize(right, prefixCounts) -
+                    getTranscriptCompactionPrefixSize(left, prefixCounts) ||
+                (left.session.createdAtMs ?? 0) - (right.session.createdAtMs ?? 0) ||
+                left.session.sessionId.localeCompare(right.session.sessionId),
+        )[0] ?? null
+    );
+};
+
 const coalesceTranscriptLineage = (lineage: ClaudeCodeSessionTranscript[]): ClaudeCodeSessionTranscript | null => {
     const canonical = [...lineage].sort(compareTranscriptsByActivity)[0];
-    if (!canonical) {
+    const root = getTranscriptLineageRoot(lineage);
+    if (!canonical || !root) {
         return null;
     }
 
-    const directoryName = getDirectoryNameFromWorkspaceKey(canonical.session.workspaceKey);
+    const directoryName = getDirectoryNameFromWorkspaceKey(root.session.workspaceKey);
     if (!directoryName) {
-        return canonical;
+        return root;
     }
 
     const transcript = buildTranscriptFromRawEvents(
-        { directoryName, filePath: canonical.session.filePath },
+        { directoryName, filePath: root.session.filePath },
         buildLogicalRawEvents(lineage, canonical),
         canonical.session.lastActiveAtMs,
         true,
     );
-    transcript.session.filePath = canonical.session.filePath;
-    transcript.session.mergedSessionIds = [...lineage]
+    transcript.session.continuationSessionIds = [...lineage]
         .sort(
             (left, right) =>
                 (left.session.createdAtMs ?? 0) - (right.session.createdAtMs ?? 0) ||
                 left.session.sessionId.localeCompare(right.session.sessionId),
         )
         .map((candidate) => candidate.session.sessionId);
-    transcript.session.sessionId = canonical.session.sessionId;
+    transcript.session.filePath = root.session.filePath;
+    transcript.session.sessionId = root.session.sessionId;
     return transcript;
 };
 
@@ -971,11 +992,10 @@ const toWorkspaceGroup = (directoryName: string, sessions: ClaudeCodeSessionSumm
 
 export const listClaudeCodeWorkspaceGroups = async (
     projectsDir = resolveClaudeCodeProjectsDir(),
-    options: ClaudeCodeSessionMergeOptions = {},
 ): Promise<ClaudeCodeWorkspaceGroup[]> => {
     const files = await listTranscriptFiles(projectsDir);
     const physicalTranscripts = await readTranscriptFiles(files);
-    const transcripts = options.merged ? coalesceTranscriptLineages(physicalTranscripts) : physicalTranscripts;
+    const transcripts = coalesceTranscriptLineages(physicalTranscripts);
     const sessionsByDirectory = new Map<string, ClaudeCodeSessionSummary[]>();
 
     for (const transcript of transcripts) {
@@ -1041,7 +1061,6 @@ const sortSessions = (sessions: ClaudeCodeSessionSummary[]): ClaudeCodeSessionSu
 export const listClaudeCodeSessionTranscriptsForGroup = async (
     workspaceKey: string,
     projectsDir = resolveClaudeCodeProjectsDir(),
-    options: ClaudeCodeSessionMergeOptions = {},
 ): Promise<ClaudeCodeSessionTranscript[]> => {
     const directoryName = getDirectoryNameFromWorkspaceKey(workspaceKey);
     if (!directoryName || !(await pathExists(projectsDir))) {
@@ -1050,17 +1069,16 @@ export const listClaudeCodeSessionTranscriptsForGroup = async (
 
     const files = await listTranscriptFilesForProject(projectsDir, directoryName);
     const physicalTranscripts = await readTranscriptFiles(files);
-    const transcripts = options.merged ? coalesceTranscriptLineages(physicalTranscripts) : physicalTranscripts;
+    const transcripts = coalesceTranscriptLineages(physicalTranscripts);
     return transcripts.filter(hasSessionContent).sort((left, right) => compareSessions(left.session, right.session));
 };
 
 export const listClaudeCodeSessionsForGroup = async (
     workspaceKey: string,
     projectsDir = resolveClaudeCodeProjectsDir(),
-    options: ClaudeCodeSessionMergeOptions = {},
 ): Promise<ClaudeCodeSessionSummary[]> => {
     return sortSessions(
-        (await listClaudeCodeSessionTranscriptsForGroup(workspaceKey, projectsDir, options)).map(
+        (await listClaudeCodeSessionTranscriptsForGroup(workspaceKey, projectsDir)).map(
             (transcript) => transcript.session,
         ),
     );
@@ -1080,6 +1098,30 @@ const locateSessionFile = async (projectsDir: string, sessionId: string): Promis
     return bodyMatches.find((file): file is TranscriptFile => file !== null) ?? null;
 };
 
+const applyTranscriptPayloadPolicy = async (
+    transcript: ClaudeCodeSessionTranscript,
+    filePaths: string[],
+    options: ReadClaudeCodeSessionTranscriptOptions,
+): Promise<ClaudeCodeSessionTranscript> => {
+    if (options.includeRawPayloads === false) {
+        return omitTranscriptRawPayloads(transcript);
+    }
+    if (options.maxRawPayloadFileSizeBytes === undefined) {
+        return transcript;
+    }
+
+    const totalFileSizeBytes = (
+        await Promise.all(
+            filePaths.map((filePath) =>
+                stat(filePath)
+                    .then((metadata) => metadata.size)
+                    .catch(() => options.maxRawPayloadFileSizeBytes! + 1),
+            ),
+        )
+    ).reduce((total, size) => total + size, 0);
+    return totalFileSizeBytes > options.maxRawPayloadFileSizeBytes ? omitTranscriptRawPayloads(transcript) : transcript;
+};
+
 export const readClaudeCodeSessionTranscript = async (
     projectsDir: string,
     sessionId: string,
@@ -1094,55 +1136,34 @@ export const readClaudeCodeSessionTranscript = async (
         return null;
     }
 
-    if (!options.merged) {
-        const fileSizeBytes =
-            options.maxRawPayloadFileSizeBytes === undefined
-                ? 0
-                : await stat(file.filePath)
-                      .then((metadata) => metadata.size)
-                      .catch(() => options.maxRawPayloadFileSizeBytes! + 1);
-        const omitRawPayloads =
-            options.includeRawPayloads === false ||
-            (options.maxRawPayloadFileSizeBytes !== undefined && fileSizeBytes > options.maxRawPayloadFileSizeBytes);
-        const parsed = await readTranscriptFile(file, { includeRawPayloads: !omitRawPayloads });
-        return parsed?.transcript ?? null;
-    }
-
     const files = await listTranscriptFilesForProject(projectsDir, file.directoryName);
     const transcripts = await readTranscriptFiles(files);
     const lineage = getTranscriptLineages(transcripts).find((candidate) =>
-        candidate.some((transcript) => transcript.session.sessionId === sessionId),
+        candidate.some((transcript) => transcript.session.filePath === file.filePath),
     );
     if (!lineage) {
         return null;
     }
 
-    const transcript = coalesceTranscriptLineage(lineage);
-    if (!transcript) {
+    const root = getTranscriptLineageRoot(lineage);
+    const physicalTranscript = lineage.find((candidate) => candidate.session.filePath === file.filePath);
+    if (!root || !physicalTranscript) {
         return null;
     }
-    const lineageFileSizeBytes =
-        options.maxRawPayloadFileSizeBytes === undefined
-            ? 0
-            : (
-                  await Promise.all(
-                      lineage.map((candidate) =>
-                          stat(candidate.session.filePath)
-                              .then((metadata) => metadata.size)
-                              .catch(() => options.maxRawPayloadFileSizeBytes! + 1),
-                      ),
-                  )
-              ).reduce((total, size) => total + size, 0);
-    const omitRawPayloads =
-        options.includeRawPayloads === false ||
-        (options.maxRawPayloadFileSizeBytes !== undefined && lineageFileSizeBytes > options.maxRawPayloadFileSizeBytes);
-    return omitRawPayloads ? omitTranscriptRawPayloads(transcript) : transcript;
+    const isParent = root.session.filePath === file.filePath;
+    const transcript = isParent ? coalesceTranscriptLineage(lineage) : physicalTranscript;
+    return transcript
+        ? applyTranscriptPayloadPolicy(
+              transcript,
+              isParent ? lineage.map((candidate) => candidate.session.filePath) : [file.filePath],
+              options,
+          )
+        : null;
 };
 
 export const deleteClaudeCodeSession = async (
     projectsDir: string,
     sessionId: string,
-    options: ClaudeCodeSessionMergeOptions = {},
 ): Promise<DeleteClaudeCodeSessionResult> => {
     if (!(await pathExists(projectsDir))) {
         return { deletedFiles: [], deletedSessionIds: [] };
@@ -1153,20 +1174,17 @@ export const deleteClaudeCodeSession = async (
         return { deletedFiles: [], deletedSessionIds: [] };
     }
 
-    if (!options.merged) {
-        const removed = await unlinkIfPresent(file.filePath);
-        return {
-            deletedFiles: removed ? [file.filePath] : [],
-            deletedSessionIds: removed ? [sessionId] : [],
-        };
-    }
-
     const files = await listTranscriptFilesForProject(projectsDir, file.directoryName);
     const transcripts = await readTranscriptFiles(files);
     const lineage = getTranscriptLineages(transcripts).find((candidate) =>
-        candidate.some((transcript) => transcript.session.sessionId === sessionId),
+        candidate.some((transcript) => transcript.session.filePath === file.filePath),
     );
-    const targets = (lineage ?? [])
+    const root = lineage ? getTranscriptLineageRoot(lineage) : null;
+    const targetTranscripts =
+        root?.session.filePath === file.filePath
+            ? lineage
+            : lineage?.filter((transcript) => transcript.session.filePath === file.filePath);
+    const targets = (targetTranscripts ?? [])
         .map((transcript) => ({
             filePath: transcript.session.filePath,
             sessionId: transcript.session.sessionId,

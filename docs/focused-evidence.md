@@ -123,23 +123,22 @@ The response uses the standard JSON envelope and returns `{ markdown, meta }`. `
 
 ## Compacted continuation segments
 
-Claude Code and Kiro keep compacted continuations as separate physical sessions. They remain separate by default. Pass `merged=true` when listing, reading, exporting, deleting, or generating focused evidence to treat a continuation lineage as one logical conversation:
+Claude Code and Kiro keep compacted continuations as separate files but expose each recognized lineage as one parent-owned conversation in lists. Use the parent conversation ID to read, export, delete, or generate focused evidence for the complete lineage:
 
 ```http
-POST /api/v1/conversations/kiro/<session-id>/evidence?merged=true
+POST /api/v1/conversations/kiro/<parent-session-id>/evidence
 Content-Type: application/json
 ```
 
 ```ts
 const result = await client.exportConversationEvidenceMarkdown({
   source: "kiro",
-  id,
-  merged: true,
+  id: parentSessionId,
   lens,
 });
 ```
 
-The merged conversation uses the newest segment ID, preserves `mergedSessionIds` in metadata, and keeps physical segments in lineage order. Kiro additionally removes its synthetic checkpoint-summary messages. Any segment ID in a recognized lineage resolves to the same merged conversation. Kiro requires a strict, unambiguous continuation chain and leaves physical sessions separate when its lineage signals are missing or ambiguous. Claude Code follows the source's compaction metadata and excludes abandoned branches from the merged transcript.
+The parent conversation keeps physical segments in lineage order, records their IDs as `continuationSessionIds` metadata, and uses the latest continuation metadata where appropriate. Kiro additionally removes synthetic checkpoint-summary messages. A direct child-segment ID deliberately returns only that physical segment, so clients must retain the parent ID from the list response when they need the complete conversation. Deleting a parent removes its recognized lineage; deleting a child removes only that child file. Kiro requires a strict, unambiguous continuation chain and leaves incomplete or ambiguous branches as separate sessions. Claude Code follows the source's compaction metadata and excludes abandoned branches from the parent transcript.
 
 ## UI workflow
 

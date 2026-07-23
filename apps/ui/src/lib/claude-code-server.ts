@@ -8,12 +8,10 @@ const CLAUDE_CODE_DETAIL_PREVIEW_ENTRY_LIMIT = 400;
 const CLAUDE_CODE_DETAIL_PREVIEW_LEADING_ENTRY_LIMIT = 100;
 
 const workspaceSchema = z.object({
-    merged: z.boolean().default(false),
     workspaceKey: z.string().min(1),
 });
 
 const sessionSchema = z.object({
-    merged: z.boolean().default(false),
     sessionId: z.string().min(1),
 });
 
@@ -21,7 +19,6 @@ const exportSessionSchema = z.object({
     includeCommentary: z.boolean().default(true),
     includeMetadata: z.boolean().default(true),
     includeTools: z.boolean().default(true),
-    merged: z.boolean().default(false),
     outputFormat: z.enum(['md', 'txt']).default('md'),
     sessionId: z.string().min(1),
     zipArchive: z.boolean().default(false),
@@ -31,14 +28,12 @@ const exportSessionsSchema = z.object({
     includeCommentary: z.boolean().default(true),
     includeMetadata: z.boolean().default(true),
     includeTools: z.boolean().default(true),
-    merged: z.boolean().default(false),
     outputFormat: z.enum(['md', 'txt']).default('md'),
     sessionIds: z.array(z.string().min(1)).min(1),
     zipArchive: z.boolean().default(true),
 });
 
 const deleteSessionsSchema = z.object({
-    merged: z.boolean().default(false),
     sessionIds: z.array(z.string().min(1)).min(1),
 });
 
@@ -53,12 +48,10 @@ export const listClaudeCodeSessionsFn = createServerFn({ method: 'GET' })
         const { listClaudeCodeSessionsForGroup, resolveClaudeCodeProjectsDir } = await import(
             '@spiracha/lib/claude-code-db'
         );
-        return listClaudeCodeSessionsForGroup(data.workspaceKey, resolveClaudeCodeProjectsDir(), {
-            merged: data.merged,
-        });
+        return listClaudeCodeSessionsForGroup(data.workspaceKey, resolveClaudeCodeProjectsDir());
     });
 
-const loadClaudeCodeSessionTranscript = async (sessionId: string, merged: boolean) => {
+const loadClaudeCodeSessionTranscript = async (sessionId: string) => {
     const { runWithTranscriptLoadLimit } = await import('@spiracha/lib/transcript-load-limiter');
     const { readClaudeCodeSessionTranscript, resolveClaudeCodeProjectsDir } = await import(
         '@spiracha/lib/claude-code-db'
@@ -68,7 +61,6 @@ const loadClaudeCodeSessionTranscript = async (sessionId: string, merged: boolea
         async () => {
             const transcript = await readClaudeCodeSessionTranscript(projectsDir, sessionId, {
                 includeRawPayloads: false,
-                merged,
             });
             if (!transcript) {
                 throw new Error(`Claude Code session not found: ${sessionId}`);
@@ -110,7 +102,7 @@ export const buildClaudeCodeSessionDetailPreview = (
     };
 };
 
-export const loadClaudeCodeSessionDetail = async (sessionId: string, merged = false) => {
+export const loadClaudeCodeSessionDetail = async (sessionId: string) => {
     const { runWithTranscriptLoadLimit } = await import('@spiracha/lib/transcript-load-limiter');
     const { readClaudeCodeSessionTranscript, resolveClaudeCodeProjectsDir } = await import(
         '@spiracha/lib/claude-code-db'
@@ -120,7 +112,6 @@ export const loadClaudeCodeSessionDetail = async (sessionId: string, merged = fa
         async () => {
             const transcript = await readClaudeCodeSessionTranscript(projectsDir, sessionId, {
                 maxRawPayloadFileSizeBytes: LARGE_CLAUDE_CODE_SESSION_SIZE_BYTES,
-                merged,
             });
             if (!transcript) {
                 throw new Error(`Claude Code session not found: ${sessionId}`);
@@ -137,7 +128,7 @@ export const loadClaudeCodeSessionDetail = async (sessionId: string, merged = fa
     );
 };
 
-export const loadClaudeCodeSessionFullDetail = async (sessionId: string, merged = false) => {
+export const loadClaudeCodeSessionFullDetail = async (sessionId: string) => {
     const { runWithTranscriptLoadLimit } = await import('@spiracha/lib/transcript-load-limiter');
     const { readClaudeCodeSessionTranscript, resolveClaudeCodeProjectsDir } = await import(
         '@spiracha/lib/claude-code-db'
@@ -147,7 +138,6 @@ export const loadClaudeCodeSessionFullDetail = async (sessionId: string, merged 
         async () => {
             const transcript = await readClaudeCodeSessionTranscript(projectsDir, sessionId, {
                 includeRawPayloads: false,
-                merged,
             });
             if (!transcript) {
                 throw new Error(`Claude Code session not found: ${sessionId}`);
@@ -166,20 +156,20 @@ export const loadClaudeCodeSessionFullDetail = async (sessionId: string, merged 
 export const getClaudeCodeSessionDetailFn = createServerFn({ method: 'GET' })
     .validator(sessionSchema)
     .handler(async ({ data }) => {
-        return loadClaudeCodeSessionDetail(data.sessionId, data.merged);
+        return loadClaudeCodeSessionDetail(data.sessionId);
     });
 
 export const getClaudeCodeSessionTranscriptFn = createServerFn({ method: 'GET' })
     .validator(sessionSchema)
     .handler(async ({ data }) => {
-        return loadClaudeCodeSessionFullDetail(data.sessionId, data.merged);
+        return loadClaudeCodeSessionFullDetail(data.sessionId);
     });
 
 export const exportClaudeCodeSessionFn = createServerFn({ method: 'POST' })
     .validator(exportSessionSchema)
     .handler(async ({ data }) => {
         const { renderClaudeCodeTranscript } = await import('@spiracha/lib/claude-code-transcript');
-        const transcript = await loadClaudeCodeSessionTranscript(data.sessionId, data.merged);
+        const transcript = await loadClaudeCodeSessionTranscript(data.sessionId);
         const content = renderClaudeCodeTranscript(transcript, {
             includeCommentary: data.includeCommentary,
             includeMetadata: data.includeMetadata,
@@ -208,7 +198,7 @@ export const exportClaudeCodeSessionsFn = createServerFn({ method: 'POST' })
         const { renderClaudeCodeTranscript } = await import('@spiracha/lib/claude-code-transcript');
         const entries = await Promise.all(
             data.sessionIds.map(async (sessionId) => {
-                const transcript = await loadClaudeCodeSessionTranscript(sessionId, data.merged);
+                const transcript = await loadClaudeCodeSessionTranscript(sessionId);
                 const content = renderClaudeCodeTranscript(transcript, {
                     includeCommentary: data.includeCommentary,
                     includeMetadata: data.includeMetadata,
@@ -243,9 +233,7 @@ export const deleteClaudeCodeSessionFn = createServerFn({ method: 'POST' })
     .validator(sessionSchema)
     .handler(async ({ data }) => {
         const { deleteClaudeCodeSession, resolveClaudeCodeProjectsDir } = await import('@spiracha/lib/claude-code-db');
-        const result = await deleteClaudeCodeSession(resolveClaudeCodeProjectsDir(), data.sessionId, {
-            merged: data.merged,
-        });
+        const result = await deleteClaudeCodeSession(resolveClaudeCodeProjectsDir(), data.sessionId);
         requireDeletedItems(result.deletedSessionIds, 'Claude Code session', data.sessionId);
         return result;
     });
@@ -256,7 +244,7 @@ export const deleteClaudeCodeSessionsFn = createServerFn({ method: 'POST' })
         const { deleteClaudeCodeSession, resolveClaudeCodeProjectsDir } = await import('@spiracha/lib/claude-code-db');
         const projectsDir = resolveClaudeCodeProjectsDir();
         const results = await runDeleteBatch(data.sessionIds, (sessionId) =>
-            deleteClaudeCodeSession(projectsDir, sessionId, { merged: data.merged }),
+            deleteClaudeCodeSession(projectsDir, sessionId),
         );
         requireDeletedItems(
             results.flatMap((result) => result.deletedSessionIds),

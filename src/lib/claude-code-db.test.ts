@@ -449,20 +449,13 @@ describe('claude code workspace discovery', () => {
         ]);
 
         const workspaces = await listClaudeCodeWorkspaceGroups(projectsDir);
-        const physicalSessions = await listClaudeCodeSessionsForGroup(
-            'project:-Users-rhaq-workspace-ushman-corpus',
-            projectsDir,
-        );
         const sessions = await listClaudeCodeSessionsForGroup(
             'project:-Users-rhaq-workspace-ushman-corpus',
             projectsDir,
-            { merged: true },
         );
-        const physicalTranscript = await readClaudeCodeSessionTranscript(projectsDir, 'session-abandoned');
-        const transcript = await readClaudeCodeSessionTranscript(projectsDir, 'session-active', { merged: true });
-        const aliasTranscript = await readClaudeCodeSessionTranscript(projectsDir, 'session-abandoned', {
-            merged: true,
-        });
+        const transcript = await readClaudeCodeSessionTranscript(projectsDir, 'session-root');
+        const childTranscript = await readClaudeCodeSessionTranscript(projectsDir, 'session-active');
+        const abandonedTranscript = await readClaudeCodeSessionTranscript(projectsDir, 'session-abandoned');
         const exported = transcript
             ? renderClaudeCodeTranscript(transcript, {
                   includeCommentary: true,
@@ -472,17 +465,17 @@ describe('claude code workspace discovery', () => {
               })
             : null;
 
-        expect(workspaces[0]).toMatchObject({ sessionCount: 3 });
-        expect(physicalSessions).toHaveLength(3);
-        expect(physicalTranscript?.session.sessionId).toBe('session-abandoned');
+        expect(workspaces[0]).toMatchObject({ sessionCount: 1 });
+        expect(abandonedTranscript?.session.sessionId).toBe('session-abandoned');
         expect(
-            physicalTranscript?.entries.flatMap((entry) => entry.parts.map((part) => part.text)).filter(Boolean),
+            abandonedTranscript?.entries.flatMap((entry) => entry.parts.map((part) => part.text)).filter(Boolean),
         ).toContain('Abandoned continuation branch');
         expect(sessions).toHaveLength(1);
         expect(sessions[0]).toMatchObject({
             assistantMessageCount: 2,
+            continuationSessionIds: ['session-root', 'session-abandoned', 'session-active'],
             messageCount: 4,
-            sessionId: 'session-active',
+            sessionId: 'session-root',
             title: 'Original user request',
             userMessageCount: 2,
         });
@@ -492,11 +485,10 @@ describe('claude code workspace discovery', () => {
             'Continued user request',
             'Continued assistant response',
         ]);
+        expect(
+            childTranscript?.entries.flatMap((entry) => entry.parts.map((part) => part.text)).filter(Boolean),
+        ).toEqual(['Continued user request', 'Continued assistant response']);
         expect(transcript?.rawEvents.some((event) => event.isCompactSummary === true)).toBe(true);
-        expect(aliasTranscript?.session.sessionId).toBe('session-active');
-        expect(aliasTranscript?.entries.map((entry) => entry.entryId)).toEqual(
-            transcript?.entries.map((entry) => entry.entryId),
-        );
         expect(exported).toContain('Original user request');
         expect(exported).toContain('Original assistant response');
         expect(exported).toContain('Continued user request');
@@ -532,7 +524,7 @@ describe('claude code workspace discovery', () => {
             ),
         ]);
 
-        const result = await deleteClaudeCodeSession(projectsDir, 'session-active', { merged: true });
+        const result = await deleteClaudeCodeSession(projectsDir, 'session-root');
 
         expect(result.deletedSessionIds.sort()).toEqual([...sessionIds].sort());
         for (const sessionId of sessionIds) {
@@ -540,7 +532,38 @@ describe('claude code workspace discovery', () => {
         }
     });
 
-    it('should tolerate concurrent deletes for aliases in the same compacted lineage', async () => {
+    it('should delete only a directly requested Claude Code continuation segment', async () => {
+        const projectsDir = await makeTempRoot();
+        const projectDirName = '-Users-rhaq-workspace-ushman-corpus';
+        await writeSession(projectsDir, projectDirName, 'session-root', [
+            buildMessageRecord(
+                'session-root',
+                'root-user',
+                'user',
+                'Original user request',
+                '2026-06-01T10:00:00.000Z',
+            ),
+            ...buildCompactionRecords('session-root'),
+        ]);
+        await writeSession(projectsDir, projectDirName, 'session-active', [
+            ...buildCompactionRecords('session-active'),
+            buildMessageRecord(
+                'session-active',
+                'active-user',
+                'user',
+                'Continued user request',
+                '2026-06-01T11:00:00.000Z',
+            ),
+        ]);
+
+        const result = await deleteClaudeCodeSession(projectsDir, 'session-active');
+
+        expect(result.deletedSessionIds).toEqual(['session-active']);
+        expect(await Bun.file(path.join(projectsDir, projectDirName, 'session-root.jsonl')).exists()).toBe(true);
+        expect(await Bun.file(path.join(projectsDir, projectDirName, 'session-active.jsonl')).exists()).toBe(false);
+    });
+
+    it('should tolerate concurrent parent and child deletes in the same compacted lineage', async () => {
         const projectsDir = await makeTempRoot();
         const projectDirName = '-Users-rhaq-workspace-ushman-corpus';
         await writeSession(projectsDir, projectDirName, 'session-root', [

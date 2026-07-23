@@ -1,18 +1,32 @@
 import type { MiniMaxCodeSessionSummary, MiniMaxCodeWorkspaceGroup } from '@spiracha/lib/minimax-code-exporter-types';
-import { useMutation, useSuspenseQuery } from '@tanstack/react-query';
-import { createFileRoute } from '@tanstack/react-router';
+import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { Trash2 } from 'lucide-react';
 import { useDeferredValue, useMemo, useState } from 'react';
+import { DeleteConfirmDialog } from '#/components/delete-confirm-dialog';
 import { ExportDialog } from '#/components/export-dialog';
 import { ListSearchInput } from '#/components/list-search-input';
 import { LoadingPanel } from '#/components/loading-panel';
 import { MiniMaxCodeSessionsTable } from '#/components/minimax-code-sessions-table';
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
+import { Button } from '#/components/ui/button';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { miniMaxCodeSessionsQueryOptions, miniMaxCodeWorkspacesQueryOptions } from '#/lib/minimax-code-queries';
-import { exportMiniMaxCodeSessionFn, exportMiniMaxCodeSessionsFn } from '#/lib/minimax-code-server';
+import {
+    deleteMiniMaxCodeSessionFn,
+    deleteMiniMaxCodeSessionsFn,
+    exportMiniMaxCodeSessionFn,
+    exportMiniMaxCodeSessionsFn,
+} from '#/lib/minimax-code-server';
 import { matchesTextQuery } from '#/lib/text-filter';
+import { isWorkspaceEmptiedByDelete } from '#/lib/workspace-delete-navigation';
+
+type PendingSessionDelete = {
+    scope: 'all' | 'selected';
+    sessions: MiniMaxCodeSessionSummary[];
+};
 
 type PendingSessionExport = {
     label: string;
@@ -32,16 +46,52 @@ const buildSessionExport = (sessions: MiniMaxCodeSessionSummary[]): PendingSessi
     sessionIds: sessions.map((session) => session.sessionId),
 });
 
+const getDeleteConfirmLabel = (pendingDelete: PendingSessionDelete | null, isPending: boolean) => {
+    if (isPending) {
+        return 'Deleting...';
+    }
+    if (pendingDelete?.scope === 'all') {
+        return 'Delete all';
+    }
+    return pendingDelete && pendingDelete.sessions.length > 1 ? 'Delete sessions' : 'Delete session';
+};
+
+const getDeleteDescription = (pendingDelete: PendingSessionDelete | null) => {
+    if (!pendingDelete) {
+        return 'Permanently delete the selected MiniMax Code sessions.';
+    }
+    const count = pendingDelete.sessions.length;
+    const target =
+        pendingDelete.scope === 'all'
+            ? `all ${count} MiniMax Code sessions in this workspace`
+            : count === 1
+              ? `"${pendingDelete.sessions[0]!.title}"`
+              : `${count} selected MiniMax Code sessions`;
+    return `Permanently delete ${target}. This removes finalized session directories and runtime database rows. Generated workspace files and observability logs are preserved.`;
+};
+
+const getDeleteTitle = (pendingDelete: PendingSessionDelete | null) => {
+    if (pendingDelete?.scope === 'all') {
+        return `Delete all ${pendingDelete.sessions.length} MiniMax Code sessions?`;
+    }
+    return pendingDelete && pendingDelete.sessions.length > 1
+        ? `Delete ${pendingDelete.sessions.length} MiniMax Code sessions?`
+        : 'Delete this MiniMax Code session?';
+};
+
 const MiniMaxCodeWorkspaceErrorComponent = ({ error }: { error: Error }) => {
     return <RouteErrorPanel error={error} title="Failed to load MiniMax Code workspace" />;
 };
 
 const MiniMaxCodeWorkspacePage = () => {
+    const navigate = useNavigate({ from: Route.fullPath });
     const params = Route.useParams();
+    const queryClient = useQueryClient();
     const workspaces = useSuspenseQuery(miniMaxCodeWorkspacesQueryOptions()).data;
     const workspace = findWorkspaceOrThrow(workspaces, params.workspaceKey);
     const sessions = useSuspenseQuery(miniMaxCodeSessionsQueryOptions(workspace.key)).data;
     const [searchInput, setSearchInput] = useState('');
+    const [pendingDelete, setPendingDelete] = useState<PendingSessionDelete | null>(null);
     const [pendingExport, setPendingExport] = useState<PendingSessionExport | null>(null);
     const deferredSearch = useDeferredValue(searchInput);
     const visibleSessions = useMemo(
@@ -95,9 +145,44 @@ const MiniMaxCodeWorkspacePage = () => {
         onSuccess: () => setPendingExport(null),
     });
 
+    const deleteMutation = useMutation({
+        mutationFn: async (sessionIds: string[]) =>
+            sessionIds.length === 1
+                ? deleteMiniMaxCodeSessionFn({ data: { sessionId: sessionIds[0]! } })
+                : deleteMiniMaxCodeSessionsFn({ data: { sessionIds } }),
+        onSettled: async (_result, _error, sessionIds) => {
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ['minimax-code-workspaces'] }),
+                queryClient.invalidateQueries({ queryKey: ['minimax-code-sessions', workspace.key] }),
+                ...sessionIds.map((sessionId) =>
+                    queryClient.invalidateQueries({ queryKey: ['minimax-code-session', sessionId] }),
+                ),
+            ]);
+        },
+        onSuccess: async (_result, sessionIds) => {
+            const workspaceEmptied = isWorkspaceEmptiedByDelete(sessions, sessionIds, (session) => session.sessionId);
+            setPendingDelete(null);
+            if (workspaceEmptied) {
+                await navigate({ to: '/minimax-code' });
+            }
+        },
+    });
+
+    const lookupSelectedSessions = (sessionIds: string[]) =>
+        sessionIds
+            .map((sessionId) => visibleSessionsById.get(sessionId) ?? null)
+            .filter((session): session is MiniMaxCodeSessionSummary => session !== null);
     const openExportForSessions = (selectedSessions: MiniMaxCodeSessionSummary[]) => {
         if (selectedSessions.length > 0) {
             setPendingExport(buildSessionExport(selectedSessions));
+        }
+    };
+    const openDeleteForSessions = (
+        selectedSessions: MiniMaxCodeSessionSummary[],
+        scope: PendingSessionDelete['scope'],
+    ) => {
+        if (selectedSessions.length > 0) {
+            setPendingDelete({ scope, sessions: selectedSessions });
         }
     };
 
@@ -105,11 +190,23 @@ const MiniMaxCodeWorkspacePage = () => {
         <div className="space-y-4">
             <PageHeader
                 actions={
-                    <ListSearchInput
-                        placeholder="Search title, model, agent, or ID"
-                        value={searchInput}
-                        onValueChange={setSearchInput}
-                    />
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                        <Button
+                            className="rounded-full"
+                            disabled={deleteMutation.isPending || sessions.length === 0}
+                            type="button"
+                            variant="destructive"
+                            onClick={() => openDeleteForSessions(sessions, 'all')}
+                        >
+                            <Trash2 className="size-4" />
+                            Delete all
+                        </Button>
+                        <ListSearchInput
+                            placeholder="Search title, model, agent, or ID"
+                            value={searchInput}
+                            onValueChange={setSearchInput}
+                        />
+                    </div>
                 }
                 eyebrow="MiniMax Code workspace"
                 subtitle={workspace.worktree}
@@ -117,15 +214,10 @@ const MiniMaxCodeWorkspacePage = () => {
             />
             <MiniMaxCodeSessionsTable
                 sessions={visibleSessions}
+                onDeleteSession={(session) => openDeleteForSessions([session], 'selected')}
+                onDeleteSessions={(sessionIds) => openDeleteForSessions(lookupSelectedSessions(sessionIds), 'selected')}
                 onExportSession={(session) => openExportForSessions([session])}
-                onExportSessions={(sessionIds) =>
-                    openExportForSessions(
-                        sessionIds.flatMap((sessionId) => {
-                            const session = visibleSessionsById.get(sessionId);
-                            return session ? [session] : [];
-                        }),
-                    )
-                }
+                onExportSessions={(sessionIds) => openExportForSessions(lookupSelectedSessions(sessionIds))}
             />
             <ExportDialog
                 focusedEvidenceTarget={
@@ -140,6 +232,7 @@ const MiniMaxCodeWorkspacePage = () => {
                             : 'Export failed'
                         : null
                 }
+                forceZipArchive={pendingExport ? pendingExport.sessionIds.length > 1 : false}
                 open={pendingExport !== null}
                 pending={exportMutation.isPending}
                 title={`Export ${pendingExport?.label ?? 'sessions'}`}
@@ -152,6 +245,30 @@ const MiniMaxCodeWorkspacePage = () => {
                     if (!open) {
                         setPendingExport(null);
                         exportMutation.reset();
+                    }
+                }}
+            />
+            <DeleteConfirmDialog
+                confirmLabel={getDeleteConfirmLabel(pendingDelete, deleteMutation.isPending)}
+                description={getDeleteDescription(pendingDelete)}
+                errorMessage={
+                    deleteMutation.isError
+                        ? deleteMutation.error instanceof Error
+                            ? deleteMutation.error.message
+                            : 'Session delete failed'
+                        : null
+                }
+                open={pendingDelete !== null}
+                title={getDeleteTitle(pendingDelete)}
+                onConfirm={() => {
+                    if (pendingDelete) {
+                        deleteMutation.mutate(pendingDelete.sessions.map((session) => session.sessionId));
+                    }
+                }}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        setPendingDelete(null);
+                        deleteMutation.reset();
                     }
                 }}
             />

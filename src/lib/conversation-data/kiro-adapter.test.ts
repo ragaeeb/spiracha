@@ -147,16 +147,15 @@ describe('Kiro conversation adapter', () => {
         const conversation = await kiroConversationAdapter.getConversation({
             id: sessionId,
             locations: { kiroWorkspaceSessionsDir: sessionsDir },
-            merged: true,
             messageSelector: 'all',
             source: 'kiro',
         });
 
         expect(conversation).toMatchObject({
-            deepLinks: { ui: `/kiro-sessions/${sessionId}?merged=true` },
+            deepLinks: { ui: `/kiro-sessions/${sessionId}` },
             id: sessionId,
             metadata: {
-                mergedSessionIds: [sessionId],
+                continuationSessionIds: [sessionId],
                 model: 'claude-sonnet-4.5',
                 sessionType: 'spec',
             },

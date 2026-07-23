@@ -1,5 +1,6 @@
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
+import { requireDeletedItems, runDeleteBatch } from './delete-batch';
 import { renderSourceSessionDownload, renderSourceSessionsDownload } from './source-session-export-server';
 
 const workspaceSchema = z.object({
@@ -26,6 +27,10 @@ const exportSessionsSchema = z.object({
     outputFormat: z.enum(['md', 'txt']).default('md'),
     sessionIds: z.array(z.string().min(1)).min(1),
     zipArchive: z.boolean().default(true),
+});
+
+const deleteSessionsSchema = z.object({
+    sessionIds: z.array(z.string().min(1)).min(1),
 });
 
 export const listMiniMaxCodeWorkspacesFn = createServerFn({ method: 'GET' }).handler(async () => {
@@ -125,6 +130,42 @@ export const exportMiniMaxCodeSessionsFn = createServerFn({ method: 'POST' })
             entries,
             fallbackBaseName: 'minimax-code-sessions',
             outputFormat: data.outputFormat,
-            zipArchive: data.zipArchive,
+            zipArchive: true,
         });
+    });
+
+export const deleteMiniMaxCodeSessionFn = createServerFn({ method: 'POST' })
+    .validator(sessionSchema)
+    .handler(async ({ data }) => {
+        const { deleteMiniMaxCodeSession, resolveMiniMaxCodeRuntimeDbPath, resolveMiniMaxCodeSessionsDir } =
+            await import('@spiracha/lib/minimax-code-db');
+        const sessionsDir = resolveMiniMaxCodeSessionsDir();
+        const result = await deleteMiniMaxCodeSession(
+            sessionsDir,
+            resolveMiniMaxCodeRuntimeDbPath(sessionsDir),
+            data.sessionId,
+        );
+        requireDeletedItems(result.deletedSessionIds, 'MiniMax Code session', data.sessionId);
+        return result;
+    });
+
+export const deleteMiniMaxCodeSessionsFn = createServerFn({ method: 'POST' })
+    .validator(deleteSessionsSchema)
+    .handler(async ({ data }) => {
+        const { deleteMiniMaxCodeSession, resolveMiniMaxCodeRuntimeDbPath, resolveMiniMaxCodeSessionsDir } =
+            await import('@spiracha/lib/minimax-code-db');
+        const sessionsDir = resolveMiniMaxCodeSessionsDir();
+        const runtimeDbPath = resolveMiniMaxCodeRuntimeDbPath(sessionsDir);
+        const results = await runDeleteBatch(data.sessionIds, (sessionId) =>
+            deleteMiniMaxCodeSession(sessionsDir, runtimeDbPath, sessionId),
+        );
+        requireDeletedItems(
+            results.flatMap((result) => result.deletedSessionIds),
+            'MiniMax Code sessions',
+            'batch',
+        );
+        return {
+            deletedFiles: [...new Set(results.flatMap((result) => result.deletedFiles))],
+            deletedSessionIds: [...new Set(results.flatMap((result) => result.deletedSessionIds))],
+        };
     });

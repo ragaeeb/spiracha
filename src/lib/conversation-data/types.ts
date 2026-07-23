@@ -168,6 +168,7 @@ export type ConversationDataLocations = {
     cursorUserDir?: string;
     grokSessionsDir?: string;
     kiroWorkspaceSessionsDir?: string;
+    minimaxCodeRuntimeDbPath?: string;
     minimaxCodeSessionsDir?: string;
     opencodeDbPath?: string;
     qoderAcpSocketPath?: string;
@@ -182,7 +183,6 @@ export type ListConversationsForPathOptions = {
     includeMessages?: boolean;
     limit?: number;
     locations?: ConversationDataLocations;
-    merged?: boolean;
     messageSelector?: ConversationMessageSelector;
     sources?: ConversationSource[] | 'all';
     updatedAfterMs?: number;
@@ -192,7 +192,6 @@ export type ListConversationsForPathOptions = {
 export type GetConversationOptions = {
     id: string;
     locations?: ConversationDataLocations;
-    merged?: boolean;
     messageSelector?: ConversationMessageSelector;
     source: ConversationSource;
 };
@@ -200,7 +199,6 @@ export type GetConversationOptions = {
 export type DeleteConversationOptions = {
     id: string;
     locations?: ConversationDataLocations;
-    merged?: boolean;
     source: ConversationSource;
 };
 
@@ -212,7 +210,6 @@ export type DeleteConversationResult = {
 export type ConversationIdSetOptions = {
     ids: string[];
     locations?: ConversationDataLocations;
-    merged?: boolean;
     source: ConversationSource;
 };
 

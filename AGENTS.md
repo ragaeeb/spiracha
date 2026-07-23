@@ -139,7 +139,7 @@ Current tests cover:
 - Codex project/thread browsing, delete semantics, analytics, cache keys, and recovery helpers
 - Cursor recovery/prune behavior
 - Antigravity discovery, transcript parsing, Keychain state, and artifact export rendering
-- MiniMax Code v2 snapshot discovery, reasoning/tool parsing, and export rendering
+- MiniMax Code v2 snapshot discovery, reasoning/tool parsing, export rendering, and synchronized session/runtime deletion
 - OpenCode MiniMax `<think>` tag extraction, including code-literal preservation
 - UI component and adapter behavior through the Vitest suite wrapped by `src/ui-suite.test.ts`
 - package manifest hard-cut guarantees through `src/package-manifest.test.ts`

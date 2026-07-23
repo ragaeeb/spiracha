@@ -12,23 +12,23 @@ export const claudeCodeWorkspacesQueryOptions = () =>
         queryKey: ['claude-code-workspaces'],
     });
 
-export const claudeCodeSessionsQueryOptions = (workspaceKey: string | null, merged = false) =>
+export const claudeCodeSessionsQueryOptions = (workspaceKey: string | null) =>
     queryOptions({
         enabled: workspaceKey !== null,
-        queryFn: () => listClaudeCodeSessionsFn({ data: { merged, workspaceKey: workspaceKey ?? '' } }),
-        queryKey: ['claude-code-sessions', workspaceKey ?? 'none', { merged }],
+        queryFn: () => listClaudeCodeSessionsFn({ data: { workspaceKey: workspaceKey ?? '' } }),
+        queryKey: ['claude-code-sessions', workspaceKey ?? 'none'],
     });
 
-export const claudeCodeSessionDetailQueryOptions = (sessionId: string | null, merged = false) =>
+export const claudeCodeSessionDetailQueryOptions = (sessionId: string | null) =>
     queryOptions({
         enabled: sessionId !== null,
-        queryFn: () => getClaudeCodeSessionDetailFn({ data: { merged, sessionId: sessionId ?? '' } }),
-        queryKey: ['claude-code-session', sessionId ?? 'none', { merged }],
+        queryFn: () => getClaudeCodeSessionDetailFn({ data: { sessionId: sessionId ?? '' } }),
+        queryKey: ['claude-code-session', sessionId ?? 'none'],
     });
 
-export const claudeCodeSessionTranscriptQueryOptions = (sessionId: string | null, merged = false) =>
+export const claudeCodeSessionTranscriptQueryOptions = (sessionId: string | null) =>
     queryOptions({
         enabled: sessionId !== null,
-        queryFn: () => getClaudeCodeSessionTranscriptFn({ data: { merged, sessionId: sessionId ?? '' } }),
-        queryKey: ['claude-code-session-transcript', sessionId ?? 'none', { merged }],
+        queryFn: () => getClaudeCodeSessionTranscriptFn({ data: { sessionId: sessionId ?? '' } }),
+        queryKey: ['claude-code-session-transcript', sessionId ?? 'none'],
     });

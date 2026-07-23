@@ -1,13 +1,15 @@
+import { Database } from 'bun:sqlite';
 import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
+    deleteMiniMaxCodeSession,
     listMiniMaxCodeSessionsForGroup,
     listMiniMaxCodeWorkspaceGroups,
     readMiniMaxCodeSessionTranscript,
 } from './minimax-code-db';
-import { writeMiniMaxCodeSessionFixture } from './minimax-code-test-helpers';
+import { writeMiniMaxCodeRuntimeFixture, writeMiniMaxCodeSessionFixture } from './minimax-code-test-helpers';
 
 const tempRoots: string[] = [];
 
@@ -116,5 +118,80 @@ describe('MiniMax Code db helpers', () => {
         );
 
         await expect(listMiniMaxCodeWorkspaceGroups(sessionsDir)).resolves.toEqual([]);
+    });
+
+    it('should delete a finalized session directory and every authoritative runtime row', async () => {
+        const tempRoot = await makeTempRoot();
+        const sessionsDir = path.join(tempRoot, 'v2', 'sessions');
+        const runtimeDbPath = path.join(tempRoot, 'v2', 'sqlite', 'runtime-state.sqlite');
+        const workspacePath = path.join(tempRoot, 'project');
+        const generatedFile = path.join(workspacePath, 'generated-plan.md');
+        const fixture = await writeMiniMaxCodeSessionFixture({ sessionsDir, workspacePath });
+        await Bun.write(generatedFile, 'Keep generated workspace output');
+        const { keepSessionId } = await writeMiniMaxCodeRuntimeFixture({
+            assetPath: generatedFile,
+            runtimeDbPath,
+            sessionId: fixture.sessionId,
+        });
+
+        const result = await deleteMiniMaxCodeSession(sessionsDir, runtimeDbPath, fixture.sessionId);
+
+        expect(result.deletedSessionIds).toEqual([fixture.sessionId]);
+        expect(result.deletedFiles).toContain(fixture.snapshotPath);
+        expect(await Bun.file(fixture.snapshotPath).exists()).toBe(false);
+        expect(await Bun.file(generatedFile).text()).toBe('Keep generated workspace output');
+        const db = new Database(runtimeDbPath, { readonly: true, strict: true });
+        try {
+            const dump = db.serialize().toString();
+            expect(dump).not.toContain(fixture.sessionId);
+            expect(dump).toContain(keepSessionId);
+        } finally {
+            db.close();
+        }
+    });
+
+    it('should restore session files and preserve runtime rows when the session is locked', async () => {
+        const tempRoot = await makeTempRoot();
+        const sessionsDir = path.join(tempRoot, 'v2', 'sessions');
+        const runtimeDbPath = path.join(tempRoot, 'v2', 'sqlite', 'runtime-state.sqlite');
+        const fixture = await writeMiniMaxCodeSessionFixture({
+            sessionsDir,
+            workspacePath: path.join(tempRoot, 'project'),
+        });
+        await writeMiniMaxCodeRuntimeFixture({
+            locked: true,
+            runtimeDbPath,
+            sessionId: fixture.sessionId,
+        });
+
+        await expect(deleteMiniMaxCodeSession(sessionsDir, runtimeDbPath, fixture.sessionId)).rejects.toThrow(
+            'currently locked',
+        );
+        expect(await Bun.file(fixture.snapshotPath).exists()).toBe(true);
+        const db = new Database(runtimeDbPath, { readonly: true, strict: true });
+        try {
+            expect(
+                db.query('SELECT session_id FROM local_runtime_sessions WHERE session_id = ?').get(fixture.sessionId),
+            ).not.toBeNull();
+        } finally {
+            db.close();
+        }
+    });
+
+    it('should reject unsafe session ids without deleting files', async () => {
+        const tempRoot = await makeTempRoot();
+        const sessionsDir = path.join(tempRoot, 'v2', 'sessions');
+        const fixture = await writeMiniMaxCodeSessionFixture({
+            sessionsDir,
+            workspacePath: path.join(tempRoot, 'project'),
+        });
+
+        await expect(
+            deleteMiniMaxCodeSession(sessionsDir, path.join(tempRoot, 'runtime-state.sqlite'), '../session'),
+        ).resolves.toEqual({
+            deletedFiles: [],
+            deletedSessionIds: [],
+        });
+        expect(await Bun.file(fixture.snapshotPath).exists()).toBe(true);
     });
 });

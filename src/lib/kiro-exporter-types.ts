@@ -47,7 +47,7 @@ export type KiroSessionSummary = {
     imageCount: number;
     lastActiveAtIso: string | null;
     lastActiveAtMs: number | null;
-    mergedSessionIds: string[];
+    continuationSessionIds: string[];
     messageCount: number;
     promptLogCount: number;
     renderablePartCount: number;
@@ -101,8 +101,4 @@ export type KiroExportOptions = {
     includeMetadata: boolean;
     includeTools: boolean;
     outputFormat: ExportFormat;
-};
-
-export type KiroSessionMergeOptions = {
-    merged?: boolean;
 };

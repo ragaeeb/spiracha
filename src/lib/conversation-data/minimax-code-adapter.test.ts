@@ -2,8 +2,8 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { writeMiniMaxCodeSessionFixture } from '../minimax-code-test-helpers';
-import { listConversationsForPath, resolveConversationRef } from './index';
+import { writeMiniMaxCodeRuntimeFixture, writeMiniMaxCodeSessionFixture } from '../minimax-code-test-helpers';
+import { deleteConversation, listConversationsForPath, resolveConversationRef } from './index';
 
 const tempRoots: string[] = [];
 
@@ -91,5 +91,24 @@ describe('MiniMax Code conversation adapter', () => {
             id: 'mvs_08a9fc9128b443a7b5cc92bc690ca37b',
             source: 'minimax-code',
         });
+    });
+
+    it('should delete MiniMax Code sessions through the stable facade', async () => {
+        const tempRoot = await makeTempRoot();
+        const workspacePath = path.join(tempRoot, 'repo');
+        const sessionsDir = path.join(tempRoot, 'v2', 'sessions');
+        const runtimeDbPath = path.join(tempRoot, 'v2', 'sqlite', 'runtime-state.sqlite');
+        const fixture = await writeMiniMaxCodeSessionFixture({ sessionsDir, workspacePath });
+        await writeMiniMaxCodeRuntimeFixture({ runtimeDbPath, sessionId: fixture.sessionId });
+
+        const result = await deleteConversation({
+            id: fixture.sessionId,
+            locations: { minimaxCodeRuntimeDbPath: runtimeDbPath, minimaxCodeSessionsDir: sessionsDir },
+            source: 'minimax-code',
+        });
+
+        expect(result?.deletedIds).toEqual([fixture.sessionId]);
+        expect(result?.deletedFiles).toContain(fixture.snapshotPath);
+        expect(await Bun.file(fixture.snapshotPath).exists()).toBe(false);
     });
 });

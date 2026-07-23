@@ -16,7 +16,6 @@ import {
 import { formatDateTime, formatNumber, formatTokens } from '#/lib/formatters';
 
 type ClaudeCodeSessionsTableProps = {
-    merged?: boolean;
     onDeleteSession: (session: ClaudeCodeSessionSummary) => void;
     onDeleteSessions: (sessionIds: string[]) => void;
     onExportSession: (session: ClaudeCodeSessionSummary) => void;
@@ -28,7 +27,6 @@ const columnHelper = createColumnHelper<ClaudeCodeSessionSummary>();
 const defaultSorting: SortingState = [{ desc: true, id: 'lastActive' }];
 
 const columns = (
-    merged: boolean,
     onDeleteSession: (session: ClaudeCodeSessionSummary) => void,
     onExportSession: (session: ClaudeCodeSessionSummary) => void,
 ) =>
@@ -38,7 +36,6 @@ const columns = (
                 <Link
                     className="block w-[16rem] max-w-[22rem] space-y-1 rounded-md outline-none transition hover:opacity-80 focus-visible:ring-2 focus-visible:ring-[var(--accent)] lg:w-auto"
                     params={{ sessionId: info.row.original.sessionId }}
-                    search={merged ? { merged: true } : undefined}
                     to="/claude-code-sessions/$sessionId"
                 >
                     <p className="truncate font-medium underline-offset-2 hover:underline">{info.getValue()}</p>
@@ -118,17 +115,13 @@ const columns = (
     ] as const;
 
 export function ClaudeCodeSessionsTable({
-    merged = false,
     onDeleteSession,
     onDeleteSessions,
     onExportSession,
     onExportSessions,
     sessions,
 }: ClaudeCodeSessionsTableProps) {
-    const tableColumns = useMemo(
-        () => columns(merged, onDeleteSession, onExportSession),
-        [merged, onDeleteSession, onExportSession],
-    );
+    const tableColumns = useMemo(() => columns(onDeleteSession, onExportSession), [onDeleteSession, onExportSession]);
 
     return (
         <DataTable

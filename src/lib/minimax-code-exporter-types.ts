@@ -21,6 +21,16 @@ export const resolveMiniMaxCodeSessionsDir = (): string => {
     return configured ? configured : path.join(resolveMiniMaxCodeDataDir(), 'v2', 'sessions');
 };
 
+export const resolveMiniMaxCodeRuntimeDbPath = (sessionsDir = resolveMiniMaxCodeSessionsDir()): string => {
+    const configured = process.env.SPIRACHA_MINIMAX_CODE_RUNTIME_DB_PATH?.trim();
+    return configured ? configured : path.join(path.dirname(sessionsDir), 'sqlite', 'runtime-state.sqlite');
+};
+
+export type DeleteMiniMaxCodeSessionResult = {
+    deletedFiles: string[];
+    deletedSessionIds: string[];
+};
+
 export type MiniMaxCodeWorkspaceGroup = {
     assistantMessageCount: number;
     key: string;

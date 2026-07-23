@@ -4,11 +4,9 @@ import {
     encodeAnalyticsProjectSelectValue,
     getTranscriptDisplayState,
     parseAnalyticsSearch,
-    parseMergedSearch,
     parseTextQuerySearch,
     parseThreadTranscriptSearch,
     withAnalyticsProjectSearch,
-    withMergedSearch,
     withTextQuerySearch,
     withThreadTranscriptSearch,
 } from './route-search';
@@ -46,13 +44,6 @@ describe('route search helpers', () => {
         expect(withAnalyticsProjectSearch({ project: 'spiracha', q: 'ignored' }, null)).toEqual({ q: 'ignored' });
     });
 
-    it('should keep merged conversation state bookmarkable', () => {
-        expect(parseMergedSearch({ merged: 'true' })).toEqual({ merged: true });
-        expect(parseMergedSearch({ merged: 'false' })).toEqual({});
-        expect(withMergedSearch({ q: 'session' }, true)).toEqual({ merged: true, q: 'session' });
-        expect(withMergedSearch({ merged: true, q: 'session' }, false)).toEqual({ q: 'session' });
-    });
-
     it('should encode analytics select values so the all-projects sentinel cannot collide with project names', () => {
         expect(encodeAnalyticsProjectSelectValue(null)).toBe('__all__');
         expect(encodeAnalyticsProjectSelectValue('__all__')).toBe('project:__all__');
@@ -67,7 +58,6 @@ describe('route search helpers', () => {
                 commentary: 'true',
                 extra: '1',
                 full: 'true',
-                merged: 'true',
                 q: '  export  ',
                 raw: 'false',
                 sort: 'latest',
@@ -78,7 +68,6 @@ describe('route search helpers', () => {
             commentary: true,
             extra: true,
             full: true,
-            merged: true,
             q: 'export',
             sort: 'latest',
             tools: true,
@@ -98,7 +87,6 @@ describe('route search helpers', () => {
                 {
                     extra: true,
                     full: true,
-                    merged: true,
                     q: '',
                     sort: 'latest',
                     tools: false,
@@ -109,7 +97,6 @@ describe('route search helpers', () => {
             commentary: true,
             extra: true,
             full: true,
-            merged: true,
             sort: 'latest',
             user: true,
         });

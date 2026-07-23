@@ -260,7 +260,7 @@ describe('kiro workspace discovery', () => {
         expect(transcript && 'rawExecutions' in transcript).toBe(false);
     });
 
-    it('should merge only explicit Kiro continuation chains when requested', async () => {
+    it('should always merge explicit Kiro continuation chains under the parent session', async () => {
         const sessionsDir = await makeTempRoot();
         const rootId = 'session-root';
         const childId = 'session-child';
@@ -301,34 +301,33 @@ describe('kiro workspace discovery', () => {
 
         const workspaces = await listKiroWorkspaceGroups(sessionsDir);
         const workspaceKey = workspaces[0]?.key ?? '';
-        const physicalSessions = await listKiroSessionsForGroup(workspaceKey, sessionsDir);
-        const mergedSessions = await listKiroSessionsForGroup(workspaceKey, sessionsDir, { merged: true });
+        const sessions = await listKiroSessionsForGroup(workspaceKey, sessionsDir);
+        const parentTranscript = await readKiroSessionTranscript(sessionsDir, rootId);
         const physicalChild = await readKiroSessionTranscript(sessionsDir, childId);
-        const mergedFromChild = await readKiroSessionTranscript(sessionsDir, childId, { merged: true });
 
-        expect(physicalSessions).toHaveLength(3);
+        expect(workspaces[0]).toMatchObject({ sessionCount: 1 });
         expect(physicalChild?.session.sessionId).toBe(childId);
         expect(physicalChild?.entries[0]?.parts[0]?.text).toStartWith('# Conversation Summary');
-        expect(mergedSessions).toHaveLength(1);
-        expect(mergedSessions[0]).toMatchObject({
+        expect(sessions).toHaveLength(1);
+        expect(sessions[0]).toMatchObject({
+            continuationSessionIds: chain,
             createdAtMs: 1_781_212_901_000,
             lastActiveAtMs: 1_781_212_906_000,
-            mergedSessionIds: chain,
             messageCount: 4,
-            sessionId: leafId,
+            sessionId: rootId,
             title: 'Original task',
             userMessageCount: 1,
         });
-        expect(mergedFromChild?.session).toMatchObject({
-            mergedSessionIds: chain,
-            sessionId: leafId,
+        expect(parentTranscript?.session).toMatchObject({
+            continuationSessionIds: chain,
+            sessionId: rootId,
             title: 'Original task',
         });
         expect(
-            mergedFromChild?.entries.flatMap((entry) => entry.parts.map((part) => part.text)).filter(Boolean),
+            parentTranscript?.entries.flatMap((entry) => entry.parts.map((part) => part.text)).filter(Boolean),
         ).toEqual(['Original request', 'Image attachment', 'Root response', 'Child response', 'Leaf response']);
 
-        const deleted = await deleteKiroSession(sessionsDir, childId, { merged: true });
+        const deleted = await deleteKiroSession(sessionsDir, rootId);
         expect(deleted.deletedSessionIds).toEqual(chain);
         await expect(
             Promise.all(chain.map((sessionId) => readKiroSessionTranscript(sessionsDir, sessionId))),
@@ -369,10 +368,42 @@ describe('kiro workspace discovery', () => {
         }
 
         const workspaces = await listKiroWorkspaceGroups(sessionsDir);
-        const sessions = await listKiroSessionsForGroup(workspaces[0]?.key ?? '', sessionsDir, { merged: true });
+        const sessions = await listKiroSessionsForGroup(workspaces[0]?.key ?? '', sessionsDir);
 
         expect(sessions).toHaveLength(3);
-        expect(sessions.every((session) => session.mergedSessionIds.length === 1)).toBe(true);
+        expect(sessions.every((session) => session.continuationSessionIds.length === 1)).toBe(true);
+    });
+
+    it('should delete only a directly requested Kiro continuation segment', async () => {
+        const sessionsDir = await makeTempRoot();
+        const rootId = 'session-root';
+        const childId = 'session-child';
+        await writeSession({
+            activeTabs: [rootId],
+            createdAtMs: 1_781_212_901_000,
+            sessionId: rootId,
+            sessionsDir,
+            title: 'Original task',
+            updatedAtMs: 1_781_212_902_000,
+            userText: 'Original request',
+            workspacePath: corpusCwd,
+        });
+        await writeSession({
+            activeTabs: [rootId, childId],
+            createdAtMs: 1_781_212_903_000,
+            sessionId: childId,
+            sessionsDir,
+            title: 'Original task (Continued)',
+            updatedAtMs: 1_781_212_904_000,
+            userText: '# Conversation Summary\n\nEarlier context.',
+            workspacePath: corpusCwd,
+        });
+
+        const result = await deleteKiroSession(sessionsDir, childId);
+
+        expect(result.deletedSessionIds).toEqual([childId]);
+        await expect(readKiroSessionTranscript(sessionsDir, rootId)).resolves.not.toBeNull();
+        await expect(readKiroSessionTranscript(sessionsDir, childId)).resolves.toBeNull();
     });
 
     it('should delete a Kiro session file, index entry, and matching execution files', async () => {
@@ -568,7 +599,22 @@ describe('kiro workspace discovery', () => {
                             actionType: 'assistantMessage',
                             chatSessionId: sessionId,
                             emittedAt: 1_781_464_088_300,
-                            output: { message: 'Based on my review of the code, here is the analysis.' },
+                            output: {
+                                message:
+                                    "These helpers should all be removed since they're internal. Let me remove them:",
+                            },
+                        },
+                        {
+                            actionId: 'replace-file',
+                            actionType: 'replace',
+                            chatSessionId: sessionId,
+                            emittedAt: 1_781_464_088_350,
+                            input: {
+                                file: 'src/cleanup-briefs/decompose-gate.ts',
+                                local: 'file:///workspace/src/cleanup-briefs/decompose-gate.ts',
+                                modified: 'kiro-diff:/src/cleanup-briefs/decompose-gate.ts?commitId=next',
+                                original: 'kiro-diff:/src/cleanup-briefs/decompose-gate.ts?commitId=previous',
+                            },
                         },
                     ],
                     chatSessionId: sessionId,
@@ -594,6 +640,7 @@ describe('kiro workspace discovery', () => {
             'assistant',
             'tool',
             'assistant',
+            'tool',
         ]);
         expect(transcript?.historyEntries.map((entry) => entry.role)).toEqual(['user', 'assistant']);
         expect(transcript?.executionEntries.map((entry) => entry.role)).toEqual([
@@ -604,6 +651,7 @@ describe('kiro workspace discovery', () => {
             'assistant',
             'tool',
             'assistant',
+            'tool',
         ]);
         expect(transcript && 'rawExecutions' in transcript).toBe(false);
         expect(JSON.stringify(transcript).length).toBeLessThan(200_000);
@@ -616,6 +664,7 @@ describe('kiro workspace discovery', () => {
             'message',
             'tool_call',
             'message',
+            'tool_call',
         ]);
         expect(transcript?.entries[0]?.parts).toHaveLength(1);
         expect(transcript?.entries[0]?.parts[0]?.text).toContain('performance-bottlenecks.md');
@@ -645,12 +694,20 @@ describe('kiro workspace discovery', () => {
         expect(transcript?.entries[6]?.parts[0]?.text).toContain(
             'Search: Searching for the shortIdentifierScan retention implementation',
         );
+        expect(transcript?.entries[8]?.parts[0]).toMatchObject({
+            raw: {
+                command: 'Replace file: src/cleanup-briefs/decompose-gate.ts',
+                toolCallId: 'placeholder-execution:replace-file',
+                toolName: 'replace',
+            },
+            text: 'Replace file: src/cleanup-briefs/decompose-gate.ts',
+        });
         expect(
             transcript?.entries.filter((entry) => entry.role === 'assistant').map((entry) => entry.parts[0]?.text),
         ).toEqual([
             "I'll conduct a comprehensive code review of the performance optimization work.",
             'Let me continue reading the critical files to complete my analysis.',
-            'Based on my review of the code, here is the analysis.',
+            "These helpers should all be removed since they're internal. Let me remove them:",
         ]);
         expect(transcript?.session).toMatchObject({
             assistantMessageCount: 3,
@@ -775,7 +832,7 @@ describe('kiro workspace discovery', () => {
         ]);
     });
 
-    it('should keep unmatched placeholders and interleave unmatched executions by start time', async () => {
+    it('should pair unmatched Kiro placeholders with complete executions in order', async () => {
         const sessionsDir = await makeTempRoot();
         const sessionId = 'session-mismatched-execution';
         const workspacePath = path.join(homeDir, 'workspace', 'ushman-mismatched');
@@ -854,7 +911,6 @@ describe('kiro workspace discovery', () => {
 
         expect(transcript?.entries.map((entry) => entry.parts[0]?.text)).toEqual([
             'First task',
-            'On it.',
             'First task complete',
             'Second task',
             'Second task complete',

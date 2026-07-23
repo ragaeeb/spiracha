@@ -65,7 +65,7 @@ POST /api/v1/conversations/export
 GET  /api/v1/resolve?ref=<url-or-deeplink>
 ```
 
-The default list selector is `last_final_answer`, which keeps `fgh --collect` style clients fast and small. Use `message_selector=all` when a client needs the full normalized thread. Claude Code and Kiro continuation segments remain physical by default; pass `merged=true` to list, read, export, delete, or generate focused evidence for a continuation lineage as one logical conversation.
+The default list selector is `last_final_answer`, which keeps `fgh --collect` style clients fast and small. Use `message_selector=all` when a client needs the full normalized thread. Claude Code and Kiro lists coalesce recognized compacted continuations under the parent conversation ID. Reading, exporting, generating focused evidence for, or deleting that parent operates on the complete lineage. A direct child-segment ID remains available as a physical-session lookup and affects only that segment.
 
 Conversation lists use opaque keyset cursors ordered by update time, source, and conversation ID. Pass `meta.next_cursor` unchanged with the same filters to request the next page. The 2.0 offset cursor format is intentionally unsupported; clients must begin a fresh traversal after upgrading.
 
@@ -139,7 +139,7 @@ Focused evidence is a deterministic, lossy Markdown export for qualitative DX an
 | Qoder | `~/Library/Application Support/Qoder/User/globalStorage/state.vscdb` and `~/Library/Application Support/Qoder/User/workspaceStorage` | `SPIRACHA_QODER_GLOBAL_STATE_DB`, `SPIRACHA_QODER_WORKSPACE_STORAGE_DIR` |
 | Cursor | `~/Library/Application Support/Cursor/User` on macOS | `SPIRACHA_CURSOR_USER_DIR`, `SPIRACHA_CURSOR_PROJECTS_DIR` |
 | Antigravity | `~/.gemini/antigravity-ide` and `~/.gemini/antigravity` | `SPIRACHA_ANTIGRAVITY_DIRS`, `SPIRACHA_ANTIGRAVITY_DIR` |
-| MiniMax Code | `~/.minimax/v2/sessions` | `SPIRACHA_MINIMAX_CODE_SESSIONS_DIR` |
+| MiniMax Code | `~/.minimax/v2/sessions` and `~/.minimax/v2/sqlite/runtime-state.sqlite` | `SPIRACHA_MINIMAX_CODE_SESSIONS_DIR`, `SPIRACHA_MINIMAX_CODE_RUNTIME_DB_PATH` |
 | OpenCode | `${XDG_DATA_HOME:-~/.local/share}/opencode/opencode.db` | `SPIRACHA_OPENCODE_DB` |
 | UI exports | OS temp directory under `spiracha-ui-exports` | `SPIRACHA_UI_EXPORT_DIR` |
 
@@ -159,6 +159,7 @@ Markdown transcript exports identify this parser contract with `transcript_schem
 - `/threads/$threadId` for Codex thread detail.
 - `/claude-code`, `/grok`, `/kiro`, `/qoder`, `/cursor`, `/antigravity`, `/minimax-code`, and `/opencode` for source inventories.
 - Source detail routes include `/claude-code-sessions/$sessionId`, `/grok-sessions/$sessionId`, `/kiro-sessions/$sessionId`, `/qoder-sessions/$sessionId`, `/cursor-threads/$composerId`, `/antigravity-conversations/$conversationId`, `/minimax-code-sessions/$sessionId`, and `/opencode-sessions/$sessionId`.
+- MiniMax Code workspace and detail pages support single, selected, and workspace-wide deletion. Deletion removes finalized session directories and authoritative runtime database rows while preserving generated workspace files and append-only observability logs.
 - `/analytics` for project-scoped Codex token totals, average and median thread size, archive counts, tool usage, model tokens, client sources, and reasoning-effort breakdowns.
 - `/settings` for transcript path conversion and username redaction. Export dialogs remember their own last submitted options.
 

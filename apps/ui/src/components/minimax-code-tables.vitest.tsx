@@ -62,7 +62,9 @@ describe('MiniMax Code tables', () => {
         expect(screen.getByText('2')).toBeTruthy();
     });
 
-    it('should export one or multiple selected sessions without exposing delete actions', () => {
+    it('should expose row and bulk delete actions alongside export actions', async () => {
+        const onDeleteSession = vi.fn();
+        const onDeleteSessions = vi.fn();
         const onExportSession = vi.fn();
         const onExportSessions = vi.fn();
         const session = {
@@ -95,6 +97,8 @@ describe('MiniMax Code tables', () => {
         render(
             <MiniMaxCodeSessionsTable
                 sessions={[session]}
+                onDeleteSession={onDeleteSession}
+                onDeleteSessions={onDeleteSessions}
                 onExportSession={onExportSession}
                 onExportSessions={onExportSessions}
             />,
@@ -103,12 +107,26 @@ describe('MiniMax Code tables', () => {
         expect(screen.getByRole('link', { name: /Refactor evidence extraction/i }).getAttribute('href')).toBe(
             '/minimax-code-sessions/mvs_session',
         );
-        fireEvent.click(screen.getByRole('button', { name: 'Export Refactor evidence extraction' }));
+        fireEvent.pointerDown(screen.getByRole('button', { name: 'Actions for Refactor evidence extraction' }), {
+            button: 0,
+            ctrlKey: false,
+            pointerType: 'mouse',
+        });
+        fireEvent.click(await screen.findByRole('menuitem', { name: 'Export session' }));
         expect(onExportSession).toHaveBeenCalledWith(session);
 
         fireEvent.click(screen.getByRole('checkbox', { name: 'Select row mvs_session' }));
         fireEvent.click(screen.getByRole('button', { name: 'Export selected session' }));
         expect(onExportSessions).toHaveBeenCalledWith(['mvs_session']);
-        expect(screen.queryByRole('button', { name: /Delete/i })).toBeNull();
+        fireEvent.click(screen.getByRole('button', { name: 'Delete selected session' }));
+        expect(onDeleteSessions).toHaveBeenCalledWith(['mvs_session']);
+
+        fireEvent.pointerDown(screen.getByRole('button', { name: 'Actions for Refactor evidence extraction' }), {
+            button: 0,
+            ctrlKey: false,
+            pointerType: 'mouse',
+        });
+        fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete session' }));
+        expect(onDeleteSession).toHaveBeenCalledWith(session);
     });
 });

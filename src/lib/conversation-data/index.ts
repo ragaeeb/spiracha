@@ -232,7 +232,6 @@ export const deleteConversations = async (
             result: await deleteAdapterConversation({
                 id,
                 locations: options.locations,
-                merged: options.merged,
                 source: options.source,
             }),
         }),

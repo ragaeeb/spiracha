@@ -112,7 +112,6 @@ describe('conversation client', () => {
                 generatedAt: '2026-07-19T12:00:00.000Z',
                 id: 'thread-1',
                 lens: evidenceLens,
-                merged: true,
                 source: 'codex',
             });
             expect(result?.markdown).toBe('# Focused evidence: Thread 1\n');
@@ -121,7 +120,7 @@ describe('conversation client', () => {
                     body: { generated_at: '2026-07-19T12:00:00.000Z', lens: evidenceLens },
                     method: 'POST',
                     pathname: '/api/v1/conversations/codex/thread-1/evidence',
-                    search: '?merged=true',
+                    search: '',
                 },
             ]);
         } finally {
@@ -229,7 +228,7 @@ describe('conversation client', () => {
                 expect(url.searchParams.get('cwd')).toBe('/repo');
                 expect(url.searchParams.get('include_messages')).toBe('true');
                 expect(url.searchParams.get('message_selector')).toBe('last_final_answer');
-                expect(url.searchParams.get('merged')).toBe('true');
+                expect(url.searchParams.has('merged')).toBe(false);
                 expect(url.searchParams.get('source')).toBe('codex,qoder');
                 expect(url.searchParams.get('updated_after_ms')).toBe('100');
 
@@ -251,7 +250,6 @@ describe('conversation client', () => {
                 client.listConversations({
                     cwd: '/repo',
                     includeMessages: true,
-                    merged: true,
                     messageSelector: 'last_final_answer',
                     sources: ['codex', 'qoder'],
                     updatedAfterMs: 100,

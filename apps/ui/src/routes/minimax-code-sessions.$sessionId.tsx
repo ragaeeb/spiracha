@@ -1,10 +1,11 @@
 import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/codex-browser-types';
 import type { MiniMaxCodeSessionTranscript } from '@spiracha/lib/minimax-code-exporter-types';
-import { useMutation, useSuspenseQuery } from '@tanstack/react-query';
-import { createFileRoute, Link } from '@tanstack/react-router';
-import { Download } from 'lucide-react';
+import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
+import { Download, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Breadcrumbs } from '#/components/breadcrumbs';
+import { DeleteConfirmDialog } from '#/components/delete-confirm-dialog';
 import { ExportDialog } from '#/components/export-dialog';
 import { JsonPanel } from '#/components/json-panel';
 import { LoadingPanel } from '#/components/loading-panel';
@@ -19,13 +20,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import type { ExportDialogOptions } from '#/lib/export-options';
 import { formatDateTime, formatList, formatNumber } from '#/lib/formatters';
-import { miniMaxCodeSessionDetailQueryOptions } from '#/lib/minimax-code-queries';
-import { exportMiniMaxCodeSessionFn } from '#/lib/minimax-code-server';
+import { miniMaxCodeSessionDetailQueryOptions, miniMaxCodeWorkspacesQueryOptions } from '#/lib/minimax-code-queries';
+import { deleteMiniMaxCodeSessionFn, exportMiniMaxCodeSessionFn } from '#/lib/minimax-code-server';
 import {
     getMiniMaxCodeThreadTranscriptStats,
     miniMaxCodeTranscriptToThreadEvents,
 } from '#/lib/minimax-code-transcript-events';
 import { RouteStateResetBoundary } from '#/lib/route-state-reset';
+import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
 const MiniMaxCodeSessionDetailErrorComponent = ({ error }: { error: Error }) => {
     return <RouteErrorPanel error={error} title="Failed to load MiniMax Code session" />;
@@ -73,7 +75,10 @@ const buildTranscriptStatsItems = (
 ];
 
 const MiniMaxCodeSessionDetailPage = () => {
+    const navigate = useNavigate({ from: Route.fullPath });
+    const queryClient = useQueryClient();
     const detail = useSuspenseQuery(miniMaxCodeSessionDetailQueryOptions(Route.useParams().sessionId)).data;
+    const [deleteOpen, setDeleteOpen] = useState(false);
     const [pendingExport, setPendingExport] = useState(false);
     const [showToolCalls, setShowToolCalls] = useState(false);
     const [showCommentary, setShowCommentary] = useState(false);
@@ -102,20 +107,58 @@ const MiniMaxCodeSessionDetailPage = () => {
         },
         onSuccess: () => setPendingExport(false),
     });
+    const deleteMutation = useMutation({
+        mutationFn: () => deleteMiniMaxCodeSessionFn({ data: { sessionId: detail.session.sessionId } }),
+        onSuccess: async () => {
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ['minimax-code-workspaces'] }),
+                queryClient.invalidateQueries({
+                    queryKey: ['minimax-code-sessions', detail.session.workspaceKey],
+                }),
+                queryClient.invalidateQueries({ queryKey: ['minimax-code-session', detail.session.sessionId] }),
+            ]);
+            const workspaces = await queryClient.fetchQuery(miniMaxCodeWorkspacesQueryOptions());
+            if (
+                shouldNavigateToSourceIndexAfterDelete(
+                    workspaces,
+                    detail.session.workspaceKey,
+                    (workspace) => workspace.key,
+                )
+            ) {
+                await navigate({ to: '/minimax-code' });
+                return;
+            }
+            await navigate({
+                params: { workspaceKey: detail.session.workspaceKey },
+                to: '/minimax-code/$workspaceKey',
+            });
+        },
+    });
 
     return (
         <div className="space-y-4">
             <PageHeader
                 actions={
-                    <Button
-                        className="rounded-full"
-                        type="button"
-                        variant="outline"
-                        onClick={() => setPendingExport(true)}
-                    >
-                        <Download className="mr-2 size-4" />
-                        Export
-                    </Button>
+                    <>
+                        <Button
+                            className="rounded-full"
+                            type="button"
+                            variant="outline"
+                            onClick={() => setPendingExport(true)}
+                        >
+                            <Download className="mr-2 size-4" />
+                            Export
+                        </Button>
+                        <Button
+                            className="rounded-full border-[var(--destructive)]/20 text-[var(--destructive)]"
+                            type="button"
+                            variant="outline"
+                            onClick={() => setDeleteOpen(true)}
+                        >
+                            <Trash2 className="mr-2 size-4" />
+                            Delete
+                        </Button>
+                    </>
                 }
                 breadcrumb={
                     <Breadcrumbs
@@ -217,6 +260,26 @@ const MiniMaxCodeSessionDetailPage = () => {
                     setPendingExport(open);
                     if (!open) {
                         exportMutation.reset();
+                    }
+                }}
+            />
+            <DeleteConfirmDialog
+                confirmLabel={deleteMutation.isPending ? 'Deleting...' : 'Delete session'}
+                description={`Permanently delete "${detail.session.title}". This removes its finalized session directory and runtime database rows. Generated workspace files and observability logs are preserved.`}
+                errorMessage={
+                    deleteMutation.isError
+                        ? deleteMutation.error instanceof Error
+                            ? deleteMutation.error.message
+                            : 'Session delete failed'
+                        : null
+                }
+                open={deleteOpen}
+                title="Delete this MiniMax Code session?"
+                onConfirm={() => deleteMutation.mutate()}
+                onOpenChange={(open) => {
+                    setDeleteOpen(open);
+                    if (!open) {
+                        deleteMutation.reset();
                     }
                 }}
             />

@@ -51,6 +51,7 @@ const transcript: KiroSessionTranscript = {
     session: {
         assistantMessageCount: 1,
         autonomyMode: 'Autopilot',
+        continuationSessionIds: ['session-a'],
         createdAtIso: '2026-06-14T10:00:00.000Z',
         createdAtMs: 1_781_434_800_000,
         defaultModelTitle: 'Agent',
@@ -59,7 +60,6 @@ const transcript: KiroSessionTranscript = {
         imageCount: 1,
         lastActiveAtIso: '2026-06-14T10:00:03.000Z',
         lastActiveAtMs: 1_781_434_803_000,
-        mergedSessionIds: ['session-a'],
         messageCount: 2,
         promptLogCount: 1,
         renderablePartCount: 3,

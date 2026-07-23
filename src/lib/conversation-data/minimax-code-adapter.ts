@@ -1,5 +1,6 @@
 import { mapWithConcurrency } from '../concurrency';
 import {
+    deleteMiniMaxCodeSession,
     listMiniMaxCodeSessionsForGroup,
     listMiniMaxCodeWorkspaceGroups,
     readMiniMaxCodeSessionTranscript,
@@ -10,7 +11,7 @@ import type {
     MiniMaxCodeToolCall,
     MiniMaxCodeTranscriptMessage,
 } from '../minimax-code-exporter-types';
-import { resolveMiniMaxCodeSessionsDir } from '../minimax-code-exporter-types';
+import { resolveMiniMaxCodeRuntimeDbPath, resolveMiniMaxCodeSessionsDir } from '../minimax-code-exporter-types';
 import { getMiniMaxCodeMessagePhase } from '../minimax-code-transcript-phase';
 import { runWithTranscriptLoadLimit } from '../transcript-load-limiter';
 import {
@@ -28,6 +29,7 @@ import type {
     ConversationDetail,
     ConversationMessage,
     ConversationPathMatch,
+    DeleteConversationOptions,
     GetConversationOptions,
     ListConversationsForPathOptions,
 } from './types';
@@ -36,6 +38,9 @@ const MINIMAX_CODE_CONVERSATION_HYDRATION_CONCURRENCY = 4;
 
 const getSessionsDir = (options: { locations?: { minimaxCodeSessionsDir?: string } }) =>
     options.locations?.minimaxCodeSessionsDir ?? resolveMiniMaxCodeSessionsDir();
+
+const getRuntimeDbPath = (options: { locations?: { minimaxCodeRuntimeDbPath?: string } }, sessionsDir: string) =>
+    options.locations?.minimaxCodeRuntimeDbPath ?? resolveMiniMaxCodeRuntimeDbPath(sessionsDir);
 
 const toolCallToMessages = (
     toolCall: MiniMaxCodeToolCall,
@@ -232,7 +237,17 @@ const getMiniMaxCodeConversation = async (options: GetConversationOptions): Prom
         : null;
 };
 
+const deleteMiniMaxCodeConversation = async (options: DeleteConversationOptions) => {
+    const sessionsDir = getSessionsDir(options);
+    const result = await deleteMiniMaxCodeSession(sessionsDir, getRuntimeDbPath(options, sessionsDir), options.id);
+    return {
+        deletedFiles: result.deletedFiles,
+        deletedIds: result.deletedSessionIds,
+    };
+};
+
 export const minimaxCodeConversationAdapter: ConversationAdapter = {
+    deleteConversation: deleteMiniMaxCodeConversation,
     getConversation: getMiniMaxCodeConversation,
     listConversationsForPath: listMiniMaxCodeConversationsForPath,
     source: 'minimax-code',

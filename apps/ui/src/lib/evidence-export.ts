@@ -5,7 +5,7 @@ import type {
     EvidenceLens,
 } from '@spiracha/lib/conversation-data/types';
 
-type EvidenceTarget = { id: string; merged?: boolean; source: ConversationSource };
+type EvidenceTarget = { id: string; source: ConversationSource };
 
 export const requestEvidenceExport = async (
     target: EvidenceTarget,
@@ -17,9 +17,8 @@ export const requestEvidenceExport = async (
         const path = validation.error.path ? `lens.${validation.error.path}` : 'lens';
         throw new Error(`Invalid evidence lens at ${path}: ${validation.error.message}`);
     }
-    const search = target.merged ? '?merged=true' : '';
     const response = await fetchImpl(
-        `/api/v1/conversations/${target.source}/${encodeURIComponent(target.id)}/evidence${search}`,
+        `/api/v1/conversations/${target.source}/${encodeURIComponent(target.id)}/evidence`,
         {
             body: JSON.stringify({ lens: validation.value }),
             headers: { 'Content-Type': 'application/json' },

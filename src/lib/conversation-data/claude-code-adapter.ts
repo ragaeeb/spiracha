@@ -149,20 +149,17 @@ const buildConversation = async (
     session: ClaudeCodeSessionSummary,
     projectsDir: string,
     matches: ConversationPathMatch[],
-    options: Pick<ListConversationsForPathOptions, 'includeMessages' | 'merged' | 'messageSelector'>,
+    options: Pick<ListConversationsForPathOptions, 'includeMessages' | 'messageSelector'>,
     loadedTranscript: ClaudeCodeSessionTranscript | null = null,
 ): Promise<ConversationDetail> => {
     const transcript = options.includeMessages
         ? (loadedTranscript ??
-          (await runWithTranscriptLoadLimit(
-              () => readClaudeCodeSessionTranscript(projectsDir, session.sessionId, { merged: options.merged }),
-              {
-                  id: session.sessionId,
-                  integration: 'claude-code',
-                  operation: 'api',
-                  path: session.filePath,
-              },
-          )))
+          (await runWithTranscriptLoadLimit(() => readClaudeCodeSessionTranscript(projectsDir, session.sessionId), {
+              id: session.sessionId,
+              integration: 'claude-code',
+              operation: 'api',
+              path: session.filePath,
+          })))
         : null;
     const allMessages = transcript ? transcriptToMessages(transcript) : [];
     const messages = options.includeMessages
@@ -174,19 +171,16 @@ const buildConversation = async (
         deepLinks: createDeepLinks(
             'claude-code',
             session.sessionId,
-            [
-                createConversationUiPath('claude-code-sessions', session.sessionId),
-                options.merged ? '?merged=true' : '',
-            ].join(''),
+            createConversationUiPath('claude-code-sessions', session.sessionId),
         ),
         id: session.sessionId,
         matches,
         messageCount: options.includeMessages ? allMessages.length : session.messageCount,
         messages,
         metadata: {
+            continuationSessionIds: session.continuationSessionIds,
             filePath: session.filePath,
             gitBranch: session.gitBranch,
-            mergedSessionIds: session.mergedSessionIds,
             model: session.model,
             totalTokens: session.totalTokens,
             version: session.version,
@@ -203,7 +197,7 @@ const listClaudeConversationsForPath = async (
     options: ListConversationsForPathOptions,
 ): Promise<ConversationDetail[]> => {
     const projectsDir = getProjectsDir(options);
-    const groups = await listClaudeCodeWorkspaceGroups(projectsDir, { merged: options.merged });
+    const groups = await listClaudeCodeWorkspaceGroups(projectsDir);
     const conversations: ConversationDetail[] = [];
 
     for (const group of groups) {
@@ -212,9 +206,9 @@ const listClaudeConversationsForPath = async (
             continue;
         }
 
-        const transcripts = (
-            await listClaudeCodeSessionTranscriptsForGroup(group.key, projectsDir, { merged: options.merged })
-        ).filter((transcript) => isWithinUpdatedWindow(transcript.session.lastActiveAtMs, options));
+        const transcripts = (await listClaudeCodeSessionTranscriptsForGroup(group.key, projectsDir)).filter(
+            (transcript) => isWithinUpdatedWindow(transcript.session.lastActiveAtMs, options),
+        );
         conversations.push(
             ...(await mapWithConcurrency(transcripts, CLAUDE_CONVERSATION_HYDRATION_CONCURRENCY, (transcript) =>
                 buildConversation(transcript.session, projectsDir, [match], options, transcript),
@@ -228,7 +222,7 @@ const listClaudeConversationsForPath = async (
 const getClaudeConversation = async (options: GetConversationOptions): Promise<ConversationDetail | null> => {
     const projectsDir = getProjectsDir(options);
     const transcript = await runWithTranscriptLoadLimit(
-        () => readClaudeCodeSessionTranscript(projectsDir, options.id, { merged: options.merged }),
+        () => readClaudeCodeSessionTranscript(projectsDir, options.id),
         {
             id: options.id,
             integration: 'claude-code',
@@ -246,7 +240,6 @@ const getClaudeConversation = async (options: GetConversationOptions): Promise<C
         [],
         {
             includeMessages: true,
-            merged: options.merged,
             messageSelector: options.messageSelector ?? 'all',
         },
         transcript,
@@ -254,7 +247,7 @@ const getClaudeConversation = async (options: GetConversationOptions): Promise<C
 };
 
 const deleteClaudeConversation = async (options: DeleteConversationOptions) => {
-    const result = await deleteClaudeCodeSession(getProjectsDir(options), options.id, { merged: options.merged });
+    const result = await deleteClaudeCodeSession(getProjectsDir(options), options.id);
     return {
         deletedFiles: result.deletedFiles,
         deletedIds: result.deletedSessionIds,

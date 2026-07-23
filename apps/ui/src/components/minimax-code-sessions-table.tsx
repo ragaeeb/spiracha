@@ -2,14 +2,22 @@ import type { MiniMaxCodeSessionSummary } from '@spiracha/lib/minimax-code-expor
 import { Link } from '@tanstack/react-router';
 import type { SortingState } from '@tanstack/react-table';
 import { createColumnHelper } from '@tanstack/react-table';
-import { Download } from 'lucide-react';
+import { Download, MoreHorizontal, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
 import { SelectionActionsToolbar } from '#/components/selection-actions-toolbar';
 import { Button } from '#/components/ui/button';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from '#/components/ui/dropdown-menu';
 import { formatDateTime, formatNumber } from '#/lib/formatters';
 
 type MiniMaxCodeSessionsTableProps = {
+    onDeleteSession: (session: MiniMaxCodeSessionSummary) => void;
+    onDeleteSessions: (sessionIds: string[]) => void;
     onExportSession: (session: MiniMaxCodeSessionSummary) => void;
     onExportSessions: (sessionIds: string[]) => void;
     sessions: MiniMaxCodeSessionSummary[];
@@ -18,7 +26,10 @@ type MiniMaxCodeSessionsTableProps = {
 const columnHelper = createColumnHelper<MiniMaxCodeSessionSummary>();
 const defaultSorting: SortingState = [{ desc: true, id: 'lastActive' }];
 
-const buildColumns = (onExportSession: (session: MiniMaxCodeSessionSummary) => void) =>
+const buildColumns = (
+    onDeleteSession: (session: MiniMaxCodeSessionSummary) => void,
+    onExportSession: (session: MiniMaxCodeSessionSummary) => void,
+) =>
     [
         columnHelper.accessor('title', {
             cell: (info) => (
@@ -60,17 +71,36 @@ const buildColumns = (onExportSession: (session: MiniMaxCodeSessionSummary) => v
         }),
         columnHelper.display({
             cell: (info) => (
-                <Button
-                    aria-label={`Export ${info.row.original.title}`}
-                    className="rounded-full"
-                    disabled={info.row.original.renderablePartCount === 0}
-                    size="icon"
-                    type="button"
-                    variant="ghost"
-                    onClick={() => onExportSession(info.row.original)}
-                >
-                    <Download className="size-4" />
-                </Button>
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button
+                            aria-label={`Actions for ${info.row.original.title}`}
+                            className="rounded-full"
+                            size="icon"
+                            type="button"
+                            variant="ghost"
+                            onClick={(event) => event.stopPropagation()}
+                        >
+                            <MoreHorizontal className="size-4" />
+                        </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                            disabled={info.row.original.renderablePartCount === 0}
+                            onClick={() => onExportSession(info.row.original)}
+                        >
+                            <Download className="mr-2 size-4" />
+                            Export session
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            className="text-[var(--destructive)]"
+                            onClick={() => onDeleteSession(info.row.original)}
+                        >
+                            <Trash2 className="mr-2 size-4" />
+                            Delete session
+                        </DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
             ),
             enableSorting: false,
             header: '',
@@ -79,11 +109,13 @@ const buildColumns = (onExportSession: (session: MiniMaxCodeSessionSummary) => v
     ] as const;
 
 export const MiniMaxCodeSessionsTable = ({
+    onDeleteSession,
+    onDeleteSessions,
     onExportSession,
     onExportSessions,
     sessions,
 }: MiniMaxCodeSessionsTableProps) => {
-    const columns = useMemo(() => buildColumns(onExportSession), [onExportSession]);
+    const columns = useMemo(() => buildColumns(onDeleteSession, onExportSession), [onDeleteSession, onExportSession]);
     return (
         <DataTable
             columns={columns}
@@ -98,6 +130,7 @@ export const MiniMaxCodeSessionsTable = ({
                     exportDisabled={selectedRows.some((row) => row.renderablePartCount === 0)}
                     itemLabel="session"
                     selectedCount={selectedRows.length}
+                    onDeleteSelected={() => onDeleteSessions(selectedRows.map((row) => row.sessionId))}
                     onExportSelected={() => onExportSessions(selectedRows.map((row) => row.sessionId))}
                 />
             )}

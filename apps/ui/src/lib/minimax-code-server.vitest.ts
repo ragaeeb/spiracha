@@ -2,16 +2,20 @@ import type { MiniMaxCodeSessionTranscript } from '@spiracha/lib/minimax-code-ex
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
+    deleteMiniMaxCodeSessionMock,
     readMiniMaxCodeSessionTranscriptMock,
     renderMiniMaxCodeTranscriptMock,
     renderSourceSessionDownloadMock,
     renderSourceSessionsDownloadMock,
     resolveMiniMaxCodeSessionsDirMock,
+    resolveMiniMaxCodeRuntimeDbPathMock,
 } = vi.hoisted(() => ({
+    deleteMiniMaxCodeSessionMock: vi.fn(),
     readMiniMaxCodeSessionTranscriptMock: vi.fn(),
     renderMiniMaxCodeTranscriptMock: vi.fn(),
     renderSourceSessionDownloadMock: vi.fn(),
     renderSourceSessionsDownloadMock: vi.fn(),
+    resolveMiniMaxCodeRuntimeDbPathMock: vi.fn(),
     resolveMiniMaxCodeSessionsDirMock: vi.fn(),
 }));
 
@@ -26,9 +30,11 @@ vi.mock('@tanstack/react-start', () => ({
 }));
 
 vi.mock('@spiracha/lib/minimax-code-db', () => ({
+    deleteMiniMaxCodeSession: deleteMiniMaxCodeSessionMock,
     listMiniMaxCodeSessionsForGroup: vi.fn(),
     listMiniMaxCodeWorkspaceGroups: vi.fn(),
     readMiniMaxCodeSessionTranscript: readMiniMaxCodeSessionTranscriptMock,
+    resolveMiniMaxCodeRuntimeDbPath: resolveMiniMaxCodeRuntimeDbPathMock,
     resolveMiniMaxCodeSessionsDir: resolveMiniMaxCodeSessionsDirMock,
 }));
 
@@ -45,7 +51,12 @@ vi.mock('./source-session-export-server', () => ({
     renderSourceSessionsDownload: renderSourceSessionsDownloadMock,
 }));
 
-import { exportMiniMaxCodeSessionFn, exportMiniMaxCodeSessionsFn } from './minimax-code-server';
+import {
+    deleteMiniMaxCodeSessionFn,
+    deleteMiniMaxCodeSessionsFn,
+    exportMiniMaxCodeSessionFn,
+    exportMiniMaxCodeSessionsFn,
+} from './minimax-code-server';
 
 const buildTranscript = (sessionId: string, title: string): MiniMaxCodeSessionTranscript =>
     ({
@@ -63,6 +74,11 @@ describe('MiniMax Code server operations', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         resolveMiniMaxCodeSessionsDirMock.mockReturnValue('/tmp/minimax/v2/sessions');
+        resolveMiniMaxCodeRuntimeDbPathMock.mockReturnValue('/tmp/minimax/v2/sqlite/runtime-state.sqlite');
+        deleteMiniMaxCodeSessionMock.mockImplementation(async (_sessionsDir, _runtimeDbPath, sessionId) => ({
+            deletedFiles: [`/tmp/${sessionId}/snapshot.json`],
+            deletedSessionIds: [sessionId],
+        }));
         renderMiniMaxCodeTranscriptMock.mockReturnValue('rendered transcript');
         renderSourceSessionDownloadMock.mockResolvedValue({ mode: 'download' });
         renderSourceSessionsDownloadMock.mockResolvedValue({ mode: 'download_url' });
@@ -120,5 +136,40 @@ describe('MiniMax Code server operations', () => {
                 },
             } as never),
         ).rejects.toThrow('MiniMax Code session not found: mvs_missing');
+    });
+
+    it('should force ZIP archives for batch exports even when the submitted option is false', async () => {
+        const first = buildTranscript('mvs_first', 'First session');
+        const second = buildTranscript('mvs_second', 'Second session');
+        readMiniMaxCodeSessionTranscriptMock.mockResolvedValueOnce(first).mockResolvedValueOnce(second);
+
+        await exportMiniMaxCodeSessionsFn({
+            data: {
+                includeCommentary: true,
+                includeMetadata: true,
+                includeTools: true,
+                outputFormat: 'md',
+                sessionIds: [first.session.sessionId, second.session.sessionId],
+                zipArchive: false,
+            },
+        } as never);
+
+        expect(renderSourceSessionsDownloadMock).toHaveBeenCalledWith(expect.objectContaining({ zipArchive: true }));
+    });
+
+    it('should delete one or multiple MiniMax Code sessions from the resolved v2 stores', async () => {
+        await deleteMiniMaxCodeSessionFn({ data: { sessionId: 'mvs_first' } } as never);
+        await deleteMiniMaxCodeSessionsFn({ data: { sessionIds: ['mvs_first', 'mvs_second'] } } as never);
+
+        expect(deleteMiniMaxCodeSessionMock).toHaveBeenCalledWith(
+            '/tmp/minimax/v2/sessions',
+            '/tmp/minimax/v2/sqlite/runtime-state.sqlite',
+            'mvs_first',
+        );
+        expect(deleteMiniMaxCodeSessionMock).toHaveBeenCalledWith(
+            '/tmp/minimax/v2/sessions',
+            '/tmp/minimax/v2/sqlite/runtime-state.sqlite',
+            'mvs_second',
+        );
     });
 });
