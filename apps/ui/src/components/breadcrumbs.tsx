@@ -11,6 +11,7 @@ type BreadcrumbItem =
     | {
           label: string;
           params?: Record<string, string>;
+          search?: Record<string, unknown>;
           title?: string;
           to: string;
           truncate?: boolean;
@@ -41,6 +42,7 @@ export const Breadcrumbs = ({ items }: BreadcrumbsProps) => {
                             'text-[var(--muted-foreground)] transition hover:text-[var(--foreground)]',
                         )}
                         params={item.params}
+                        search={item.search}
                         title={title}
                         to={item.to}
                     >

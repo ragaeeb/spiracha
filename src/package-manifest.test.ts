@@ -106,7 +106,17 @@ describe('package manifest', () => {
     });
 
     it('should document every supported source in contributor and UI metadata', async () => {
-        const sourceLabels = ['Codex', 'Claude Code', 'Grok', 'Kiro', 'Qoder', 'Cursor', 'Antigravity', 'OpenCode'];
+        const sourceLabels = [
+            'Codex',
+            'Claude Code',
+            'Grok',
+            'Kiro',
+            'Qoder',
+            'Cursor',
+            'Antigravity',
+            'MiniMax Code',
+            'OpenCode',
+        ];
         const documentedFiles = ['README.md', 'AGENTS.md', 'apps/ui/AGENTS.md', 'apps/ui/src/routes/__root.tsx'];
 
         for (const filePath of documentedFiles) {

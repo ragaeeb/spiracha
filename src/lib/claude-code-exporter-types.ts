@@ -54,6 +54,7 @@ export type ClaudeCodeSessionSummary = {
     inputTokens: number;
     lastActiveAtIso: string | null;
     lastActiveAtMs: number | null;
+    continuationSessionIds: string[];
     messageCount: number;
     model: string | null;
     outputTokens: number;

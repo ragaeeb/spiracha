@@ -41,8 +41,8 @@ export const listKiroWorkspacesFn = createServerFn({ method: 'GET' }).handler(as
 export const listKiroSessionsFn = createServerFn({ method: 'GET' })
     .validator(workspaceSchema)
     .handler(async ({ data }) => {
-        const { listKiroSessionsForGroup } = await import('@spiracha/lib/kiro-db');
-        return listKiroSessionsForGroup(data.workspaceKey);
+        const { listKiroSessionsForGroup, resolveKiroWorkspaceSessionsDir } = await import('@spiracha/lib/kiro-db');
+        return listKiroSessionsForGroup(data.workspaceKey, resolveKiroWorkspaceSessionsDir());
     });
 
 const loadKiroSessionTranscript = async (sessionId: string) => {
@@ -60,8 +60,9 @@ const loadKiroSessionTranscript = async (sessionId: string) => {
         },
         {
             id: sessionId,
+            integration: 'kiro',
+            operation: 'ui-detail',
             path: sessionsDir,
-            source: 'kiro-ui',
         },
     );
 };

@@ -6,6 +6,7 @@ export const CONVERSATION_SOURCES = [
     'qoder',
     'cursor',
     'antigravity',
+    'minimax-code',
     'opencode',
 ] as const;
 
@@ -22,6 +23,92 @@ export type ConversationMessagePhase =
     | 'unknown';
 
 export type ConversationMessageSelector = 'all' | 'last_assistant' | 'last_final_answer';
+
+export type ConversationToolEvidence = {
+    callId: string | null;
+    command: string | null;
+    durationMs: number | null;
+    exitCode: number | null;
+    inputText: string | null;
+    name: string;
+    namespace: string | null;
+    outputText: string | null;
+    status: 'failed' | 'succeeded' | 'unknown';
+    workdir: string | null;
+};
+
+export type ConversationEvidencePairingConfidence = 'exact' | 'ordered_fallback' | 'unpaired';
+
+export type ConversationEvidenceEvent = {
+    artifacts: string[];
+    conversationId: string;
+    createdAtMs: number | null;
+    messageId: string;
+    metadata: Record<string, unknown>;
+    order: number;
+    pairingConfidence: ConversationEvidencePairingConfidence;
+    phase: ConversationMessagePhase;
+    role: ConversationMessageRole;
+    source: ConversationSource;
+    text: string;
+    tool: ConversationToolEvidence | null;
+};
+
+export type EvidenceAnchor =
+    | { kind: 'tool'; names?: string[]; namespaces?: string[] }
+    | { executables: string[]; kind: 'shell-command'; subcommands?: string[] }
+    | { globs: string[]; kind: 'artifact' }
+    | { kind: 'schema'; prefixes: string[] }
+    | { globs: string[]; kind: 'cwd' }
+    | { kind: 'text'; literals: string[] };
+
+export type EvidenceLens = {
+    anchors: EvidenceAnchor[];
+    budget: {
+        commentaryCharactersPerEpisode: number;
+        failedOutputCharacters: number;
+        successfulOutputCharacters: number;
+        totalCharacters: number;
+    };
+    context: {
+        commentaryAfter: number;
+        commentaryBefore: number;
+        followRetries: boolean;
+        followWorkarounds: boolean;
+        includeReasoningSummaries: boolean;
+        maxOrderGap: number;
+    };
+    name: string;
+};
+
+export type EvidenceOmissionStats = {
+    budgetReached: boolean;
+    deduplicatedDiagnostics: number;
+    inputCharacters: number;
+    inputEvents: number;
+    omittedBinaryPayloads: number;
+    omittedEvents: number;
+    selectedEvents: number;
+    truncatedArrays: number;
+    truncatedFields: number;
+};
+
+export type ConversationEvidenceExport = {
+    markdown: string;
+    meta: {
+        approximateTokens: number;
+        episodeCount: number;
+        generatedAt: string;
+        omission: EvidenceOmissionStats;
+        projectedCharacters: number;
+        rendererVersion: string;
+    };
+};
+
+export type ExportConversationEvidenceOptions = GetConversationOptions & {
+    generatedAt?: string;
+    lens: EvidenceLens;
+};
 
 export type ConversationPathMatch = {
     candidatePath: string | null;
@@ -48,6 +135,7 @@ export type ConversationMessage = {
     phase: ConversationMessagePhase;
     role: ConversationMessageRole;
     text: string;
+    toolEvidence: ConversationToolEvidence | null;
 };
 
 export type ConversationDetail = {
@@ -80,6 +168,8 @@ export type ConversationDataLocations = {
     cursorUserDir?: string;
     grokSessionsDir?: string;
     kiroWorkspaceSessionsDir?: string;
+    minimaxCodeRuntimeDbPath?: string;
+    minimaxCodeSessionsDir?: string;
     opencodeDbPath?: string;
     qoderAcpSocketPath?: string;
     qoderCliProjectsDir?: string;

@@ -1,8 +1,7 @@
+import { ANTIGRAVITY_TOOL_OUTPUT_PREVIEW_MAX_CHARACTERS } from '@spiracha/lib/antigravity-transcript-contract';
+import { antigravityMarkdownToThreadEvents } from '@spiracha/lib/antigravity-transcript-events';
 import { describe, expect, it } from 'vitest';
-import {
-    antigravityMarkdownToThreadEvents,
-    getAntigravityThreadTranscriptStats,
-} from './antigravity-transcript-events';
+import { getThreadTranscriptStats } from './thread-transcript-stats';
 
 const markdown = [
     '# Recover deleted sessions',
@@ -19,6 +18,8 @@ const markdown = [
     '## Assistant',
     '',
     '_Timestamp: 2026-05-30T22:10:47Z_',
+    '',
+    '_Model: Claude Sonnet 4.6_',
     '',
     '### Thinking',
     '',
@@ -43,6 +44,8 @@ const markdown = [
     '## Assistant',
     '',
     '_Timestamp: 2026-05-30T22:10:50Z_',
+    '',
+    '_Model: Gemini 3.6 Flash_',
     '',
     'I found the recoverable local transcript files.',
     '',
@@ -74,6 +77,7 @@ describe('antigravityMarkdownToThreadEvents', () => {
         });
         expect(events[1]).toMatchObject({
             kind: 'message',
+            model: 'Claude Sonnet 4.6',
             phase: 'commentary',
             role: 'assistant',
             text: 'I should inspect the local data directory.',
@@ -81,6 +85,7 @@ describe('antigravityMarkdownToThreadEvents', () => {
         });
         expect(events[2]).toMatchObject({
             kind: 'message',
+            model: 'Claude Sonnet 4.6',
             phase: 'commentary',
             role: 'assistant',
             text: 'I will inspect the local Antigravity data directory.',
@@ -100,6 +105,7 @@ describe('antigravityMarkdownToThreadEvents', () => {
         });
         expect(events[5]).toMatchObject({
             kind: 'message',
+            model: 'Gemini 3.6 Flash',
             phase: 'final_answer',
             role: 'assistant',
             text: 'I found the recoverable local transcript files.',
@@ -204,6 +210,94 @@ describe('antigravityMarkdownToThreadEvents', () => {
                 text: expect.stringContaining('File Path: `file://README.md`'),
             }),
         );
+    });
+
+    it('should adapt trajectory command metadata into paired command and output events', () => {
+        const events = antigravityMarkdownToThreadEvents(
+            [
+                '## Assistant',
+                '',
+                '### Thinking',
+                '',
+                'Confirming Test Drive Success',
+                '',
+                '### Tool Calls',
+                '',
+                '- `run_command`',
+                '',
+                'Call ID: `call-capabilities`',
+                '',
+                'Input:',
+                '',
+                '```',
+                '{"CommandLine":"command -v kodeguard && kodeguard capabilities --json","Cwd":"/workspace/ushman"}',
+                '```',
+                '',
+                '## Tool: RUN_COMMAND',
+                '',
+                'Call ID: `call-capabilities`',
+                '',
+                'Exit code: 0',
+                '',
+                '/Users/example/.bun/bin/kodeguard',
+                '{"schemaVersion":"kodeguard/capabilities/v13"}',
+            ].join('\n'),
+        );
+
+        expect(events).toContainEqual(
+            expect.objectContaining({
+                callId: 'call-capabilities',
+                command: 'command -v kodeguard && kodeguard capabilities --json',
+                kind: 'tool_call',
+                workdir: '/workspace/ushman',
+            }),
+        );
+        expect(events).toContainEqual(
+            expect.objectContaining({
+                callId: 'call-capabilities',
+                exitCode: 0,
+                kind: 'tool_output',
+                outputText: expect.stringContaining('kodeguard/capabilities/v13'),
+            }),
+        );
+        expect(events).toContainEqual(
+            expect.objectContaining({
+                kind: 'message',
+                phase: 'commentary',
+                text: 'Confirming Test Drive Success',
+            }),
+        );
+    });
+
+    it('should retain metadata-only command results without inventing placeholder output', () => {
+        const events = antigravityMarkdownToThreadEvents(
+            ['## Tool: RUN_COMMAND', '', 'Call ID: `call-empty`', '', 'Exit code: 0', ''].join('\n'),
+        );
+
+        expect(events).toEqual([
+            expect.objectContaining({
+                callId: 'call-empty',
+                exitCode: 0,
+                kind: 'tool_output',
+                outputText: '',
+                summary: '',
+            }),
+        ]);
+    });
+
+    it('should preserve legacy tool output that begins with metadata-like text', () => {
+        const events = antigravityMarkdownToThreadEvents(
+            ['## Tool: RUN_COMMAND', '', 'Exit code: 7', 'Actual legacy output'].join('\n'),
+        );
+
+        expect(events).toEqual([
+            expect.objectContaining({
+                callId: null,
+                exitCode: null,
+                kind: 'tool_output',
+                outputText: 'Exit code: 7\nActual legacy output',
+            }),
+        ]);
     });
 
     it('should keep markdown headings inside assistant answers visible as assistant text', () => {
@@ -322,11 +416,31 @@ describe('antigravityMarkdownToThreadEvents', () => {
             }),
         );
     });
+
+    it('should bound large tool-output previews while retaining the complete output', () => {
+        const fullOutput = 'x'.repeat(ANTIGRAVITY_TOOL_OUTPUT_PREVIEW_MAX_CHARACTERS + 73);
+        const [event] = antigravityMarkdownToThreadEvents(`## Tool: READ_FILE\n\n${fullOutput}`);
+
+        expect(event).toMatchObject({
+            kind: 'tool_output',
+            outputText: fullOutput,
+            raw: {
+                outputCharacterCount: fullOutput.length,
+                outputPreviewTruncated: true,
+            },
+        });
+        expect(event?.kind === 'tool_output' ? event.summary.length : 0).toBeLessThanOrEqual(
+            ANTIGRAVITY_TOOL_OUTPUT_PREVIEW_MAX_CHARACTERS,
+        );
+        expect(event?.kind === 'tool_output' ? event.summary : '').toContain(
+            `full ${fullOutput.length}-character output`,
+        );
+    });
 });
 
 describe('getAntigravityThreadTranscriptStats', () => {
     it('should count adapted Antigravity transcript events for metadata panels', () => {
-        const stats = getAntigravityThreadTranscriptStats(antigravityMarkdownToThreadEvents(markdown));
+        const stats = getThreadTranscriptStats(antigravityMarkdownToThreadEvents(markdown));
 
         expect(stats).toMatchObject({
             assistantMessageCount: 3,
@@ -339,7 +453,7 @@ describe('getAntigravityThreadTranscriptStats', () => {
     });
 
     it('should not count Antigravity operation results as final answers', () => {
-        const stats = getAntigravityThreadTranscriptStats(
+        const stats = getThreadTranscriptStats(
             antigravityMarkdownToThreadEvents(
                 [
                     '## User',

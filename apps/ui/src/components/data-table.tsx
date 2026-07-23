@@ -173,12 +173,12 @@ export function DataTable<TData>({
     return (
         <div
             className={cn(
-                'w-full overflow-x-auto rounded-[1.5rem] border border-[var(--border)] bg-[var(--panel)]',
+                'w-full overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--panel)]',
                 className,
             )}
         >
             {renderToolbar ? (
-                <div className="border-[var(--border)] border-b px-4 py-3">
+                <div className="border-[var(--border)] border-b px-3 py-2">
                     {renderToolbar({
                         clearSelection: () => setRowSelection({}),
                         selectedRows,
@@ -192,7 +192,7 @@ export function DataTable<TData>({
                             {headerGroup.headers.map((header) => (
                                 <TableHead
                                     key={header.id}
-                                    className="h-10 whitespace-nowrap px-4 font-semibold text-[11px] text-[var(--muted-foreground)] uppercase tracking-[0.18em]"
+                                    className="h-9 whitespace-nowrap px-3 font-semibold text-[11px] text-[var(--muted-foreground)] uppercase tracking-[0.18em]"
                                 >
                                     {header.isPlaceholder ? null : header.column.getCanSort() ? (
                                         <button
@@ -219,7 +219,7 @@ export function DataTable<TData>({
                     {table.getRowModel().rows.length === 0 ? (
                         <TableRow className="border-[var(--border)]">
                             <TableCell
-                                className="px-4 py-10 text-center text-[var(--muted-foreground)] text-sm"
+                                className="px-3 py-8 text-center text-[var(--muted-foreground)] text-sm"
                                 colSpan={tableColumns.length}
                             >
                                 {emptyMessage}
@@ -244,7 +244,7 @@ export function DataTable<TData>({
                                     }}
                                 >
                                     {row.getVisibleCells().map((cell) => (
-                                        <TableCell key={cell.id} className="px-4 py-2.5 align-top">
+                                        <TableCell key={cell.id} className="px-3 py-2 align-top">
                                             {flexRender(cell.column.columnDef.cell, cell.getContext())}
                                         </TableCell>
                                     ))}

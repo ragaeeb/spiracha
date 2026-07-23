@@ -2,10 +2,30 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { createConversationClient } from './client';
 import { createCodexBrowserFixture } from './lib/codex-test-helpers';
+import type { EvidenceLens } from './lib/conversation-data/types';
 
 const SERVER_TIMEOUT_MS = 60_000;
 const tempRoots: string[] = [];
+const evidenceLens: EvidenceLens = {
+    anchors: [{ kind: 'text', literals: ['Implemented'] }],
+    budget: {
+        commentaryCharactersPerEpisode: 300,
+        failedOutputCharacters: 600,
+        successfulOutputCharacters: 300,
+        totalCharacters: 3000,
+    },
+    context: {
+        commentaryAfter: 1,
+        commentaryBefore: 1,
+        followRetries: true,
+        followWorkarounds: true,
+        includeReasoningSummaries: true,
+        maxOrderGap: 10,
+    },
+    name: 'UI API smoke lens',
+};
 
 const makeTempRoot = async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'spiracha-ui-api-server-'));
@@ -128,6 +148,32 @@ describe('UI API server routes', () => {
                     ],
                     source: 'codex',
                 });
+
+                const evidenceResponse = await fetchWithTimeout(
+                    `http://127.0.0.1:${port}/api/v1/conversations/codex/${fixture.threads[0]!.threadId}/evidence`,
+                    {
+                        body: JSON.stringify({
+                            generated_at: '2026-07-19T12:00:00.000Z',
+                            lens: evidenceLens,
+                        }),
+                        headers: { 'Content-Type': 'application/json' },
+                        method: 'POST',
+                    },
+                );
+                expect(evidenceResponse.status).toBe(200);
+                const evidencePayload = (await evidenceResponse.json()) as { data: { markdown: string } };
+                const httpMarkdown = evidencePayload.data.markdown;
+                expect(httpMarkdown).toContain('# Focused evidence: Implement the Spiracha UI');
+                const localEvidence = await createConversationClient({
+                    mode: 'local',
+                }).exportConversationEvidenceMarkdown({
+                    generatedAt: '2026-07-19T12:00:00.000Z',
+                    id: fixture.threads[0]!.threadId,
+                    lens: evidenceLens,
+                    locations: { codexDbPath: fixture.dbPath },
+                    source: 'codex',
+                });
+                expect(localEvidence?.markdown).toBe(httpMarkdown);
 
                 const batchExportResponse = await fetchWithTimeout(
                     `http://127.0.0.1:${port}/api/v1/conversations/export`,

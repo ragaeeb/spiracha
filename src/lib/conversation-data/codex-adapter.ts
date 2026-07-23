@@ -14,10 +14,12 @@ import {
     createConversationUiPath,
     createDeepLinks,
     createTextMessage,
+    durationTextToMs,
     finalizeMessages,
     isWithinUpdatedWindow,
     normalizeAssistantPhase,
     normalizeRole,
+    normalizeToolStatus,
     toDateMs,
 } from './adapter-helpers';
 import { selectConversationMessages } from './message-selector';
@@ -64,6 +66,7 @@ const toMessageEventMessage = (event: MessageEvent): ConversationMessage | null 
                 : 'unknown',
         role: normalizeRole(event.role),
         text,
+        toolEvidence: null,
     };
 };
 
@@ -83,6 +86,18 @@ const toToolMessage = (event: ThreadEvent): ConversationMessage | null => {
                 phase: 'tool_call',
                 role: 'tool',
                 text: event.command || event.name,
+                toolEvidence: {
+                    callId: event.callId,
+                    command: event.command,
+                    durationMs: null,
+                    exitCode: null,
+                    inputText: event.argumentsText,
+                    name: event.name,
+                    namespace: event.name.includes('.') ? (event.name.split('.')[0] ?? null) : null,
+                    outputText: null,
+                    status: 'unknown',
+                    workdir: event.workdir,
+                },
             })[0] ?? null
         );
     }
@@ -102,6 +117,18 @@ const toToolMessage = (event: ThreadEvent): ConversationMessage | null => {
                 phase: 'tool_output',
                 role: 'tool',
                 text,
+                toolEvidence: {
+                    callId: event.callId,
+                    command: null,
+                    durationMs: durationTextToMs(event.wallTime),
+                    exitCode: event.exitCode,
+                    inputText: null,
+                    name: 'unknown',
+                    namespace: null,
+                    outputText: event.outputText,
+                    status: normalizeToolStatus(null, event.exitCode),
+                    workdir: null,
+                },
             })[0] ?? null
         );
     }
@@ -131,6 +158,7 @@ const toConversationMessage = (event: ThreadEvent): ConversationMessage | null =
                   phase: 'reasoning',
                   role: 'assistant',
                   text,
+                  toolEvidence: null,
               }
             : null;
     }
@@ -148,8 +176,9 @@ const readCodexMessages = async (thread: ThreadRow): Promise<ConversationMessage
                 }),
             {
                 id: thread.id,
+                integration: 'codex',
+                operation: 'api',
                 path: thread.rollout_path,
-                source: 'codex-api',
             },
         );
     } catch (error) {

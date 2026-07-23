@@ -85,6 +85,10 @@ describe('opencodeConversationAdapter', () => {
             { phase: 'tool_call', text: 'read\n{\n  "path": "src/index.ts"\n}' },
             { phase: 'tool_output', text: 'file contents' },
         ]);
+        expect(conversation?.messages.find((message) => message.phase === 'tool_output')?.toolEvidence).toMatchObject({
+            name: 'read',
+            outputText: 'file contents',
+        });
     });
 
     it('should list path-scoped OpenCode conversations within an updated-time window', async () => {

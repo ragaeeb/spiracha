@@ -58,7 +58,7 @@ const getDeleteDescription = (pendingDelete: PendingSessionDelete | null) => {
     }
 
     if (pendingDelete.sessions.length === 1) {
-        return `Permanently delete "${pendingDelete.sessions[0]!.title}" from Claude Code history. This removes the session JSONL file from disk.`;
+        return `Permanently delete "${pendingDelete.sessions[0]!.title}" from Claude Code history. This removes the parent transcript and every recognized continuation segment from disk.`;
     }
 
     return `Permanently delete ${pendingDelete.sessions.length} selected Claude Code sessions from disk.`;
@@ -193,14 +193,16 @@ function ClaudeCodeWorkspacePage() {
     };
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-4">
             <PageHeader
                 actions={
-                    <ListSearchInput
-                        placeholder="Search session title, id, model, or version"
-                        value={searchInput}
-                        onValueChange={setSearchInput}
-                    />
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                        <ListSearchInput
+                            placeholder="Search session title, id, model, or version"
+                            value={searchInput}
+                            onValueChange={setSearchInput}
+                        />
+                    </div>
                 }
                 eyebrow="Claude Code workspace"
                 subtitle="Inspect local Claude Code sessions, user prompts, assistant responses, tool calls, and token totals."

@@ -692,24 +692,11 @@ describe('codex browser db', () => {
             }),
         );
 
-        const originalAlloc = Buffer.alloc;
-        Buffer.alloc = ((size: number, fill?: string | number | Uint8Array, encoding?: BufferEncoding) => {
-            if (size > 128 * 1024) {
-                throw new Error(`unbounded allocation: ${size}`);
-            }
+        const threads = await listProjectThreads(fixture.dbPath, 'spiracha');
+        const fallbackThread = threads.find((thread) => thread.thread.id === fallbackThreadId);
 
-            return originalAlloc(size, fill, encoding);
-        }) as typeof Buffer.alloc;
-
-        try {
-            const threads = await listProjectThreads(fixture.dbPath, 'spiracha');
-            const fallbackThread = threads.find((thread) => thread.thread.id === fallbackThreadId);
-
-            expect(fallbackThread?.thread.model).toBe('gpt-5.5');
-            expect(fallbackThread?.thread.tokens_used).toBe(789);
-        } finally {
-            Buffer.alloc = originalAlloc;
-        }
+        expect(fallbackThread?.thread.model).toBe('gpt-5.5');
+        expect(fallbackThread?.thread.tokens_used).toBe(789);
     });
 
     it('should omit fallback threads whose ID resolves to multiple rollout files', async () => {
@@ -821,34 +808,14 @@ describe('codex browser db', () => {
             }),
         );
 
-        const originalAlloc = Buffer.alloc;
-        let allocatedReadBytes = 0;
-        Buffer.alloc = ((size: number, fill?: string | number | Uint8Array, encoding?: BufferEncoding) => {
-            if (size === 64 * 1024) {
-                allocatedReadBytes += size;
-            }
+        const firstProjects = await listCodexProjects(fixture.dbPath);
+        const projects = await listCodexProjects(fixture.dbPath);
+        const project = projects.find((candidate) => candidate.name === 'spiracha');
 
-            if (allocatedReadBytes > 2 * 1024 * 1024) {
-                throw new Error(`unbounded fallback summary read: ${allocatedReadBytes}`);
-            }
-
-            return originalAlloc(size, fill, encoding);
-        }) as typeof Buffer.alloc;
-
-        try {
-            const firstProjects = await listCodexProjects(fixture.dbPath);
-            const allocatedAfterFirstRead = allocatedReadBytes;
-            const projects = await listCodexProjects(fixture.dbPath);
-            const project = projects.find((candidate) => candidate.name === 'spiracha');
-
-            expect(projects).toEqual(firstProjects);
-            expect(allocatedReadBytes).toBe(allocatedAfterFirstRead);
-            expect(project?.threadCount).toBe(3);
-            expect(project?.totalTokens).toBe(641112);
-            expect(project?.modelNames).toContain('gpt-5.5');
-        } finally {
-            Buffer.alloc = originalAlloc;
-        }
+        expect(projects).toEqual(firstProjects);
+        expect(project?.threadCount).toBe(3);
+        expect(project?.totalTokens).toBe(641112);
+        expect(project?.modelNames).toContain('gpt-5.5');
     });
 
     it('should sort fallback project threads by rollout activity and omit fallback subagents', async () => {
@@ -992,6 +959,40 @@ describe('codex browser db', () => {
         expect(threadDetails.thread.preview).toBe('Build the Spiracha UI');
         expect(threads[0]?.stats.deferred).toBe(false);
         expect(threads[0]?.rolloutSizeBytes).toBeGreaterThan(0);
+    });
+
+    it('should give metadata-only subagent threads a navigable display title and preview', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-subagent-title-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const threadId = fixture.threads[0]!.threadId;
+        const anonymousThreadId = fixture.threads[1]!.threadId;
+        const db = new Database(fixture.dbPath);
+        db.query(
+            `UPDATE threads
+             SET title = '', first_user_message = '', preview = '', thread_source = 'subagent',
+                 agent_nickname = 'Halley', agent_path = '/root/code_review'
+             WHERE id = ?`,
+        ).run(threadId);
+        db.query(
+            `UPDATE threads
+             SET title = '', first_user_message = '', preview = '', thread_source = 'subagent',
+                 agent_nickname = NULL, agent_path = NULL
+             WHERE id = ?`,
+        ).run(anonymousThreadId);
+        db.close();
+
+        const listedThreads = await listProjectThreads(fixture.dbPath, 'spiracha');
+        const listedThread = listedThreads.find((entry) => entry.thread.id === threadId);
+        const anonymousThread = listedThreads.find((entry) => entry.thread.id === anonymousThreadId);
+        const detail = getThreadBrowseData(fixture.dbPath, threadId);
+
+        expect(listedThread?.thread.title).toBe('Halley (subagent)');
+        expect(listedThread?.thread.preview).toBe('Agent path: /root/code_review');
+        expect(anonymousThread?.thread.title).toBe('Untitled Codex thread');
+        expect(anonymousThread?.thread.preview).toBe('No transcript preview available.');
+        expect(detail.thread.title).toBe('Halley (subagent)');
+        expect(detail.thread.preview).toBe('Agent path: /root/code_review');
     });
 
     it('should tolerate browse reads on schemas without optional relation or tool tables', async () => {

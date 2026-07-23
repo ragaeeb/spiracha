@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
     decodeAnalyticsProjectSelectValue,
     encodeAnalyticsProjectSelectValue,
+    getTranscriptDisplayState,
     parseAnalyticsSearch,
     parseTextQuerySearch,
     parseThreadTranscriptSearch,
@@ -56,6 +57,7 @@ describe('route search helpers', () => {
             parseThreadTranscriptSearch({
                 commentary: 'true',
                 extra: '1',
+                full: 'true',
                 q: '  export  ',
                 raw: 'false',
                 sort: 'latest',
@@ -65,6 +67,7 @@ describe('route search helpers', () => {
         ).toEqual({
             commentary: true,
             extra: true,
+            full: true,
             q: 'export',
             sort: 'latest',
             tools: true,
@@ -83,6 +86,7 @@ describe('route search helpers', () => {
                 },
                 {
                     extra: true,
+                    full: true,
                     q: '',
                     sort: 'latest',
                     tools: false,
@@ -92,9 +96,27 @@ describe('route search helpers', () => {
         ).toEqual({
             commentary: true,
             extra: true,
+            full: true,
             sort: 'latest',
             user: true,
         });
         expect(withThreadTranscriptSearch({ sort: 'latest' }, { sort: 'earliest' })).toEqual({});
+    });
+
+    it('should preserve unrelated route search while updating transcript display toggles', () => {
+        expect(withThreadTranscriptSearch({ panel: 'raw', tools: true }, { commentary: true, tools: false })).toEqual({
+            commentary: true,
+            panel: 'raw',
+        });
+    });
+
+    it('should derive transcript display state with false defaults', () => {
+        expect(getTranscriptDisplayState({ commentary: true, raw: true })).toEqual({
+            showCommentary: true,
+            showExtraEvents: false,
+            showRawJson: true,
+            showToolCalls: false,
+            showUserMessages: false,
+        });
     });
 });

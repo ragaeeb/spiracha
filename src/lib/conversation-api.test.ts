@@ -21,6 +21,7 @@ const conversation = {
             phase: 'final_answer',
             role: 'assistant',
             text: 'Collected review output.',
+            toolEvidence: null,
         },
     ],
     metadata: {},
@@ -34,6 +35,111 @@ const conversation = {
 const createRequest = (path: string, init?: RequestInit) => new Request(`http://localhost:3000${path}`, init);
 
 describe('conversation API handler', () => {
+    it('should export focused evidence through the stable POST envelope', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/codex/thread-1/evidence', {
+                body: JSON.stringify({
+                    generated_at: '2026-07-19T12:00:00.000Z',
+                    lens: {
+                        anchors: [{ kind: 'text', literals: ['review'] }],
+                        budget: {
+                            commentaryCharactersPerEpisode: 200,
+                            failedOutputCharacters: 500,
+                            successfulOutputCharacters: 200,
+                            totalCharacters: 3000,
+                        },
+                        context: {
+                            commentaryAfter: 1,
+                            commentaryBefore: 1,
+                            followRetries: true,
+                            followWorkarounds: true,
+                            includeReasoningSummaries: false,
+                            maxOrderGap: 5,
+                        },
+                        name: 'Review evidence',
+                    },
+                }),
+                headers: { 'Content-Type': 'application/json' },
+                method: 'POST',
+            }),
+            { getConversation: async () => conversation },
+        );
+
+        expect(response.status).toBe(200);
+        await expect(response.json()).resolves.toMatchObject({
+            data: {
+                markdown: expect.stringContaining('# Focused evidence: Thread 1'),
+                meta: {
+                    generatedAt: '2026-07-19T12:00:00.000Z',
+                    rendererVersion: 'focused-evidence/v2',
+                },
+            },
+        });
+    });
+
+    it('should identify the exact invalid lens path before loading a conversation', async () => {
+        let loaded = false;
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/codex/thread-1/evidence', {
+                body: JSON.stringify({ lens: { anchors: [], budget: {}, context: {}, name: 'Invalid', typo: true } }),
+                method: 'POST',
+            }),
+            {
+                getConversation: async () => {
+                    loaded = true;
+                    return conversation;
+                },
+            },
+        );
+
+        expect(response.status).toBe(400);
+        expect(loaded).toBe(false);
+        await expect(response.json()).resolves.toMatchObject({
+            error: { code: 'validation_error', details: { field: 'lens.typo' } },
+        });
+    });
+
+    it('should reject invalid generated timestamps without loading a conversation', async () => {
+        let loaded = false;
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/codex/thread-1/evidence', {
+                body: JSON.stringify({
+                    generated_at: 'not-a-date',
+                    lens: {
+                        anchors: [{ kind: 'text', literals: ['review'] }],
+                        budget: {
+                            commentaryCharactersPerEpisode: 200,
+                            failedOutputCharacters: 500,
+                            successfulOutputCharacters: 200,
+                            totalCharacters: 3000,
+                        },
+                        context: {
+                            commentaryAfter: 1,
+                            commentaryBefore: 1,
+                            followRetries: true,
+                            followWorkarounds: true,
+                            includeReasoningSummaries: false,
+                            maxOrderGap: 5,
+                        },
+                        name: 'Review evidence',
+                    },
+                }),
+                method: 'POST',
+            }),
+            {
+                getConversation: async () => {
+                    loaded = true;
+                    return conversation;
+                },
+            },
+        );
+
+        expect(response.status).toBe(400);
+        expect(loaded).toBe(false);
+        await expect(response.json()).resolves.toMatchObject({
+            error: { code: 'validation_error', details: { field: 'generated_at' } },
+        });
+    });
     it('should return source metadata in a stable envelope', async () => {
         const response = await handleConversationApiRequest(createRequest('/api/v1/sources'), {
             listConversationSources: async () => [

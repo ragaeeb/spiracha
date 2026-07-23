@@ -8,16 +8,24 @@ vi.mock('@tanstack/react-router', () => ({
         children,
         className,
         params,
+        search,
         to,
     }: {
         children: ReactNode;
         className?: string;
         params: Record<string, string>;
+        search?: Record<string, unknown>;
         to: string;
     }) => {
         let href = to;
         for (const [key, value] of Object.entries(params)) {
             href = href.replace(`$${key}`, value);
+        }
+        if (search) {
+            const query = new URLSearchParams(
+                Object.entries(search).flatMap(([key, value]) => (value === undefined ? [] : [[key, String(value)]])),
+            );
+            href += query.size > 0 ? `?${query}` : '';
         }
         return (
             <a className={className} href={href}>

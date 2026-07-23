@@ -18,6 +18,7 @@ The browser UI for browsing local Codex, Claude Code, Grok, Kiro, Qoder, Cursor,
 - lists derived Codex projects from the Codex SQLite database
 - lists Codex threads within a project in chronological order
 - shows Codex thread timelines, a dedicated tool activity and definition view, recorded goals, readable sandbox policy, metadata, and raw event context
+- streams optional Codex live updates through a shared worker when available and an alternate loopback origin, keeping long-lived event connections out of the page-loading connection pool
 - searches Codex projects from the app shell through the URL-backed `/codex?q=...` inventory filter
 - exports Codex, Claude Code, Grok, Kiro, Qoder, Cursor, and OpenCode sessions or threads as Markdown, plain text, or optional zip archives with optional metadata, commentary, and tool-call inclusion; the last submitted choices persist while canceled drafts are discarded
 - lists Claude Code workspaces and sessions from local `~/.claude/projects` JSONL files
@@ -25,7 +26,7 @@ The browser UI for browsing local Codex, Claude Code, Grok, Kiro, Qoder, Cursor,
 - lists Grok workspaces and sessions from local Grok session archives
 - shows dedicated Grok session detail pages with compacted-history recovery, tool calls, metadata, export, and delete actions
 - lists Kiro workspaces and sessions from local Kiro workspace session files
-- shows dedicated Kiro session detail pages with image attachments, prompt logs, execution-derived tool calls, metadata, and export actions
+- shows dedicated Kiro session detail pages with image attachments, prompt logs, execution-derived tool calls and paired outputs, metadata, and matching tool-inclusive exports
 - lists Qoder workspaces and sessions from local Qoder history and checkpoint storage
 - shows dedicated Qoder session detail pages with prompts, checkpoint file operations, metadata, and export actions
 - lists Cursor workspaces and workspace threads with the same table-based index/detail flow as Codex
@@ -33,7 +34,8 @@ The browser UI for browsing local Codex, Claude Code, Grok, Kiro, Qoder, Cursor,
 - recovers split Cursor storage buckets, exports Cursor threads, and deletes Cursor workspaces or threads
 - lists Antigravity workspaces and conversations, including transcript/artifact availability
 - shows dedicated Antigravity conversation detail pages with shared metadata and export actions
-- unlocks Antigravity transcript export through macOS Keychain and exports conversations or artifacts as Markdown
+- reads Antigravity trajectory databases plus generated-log supplements, including paired commands, outputs, and reasoning; encrypted legacy transcripts can be unlocked through macOS Keychain
+- exports the same merged Antigravity conversation data or artifacts as Markdown or text
 - lists OpenCode workspaces and sessions from the local OpenCode SQLite database
 - shows dedicated OpenCode session detail pages with reasoning, tool parts, MiniMax `<think>` blocks, token metadata, and export actions
 - shows dashboard and project-scoped Codex analytics for token totals, average and median thread size, archive counts, tool usage, model tokens, client sources, and reasoning effort
@@ -71,8 +73,8 @@ Runtime configuration is intentionally small:
   - Optional positive integer for Codex analytics transcript parsing concurrency.
   - Defaults to `8`.
 - `SPIRACHA_TRANSCRIPT_LOAD_CONCURRENCY`
-  - Optional positive integer for detail-page transcript loading concurrency across sources.
-  - Defaults to `3` and is capped at `16` to protect the server from excessive parallel disk and database work.
+  - Optional positive integer for detail-page transcript loading concurrency within each source integration.
+  - Defaults to `3` and is capped at `16`. Each integration has an independent lane, while aggregate work is capped at `16` by default (up to `32` for higher configured lane limits), so one blocked source cannot consume another source's transcript capacity.
 - `SPIRACHA_TRANSCRIPT_LOAD_LOGS`
   - Set to `1` to log transcript-loader queue and timing diagnostics. Disabled by default so library and CLI consumers stay quiet.
 - `SPIRACHA_CLAUDE_CODE_PROJECTS_DIR`

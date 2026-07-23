@@ -87,6 +87,53 @@ describe('parseCodexTranscriptFile', () => {
         expect(transcript.stats.assistantMessageCount).toBe(0);
     });
 
+    it('should hide Codex-injected user-role bootstrap context without hiding the actual user prompt', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-parser-bootstrap-test-'));
+        tempPaths.push(tempRoot);
+        const sessionFile = path.join(tempRoot, 'bootstrap-context.jsonl');
+        await Bun.write(
+            sessionFile,
+            [
+                JSON.stringify({
+                    payload: {
+                        content: [
+                            {
+                                text: '<recommended_plugins>\n- GitHub (github@example)\n</recommended_plugins>',
+                                type: 'input_text',
+                            },
+                            {
+                                text: '# AGENTS.md instructions for .\n\n<INSTRUCTIONS>\nUse Bun.\n</INSTRUCTIONS>',
+                                type: 'input_text',
+                            },
+                            {
+                                text: '<environment_context>\n<cwd>/workspace</cwd>\n</environment_context>',
+                                type: 'input_text',
+                            },
+                        ],
+                        role: 'user',
+                        type: 'message',
+                    },
+                    type: 'response_item',
+                }),
+                JSON.stringify({
+                    payload: {
+                        content: [{ text: 'Please fix the parser.', type: 'input_text' }],
+                        role: 'user',
+                        type: 'message',
+                    },
+                    type: 'response_item',
+                }),
+            ].join('\n'),
+        );
+
+        const transcript = await parseCodexTranscriptFile(sessionFile);
+        const messages = transcript.events.filter((event) => event.kind === 'message');
+
+        expect(messages).toHaveLength(2);
+        expect(messages[0]?.isHiddenByDefault).toBe(true);
+        expect(messages[1]?.isHiddenByDefault).toBe(false);
+    });
+
     it('should support filtered tail preview parsing for oversized transcripts', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-parser-tail-preview-test-'));
         tempPaths.push(tempRoot);

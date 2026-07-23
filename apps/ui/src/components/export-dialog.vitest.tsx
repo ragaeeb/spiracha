@@ -9,6 +9,65 @@ afterEach(() => {
 });
 
 describe('ExportDialog', () => {
+    it('should build, validate, preview, and download focused evidence through the shared flow', async () => {
+        const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+        HTMLElement.prototype.scrollIntoView = vi.fn();
+        const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () =>
+            Response.json({
+                data: {
+                    markdown: '# Focused evidence: Thread 1\n',
+                    meta: {
+                        approximateTokens: 8,
+                        episodeCount: 1,
+                        generatedAt: '2026-07-19T12:00:00.000Z',
+                        omission: {
+                            budgetReached: false,
+                            deduplicatedDiagnostics: 0,
+                            inputCharacters: 100,
+                            inputEvents: 4,
+                            omittedBinaryPayloads: 0,
+                            omittedEvents: 2,
+                            selectedEvents: 2,
+                            truncatedArrays: 0,
+                            truncatedFields: 0,
+                        },
+                        projectedCharacters: 29,
+                        rendererVersion: 'focused-evidence/v2',
+                    },
+                },
+            }),
+        );
+        vi.stubGlobal('fetch', fetchMock);
+        vi.stubGlobal('URL', { ...URL, createObjectURL: vi.fn(() => 'blob:evidence'), revokeObjectURL: vi.fn() });
+        const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+        render(
+            <ExportDialog
+                focusedEvidenceTarget={{ id: 'thread-1', source: 'codex' }}
+                open
+                onExport={vi.fn()}
+                onOpenChange={vi.fn()}
+            />,
+        );
+
+        try {
+            fireEvent.click(screen.getByRole('combobox', { name: 'Export mode' }));
+            fireEvent.click(screen.getByText('Focused evidence'));
+            expect(screen.getByTestId('evidence-lens-editor')).toBeTruthy();
+            fireEvent.change(screen.getByRole('textbox', { name: 'Artifact glob' }), {
+                target: { value: 'reports/**/*.json' },
+            });
+            fireEvent.click(screen.getAllByRole('button', { name: 'Add' })[0]!);
+            fireEvent.click(screen.getByRole('button', { name: 'Preview evidence' }));
+            expect(await screen.findByText(/4 inspected events, 1 episodes, 29 characters/)).toBeTruthy();
+            fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+            expect(String(fetchMock.mock.calls[0]?.[0])).toBe('/api/v1/conversations/codex/thread-1/evidence');
+        } finally {
+            HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+            anchorClick.mockRestore();
+            vi.unstubAllGlobals();
+        }
+    });
     it('should submit default export options before any changes', async () => {
         const onExport = vi.fn();
 

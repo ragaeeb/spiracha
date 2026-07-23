@@ -121,8 +121,9 @@ const renderCursorDownload = async (input: {
                 () => readCursorThreadTranscriptWithAgentFiles(globalDbPath, composerId),
                 {
                     id: composerId,
+                    integration: 'cursor',
+                    operation: 'ui-export',
                     path: globalDbPath,
-                    source: 'cursor-ui-export',
                 },
             );
             if (!transcript) {
@@ -203,8 +204,9 @@ export const getCursorThreadDetailFn = createServerFn({ method: 'GET' })
             () => readCursorThreadTranscriptWithAgentFiles(getCursorGlobalDbPath(), data.composerId),
             {
                 id: data.composerId,
+                integration: 'cursor',
+                operation: 'ui-detail',
                 path: getCursorGlobalDbPath(),
-                source: 'cursor-ui-detail',
             },
         );
         return {

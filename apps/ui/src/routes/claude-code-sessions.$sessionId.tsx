@@ -13,9 +13,9 @@ import { MetadataSection } from '#/components/metadata-section';
 import { MetricCard } from '#/components/metric-card';
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
-import { DEFAULT_SHOW_USER_MESSAGES, TranscriptView } from '#/components/transcript-view';
+import { TranscriptControls } from '#/components/transcript-controls';
+import { TranscriptView } from '#/components/transcript-view';
 import { Button } from '#/components/ui/button';
-import { Checkbox } from '#/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
 import {
     claudeCodeSessionDetailQueryOptions,
@@ -30,22 +30,15 @@ import {
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import type { ExportDialogOptions } from '#/lib/export-options';
 import { formatDateTime, formatList, formatNumber, formatTokens } from '#/lib/formatters';
+import { getMutationErrorMessage } from '#/lib/mutation-error';
+import {
+    getTranscriptDisplayState,
+    parseThreadTranscriptSearch,
+    type ThreadTranscriptSearch,
+    withThreadTranscriptSearch,
+} from '#/lib/route-search';
 import { RouteStateResetBoundary } from '#/lib/route-state-reset';
 import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
-
-type TranscriptControlsProps = {
-    rawJsonDisabled?: boolean;
-    showCommentary: boolean;
-    showExtraEvents: boolean;
-    showRawJson: boolean;
-    showToolCalls: boolean;
-    showUserMessages: boolean;
-    onShowCommentaryChange: (checked: boolean) => void;
-    onShowExtraEventsChange: (checked: boolean) => void;
-    onShowRawJsonChange: (checked: boolean) => void;
-    onShowToolCallsChange: (checked: boolean) => void;
-    onShowUserMessagesChange: (checked: boolean) => void;
-};
 
 export const Route = createFileRoute('/claude-code-sessions/$sessionId')({
     component: () => {
@@ -57,14 +50,16 @@ export const Route = createFileRoute('/claude-code-sessions/$sessionId')({
         );
     },
     errorComponent: ClaudeCodeSessionDetailErrorComponent,
-    loader: ({ context, params }) =>
-        context.queryClient.ensureQueryData(claudeCodeSessionDetailQueryOptions(params.sessionId)),
+    loader: ({ context, params }) => {
+        return context.queryClient.ensureQueryData(claudeCodeSessionDetailQueryOptions(params.sessionId));
+    },
     pendingComponent: () => (
         <LoadingPanel
             description="Loading the Claude Code transcript, messages, tool calls, and session metadata."
             title="Loading session"
         />
     ),
+    validateSearch: parseThreadTranscriptSearch,
 });
 
 function ClaudeCodeSessionDetailErrorComponent({ error }: { error: Error }) {
@@ -115,74 +110,14 @@ const buildTranscriptStatsItems = (
     { label: 'Renderable parts', value: formatNumber(detail.renderablePartCount) },
 ];
 
-const ClaudeCodeTranscriptControls = ({
-    rawJsonDisabled = false,
-    showCommentary,
-    showExtraEvents,
-    showRawJson,
-    showToolCalls,
-    showUserMessages,
-    onShowCommentaryChange,
-    onShowExtraEventsChange,
-    onShowRawJsonChange,
-    onShowToolCallsChange,
-    onShowUserMessagesChange,
-}: TranscriptControlsProps) => {
-    return (
-        <div className="flex flex-wrap gap-4 rounded-xl border border-[var(--border)] bg-[var(--panel)] px-4 py-3 shadow-[var(--panel-shadow)]">
-            <div className="flex items-center gap-2 text-sm">
-                <Checkbox
-                    checked={showToolCalls}
-                    id="claude-code-transcript-show-tool-calls"
-                    onCheckedChange={(checked) => onShowToolCallsChange(checked === true)}
-                />
-                <label htmlFor="claude-code-transcript-show-tool-calls">Show tool calls</label>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-                <Checkbox
-                    checked={showCommentary}
-                    id="claude-code-transcript-show-commentary"
-                    onCheckedChange={(checked) => onShowCommentaryChange(checked === true)}
-                />
-                <label htmlFor="claude-code-transcript-show-commentary">Show commentary</label>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-                <Checkbox
-                    checked={showExtraEvents}
-                    id="claude-code-transcript-show-extra-events"
-                    onCheckedChange={(checked) => onShowExtraEventsChange(checked === true)}
-                />
-                <label htmlFor="claude-code-transcript-show-extra-events">Show extra events</label>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-                <Checkbox
-                    checked={showRawJson}
-                    disabled={rawJsonDisabled}
-                    id="claude-code-transcript-show-raw-json"
-                    onCheckedChange={(checked) => onShowRawJsonChange(checked === true)}
-                />
-                <label htmlFor="claude-code-transcript-show-raw-json">Raw JSON</label>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-                <Checkbox
-                    checked={showUserMessages}
-                    id="claude-code-transcript-show-user-messages"
-                    onCheckedChange={(checked) => onShowUserMessagesChange(checked === true)}
-                />
-                <label htmlFor="claude-code-transcript-show-user-messages">User</label>
-            </div>
-        </div>
-    );
-};
-
 function ClaudeCodeRawPanels({ detail, events }: { detail: ClaudeCodeSessionTranscript; events: ThreadEvent[] }) {
     if (detail.rawPayloadsOmitted) {
         return (
-            <section className="rounded-[1.6rem] border border-[var(--border)] bg-[var(--panel)] p-5 shadow-[var(--panel-shadow)]">
+            <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 shadow-[var(--panel-shadow)]">
                 <h3 className="font-semibold text-[var(--muted-foreground)] text-sm uppercase tracking-[0.18em]">
                     Raw payloads omitted
                 </h3>
-                <p className="mt-4 text-[var(--muted-foreground)] text-sm">
+                <p className="mt-3 text-[var(--muted-foreground)] text-sm">
                     This Claude Code session is large, so raw JSON payload copies were omitted from the browser detail
                     response. Export still reads the full source session from disk.
                 </p>
@@ -218,13 +153,13 @@ const ClaudeCodeTranscriptPreviewNotice = ({
           : 'Load Full Transcript';
 
     return (
-        <section className="rounded-[1.6rem] border border-[var(--border)] bg-[var(--panel)] p-5 shadow-[var(--panel-shadow)]">
+        <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 shadow-[var(--panel-shadow)]">
             <h3 className="font-semibold text-base">Showing a compact transcript preview</h3>
-            <p className="mt-2 text-[var(--muted-foreground)] text-sm leading-6">
+            <p className="mt-1.5 text-[var(--muted-foreground)] text-sm leading-6">
                 Spiracha omitted {formatNumber(omittedEntryCount)} internal transcript entries from the initial page
                 load. The preview keeps the beginning and latest activity.
             </p>
-            <div className="mt-4">
+            <div className="mt-3">
                 <Button disabled={pending || fullTranscriptLoaded} variant="outline" onClick={onLoad}>
                     {buttonLabel}
                 </Button>
@@ -234,7 +169,9 @@ const ClaudeCodeTranscriptPreviewNotice = ({
 };
 
 function ClaudeCodeSessionDetailPage() {
-    const navigate = useNavigate();
+    const navigate = useNavigate({ from: Route.fullPath });
+    const transcriptSearch = Route.useSearch();
+    const transcriptDisplay = getTranscriptDisplayState(transcriptSearch);
     const queryClient = useQueryClient();
     const params = Route.useParams();
     const initialDetail = useSuspenseQuery(claudeCodeSessionDetailQueryOptions(params.sessionId)).data;
@@ -246,11 +183,14 @@ function ClaudeCodeSessionDetailPage() {
     const detail = fullTranscriptQuery.data ?? initialDetail;
     const [deleteOpen, setDeleteOpen] = useState(false);
     const [pendingExport, setPendingExport] = useState(false);
-    const [showToolCalls, setShowToolCalls] = useState(false);
-    const [showCommentary, setShowCommentary] = useState(false);
-    const [showExtraEvents, setShowExtraEvents] = useState(false);
-    const [showRawJson, setShowRawJson] = useState(false);
-    const [showUserMessages, setShowUserMessages] = useState(DEFAULT_SHOW_USER_MESSAGES);
+    const { showCommentary, showExtraEvents, showRawJson, showToolCalls, showUserMessages } = transcriptDisplay;
+    const updateTranscriptDisplay = (patch: Partial<ThreadTranscriptSearch>) => {
+        void navigate({
+            params: true,
+            replace: true,
+            search: (previous: Record<string, unknown>) => withThreadTranscriptSearch(previous, patch),
+        });
+    };
     const transcriptEvents = useMemo(() => claudeCodeTranscriptToThreadEvents(detail), [detail]);
     const transcriptStats = useMemo(() => getClaudeCodeThreadTranscriptStats(transcriptEvents), [transcriptEvents]);
 
@@ -307,7 +247,7 @@ function ClaudeCodeSessionDetailPage() {
     });
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-4">
             <PageHeader
                 actions={
                     <>
@@ -356,7 +296,7 @@ function ClaudeCodeSessionDetailPage() {
                 <MetricCard label="Tokens" value={formatTokens(detail.session.totalTokens)} />
             </div>
 
-            <Tabs className="space-y-4" defaultValue="transcript">
+            <Tabs className="space-y-3" defaultValue="transcript">
                 <TabsList className="grid w-fit min-w-[24rem] grid-cols-3 rounded-full border border-[var(--border)] bg-[var(--panel)] p-1">
                     <TabsTrigger className="rounded-full px-5 text-sm" value="transcript">
                         Transcript
@@ -370,18 +310,18 @@ function ClaudeCodeSessionDetailPage() {
                 </TabsList>
 
                 <TabsContent className="space-y-3" value="transcript">
-                    <ClaudeCodeTranscriptControls
+                    <TranscriptControls
                         rawJsonDisabled={transcriptEvents.length === 0}
                         showCommentary={showCommentary}
                         showExtraEvents={showExtraEvents}
                         showRawJson={showRawJson}
                         showToolCalls={showToolCalls}
                         showUserMessages={showUserMessages}
-                        onShowCommentaryChange={setShowCommentary}
-                        onShowExtraEventsChange={setShowExtraEvents}
-                        onShowRawJsonChange={setShowRawJson}
-                        onShowToolCallsChange={setShowToolCalls}
-                        onShowUserMessagesChange={setShowUserMessages}
+                        onShowCommentaryChange={(value) => updateTranscriptDisplay({ commentary: value })}
+                        onShowExtraEventsChange={(value) => updateTranscriptDisplay({ extra: value })}
+                        onShowRawJsonChange={(value) => updateTranscriptDisplay({ raw: value })}
+                        onShowToolCallsChange={(value) => updateTranscriptDisplay({ tools: value })}
+                        onShowUserMessagesChange={(value) => updateTranscriptDisplay({ user: value })}
                     />
                     {initialDetail.isPartial ? (
                         <ClaudeCodeTranscriptPreviewNotice
@@ -409,13 +349,15 @@ function ClaudeCodeSessionDetailPage() {
                             showRawJson={showRawJson}
                             showToolCalls={showToolCalls}
                             showUserMessages={showUserMessages}
+                            sortOrder={transcriptSearch.sort ?? 'earliest'}
+                            onSortOrderChange={(value) => updateTranscriptDisplay({ sort: value })}
                         />
                     ) : (
-                        <section className="rounded-[1.6rem] border border-[var(--border)] bg-[var(--panel)] p-5 shadow-[var(--panel-shadow)]">
-                            <h3 className="font-semibold text-[var(--muted-foreground)] text-sm uppercase tracking-[0.18em]">
+                        <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 shadow-[var(--panel-shadow)]">
+                            <h3 className="font-semibold text-[var(--muted-foreground)] text-xs uppercase tracking-[0.18em]">
                                 Transcript
                             </h3>
-                            <p className="mt-4 text-[var(--muted-foreground)] text-sm">
+                            <p className="mt-3 text-[var(--muted-foreground)] text-sm">
                                 No renderable Claude Code transcript content was found for this session.
                             </p>
                         </section>
@@ -438,13 +380,8 @@ function ClaudeCodeSessionDetailPage() {
             </Tabs>
 
             <ExportDialog
-                errorMessage={
-                    exportSessionMutation.isError
-                        ? exportSessionMutation.error instanceof Error
-                            ? exportSessionMutation.error.message
-                            : 'Export failed'
-                        : null
-                }
+                focusedEvidenceTarget={{ id: detail.session.sessionId, source: 'claude-code' }}
+                errorMessage={getMutationErrorMessage(exportSessionMutation.error, 'Export failed')}
                 open={pendingExport}
                 pending={exportSessionMutation.isPending}
                 title={`Export ${detail.session.title}`}
@@ -459,14 +396,12 @@ function ClaudeCodeSessionDetailPage() {
 
             <DeleteConfirmDialog
                 confirmLabel={deleteSessionMutation.isPending ? 'Deleting...' : 'Delete session'}
-                description="Permanently delete this Claude Code session from disk. This removes the session JSONL file."
-                errorMessage={
-                    deleteSessionMutation.isError
-                        ? deleteSessionMutation.error instanceof Error
-                            ? deleteSessionMutation.error.message
-                            : 'Session delete failed'
-                        : null
+                description={
+                    detail.session.continuationSessionIds.length > 1
+                        ? 'Permanently delete this Claude Code conversation from disk. This removes the parent transcript and every recognized continuation segment.'
+                        : 'Permanently delete this Claude Code session segment from disk. This removes its JSONL file.'
                 }
+                errorMessage={getMutationErrorMessage(deleteSessionMutation.error, 'Session delete failed')}
                 open={deleteOpen}
                 title="Delete this Claude Code session?"
                 onConfirm={() => deleteSessionMutation.mutate()}

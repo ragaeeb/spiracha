@@ -12,9 +12,9 @@ import { MetadataSection } from '#/components/metadata-section';
 import { MetricCard } from '#/components/metric-card';
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
+import { TranscriptControls } from '#/components/transcript-controls';
 import { DEFAULT_SHOW_USER_MESSAGES, TranscriptView } from '#/components/transcript-view';
 import { Button } from '#/components/ui/button';
-import { Checkbox } from '#/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
 import { cursorThreadDetailQueryOptions, cursorWorkspacesQueryOptions } from '#/lib/cursor-queries';
 import { deleteCursorThreadsFn, exportCursorThreadFn, type getCursorThreadDetailFn } from '#/lib/cursor-server';
@@ -26,20 +26,6 @@ import { RouteStateResetBoundary } from '#/lib/route-state-reset';
 import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
 type CursorThreadDetail = Awaited<ReturnType<typeof getCursorThreadDetailFn>>;
-
-type TranscriptControlsProps = {
-    rawJsonDisabled?: boolean;
-    showCommentary: boolean;
-    showExtraEvents: boolean;
-    showRawJson: boolean;
-    showToolCalls: boolean;
-    showUserMessages: boolean;
-    onShowCommentaryChange: (checked: boolean) => void;
-    onShowExtraEventsChange: (checked: boolean) => void;
-    onShowRawJsonChange: (checked: boolean) => void;
-    onShowToolCallsChange: (checked: boolean) => void;
-    onShowUserMessagesChange: (checked: boolean) => void;
-};
 
 const buildCursorThreadMetadata = (detail: CursorThreadDetail) => {
     return [
@@ -104,66 +90,6 @@ const buildCursorTranscriptStatsItems = (
         { label: 'Renderable bubbles', value: formatNumber(detail.transcript.renderableBubbleCount) },
         { label: 'Omitted bubbles', value: formatNumber(detail.transcript.omittedBubbleCount) },
     ];
-};
-
-const CursorTranscriptControls = ({
-    rawJsonDisabled = false,
-    showCommentary,
-    showExtraEvents,
-    showRawJson,
-    showToolCalls,
-    showUserMessages,
-    onShowCommentaryChange,
-    onShowExtraEventsChange,
-    onShowRawJsonChange,
-    onShowToolCallsChange,
-    onShowUserMessagesChange,
-}: TranscriptControlsProps) => {
-    return (
-        <div className="flex flex-wrap gap-4 rounded-xl border border-[var(--border)] bg-[var(--panel)] px-4 py-3 shadow-[var(--panel-shadow)]">
-            <div className="flex items-center gap-2 text-sm">
-                <Checkbox
-                    checked={showToolCalls}
-                    id="cursor-transcript-show-tool-calls"
-                    onCheckedChange={(checked) => onShowToolCallsChange(checked === true)}
-                />
-                <label htmlFor="cursor-transcript-show-tool-calls">Show tool calls</label>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-                <Checkbox
-                    checked={showCommentary}
-                    id="cursor-transcript-show-commentary"
-                    onCheckedChange={(checked) => onShowCommentaryChange(checked === true)}
-                />
-                <label htmlFor="cursor-transcript-show-commentary">Show commentary</label>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-                <Checkbox
-                    checked={showExtraEvents}
-                    id="cursor-transcript-show-extra-events"
-                    onCheckedChange={(checked) => onShowExtraEventsChange(checked === true)}
-                />
-                <label htmlFor="cursor-transcript-show-extra-events">Show extra events</label>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-                <Checkbox
-                    checked={showRawJson}
-                    disabled={rawJsonDisabled}
-                    id="cursor-transcript-show-raw-json"
-                    onCheckedChange={(checked) => onShowRawJsonChange(checked === true)}
-                />
-                <label htmlFor="cursor-transcript-show-raw-json">Raw JSON</label>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-                <Checkbox
-                    checked={showUserMessages}
-                    id="cursor-transcript-show-user-messages"
-                    onCheckedChange={(checked) => onShowUserMessagesChange(checked === true)}
-                />
-                <label htmlFor="cursor-transcript-show-user-messages">User</label>
-            </div>
-        </div>
-    );
 };
 
 const CursorThreadMetadataPanels = ({
@@ -271,7 +197,7 @@ const CursorThreadDetailPage = () => {
     });
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-4">
             <PageHeader
                 actions={
                     <div className="flex flex-wrap gap-2">
@@ -324,7 +250,7 @@ const CursorThreadDetailPage = () => {
                 />
             </div>
 
-            <Tabs className="space-y-4" defaultValue="transcript">
+            <Tabs className="space-y-3" defaultValue="transcript">
                 <TabsList className="grid w-fit min-w-[24rem] grid-cols-3 rounded-full border border-[var(--border)] bg-[var(--panel)] p-1">
                     <TabsTrigger className="rounded-full px-5 text-sm" value="transcript">
                         Transcript
@@ -338,7 +264,7 @@ const CursorThreadDetailPage = () => {
                 </TabsList>
 
                 <TabsContent className="space-y-3" value="transcript">
-                    <CursorTranscriptControls
+                    <TranscriptControls
                         rawJsonDisabled={!detail.transcript}
                         showCommentary={showCommentary}
                         showExtraEvents={showExtraEvents}
@@ -363,11 +289,11 @@ const CursorThreadDetailPage = () => {
                             showUserMessages={showUserMessages}
                         />
                     ) : (
-                        <section className="rounded-[1.6rem] border border-[var(--border)] bg-[var(--panel)] p-5 shadow-[var(--panel-shadow)]">
+                        <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 shadow-[var(--panel-shadow)]">
                             <h3 className="font-semibold text-[var(--muted-foreground)] text-sm uppercase tracking-[0.18em]">
                                 Transcript
                             </h3>
-                            <p className="mt-4 text-[var(--muted-foreground)] text-sm">
+                            <p className="mt-3 text-[var(--muted-foreground)] text-sm">
                                 No renderable Cursor transcript content was found for this thread.
                             </p>
                         </section>
@@ -405,6 +331,7 @@ const CursorThreadDetailPage = () => {
             />
 
             <ExportDialog
+                focusedEvidenceTarget={{ id: detail.thread.composerId, source: 'cursor' }}
                 errorMessage={
                     exportThreadMutation.isError
                         ? exportThreadMutation.error instanceof Error

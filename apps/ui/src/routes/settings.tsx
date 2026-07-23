@@ -12,20 +12,20 @@ function SettingsPage() {
     const { settings, updateSetting } = useSettings();
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-4">
             <PageHeader
                 eyebrow="Configuration"
                 subtitle="Control how paths and usernames appear in transcript messages."
                 title="Settings"
             />
 
-            <section className="rounded-[1.6rem] border border-[var(--border)] bg-[var(--panel)] p-5 shadow-[var(--panel-shadow)]">
+            <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 shadow-[var(--panel-shadow)]">
                 <h3 className="flex items-center gap-2 font-semibold text-[var(--muted-foreground)] text-xs uppercase tracking-[0.18em]">
                     <Settings2 className="size-3.5" />
                     Privacy
                 </h3>
 
-                <div className="mt-5 space-y-5">
+                <div className="mt-4 space-y-4">
                     <div className="flex items-center gap-3">
                         <Checkbox
                             checked={settings.redactUsername}

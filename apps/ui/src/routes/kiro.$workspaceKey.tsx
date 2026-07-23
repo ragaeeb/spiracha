@@ -69,7 +69,7 @@ const getDeleteDescription = (pendingDelete: PendingSessionDelete | null) => {
     }
 
     if (pendingDelete.sessions.length === 1) {
-        return `Permanently delete "${pendingDelete.sessions[0]!.title}" from Kiro history. This removes the session JSON file and matching execution files from disk.`;
+        return `Permanently delete "${pendingDelete.sessions[0]!.title}" from Kiro history. This removes the parent session, every recognized continuation segment, and matching execution files from disk.`;
     }
 
     return `Permanently delete ${pendingDelete.sessions.length} selected Kiro sessions from disk. This removes session JSON files and matching execution files.`;
@@ -197,7 +197,7 @@ const KiroWorkspacePage = () => {
     };
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-4">
             <PageHeader
                 actions={
                     <div className="flex flex-col gap-2 sm:flex-row">

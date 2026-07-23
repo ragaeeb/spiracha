@@ -1,3 +1,4 @@
+import { antigravityMarkdownToThreadEvents } from '@spiracha/lib/antigravity-transcript-events';
 import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { Download, ScrollText, Trash2 } from 'lucide-react';
@@ -13,11 +14,14 @@ import { MetricCard } from '#/components/metric-card';
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
 import { TextDocumentPanel } from '#/components/text-document-panel';
+import { TranscriptControls } from '#/components/transcript-controls';
 import { DEFAULT_SHOW_USER_MESSAGES, TranscriptView } from '#/components/transcript-view';
 import { Button } from '#/components/ui/button';
-import { Checkbox } from '#/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
-import { canExportAntigravityConversation } from '#/lib/antigravity-conversation-state';
+import {
+    canExportAntigravityConversation,
+    hasEncryptedAntigravityConversation,
+} from '#/lib/antigravity-conversation-state';
 import {
     antigravityConversationDetailQueryOptions,
     antigravityDecryptionQueryOptions,
@@ -29,31 +33,14 @@ import {
     exportAntigravityConversationFn,
     type getAntigravityConversationDetailFn,
 } from '#/lib/antigravity-server';
-import {
-    antigravityMarkdownToThreadEvents,
-    getAntigravityThreadTranscriptStats,
-} from '#/lib/antigravity-transcript-events';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import type { ExportDialogOptions } from '#/lib/export-options';
 import { formatBytes, formatDateTime, formatList, formatNumber } from '#/lib/formatters';
 import { RouteStateResetBoundary } from '#/lib/route-state-reset';
+import { getThreadTranscriptStats } from '#/lib/thread-transcript-stats';
 import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
 type AntigravityConversationDetail = Awaited<ReturnType<typeof getAntigravityConversationDetailFn>>;
-
-type TranscriptControlsProps = {
-    rawJsonDisabled?: boolean;
-    showCommentary: boolean;
-    showExtraEvents: boolean;
-    showRawJson: boolean;
-    showToolCalls: boolean;
-    showUserMessages: boolean;
-    onShowCommentaryChange: (checked: boolean) => void;
-    onShowExtraEventsChange: (checked: boolean) => void;
-    onShowRawJsonChange: (checked: boolean) => void;
-    onShowToolCallsChange: (checked: boolean) => void;
-    onShowUserMessagesChange: (checked: boolean) => void;
-};
 
 const buildConversationMetadata = (detail: AntigravityConversationDetail) => {
     return [
@@ -78,6 +65,7 @@ const buildConversationMetadata = (detail: AntigravityConversationDetail) => {
             label: 'Updated',
             value: <span suppressHydrationWarning>{formatDateTime(detail.conversation.lastUpdatedAtMs)}</span>,
         },
+        { label: 'Model', value: detail.conversation.model ?? 'n/a' },
         { label: 'Transcript source', value: detail.conversation.transcriptSource ?? 'n/a' },
         { label: 'Conversation path', value: detail.conversation.conversationPath ?? 'n/a' },
         { label: 'Transcript path', value: detail.conversation.transcriptPath ?? 'n/a' },
@@ -100,7 +88,7 @@ const buildTranscriptStatsItems = (
         return [{ label: 'Transcript load', value: 'No renderable transcript content was found.' }];
     }
 
-    const stats = getAntigravityThreadTranscriptStats(events);
+    const stats = getThreadTranscriptStats(events);
     return [
         { label: 'Event kinds', value: formatList([...new Set(events.map((event) => event.kind))]) },
         { label: 'Messages', value: formatNumber(stats.messageCount) },
@@ -207,73 +195,13 @@ function AntigravityConversationHeaderActions({
     );
 }
 
-const AntigravityTranscriptControls = ({
-    rawJsonDisabled = false,
-    showCommentary,
-    showExtraEvents,
-    showRawJson,
-    showToolCalls,
-    showUserMessages,
-    onShowCommentaryChange,
-    onShowExtraEventsChange,
-    onShowRawJsonChange,
-    onShowToolCallsChange,
-    onShowUserMessagesChange,
-}: TranscriptControlsProps) => {
-    return (
-        <div className="flex flex-wrap gap-4 rounded-xl border border-[var(--border)] bg-[var(--panel)] px-4 py-3 shadow-[var(--panel-shadow)]">
-            <div className="flex items-center gap-2 text-sm">
-                <Checkbox
-                    checked={showToolCalls}
-                    id="antigravity-transcript-show-tool-calls"
-                    onCheckedChange={(checked) => onShowToolCallsChange(checked === true)}
-                />
-                <label htmlFor="antigravity-transcript-show-tool-calls">Show tool calls</label>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-                <Checkbox
-                    checked={showCommentary}
-                    id="antigravity-transcript-show-commentary"
-                    onCheckedChange={(checked) => onShowCommentaryChange(checked === true)}
-                />
-                <label htmlFor="antigravity-transcript-show-commentary">Show commentary</label>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-                <Checkbox
-                    checked={showExtraEvents}
-                    id="antigravity-transcript-show-extra-events"
-                    onCheckedChange={(checked) => onShowExtraEventsChange(checked === true)}
-                />
-                <label htmlFor="antigravity-transcript-show-extra-events">Show extra events</label>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-                <Checkbox
-                    checked={showRawJson}
-                    disabled={rawJsonDisabled}
-                    id="antigravity-transcript-show-raw-json"
-                    onCheckedChange={(checked) => onShowRawJsonChange(checked === true)}
-                />
-                <label htmlFor="antigravity-transcript-show-raw-json">Raw JSON</label>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-                <Checkbox
-                    checked={showUserMessages}
-                    id="antigravity-transcript-show-user-messages"
-                    onCheckedChange={(checked) => onShowUserMessagesChange(checked === true)}
-                />
-                <label htmlFor="antigravity-transcript-show-user-messages">User</label>
-            </div>
-        </div>
-    );
-};
-
 function EmptyAntigravityTranscript({ detail }: { detail: AntigravityConversationDetail }) {
     return (
-        <section className="rounded-[1.6rem] border border-[var(--border)] bg-[var(--panel)] p-5 shadow-[var(--panel-shadow)]">
+        <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 shadow-[var(--panel-shadow)]">
             <h3 className="font-semibold text-[var(--muted-foreground)] text-sm uppercase tracking-[0.18em]">
                 Transcript
             </h3>
-            <p className="mt-4 text-[var(--muted-foreground)] text-sm">
+            <p className="mt-3 text-[var(--muted-foreground)] text-sm">
                 {detail.transcriptLocked
                     ? 'Unlock Antigravity transcript export to inspect the rendered conversation content here.'
                     : detail.artifactsMarkdown
@@ -400,7 +328,7 @@ function AntigravityConversationDetailPage() {
     });
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-4">
             <PageHeader
                 actions={
                     <AntigravityConversationHeaderActions
@@ -432,7 +360,7 @@ function AntigravityConversationDetailPage() {
                 title={detail.conversation.title}
             />
 
-            <AntigravityKeychainPanel />
+            {hasEncryptedAntigravityConversation(detail.conversation) ? <AntigravityKeychainPanel /> : null}
 
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <MetricCard label="Transcript entries" value={formatNumber(detail.conversation.transcriptEntryCount)} />
@@ -445,7 +373,7 @@ function AntigravityConversationDetailPage() {
                 />
             </div>
 
-            <Tabs className="space-y-4" defaultValue="transcript">
+            <Tabs className="space-y-3" defaultValue="transcript">
                 <TabsList className="grid w-fit min-w-[24rem] grid-cols-3 rounded-full border border-[var(--border)] bg-[var(--panel)] p-1">
                     <TabsTrigger className="rounded-full px-5 text-sm" value="transcript">
                         Transcript
@@ -459,7 +387,7 @@ function AntigravityConversationDetailPage() {
                 </TabsList>
 
                 <TabsContent className="space-y-3" value="transcript">
-                    <AntigravityTranscriptControls
+                    <TranscriptControls
                         rawJsonDisabled={transcriptEvents.length === 0}
                         showCommentary={showCommentary}
                         showExtraEvents={showExtraEvents}
@@ -474,7 +402,7 @@ function AntigravityConversationDetailPage() {
                     />
                     {transcriptEvents.length > 0 ? (
                         <TranscriptView
-                            assistantModel={null}
+                            assistantModel={detail.conversation.model}
                             events={transcriptEvents}
                             projectPath={detail.conversation.workspaceFolder}
                             showCommentary={showCommentary}
@@ -512,6 +440,7 @@ function AntigravityConversationDetailPage() {
             ) : null}
 
             <ExportDialog
+                focusedEvidenceTarget={{ id: detail.conversation.conversationId, source: 'antigravity' }}
                 errorMessage={
                     exportConversationMutation.isError
                         ? exportConversationMutation.error instanceof Error

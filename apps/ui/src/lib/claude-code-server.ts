@@ -45,8 +45,10 @@ export const listClaudeCodeWorkspacesFn = createServerFn({ method: 'GET' }).hand
 export const listClaudeCodeSessionsFn = createServerFn({ method: 'GET' })
     .validator(workspaceSchema)
     .handler(async ({ data }) => {
-        const { listClaudeCodeSessionsForGroup } = await import('@spiracha/lib/claude-code-db');
-        return listClaudeCodeSessionsForGroup(data.workspaceKey);
+        const { listClaudeCodeSessionsForGroup, resolveClaudeCodeProjectsDir } = await import(
+            '@spiracha/lib/claude-code-db'
+        );
+        return listClaudeCodeSessionsForGroup(data.workspaceKey, resolveClaudeCodeProjectsDir());
     });
 
 const loadClaudeCodeSessionTranscript = async (sessionId: string) => {
@@ -68,8 +70,9 @@ const loadClaudeCodeSessionTranscript = async (sessionId: string) => {
         },
         {
             id: sessionId,
+            integration: 'claude-code',
+            operation: 'ui-export',
             path: projectsDir,
-            source: 'claude-code-ui',
         },
     );
 };
@@ -118,8 +121,9 @@ export const loadClaudeCodeSessionDetail = async (sessionId: string) => {
         },
         {
             id: sessionId,
+            integration: 'claude-code',
+            operation: 'ui-detail',
             path: projectsDir,
-            source: 'claude-code-ui-detail',
         },
     );
 };
@@ -142,8 +146,9 @@ export const loadClaudeCodeSessionFullDetail = async (sessionId: string) => {
         },
         {
             id: sessionId,
+            integration: 'claude-code',
+            operation: 'ui-full-detail',
             path: projectsDir,
-            source: 'claude-code-ui-full-detail',
         },
     );
 };

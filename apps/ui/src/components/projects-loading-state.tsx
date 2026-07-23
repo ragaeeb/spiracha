@@ -7,7 +7,7 @@ const loadingRows = ['project-a', 'project-b', 'project-c', 'project-d', 'projec
 
 export function ProjectsLoadingState() {
     return (
-        <div aria-busy="true" aria-live="polite" className="space-y-6">
+        <div aria-busy="true" aria-live="polite" className="space-y-4">
             <PageHeader
                 actions={<Skeleton className="h-10 w-full min-w-[16rem] max-w-[20rem]" />}
                 eyebrow="Inventory"
@@ -22,14 +22,14 @@ export function ProjectsLoadingState() {
                 />
             </div>
 
-            <div className="w-full overflow-x-auto rounded-[1.5rem] border border-[var(--border)] bg-[var(--panel)]">
+            <div className="w-full overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--panel)]">
                 <table className="w-full min-w-[56rem]">
                     <thead className="bg-[var(--panel-secondary)]">
                         <tr className="border-[var(--border)] border-b">
                             {loadingColumns.map((column) => (
                                 <th
                                     key={column}
-                                    className="h-10 whitespace-nowrap px-4 text-left font-semibold text-[11px] text-[var(--muted-foreground)] uppercase tracking-[0.18em]"
+                                    className="h-9 whitespace-nowrap px-3 text-left font-semibold text-[11px] text-[var(--muted-foreground)] uppercase tracking-[0.18em]"
                                 >
                                     {column}
                                 </th>
@@ -43,25 +43,25 @@ export function ProjectsLoadingState() {
                                 aria-label={`Loading project row ${rowIndex + 1}`}
                                 className="border-[var(--border)] border-b last:border-b-0"
                             >
-                                <td className="px-4 py-3">
+                                <td className="px-3 py-2">
                                     <div className="space-y-2">
                                         <Skeleton aria-hidden className="h-4 w-44" />
                                         <Skeleton aria-hidden className="h-3 w-20" />
                                     </div>
                                 </td>
-                                <td className="px-4 py-3">
+                                <td className="px-3 py-2">
                                     <Skeleton aria-hidden className="h-4 w-12" />
                                 </td>
-                                <td className="px-4 py-3">
+                                <td className="px-3 py-2">
                                     <Skeleton aria-hidden className="h-4 w-16" />
                                 </td>
-                                <td className="px-4 py-3">
+                                <td className="px-3 py-2">
                                     <Skeleton aria-hidden className="h-4 w-28" />
                                 </td>
-                                <td className="px-4 py-3">
+                                <td className="px-3 py-2">
                                     <Skeleton aria-hidden className="h-4 w-32" />
                                 </td>
-                                <td className="px-4 py-3">
+                                <td className="px-3 py-2">
                                     <Skeleton aria-hidden className="h-4 w-10" />
                                 </td>
                             </tr>

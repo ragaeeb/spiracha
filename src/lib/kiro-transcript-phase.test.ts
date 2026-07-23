@@ -6,11 +6,12 @@ const entry = (
     entryId: string,
     role: string,
     entryType: KiroTranscriptEntry['entryType'] = 'message',
+    text = entryId,
 ): KiroTranscriptEntry => ({
     entryId,
     entryType,
     executionId: entryType === 'tool_call' ? 'execution-a' : null,
-    parts: [{ raw: { text: entryId }, text: entryId, type: 'text' }],
+    parts: [{ raw: { text }, text, type: 'text' }],
     promptLogCount: 0,
     raw: {},
     role,
@@ -45,5 +46,40 @@ describe('kiro transcript phase helpers', () => {
         ];
 
         expect([...getFinalKiroAssistantMessageEntryIds(entries)]).toEqual(['a2']);
+    });
+
+    it('should keep assistant progress immediately followed by a tool call out of final answers', () => {
+        const entries = [
+            entry('u1', 'user'),
+            entry(
+                'progress',
+                'assistant',
+                'message',
+                "These helpers should all be removed since they're internal. Let me remove them step by step:",
+            ),
+            entry('tool1', 'tool', 'tool_call'),
+            entry('u2', 'user'),
+        ];
+
+        const finalIds = getFinalKiroAssistantMessageEntryIds(entries);
+
+        expect([...finalIds]).toEqual([]);
+        expect(getKiroMessagePhase(entries[1]!, finalIds)).toBe('commentary');
+    });
+
+    it('should keep Kiro acknowledgement placeholders out of final answers', () => {
+        const entries = [
+            entry('u1', 'user'),
+            entry('ack-1', 'assistant', 'message', 'On it.'),
+            entry('u2', 'user'),
+            entry('a2-final', 'assistant', 'message', 'Completed the requested work.'),
+            entry('ack-2', 'assistant', 'message', 'On it!'),
+        ];
+
+        const finalIds = getFinalKiroAssistantMessageEntryIds(entries);
+
+        expect([...finalIds]).toEqual(['a2-final']);
+        expect(getKiroMessagePhase(entries[1]!, finalIds)).toBe('commentary');
+        expect(getKiroMessagePhase(entries[4]!, finalIds)).toBe('commentary');
     });
 });

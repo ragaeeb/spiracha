@@ -4,6 +4,7 @@ import type {
     ConversationMessagePhase,
     ConversationMessageRole,
     ConversationSource,
+    ConversationToolEvidence,
     ListConversationsForPathOptions,
 } from './types';
 
@@ -105,6 +106,7 @@ export const createTextMessage = (input: {
     phase: ConversationMessagePhase;
     role: ConversationMessageRole;
     text: string | null | undefined;
+    toolEvidence?: ConversationToolEvidence | null;
 }): ConversationMessage[] => {
     const text = input.text?.trim();
     if (!text) {
@@ -120,8 +122,46 @@ export const createTextMessage = (input: {
             phase: input.phase,
             role: input.role,
             text,
+            toolEvidence: input.toolEvidence ?? null,
         },
     ];
+};
+
+export const normalizeToolStatus = (
+    status: string | null | undefined,
+    exitCode: number | null = null,
+    isError = false,
+): ConversationToolEvidence['status'] => {
+    if (isError || (exitCode !== null && exitCode !== 0)) {
+        return 'failed';
+    }
+    if (exitCode === 0) {
+        return 'succeeded';
+    }
+    const normalized = status?.toLowerCase();
+    if (normalized && /(?:fail|error|reject|cancel)/u.test(normalized)) {
+        return 'failed';
+    }
+    if (normalized && /(?:success|complete|done|finish)/u.test(normalized)) {
+        return 'succeeded';
+    }
+    return 'unknown';
+};
+
+export const durationTextToMs = (value: string | null | undefined): number | null => {
+    if (!value) {
+        return null;
+    }
+    const match = value.trim().match(/^(\d+(?:\.\d+)?)\s*(ms|s)$/iu);
+    if (!match) {
+        return null;
+    }
+    const amount = Number(match[1]);
+    return Number.isFinite(amount) ? Math.round(amount * (match[2]?.toLowerCase() === 's' ? 1000 : 1)) : null;
+};
+
+export const getToolNamespace = (name: string): string | null => {
+    return name.includes('.') ? (name.split('.')[0] ?? null) : null;
 };
 
 export const finalizeMessages = (messages: ConversationMessage[]) => {

@@ -23,6 +23,7 @@ import {
     isWithinUpdatedWindow,
     normalizeAssistantPhase,
     normalizeRole,
+    normalizeToolStatus,
 } from './adapter-helpers';
 import { selectConversationMessages } from './message-selector';
 import { getConversationPathMatch } from './path-match';
@@ -92,6 +93,15 @@ const partToMessages = (
 
     if (part.type === 'tool') {
         const metadata = { callId: part.callId, status: part.status, toolName: part.toolName };
+        const toolName = part.toolName ?? 'unknown';
+        const namespace = toolName.includes('.') ? (toolName.split('.')[0] ?? null) : null;
+        const durationMs =
+            part.startTimeMs !== null &&
+            part.startTimeMs !== undefined &&
+            part.endTimeMs !== null &&
+            part.endTimeMs !== undefined
+                ? Math.max(0, part.endTimeMs - part.startTimeMs)
+                : null;
         return [
             ...createTextMessage({
                 createdAtMs: part.createdAtMs,
@@ -101,6 +111,18 @@ const partToMessages = (
                 phase: 'tool_call',
                 role: 'tool',
                 text: [part.toolName, part.argumentsText ?? part.title].filter(Boolean).join('\n'),
+                toolEvidence: {
+                    callId: part.callId ?? null,
+                    command: null,
+                    durationMs,
+                    exitCode: null,
+                    inputText: part.argumentsText ?? part.title ?? null,
+                    name: toolName,
+                    namespace,
+                    outputText: null,
+                    status: normalizeToolStatus(part.status),
+                    workdir: null,
+                },
             }),
             ...createTextMessage({
                 createdAtMs: part.createdAtMs,
@@ -110,6 +132,18 @@ const partToMessages = (
                 phase: 'tool_output',
                 role: 'tool',
                 text: part.outputText,
+                toolEvidence: {
+                    callId: part.callId ?? null,
+                    command: null,
+                    durationMs,
+                    exitCode: null,
+                    inputText: null,
+                    name: toolName,
+                    namespace,
+                    outputText: part.outputText ?? null,
+                    status: normalizeToolStatus(part.status),
+                    workdir: null,
+                },
             }),
         ];
     }
@@ -135,8 +169,9 @@ const buildConversation = async (
         (options.includeMessages
             ? await runWithTranscriptLoadLimit(() => readOpenCodeSessionTranscript(dbPath, session.sessionId), {
                   id: session.sessionId,
+                  integration: 'opencode',
+                  operation: 'api',
                   path: dbPath,
-                  source: 'opencode-api',
               })
             : null);
     const allMessages = transcript ? transcriptToMessages(transcript) : [];
@@ -197,8 +232,9 @@ const getOpenCodeConversation = async (options: GetConversationOptions): Promise
     const dbPath = getDbPath(options);
     const transcript = await runWithTranscriptLoadLimit(() => readOpenCodeSessionTranscript(dbPath, options.id), {
         id: options.id,
+        integration: 'opencode',
+        operation: 'api',
         path: dbPath,
-        source: 'opencode-api',
     });
     return transcript
         ? buildConversation(

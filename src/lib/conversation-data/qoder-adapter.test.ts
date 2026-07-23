@@ -154,6 +154,7 @@ describe('qoder conversation adapter', () => {
                 phase: 'tool_call',
                 role: 'tool',
                 text: 'Read\n{"file_path":"src/index.ts"}',
+                toolEvidence: expect.objectContaining({ callId: 'call-1', name: 'Read' }),
             }),
             expect.objectContaining({
                 metadata: {
@@ -164,6 +165,7 @@ describe('qoder conversation adapter', () => {
                 phase: 'tool_output',
                 role: 'tool',
                 text: 'const shared = {};',
+                toolEvidence: expect.objectContaining({ callId: 'call-1', outputText: 'const shared = {};' }),
             }),
             expect.objectContaining({
                 phase: 'final_answer',

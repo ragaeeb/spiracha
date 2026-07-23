@@ -1,7 +1,11 @@
-import { getFinalAntigravityAssistantSequences } from '@spiracha/lib/antigravity-transcript-phase';
-import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/codex-browser-types';
-import type { JsonValue } from '@spiracha/lib/shared';
-import { getThreadTranscriptStats } from './thread-transcript-stats';
+import {
+    ANTIGRAVITY_TOOL_OUTPUT_PREVIEW_MAX_CHARACTERS,
+    isAntigravityTranscriptControlSubheading,
+    matchAntigravityTranscriptSectionHeading,
+} from './antigravity-transcript-contract';
+import { getFinalAntigravityAssistantSequences } from './antigravity-transcript-phase';
+import type { ThreadEvent } from './codex-browser-types';
+import type { JsonValue } from './shared';
 
 type MarkdownSection = {
     body: string;
@@ -17,13 +21,24 @@ type ParsedAssistantSection = {
 
 type ParsedToolCall = {
     argumentsText: string | null;
+    callId: string | null;
+    command: string | null;
     name: string;
+    workdir: string | null;
 };
 
-const HEADING_PATTERN = /^##\s+((?:User|Assistant|System|Event)|Tool:\s*.+)$/iu;
+type ParsedToolOutput = {
+    callId: string | null;
+    exitCode: number | null;
+    outputText: string;
+};
+
 const TIMESTAMP_PATTERN = /^_Timestamp:\s*(.+?)_$/u;
+const MODEL_PATTERN = /^_Model:\s*(.+?)_$/u;
 const TOOL_HEADING_PATTERN = /^tool:\s*(.+)$/iu;
-const CONTROL_SUBHEADING_PATTERN = /^###\s+(Thinking|Tool Calls)\s*$/iu;
+const TOOL_CALL_ID_PATTERN = /Call ID:\s*`([^`]+)`/iu;
+const TOOL_OUTPUT_CALL_ID_PATTERN = /^Call ID:\s*`([^`]+)`$/iu;
+const TOOL_OUTPUT_EXIT_CODE_PATTERN = /^Exit code:\s*(-?\d+)$/iu;
 
 type MarkdownFence = { character: string; length: number };
 
@@ -62,10 +77,10 @@ const splitMarkdownSections = (markdown: string | null): MarkdownSection[] => {
 
     for (const line of lines) {
         const fenceToken = /^\s*(`{3,}|~{3,})/u.exec(line)?.[1] ?? null;
-        const heading = fence === null && fenceToken === null ? HEADING_PATTERN.exec(line) : null;
+        const heading = fence === null && fenceToken === null ? matchAntigravityTranscriptSectionHeading(line) : null;
         if (heading) {
             flush();
-            currentHeading = heading[1]!.trim();
+            currentHeading = heading;
             currentLines = [];
             continue;
         }
@@ -81,18 +96,30 @@ const splitMarkdownSections = (markdown: string | null): MarkdownSection[] => {
     return sections;
 };
 
-const extractTimestamp = (body: string): { body: string; timestamp: string | null } => {
+const extractSectionMetadata = (body: string): { body: string; model: string | null; timestamp: string | null } => {
     const lines = body.split(/\r?\n/u);
-    const timestamp = TIMESTAMP_PATTERN.exec(lines[0]?.trim() ?? '')?.[1]?.trim() ?? null;
-    return {
-        body: timestamp ? lines.slice(1).join('\n').trim() : body.trim(),
-        timestamp,
-    };
+    let model: string | null = null;
+    let timestamp: string | null = null;
+    let contentStart = 0;
+    for (const [index, line] of lines.entries()) {
+        const trimmed = line.trim();
+        const timestampMatch = TIMESTAMP_PATTERN.exec(trimmed);
+        const modelMatch = MODEL_PATTERN.exec(trimmed);
+        if (timestampMatch) {
+            timestamp = timestampMatch[1]?.trim() ?? null;
+        } else if (modelMatch) {
+            model = modelMatch[1]?.trim() ?? null;
+        } else if (trimmed) {
+            break;
+        }
+        contentStart = index + 1;
+    }
+    return { body: lines.slice(contentStart).join('\n').trim(), model, timestamp };
 };
 
 const sectionBodyBeforeSubheading = (body: string): string => {
     const lines = body.split(/\r?\n/u);
-    const controlIndex = lines.findIndex((line) => CONTROL_SUBHEADING_PATTERN.test(line.trim()));
+    const controlIndex = lines.findIndex((line) => isAntigravityTranscriptControlSubheading(line));
     return lines
         .slice(0, controlIndex === -1 ? undefined : controlIndex)
         .join('\n')
@@ -107,12 +134,40 @@ const extractSubheadingBlock = (body: string, title: string): string => {
     }
 
     const nextSubheadingIndex = lines.findIndex(
-        (line, index) => index > startIndex && CONTROL_SUBHEADING_PATTERN.test(line.trim()),
+        (line, index) => index > startIndex && isAntigravityTranscriptControlSubheading(line),
     );
     return lines
         .slice(startIndex + 1, nextSubheadingIndex === -1 ? undefined : nextSubheadingIndex)
         .join('\n')
         .trim();
+};
+
+const parseToolArguments = (argumentsText: string | null): Record<string, unknown> | null => {
+    if (!argumentsText) {
+        return null;
+    }
+
+    try {
+        const parsed = JSON.parse(argumentsText) as unknown;
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+            ? (parsed as Record<string, unknown>)
+            : null;
+    } catch {
+        return null;
+    }
+};
+
+const parseToolCallMatch = (match: RegExpMatchArray): ParsedToolCall => {
+    const metadata = match[2] ?? '';
+    const argumentsText = /(`{3,}|~{3,})[^\n]*\n([\s\S]*?)\n\1/u.exec(metadata)?.[2]?.trim() ?? null;
+    const args = parseToolArguments(argumentsText);
+    return {
+        argumentsText,
+        callId: TOOL_CALL_ID_PATTERN.exec(metadata)?.[1]?.trim() ?? null,
+        command: typeof args?.CommandLine === 'string' ? args.CommandLine : null,
+        name: match[1]?.trim() || 'unknown',
+        workdir: typeof args?.Cwd === 'string' ? args.Cwd : null,
+    };
 };
 
 const parseToolCalls = (body: string): ParsedToolCall[] => {
@@ -122,12 +177,9 @@ const parseToolCalls = (body: string): ParsedToolCall[] => {
     }
 
     const calls: ParsedToolCall[] = [];
-    const callPattern = /-\s+`([^`]+)`(?:\s*\n+```json\s*\n([\s\S]*?)\n```)?/gu;
+    const callPattern = /-\s+`([^`]+)`([\s\S]*?)(?=\n-\s+`|$)/gu;
     for (const match of toolCallsBlock.matchAll(callPattern)) {
-        calls.push({
-            argumentsText: match[2]?.trim() ?? null,
-            name: match[1]?.trim() || 'unknown',
-        });
+        calls.push(parseToolCallMatch(match));
     }
 
     return calls;
@@ -157,12 +209,13 @@ const buildMessageEvent = (
     text: string,
     timestamp: string | null,
     phase: string | null,
+    model: string | null = null,
     sequenceOffset = 0,
 ): ThreadEvent => ({
     isHiddenByDefault: role !== 'assistant' && role !== 'user',
     kind: 'message',
     memoryCitation: null,
-    model: null,
+    model,
     phase,
     raw: buildRaw(section, { role }),
     role,
@@ -180,8 +233,8 @@ const buildToolCallEvent = (
 ): ThreadEvent => ({
     argumentsParseFailed: false,
     argumentsText: toolCall.argumentsText,
-    callId: null,
-    command: [toolCall.name, toolCall.argumentsText].filter(Boolean).join('\n'),
+    callId: toolCall.callId,
+    command: toolCall.command ?? [toolCall.name, toolCall.argumentsText].filter(Boolean).join('\n'),
     kind: 'tool_call',
     name: toolCall.name,
     raw: buildRaw(section, {
@@ -190,27 +243,69 @@ const buildToolCallEvent = (
     }),
     sequence: section.sequence + sequenceOffset,
     timestamp,
-    workdir: null,
+    workdir: toolCall.workdir,
 });
 
 const buildToolOutputEvent = (
     section: MarkdownSection,
     toolName: string,
-    outputText: string,
+    output: ParsedToolOutput,
     timestamp: string | null,
-): ThreadEvent => ({
-    callId: null,
-    exitCode: null,
-    kind: 'tool_output',
-    outputText,
-    raw: buildRaw(section, {
-        name: toolName,
-    }),
-    sequence: section.sequence,
-    summary: outputText,
-    timestamp,
-    wallTime: null,
-});
+): ThreadEvent => {
+    const outputText = output.outputText;
+    const truncated = outputText.length > ANTIGRAVITY_TOOL_OUTPUT_PREVIEW_MAX_CHARACTERS;
+    const truncationNotice = `\n\n[Preview truncated. The full ${outputText.length}-character output remains in the transcript export.]`;
+    const previewLength = Math.max(0, ANTIGRAVITY_TOOL_OUTPUT_PREVIEW_MAX_CHARACTERS - truncationNotice.length);
+    const summary = truncated ? `${outputText.slice(0, previewLength)}${truncationNotice}` : outputText;
+    return {
+        callId: output.callId,
+        exitCode: output.exitCode,
+        kind: 'tool_output',
+        outputText,
+        raw: buildRaw(section, {
+            name: toolName,
+            outputCharacterCount: outputText.length,
+            outputPreviewTruncated: truncated,
+        }),
+        sequence: section.sequence,
+        summary,
+        timestamp,
+        wallTime: null,
+    };
+};
+
+const parseToolOutput = (body: string): ParsedToolOutput => {
+    const lines = body.split(/\r?\n/u);
+    const firstContentIndex = lines.findIndex((line) => line.trim());
+    const callIdMatch = TOOL_OUTPUT_CALL_ID_PATTERN.exec(lines[firstContentIndex]?.trim() ?? '');
+    if (!callIdMatch) {
+        return { callId: null, exitCode: null, outputText: body.trim() };
+    }
+
+    const callId = callIdMatch[1]?.trim() ?? null;
+    let exitCode: number | null = null;
+    let contentStart = firstContentIndex + 1;
+    for (let index = contentStart; index < lines.length; index += 1) {
+        const line = lines[index] ?? '';
+        const trimmed = line.trim();
+        if (!trimmed) {
+            contentStart = index + 1;
+            continue;
+        }
+        const exitCodeMatch = TOOL_OUTPUT_EXIT_CODE_PATTERN.exec(trimmed);
+        if (exitCodeMatch && exitCode === null) {
+            exitCode = Number(exitCodeMatch[1]);
+            contentStart = index + 1;
+            continue;
+        }
+        break;
+    }
+    return {
+        callId,
+        exitCode,
+        outputText: lines.slice(contentStart).join('\n').trim(),
+    };
+};
 
 const getFinalAssistantSectionSequences = (sections: MarkdownSection[]): Set<number> => {
     const items = sections.map((section) => {
@@ -225,7 +320,7 @@ const getFinalAssistantSectionSequences = (sections: MarkdownSection[]): Set<num
         }
 
         if (heading === 'assistant') {
-            const { body } = extractTimestamp(section.body);
+            const { body } = extractSectionMetadata(section.body);
             const parsed = parseAssistantSection(body);
             return {
                 hasContent: Boolean(parsed.content),
@@ -261,23 +356,27 @@ const toolOutputSectionToEvents = (
     body: string,
     timestamp: string | null,
 ): ThreadEvent[] => {
-    return body ? [buildToolOutputEvent(section, toolName, body, timestamp)] : [];
+    const output = parseToolOutput(body);
+    return output.outputText || output.callId || output.exitCode !== null
+        ? [buildToolOutputEvent(section, toolName, output, timestamp)]
+        : [];
 };
 
 const assistantSectionToEvents = (
     section: MarkdownSection,
     body: string,
     timestamp: string | null,
+    model: string | null,
     finalAssistantSectionSequences: Set<number>,
 ): ThreadEvent[] => {
     const parsed = parseAssistantSection(body);
     const events: ThreadEvent[] = [];
     if (parsed.thinking) {
-        events.push(buildMessageEvent(section, 'assistant', parsed.thinking, timestamp, 'commentary'));
+        events.push(buildMessageEvent(section, 'assistant', parsed.thinking, timestamp, 'commentary', model));
     }
     if (parsed.content) {
         const phase = finalAssistantSectionSequences.has(section.sequence) ? 'final_answer' : 'commentary';
-        events.push(buildMessageEvent(section, 'assistant', parsed.content, timestamp, phase, 1));
+        events.push(buildMessageEvent(section, 'assistant', parsed.content, timestamp, phase, model, 1));
     }
     parsed.toolCalls.forEach((toolCall, index) => {
         events.push(buildToolCallEvent(section, toolCall, timestamp, 2 + index));
@@ -286,7 +385,7 @@ const assistantSectionToEvents = (
 };
 
 const sectionToEvents = (section: MarkdownSection, finalAssistantSectionSequences: Set<number>): ThreadEvent[] => {
-    const { body, timestamp } = extractTimestamp(section.body);
+    const { body, model, timestamp } = extractSectionMetadata(section.body);
     const heading = section.heading.toLowerCase();
     const toolHeading = TOOL_HEADING_PATTERN.exec(section.heading);
 
@@ -299,7 +398,7 @@ const sectionToEvents = (section: MarkdownSection, finalAssistantSectionSequence
     }
 
     if (heading === 'assistant') {
-        return assistantSectionToEvents(section, body, timestamp, finalAssistantSectionSequences);
+        return assistantSectionToEvents(section, body, timestamp, model, finalAssistantSectionSequences);
     }
 
     if (heading === 'system') {
@@ -314,6 +413,3 @@ export const antigravityMarkdownToThreadEvents = (markdown: string | null): Thre
     const finalAssistantSectionSequences = getFinalAssistantSectionSequences(sections);
     return sections.flatMap((section) => sectionToEvents(section, finalAssistantSectionSequences));
 };
-
-export const getAntigravityThreadTranscriptStats = (events: ThreadEvent[]): ThreadTranscriptStats =>
-    getThreadTranscriptStats(events);

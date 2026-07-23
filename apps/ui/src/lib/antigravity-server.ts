@@ -58,10 +58,8 @@ export const listAntigravityConversationsFn = createServerFn({ method: 'GET' })
     });
 
 const findAntigravityConversationById = async (conversationId: string) => {
-    const { listAntigravityConversations } = await import('@spiracha/lib/antigravity-db');
-    const conversation = (await listAntigravityConversations()).find(
-        (candidate) => candidate.conversationId === conversationId,
-    );
+    const { getAntigravityConversationById } = await import('@spiracha/lib/antigravity-db');
+    const conversation = await getAntigravityConversationById(conversationId);
     if (!conversation) {
         throw new Error(`Antigravity conversation not found: ${conversationId}`);
     }
@@ -104,8 +102,9 @@ export const loadAntigravityConversationDetail = async (conversationId: string) 
                 ]),
             {
                 id: conversation.conversationId,
+                integration: 'antigravity',
+                operation: 'ui-detail',
                 path: conversation.transcriptPath ?? conversation.conversationPath ?? undefined,
-                source: 'antigravity-ui-detail',
             },
         ),
         resolveAntigravityConversationGroup(conversation),
@@ -159,8 +158,9 @@ export const loadAntigravityConversationExport = async (
             }),
         {
             id: conversation.conversationId,
+            integration: 'antigravity',
+            operation: 'ui-export',
             path: conversation.transcriptPath ?? conversation.conversationPath ?? undefined,
-            source: 'antigravity-ui-export',
         },
     );
     if (!content) {

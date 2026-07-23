@@ -7,6 +7,9 @@ import { finished } from 'node:stream/promises';
 import { pathToFileURL } from 'node:url';
 import { formatModelLabel as formatSharedModelLabel } from './model-label';
 
+const INLINE_TITLE_MAX_CHARACTERS = 160;
+const INLINE_TITLE_ELLIPSIS = '...';
+
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 
 export type ExportFormat = 'md' | 'txt';
@@ -95,11 +98,11 @@ export const cleanInlineTitle = (value: string): string => {
             .find((line) => line.length > 0) ?? '';
     const compact = firstLine.replace(/\s+/g, ' ').trim();
 
-    if (compact.length <= 160) {
+    if (compact.length <= INLINE_TITLE_MAX_CHARACTERS) {
         return compact;
     }
 
-    return `${compact.slice(0, 157).trimEnd()}...`;
+    return `${compact.slice(0, INLINE_TITLE_MAX_CHARACTERS - INLINE_TITLE_ELLIPSIS.length).trimEnd()}${INLINE_TITLE_ELLIPSIS}`;
 };
 
 export const cleanExtractedText = (text: string): string => {

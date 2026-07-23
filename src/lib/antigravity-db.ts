@@ -13,6 +13,17 @@ import {
 } from './antigravity-exporter-types';
 import { decryptAntigravitySafeStoragePayload } from './antigravity-keychain';
 import { resolveAntigravityProjectNames } from './antigravity-projects';
+import {
+    type AntigravityTrajectoryEntry,
+    readAntigravityTrajectoryEntries,
+    readAntigravityTrajectoryStepIndexes,
+} from './antigravity-trajectory';
+import {
+    ANTIGRAVITY_TRANSCRIPT_HEADINGS,
+    ANTIGRAVITY_TRANSCRIPT_MARKDOWN_VERSION,
+    ANTIGRAVITY_TRANSCRIPT_VERSION_METADATA_KEY,
+} from './antigravity-transcript-contract';
+import { readAntigravityTranscriptHistory } from './antigravity-transcript-history';
 import { getAntigravityAssistantPhase, getFinalAntigravityAssistantSequences } from './antigravity-transcript-phase';
 import { mapWithConcurrency } from './concurrency';
 import {
@@ -53,12 +64,15 @@ export type DeleteAntigravityConversationResult = {
 
 type ConversationFile = {
     bytes: number;
+    format: 'db' | 'pb';
     mtimeMs: number;
     path: string;
     root: string;
+    stepIndexes: Set<number>;
 };
 
 const ANTIGRAVITY_ARTIFACT_READ_CONCURRENCY = 16;
+const ANTIGRAVITY_CONVERSATION_FILE_READ_CONCURRENCY = 8;
 const SAFE_CONVERSATION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
 const isSafeConversationId = (value: string) => SAFE_CONVERSATION_ID_PATTERN.test(value);
@@ -70,7 +84,8 @@ type TranscriptFile = {
     model: string | null;
     path: string;
     root: string;
-    source: Exclude<AntigravityTranscriptSource, 'safe-storage'>;
+    source: Exclude<AntigravityTranscriptSource, 'safe-storage' | 'trajectory'>;
+    stepIndexes: Set<number>;
 };
 
 export type AntigravityConversationMessage = {
@@ -439,6 +454,10 @@ const preferConversationFile = (
         return candidate;
     }
 
+    if (candidate.format !== current.format) {
+        return candidate.format === 'db' ? candidate : current;
+    }
+
     if (candidate.mtimeMs !== current.mtimeMs) {
         return candidate.mtimeMs > current.mtimeMs ? candidate : current;
     }
@@ -451,11 +470,12 @@ const readConversationFileCandidate = async (
     conversationDir: string,
     entry: { isFile: () => boolean; name: string },
 ): Promise<{ conversationId: string; file: ConversationFile } | null> => {
-    if (!entry.isFile() || !entry.name.endsWith('.pb')) {
+    const format = entry.name.endsWith('.db') ? 'db' : entry.name.endsWith('.pb') ? 'pb' : null;
+    if (!entry.isFile() || !format) {
         return null;
     }
 
-    const conversationId = entry.name.slice(0, -'.pb'.length);
+    const conversationId = entry.name.slice(0, -3);
     const filePath = path.join(conversationDir, entry.name);
     try {
         const info = await stat(filePath);
@@ -463,9 +483,11 @@ const readConversationFileCandidate = async (
             conversationId,
             file: {
                 bytes: info.size,
+                format,
                 mtimeMs: info.mtimeMs,
                 path: filePath,
                 root,
+                stepIndexes: format === 'db' ? await readAntigravityTrajectoryStepIndexes(filePath) : new Set(),
             },
         };
     } catch (error) {
@@ -488,8 +510,10 @@ const readConversationFiles = async (roots: string[]): Promise<Map<string, Conve
             continue;
         }
 
-        for (const entry of entries) {
-            const candidate = await readConversationFileCandidate(root, conversationDir, entry);
+        const candidates = await mapWithConcurrency(entries, ANTIGRAVITY_CONVERSATION_FILE_READ_CONCURRENCY, (entry) =>
+            readConversationFileCandidate(root, conversationDir, entry),
+        );
+        for (const candidate of candidates) {
             if (candidate) {
                 files.set(
                     candidate.conversationId,
@@ -500,6 +524,30 @@ const readConversationFiles = async (roots: string[]): Promise<Map<string, Conve
     }
 
     return files;
+};
+
+const readConversationFileById = async (
+    roots: string[],
+    conversationId: string,
+): Promise<ConversationFile | undefined> => {
+    const candidates = await Promise.all(
+        roots.flatMap((root) => {
+            const conversationDir = getAntigravityConversationDir(root);
+            return ['db', 'pb'].map((extension) =>
+                readConversationFileCandidate(root, conversationDir, {
+                    isFile: () => true,
+                    name: `${conversationId}.${extension}`,
+                }),
+            );
+        }),
+    );
+    let selected: ConversationFile | undefined;
+    for (const candidate of candidates) {
+        if (candidate) {
+            selected = preferConversationFile(selected, candidate.file);
+        }
+    }
+    return selected;
 };
 
 const readArtifactMetadata = async (
@@ -604,31 +652,74 @@ const mergeArtifactMaps = async (roots: string[]): Promise<Map<string, Antigravi
     return merged;
 };
 
+const readArtifactsByConversationId = async (
+    roots: string[],
+    conversationId: string,
+): Promise<AntigravityArtifact[]> => {
+    const artifactsByName = new Map<string, AntigravityArtifact>();
+    const candidatesByRoot = await Promise.all(
+        roots.map(async (root) => {
+            const artifactDir = path.join(getAntigravityBrainDir(root), conversationId);
+            const files = await readdir(artifactDir, { withFileTypes: true }).catch(() => []);
+            return mapWithConcurrency(
+                files.filter((file) => file.isFile() && file.name.endsWith('.md')),
+                ANTIGRAVITY_ARTIFACT_READ_CONCURRENCY,
+                (file) => readArtifactCandidate(root, path.join(artifactDir, file.name), file.name),
+            );
+        }),
+    );
+    for (const candidates of candidatesByRoot) {
+        for (const artifact of candidates) {
+            if (artifact && !artifactsByName.has(artifact.name)) {
+                artifactsByName.set(artifact.name, artifact);
+            }
+        }
+    }
+    return [...artifactsByName.values()].sort(
+        (left, right) => (right.updatedAtMs ?? 0) - (left.updatedAtMs ?? 0) || left.name.localeCompare(right.name),
+    );
+};
+
 const stripModelQualifier = (value: string): string => value.replace(/\s*\([^)]*\)\s*$/u, '').trim();
 
-const extractModelSelection = (content: string): string | null => {
+type ModelSelectionChange = {
+    from: string | null;
+    to: string;
+};
+
+const normalizeSelectedModel = (value: string): string | null => {
+    const model = stripModelQualifier(value);
+    return model && model !== 'None' ? model : null;
+};
+
+const extractModelSelectionChange = (content: string): ModelSelectionChange | null => {
     const marker = '`Model Selection`';
     const markerIndex = content.indexOf(marker);
     if (markerIndex < 0) {
         return null;
     }
 
+    const fromIndex = content.indexOf(' from ', markerIndex + marker.length);
     const toIndex = content.indexOf(' to ', markerIndex + marker.length);
-    if (toIndex < 0) {
+    if (fromIndex < 0 || toIndex < 0 || fromIndex >= toIndex) {
         return null;
     }
 
+    const from = normalizeSelectedModel(content.slice(fromIndex + ' from '.length, toIndex));
     const candidate = content.slice(toIndex + ' to '.length);
     const endMarkers = ['. No need', '. If reporting', '</USER_SETTINGS_CHANGE>', '\n'];
     const endIndex = endMarkers.reduce<number | null>((earliest, endMarker) => {
         const index = candidate.indexOf(endMarker);
         return index < 0 || (earliest !== null && index >= earliest) ? earliest : index;
     }, null);
-    const rawModel = (endIndex === null ? candidate : candidate.slice(0, endIndex)).trim();
-    return rawModel ? stripModelQualifier(rawModel) : null;
+    const to = normalizeSelectedModel(endIndex === null ? candidate : candidate.slice(0, endIndex));
+    return to ? { from, to } : null;
 };
 
-const transcriptAnalysisCache = new Map<string, { entryCount: number; model: string | null }>();
+const transcriptAnalysisCache = new Map<
+    string,
+    { entryCount: number; model: string | null; stepIndexes: Set<number> }
+>();
 
 const analyzeTranscriptFile = async (filePath: string, size: number, mtimeMs: number) => {
     const cacheKey = `${filePath}:${size}:${mtimeMs}`;
@@ -638,15 +729,18 @@ const analyzeTranscriptFile = async (filePath: string, size: number, mtimeMs: nu
     }
     const text = await Bun.file(filePath).text();
     let model: string | null = null;
-    for (const entry of parseLogEntries(text)) {
-        model = extractModelSelection(getString(entry.content) ?? '') ?? model;
-        if (model !== null) {
-            break;
-        }
+    const entries = parseLogEntries(text);
+    for (const entry of entries) {
+        model = extractModelSelectionChange(getString(entry.content) ?? '')?.to ?? model;
     }
     const analysis = {
-        entryCount: text.split(/\r?\n/u).filter((line) => line.trim().length > 0).length,
+        entryCount: entries.length,
         model,
+        stepIndexes: new Set(
+            entries.flatMap((entry) =>
+                typeof entry.step_index === 'number' && Number.isFinite(entry.step_index) ? [entry.step_index] : [],
+            ),
+        ),
     };
     if (transcriptAnalysisCache.size >= 256) {
         transcriptAnalysisCache.delete(transcriptAnalysisCache.keys().next().value ?? '');
@@ -699,6 +793,7 @@ const readTranscriptFileCandidate = async (
             path: transcriptPath,
             root,
             source: candidate.source,
+            stepIndexes: analysis.stepIndexes,
         };
     } catch {
         return null;
@@ -748,10 +843,40 @@ const mergeTranscriptMaps = async (roots: string[]): Promise<Map<string, Transcr
     return merged;
 };
 
+const readTranscriptByConversationId = async (
+    roots: string[],
+    conversationId: string,
+): Promise<TranscriptFile | undefined> => {
+    const transcriptsByRoot = await Promise.all(
+        roots.map(async (root) => {
+            const logsDir = path.join(getAntigravityBrainDir(root), conversationId, '.system_generated', 'logs');
+            return Promise.all(
+                [
+                    { name: 'transcript_full.jsonl', source: 'transcript' as const },
+                    { name: 'transcript.jsonl', source: 'transcript' as const },
+                    { name: 'overview.txt', source: 'overview' as const },
+                ].map((candidate) => readTranscriptFileCandidate(root, logsDir, candidate)),
+            );
+        }),
+    );
+    let selected: TranscriptFile | undefined;
+    for (const transcripts of transcriptsByRoot) {
+        for (const transcript of transcripts) {
+            if (transcript) {
+                selected = preferTranscriptFile(selected, transcript);
+            }
+        }
+    }
+    return selected;
+};
+
 const readSummaryEntries = async (roots: string[]): Promise<Map<string, SummaryEntry>> => {
     const summaries = new Map<string, SummaryEntry>();
-    for (const root of roots) {
-        for (const entry of await readAntigravitySummaryIndex(getAntigravitySummaryIndexPath(root))) {
+    const entriesByRoot = await Promise.all(
+        roots.map((root) => readAntigravitySummaryIndex(getAntigravitySummaryIndexPath(root))),
+    );
+    for (const entries of entriesByRoot) {
+        for (const entry of entries) {
             const existing = summaries.get(entry.conversationId);
             if (!existing || (entry.lastUpdatedAtMs ?? 0) > (existing.lastUpdatedAtMs ?? 0)) {
                 summaries.set(entry.conversationId, entry);
@@ -790,7 +915,20 @@ const resolveConversationTranscriptSource = (
     file: ConversationFile | undefined,
     transcript: TranscriptFile | undefined,
 ) => {
+    if (file?.format === 'db') {
+        return 'trajectory' as const;
+    }
     return transcript?.source ?? (file?.path ? 'safe-storage' : null);
+};
+
+const resolveTranscriptEntryCount = (
+    file: ConversationFile | undefined,
+    transcript: TranscriptFile | undefined,
+): number => {
+    if (file?.format !== 'db') {
+        return transcript?.entryCount ?? 0;
+    }
+    return new Set([...file.stepIndexes, ...(transcript?.stepIndexes ?? [])]).size;
 };
 
 const resolveConversationLastUpdatedAt = (
@@ -835,7 +973,7 @@ const toConversation = (
         title: summary?.title ?? cleanTitle(fallbackTitle, conversationId),
         totalBytes: conversationBytes + transcriptBytes + artifactBytes,
         transcriptBytes,
-        transcriptEntryCount: transcript?.entryCount ?? 0,
+        transcriptEntryCount: resolveTranscriptEntryCount(file, transcript),
         transcriptPath: transcript?.path ?? null,
         transcriptSource: resolveConversationTranscriptSource(file, transcript),
         workspaceFolder: workspace.workspaceFolder,
@@ -872,6 +1010,27 @@ export const listAntigravityConversations = async (
             ),
         )
         .sort((a, b) => (b.lastUpdatedAtMs ?? 0) - (a.lastUpdatedAtMs ?? 0) || a.title.localeCompare(b.title));
+};
+
+export const getAntigravityConversationById = async (
+    conversationId: string,
+    roots = resolveAntigravityRoots(),
+): Promise<AntigravityConversation | null> => {
+    if (!isSafeConversationId(conversationId)) {
+        return null;
+    }
+
+    const [summaries, file, artifacts, transcript] = await Promise.all([
+        readSummaryEntries(roots),
+        readConversationFileById(roots, conversationId),
+        readArtifactsByConversationId(roots, conversationId),
+        readTranscriptByConversationId(roots, conversationId),
+    ]);
+    const summary = summaries.get(conversationId);
+    if (!summary && !file && artifacts.length === 0 && !transcript) {
+        return null;
+    }
+    return toConversation(conversationId, summary, file, artifacts, transcript);
 };
 
 export const groupAntigravityConversations = (
@@ -928,11 +1087,16 @@ export const listAntigravityConversationsForGroup = async (
 };
 
 const existingAntigravityDeletePaths = async (root: string, conversationId: string): Promise<string[]> => {
-    const conversationPath = path.join(getAntigravityConversationDir(root), `${conversationId}.pb`);
+    const conversationDir = getAntigravityConversationDir(root);
+    const protobufPath = path.join(conversationDir, `${conversationId}.pb`);
+    const databasePath = path.join(conversationDir, `${conversationId}.db`);
     const artifactDir = path.join(getAntigravityBrainDir(root), conversationId);
     const logsDir = path.join(artifactDir, '.system_generated', 'logs');
     const candidates = [
-        conversationPath,
+        protobufPath,
+        databasePath,
+        `${databasePath}-shm`,
+        `${databasePath}-wal`,
         path.join(logsDir, 'overview.txt'),
         path.join(logsDir, 'transcript.jsonl'),
         path.join(logsDir, 'transcript_full.jsonl'),
@@ -961,7 +1125,13 @@ export const deleteAntigravityConversation = async (
         const rootPaths = await existingAntigravityDeletePaths(root, conversationId);
         deletedPaths.push(...rootPaths);
 
-        await rm(path.join(getAntigravityConversationDir(root), `${conversationId}.pb`), { force: true });
+        const conversationDir = getAntigravityConversationDir(root);
+        await Promise.all([
+            rm(path.join(conversationDir, `${conversationId}.pb`), { force: true }),
+            rm(path.join(conversationDir, `${conversationId}.db`), { force: true }),
+            rm(path.join(conversationDir, `${conversationId}.db-shm`), { force: true }),
+            rm(path.join(conversationDir, `${conversationId}.db-wal`), { force: true }),
+        ]);
         await rm(path.join(getAntigravityBrainDir(root), conversationId), { force: true, recursive: true });
     }
 
@@ -1000,14 +1170,20 @@ export const renderAntigravityArtifactsMarkdown = async (
 };
 
 type AntigravityLogEntry = {
+    command?: unknown;
     content?: unknown;
     created_at?: unknown;
+    exit_code?: unknown;
+    model?: unknown;
     source?: unknown;
     status?: unknown;
     step_index?: unknown;
     thinking?: unknown;
+    tool_call_id?: unknown;
     tool_calls?: unknown;
+    tool_name?: unknown;
     type?: unknown;
+    workdir?: unknown;
 };
 
 const parseLogEntries = (content: string): AntigravityLogEntry[] => {
@@ -1057,22 +1233,22 @@ const logEntryHeading = (entry: AntigravityLogEntry): string => {
     const source = getString(entry.source);
     const type = getString(entry.type);
     if (source?.startsWith('USER')) {
-        return 'User';
+        return ANTIGRAVITY_TRANSCRIPT_HEADINGS.user;
     }
 
     if (source === 'MODEL') {
         if (type && type !== 'PLANNER_RESPONSE') {
-            return `Tool: ${type}`;
+            return `${ANTIGRAVITY_TRANSCRIPT_HEADINGS.toolPrefix}${type}`;
         }
 
-        return 'Assistant';
+        return ANTIGRAVITY_TRANSCRIPT_HEADINGS.assistant;
     }
 
     if (source === 'SYSTEM') {
-        return 'System';
+        return ANTIGRAVITY_TRANSCRIPT_HEADINGS.system;
     }
 
-    return type ? `Tool: ${type}` : 'Event';
+    return type ? `${ANTIGRAVITY_TRANSCRIPT_HEADINGS.toolPrefix}${type}` : ANTIGRAVITY_TRANSCRIPT_HEADINGS.event;
 };
 
 type ResolvedAntigravityConversationRenderOptions = {
@@ -1108,14 +1284,21 @@ const renderToolCalls = (toolCalls: unknown, outputFormat: ExportFormat): string
             continue;
         }
 
-        const { args, name } = call as { args?: unknown; name?: unknown };
+        const { args, id, name } = call as { args?: unknown; id?: unknown; name?: unknown };
         parts.push(`- ${formatInlineLiteral(typeof name === 'string' ? name : 'unknown', outputFormat)}`);
+        if (typeof id === 'string' && id.trim()) {
+            parts.push('', `Call ID: ${formatInlineLiteral(id, outputFormat)}`);
+        }
         if (args !== undefined) {
             parts.push('', 'Input:', '', renderCodeBlock(JSON.stringify(args, null, 2), outputFormat), '');
         }
     }
 
-    return parts.length > 0 ? [renderNestedHeading('Tool Calls', outputFormat), '', ...parts].join('\n').trimEnd() : '';
+    return parts.length > 0
+        ? [renderNestedHeading(ANTIGRAVITY_TRANSCRIPT_HEADINGS.toolCalls, outputFormat), '', ...parts]
+              .join('\n')
+              .trimEnd()
+        : '';
 };
 
 const renderLogEntryBodyParts = (
@@ -1126,9 +1309,22 @@ const renderLogEntryBodyParts = (
     options: ResolvedAntigravityConversationRenderOptions,
 ): string[] => {
     const bodyParts: string[] = [];
+    const toolCallId = getString(entry.tool_call_id);
+    const exitCode = typeof entry.exit_code === 'number' && Number.isFinite(entry.exit_code) ? entry.exit_code : null;
+    if (role === 'tool' && toolCallId) {
+        bodyParts.push(`Call ID: ${formatInlineLiteral(toolCallId, options.outputFormat)}`, '');
+    }
+    if (role === 'tool' && exitCode !== null) {
+        bodyParts.push(`Exit code: ${exitCode}`, '');
+    }
     const thinking = getString(entry.thinking) ?? '';
     if (options.includeCommentary && thinking) {
-        bodyParts.push(renderNestedHeading('Thinking', options.outputFormat), '', thinking.trim(), '');
+        bodyParts.push(
+            renderNestedHeading(ANTIGRAVITY_TRANSCRIPT_HEADINGS.thinking, options.outputFormat),
+            '',
+            thinking.trim(),
+            '',
+        );
     }
 
     const content = cleanLogContent(entry);
@@ -1158,15 +1354,18 @@ const renderLogEntry = (
     }
 
     const timestamp = getString(entry.created_at);
+    const model = role === 'assistant' ? getString(entry.model) : null;
     const bodyParts = renderLogEntryBodyParts(entry, role, sequence, finalAssistantSequences, options);
 
     if (bodyParts.length === 0) {
         return '';
     }
 
-    const parts = timestamp
-        ? [options.outputFormat === 'md' ? `_Timestamp: ${timestamp}_` : `Timestamp: ${timestamp}`, '', ...bodyParts]
-        : bodyParts;
+    const sectionMetadata = [
+        timestamp ? (options.outputFormat === 'md' ? `_Timestamp: ${timestamp}_` : `Timestamp: ${timestamp}`) : '',
+        model ? (options.outputFormat === 'md' ? `_Model: ${model}_` : `Model: ${model}`) : '',
+    ].filter(Boolean);
+    const parts = [...sectionMetadata.flatMap((metadata) => [metadata, '']), ...bodyParts];
     return renderSection(heading, parts.join('\n').trimEnd(), options.outputFormat);
 };
 
@@ -1182,6 +1381,81 @@ const logEntryCreatedAtMs = (entry: AntigravityLogEntry): number | null => {
 
 const logEntryOrder = (entry: AntigravityLogEntry, fallback: number): number => {
     return typeof entry.step_index === 'number' && Number.isFinite(entry.step_index) ? entry.step_index : fallback;
+};
+
+const mergeLogEntries = (
+    generatedEntries: AntigravityLogEntry[],
+    trajectoryEntries: AntigravityTrajectoryEntry[],
+): AntigravityLogEntry[] => {
+    const entriesByStep = new Map<number, AntigravityLogEntry>();
+    const entriesWithoutStep: AntigravityLogEntry[] = [];
+    for (const entry of generatedEntries) {
+        if (typeof entry.step_index === 'number' && Number.isFinite(entry.step_index)) {
+            entriesByStep.set(entry.step_index, entry);
+        } else {
+            entriesWithoutStep.push(entry);
+        }
+    }
+    for (const entry of trajectoryEntries) {
+        const generatedEntry = entriesByStep.get(entry.step_index);
+        entriesByStep.set(entry.step_index, {
+            ...entry,
+            ...(typeof generatedEntry?.model === 'string' ? { model: generatedEntry.model } : {}),
+        });
+    }
+    return [...entriesByStep.values(), ...entriesWithoutStep].sort(
+        (left, right) => logEntryOrder(left, 0) - logEntryOrder(right, 0),
+    );
+};
+
+const getMinimumLogStepIndex = (entries: AntigravityLogEntry[]): number | null => {
+    let minimum: number | null = null;
+    for (const entry of entries) {
+        if (typeof entry.step_index === 'number' && Number.isFinite(entry.step_index)) {
+            minimum = minimum === null ? entry.step_index : Math.min(minimum, entry.step_index);
+        }
+    }
+    return minimum;
+};
+
+const annotateLogEntryModels = (entries: AntigravityLogEntry[]): AntigravityLogEntry[] => {
+    const firstSelection = entries
+        .map((entry) => extractModelSelectionChange(getString(entry.content) ?? ''))
+        .find((selection): selection is ModelSelectionChange => selection !== null);
+    let selectedModel = firstSelection?.from ?? null;
+    return entries.map((entry) => {
+        const selection = extractModelSelectionChange(getString(entry.content) ?? '');
+        selectedModel = selection?.to ?? selectedModel;
+        return { ...entry, model: selectedModel };
+    });
+};
+
+const carryForwardLogEntryModels = (entries: AntigravityLogEntry[]): AntigravityLogEntry[] => {
+    let selectedModel: string | null = null;
+    return entries.map((entry) => {
+        selectedModel = getString(entry.model) ?? selectedModel;
+        return { ...entry, model: selectedModel };
+    });
+};
+
+const readConversationLogEntries = async (conversation: AntigravityConversation): Promise<AntigravityLogEntry[]> => {
+    const generatedContent = conversation.transcriptPath ? await Bun.file(conversation.transcriptPath).text() : '';
+    const generatedEntries = parseLogEntries(generatedContent);
+    if (generatedContent.trim() && generatedEntries.length === 0 && conversation.transcriptSource !== 'trajectory') {
+        throw new Error(`Antigravity transcript is corrupt: ${conversation.transcriptPath}`);
+    }
+    const historicalContents = conversation.transcriptPath
+        ? await readAntigravityTranscriptHistory(conversation.transcriptPath, getMinimumLogStepIndex(generatedEntries))
+        : [];
+    const recoveredEntries = historicalContents.flatMap(parseLogEntries);
+    const modeledGeneratedEntries = annotateLogEntryModels(
+        mergeLogEntries([...recoveredEntries, ...generatedEntries], []),
+    );
+    const trajectoryEntries =
+        conversation.transcriptSource === 'trajectory' && conversation.conversationPath
+            ? await readAntigravityTrajectoryEntries(conversation.conversationPath)
+            : [];
+    return carryForwardLogEntryModels(mergeLogEntries(modeledGeneratedEntries, trajectoryEntries));
 };
 
 const isAssistantLogEntry = (entry: AntigravityLogEntry): boolean => {
@@ -1221,9 +1495,15 @@ const logEntryPhase = (
 };
 
 const logEntryMetadata = (entry: AntigravityLogEntry): Record<string, unknown> => ({
+    command: getString(entry.command),
+    exitCode: typeof entry.exit_code === 'number' ? entry.exit_code : null,
+    model: getString(entry.model),
     source: getString(entry.source),
     status: getString(entry.status),
+    toolCallId: getString(entry.tool_call_id),
+    toolName: getString(entry.tool_name),
     type: getString(entry.type),
+    workdir: getString(entry.workdir),
 });
 
 const toolCallsText = (toolCalls: unknown): string => {
@@ -1236,8 +1516,14 @@ const toolCallsText = (toolCalls: unknown): string => {
             if (!call || typeof call !== 'object') {
                 return [];
             }
-            const { args, name } = call as { args?: unknown; name?: unknown };
-            return [JSON.stringify({ args, name: typeof name === 'string' ? name : 'unknown' })];
+            const { args, id, name } = call as { args?: unknown; id?: unknown; name?: unknown };
+            return [
+                JSON.stringify({
+                    args,
+                    id: typeof id === 'string' ? id : null,
+                    name: typeof name === 'string' ? name : 'unknown',
+                }),
+            ];
         })
         .join('\n');
 };
@@ -1307,15 +1593,11 @@ const logEntryToMessages = (
 export const readAntigravityConversationMessages = async (
     conversation: AntigravityConversation,
 ): Promise<AntigravityConversationMessage[]> => {
-    if (!conversation.transcriptPath || !conversation.transcriptSource) {
+    if (!conversation.transcriptSource) {
         return [];
     }
 
-    const content = await Bun.file(conversation.transcriptPath).text();
-    const entries = parseLogEntries(content);
-    if (content.trim() && entries.length === 0) {
-        throw new Error(`Antigravity transcript is corrupt: ${conversation.transcriptPath}`);
-    }
+    const entries = await readConversationLogEntries(conversation);
     const finalAssistantSequences = getFinalAntigravityAssistantSequences(getAntigravityPhaseItems(entries));
     return entries.flatMap((entry, index) => logEntryToMessages(entry, index, finalAssistantSequences));
 };
@@ -1335,6 +1617,7 @@ const buildAntigravityIdentityMetadata = (
     conversation: AntigravityConversation,
     exportedFrom: string,
 ): MetadataEntry[] => [
+    { key: ANTIGRAVITY_TRANSCRIPT_VERSION_METADATA_KEY, value: ANTIGRAVITY_TRANSCRIPT_MARKDOWN_VERSION },
     { key: 'exported_from', value: exportedFrom },
     { key: 'conversation_id', value: conversation.conversationId },
     { key: 'workspace', value: conversation.workspaceUri },
@@ -1344,19 +1627,21 @@ const renderAntigravityTranscript = async (
     conversation: AntigravityConversation,
     options: ResolvedAntigravityConversationRenderOptions,
 ): Promise<string | null> => {
-    if (!conversation.transcriptPath || !conversation.transcriptSource) {
+    if (!conversation.transcriptSource) {
         return null;
     }
 
-    const entries = parseLogEntries(await Bun.file(conversation.transcriptPath).text());
+    const entries = await readConversationLogEntries(conversation);
     if (entries.length === 0) {
         return null;
     }
 
     const exportedFrom =
-        conversation.transcriptSource === 'overview'
-            ? 'antigravity_overview_transcript'
-            : 'antigravity_jsonl_transcript';
+        conversation.transcriptSource === 'trajectory'
+            ? 'antigravity_trajectory_database'
+            : conversation.transcriptSource === 'overview'
+              ? 'antigravity_overview_transcript'
+              : 'antigravity_jsonl_transcript';
     const finalAssistantSequences = getFinalAntigravityAssistantSequences(getAntigravityPhaseItems(entries));
     const sections = entries
         .map((entry, sequence) => renderLogEntry(entry, sequence, finalAssistantSequences, options))

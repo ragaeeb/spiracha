@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const {
     deleteAntigravityConversationMock,
     getAntigravityDecryptionStateMock,
+    getAntigravityConversationByIdMock,
     getCachedAntigravityKeychainSecretMock,
     listAntigravityConversationsMock,
     listAntigravityWorkspaceGroupsMock,
@@ -15,6 +16,7 @@ const {
     unlockAntigravityDecryptionMock,
 } = vi.hoisted(() => ({
     deleteAntigravityConversationMock: vi.fn(),
+    getAntigravityConversationByIdMock: vi.fn(),
     getAntigravityDecryptionStateMock: vi.fn(),
     getCachedAntigravityKeychainSecretMock: vi.fn(),
     listAntigravityConversationsMock: vi.fn(),
@@ -40,11 +42,17 @@ vi.mock('@tanstack/react-start', () => ({
 
 vi.mock('@spiracha/lib/antigravity-db', () => ({
     deleteAntigravityConversation: deleteAntigravityConversationMock,
+    getAntigravityConversationById: getAntigravityConversationByIdMock,
     listAntigravityConversations: listAntigravityConversationsMock,
     listAntigravityConversationsForGroup: vi.fn(),
     listAntigravityWorkspaceGroups: listAntigravityWorkspaceGroupsMock,
     renderAntigravityArtifactsMarkdown: renderAntigravityArtifactsMarkdownMock,
     renderAntigravityConversationMarkdown: renderAntigravityConversationMarkdownMock,
+}));
+
+vi.mock('@spiracha/lib/antigravity-trajectory', () => ({
+    readAntigravityTrajectoryEntries: vi.fn(),
+    readAntigravityTrajectoryStepIndexes: vi.fn(),
 }));
 
 vi.mock('@spiracha/lib/antigravity-keychain', () => ({
@@ -110,6 +118,11 @@ describe('antigravity-server', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         getAntigravityDecryptionStateMock.mockResolvedValue(null);
+        getAntigravityConversationByIdMock.mockImplementation(async (conversationId: string) =>
+            (await listAntigravityConversationsMock()).find(
+                (conversation: AntigravityConversation) => conversation.conversationId === conversationId,
+            ),
+        );
         listAntigravityWorkspaceGroupsMock.mockResolvedValue([]);
         resolveAntigravityProjectNamesMock.mockResolvedValue(new Map());
         resolveAntigravityRootsMock.mockReturnValue(['/tmp/root']);
@@ -120,18 +133,24 @@ describe('antigravity-server', () => {
         }));
     });
 
-    it('should keep readable local-log transcripts available without keychain unlock', async () => {
-        const conversation = makeConversation();
-        listAntigravityConversationsMock.mockResolvedValue([conversation]);
-        getCachedAntigravityKeychainSecretMock.mockReturnValue(null);
-        renderAntigravityConversationMarkdownMock.mockResolvedValue('transcript markdown');
-        renderAntigravityArtifactsMarkdownMock.mockResolvedValue(null);
+    it.each(['overview', 'trajectory'] as const)(
+        'should keep readable %s transcripts available without keychain unlock',
+        async (transcriptSource) => {
+            const conversation = makeConversation({
+                conversationPath: transcriptSource === 'trajectory' ? '/tmp/conversation.db' : '/tmp/conversation.pb',
+                transcriptSource,
+            });
+            listAntigravityConversationsMock.mockResolvedValue([conversation]);
+            getCachedAntigravityKeychainSecretMock.mockReturnValue(null);
+            renderAntigravityConversationMarkdownMock.mockResolvedValue('transcript markdown');
+            renderAntigravityArtifactsMarkdownMock.mockResolvedValue(null);
 
-        const detail = await loadAntigravityConversationDetail(conversation.conversationId);
+            const detail = await loadAntigravityConversationDetail(conversation.conversationId);
 
-        expect(detail.transcriptLocked).toBe(false);
-        expect(detail.conversationMarkdown).toBe('transcript markdown');
-    });
+            expect(detail.transcriptLocked).toBe(false);
+            expect(detail.conversationMarkdown).toBe('transcript markdown');
+        },
+    );
 
     it('should return the resolved Antigravity project group for detail navigation', async () => {
         const projectId = '00ea3331-909e-4010-a208-78f964ecfb59';

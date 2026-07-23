@@ -79,6 +79,14 @@ const assertNever = (value: never): never => {
     throw new Error(`Unhandled transcript event kind: ${JSON.stringify(value)}`);
 };
 
+const getToolOutputMarkdownBody = (event: Extract<ThreadEvent, { kind: 'tool_output' }>, transform: Transform) =>
+    [
+        event.exitCode === null ? null : `Exit code: ${event.exitCode}`,
+        transform(event.summary || event.outputText || ''),
+    ]
+        .filter((value): value is string => Boolean(value))
+        .join('\n\n');
+
 const getNonMessageTitle = (event: Exclude<ThreadEvent, { kind: 'message' }>) => {
     switch (event.kind) {
         case 'tool_call':
@@ -120,13 +128,13 @@ const getEventMarkdownBody = (event: ThreadEvent, transform: Transform) => {
     switch (event.kind) {
         case 'message':
             return transform(event.text || 'No text content');
-        case 'tool_call':
-            return [event.command ?? event.name, event.workdir]
-                .filter((value): value is string => Boolean(value))
-                .map(transform)
-                .join('\n\n');
+        case 'tool_call': {
+            const command = transform(event.command ?? event.name);
+            const workdir = event.workdir ? `Working directory: ${transform(event.workdir)}` : null;
+            return [command, workdir].filter((value): value is string => Boolean(value)).join('\n\n');
+        }
         case 'tool_output':
-            return transform(event.summary || event.outputText || '');
+            return getToolOutputMarkdownBody(event, transform);
         case 'task_started':
             return `Context window: ${event.modelContextWindow ?? 'n/a'}\n\nCollaboration mode: ${event.collaborationModeKind ?? 'n/a'}`;
         case 'task_complete':
@@ -173,14 +181,23 @@ const renderMessageBody = (event: Extract<ThreadEvent, { kind: 'message' }>, t: 
 const renderToolCallBody = (event: Extract<ThreadEvent, { kind: 'tool_call' }>, t: Transform) => (
     <div className="space-y-2 text-sm">
         <p className="min-w-0 break-words font-medium [overflow-wrap:anywhere]">{t(event.command ?? event.name)}</p>
-        {event.workdir ? <p className="font-mono text-[var(--muted-foreground)] text-xs">{t(event.workdir)}</p> : null}
+        {event.workdir ? (
+            <p className="font-mono text-[var(--muted-foreground)] text-xs">
+                {`Working directory: ${t(event.workdir)}`}
+            </p>
+        ) : null}
     </div>
 );
 
 const renderToolOutputBody = (event: Extract<ThreadEvent, { kind: 'tool_output' }>, t: Transform) => (
-    <p className="min-w-0 whitespace-pre-wrap break-words text-sm leading-6 [overflow-wrap:anywhere]">
-        {t(event.summary || event.outputText || '')}
-    </p>
+    <div className="space-y-2 text-sm">
+        {event.exitCode === null ? null : (
+            <p className="font-mono text-[var(--muted-foreground)] text-xs">{`Exit code: ${event.exitCode}`}</p>
+        )}
+        <p className="min-w-0 whitespace-pre-wrap break-words leading-6 [overflow-wrap:anywhere]">
+            {t(event.summary || event.outputText || '')}
+        </p>
+    </div>
 );
 
 const renderTaskStartedBody = (event: Extract<ThreadEvent, { kind: 'task_started' }>) => (
@@ -282,6 +299,17 @@ function TranscriptSortSelect({
     );
 }
 
+const useTranscriptSortState = (
+    controlledSortOrder: TranscriptSortOrder | undefined,
+    onSortOrderChange: ((value: TranscriptSortOrder) => void) | undefined,
+) => {
+    const [internalSortOrder, setInternalSortOrder] = useState<TranscriptSortOrder>(controlledSortOrder ?? 'earliest');
+    if (controlledSortOrder !== undefined && onSortOrderChange !== undefined) {
+        return { handleSortOrderChange: onSortOrderChange, sortOrder: controlledSortOrder };
+    }
+    return { handleSortOrderChange: setInternalSortOrder, sortOrder: internalSortOrder };
+};
+
 function TranscriptEventCard({
     assistantModel,
     copied,
@@ -305,7 +333,7 @@ function TranscriptEventCard({
             ref={handleElement}
             aria-current={isActive ? 'location' : undefined}
             className={cn(
-                'min-w-0 scroll-mt-24 overflow-hidden rounded-xl border p-3.5 shadow-[var(--panel-shadow)]',
+                'min-w-0 scroll-mt-24 overflow-hidden rounded-xl border p-3 shadow-[var(--panel-shadow)]',
                 isSelected && 'ring-2 ring-[var(--accent)]/35',
                 isActive && 'ring-2 ring-[var(--accent)]',
                 getEventTone(event),
@@ -334,8 +362,8 @@ function TranscriptEventCard({
                     </p>
                 ) : null}
             </div>
-            <div className="mt-2.5 min-w-0">{renderEventBody(event, transform)}</div>
-            <div className="mt-3 flex justify-end">
+            <div className="mt-2 min-w-0">{renderEventBody(event, transform)}</div>
+            <div className="mt-2 flex justify-end">
                 <Button
                     aria-label="Copy message"
                     className="text-[var(--muted-foreground)] hover:bg-[var(--panel-secondary)] hover:text-[var(--foreground)]"
@@ -347,7 +375,7 @@ function TranscriptEventCard({
                 </Button>
             </div>
             {showRawJson ? (
-                <pre className="mt-3 overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--code-background)] p-3 text-[var(--code-foreground)] text-xs leading-5">
+                <pre className="mt-2 overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--code-background)] p-3 text-[var(--code-foreground)] text-xs leading-5">
                     {JSON.stringify(event.raw, null, 2)}
                 </pre>
             ) : null}
@@ -366,10 +394,11 @@ export function TranscriptView({
     showRawJson,
     showToolCalls,
     showUserMessages = true,
-    sortOrder = 'earliest',
+    sortOrder: controlledSortOrder,
     onSortOrderChange,
 }: TranscriptViewProps) {
     const { settings } = useSettings();
+    const { handleSortOrderChange, sortOrder } = useTranscriptSortState(controlledSortOrder, onSortOrderChange);
     const filteredEvents = useMemo(
         () =>
             events.filter((event) =>
@@ -536,9 +565,9 @@ export function TranscriptView({
         return (
             <div
                 ref={parentRef}
-                className="h-[70vh] overflow-auto rounded-xl border border-[var(--border)] bg-[var(--panel)] p-3"
+                className="h-[70vh] overflow-auto rounded-xl border border-[var(--border)] bg-[var(--panel)] p-2.5"
             >
-                <div className="sticky top-0 z-10 mb-3 flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--panel)]/95 px-3 py-2 backdrop-blur">
+                <div className="sticky top-0 z-10 mb-2.5 flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--panel)]/95 px-3 py-2 backdrop-blur">
                     <div className="flex items-center gap-2">
                         <Checkbox
                             aria-label="Select visible messages"
@@ -553,7 +582,7 @@ export function TranscriptView({
                         ) : null}
                     </div>
                     <div className="flex items-center gap-2">
-                        <TranscriptSortSelect sortOrder={sortOrder} onSortOrderChange={onSortOrderChange} />
+                        <TranscriptSortSelect sortOrder={sortOrder} onSortOrderChange={handleSortOrderChange} />
                         <Button
                             aria-label="Copy selected messages"
                             className="hover:bg-[var(--panel-secondary)] hover:text-[var(--foreground)]"
@@ -573,7 +602,7 @@ export function TranscriptView({
                             key={item.key}
                             ref={virtualizer.measureElement}
                             data-index={item.index}
-                            className="absolute top-0 left-0 w-full pb-3.5"
+                            className="absolute top-0 left-0 w-full pb-2.5"
                             style={{ transform: `translateY(${item.start}px)` }}
                         >
                             <TranscriptEventCard
@@ -597,7 +626,7 @@ export function TranscriptView({
     }
 
     return (
-        <div className="space-y-3.5">
+        <div className="space-y-2.5">
             <div className="sticky top-0 z-10 flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--panel)]/95 px-3 py-2 backdrop-blur">
                 <div className="flex items-center gap-2">
                     <Checkbox
@@ -613,7 +642,7 @@ export function TranscriptView({
                     ) : null}
                 </div>
                 <div className="flex items-center gap-2">
-                    <TranscriptSortSelect sortOrder={sortOrder} onSortOrderChange={onSortOrderChange} />
+                    <TranscriptSortSelect sortOrder={sortOrder} onSortOrderChange={handleSortOrderChange} />
                     <Button
                         aria-label="Copy selected messages"
                         className="hover:bg-[var(--panel-secondary)] hover:text-[var(--foreground)]"

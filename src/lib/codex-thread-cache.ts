@@ -43,8 +43,9 @@ export const getCachedParsedCodexTranscript = async (sessionFile: string): Promi
             `thread-${hashCacheKeyPartsIterable([CODEX_TRANSCRIPT_CACHE_VERSION, path.basename(sessionFile), fingerprint])}`,
         async () =>
             runWithTranscriptLoadLimit(() => parseCodexTranscriptFile(sessionFile), {
+                integration: 'codex',
+                operation: 'full',
                 path: sessionFile,
-                source: 'codex-full',
             }),
     );
 };
@@ -72,8 +73,9 @@ export const getCachedCodexTranscriptStats = async (
             ])}`,
         () =>
             runWithTranscriptLoadLimit(() => loadStats(sessionFile), {
+                integration: 'codex',
+                operation: 'list-stats',
                 path: sessionFile,
-                source: 'codex-list-stats',
             }),
     );
 };
@@ -132,8 +134,9 @@ export const getCachedThreadTranscriptPreview = async (
                             sourceFileSizeBytes: fileSizeBytes,
                         }),
                     {
+                        integration: 'codex',
+                        operation: 'preview-full',
                         path: sessionFile,
-                        source: 'codex-preview-full',
                     },
                 );
             }
@@ -148,8 +151,9 @@ export const getCachedThreadTranscriptPreview = async (
                         tailEventLimit: previewEventLimit,
                     }),
                 {
+                    integration: 'codex',
+                    operation: 'preview',
                     path: sessionFile,
-                    source: 'codex-preview',
                 },
             );
         },

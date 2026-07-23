@@ -11,8 +11,10 @@ import {
     type KiroWorkspaceGroup,
     resolveKiroWorkspaceSessionsDir,
 } from './kiro-exporter-types';
+import { isKiroAssistantPlaceholderEntry } from './kiro-transcript-phase';
 import { getPortablePathBasename } from './portable-path';
 import {
+    asNumber,
     asObject,
     asString,
     cleanExtractedText,
@@ -373,12 +375,6 @@ const getEntryText = (entry: KiroTranscriptEntry): string => {
         .trim();
 };
 
-const KIRO_ASSISTANT_PLACEHOLDER_PATTERN = /^on it[.!]?$/iu;
-
-const isAssistantPlaceholderEntry = (entry: KiroTranscriptEntry): boolean => {
-    return entry.role === 'assistant' && KIRO_ASSISTANT_PLACEHOLDER_PATTERN.test(getEntryText(entry));
-};
-
 const isRenderablePart = (part: KiroTranscriptPart): boolean => {
     if (part.type === 'image') {
         return true;
@@ -427,6 +423,7 @@ const toSessionSummary = (
     return {
         ...stats,
         autonomyMode: identity.autonomyMode,
+        continuationSessionIds: [identity.sessionId],
         createdAtIso: toIso(createdAtMs),
         createdAtMs,
         defaultModelTitle: identity.defaultModelTitle,
@@ -540,12 +537,24 @@ const formatToolItems = (singularPrefix: string, pluralPrefix: string, items: st
     return `${pluralPrefix}:\n${items.map((item) => `- ${item}`).join('\n')}`;
 };
 
-const getToolCallSummary = (action: Record<string, JsonValue>): { command: string; toolName: string } | null => {
-    const input = asObject(action.input ?? null);
-    if (!input) {
-        return null;
-    }
+type KiroToolCallSummary = {
+    command: string;
+    toolName: string;
+    workdir: string | null;
+};
 
+const getCommandToolCallSummary = (input: Record<string, JsonValue>): KiroToolCallSummary | null => {
+    const command = asString(input.command ?? null);
+    return command
+        ? {
+              command,
+              toolName: 'run_command',
+              workdir: asString(input.cwd ?? null),
+          }
+        : null;
+};
+
+const getFileToolCallSummary = (input: Record<string, JsonValue>): KiroToolCallSummary | null => {
     const files = Array.isArray(input.files)
         ? input.files.flatMap((item) => {
               const file = asObject(item);
@@ -553,36 +562,66 @@ const getToolCallSummary = (action: Record<string, JsonValue>): { command: strin
               return file && filePath ? [`${filePath}${formatFileRange(file)}`] : [];
           })
         : [];
-    if (files.length > 0) {
-        return {
-            command: formatToolItems('Read file', 'Read files', files),
-            toolName: 'read_file',
-        };
-    }
+    return files.length > 0
+        ? {
+              command: formatToolItems('Read file', 'Read files', files),
+              toolName: 'read_file',
+              workdir: null,
+          }
+        : null;
+};
 
+const getDocumentToolCallSummary = (input: Record<string, JsonValue>): KiroToolCallSummary | null => {
     const documents = Array.isArray(input.documents)
         ? input.documents.flatMap((item) => {
               const document = typeof item === 'string' ? item : asString(asObject(item)?.uri ?? null);
               return document ? [document] : [];
           })
         : [];
-    if (documents.length > 0) {
-        return {
-            command: formatToolItems('Read document', 'Read documents', documents),
-            toolName: 'read_file',
-        };
-    }
+    return documents.length > 0
+        ? {
+              command: formatToolItems('Read document', 'Read documents', documents),
+              toolName: 'read_file',
+              workdir: null,
+          }
+        : null;
+};
 
+const getSearchToolCallSummary = (input: Record<string, JsonValue>): KiroToolCallSummary | null => {
     const query = asString(input.query ?? null);
     const why = asString(input.why ?? null);
-    if (query || why) {
-        return {
-            command: `Search: ${why ?? query}${why && query ? `\nQuery: ${query}` : ''}`,
-            toolName: 'search',
-        };
-    }
+    return query || why
+        ? {
+              command: `Search: ${why ?? query}${why && query ? `\nQuery: ${query}` : ''}`,
+              toolName: 'search',
+              workdir: null,
+          }
+        : null;
+};
 
-    return null;
+const getReplaceToolCallSummary = (
+    action: Record<string, JsonValue>,
+    input: Record<string, JsonValue>,
+): KiroToolCallSummary | null => {
+    const file = asString(input.file ?? null);
+    return action.actionType === 'replace' && file
+        ? {
+              command: `Replace file: ${file}`,
+              toolName: 'replace',
+              workdir: null,
+          }
+        : null;
+};
+
+const getToolCallSummary = (action: Record<string, JsonValue>): KiroToolCallSummary | null => {
+    const input = asObject(action.input ?? null);
+    return input
+        ? (getCommandToolCallSummary(input) ??
+              getFileToolCallSummary(input) ??
+              getDocumentToolCallSummary(input) ??
+              getSearchToolCallSummary(input) ??
+              getReplaceToolCallSummary(action, input))
+        : null;
 };
 
 const parseExecutionActionMessageEntry = (
@@ -629,17 +668,18 @@ const parseExecutionActionToolEntry = (
     execution: KiroExecutionFile,
     action: Record<string, JsonValue>,
     index: number,
+    summary: KiroToolCallSummary | null,
 ): KiroTranscriptEntry | null => {
-    const summary = getToolCallSummary(action);
     if (!summary) {
         return null;
     }
 
     const executionId = asString(execution.raw.executionId ?? null);
     const actionId = asString(action.actionId ?? null) ?? `action:${index}`;
+    const toolCallId = `${executionId ?? path.basename(execution.filePath)}:${actionId}`;
 
     return {
-        entryId: `${executionId ?? path.basename(execution.filePath)}:${actionId}`,
+        entryId: toolCallId,
         entryType: 'tool_call',
         executionId,
         parts: [
@@ -648,10 +688,56 @@ const parseExecutionActionToolEntry = (
                     actionId,
                     command: summary.command,
                     executionFilePath: execution.filePath,
+                    toolCallId,
                     toolName: summary.toolName,
                     type: 'toolCall',
+                    workdir: summary.workdir,
                 },
                 summary.command,
+            ),
+        ],
+        promptLogCount: 0,
+        raw: {
+            ...action,
+            executionFilePath: execution.filePath,
+            executionStartTime: execution.raw.startTime ?? null,
+        },
+        role: 'tool',
+        timestamp: getActionTimestamp(action, execution.raw),
+    };
+};
+
+const parseExecutionActionToolOutputEntry = (
+    execution: KiroExecutionFile,
+    action: Record<string, JsonValue>,
+    index: number,
+    summary: KiroToolCallSummary | null,
+): KiroTranscriptEntry | null => {
+    const output = asObject(action.output ?? null);
+    const text = cleanExtractedText(asString(output?.output ?? null) ?? '').trim();
+    if (!summary || !text) {
+        return null;
+    }
+
+    const executionId = asString(execution.raw.executionId ?? null);
+    const actionId = asString(action.actionId ?? null) ?? `action:${index}`;
+    const toolCallId = `${executionId ?? path.basename(execution.filePath)}:${actionId}`;
+
+    return {
+        entryId: `${toolCallId}:output`,
+        entryType: 'tool_output',
+        executionId,
+        parts: [
+            parseTextPart(
+                {
+                    actionId,
+                    executionFilePath: execution.filePath,
+                    exitCode: asNumber(output?.exitCode ?? null),
+                    toolCallId,
+                    toolName: summary.toolName,
+                    type: 'toolOutput',
+                },
+                text,
             ),
         ],
         promptLogCount: 0,
@@ -670,8 +756,10 @@ const parseExecutionActionEntries = (
     action: Record<string, JsonValue>,
     index: number,
 ): KiroTranscriptEntry[] => {
+    const toolCallSummary = getToolCallSummary(action);
     const entries = [
-        parseExecutionActionToolEntry(execution, action, index),
+        parseExecutionActionToolEntry(execution, action, index, toolCallSummary),
+        parseExecutionActionToolOutputEntry(execution, action, index, toolCallSummary),
         parseExecutionActionMessageEntry(execution, action, index),
     ];
     return entries.filter((entry): entry is KiroTranscriptEntry => entry !== null);
@@ -692,16 +780,13 @@ const compareExecutionFiles = (left: KiroExecutionFile, right: KiroExecutionFile
     );
 };
 
-const readExecutionEntries = async (
-    sessionsDir: string,
-    session: KiroSessionSummary,
-): Promise<KiroTranscriptEntry[]> => {
+const readExecutionFiles = async (sessionsDir: string, session: KiroSessionSummary): Promise<KiroExecutionFile[]> => {
     const executions = await listExecutionFilesForSession(
         getKiroDataDirFromSessionsDir(sessionsDir),
         session.sessionId,
         session.worktree,
     );
-    return executions.sort(compareExecutionFiles).flatMap(parseExecutionEntries);
+    return executions.sort(compareExecutionFiles);
 };
 
 const groupExecutionEntriesById = (executionEntries: KiroTranscriptEntry[]) => {
@@ -726,7 +811,7 @@ const replaceExecutionPlaceholders = (
     const visibleEntries: KiroTranscriptEntry[] = [];
     for (const entry of historyEntries) {
         const matchingExecutionEntries = entry.executionId ? executionEntriesById.get(entry.executionId) : undefined;
-        if (!isAssistantPlaceholderEntry(entry) || !matchingExecutionEntries) {
+        if (!isKiroAssistantPlaceholderEntry(entry) || !matchingExecutionEntries) {
             visibleEntries.push(entry);
             continue;
         }
@@ -750,6 +835,27 @@ const groupUnmatchedExecutionEntries = (executionEntries: KiroTranscriptEntry[],
         groups.set(groupKey, group);
     }
     return groups.values();
+};
+
+const replaceUnmatchedPlaceholdersInOrder = (
+    visibleEntries: KiroTranscriptEntry[],
+    executionGroups: KiroTranscriptEntry[][],
+): boolean => {
+    const placeholderIndexes = visibleEntries.flatMap((entry, index) =>
+        entry.executionId && isKiroAssistantPlaceholderEntry(entry) ? [index] : [],
+    );
+    if (
+        placeholderIndexes.length === 0 ||
+        placeholderIndexes.length !== executionGroups.length ||
+        executionGroups.some((group) => !group[0]?.executionId)
+    ) {
+        return false;
+    }
+
+    for (let index = placeholderIndexes.length - 1; index >= 0; index -= 1) {
+        visibleEntries.splice(placeholderIndexes[index]!, 1, ...executionGroups[index]!);
+    }
+    return true;
 };
 
 const insertExecutionGroupByStartTime = (
@@ -782,7 +888,12 @@ const getVisibleEntries = (
 
     const executionEntriesById = groupExecutionEntriesById(executionEntries);
     const { usedExecutionIds, visibleEntries } = replaceExecutionPlaceholders(historyEntries, executionEntriesById);
-    for (const executionGroup of groupUnmatchedExecutionEntries(executionEntries, usedExecutionIds)) {
+    const unmatchedExecutionGroups = [...groupUnmatchedExecutionEntries(executionEntries, usedExecutionIds)];
+    if (replaceUnmatchedPlaceholdersInOrder(visibleEntries, unmatchedExecutionGroups)) {
+        return visibleEntries;
+    }
+
+    for (const executionGroup of unmatchedExecutionGroups) {
         insertExecutionGroupByStartTime(visibleEntries, executionGroup);
     }
     return visibleEntries;
@@ -821,11 +932,11 @@ const readSessionFile = async (
         workspacePath: null,
     };
     const historyEntries: KiroTranscriptEntry[] = [];
-    const history = Array.isArray(rawSession.history) ? rawSession.history : [];
+    const rawHistory = Array.isArray(rawSession.history) ? rawSession.history : [];
 
     updateIdentityFromRaw(identity, rawSession);
 
-    history.forEach((item, index) => {
+    rawHistory.forEach((item, index) => {
         const raw = asObject(item);
         if (!raw) {
             return;
@@ -841,13 +952,15 @@ const readSessionFile = async (
     });
 
     const baseSummary = toSessionSummary(file, identity, createEmptyStats(), fileStats);
-    const executionEntries = options.includeExecutions
-        ? await readExecutionEntries(options.sessionsDir, baseSummary)
-        : [];
+    const executionFiles = options.includeExecutions ? await readExecutionFiles(options.sessionsDir, baseSummary) : [];
+    const executionEntries = executionFiles.flatMap(parseExecutionEntries);
     const entries = getVisibleEntries(historyEntries, executionEntries);
     const stats = createStatsFromEntries(entries);
     return {
         entries,
+        executionEntries,
+        historyEntries,
+        rawHistory,
         rawSession,
         renderablePartCount: stats.renderablePartCount,
         session: toSessionSummary(file, identity, stats, fileStats),
@@ -893,6 +1006,163 @@ const readSessionFiles = async (files: KiroSessionFile[]): Promise<KiroSessionTr
     return transcripts.flatMap((transcript) => (transcript && transcript.renderablePartCount > 0 ? [transcript] : []));
 };
 
+const KIRO_CONTINUATION_SUMMARY_PATTERN = /^(?:# Conversation Summary|## Summary of Conversation)\b/u;
+
+const getActiveTabIds = (transcript: KiroSessionTranscript): string[] => {
+    const activeTabs = transcript.rawSession.activeTabs;
+    if (!Array.isArray(activeTabs)) {
+        return [];
+    }
+    const tabIds = activeTabs.filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
+    return tabIds.length === activeTabs.length ? tabIds : [];
+};
+
+const isContinuationSummaryEntry = (entry: KiroTranscriptEntry | undefined): boolean => {
+    return entry?.role === 'user' && KIRO_CONTINUATION_SUMMARY_PATTERN.test(getEntryText(entry));
+};
+
+const arraysEqual = (left: string[], right: string[]): boolean => {
+    return left.length === right.length && left.every((value, index) => value === right[index]);
+};
+
+const isStrictPrefix = (prefix: string[], value: string[]): boolean => {
+    return prefix.length < value.length && prefix.every((item, index) => item === value[index]);
+};
+
+const getValidContinuationChain = (
+    transcript: KiroSessionTranscript,
+    transcriptsById: Map<string, KiroSessionTranscript>,
+): string[] | null => {
+    const activeTabIds = getActiveTabIds(transcript);
+    if (
+        activeTabIds.length < 2 ||
+        activeTabIds.at(-1) !== transcript.session.sessionId ||
+        new Set(activeTabIds).size !== activeTabIds.length
+    ) {
+        return null;
+    }
+
+    for (const [index, sessionId] of activeTabIds.entries()) {
+        const candidate = transcriptsById.get(sessionId);
+        if (!candidate || !arraysEqual(getActiveTabIds(candidate), activeTabIds.slice(0, index + 1))) {
+            return null;
+        }
+        if (index > 0 && !isContinuationSummaryEntry(candidate.historyEntries[0])) {
+            return null;
+        }
+    }
+
+    return activeTabIds;
+};
+
+const getUnambiguousContinuationChains = (transcripts: KiroSessionTranscript[]): string[][] => {
+    const transcriptsById = new Map(transcripts.map((transcript) => [transcript.session.sessionId, transcript]));
+    const maximalChains = transcripts
+        .flatMap((transcript) => {
+            const chain = getValidContinuationChain(transcript, transcriptsById);
+            return chain ? [chain] : [];
+        })
+        .filter(
+            (chain, index, chains) =>
+                !chains.some((candidate, otherIndex) => otherIndex !== index && isStrictPrefix(chain, candidate)),
+        );
+    const occurrenceCounts = new Map<string, number>();
+    for (const chain of maximalChains) {
+        for (const sessionId of chain) {
+            occurrenceCounts.set(sessionId, (occurrenceCounts.get(sessionId) ?? 0) + 1);
+        }
+    }
+    return maximalChains.filter((chain) => chain.every((sessionId) => occurrenceCounts.get(sessionId) === 1));
+};
+
+const namespaceMergedEntry = (entry: KiroTranscriptEntry, sessionId: string): KiroTranscriptEntry => ({
+    ...entry,
+    entryId: `${sessionId}:${entry.entryId}`,
+    raw: {
+        ...entry.raw,
+        sourceSessionId: sessionId,
+    },
+});
+
+const retainedLineageEntries = (
+    transcript: KiroSessionTranscript,
+    entries: KiroTranscriptEntry[],
+    isRoot: boolean,
+): KiroTranscriptEntry[] => {
+    const summaryEntryId =
+        isRoot || !isContinuationSummaryEntry(transcript.historyEntries[0])
+            ? null
+            : transcript.historyEntries[0]?.entryId;
+    return entries
+        .filter((entry) => entry.entryId !== summaryEntryId)
+        .map((entry) => namespaceMergedEntry(entry, transcript.session.sessionId));
+};
+
+const mergeKiroTranscriptLineage = (
+    chain: string[],
+    transcriptsById: Map<string, KiroSessionTranscript>,
+): KiroSessionTranscript | null => {
+    const lineage = chain.flatMap((sessionId) => {
+        const transcript = transcriptsById.get(sessionId);
+        return transcript ? [transcript] : [];
+    });
+    const root = lineage[0];
+    const latest = lineage.at(-1);
+    if (!root || !latest || lineage.length !== chain.length) {
+        return null;
+    }
+
+    const historyEntries = lineage.flatMap((transcript, index) =>
+        retainedLineageEntries(transcript, transcript.historyEntries, index === 0),
+    );
+    const executionEntries = lineage.flatMap((transcript) =>
+        transcript.executionEntries.map((entry) => namespaceMergedEntry(entry, transcript.session.sessionId)),
+    );
+    const entries = lineage.flatMap((transcript, index) =>
+        retainedLineageEntries(transcript, transcript.entries, index === 0),
+    );
+    const stats = createStatsFromEntries(entries);
+    return {
+        entries,
+        executionEntries,
+        historyEntries,
+        rawHistory: lineage.flatMap((transcript, index) =>
+            index > 0 && isContinuationSummaryEntry(transcript.historyEntries[0])
+                ? transcript.rawHistory.slice(1)
+                : transcript.rawHistory,
+        ),
+        rawSession: latest.rawSession,
+        renderablePartCount: stats.renderablePartCount,
+        session: {
+            ...latest.session,
+            ...stats,
+            continuationSessionIds: chain,
+            createdAtIso: root.session.createdAtIso,
+            createdAtMs: root.session.createdAtMs,
+            filePath: root.session.filePath,
+            sessionId: root.session.sessionId,
+            title: root.session.title,
+        },
+    };
+};
+
+const mergeKiroContinuationTranscripts = (transcripts: KiroSessionTranscript[]): KiroSessionTranscript[] => {
+    const transcriptsById = new Map(transcripts.map((transcript) => [transcript.session.sessionId, transcript]));
+    const chains = getUnambiguousContinuationChains(transcripts);
+    const continuationSessionIds = new Set(chains.flat());
+    return [
+        ...chains.flatMap((chain) => {
+            const transcript = mergeKiroTranscriptLineage(chain, transcriptsById);
+            return transcript ? [transcript] : [];
+        }),
+        ...transcripts.filter((transcript) => !continuationSessionIds.has(transcript.session.sessionId)),
+    ];
+};
+
+const getKiroContinuationChainForRoot = (transcripts: KiroSessionTranscript[], sessionId: string): string[] | null => {
+    return getUnambiguousContinuationChains(transcripts).find((chain) => chain[0] === sessionId) ?? null;
+};
+
 const compareNullableMsDesc = (left: number | null, right: number | null): number => {
     return (right ?? 0) - (left ?? 0);
 };
@@ -932,7 +1202,7 @@ export const listKiroWorkspaceGroups = async (
     sessionsDir = resolveKiroWorkspaceSessionsDir(),
 ): Promise<KiroWorkspaceGroup[]> => {
     const files = await listSessionFiles(sessionsDir);
-    const transcripts = await readSessionFiles(files);
+    const transcripts = mergeKiroContinuationTranscripts(await readSessionFiles(files));
     const sessionsByDirectory = new Map<string, KiroSessionSummary[]>();
 
     for (const transcript of transcripts) {
@@ -999,7 +1269,7 @@ export const listKiroSessionsForGroup = async (
 
     const files = await listSessionFilesForWorkspace(sessionsDir, directoryName);
     const transcripts = await readSessionFiles(files);
-    return sortSessions(transcripts.map((transcript) => transcript.session));
+    return sortSessions(mergeKiroContinuationTranscripts(transcripts).map((transcript) => transcript.session));
 };
 
 const locateSessionFile = async (sessionsDir: string, sessionId: string): Promise<KiroSessionFile | null> => {
@@ -1052,7 +1322,78 @@ export const readKiroSessionTranscript = async (
         return null;
     }
 
-    return readSessionFile(file, { includeExecutions: true, sessionsDir });
+    const physicalTranscript = await readSessionFile(file, { includeExecutions: true, sessionsDir });
+    if (!physicalTranscript || getActiveTabIds(physicalTranscript).length > 1) {
+        return physicalTranscript;
+    }
+
+    const workspaceFiles = await listSessionFilesForWorkspace(sessionsDir, file.directoryName);
+    const physicalTranscripts = await readSessionFiles(workspaceFiles);
+    const chain = getKiroContinuationChainForRoot(physicalTranscripts, sessionId);
+    if (!chain) {
+        return physicalTranscript;
+    }
+
+    const workspaceFilesByPath = new Map(
+        workspaceFiles.map((workspaceFile) => [workspaceFile.filePath, workspaceFile]),
+    );
+    const physicalFileBySessionId = new Map(
+        physicalTranscripts.flatMap((transcript) => {
+            const lineageFile = workspaceFilesByPath.get(transcript.session.filePath);
+            return lineageFile ? [[transcript.session.sessionId, lineageFile] as const] : [];
+        }),
+    );
+    const detailedLineage = await mapWithConcurrency(chain, READ_CONCURRENCY, async (lineageSessionId) => {
+        if (lineageSessionId === sessionId) {
+            return physicalTranscript;
+        }
+        const lineageFile = physicalFileBySessionId.get(lineageSessionId);
+        return lineageFile ? readSessionFile(lineageFile, { includeExecutions: true, sessionsDir }) : null;
+    });
+    const transcriptsById = new Map(
+        detailedLineage.flatMap((transcript) =>
+            transcript ? [[transcript.session.sessionId, transcript] as const] : [],
+        ),
+    );
+    return mergeKiroTranscriptLineage(chain, transcriptsById);
+};
+
+const deletePhysicalKiroSession = async (sessionsDir: string, sessionId: string): Promise<DeleteKiroSessionResult> => {
+    const file = await locateSessionFile(sessionsDir, sessionId);
+    if (!file) {
+        return { deletedFiles: [], deletedSessionIds: [] };
+    }
+
+    const transcript = await readSessionFile(file, { includeExecutions: false, sessionsDir });
+    const executionFiles = transcript
+        ? await listExecutionFilesForSession(
+              getKiroDataDirFromSessionsDir(sessionsDir),
+              sessionId,
+              transcript.session.worktree,
+          )
+        : [];
+    const deletedFiles = [file.filePath, ...executionFiles.map((execution) => execution.filePath)];
+
+    await Promise.all(deletedFiles.map((filePath) => rm(filePath, { force: true })));
+    executionFilesCache.delete(
+        path.join(getKiroDataDirFromSessionsDir(sessionsDir), getKiroWorkspaceHash(transcript?.session.worktree ?? '')),
+    );
+    await removeKiroSessionIndexEntry(path.dirname(file.filePath), sessionId);
+
+    return {
+        deletedFiles,
+        deletedSessionIds: [sessionId],
+    };
+};
+
+const getKiroDeleteTargetIds = async (sessionsDir: string, sessionId: string): Promise<string[]> => {
+    const file = await locateSessionFile(sessionsDir, sessionId);
+    if (!file) {
+        return [];
+    }
+    const files = await listSessionFilesForWorkspace(sessionsDir, file.directoryName);
+    const transcripts = await readSessionFiles(files);
+    return getKiroContinuationChainForRoot(transcripts, sessionId) ?? [sessionId];
 };
 
 export const deleteKiroSession = (sessionsDir: string, sessionId: string): Promise<DeleteKiroSessionResult> => {
@@ -1061,33 +1402,14 @@ export const deleteKiroSession = (sessionsDir: string, sessionId: string): Promi
             return { deletedFiles: [], deletedSessionIds: [] };
         }
 
-        const file = await locateSessionFile(sessionsDir, sessionId);
-        if (!file) {
-            return { deletedFiles: [], deletedSessionIds: [] };
+        const targetIds = await getKiroDeleteTargetIds(sessionsDir, sessionId);
+        const results: DeleteKiroSessionResult[] = [];
+        for (const targetId of targetIds) {
+            results.push(await deletePhysicalKiroSession(sessionsDir, targetId));
         }
-
-        const transcript = await readSessionFile(file, { includeExecutions: false, sessionsDir });
-        const executionFiles = transcript
-            ? await listExecutionFilesForSession(
-                  getKiroDataDirFromSessionsDir(sessionsDir),
-                  sessionId,
-                  transcript.session.worktree,
-              )
-            : [];
-        const deletedFiles = [file.filePath, ...executionFiles.map((execution) => execution.filePath)];
-
-        await Promise.all(deletedFiles.map((filePath) => rm(filePath, { force: true })));
-        executionFilesCache.delete(
-            path.join(
-                getKiroDataDirFromSessionsDir(sessionsDir),
-                getKiroWorkspaceHash(transcript?.session.worktree ?? ''),
-            ),
-        );
-        await removeKiroSessionIndexEntry(path.dirname(file.filePath), sessionId);
-
         return {
-            deletedFiles,
-            deletedSessionIds: [sessionId],
+            deletedFiles: results.flatMap((result) => result.deletedFiles),
+            deletedSessionIds: results.flatMap((result) => result.deletedSessionIds),
         };
     });
 };

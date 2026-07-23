@@ -116,6 +116,51 @@ describe('getCachedThreadTranscriptPreview', () => {
         expect(transcript.statsArePartial).toBe(true);
     });
 
+    it('should exclude injected user-role context from the server-filtered UI transcript', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-cache-bootstrap-test-'));
+        tempPaths.push(tempRoot);
+        const sessionFile = path.join(tempRoot, 'bootstrap-context.jsonl');
+        await Bun.write(
+            sessionFile,
+            [
+                JSON.stringify({
+                    payload: {
+                        content: [
+                            { text: '<recommended_plugins>\nplugins\n</recommended_plugins>', type: 'input_text' },
+                            { text: '# AGENTS.md instructions for .\n\n<INSTRUCTIONS />', type: 'input_text' },
+                            { text: '<environment_context>context</environment_context>', type: 'input_text' },
+                        ],
+                        role: 'user',
+                        type: 'message',
+                    },
+                    type: 'response_item',
+                }),
+                JSON.stringify({
+                    payload: {
+                        content: [{ text: 'Actual user prompt', type: 'input_text' }],
+                        role: 'user',
+                        type: 'message',
+                    },
+                    type: 'response_item',
+                }),
+            ].join('\n'),
+        );
+
+        const transcript = await getCachedThreadTranscriptPreview(sessionFile, {
+            filters: {
+                showCommentary: false,
+                showExtraEvents: false,
+                showToolCalls: false,
+                showUserMessages: true,
+            },
+            largeTranscriptThresholdBytes: 1,
+            previewEventLimit: 10,
+        });
+
+        expect(transcript.events).toHaveLength(1);
+        expect(transcript.events[0]).toMatchObject({ role: 'user', text: 'Actual user prompt' });
+    });
+
     it('should switch to preview mode when a rollout exceeds the default size threshold', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-cache-default-large-test-'));
         tempPaths.push(tempRoot);

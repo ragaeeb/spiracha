@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { kiroConversationAdapter } from './kiro-adapter';
+import { kiroConversationAdapter, normalizeKiroTranscriptPart } from './kiro-adapter';
 
 const tempDirs: string[] = [];
 
@@ -67,6 +67,76 @@ const writeKiroSession = async (sessionsDir: string, sessionId: string, workspac
 };
 
 describe('Kiro conversation adapter', () => {
+    it('should normalize paired Kiro command evidence without a result-pairing limitation', () => {
+        const callMessages = normalizeKiroTranscriptPart(
+            {
+                entryId: 'execution-1:run-command',
+                entryType: 'tool_call',
+                executionId: 'execution-1',
+                parts: [],
+                promptLogCount: 0,
+                raw: {},
+                role: 'tool',
+                timestamp: null,
+            },
+            {
+                raw: {
+                    command: 'kodeguard status --json',
+                    toolCallId: 'execution-1:run-command',
+                    toolName: 'run_command',
+                    workdir: '/workspace/project',
+                },
+                text: 'kodeguard status --json',
+                type: 'text',
+            },
+            0,
+            new Set(),
+        );
+        const outputMessages = normalizeKiroTranscriptPart(
+            {
+                entryId: 'execution-1:run-command:output',
+                entryType: 'tool_output',
+                executionId: 'execution-1',
+                parts: [],
+                promptLogCount: 0,
+                raw: {},
+                role: 'tool',
+                timestamp: null,
+            },
+            {
+                raw: {
+                    exitCode: 1,
+                    toolCallId: 'execution-1:run-command',
+                    toolName: 'run_command',
+                },
+                text: '{ "status": "error" }',
+                type: 'text',
+            },
+            0,
+            new Set(),
+        );
+
+        expect(callMessages[0]).toMatchObject({
+            toolEvidence: {
+                callId: 'execution-1:run-command',
+                command: 'kodeguard status --json',
+                inputText: 'kodeguard status --json',
+                name: 'run_command',
+                outputText: null,
+                workdir: '/workspace/project',
+            },
+        });
+        expect(outputMessages[0]).toMatchObject({
+            phase: 'tool_output',
+            toolEvidence: {
+                callId: 'execution-1:run-command',
+                exitCode: 1,
+                name: 'run_command',
+                outputText: '{ "status": "error" }',
+                status: 'failed',
+            },
+        });
+    });
     it('should preserve user attachments and classify the final assistant response', async () => {
         const sessionsDir = await mkdtemp(path.join(os.tmpdir(), 'kiro-adapter-'));
         tempDirs.push(sessionsDir);
@@ -84,7 +154,11 @@ describe('Kiro conversation adapter', () => {
         expect(conversation).toMatchObject({
             deepLinks: { ui: `/kiro-sessions/${sessionId}` },
             id: sessionId,
-            metadata: { model: 'claude-sonnet-4.5', sessionType: 'spec' },
+            metadata: {
+                continuationSessionIds: [sessionId],
+                model: 'claude-sonnet-4.5',
+                sessionType: 'spec',
+            },
             source: 'kiro',
             workspacePath,
         });

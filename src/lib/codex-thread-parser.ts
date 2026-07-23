@@ -693,6 +693,7 @@ export const shouldHideCodexTranscriptText = (role: string, text: string) => {
         text.startsWith('<collaboration_mode>') ||
         text.startsWith('<skills_instructions>') ||
         text.startsWith('<plugins_instructions>') ||
+        text.startsWith('<recommended_plugins>') ||
         text.includes('Filesystem sandboxing defines which files can be read or written.')
     );
 };
