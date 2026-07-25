@@ -14,6 +14,12 @@ import { MetricCard } from '#/components/metric-card';
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
 import { TranscriptControls } from '#/components/transcript-controls';
+import {
+    buildTranscriptSearchResults,
+    type TranscriptSearchFilters,
+    TranscriptSearchPanel,
+    useTranscriptSearchNavigation,
+} from '#/components/transcript-search';
 import { TranscriptView } from '#/components/transcript-view';
 import { Button } from '#/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
@@ -31,6 +37,7 @@ import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import type { ExportDialogOptions } from '#/lib/export-options';
 import { formatDateTime, formatList, formatNumber, formatTokens } from '#/lib/formatters';
 import { getMutationErrorMessage } from '#/lib/mutation-error';
+import { applyPathTransforms } from '#/lib/path-utils';
 import {
     getTranscriptDisplayState,
     parseThreadTranscriptSearch,
@@ -38,6 +45,7 @@ import {
     withThreadTranscriptSearch,
 } from '#/lib/route-search';
 import { RouteStateResetBoundary } from '#/lib/route-state-reset';
+import { useSettings } from '#/lib/settings-store';
 import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
 export const Route = createFileRoute('/claude-code-sessions/$sessionId')({
@@ -174,8 +182,9 @@ function ClaudeCodeSessionDetailPage() {
     const transcriptDisplay = getTranscriptDisplayState(transcriptSearch);
     const queryClient = useQueryClient();
     const params = Route.useParams();
+    const { settings } = useSettings();
     const initialDetail = useSuspenseQuery(claudeCodeSessionDetailQueryOptions(params.sessionId)).data;
-    const [shouldLoadFullTranscript, setShouldLoadFullTranscript] = useState(false);
+    const [shouldLoadFullTranscript, setShouldLoadFullTranscript] = useState(transcriptSearch.full === true);
     const fullTranscriptQuery = useQuery({
         ...claudeCodeSessionTranscriptQueryOptions(params.sessionId),
         enabled: shouldLoadFullTranscript,
@@ -193,6 +202,46 @@ function ClaudeCodeSessionDetailPage() {
     };
     const transcriptEvents = useMemo(() => claudeCodeTranscriptToThreadEvents(detail), [detail]);
     const transcriptStats = useMemo(() => getClaudeCodeThreadTranscriptStats(transcriptEvents), [transcriptEvents]);
+    const transcriptSearchFilters: TranscriptSearchFilters = useMemo(
+        () => ({
+            showCommentary,
+            showExtraEvents,
+            showToolCalls,
+            showUserMessages,
+        }),
+        [showCommentary, showExtraEvents, showToolCalls, showUserMessages],
+    );
+    const transcriptSearchInput = transcriptSearch.q ?? '';
+    const transcriptSearchResults = useMemo(
+        () =>
+            buildTranscriptSearchResults(
+                transcriptEvents,
+                transcriptSearchInput,
+                detail.session.model,
+                transcriptSearchFilters,
+                (text) => applyPathTransforms(text, settings, detail.session.worktree),
+            ),
+        [
+            detail.session.model,
+            detail.session.worktree,
+            settings,
+            transcriptEvents,
+            transcriptSearchFilters,
+            transcriptSearchInput,
+        ],
+    );
+    const {
+        activeEventKey: activeTranscriptEventKey,
+        activeResultIndex: activeSearchResultIndex,
+        jumpSignal: activeEventJumpSignal,
+        jumpToResult: jumpToTranscriptSearchResult,
+        reset: resetTranscriptSearchNavigation,
+    } = useTranscriptSearchNavigation(transcriptSearchResults);
+
+    const updateTranscriptSearchInput = (value: string) => {
+        resetTranscriptSearchNavigation();
+        updateTranscriptDisplay({ q: value });
+    };
 
     const exportSessionMutation = useMutation({
         mutationFn: async (options: ExportDialogOptions) => {
@@ -328,7 +377,10 @@ function ClaudeCodeSessionDetailPage() {
                             fullTranscriptLoaded={Boolean(fullTranscriptQuery.data)}
                             omittedEntryCount={initialDetail.omittedEntryCount ?? 0}
                             pending={fullTranscriptQuery.isFetching}
-                            onLoad={() => setShouldLoadFullTranscript(true)}
+                            onLoad={() => {
+                                setShouldLoadFullTranscript(true);
+                                updateTranscriptDisplay({ full: true });
+                            }}
                         />
                     ) : null}
                     {fullTranscriptQuery.isError ? (
@@ -340,7 +392,18 @@ function ClaudeCodeSessionDetailPage() {
                         </p>
                     ) : null}
                     {transcriptEvents.length > 0 ? (
+                        <TranscriptSearchPanel
+                            activeResultIndex={activeSearchResultIndex}
+                            query={transcriptSearchInput}
+                            results={transcriptSearchResults}
+                            onJumpToResult={jumpToTranscriptSearchResult}
+                            onQueryChange={updateTranscriptSearchInput}
+                        />
+                    ) : null}
+                    {transcriptEvents.length > 0 ? (
                         <TranscriptView
+                            activeEventJumpSignal={activeEventJumpSignal}
+                            activeEventKey={activeTranscriptEventKey}
                             assistantModel={detail.session.model}
                             events={transcriptEvents}
                             projectPath={detail.session.worktree}
