@@ -33,6 +33,7 @@ import {
 export { getDefaultClaudeCodeDataDir, resolveClaudeCodeProjectsDir };
 
 const READ_CONCURRENCY = 8;
+const GENERATED_WORKTREE_DIRECTORY_MARKER = '--claude-worktrees-';
 const WORKSPACE_KEY_PREFIX = 'project:';
 
 type TranscriptFile = {
@@ -121,6 +122,11 @@ const getDirectoryNameFromWorkspaceKey = (workspaceKey: string): string | null =
     return workspaceKey.startsWith(WORKSPACE_KEY_PREFIX) ? workspaceKey.slice(WORKSPACE_KEY_PREFIX.length) : null;
 };
 
+const getProjectDirectoryName = (directoryName: string): string => {
+    const markerIndex = directoryName.indexOf(GENERATED_WORKTREE_DIRECTORY_MARKER);
+    return markerIndex < 0 ? directoryName : directoryName.slice(0, markerIndex);
+};
+
 const decodeWorktreeFromDirectoryName = (directoryName: string): string => {
     if (!directoryName.startsWith('-')) {
         return directoryName.replace(/-/g, path.sep);
@@ -135,6 +141,16 @@ const getWorkspaceLabel = (worktree: string): string => {
     }
 
     return getPortablePathBasename(worktree) || worktree;
+};
+
+const getProjectRootFromWorktree = (worktree: string): string => {
+    const generatedWorktreeMarker = `${path.sep}.claude${path.sep}worktrees${path.sep}`;
+    const markerIndex = worktree.indexOf(generatedWorktreeMarker);
+    if (markerIndex < 0) {
+        return worktree;
+    }
+
+    return worktree.slice(0, markerIndex) || path.parse(worktree).root;
 };
 
 const getWorkspaceUri = (worktree: string): string => {
@@ -465,7 +481,7 @@ const readTitleCandidate = (raw: Record<string, JsonValue>): string | null => {
 
 const updateIdentityFromRaw = (identity: SessionIdentity, raw: Record<string, JsonValue>) => {
     identity.sessionId = asString(raw.sessionId ?? null) ?? identity.sessionId;
-    identity.cwd = asString(raw.cwd ?? null) ?? identity.cwd;
+    identity.cwd = identity.cwd ?? asString(raw.cwd ?? null);
     identity.version = asString(raw.version ?? null) ?? identity.version;
     identity.gitBranch = asString(raw.gitBranch ?? null) ?? identity.gitBranch;
 
@@ -506,7 +522,7 @@ const toSessionSummary = (
     timeline: SessionTimeline,
 ): ClaudeCodeSessionSummary => {
     const worktree = identity.cwd ?? decodeWorktreeFromDirectoryName(file.directoryName);
-    const workspaceLabel = getWorkspaceLabel(worktree);
+    const workspaceLabel = getWorkspaceLabel(getProjectRootFromWorktree(worktree));
     const totalTokens =
         stats.inputTokens + stats.outputTokens + stats.cacheCreationInputTokens + stats.cacheReadInputTokens;
 
@@ -522,7 +538,7 @@ const toSessionSummary = (
         title: getTitle(identity),
         totalTokens,
         version: identity.version,
-        workspaceKey: getWorkspaceKey(file.directoryName),
+        workspaceKey: getWorkspaceKey(getProjectDirectoryName(file.directoryName)),
         workspaceLabel,
         worktree,
     };
@@ -681,15 +697,33 @@ const listTranscriptFilesForProject = async (projectsDir: string, directoryName:
         }));
 };
 
-const listTranscriptFiles = async (projectsDir: string): Promise<TranscriptFile[]> => {
+const listProjectDirectoryNames = async (projectsDir: string): Promise<string[]> => {
     if (!(await pathExists(projectsDir))) {
         return [];
     }
 
-    const projectDirs = (await readdir(projectsDir, { withFileTypes: true }))
+    return (await readdir(projectsDir, { withFileTypes: true }))
         .filter((entry) => entry.isDirectory())
         .map((entry) => entry.name)
         .sort();
+};
+
+const listTranscriptFilesForWorkspace = async (
+    projectsDir: string,
+    directoryName: string,
+): Promise<TranscriptFile[]> => {
+    const projectDirectoryName = getProjectDirectoryName(directoryName);
+    const directoryNames = (await listProjectDirectoryNames(projectsDir)).filter(
+        (candidate) => getProjectDirectoryName(candidate) === projectDirectoryName,
+    );
+    const groupedFiles = await mapWithConcurrency(directoryNames, READ_CONCURRENCY, (candidate) =>
+        listTranscriptFilesForProject(projectsDir, candidate),
+    );
+    return groupedFiles.flat();
+};
+
+const listTranscriptFiles = async (projectsDir: string): Promise<TranscriptFile[]> => {
+    const projectDirs = await listProjectDirectoryNames(projectsDir);
     const groupedFiles = await mapWithConcurrency(projectDirs, READ_CONCURRENCY, (directoryName) =>
         listTranscriptFilesForProject(projectsDir, directoryName),
     );
@@ -961,10 +995,9 @@ const compareNullableMsDesc = (left: number | null, right: number | null): numbe
 
 const toWorkspaceGroup = (directoryName: string, sessions: ClaudeCodeSessionSummary[]): ClaudeCodeWorkspaceGroup => {
     const decodedWorktree = decodeWorktreeFromDirectoryName(directoryName);
-    const worktree =
-        sessions.find((session) => session.worktree !== decodedWorktree)?.worktree ??
-        sessions[0]?.worktree ??
-        decodedWorktree;
+    const projectRoots = sessions.map((session) => getProjectRootFromWorktree(session.worktree));
+    const projectRoot =
+        projectRoots.find((projectRoot) => projectRoot !== decodedWorktree) ?? projectRoots[0] ?? decodedWorktree;
     const lastActiveAtMs = sessions.reduce<number | null>((latest, session) => {
         if (session.lastActiveAtMs === null) {
             return latest;
@@ -977,16 +1010,16 @@ const toWorkspaceGroup = (directoryName: string, sessions: ClaudeCodeSessionSumm
         assistantMessageCount: sessions.reduce((total, session) => total + session.assistantMessageCount, 0),
         directoryName,
         key: getWorkspaceKey(directoryName),
-        label: getWorkspaceLabel(worktree),
+        label: getWorkspaceLabel(projectRoot),
         lastActiveAtIso: toIso(lastActiveAtMs),
         lastActiveAtMs,
         messageCount: sessions.reduce((total, session) => total + session.messageCount, 0),
         sessionCount: sessions.length,
         toolCallCount: sessions.reduce((total, session) => total + session.toolCallCount, 0),
         toolResultCount: sessions.reduce((total, session) => total + session.toolResultCount, 0),
-        uri: getWorkspaceUri(worktree),
+        uri: getWorkspaceUri(projectRoot),
         userMessageCount: sessions.reduce((total, session) => total + session.userMessageCount, 0),
-        worktree,
+        worktree: projectRoot,
     };
 };
 
@@ -999,8 +1032,8 @@ export const listClaudeCodeWorkspaceGroups = async (
     const sessionsByDirectory = new Map<string, ClaudeCodeSessionSummary[]>();
 
     for (const transcript of transcripts) {
-        const directoryName = getDirectoryNameFromWorkspaceKey(transcript.session.workspaceKey);
-        if (!directoryName) {
+        const physicalDirectoryName = getDirectoryNameFromWorkspaceKey(transcript.session.workspaceKey);
+        if (!physicalDirectoryName) {
             continue;
         }
 
@@ -1008,6 +1041,7 @@ export const listClaudeCodeWorkspaceGroups = async (
             continue;
         }
 
+        const directoryName = getProjectDirectoryName(physicalDirectoryName);
         const sessions = sessionsByDirectory.get(directoryName) ?? [];
         sessions.push(transcript.session);
         sessionsByDirectory.set(directoryName, sessions);
@@ -1067,7 +1101,7 @@ export const listClaudeCodeSessionTranscriptsForGroup = async (
         return [];
     }
 
-    const files = await listTranscriptFilesForProject(projectsDir, directoryName);
+    const files = await listTranscriptFilesForWorkspace(projectsDir, directoryName);
     const physicalTranscripts = await readTranscriptFiles(files);
     const transcripts = coalesceTranscriptLineages(physicalTranscripts);
     return transcripts.filter(hasSessionContent).sort((left, right) => compareSessions(left.session, right.session));

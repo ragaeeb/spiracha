@@ -647,6 +647,97 @@ describe('claude code workspace discovery', () => {
         expect(groups[0]?.label).toBe('my-project');
     });
 
+    it('should preserve the initial project identity when a session later visits another repository', async () => {
+        const projectsDir = await makeTempRoot();
+        const ledgerCwd = path.join(homeDir, 'workspace', 'ushman-ledger');
+        const ushmanCwd = path.join(homeDir, 'workspace', 'ushman');
+        const records = buildSessionRecords('cross-repo-session', ledgerCwd).map((record, index) =>
+            index === 0 ? record : { ...record, cwd: ushmanCwd },
+        );
+        await writeSession(projectsDir, '-Users-rhaq-workspace-ushman-ledger', 'cross-repo-session', records);
+
+        const groups = await listClaudeCodeWorkspaceGroups(projectsDir);
+        const transcript = await readClaudeCodeSessionTranscript(projectsDir, 'cross-repo-session');
+
+        expect(groups).toHaveLength(1);
+        expect(groups[0]).toMatchObject({
+            label: 'ushman-ledger',
+            worktree: ledgerCwd,
+        });
+        expect(transcript?.session).toMatchObject({
+            cwd: ledgerCwd,
+            workspaceLabel: 'ushman-ledger',
+            worktree: ledgerCwd,
+        });
+        expect([...new Set(transcript?.entries.map((entry) => entry.cwd))]).toEqual([ledgerCwd, ushmanCwd]);
+    });
+
+    it('should keep the project root label when Claude Code sessions use generated worktrees', async () => {
+        const projectsDir = await makeTempRoot();
+        const directoryName = '-Users-rhaq-workspace-ushman-replay';
+        const projectRoot = path.join(homeDir, 'workspace', 'ushman-replay');
+        const generatedWorktree = path.join(projectRoot, '.claude', 'worktrees', 'awesome-hermann-b4681e');
+        await writeSession(
+            projectsDir,
+            directoryName,
+            'worktree-session',
+            buildSessionRecords('worktree-session', generatedWorktree, '2026-06-02T10:00:00.000Z'),
+        );
+
+        const groups = await listClaudeCodeWorkspaceGroups(projectsDir);
+        const sessions = await listClaudeCodeSessionsForGroup(`project:${directoryName}`, projectsDir);
+        const worktreeSession = sessions.find((session) => session.sessionId === 'worktree-session');
+
+        expect(groups[0]).toMatchObject({
+            label: 'ushman-replay',
+            uri: `file://${projectRoot}`,
+            worktree: projectRoot,
+        });
+        expect(worktreeSession).toMatchObject({
+            workspaceLabel: 'ushman-replay',
+            worktree: generatedWorktree,
+        });
+    });
+
+    it('should coalesce Claude Code worktree project directories into the root workspace', async () => {
+        const projectsDir = await makeTempRoot();
+        const rootDirectoryName = '-Users-rhaq-workspace-ushman-runtime-telemetry';
+        const worktreeDirectoryName = `${rootDirectoryName}--claude-worktrees-tel-runtime-contracts`;
+        const projectRoot = path.join(homeDir, 'workspace', 'ushman-runtime-telemetry');
+        const generatedWorktree = path.join(projectRoot, '.claude', 'worktrees', 'tel-runtime-contracts');
+        await writeSession(
+            projectsDir,
+            rootDirectoryName,
+            'root-session',
+            buildSessionRecords('root-session', projectRoot),
+        );
+        await writeSession(
+            projectsDir,
+            worktreeDirectoryName,
+            'worktree-session',
+            buildSessionRecords('worktree-session', generatedWorktree, '2026-06-02T10:00:00.000Z'),
+        );
+
+        const groups = await listClaudeCodeWorkspaceGroups(projectsDir);
+        const sessions = await listClaudeCodeSessionsForGroup(`project:${rootDirectoryName}`, projectsDir);
+        const worktreeTranscript = await readClaudeCodeSessionTranscript(projectsDir, 'worktree-session');
+
+        expect(groups).toHaveLength(1);
+        expect(groups[0]).toMatchObject({
+            directoryName: rootDirectoryName,
+            key: `project:${rootDirectoryName}`,
+            label: 'ushman-runtime-telemetry',
+            sessionCount: 2,
+            worktree: projectRoot,
+        });
+        expect(sessions.map((session) => session.sessionId).sort()).toEqual(['root-session', 'worktree-session']);
+        expect(sessions.map((session) => session.workspaceKey)).toEqual([
+            `project:${rootDirectoryName}`,
+            `project:${rootDirectoryName}`,
+        ]);
+        expect(worktreeTranscript?.session.workspaceKey).toBe(`project:${rootDirectoryName}`);
+    });
+
     it('should omit raw payloads when requested for large UI responses', async () => {
         const projectsDir = await makeTempRoot();
         await writeSession(
