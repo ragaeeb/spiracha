@@ -15,7 +15,11 @@ import type {
     ThreadBrowseData,
     ThreadListEntry,
 } from './codex-browser-types';
-import { getCachedCodexTranscriptStats, getThreadRolloutLoadState } from './codex-thread-cache';
+import {
+    getCachedCodexTranscriptModelNames,
+    getCachedCodexTranscriptStats,
+    getThreadRolloutLoadState,
+} from './codex-thread-cache';
 import type { ThreadRelations, ThreadRow } from './codex-thread-types';
 import { DEFAULT_CODEX_DIR, DEFAULT_DB_PATH } from './codex-thread-types';
 import { mapWithConcurrency } from './concurrency';
@@ -433,6 +437,25 @@ const readSessionIndexEntries = (codexDir: string): SessionIndexEntry[] => {
     );
     sessionIndexEntriesCache.set(codexDir, { entries, fingerprint });
     return entries;
+};
+
+const getSessionIndexThreadNamesById = (codexDir: string) => {
+    const threadNamesById = new Map<string, string>();
+    for (const entry of readSessionIndexEntries(codexDir)) {
+        const threadName = entry.thread_name?.trim();
+        if (threadName) {
+            threadNamesById.set(entry.id, threadName);
+        }
+    }
+    return threadNamesById;
+};
+
+const applySessionIndexThreadNames = <T extends { id: string; title: string }>(dbPath: string, threads: T[]): T[] => {
+    const threadNamesById = getSessionIndexThreadNamesById(resolveCodexDirFromDbPath(dbPath));
+    return threads.map((thread) => {
+        const threadName = threadNamesById.get(thread.id);
+        return threadName ? { ...thread, title: threadName } : thread;
+    });
 };
 
 const collectSessionFilesByThreadId = (sessionsDir: string): Map<string, string> => {
@@ -955,8 +978,11 @@ const readFallbackThreadRowById = (
 };
 
 const mergeFallbackThreadRows = (dbPath: string, threads: ThreadRow[], projectName: string | null = null) => {
-    const threadIds = new Set(threads.map((thread) => thread.id));
-    return [...threads, ...readFallbackThreadRows(dbPath, threadIds, projectName)].sort(compareThreadsByRecentActivity);
+    const titledThreads = applySessionIndexThreadNames(dbPath, threads);
+    const threadIds = new Set(titledThreads.map((thread) => thread.id));
+    return [...titledThreads, ...readFallbackThreadRows(dbPath, threadIds, projectName)].sort(
+        compareThreadsByRecentActivity,
+    );
 };
 
 const applyRolloutActivityTimestamps = async <T extends ActivityTimestampedThread>(
@@ -1167,6 +1193,71 @@ const getRelationsForThread = (db: Database, threadId: string, existingTableName
 const getExistingTableNames = (db: Database) => {
     const rows = db.query('SELECT name FROM sqlite_master WHERE type = ?').all('table') as Array<{ name: string }>;
     return new Set(rows.map((row) => row.name));
+};
+
+type ThreadSpawnEdge = {
+    child_thread_id: string;
+    parent_thread_id: string;
+};
+
+const readThreadHierarchyEdges = (db: Database, threadIds: string[]): ThreadSpawnEdge[] => {
+    if (!getExistingTableNames(db).has('thread_spawn_edges')) {
+        return [];
+    }
+
+    const seenEdges = new Set<string>();
+    const edges: ThreadSpawnEdge[] = [];
+    for (const threadIdChunk of chunkValues(threadIds, SQLITE_DELETE_BATCH_SIZE)) {
+        const placeholders = threadIdChunk.map(() => '?').join(', ');
+        const matchingEdges = db
+            .query(
+                `SELECT parent_thread_id, child_thread_id
+                 FROM thread_spawn_edges
+                 WHERE parent_thread_id IN (${placeholders}) OR child_thread_id IN (${placeholders})`,
+            )
+            .all(...threadIdChunk, ...threadIdChunk) as ThreadSpawnEdge[];
+
+        for (const edge of matchingEdges) {
+            const edgeKey = `${edge.parent_thread_id}\0${edge.child_thread_id}`;
+            if (!seenEdges.has(edgeKey)) {
+                seenEdges.add(edgeKey);
+                edges.push(edge);
+            }
+        }
+    }
+
+    return edges;
+};
+
+const applyThreadHierarchyEdges = (
+    hierarchyById: Map<string, ThreadListEntry['hierarchy']>,
+    edges: ThreadSpawnEdge[],
+) => {
+    for (const edge of edges) {
+        const parent = hierarchyById.get(edge.parent_thread_id);
+        if (parent) {
+            parent.childThreadCount += 1;
+        }
+
+        const child = hierarchyById.get(edge.child_thread_id);
+        if (child) {
+            child.parentThreadId = edge.parent_thread_id;
+        }
+    }
+};
+
+const getThreadHierarchyById = (dbPath: string, threadIds: string[]) => {
+    const hierarchyById = new Map<string, ThreadListEntry['hierarchy']>(
+        threadIds.map((threadId) => [threadId, { childThreadCount: 0, parentThreadId: null }]),
+    );
+    if (threadIds.length === 0) {
+        return hierarchyById;
+    }
+
+    return withReadonlyDb(dbPath, (db) => {
+        applyThreadHierarchyEdges(hierarchyById, readThreadHierarchyEdges(db, threadIds));
+        return hierarchyById;
+    });
 };
 
 const getThreadDeleteTargets = (db: Database, threadIds: string[]) => {
@@ -1484,11 +1575,21 @@ export const listProjectThreads = async (
 ): Promise<ThreadListEntry[]> => {
     const threads = mergeFallbackThreadRows(dbPath, readThreads(dbPath, projectName), projectName);
     const activeThreads = await applyRolloutActivityTimestamps(dbPath, threads);
+    const hierarchyByThreadId = getThreadHierarchyById(
+        dbPath,
+        activeThreads.map((thread) => thread.id),
+    );
     const entries = await mapWithConcurrency(activeThreads, THREAD_LIST_IO_CONCURRENCY, async (thread) => {
         const rollout = await getThreadRolloutLoadState(thread.rollout_path, options.largeTranscriptThresholdBytes);
+        const hierarchy = hierarchyByThreadId.get(thread.id) ?? { childThreadCount: 0, parentThreadId: null };
+        const detectedModelNames =
+            rollout.fileSizeBytes === null ? [] : await getCachedCodexTranscriptModelNames(thread.rollout_path);
+        const modelNames = detectedModelNames.length > 0 ? detectedModelNames : thread.model ? [thread.model] : [];
 
         if (rollout.fileSizeBytes === null) {
             return {
+                hierarchy,
+                modelNames,
                 project: projectName,
                 rolloutSizeBytes: null,
                 stats: {
@@ -1503,6 +1604,8 @@ export const listProjectThreads = async (
 
         if (rollout.shouldDeferTranscriptLoad || options.includeTranscriptStats === false) {
             return {
+                hierarchy,
+                modelNames,
                 project: projectName,
                 rolloutSizeBytes: rollout.fileSizeBytes,
                 stats: {
@@ -1518,6 +1621,8 @@ export const listProjectThreads = async (
         const stats = await getCachedCodexTranscriptStats(thread.rollout_path);
 
         return {
+            hierarchy,
+            modelNames,
             project: projectName,
             rolloutSizeBytes: rollout.fileSizeBytes,
             stats: {
@@ -1541,9 +1646,10 @@ export const getThreadBrowseData = (dbPath: string, threadId: string): ThreadBro
         if (!thread) {
             throw new CodexThreadNotFoundError(threadId);
         }
+        const indexedThread = applySessionIndexThreadNames(dbPath, [thread])[0]!;
         const normalizedThread = normalizeThreadDisplayText({
-            ...thread,
-            rollout_path: resolveCodexRolloutPath(dbPath, thread.rollout_path),
+            ...indexedThread,
+            rollout_path: resolveCodexRolloutPath(dbPath, indexedThread.rollout_path),
         });
 
         const dynamicTools =
@@ -1648,7 +1754,7 @@ export const getCodexDashboardSummary = async (dbPath: string): Promise<Dashboar
     const database = readDashboardDatabaseData(dbPath);
     const fallbackThreads = readFallbackThreadRows(dbPath, database.existingThreadIds);
     const recentCandidates = await applyRolloutActivityTimestamps(dbPath, [
-        ...database.recentCandidates,
+        ...applySessionIndexThreadNames(dbPath, database.recentCandidates),
         ...fallbackThreads,
     ]);
     const projects = mapProjectSummaries(

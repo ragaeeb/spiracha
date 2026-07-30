@@ -1,5 +1,7 @@
+import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import path from 'node:path';
+import { createInterface } from 'node:readline';
 import type { ParsedCodexTranscript, ThreadTranscriptStats } from './codex-browser-types';
 import { parseCodexTranscriptFile } from './codex-thread-parser';
 import type { CodexTranscriptEventFilters } from './codex-transcript-filter';
@@ -12,7 +14,10 @@ export const LARGE_THREAD_SIZE_BYTES = 8 * 1024 * 1024;
 export const LARGE_THREAD_PREVIEW_EVENT_LIMIT = 200;
 const CODEX_TRANSCRIPT_CACHE_VERSION = 'v3';
 const CODEX_TRANSCRIPT_STATS_CACHE_VERSION = 'v1';
+const CODEX_TRANSCRIPT_MODELS_CACHE_VERSION = 'v1';
 const FILE_STABILITY_ATTEMPTS = 3;
+const CODEX_MODEL_RECORD_TYPES = ['"type":"turn_context"', '"type":"thread_settings_applied"'] as const;
+const CODEX_MODEL_NAME_PATTERN = /"model"\s*:\s*"([^"\\]+)"/u;
 
 type CodexTranscriptStatsLoader = (sessionFile: string) => Promise<ThreadTranscriptStats>;
 
@@ -78,6 +83,45 @@ export const getCachedCodexTranscriptStats = async (
                 path: sessionFile,
             }),
     );
+};
+
+export const getCachedCodexTranscriptModelNames = async (sessionFile: string): Promise<string[]> => {
+    return withStableFileCache(
+        sessionFile,
+        (fingerprint) =>
+            `thread-models-${hashCacheKeyPartsIterable([
+                CODEX_TRANSCRIPT_MODELS_CACHE_VERSION,
+                path.basename(sessionFile),
+                fingerprint,
+            ])}`,
+        () =>
+            runWithTranscriptLoadLimit(() => collectCodexTranscriptModelNames(sessionFile), {
+                integration: 'codex',
+                operation: 'model-history',
+                path: sessionFile,
+            }),
+    );
+};
+
+const collectCodexTranscriptModelNames = async (sessionFile: string): Promise<string[]> => {
+    const modelNames: string[] = [];
+    const lines = createInterface({
+        crlfDelay: Number.POSITIVE_INFINITY,
+        input: createReadStream(sessionFile, { encoding: 'utf8' }),
+    });
+
+    for await (const line of lines) {
+        if (!CODEX_MODEL_RECORD_TYPES.some((recordType) => line.includes(recordType))) {
+            continue;
+        }
+
+        const modelName = CODEX_MODEL_NAME_PATTERN.exec(line)?.[1];
+        if (modelName && !modelNames.includes(modelName)) {
+            modelNames.push(modelName);
+        }
+    }
+
+    return modelNames;
 };
 
 type CachedThreadTranscriptPreviewOptions = {

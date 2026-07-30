@@ -956,9 +956,51 @@ describe('codex browser db', () => {
             },
         ]);
         expect(threadDetails.relations.childEdges).toHaveLength(1);
+        expect(threads[0]?.hierarchy).toEqual({ childThreadCount: 1, parentThreadId: null });
+        expect(threads[1]?.hierarchy).toEqual({ childThreadCount: 0, parentThreadId: fixture.threads[0]!.threadId });
         expect(threadDetails.thread.preview).toBe('Build the Spiracha UI');
         expect(threads[0]?.stats.deferred).toBe(false);
         expect(threads[0]?.rolloutSizeBytes).toBeGreaterThan(0);
+    });
+
+    it('should prefer the Codex session index title over the stored prompt text', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-session-index-title-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        await Bun.write(
+            path.join(tempRoot, 'session_index.jsonl'),
+            `${JSON.stringify({ id: fixture.threads[0]!.threadId, thread_name: 'Implement thread hierarchy' })}\n`,
+        );
+
+        const listedThread = (await listProjectThreads(fixture.dbPath, 'spiracha')).find(
+            (thread) => thread.thread.id === fixture.threads[0]!.threadId,
+        );
+        const detail = getThreadBrowseData(fixture.dbPath, fixture.threads[0]!.threadId);
+
+        expect(listedThread?.thread.title).toBe('Implement thread hierarchy');
+        expect(detail.thread.title).toBe('Implement thread hierarchy');
+    });
+
+    it('should retain every model used by a project thread instead of only the final database model', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-model-history-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const sessionFile = fixture.threads[0]!.sessionFile;
+        const existing = await Bun.file(sessionFile).text();
+        await Bun.write(
+            sessionFile,
+            [
+                existing,
+                JSON.stringify({ payload: { model: 'gpt-5.6-sol' }, type: 'turn_context' }),
+                JSON.stringify({ payload: { model: 'gpt-5.6-terra' }, type: 'turn_context' }),
+            ].join('\n'),
+        );
+
+        const thread = (await listProjectThreads(fixture.dbPath, 'spiracha', { includeTranscriptStats: false })).find(
+            (entry) => entry.thread.id === fixture.threads[0]!.threadId,
+        );
+
+        expect(thread?.modelNames).toEqual(['gpt-5.4', 'gpt-5.6-sol', 'gpt-5.6-terra']);
     });
 
     it('should give metadata-only subagent threads a navigable display title and preview', async () => {

@@ -2,7 +2,7 @@ import type { ThreadListEntry } from '@spiracha/lib/codex-browser-types';
 import { Link } from '@tanstack/react-router';
 import type { SortingState } from '@tanstack/react-table';
 import { createColumnHelper } from '@tanstack/react-table';
-import { Download, MoreHorizontal, Trash2 } from 'lucide-react';
+import { Download, GitFork, MoreHorizontal, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
 import { SelectionActionsToolbar } from '#/components/selection-actions-toolbar';
@@ -13,7 +13,8 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu';
-import { formatBytes, formatDateTime, formatNumber, formatTokens } from '#/lib/formatters';
+import { formatBytes, formatDateTime, formatTokens } from '#/lib/formatters';
+import { cn } from '#/lib/utils';
 
 type ThreadsTableProps = {
     threads: ThreadListEntry[];
@@ -23,8 +24,87 @@ type ThreadsTableProps = {
     onExportThreads: (threadIds: string[]) => void;
 };
 
-const columnHelper = createColumnHelper<ThreadListEntry>();
+type ThreadTreeNode = ThreadListEntry & {
+    children: ThreadTreeNode[];
+};
+
+const columnHelper = createColumnHelper<ThreadTreeNode>();
 const defaultSorting: SortingState = [{ desc: true, id: 'updatedAt' }];
+
+const ThreadTitleCell = ({ depth, thread }: { depth: number; thread: ThreadTreeNode }) => {
+    const isSubagent = depth > 0;
+
+    return (
+        <div className={cn('min-w-0', isSubagent ? 'border-[var(--border)] border-l-2 pl-3' : '')}>
+            <div className="flex min-w-0 items-center gap-2">
+                {isSubagent ? (
+                    <GitFork aria-hidden="true" className="size-4 shrink-0 text-[var(--muted-foreground)]" />
+                ) : null}
+                <Link
+                    className="min-w-0 flex-1 truncate rounded-md font-medium outline-none transition hover:underline hover:opacity-80 focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                    params={{ threadId: thread.thread.id }}
+                    to="/threads/$threadId"
+                >
+                    {thread.thread.title}
+                </Link>
+            </div>
+        </div>
+    );
+};
+
+const getThreadTreeRoots = (threads: ThreadListEntry[]): ThreadTreeNode[] => {
+    const nodesById = new Map(threads.map((thread) => [thread.thread.id, { ...thread, children: [] }]));
+    const childIdsByParentId = new Map<string, string[]>();
+    const rootIds: string[] = [];
+
+    for (const thread of threads) {
+        const threadId = thread.thread.id;
+        const parentThreadId = thread.hierarchy.parentThreadId;
+        if (!parentThreadId || parentThreadId === threadId || !nodesById.has(parentThreadId)) {
+            rootIds.push(threadId);
+            continue;
+        }
+
+        const childIds = childIdsByParentId.get(parentThreadId) ?? [];
+        childIds.push(threadId);
+        childIdsByParentId.set(parentThreadId, childIds);
+    }
+
+    const roots: ThreadTreeNode[] = [];
+    const attachedThreadIds = new Set<string>();
+    const attachNode = (threadId: string, parent: ThreadTreeNode | null) => {
+        if (attachedThreadIds.has(threadId)) {
+            return;
+        }
+
+        const node = nodesById.get(threadId);
+        if (!node) {
+            return;
+        }
+
+        attachedThreadIds.add(threadId);
+        if (parent) {
+            parent.children.push(node);
+        } else {
+            roots.push(node);
+        }
+
+        for (const childThreadId of childIdsByParentId.get(threadId) ?? []) {
+            attachNode(childThreadId, node);
+        }
+    };
+
+    for (const threadId of rootIds) {
+        attachNode(threadId, null);
+    }
+    for (const thread of threads) {
+        attachNode(thread.thread.id, null);
+    }
+
+    return roots;
+};
+
+const withoutChildren = ({ children: _children, ...thread }: ThreadTreeNode): ThreadListEntry => thread;
 
 const columns = (
     onDeleteThread: (thread: ThreadListEntry) => void,
@@ -32,18 +112,7 @@ const columns = (
 ) =>
     [
         columnHelper.accessor((row) => row.thread.title, {
-            cell: (info) => (
-                <Link
-                    className="block w-[16rem] max-w-[20rem] space-y-1 rounded-md outline-none transition hover:opacity-80 focus-visible:ring-2 focus-visible:ring-[var(--accent)] lg:w-auto"
-                    params={{ threadId: info.row.original.thread.id }}
-                    to="/threads/$threadId"
-                >
-                    <p className="truncate font-medium underline-offset-2 hover:underline">{info.getValue()}</p>
-                    <p className="line-clamp-2 text-[var(--muted-foreground)] text-xs">
-                        {info.row.original.thread.preview}
-                    </p>
-                </Link>
-            ),
+            cell: (info) => <ThreadTitleCell depth={info.row.depth} thread={info.row.original} />,
             header: 'Thread',
             id: 'title',
         }),
@@ -65,7 +134,7 @@ const columns = (
             header: 'Created',
             id: 'createdAt',
         }),
-        columnHelper.accessor((row) => row.thread.model ?? 'unknown', {
+        columnHelper.accessor((row) => row.modelNames.join(', ') || row.thread.model || 'unknown', {
             cell: (info) => <span className="truncate font-mono text-sm">{info.getValue()}</span>,
             header: 'Model',
             id: 'model',
@@ -83,16 +152,6 @@ const columns = (
             ),
             header: 'Size',
             id: 'size',
-        }),
-        columnHelper.accessor((row) => row.stats.toolCallCount, {
-            cell: (info) =>
-                info.row.original.stats.deferred ? (
-                    <span className="text-[var(--muted-foreground)] text-sm">Deferred</span>
-                ) : (
-                    <span className="font-mono text-sm">{formatNumber(info.getValue())}</span>
-                ),
-            header: 'Tools',
-            id: 'tools',
         }),
         columnHelper.accessor((row) => row.thread.archived, {
             cell: (info) => <span className="text-sm">{info.getValue() ? 'Archived' : 'Active'}</span>,
@@ -115,13 +174,13 @@ const columns = (
                         </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => onExportThread(info.row.original)}>
+                        <DropdownMenuItem onClick={() => onExportThread(withoutChildren(info.row.original))}>
                             <Download className="mr-2 size-4" />
                             Export thread
                         </DropdownMenuItem>
                         <DropdownMenuItem
                             className="text-[var(--destructive)]"
-                            onClick={() => onDeleteThread(info.row.original)}
+                            onClick={() => onDeleteThread(withoutChildren(info.row.original))}
                         >
                             <Trash2 className="mr-2 size-4" />
                             Delete thread
@@ -142,14 +201,17 @@ export function ThreadsTable({
     onExportThread,
     onExportThreads,
 }: ThreadsTableProps) {
+    const threadTreeRoots = useMemo(() => getThreadTreeRoots(threads), [threads]);
     const memoizedColumns = useMemo(() => columns(onDeleteThread, onExportThread), [onDeleteThread, onExportThread]);
     return (
         <DataTable
             columns={memoizedColumns}
-            data={threads}
+            data={threadTreeRoots}
             emptyMessage="No threads match the current project filter."
             enableRowSelection
+            expandAllRows
             getRowId={(row) => row.thread.id}
+            getSubRows={(row) => row.children}
             initialSorting={defaultSorting}
             renderToolbar={({ clearSelection, selectedRows }) => {
                 const selectedThreadIds = selectedRows.map((row) => row.thread.id);

@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createCodexBrowserFixture } from './codex-test-helpers';
 import {
+    getCachedCodexTranscriptModelNames,
     getCachedCodexTranscriptStats,
     getCachedThreadTranscriptPreview,
     getThreadRolloutLoadState,
@@ -18,6 +19,45 @@ afterEach(async () => {
 });
 
 describe('getCachedThreadTranscriptPreview', () => {
+    it('should retain every model in chronological order and attribute assistant messages after a switch', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-cache-model-history-test-'));
+        tempPaths.push(tempRoot);
+        const sessionFile = path.join(tempRoot, 'model-history.jsonl');
+        await Bun.write(
+            sessionFile,
+            [
+                JSON.stringify({ payload: { model: 'gpt-5.6-sol' }, type: 'turn_context' }),
+                JSON.stringify({
+                    payload: { message: 'First response', type: 'agent_message' },
+                    type: 'response_item',
+                }),
+                JSON.stringify({
+                    payload: { thread_settings: { model: 'gpt-5.6-terra' }, type: 'thread_settings_applied' },
+                    type: 'event_msg',
+                }),
+                JSON.stringify({ payload: { model: 'gpt-5.6-terra' }, type: 'turn_context' }),
+                JSON.stringify({
+                    payload: { message: 'Second response', type: 'agent_message' },
+                    type: 'response_item',
+                }),
+            ].join('\n'),
+        );
+
+        const [models, transcript] = await Promise.all([
+            getCachedCodexTranscriptModelNames(sessionFile),
+            getCachedThreadTranscriptPreview(sessionFile, { largeTranscriptThresholdBytes: Number.MAX_SAFE_INTEGER }),
+        ]);
+        const assistantMessages = transcript.events.filter(
+            (event) => event.kind === 'message' && event.role === 'assistant',
+        );
+
+        expect(models).toEqual(['gpt-5.6-sol', 'gpt-5.6-terra']);
+        expect(assistantMessages.map((event) => (event.kind === 'message' ? event.model : null))).toEqual([
+            'gpt-5.6-sol',
+            'gpt-5.6-terra',
+        ]);
+    });
+
     it('should report when a rollout should defer transcript loading', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-cache-state-test-'));
         tempPaths.push(tempRoot);

@@ -2,6 +2,7 @@ import {
     type ColumnDef,
     flexRender,
     getCoreRowModel,
+    getExpandedRowModel,
     getFilteredRowModel,
     getSortedRowModel,
     type RowSelectionState,
@@ -20,7 +21,9 @@ type DataTableProps<TData> = {
     data: TData[];
     emptyMessage: string;
     enableRowSelection?: boolean;
+    expandAllRows?: boolean;
     getRowId?: (row: TData, index: number) => string;
+    getSubRows?: (row: TData, index: number) => TData[] | undefined;
     initialSorting?: SortingState;
     onRowClick?: (row: TData) => void;
     renderToolbar?: (input: { clearSelection: () => void; selectedRows: TData[] }) => ReactNode;
@@ -65,13 +68,28 @@ const applySelectionState = (selection: RowSelectionState, rowIds: string[], che
     return nextSelection;
 };
 
+const getDataRowIds = <TData,>(
+    data: TData[],
+    getRowId: DataTableProps<TData>['getRowId'],
+    getSubRows: DataTableProps<TData>['getSubRows'],
+    parentPath = '',
+): string[] => {
+    return data.flatMap((row, index) => {
+        const rowId = getRowId ? getRowId(row, index) : `${parentPath}${index}`;
+        const childRows = getSubRows?.(row, index) ?? [];
+        return [rowId, ...getDataRowIds(childRows, getRowId, getSubRows, `${rowId}.`)];
+    });
+};
+
 export function DataTable<TData>({
     className,
     columns,
     data,
     emptyMessage,
     enableRowSelection = false,
+    expandAllRows = false,
     getRowId,
+    getSubRows,
     initialSorting = [],
     onRowClick,
     renderToolbar,
@@ -81,8 +99,8 @@ export function DataTable<TData>({
     const lastSelectedRowIdRef = useRef<string | null>(null);
     const pendingShiftSelectionRowIdRef = useRef<string | null>(null);
     const currentRowIds = useMemo(
-        () => new Set(data.map((row, index) => (getRowId ? getRowId(row, index) : String(index)))),
-        [data, getRowId],
+        () => new Set(getDataRowIds(data, getRowId, getSubRows)),
+        [data, getRowId, getSubRows],
     );
 
     useEffect(() => {
@@ -157,18 +175,21 @@ export function DataTable<TData>({
         enableRowSelection,
         enableSortingRemoval: false,
         getCoreRowModel: getCoreRowModel(),
+        getExpandedRowModel: getExpandedRowModel(),
         getFilteredRowModel: getFilteredRowModel(),
         getRowId,
         getSortedRowModel: getSortedRowModel(),
+        getSubRows,
         onRowSelectionChange: setRowSelection,
         onSortingChange: setSorting,
         sortDescFirst: false,
         state: {
+            expanded: expandAllRows ? true : {},
             rowSelection,
             sorting,
         },
     });
-    const selectedRows = table.getSelectedRowModel().rows.map((row) => row.original);
+    const selectedRows = table.getSelectedRowModel().flatRows.map((row) => row.original);
 
     return (
         <div

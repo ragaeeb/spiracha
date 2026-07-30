@@ -821,7 +821,7 @@ function ThreadDetailPageContent() {
             />
 
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                <MetricCard label="Model" value={snapshot.thread.model ?? 'unknown'} />
+                <MetricCard label="Model" value={formatList(snapshot.modelNames)} />
                 <MetricCard label="Tokens" value={formatTokens(snapshot.thread.tokens_used)} />
                 <MetricCard
                     label="Updated"

@@ -104,10 +104,8 @@ export const getThreadSnapshotFn = createServerFn({ method: 'GET' })
     .validator(threadSchema)
     .handler(async ({ data }) => {
         const startedAt = Date.now();
-        const [{ getThreadBrowseData }, { getThreadRolloutLoadState }] = await Promise.all([
-            import('@spiracha/lib/codex-browser-db'),
-            import('@spiracha/lib/codex-thread-cache'),
-        ]);
+        const [{ getThreadBrowseData }, { getCachedCodexTranscriptModelNames, getThreadRolloutLoadState }] =
+            await Promise.all([import('@spiracha/lib/codex-browser-db'), import('@spiracha/lib/codex-thread-cache')]);
         const dbPath = await getDbPath();
         logCodexThreadLoad('snapshot_start', {
             threadId: data.threadId,
@@ -131,6 +129,16 @@ export const getThreadSnapshotFn = createServerFn({ method: 'GET' })
 
         const transcriptState: 'available' | 'deferred' | 'missing' =
             rollout.fileSizeBytes === null ? 'missing' : rollout.shouldDeferTranscriptLoad ? 'deferred' : 'available';
+        const detectedModelNames =
+            rollout.fileSizeBytes === null
+                ? []
+                : await getCachedCodexTranscriptModelNames(browseData.thread.rollout_path);
+        const modelNames =
+            detectedModelNames.length > 0
+                ? detectedModelNames
+                : browseData.thread.model
+                  ? [browseData.thread.model]
+                  : [];
         logCodexThreadLoad('snapshot_ready', {
             durationMs: Date.now() - startedAt,
             fileSizeBytes: rollout.fileSizeBytes,
@@ -142,6 +150,7 @@ export const getThreadSnapshotFn = createServerFn({ method: 'GET' })
         return {
             ...browseData,
             availableTools: browseData.dynamicTools,
+            modelNames,
             rollout,
             transcript,
             transcriptState,

@@ -138,6 +138,7 @@ export type ThreadTranscriptStats = {
     execCommandCount: number;
     finalAnswerCount: number;
     messageCount: number;
+    modelNames: string[];
     toolCallCount: number;
     toolOutputCount: number;
     userMessageCount: number;
@@ -166,6 +167,11 @@ export type ProjectSummary = {
 };
 
 export type ThreadListEntry = {
+    hierarchy: {
+        childThreadCount: number;
+        parentThreadId: string | null;
+    };
+    modelNames: string[];
     project: string;
     rolloutSizeBytes: number | null;
     stats: Pick<ThreadTranscriptStats, 'execCommandCount' | 'toolCallCount' | 'webSearchEventCount'> & {
