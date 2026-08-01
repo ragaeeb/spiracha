@@ -32,6 +32,25 @@ const conversation = {
     workspacePath: '/repo',
 } satisfies ConversationDetail;
 
+const validLens = {
+    anchors: [{ kind: 'text', literals: ['review'] }],
+    budget: {
+        commentaryCharactersPerEpisode: 200,
+        failedOutputCharacters: 500,
+        successfulOutputCharacters: 200,
+        totalCharacters: 3000,
+    },
+    context: {
+        commentaryAfter: 1,
+        commentaryBefore: 1,
+        followRetries: true,
+        followWorkarounds: true,
+        includeReasoningSummaries: false,
+        maxOrderGap: 5,
+    },
+    name: 'Review evidence',
+};
+
 const createRequest = (path: string, init?: RequestInit) => new Request(`http://localhost:3000${path}`, init);
 
 describe('conversation API handler', () => {
@@ -40,24 +59,7 @@ describe('conversation API handler', () => {
             createRequest('/api/v1/conversations/codex/thread-1/evidence', {
                 body: JSON.stringify({
                     generated_at: '2026-07-19T12:00:00.000Z',
-                    lens: {
-                        anchors: [{ kind: 'text', literals: ['review'] }],
-                        budget: {
-                            commentaryCharactersPerEpisode: 200,
-                            failedOutputCharacters: 500,
-                            successfulOutputCharacters: 200,
-                            totalCharacters: 3000,
-                        },
-                        context: {
-                            commentaryAfter: 1,
-                            commentaryBefore: 1,
-                            followRetries: true,
-                            followWorkarounds: true,
-                            includeReasoningSummaries: false,
-                            maxOrderGap: 5,
-                        },
-                        name: 'Review evidence',
-                    },
+                    lens: validLens,
                 }),
                 headers: { 'Content-Type': 'application/json' },
                 method: 'POST',
@@ -82,6 +84,7 @@ describe('conversation API handler', () => {
         const response = await handleConversationApiRequest(
             createRequest('/api/v1/conversations/codex/thread-1/evidence', {
                 body: JSON.stringify({ lens: { anchors: [], budget: {}, context: {}, name: 'Invalid', typo: true } }),
+                headers: { 'Content-Type': 'application/json' },
                 method: 'POST',
             }),
             {
@@ -95,7 +98,13 @@ describe('conversation API handler', () => {
         expect(response.status).toBe(400);
         expect(loaded).toBe(false);
         await expect(response.json()).resolves.toMatchObject({
-            error: { code: 'validation_error', details: { field: 'lens.typo' } },
+            error: {
+                code: 'validation_error',
+                details: {
+                    field: 'lens.typo',
+                    value: { anchors: [], budget: {}, context: {}, name: 'Invalid', typo: true },
+                },
+            },
         });
     });
 
@@ -105,25 +114,9 @@ describe('conversation API handler', () => {
             createRequest('/api/v1/conversations/codex/thread-1/evidence', {
                 body: JSON.stringify({
                     generated_at: 'not-a-date',
-                    lens: {
-                        anchors: [{ kind: 'text', literals: ['review'] }],
-                        budget: {
-                            commentaryCharactersPerEpisode: 200,
-                            failedOutputCharacters: 500,
-                            successfulOutputCharacters: 200,
-                            totalCharacters: 3000,
-                        },
-                        context: {
-                            commentaryAfter: 1,
-                            commentaryBefore: 1,
-                            followRetries: true,
-                            followWorkarounds: true,
-                            includeReasoningSummaries: false,
-                            maxOrderGap: 5,
-                        },
-                        name: 'Review evidence',
-                    },
+                    lens: validLens,
                 }),
+                headers: { 'Content-Type': 'application/json' },
                 method: 'POST',
             }),
             {

@@ -93,7 +93,7 @@ const toToolMessage = (event: ThreadEvent): ConversationMessage | null => {
                     exitCode: null,
                     inputText: event.argumentsText,
                     name: event.name,
-                    namespace: event.name.includes('.') ? (event.name.split('.')[0] ?? null) : null,
+                    namespace: event.name?.includes('.') ? (event.name.split('.')[0] ?? null) : null,
                     outputText: null,
                     status: 'unknown',
                     workdir: event.workdir,

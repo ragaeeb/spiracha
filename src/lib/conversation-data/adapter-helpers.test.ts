@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'bun:test';
-import { createConversationUiPath, createDeepLinks, decodeFileUri, isWithinUpdatedWindow } from './adapter-helpers';
+import {
+    createConversationUiPath,
+    createDeepLinks,
+    decodeFileUri,
+    getToolNamespace,
+    isWithinUpdatedWindow,
+} from './adapter-helpers';
 
 describe('conversation adapter helpers', () => {
     it('should decode POSIX, Windows drive, and UNC file URIs', () => {
@@ -28,5 +34,10 @@ describe('conversation adapter helpers', () => {
             spiracha: 'spiracha://conversation/grok/session%2Fwith%20spaces%3F%23',
             ui: '/grok-sessions/session%2Fwith%20spaces%3F%23',
         });
+    });
+
+    it('should extract a tool namespace without retaining the delimiter', () => {
+        expect(getToolNamespace('workspace.read')).toBe('workspace');
+        expect(getToolNamespace('read')).toBeNull();
     });
 });

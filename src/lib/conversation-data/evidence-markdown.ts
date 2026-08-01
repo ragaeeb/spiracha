@@ -48,11 +48,11 @@ const projectEventTexts = (
             state.stats.truncatedFields += 1;
             break;
         }
-        const text = projectEvidenceText(getText(event), remaining, state);
-        projected.push(portable(text, conversation));
+        const text = portable(projectEvidenceText(getText(event), remaining, state), conversation);
+        projected.push(text);
         used += separatorLength + text.length;
     }
-    return projected.join(separator);
+    return { retainedCount: projected.length, text: projected.join(separator) };
 };
 
 const inputCharacterCount = (event: ConversationEvidenceEvent) => {
@@ -120,7 +120,7 @@ const episodeMarkdown = (
               conversation,
               state,
           )
-        : '';
+        : { retainedCount: 0, text: '' };
     const callIds = unique(episode.events.map((event) => event.tool?.callId ?? null));
     const messageIds = unique(episode.events.map((event) => event.messageId));
     const pairing = unique(episode.events.map((event) => event.pairingConfidence));
@@ -128,17 +128,21 @@ const episodeMarkdown = (
         `## Episode ${index + 1}: ${anchorName} — ${episode.outcome}`,
         '',
         '**Invocation**',
-        projectedInvocation ? fencedEvidenceText(projectedInvocation) : '_No invocation text available._',
+        projectedInvocation.text ? fencedEvidenceText(projectedInvocation.text) : '_No invocation text available._',
         '',
         '**Context**',
-        projectedContext ? fencedEvidenceText(projectedContext) : '_No nearby commentary selected._',
+        projectedContext.text ? fencedEvidenceText(projectedContext.text) : '_No nearby commentary selected._',
         '',
         '**Result**',
-        projectedResult ? fencedEvidenceText(projectedResult) : '_No paired result available._',
+        projectedResult.text ? fencedEvidenceText(projectedResult.text) : '_No paired result available._',
         '',
-        ...(projectedMatchedEvidence ? ['**Matched evidence**', fencedEvidenceText(projectedMatchedEvidence), ''] : []),
+        ...(projectedMatchedEvidence.text
+            ? ['**Matched evidence**', fencedEvidenceText(projectedMatchedEvidence.text), '']
+            : []),
         '**Retry / workaround**',
-        calls.length > 1 ? `${calls.length - 1} bounded retry event(s) retained.` : '_None retained._',
+        projectedInvocation.retainedCount > 1
+            ? `${projectedInvocation.retainedCount - 1} bounded retry event(s) retained.`
+            : '_None retained._',
         '',
         '**Trace**',
         `- Message IDs: ${inlineMarkdown(messageIds.join(', ') || 'none', conversation)}`,
@@ -233,6 +237,9 @@ export const buildEvidenceExport = (
         state.stats.omittedEvents = Math.max(0, events.length - state.stats.selectedEvents);
         used -= removed.markdown.length;
         markdown = renderMarkdown();
+    }
+    if (markdown.length > lens.budget.totalCharacters) {
+        throw new Error('Focused evidence export cannot fit within the configured character budget.');
     }
     return {
         markdown,

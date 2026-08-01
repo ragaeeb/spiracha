@@ -96,13 +96,14 @@ const partToMessages = (
 
     if (entry.entryType === 'tool_output') {
         const toolName = getPartString(part, 'toolName') ?? 'unknown';
+        const callId = getPartString(part, 'toolCallId') ?? entry.entryId;
         const status = getPartString(part, 'status');
         return createTextMessage({
             createdAtMs: toDateMs(entry.timestamp),
             id: `${entry.entryId}:${partIndex}`,
             metadata: {
                 requestId: entry.requestId,
-                toolCallId: getPartString(part, 'toolCallId'),
+                toolCallId: callId,
                 toolName: getPartString(part, 'toolName'),
             },
             order: partIndex,
@@ -110,7 +111,7 @@ const partToMessages = (
             role: 'tool',
             text: part.text,
             toolEvidence: {
-                callId: getPartString(part, 'toolCallId'),
+                callId,
                 command: null,
                 durationMs: null,
                 exitCode: null,

@@ -73,7 +73,7 @@ const conversation = (source: ConversationSource = 'codex'): ConversationDetail 
     deepLinks: { native: null, spiracha: `spiracha://conversation/${source}/conversation-1`, ui: '/conversation-1' },
     id: 'conversation-1',
     matches: [],
-    messageCount: 5,
+    messageCount: 6,
     messages: [
         message(0, 'commentary', 'I will run the focused check.'),
         message(1, 'tool_call', 'bun test src/widget.test.ts', tool()),
@@ -172,6 +172,41 @@ describe('focused evidence', () => {
         expect(fallbackEpisodes[0]?.events.at(-1)?.pairingConfidence).toBe('ordered_fallback');
     });
 
+    it('should retain the exact ordered-fallback output for call-id-less calls', () => {
+        const input = conversation('kiro');
+        input.messages = [
+            message(0, 'tool_call', 'A', tool({ callId: null, command: 'A', inputText: 'A', name: 'A' })),
+            message(1, 'tool_call', 'B', tool({ callId: null, command: 'B', inputText: 'B', name: 'B' })),
+            message(
+                2,
+                'tool_output',
+                'B output',
+                tool({ callId: null, name: 'B', outputText: 'B output', status: 'succeeded' }),
+            ),
+            message(
+                3,
+                'tool_output',
+                'A output',
+                tool({ callId: null, name: 'A', outputText: 'A output', status: 'succeeded' }),
+            ),
+        ];
+
+        const episodes = buildEvidenceEpisodes(buildEvidenceEvents(input), {
+            ...lens,
+            anchors: [{ kind: 'tool', names: ['A'] }],
+            context: {
+                ...lens.context,
+                commentaryAfter: 0,
+                commentaryBefore: 0,
+                followRetries: false,
+                followWorkarounds: false,
+                maxOrderGap: 10,
+            },
+        });
+
+        expect(episodes[0]?.events.map((event) => event.text)).toEqual(['A', 'A output']);
+    });
+
     it('should omit mechanical progress while following configured linked tool activity', () => {
         const input = conversation();
         input.messages[3] = message(3, 'commentary', 'Waiting for the command to complete.');
@@ -186,6 +221,12 @@ describe('focused evidence', () => {
                 tool({ callId: 'call-3', name: 'repair', outputText: 'repair complete', status: 'succeeded' }),
             ),
         );
+        input.messages = input.messages.map((entry, index) => ({
+            ...entry,
+            createdAtMs: index,
+            id: `message-${index}`,
+            order: index,
+        }));
 
         const [episode] = buildEvidenceEpisodes(buildEvidenceEvents(input), lens);
         expect(episode?.events.map((event) => event.text)).not.toContain('Waiting for the command to complete.');
@@ -301,6 +342,18 @@ describe('focused evidence', () => {
         });
     });
 
+    it('should preserve scalar leaves at the structured depth limit', () => {
+        const state = createEvidenceProjectionState(1, 100);
+        let nested: unknown = 'deep scalar';
+        for (let index = 0; index < 6; index += 1) {
+            nested = { value: nested };
+        }
+
+        const projected = projectEvidenceText(JSON.stringify(nested), 500, state);
+
+        expect(projected).toContain('deep scalar');
+    });
+
     it('should bound multi-megabyte outputs before rendering and account for binary payloads', () => {
         const largeConversation = conversation();
         largeConversation.messages[2] = message(
@@ -321,5 +374,35 @@ describe('focused evidence', () => {
         expect(result.markdown).not.toContain('AAAA');
         expect(result.meta.omission.omittedBinaryPayloads).toBe(1);
         expect(performance.now() - startedAt).toBeLessThan(1_000);
+    });
+
+    it('should report only retained invocation retries and reject an impossible total budget', () => {
+        const input = conversation();
+        input.messages[1] = message(
+            1,
+            'tool_call',
+            'first invocation',
+            tool({ command: 'first '.repeat(100), inputText: 'first '.repeat(100) }),
+        );
+        input.messages[4] = message(
+            4,
+            'tool_call',
+            'second invocation',
+            tool({ callId: 'call-2', command: 'second '.repeat(100), inputText: 'second '.repeat(100) }),
+        );
+
+        const result = buildEvidenceExport(
+            input,
+            { ...lens, budget: { ...lens.budget, successfulOutputCharacters: 0 } },
+            { generatedAt: '2026-07-19T12:00:00.000Z' },
+        );
+        expect(result.markdown).toContain('_None retained._');
+        expect(result.markdown).not.toContain('1 bounded retry event(s) retained.');
+
+        expect(() =>
+            buildEvidenceExport(input, lens, {
+                generatedAt: 'x'.repeat(10_000),
+            }),
+        ).toThrow('cannot fit within the configured character budget');
     });
 });

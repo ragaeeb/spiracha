@@ -1,7 +1,7 @@
 import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/codex-browser-types';
 import type { QoderSessionTranscript } from '@spiracha/lib/qoder-exporter-types';
 import { useMutation, useSuspenseQuery } from '@tanstack/react-query';
-import { createFileRoute, Link } from '@tanstack/react-router';
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { Download } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Breadcrumbs } from '#/components/breadcrumbs';
@@ -13,7 +13,7 @@ import { MetricCard } from '#/components/metric-card';
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
 import { TranscriptControls } from '#/components/transcript-controls';
-import { DEFAULT_SHOW_USER_MESSAGES, TranscriptView } from '#/components/transcript-view';
+import { TranscriptView } from '#/components/transcript-view';
 import { Button } from '#/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
@@ -22,6 +22,12 @@ import { formatDateTime, formatList, formatNumber } from '#/lib/formatters';
 import { qoderSessionDetailQueryOptions } from '#/lib/qoder-queries';
 import { exportQoderSessionFn } from '#/lib/qoder-server';
 import { getQoderThreadTranscriptStats, qoderTranscriptToThreadEvents } from '#/lib/qoder-transcript-events';
+import {
+    getTranscriptDisplayState,
+    parseThreadTranscriptSearch,
+    type ThreadTranscriptSearch,
+    withThreadTranscriptSearch,
+} from '#/lib/route-search';
 import { RouteStateResetBoundary } from '#/lib/route-state-reset';
 
 const QoderSessionDetailErrorComponent = ({ error }: { error: Error }) => {
@@ -88,13 +94,18 @@ const QoderRawPanels = ({ detail, events }: { detail: QoderSessionTranscript; ev
 };
 
 const QoderSessionDetailPage = () => {
+    const navigate = useNavigate({ from: Route.fullPath });
+    const transcriptSearch = Route.useSearch();
+    const transcriptDisplay = getTranscriptDisplayState(transcriptSearch);
     const detail = useSuspenseQuery(qoderSessionDetailQueryOptions(Route.useParams().sessionId)).data;
     const [pendingExport, setPendingExport] = useState(false);
-    const [showToolCalls, setShowToolCalls] = useState(false);
-    const [showCommentary, setShowCommentary] = useState(false);
-    const [showExtraEvents, setShowExtraEvents] = useState(false);
-    const [showRawJson, setShowRawJson] = useState(false);
-    const [showUserMessages, setShowUserMessages] = useState(DEFAULT_SHOW_USER_MESSAGES);
+    const { showCommentary, showExtraEvents, showRawJson, showToolCalls, showUserMessages } = transcriptDisplay;
+    const updateTranscriptDisplay = (patch: Partial<ThreadTranscriptSearch>) => {
+        void navigate({
+            replace: true,
+            search: (previous: Record<string, unknown>) => withThreadTranscriptSearch(previous, patch),
+        });
+    };
     const transcriptEvents = useMemo(() => qoderTranscriptToThreadEvents(detail), [detail]);
     const transcriptStats = useMemo(() => getQoderThreadTranscriptStats(transcriptEvents), [transcriptEvents]);
     const modelLabel = detail.session.model ?? 'Qoder';
@@ -183,11 +194,11 @@ const QoderSessionDetailPage = () => {
                         showRawJson={showRawJson}
                         showToolCalls={showToolCalls}
                         showUserMessages={showUserMessages}
-                        onShowCommentaryChange={setShowCommentary}
-                        onShowExtraEventsChange={setShowExtraEvents}
-                        onShowRawJsonChange={setShowRawJson}
-                        onShowToolCallsChange={setShowToolCalls}
-                        onShowUserMessagesChange={setShowUserMessages}
+                        onShowCommentaryChange={(value) => updateTranscriptDisplay({ commentary: value })}
+                        onShowExtraEventsChange={(value) => updateTranscriptDisplay({ extra: value })}
+                        onShowRawJsonChange={(value) => updateTranscriptDisplay({ raw: value })}
+                        onShowToolCallsChange={(value) => updateTranscriptDisplay({ tools: value })}
+                        onShowUserMessagesChange={(value) => updateTranscriptDisplay({ user: value })}
                     />
                     {transcriptEvents.length > 0 ? (
                         <TranscriptView
@@ -269,4 +280,5 @@ export const Route = createFileRoute('/qoder-sessions/$sessionId')({
             title="Loading session"
         />
     ),
+    validateSearch: parseThreadTranscriptSearch,
 });

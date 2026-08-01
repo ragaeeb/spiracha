@@ -159,7 +159,7 @@ const parseToolArguments = (argumentsText: string | null): Record<string, unknow
 
 const parseToolCallMatch = (match: RegExpMatchArray): ParsedToolCall => {
     const metadata = match[2] ?? '';
-    const argumentsText = /(`{3,}|~{3,})[^\n]*\n([\s\S]*?)\n\1/u.exec(metadata)?.[2]?.trim() ?? null;
+    const argumentsText = /(`{3,}|~{3,})[^\n]*\n([\s\S]*?)\n[ \t]*\1/u.exec(metadata)?.[2]?.trim() ?? null;
     const args = parseToolArguments(argumentsText);
     return {
         argumentsText,

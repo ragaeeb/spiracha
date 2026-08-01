@@ -161,7 +161,8 @@ export const durationTextToMs = (value: string | null | undefined): number | nul
 };
 
 export const getToolNamespace = (name: string): string | null => {
-    return name.includes('.') ? (name.split('.')[0] ?? null) : null;
+    const delimiterIndex = name.indexOf('.');
+    return delimiterIndex >= 0 ? name.substring(0, delimiterIndex) : null;
 };
 
 export const finalizeMessages = (messages: ConversationMessage[]) => {

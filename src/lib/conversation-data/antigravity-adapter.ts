@@ -52,7 +52,7 @@ type ParsedToolCallEvidence = {
 };
 
 const metadataString = (message: Pick<ConversationMessage, 'metadata'>, key: string): string | null => {
-    const value = message.metadata[key];
+    const value = message.metadata?.[key];
     return typeof value === 'string' ? value : null;
 };
 

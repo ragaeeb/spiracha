@@ -42,6 +42,9 @@ const looksOpaque = (text: string) => {
 };
 
 const projectStructured = (value: unknown, state: EvidenceProjectionState, depth = 0): unknown => {
+    if (!value || typeof value !== 'object') {
+        return value;
+    }
     if (depth >= STRUCTURED_DEPTH_LIMIT) {
         state.stats.truncatedFields += 1;
         return '[omitted: depth limit]';
@@ -55,9 +58,6 @@ const projectStructured = (value: unknown, state: EvidenceProjectionState, depth
             sample: value.slice(0, ARRAY_SAMPLE_SIZE).map((item) => projectStructured(item, state, depth + 1)),
             ...(value.length > ARRAY_SAMPLE_SIZE ? { omittedItems: value.length - ARRAY_SAMPLE_SIZE } : {}),
         };
-    }
-    if (!value || typeof value !== 'object') {
-        return value;
     }
     const entries = Object.entries(value as Record<string, unknown>).sort(([left], [right]) =>
         left.localeCompare(right),

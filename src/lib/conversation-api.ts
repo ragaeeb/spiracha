@@ -467,7 +467,7 @@ const handleExportEvidence = async (
     const validated = validateEvidenceLens(body.lens);
     if (!validated.ok) {
         const field = validated.error.path ? `lens.${validated.error.path}` : 'lens';
-        return invalidFieldResponse(field, undefined, validated.error.message);
+        return invalidFieldResponse(field, body.lens, validated.error.message);
     }
     const generatedAt = body.generated_at;
     const canonicalGeneratedAt = (() => {

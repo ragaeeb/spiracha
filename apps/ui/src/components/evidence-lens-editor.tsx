@@ -50,6 +50,32 @@ export const EvidenceLensEditor = ({ lens, onChange }: EvidenceLensEditorProps) 
         onChange({ ...lens, context: { ...lens.context, [key]: value } });
     const updateBudget = <K extends keyof EvidenceLens['budget']>(key: K, value: number) =>
         onChange({ ...lens, budget: { ...lens.budget, [key]: value } });
+    const parseNumericInput = (rawValue: string, minimum: number) => {
+        if (!rawValue.trim()) {
+            return null;
+        }
+        const value = Number(rawValue);
+        return Number.isSafeInteger(value) && value >= minimum ? value : null;
+    };
+    const updateNumericContext = (field: 'commentaryBefore' | 'commentaryAfter' | 'maxOrderGap', rawValue: string) => {
+        const value = parseNumericInput(rawValue, field === 'maxOrderGap' ? 1 : 0);
+        if (value !== null) {
+            updateContext(field, value);
+        }
+    };
+    const updateNumericBudget = (
+        field:
+            | 'totalCharacters'
+            | 'successfulOutputCharacters'
+            | 'failedOutputCharacters'
+            | 'commentaryCharactersPerEpisode',
+        rawValue: string,
+    ) => {
+        const value = parseNumericInput(rawValue, 0);
+        if (value !== null) {
+            updateBudget(field, value);
+        }
+    };
     const importJson = () => {
         try {
             const parsed: unknown = JSON.parse(json);
@@ -207,7 +233,7 @@ export const EvidenceLensEditor = ({ lens, onChange }: EvidenceLensEditorProps) 
                             min={field === 'maxOrderGap' ? 1 : 0}
                             type="number"
                             value={lens.context[field]}
-                            onChange={(event) => updateContext(field, Number(event.target.value))}
+                            onChange={(event) => updateNumericContext(field, event.target.value)}
                         />
                     </label>
                 ))}
@@ -226,7 +252,7 @@ export const EvidenceLensEditor = ({ lens, onChange }: EvidenceLensEditorProps) 
                             min={0}
                             type="number"
                             value={lens.budget[field]}
-                            onChange={(event) => updateBudget(field, Number(event.target.value))}
+                            onChange={(event) => updateNumericBudget(field, event.target.value)}
                         />
                     </label>
                 ))}
@@ -265,7 +291,14 @@ export const EvidenceLensEditor = ({ lens, onChange }: EvidenceLensEditorProps) 
                     >
                         Export lens JSON
                     </Button>
-                    <Button variant="ghost" onClick={() => onChange(DEFAULT_EVIDENCE_LENS)}>
+                    <Button
+                        variant="ghost"
+                        onClick={() => {
+                            onChange(DEFAULT_EVIDENCE_LENS);
+                            setJson(JSON.stringify(DEFAULT_EVIDENCE_LENS, null, 2));
+                            setJsonError(null);
+                        }}
+                    >
                         Reset
                     </Button>
                 </div>

@@ -44,27 +44,28 @@ export const decodeConversationCursor = (cursor: string | null | undefined): Con
     if (cursor.length > CURSOR_MAX_ENCODED_CHARACTERS) {
         return invalidCursor();
     }
+    let parsed: unknown;
     try {
-        const parsed: unknown = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
-        if (
-            !Array.isArray(parsed) ||
-            parsed.length !== 4 ||
-            parsed[0] !== CURSOR_VERSION ||
-            !Number.isSafeInteger(parsed[1]) ||
-            (parsed[1] as number) < 0 ||
-            typeof parsed[2] !== 'string' ||
-            !(CONVERSATION_SOURCES as readonly string[]).includes(parsed[2]) ||
-            typeof parsed[3] !== 'string' ||
-            !parsed[3] ||
-            parsed[3].length > CURSOR_MAX_ID_CHARACTERS ||
-            parsed[3].includes('\0')
-        ) {
-            return invalidCursor();
-        }
-        return { id: parsed[3], source: parsed[2] as ConversationSource, updatedAtMs: parsed[1] as number };
+        parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
     } catch {
         return invalidCursor();
     }
+    if (
+        !Array.isArray(parsed) ||
+        parsed.length !== 4 ||
+        parsed[0] !== CURSOR_VERSION ||
+        !Number.isSafeInteger(parsed[1]) ||
+        (parsed[1] as number) < 0 ||
+        typeof parsed[2] !== 'string' ||
+        !(CONVERSATION_SOURCES as readonly string[]).includes(parsed[2]) ||
+        typeof parsed[3] !== 'string' ||
+        !parsed[3] ||
+        parsed[3].length > CURSOR_MAX_ID_CHARACTERS ||
+        parsed[3].includes('\0')
+    ) {
+        return invalidCursor();
+    }
+    return { id: parsed[3], source: parsed[2] as ConversationSource, updatedAtMs: parsed[1] as number };
 };
 
 export const paginateConversations = (

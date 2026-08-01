@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import * as download from '#/lib/download';
 import { SettingsProvider } from '#/lib/settings-store';
 import { ExportDialog } from './export-dialog';
 
@@ -40,16 +41,17 @@ describe('ExportDialog', () => {
         vi.stubGlobal('fetch', fetchMock);
         vi.stubGlobal('URL', { ...URL, createObjectURL: vi.fn(() => 'blob:evidence'), revokeObjectURL: vi.fn() });
         const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
-        render(
-            <ExportDialog
-                focusedEvidenceTarget={{ id: 'thread-1', source: 'codex' }}
-                open
-                onExport={vi.fn()}
-                onOpenChange={vi.fn()}
-            />,
-        );
+        const downloadTextFile = vi.spyOn(download, 'downloadTextFile').mockImplementation(() => undefined);
 
         try {
+            render(
+                <ExportDialog
+                    focusedEvidenceTarget={{ id: 'thread-1', source: 'codex' }}
+                    open
+                    onExport={vi.fn()}
+                    onOpenChange={vi.fn()}
+                />,
+            );
             fireEvent.click(screen.getByRole('combobox', { name: 'Export mode' }));
             fireEvent.click(screen.getByText('Focused evidence'));
             expect(screen.getByTestId('evidence-lens-editor')).toBeTruthy();
@@ -62,9 +64,15 @@ describe('ExportDialog', () => {
             fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
             expect(fetchMock).toHaveBeenCalledTimes(1);
             expect(String(fetchMock.mock.calls[0]?.[0])).toBe('/api/v1/conversations/codex/thread-1/evidence');
+            expect(downloadTextFile).toHaveBeenCalledWith(
+                'codex-thread-1-focused-evidence.md',
+                '# Focused evidence: Thread 1\n',
+                'text/markdown; charset=utf-8',
+            );
         } finally {
             HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
             anchorClick.mockRestore();
+            downloadTextFile.mockRestore();
             vi.unstubAllGlobals();
         }
     });

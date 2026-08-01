@@ -48,6 +48,7 @@ export type ConversationEvidenceEvent = {
     metadata: Record<string, unknown>;
     order: number;
     pairingConfidence: ConversationEvidencePairingConfidence;
+    pairedOutputIndex?: number;
     phase: ConversationMessagePhase;
     role: ConversationMessageRole;
     source: ConversationSource;

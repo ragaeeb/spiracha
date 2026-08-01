@@ -38,6 +38,7 @@ const pairOutputEvent = (
     callsById: Map<string, number>,
     unmatchedCalls: number[],
     event: ConversationEvidenceEvent,
+    eventIndex: number,
     maxOrderGap: number,
 ) => {
     const exactIndex = event.tool?.callId ? callsById.get(event.tool.callId) : undefined;
@@ -51,7 +52,11 @@ const pairOutputEvent = (
         return;
     }
     paired[callIndex]!.pairingConfidence = confidence;
-    unmatchedCalls.splice(unmatchedCalls.indexOf(callIndex), 1);
+    paired[callIndex]!.pairedOutputIndex = eventIndex;
+    const unmatchedIndex = unmatchedCalls.indexOf(callIndex);
+    if (unmatchedIndex >= 0) {
+        unmatchedCalls.splice(unmatchedIndex, 1);
+    }
     const callId = paired[callIndex]!.tool?.callId;
     if (callId) {
         callsById.delete(callId);
@@ -79,20 +84,24 @@ const pairToolEvents = (events: ConversationEvidenceEvent[], maxOrderGap: number
         if (event.phase !== 'tool_output') {
             continue;
         }
-        pairOutputEvent(paired, callsById, unmatchedCalls, event, maxOrderGap);
+        pairOutputEvent(paired, callsById, unmatchedCalls, event, index, maxOrderGap);
     }
     return paired;
 };
 
 const pairedOutputIndex = (events: ConversationEvidenceEvent[], callIndex: number, maxOrderGap: number) => {
     const call = events[callIndex]!;
+    if (call.pairedOutputIndex !== undefined) {
+        return call.pairedOutputIndex;
+    }
     return events.findIndex(
         (event, index) =>
             index > callIndex &&
             event.phase === 'tool_output' &&
             event.order - call.order <= maxOrderGap &&
-            ((call.tool?.callId && event.tool?.callId === call.tool.callId) ||
-                (!call.tool?.callId && event.pairingConfidence === 'ordered_fallback')),
+            call.tool?.callId !== null &&
+            call.tool?.callId !== undefined &&
+            event.tool?.callId === call.tool.callId,
     );
 };
 
@@ -211,27 +220,44 @@ const addRetries = (
     }
 };
 
-const mergeEpisodeCandidates = (
-    candidates: Array<{ anchorIndex: number; indexes: Set<number> }>,
+type EpisodeCandidate = { anchorIndex: number; indexes: Set<number> };
+
+const overlaps = (left: EpisodeCandidate, right: EpisodeCandidate) =>
+    [...left.indexes].some((index) => right.indexes.has(index));
+
+const combineEpisodeCandidates = (
+    candidate: EpisodeCandidate,
+    overlapping: EpisodeCandidate[],
     events: ConversationEvidenceEvent[],
-) => {
-    const merged: Array<{ anchorIndex: number; indexes: Set<number> }> = [];
+): EpisodeCandidate => {
+    const indexes = new Set(candidate.indexes);
+    for (const episode of overlapping) {
+        for (const index of episode.indexes) {
+            indexes.add(index);
+        }
+    }
+    const anchorIndex = [candidate.anchorIndex, ...overlapping.map((episode) => episode.anchorIndex)].find(
+        (index) => events[index]!.phase === 'tool_call',
+    );
+    return { anchorIndex: anchorIndex ?? candidate.anchorIndex, indexes };
+};
+
+const mergeEpisodeCandidates = (candidates: EpisodeCandidate[], events: ConversationEvidenceEvent[]) => {
+    const merged: EpisodeCandidate[] = [];
     for (const candidate of candidates) {
-        const overlapping = merged.find((episode) =>
-            [...candidate.indexes].some((index) => episode.indexes.has(index)),
-        );
-        if (!overlapping) {
+        const overlapping = merged.filter((episode) => overlaps(candidate, episode));
+        if (overlapping.length === 0) {
             merged.push(candidate);
             continue;
         }
-        for (const index of candidate.indexes) {
-            overlapping.indexes.add(index);
+        const combined = combineEpisodeCandidates(candidate, overlapping, events);
+        for (const episode of overlapping) {
+            const index = merged.indexOf(episode);
+            if (index >= 0) {
+                merged.splice(index, 1);
+            }
         }
-        const candidateIsTool = events[candidate.anchorIndex]!.phase === 'tool_call';
-        const currentIsTool = events[overlapping.anchorIndex]!.phase === 'tool_call';
-        if (candidateIsTool && !currentIsTool) {
-            overlapping.anchorIndex = candidate.anchorIndex;
-        }
+        merged.push(combined);
     }
     return merged;
 };

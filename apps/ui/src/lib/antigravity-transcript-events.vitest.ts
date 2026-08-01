@@ -269,6 +269,29 @@ describe('antigravityMarkdownToThreadEvents', () => {
         );
     });
 
+    it('should parse tool arguments with an indented closing fence', () => {
+        const events = antigravityMarkdownToThreadEvents(
+            [
+                '## Assistant',
+                '',
+                '### Tool Calls',
+                '',
+                '- `run_command`',
+                '',
+                '```json',
+                '{"CommandLine":"kodeguard status --json"}',
+                '  ```',
+            ].join('\n'),
+        );
+
+        expect(events).toContainEqual(
+            expect.objectContaining({
+                argumentsText: '{"CommandLine":"kodeguard status --json"}',
+                kind: 'tool_call',
+            }),
+        );
+    });
+
     it('should retain metadata-only command results without inventing placeholder output', () => {
         const events = antigravityMarkdownToThreadEvents(
             ['## Tool: RUN_COMMAND', '', 'Call ID: `call-empty`', '', 'Exit code: 0', ''].join('\n'),
@@ -438,7 +461,7 @@ describe('antigravityMarkdownToThreadEvents', () => {
     });
 });
 
-describe('getAntigravityThreadTranscriptStats', () => {
+describe('getThreadTranscriptStats', () => {
     it('should count adapted Antigravity transcript events for metadata panels', () => {
         const stats = getThreadTranscriptStats(antigravityMarkdownToThreadEvents(markdown));
 

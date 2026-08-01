@@ -13,7 +13,7 @@ import { MetricCard } from '#/components/metric-card';
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
 import { TranscriptControls } from '#/components/transcript-controls';
-import { DEFAULT_SHOW_USER_MESSAGES, TranscriptView } from '#/components/transcript-view';
+import { TranscriptView } from '#/components/transcript-view';
 import { Button } from '#/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
 import { cursorThreadDetailQueryOptions, cursorWorkspacesQueryOptions } from '#/lib/cursor-queries';
@@ -22,6 +22,12 @@ import { cursorTranscriptToThreadEvents, getCursorThreadTranscriptStats } from '
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import type { ExportDialogOptions } from '#/lib/export-options';
 import { formatBytes, formatDateTime, formatList, formatNumber } from '#/lib/formatters';
+import {
+    getTranscriptDisplayState,
+    parseThreadTranscriptSearch,
+    type ThreadTranscriptSearch,
+    withThreadTranscriptSearch,
+} from '#/lib/route-search';
 import { RouteStateResetBoundary } from '#/lib/route-state-reset';
 import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
@@ -133,16 +139,20 @@ const CursorThreadDetailErrorComponent = ({ error }: { error: Error }) => {
 };
 
 const CursorThreadDetailPage = () => {
-    const navigate = useNavigate();
+    const navigate = useNavigate({ from: Route.fullPath });
     const queryClient = useQueryClient();
+    const transcriptSearch = Route.useSearch();
+    const transcriptDisplay = getTranscriptDisplayState(transcriptSearch);
     const detail = useSuspenseQuery(cursorThreadDetailQueryOptions(Route.useParams().composerId)).data;
     const [pendingDelete, setPendingDelete] = useState(false);
     const [pendingExport, setPendingExport] = useState(false);
-    const [showToolCalls, setShowToolCalls] = useState(false);
-    const [showCommentary, setShowCommentary] = useState(false);
-    const [showExtraEvents, setShowExtraEvents] = useState(false);
-    const [showRawJson, setShowRawJson] = useState(false);
-    const [showUserMessages, setShowUserMessages] = useState(DEFAULT_SHOW_USER_MESSAGES);
+    const { showCommentary, showExtraEvents, showRawJson, showToolCalls, showUserMessages } = transcriptDisplay;
+    const updateTranscriptDisplay = (patch: Partial<ThreadTranscriptSearch>) => {
+        void navigate({
+            replace: true,
+            search: (previous: Record<string, unknown>) => withThreadTranscriptSearch(previous, patch),
+        });
+    };
     const transcriptEvents = useMemo(
         () => (detail.transcript ? cursorTranscriptToThreadEvents(detail.transcript) : []),
         [detail.transcript],
@@ -271,11 +281,11 @@ const CursorThreadDetailPage = () => {
                         showRawJson={showRawJson}
                         showToolCalls={showToolCalls}
                         showUserMessages={showUserMessages}
-                        onShowCommentaryChange={setShowCommentary}
-                        onShowExtraEventsChange={setShowExtraEvents}
-                        onShowRawJsonChange={setShowRawJson}
-                        onShowToolCallsChange={setShowToolCalls}
-                        onShowUserMessagesChange={setShowUserMessages}
+                        onShowCommentaryChange={(value) => updateTranscriptDisplay({ commentary: value })}
+                        onShowExtraEventsChange={(value) => updateTranscriptDisplay({ extra: value })}
+                        onShowRawJsonChange={(value) => updateTranscriptDisplay({ raw: value })}
+                        onShowToolCallsChange={(value) => updateTranscriptDisplay({ tools: value })}
+                        onShowUserMessagesChange={(value) => updateTranscriptDisplay({ user: value })}
                     />
                     {detail.transcript && transcriptEvents.length > 0 ? (
                         <TranscriptView
@@ -372,4 +382,5 @@ export const Route = createFileRoute('/cursor-threads/$composerId')({
             title="Loading thread"
         />
     ),
+    validateSearch: parseThreadTranscriptSearch,
 });

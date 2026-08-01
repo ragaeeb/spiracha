@@ -15,7 +15,7 @@ import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
 import { TextDocumentPanel } from '#/components/text-document-panel';
 import { TranscriptControls } from '#/components/transcript-controls';
-import { DEFAULT_SHOW_USER_MESSAGES, TranscriptView } from '#/components/transcript-view';
+import { TranscriptView } from '#/components/transcript-view';
 import { Button } from '#/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
 import {
@@ -36,6 +36,12 @@ import {
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import type { ExportDialogOptions } from '#/lib/export-options';
 import { formatBytes, formatDateTime, formatList, formatNumber } from '#/lib/formatters';
+import {
+    getTranscriptDisplayState,
+    parseThreadTranscriptSearch,
+    type ThreadTranscriptSearch,
+    withThreadTranscriptSearch,
+} from '#/lib/route-search';
 import { RouteStateResetBoundary } from '#/lib/route-state-reset';
 import { getThreadTranscriptStats } from '#/lib/thread-transcript-stats';
 import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
@@ -131,6 +137,7 @@ export const Route = createFileRoute('/antigravity-conversations/$conversationId
             title="Loading conversation"
         />
     ),
+    validateSearch: parseThreadTranscriptSearch,
 });
 
 function AntigravityConversationDetailErrorComponent({ error }: { error: Error }) {
@@ -242,17 +249,21 @@ function AntigravityRawPanels({
 }
 
 function AntigravityConversationDetailPage() {
-    const navigate = useNavigate();
+    const navigate = useNavigate({ from: Route.fullPath });
     const queryClient = useQueryClient();
+    const transcriptSearch = Route.useSearch();
+    const transcriptDisplay = getTranscriptDisplayState(transcriptSearch);
     const decryptionState = useSuspenseQuery(antigravityDecryptionQueryOptions()).data;
     const detail = useSuspenseQuery(antigravityConversationDetailQueryOptions(Route.useParams().conversationId)).data;
     const [deleteOpen, setDeleteOpen] = useState(false);
     const [exportOpen, setExportOpen] = useState(false);
-    const [showToolCalls, setShowToolCalls] = useState(false);
-    const [showCommentary, setShowCommentary] = useState(false);
-    const [showExtraEvents, setShowExtraEvents] = useState(false);
-    const [showRawJson, setShowRawJson] = useState(false);
-    const [showUserMessages, setShowUserMessages] = useState(DEFAULT_SHOW_USER_MESSAGES);
+    const { showCommentary, showExtraEvents, showRawJson, showToolCalls, showUserMessages } = transcriptDisplay;
+    const updateTranscriptDisplay = (patch: Partial<ThreadTranscriptSearch>) => {
+        void navigate({
+            replace: true,
+            search: (previous: Record<string, unknown>) => withThreadTranscriptSearch(previous, patch),
+        });
+    };
     const transcriptEvents = useMemo(
         () => antigravityMarkdownToThreadEvents(detail.conversationMarkdown),
         [detail.conversationMarkdown],
@@ -394,11 +405,11 @@ function AntigravityConversationDetailPage() {
                         showRawJson={showRawJson}
                         showToolCalls={showToolCalls}
                         showUserMessages={showUserMessages}
-                        onShowCommentaryChange={setShowCommentary}
-                        onShowExtraEventsChange={setShowExtraEvents}
-                        onShowRawJsonChange={setShowRawJson}
-                        onShowToolCallsChange={setShowToolCalls}
-                        onShowUserMessagesChange={setShowUserMessages}
+                        onShowCommentaryChange={(value) => updateTranscriptDisplay({ commentary: value })}
+                        onShowExtraEventsChange={(value) => updateTranscriptDisplay({ extra: value })}
+                        onShowRawJsonChange={(value) => updateTranscriptDisplay({ raw: value })}
+                        onShowToolCallsChange={(value) => updateTranscriptDisplay({ tools: value })}
+                        onShowUserMessagesChange={(value) => updateTranscriptDisplay({ user: value })}
                     />
                     {transcriptEvents.length > 0 ? (
                         <TranscriptView
