@@ -58,6 +58,18 @@ const toolEvent: Extract<ThreadEvent, { kind: 'tool_call' }> = {
     workdir: '/Users/example/workspace/spiracha',
 };
 
+const toolOutputEvent: Extract<ThreadEvent, { kind: 'tool_output' }> = {
+    callId: 'call_1',
+    exitCode: 1,
+    kind: 'tool_output',
+    outputText: '{ "status": "error" }',
+    raw: { type: 'function_call_output' },
+    sequence: 2,
+    summary: '{ "status": "error" }',
+    timestamp: '2026-05-17T16:49:30.109Z',
+    wallTime: null,
+};
+
 describe('TranscriptView', () => {
     afterEach(() => {
         cleanup();
@@ -126,6 +138,49 @@ describe('TranscriptView', () => {
         );
 
         expect(screen.getByText('Tool call: exec_command')).toBeTruthy();
+    });
+
+    it('should label a project-root working directory instead of rendering a bare period', () => {
+        vi.spyOn(settingsStore, 'useSettings').mockReturnValue({
+            settings: {
+                convertToProjectRoot: true,
+                exportDefaults: DEFAULT_SETTINGS.exportDefaults,
+                redactUsername: false,
+            },
+            updateSetting: vi.fn(),
+        });
+
+        render(
+            <TranscriptView
+                assistantModel={null}
+                events={[toolEvent]}
+                projectPath="/Users/example/workspace/spiracha"
+                showCommentary={false}
+                showExtraEvents={false}
+                showRawJson={false}
+                showToolCalls
+            />,
+        );
+
+        expect(screen.getByText('Working directory: .')).toBeTruthy();
+        expect(screen.queryByText('.', { exact: true })).toBeNull();
+    });
+
+    it('should render a tool output exit code with its output text', () => {
+        render(
+            <TranscriptView
+                assistantModel={null}
+                events={[toolOutputEvent]}
+                projectPath="/Users/example/workspace/spiracha"
+                showCommentary={false}
+                showExtraEvents={false}
+                showRawJson={false}
+                showToolCalls
+            />,
+        );
+
+        expect(screen.getByText('Exit code: 1')).toBeTruthy();
+        expect(screen.getByText('{ "status": "error" }')).toBeTruthy();
     });
 
     it('should render message cards with wrapping constraints for long content', () => {
@@ -447,6 +502,36 @@ describe('TranscriptView', () => {
         }
     });
 
+    it('should update visible event order when an unbound sort control changes', () => {
+        const events = [
+            { ...messageEvent, sequence: 1, text: 'First event' },
+            { ...messageEvent, sequence: 2, text: 'Last event' },
+        ];
+        const { container } = render(
+            <TranscriptView
+                assistantModel={null}
+                events={events}
+                projectPath="/Users/example/workspace/spiracha"
+                showCommentary
+                showExtraEvents={false}
+                showRawJson={false}
+                showToolCalls={false}
+            />,
+        );
+        const renderedMessageTexts = () =>
+            [...container.querySelectorAll('article')]
+                .map((article) => article.textContent ?? '')
+                .filter((text) => text.includes('First event') || text.includes('Last event'))
+                .map((text) => (text.includes('First event') ? 'First event' : 'Last event'));
+
+        expect(renderedMessageTexts()).toEqual(['First event', 'Last event']);
+
+        fireEvent.click(screen.getByRole('combobox', { name: 'Sort transcript messages' }));
+        fireEvent.click(screen.getByText('Latest first'));
+
+        expect(renderedMessageTexts()).toEqual(['Last event', 'First event']);
+    });
+
     it('should label system messages as System instead of User', () => {
         render(
             <TranscriptView
@@ -589,7 +674,7 @@ describe('TranscriptView', () => {
         expect(writeText).toHaveBeenCalledWith(
             [
                 '## User\n\nBuild the UI',
-                '## Tool call: exec_command\n\nrtk bun test\n\n/Users/example/workspace/spiracha',
+                '## Tool call: exec_command\n\nrtk bun test\n\nWorking directory: /Users/example/workspace/spiracha',
             ].join('\n\n'),
         );
     });
@@ -680,7 +765,7 @@ describe('TranscriptView', () => {
         fireEvent.click(screen.getAllByRole('button', { name: 'Copy selected messages' })[0]!);
 
         expect(writeText).toHaveBeenCalledWith(
-            '## Tool call: exec_command\n\nfirst command\n\n/Users/example/workspace/spiracha',
+            '## Tool call: exec_command\n\nfirst command\n\nWorking directory: /Users/example/workspace/spiracha',
         );
     });
 
@@ -828,9 +913,10 @@ describe('TranscriptView', () => {
         fireEvent.click(screen.getAllByRole('button', { name: 'Copy selected messages' })[0]!);
 
         expect(writeText).toHaveBeenCalledWith(
-            ['## User\n\nSee src/index.ts', '## Tool call: exec_command\n\nrtk bun test\n\n~\\Desktop\\sandbox'].join(
-                '\n\n',
-            ),
+            [
+                '## User\n\nSee src/index.ts',
+                '## Tool call: exec_command\n\nrtk bun test\n\nWorking directory: ~\\Desktop\\sandbox',
+            ].join('\n\n'),
         );
     });
 
@@ -929,7 +1015,7 @@ describe('TranscriptView', () => {
         expect(writeText).toHaveBeenCalledWith(
             [
                 '## User\n\nBuild the UI',
-                '## Tool call: exec_command\n\nrtk bun test\n\n/Users/example/workspace/spiracha',
+                '## Tool call: exec_command\n\nrtk bun test\n\nWorking directory: /Users/example/workspace/spiracha',
             ].join('\n\n'),
         );
     });

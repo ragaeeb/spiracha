@@ -32,7 +32,7 @@ export type AntigravityArtifact = {
     updatedAtMs: number | null;
 };
 
-export type AntigravityTranscriptSource = 'overview' | 'safe-storage' | 'transcript';
+export type AntigravityTranscriptSource = 'overview' | 'safe-storage' | 'trajectory' | 'transcript';
 
 export type AntigravityConversation = {
     artifactBytes: number;
@@ -44,6 +44,9 @@ export type AntigravityConversation = {
     conversationPath: string | null;
     createdAtMs: number | null;
     indexedItemCount: number | null;
+    hierarchy: {
+        parentConversationId: string | null;
+    };
     lastUpdatedAtMs: number | null;
     model: string | null;
     projectId: string | null;

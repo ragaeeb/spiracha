@@ -2,6 +2,18 @@ type TranscriptLoadState = {
     isPartial: boolean;
 } | null;
 
+export const shouldRequestThreadTranscript = ({
+    fullRequested,
+    shouldDeferTranscriptLoad,
+    transcriptMissing,
+}: {
+    fullRequested: boolean;
+    shouldDeferTranscriptLoad: boolean;
+    transcriptMissing: boolean;
+}) => {
+    return fullRequested || (!shouldDeferTranscriptLoad && !transcriptMissing);
+};
+
 export const shouldLoadFullThreadTranscript = ({
     shouldLoadTranscript,
     snapshotTranscript,

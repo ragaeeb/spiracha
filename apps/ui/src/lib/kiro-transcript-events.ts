@@ -44,6 +44,11 @@ const getPartString = (part: KiroTranscriptPart, key: string): string | null => 
     return typeof value === 'string' && value.trim() ? value : null;
 };
 
+const getPartNumber = (part: KiroTranscriptPart, key: string): number | null => {
+    const value = part.raw[key];
+    return typeof value === 'number' && Number.isFinite(value) ? value : null;
+};
+
 const buildToolCallEvent = (
     transcript: KiroSessionTranscript,
     entry: KiroTranscriptEntry,
@@ -53,14 +58,31 @@ const buildToolCallEvent = (
 ): ThreadEvent => ({
     argumentsParseFailed: false,
     argumentsText: command,
-    callId: entry.entryId,
+    callId: getPartString(part, 'toolCallId') ?? entry.entryId,
     command,
     kind: 'tool_call',
     name: getPartString(part, 'toolName') ?? 'kiro_action',
     raw: buildRaw(entry, part, 'tool_call'),
     sequence,
     timestamp: entry.timestamp,
-    workdir: transcript.session.worktree,
+    workdir: getPartString(part, 'workdir') ?? transcript.session.worktree,
+});
+
+const buildToolOutputEvent = (
+    entry: KiroTranscriptEntry,
+    part: KiroTranscriptPart,
+    sequence: number,
+    outputText: string,
+): ThreadEvent => ({
+    callId: getPartString(part, 'toolCallId'),
+    exitCode: getPartNumber(part, 'exitCode'),
+    kind: 'tool_output',
+    outputText,
+    raw: buildRaw(entry, part, 'tool_output'),
+    sequence,
+    summary: outputText,
+    timestamp: entry.timestamp,
+    wallTime: null,
 });
 
 const partToEvents = (
@@ -73,6 +95,11 @@ const partToEvents = (
     if (entry.entryType === 'tool_call' && part.type === 'text') {
         const command = part.text?.trim();
         return command ? [buildToolCallEvent(transcript, entry, part, sequence, command)] : [];
+    }
+
+    if (entry.entryType === 'tool_output' && part.type === 'text') {
+        const outputText = part.text?.trim();
+        return outputText ? [buildToolOutputEvent(entry, part, sequence, outputText)] : [];
     }
 
     if (part.type === 'text' || part.type === 'image') {

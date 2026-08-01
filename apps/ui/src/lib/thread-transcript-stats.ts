@@ -38,6 +38,7 @@ export const getThreadTranscriptStats = (events: ThreadEvent[]): ThreadTranscrip
         execCommandCount: 0,
         finalAnswerCount: 0,
         messageCount: 0,
+        modelNames: [],
         toolCallCount: 0,
         toolOutputCount: 0,
         userMessageCount: 0,

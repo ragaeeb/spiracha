@@ -25,6 +25,11 @@ const retryDelay = (attemptIndex: number) => {
     return [150, 400][attemptIndex] ?? 800;
 };
 
+const explicitThreadRefreshOnly = {
+    refetchOnReconnect: false,
+    refetchOnWindowFocus: false,
+} as const;
+
 export const dashboardQueryOptions = () =>
     queryOptions({
         queryFn: () => getDashboardSummaryFn(),
@@ -51,6 +56,7 @@ export const projectThreadsQueryOptions = (project: string) =>
 
 export const threadSnapshotQueryOptions = (threadId: string) =>
     queryOptions({
+        ...explicitThreadRefreshOnly,
         queryFn: () => getThreadSnapshotFn({ data: { threadId } }),
         queryKey: ['thread', threadId],
         retry: retrySqliteQuery,
@@ -59,6 +65,7 @@ export const threadSnapshotQueryOptions = (threadId: string) =>
 
 export const threadTranscriptPreviewQueryOptions = (threadId: string, filters?: ThreadTranscriptFilters) =>
     queryOptions({
+        ...explicitThreadRefreshOnly,
         queryFn: () => getThreadTranscriptPreviewFn({ data: { filters, threadId } }),
         queryKey: ['thread-transcript-preview', threadId, filters ?? 'all'],
         retry: retrySqliteQuery,
@@ -67,6 +74,7 @@ export const threadTranscriptPreviewQueryOptions = (threadId: string, filters?: 
 
 export const threadTranscriptQueryOptions = (threadId: string) =>
     queryOptions({
+        ...explicitThreadRefreshOnly,
         queryFn: () => getThreadTranscriptFn({ data: { threadId } }),
         queryKey: ['thread-transcript', threadId],
         retry: retrySqliteQuery,

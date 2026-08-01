@@ -8,16 +8,24 @@ vi.mock('@tanstack/react-router', () => ({
         children,
         className,
         params,
+        search,
         to,
     }: {
         children: ReactNode;
         className?: string;
         params: Record<string, string>;
+        search?: Record<string, unknown>;
         to: string;
     }) => {
         let href = to;
         for (const [key, value] of Object.entries(params)) {
             href = href.replace(`$${key}`, value);
+        }
+        if (search) {
+            const query = new URLSearchParams(
+                Object.entries(search).flatMap(([key, value]) => (value === undefined ? [] : [[key, String(value)]])),
+            );
+            href += query.size > 0 ? `?${query}` : '';
         }
         return (
             <a className={className} href={href}>
@@ -97,6 +105,8 @@ vi.mock('#/components/ui/dropdown-menu', () => {
 
 import { ClaudeCodeSessionsTable } from './claude-code-sessions-table';
 import { ClaudeCodeWorkspacesTable } from './claude-code-workspaces-table';
+import { ClineTasksTable } from './cline-tasks-table';
+import { ClineWorkspacesTable } from './cline-workspaces-table';
 import { GrokSessionsTable } from './grok-sessions-table';
 import { GrokWorkspacesTable } from './grok-workspaces-table';
 import { KiroSessionsTable } from './kiro-sessions-table';
@@ -126,6 +136,22 @@ const sessionSpecs: Array<{
     route: string;
     session: SessionRow;
 }> = [
+    {
+        Component: ClineTasksTable as unknown as ComponentType<SessionTableProps>,
+        expectedValues: ['Cline model', '42', 'favorite'],
+        route: '/cline-tasks/1785560414951',
+        session: {
+            isFavorited: true,
+            lastActiveAtMs: 1_700_000_000_000,
+            messageCount: 42,
+            modelId: 'Cline model',
+            renderablePartCount: 8,
+            sessionId: '1785560414951',
+            taskId: '1785560414951',
+            title: 'Cline review',
+            toolCallCount: 12,
+        },
+    },
     {
         Component: ClaudeCodeSessionsTable as unknown as ComponentType<SessionTableProps>,
         expectedValues: ['Claude model', '1,234', '2,500 tokens', '1.0.0'],
@@ -240,6 +266,19 @@ describe('source session tables', () => {
 describe('source workspace tables', () => {
     it('should render source workspace metrics and navigation links', () => {
         const workspaces = [
+            {
+                Component: ClineWorkspacesTable,
+                path: '/cline/cline-key',
+                row: {
+                    key: 'cline-key',
+                    label: 'Cline workspace',
+                    lastActiveAtMs: 1_700_000_000_000,
+                    messageCount: 20,
+                    taskCount: 2,
+                    toolCallCount: 3,
+                    worktree: '/workspace/cline',
+                },
+            },
             {
                 Component: ClaudeCodeWorkspacesTable,
                 path: '/claude-code/claude-key',

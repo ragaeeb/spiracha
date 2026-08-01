@@ -26,11 +26,13 @@ type ParseCodexTranscriptOptions = {
 };
 
 type ParseCodexTranscriptState = {
+    assistantModel: string | null;
     events: ThreadEvent[];
     eventFilter: (event: ThreadEvent) => boolean;
     includeRaw: boolean;
     maxEvents: number;
     maxTurnContexts: number;
+    modelNames: string[];
     sequence: number;
     shouldStop: boolean;
     tailEventCursor: number;
@@ -46,6 +48,7 @@ const createEmptyStats = (): ThreadTranscriptStats => {
         execCommandCount: 0,
         finalAnswerCount: 0,
         messageCount: 0,
+        modelNames: [],
         toolCallCount: 0,
         toolOutputCount: 0,
         userMessageCount: 0,
@@ -75,6 +78,7 @@ export const parseCodexTranscriptFile = async (
 ): Promise<ParsedCodexTranscript> => {
     const sessionMeta = createEmptySessionMeta();
     const turnContexts: TurnContextRecord[] = [];
+    const modelNames: string[] = [];
     const events: ThreadEvent[] = [];
     const stats = createEmptyStats();
     const includeRaw = options.includeRaw ?? true;
@@ -83,11 +87,13 @@ export const parseCodexTranscriptFile = async (
     const tailEventLimit = options.tailEventLimit ?? Number.POSITIVE_INFINITY;
     const eventFilter = options.eventFilter ?? (() => true);
     const state: ParseCodexTranscriptState = {
+        assistantModel: null,
         eventFilter,
         events,
         includeRaw,
         maxEvents,
         maxTurnContexts,
+        modelNames,
         sequence: 0,
         shouldStop: false,
         tailEventCursor: 0,
@@ -98,6 +104,7 @@ export const parseCodexTranscriptFile = async (
 
     for await (const parsed of readJsonlObjects(sessionFile)) {
         captureSessionMeta(parsed, sessionMeta);
+        captureAssistantModel(parsed, state);
         captureTranscriptRecord(parsed, state);
         if (state.shouldStop) {
             break;
@@ -116,6 +123,7 @@ export const parseCodexTranscriptFile = async (
     for (const event of events) {
         updateTranscriptStats(stats, event);
     }
+    stats.modelNames = modelNames;
 
     return {
         events,
@@ -142,7 +150,14 @@ const captureTranscriptRecord = (parsed: Record<string, JsonValue>, state: Parse
         return;
     }
 
-    const event = parseCodexTranscriptRecord(parsed, state.sequence, state.includeRaw);
+    const parsedEvent = parseCodexTranscriptRecord(parsed, state.sequence, state.includeRaw);
+    const event =
+        parsedEvent?.kind === 'message' &&
+        parsedEvent.role === 'assistant' &&
+        !parsedEvent.model &&
+        state.assistantModel
+            ? { ...parsedEvent, model: state.assistantModel }
+            : parsedEvent;
     if (!event) {
         return;
     }
@@ -160,6 +175,27 @@ const captureTranscriptRecord = (parsed: Record<string, JsonValue>, state: Parse
         state.tailEventsWrapped = true;
     }
     state.shouldStop = state.events.length >= state.maxEvents;
+};
+
+const captureAssistantModel = (parsed: Record<string, JsonValue>, state: ParseCodexTranscriptState) => {
+    if (parsed.type !== 'turn_context' && parsed.type !== 'thread_settings_applied') {
+        return;
+    }
+
+    const modelName = captureModelName(parsed, state.modelNames);
+    if (modelName) {
+        state.assistantModel = modelName;
+    }
+};
+
+const captureModelName = (parsed: Record<string, JsonValue>, modelNames: string[]) => {
+    const payload = asObject(parsed.payload);
+    const modelName =
+        asString(payload?.model ?? null) ?? asString(asObject(payload?.thread_settings ?? null)?.model ?? null);
+    if (modelName && !modelNames.includes(modelName)) {
+        modelNames.push(modelName);
+    }
+    return modelName;
 };
 
 const captureSessionMeta = (parsed: Record<string, JsonValue>, sessionMeta: SessionMetaExtended) => {
@@ -693,6 +729,7 @@ export const shouldHideCodexTranscriptText = (role: string, text: string) => {
         text.startsWith('<collaboration_mode>') ||
         text.startsWith('<skills_instructions>') ||
         text.startsWith('<plugins_instructions>') ||
+        text.startsWith('<recommended_plugins>') ||
         text.includes('Filesystem sandboxing defines which files can be read or written.')
     );
 };

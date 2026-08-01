@@ -9,11 +9,20 @@ export type AnalyticsSearch = {
 export type ThreadTranscriptSearch = {
     commentary?: boolean;
     extra?: boolean;
+    full?: boolean;
     q?: string;
     raw?: boolean;
     sort?: 'earliest' | 'latest';
     tools?: boolean;
     user?: boolean;
+};
+
+export type TranscriptDisplayState = {
+    showCommentary: boolean;
+    showExtraEvents: boolean;
+    showRawJson: boolean;
+    showToolCalls: boolean;
+    showUserMessages: boolean;
 };
 
 type SearchRecord = Record<string, unknown>;
@@ -77,6 +86,8 @@ const setThreadSortSearchParam = (target: SearchRecord, value: ThreadTranscriptS
     delete target.sort;
 };
 
+const BOOLEAN_THREAD_SEARCH_KEYS = ['commentary', 'extra', 'full', 'raw', 'tools', 'user'] as const;
+
 export const parseThreadTranscriptSearch = (search: SearchRecord): ThreadTranscriptSearch => {
     const q = asNonBlankString(search.q);
     const sort = search.sort === 'latest' ? 'latest' : undefined;
@@ -84,6 +95,7 @@ export const parseThreadTranscriptSearch = (search: SearchRecord): ThreadTranscr
     const tools = asBooleanSearch(search.tools);
     const commentary = asBooleanSearch(search.commentary);
     const extra = asBooleanSearch(search.extra);
+    const full = asBooleanSearch(search.full);
     const raw = asBooleanSearch(search.raw);
     const user = asBooleanSearch(search.user);
 
@@ -95,6 +107,9 @@ export const parseThreadTranscriptSearch = (search: SearchRecord): ThreadTranscr
     }
     if (extra) {
         parsed.extra = true;
+    }
+    if (full) {
+        parsed.full = true;
     }
     if (raw) {
         parsed.raw = true;
@@ -109,6 +124,14 @@ export const parseThreadTranscriptSearch = (search: SearchRecord): ThreadTranscr
     return parsed;
 };
 
+export const getTranscriptDisplayState = (search: ThreadTranscriptSearch): TranscriptDisplayState => ({
+    showCommentary: search.commentary === true,
+    showExtraEvents: search.extra === true,
+    showRawJson: search.raw === true,
+    showToolCalls: search.tools === true,
+    showUserMessages: search.user === true,
+});
+
 export const withThreadTranscriptSearch = (
     current: SearchRecord,
     patch: Partial<ThreadTranscriptSearch>,
@@ -122,20 +145,11 @@ export const withThreadTranscriptSearch = (
         setThreadSortSearchParam(next, patch.sort);
     }
 
-    if ('tools' in patch && typeof patch.tools === 'boolean') {
-        setBooleanSearchParam(next, 'tools', patch.tools);
-    }
-    if ('commentary' in patch && typeof patch.commentary === 'boolean') {
-        setBooleanSearchParam(next, 'commentary', patch.commentary);
-    }
-    if ('extra' in patch && typeof patch.extra === 'boolean') {
-        setBooleanSearchParam(next, 'extra', patch.extra);
-    }
-    if ('raw' in patch && typeof patch.raw === 'boolean') {
-        setBooleanSearchParam(next, 'raw', patch.raw);
-    }
-    if ('user' in patch && typeof patch.user === 'boolean') {
-        setBooleanSearchParam(next, 'user', patch.user);
+    for (const key of BOOLEAN_THREAD_SEARCH_KEYS) {
+        const value = patch[key];
+        if (typeof value === 'boolean') {
+            setBooleanSearchParam(next, key, value);
+        }
     }
 
     return next as SearchRecord & ThreadTranscriptSearch;

@@ -5,21 +5,27 @@ const serverFns = vi.hoisted(() => ({
     getAntigravityDecryptionStateFn: vi.fn(async () => 'antigravity-decryption'),
     getClaudeCodeSessionDetailFn: vi.fn(async () => 'claude-detail'),
     getClaudeCodeSessionTranscriptFn: vi.fn(async () => 'claude-transcript'),
+    getClineTaskDetailFn: vi.fn(async () => 'cline-detail'),
     getCursorThreadDetailFn: vi.fn(async () => 'cursor-detail'),
     getGrokSessionDetailFn: vi.fn(async () => 'grok-detail'),
     getKiroSessionDetailFn: vi.fn(async () => 'kiro-detail'),
+    getMiniMaxCodeSessionDetailFn: vi.fn(async () => 'minimax-code-detail'),
     getOpenCodeSessionDetailFn: vi.fn(async () => 'opencode-detail'),
     getQoderSessionDetailFn: vi.fn(async () => 'qoder-detail'),
     listAntigravityConversationsFn: vi.fn(async () => 'antigravity-conversations'),
     listAntigravityWorkspacesFn: vi.fn(async () => 'antigravity-workspaces'),
     listClaudeCodeSessionsFn: vi.fn(async () => 'claude-sessions'),
     listClaudeCodeWorkspacesFn: vi.fn(async () => 'claude-workspaces'),
+    listClineTasksFn: vi.fn(async () => 'cline-tasks'),
+    listClineWorkspacesFn: vi.fn(async () => 'cline-workspaces'),
     listCursorThreadsFn: vi.fn(async () => 'cursor-threads'),
     listCursorWorkspacesFn: vi.fn(async () => 'cursor-workspaces'),
     listGrokSessionsFn: vi.fn(async () => 'grok-sessions'),
     listGrokWorkspacesFn: vi.fn(async () => 'grok-workspaces'),
     listKiroSessionsFn: vi.fn(async () => 'kiro-sessions'),
     listKiroWorkspacesFn: vi.fn(async () => 'kiro-workspaces'),
+    listMiniMaxCodeSessionsFn: vi.fn(async () => 'minimax-code-sessions'),
+    listMiniMaxCodeWorkspacesFn: vi.fn(async () => 'minimax-code-workspaces'),
     listOpenCodeSessionsFn: vi.fn(async () => 'opencode-sessions'),
     listOpenCodeWorkspacesFn: vi.fn(async () => 'opencode-workspaces'),
     listQoderSessionsFn: vi.fn(async () => 'qoder-sessions'),
@@ -46,6 +52,11 @@ vi.mock('./cursor-server', () => ({
     listCursorThreadsFn: serverFns.listCursorThreadsFn,
     listCursorWorkspacesFn: serverFns.listCursorWorkspacesFn,
 }));
+vi.mock('./cline-server', () => ({
+    getClineTaskDetailFn: serverFns.getClineTaskDetailFn,
+    listClineTasksFn: serverFns.listClineTasksFn,
+    listClineWorkspacesFn: serverFns.listClineWorkspacesFn,
+}));
 vi.mock('./grok-server', () => ({
     getGrokSessionDetailFn: serverFns.getGrokSessionDetailFn,
     listGrokSessionsFn: serverFns.listGrokSessionsFn,
@@ -55,6 +66,11 @@ vi.mock('./kiro-server', () => ({
     getKiroSessionDetailFn: serverFns.getKiroSessionDetailFn,
     listKiroSessionsFn: serverFns.listKiroSessionsFn,
     listKiroWorkspacesFn: serverFns.listKiroWorkspacesFn,
+}));
+vi.mock('./minimax-code-server', () => ({
+    getMiniMaxCodeSessionDetailFn: serverFns.getMiniMaxCodeSessionDetailFn,
+    listMiniMaxCodeSessionsFn: serverFns.listMiniMaxCodeSessionsFn,
+    listMiniMaxCodeWorkspacesFn: serverFns.listMiniMaxCodeWorkspacesFn,
 }));
 vi.mock('./opencode-server', () => ({
     getOpenCodeSessionDetailFn: serverFns.getOpenCodeSessionDetailFn,
@@ -79,6 +95,7 @@ import {
     claudeCodeSessionTranscriptQueryOptions,
     claudeCodeWorkspacesQueryOptions,
 } from './claude-code-queries';
+import { clineTaskDetailQueryOptions, clineTasksQueryOptions, clineWorkspacesQueryOptions } from './cline-queries';
 import {
     cursorThreadDetailQueryOptions,
     cursorThreadsQueryOptions,
@@ -86,6 +103,11 @@ import {
 } from './cursor-queries';
 import { grokSessionDetailQueryOptions, grokSessionsQueryOptions, grokWorkspacesQueryOptions } from './grok-queries';
 import { kiroSessionDetailQueryOptions, kiroSessionsQueryOptions, kiroWorkspacesQueryOptions } from './kiro-queries';
+import {
+    miniMaxCodeSessionDetailQueryOptions,
+    miniMaxCodeSessionsQueryOptions,
+    miniMaxCodeWorkspacesQueryOptions,
+} from './minimax-code-queries';
 import {
     openCodeSessionDetailQueryOptions,
     openCodeSessionsQueryOptions,
@@ -107,7 +129,7 @@ const runQuery = async (options: RunnableQuery) => {
 
 const expectDisabledQuery = async (options: RunnableQuery & { enabled?: unknown; queryKey: readonly unknown[] }) => {
     expect(options.enabled).toBe(false);
-    expect(options.queryKey.at(-1)).toBe('none');
+    expect(options.queryKey).toContain('none');
     await runQuery(options);
 };
 
@@ -139,9 +161,15 @@ describe('source query options', () => {
         await expectDisabledQuery(claudeCodeSessionDetailQueryOptions(null));
         await expectDisabledQuery(claudeCodeSessionTranscriptQueryOptions(null));
 
-        expect(serverFns.listClaudeCodeSessionsFn).toHaveBeenLastCalledWith({ data: { workspaceKey: '' } });
-        expect(serverFns.getClaudeCodeSessionDetailFn).toHaveBeenLastCalledWith({ data: { sessionId: '' } });
-        expect(serverFns.getClaudeCodeSessionTranscriptFn).toHaveBeenLastCalledWith({ data: { sessionId: '' } });
+        expect(serverFns.listClaudeCodeSessionsFn).toHaveBeenCalledWith({
+            data: { workspaceKey: 'workspace-a' },
+        });
+        expect(serverFns.getClaudeCodeSessionDetailFn).toHaveBeenCalledWith({
+            data: { sessionId: 'session-a' },
+        });
+        expect(serverFns.getClaudeCodeSessionTranscriptFn).toHaveBeenCalledWith({
+            data: { sessionId: 'session-a' },
+        });
     });
 
     it('should configure Cursor queries with bounded SQLite retries', async () => {
@@ -159,6 +187,16 @@ describe('source query options', () => {
 
         expect(serverFns.listCursorThreadsFn).toHaveBeenLastCalledWith({ data: { workspaceKey: '' } });
         expect(serverFns.getCursorThreadDetailFn).toHaveBeenLastCalledWith({ data: { composerId: '' } });
+    });
+
+    it('should configure Cline workspace, chat, and detail queries', async () => {
+        expect(await runQuery(clineWorkspacesQueryOptions())).toBe('cline-workspaces');
+        expect(await runQuery(clineTasksQueryOptions('workspace-a'))).toBe('cline-tasks');
+        expect(await runQuery(clineTaskDetailQueryOptions('1'))).toBe('cline-detail');
+        await expectDisabledQuery(clineTasksQueryOptions(null));
+        await expectDisabledQuery(clineTaskDetailQueryOptions(null));
+        expect(serverFns.listClineTasksFn).toHaveBeenLastCalledWith({ data: { workspaceKey: '' } });
+        expect(serverFns.getClineTaskDetailFn).toHaveBeenLastCalledWith({ data: { taskId: '' } });
     });
 
     it('should configure Grok, Kiro, and Qoder workspace, session, and detail queries', async () => {
@@ -213,5 +251,16 @@ describe('source query options', () => {
 
         expect(serverFns.listOpenCodeSessionsFn).toHaveBeenLastCalledWith({ data: { workspaceKey: '' } });
         expect(serverFns.getOpenCodeSessionDetailFn).toHaveBeenLastCalledWith({ data: { sessionId: '' } });
+    });
+
+    it('should configure MiniMax Code workspace, session, and detail queries', async () => {
+        expect(await runQuery(miniMaxCodeWorkspacesQueryOptions())).toBe('minimax-code-workspaces');
+        expect(await runQuery(miniMaxCodeSessionsQueryOptions('workspace-a'))).toBe('minimax-code-sessions');
+        expect(await runQuery(miniMaxCodeSessionDetailQueryOptions('session-a'))).toBe('minimax-code-detail');
+        await expectDisabledQuery(miniMaxCodeSessionsQueryOptions(null));
+        await expectDisabledQuery(miniMaxCodeSessionDetailQueryOptions(null));
+
+        expect(serverFns.listMiniMaxCodeSessionsFn).toHaveBeenLastCalledWith({ data: { workspaceKey: '' } });
+        expect(serverFns.getMiniMaxCodeSessionDetailFn).toHaveBeenLastCalledWith({ data: { sessionId: '' } });
     });
 });

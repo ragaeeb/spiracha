@@ -91,11 +91,14 @@ describe('Claude Code conversation adapter', () => {
             messageSelector: 'all',
             source: 'claude-code',
         });
-
         expect(conversation).toMatchObject({
             deepLinks: { ui: `/claude-code-sessions/${sessionId}` },
             id: sessionId,
-            metadata: { model: 'claude-sonnet-4-5', version: '2.1.148' },
+            metadata: {
+                continuationSessionIds: [sessionId],
+                model: 'claude-sonnet-4-5',
+                version: '2.1.148',
+            },
             source: 'claude-code',
             workspacePath: cwd,
         });
@@ -105,8 +108,21 @@ describe('Claude Code conversation adapter', () => {
         expect(conversation?.messages).toEqual(
             expect.arrayContaining([
                 expect.objectContaining({ phase: 'reasoning', text: 'I should inspect the source.' }),
-                expect.objectContaining({ phase: 'tool_call', role: 'tool' }),
-                expect.objectContaining({ phase: 'tool_output', role: 'tool', text: 'file contents' }),
+                expect.objectContaining({
+                    phase: 'tool_call',
+                    role: 'tool',
+                    toolEvidence: expect.objectContaining({ callId: 'tool-1', name: 'Read' }),
+                }),
+                expect.objectContaining({
+                    phase: 'tool_output',
+                    role: 'tool',
+                    text: 'file contents',
+                    toolEvidence: expect.objectContaining({
+                        callId: 'tool-1',
+                        outputText: 'file contents',
+                        status: 'unknown',
+                    }),
+                }),
                 expect.objectContaining({ metadata: { attachmentType: 'image' }, text: '[Attachment: image]' }),
                 expect.objectContaining({
                     phase: 'final_answer',

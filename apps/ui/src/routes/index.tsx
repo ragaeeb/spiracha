@@ -22,7 +22,7 @@ function DashboardPage() {
     const dashboard = useSuspenseQuery(dashboardQueryOptions()).data;
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-4">
             <PageHeader
                 actions={
                     <img
@@ -48,7 +48,7 @@ function DashboardPage() {
             </div>
 
             <div className="grid min-w-0 gap-4 xl:grid-cols-[1.4fr_1fr]">
-                <section className="min-w-0 overflow-hidden rounded-[1.8rem] border border-[var(--border)] bg-[var(--panel)] p-5 shadow-[var(--panel-shadow)]">
+                <section className="min-w-0 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 shadow-[var(--panel-shadow)]">
                     <div className="flex items-center justify-between gap-3">
                         <div className="min-w-0">
                             <p className="font-semibold text-sm">Recent threads</p>
@@ -64,9 +64,9 @@ function DashboardPage() {
                 </section>
 
                 <div className="grid min-w-0 gap-4">
-                    <section className="min-w-0 overflow-hidden rounded-[1.8rem] border border-[var(--border)] bg-[var(--panel)] p-5 shadow-[var(--panel-shadow)]">
+                    <section className="min-w-0 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 shadow-[var(--panel-shadow)]">
                         <p className="font-semibold text-sm">Top projects by thread count</p>
-                        <div className="mt-3 space-y-2">
+                        <div className="mt-2.5 space-y-2">
                             {dashboard.topProjectsByThreadCount.map((project) => (
                                 <Link
                                     key={project.name}
@@ -83,9 +83,9 @@ function DashboardPage() {
                         </div>
                     </section>
 
-                    <section className="min-w-0 overflow-hidden rounded-[1.8rem] border border-[var(--border)] bg-[var(--panel)] p-5 shadow-[var(--panel-shadow)]">
+                    <section className="min-w-0 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 shadow-[var(--panel-shadow)]">
                         <p className="font-semibold text-sm">Top projects by tokens</p>
-                        <div className="mt-3 space-y-2">
+                        <div className="mt-2.5 space-y-2">
                             {dashboard.topProjectsByTokens.map((project) => (
                                 <Link
                                     key={project.name}

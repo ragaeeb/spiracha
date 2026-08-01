@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import os from 'node:os';
 import path from 'node:path';
-import { getConversationPathMatch } from './path-match';
+import { getConversationPathMatch, normalizeConversationPath } from './path-match';
 
 describe('conversation path matching', () => {
     it('should match exact workspace paths', async () => {
@@ -42,5 +42,12 @@ describe('conversation path matching', () => {
         await expect(getConversationPathMatch('/', '/Users/example/workspace/fgh')).resolves.toMatchObject({
             kind: 'descendant',
         });
+    });
+
+    it('should normalize paths lexically without reading unavailable filesystem targets', async () => {
+        await expect(normalizeConversationPath('/Volumes/offline/../repo/./packages/')).resolves.toBe(
+            '/Volumes/repo/packages',
+        );
+        await expect(normalizeConversationPath('C:\\')).resolves.toBe('C:/');
     });
 });

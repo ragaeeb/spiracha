@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
     getCachedParsedCodexTranscriptMock,
+    getCachedCodexTranscriptModelNamesMock,
     getCachedThreadTranscriptPreviewMock,
     getThreadBrowseDataMock,
     getThreadRolloutLoadStateMock,
@@ -9,6 +10,7 @@ const {
     renderCodexThreadsDownloadMock,
     resolveCodexThreadDbPathMock,
 } = vi.hoisted(() => ({
+    getCachedCodexTranscriptModelNamesMock: vi.fn(),
     getCachedParsedCodexTranscriptMock: vi.fn(),
     getCachedThreadTranscriptPreviewMock: vi.fn(),
     getThreadBrowseDataMock: vi.fn(),
@@ -50,6 +52,7 @@ vi.mock('@spiracha/lib/codex-analytics', () => ({
 }));
 
 vi.mock('@spiracha/lib/codex-thread-cache', () => ({
+    getCachedCodexTranscriptModelNames: getCachedCodexTranscriptModelNamesMock,
     getCachedParsedCodexTranscript: getCachedParsedCodexTranscriptMock,
     getCachedThreadTranscriptPreview: getCachedThreadTranscriptPreviewMock,
     getThreadRolloutLoadState: getThreadRolloutLoadStateMock,
@@ -73,7 +76,7 @@ describe('loadThreadTranscript', () => {
         resolveCodexThreadDbPathMock.mockReturnValue('/tmp/state.sqlite');
     });
 
-    it('should return metadata-only thread snapshots without parsing transcript contents', async () => {
+    it('should return metadata-only thread snapshots with cached model history', async () => {
         getThreadBrowseDataMock.mockReturnValue({
             dynamicTools: [{ description: 'tool', name: 'shell', namespace: null }],
             project: 'project-1',
@@ -86,11 +89,13 @@ describe('loadThreadTranscript', () => {
             fileSizeBytes: 123,
             shouldDeferTranscriptLoad: false,
         });
+        getCachedCodexTranscriptModelNamesMock.mockResolvedValue(['gpt-5.6-sol', 'gpt-5.6-terra']);
 
         const snapshot = await getThreadSnapshotFn({ data: { threadId: 'thread-1' } });
 
         expect(snapshot).toMatchObject({
             availableTools: [{ description: 'tool', name: 'shell', namespace: null }],
+            modelNames: ['gpt-5.6-sol', 'gpt-5.6-terra'],
             rollout: {
                 fileSizeBytes: 123,
                 shouldDeferTranscriptLoad: false,
@@ -98,6 +103,7 @@ describe('loadThreadTranscript', () => {
             transcript: null,
             transcriptState: 'available',
         });
+        expect(getCachedCodexTranscriptModelNamesMock).toHaveBeenCalledWith('/tmp/rollout.jsonl');
         expect(getCachedParsedCodexTranscriptMock).not.toHaveBeenCalled();
         expect(getCachedThreadTranscriptPreviewMock).not.toHaveBeenCalled();
     });

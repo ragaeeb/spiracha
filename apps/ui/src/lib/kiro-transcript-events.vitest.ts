@@ -34,11 +34,15 @@ const transcript: KiroSessionTranscript = {
             timestamp: null,
         },
     ],
+    executionEntries: [],
+    historyEntries: [],
+    rawHistory: [],
     rawSession: { sessionId: 'session-a' },
     renderablePartCount: 3,
     session: {
         assistantMessageCount: 1,
         autonomyMode: 'Autopilot',
+        continuationSessionIds: ['session-a'],
         createdAtIso: '2026-06-01T10:00:00.000Z',
         createdAtMs: 1_780_307_200_000,
         defaultModelTitle: 'Agent',
@@ -238,6 +242,181 @@ describe('kiroTranscriptToThreadEvents', () => {
             messageCount: 3,
             toolCallCount: 2,
             userMessageCount: 1,
+        });
+    });
+
+    it('should render Kiro acknowledgement placeholders as commentary without displacing the final answer', () => {
+        const events = kiroTranscriptToThreadEvents({
+            ...transcript,
+            entries: [
+                {
+                    entryId: 'u1',
+                    entryType: 'message',
+                    executionId: null,
+                    parts: [{ raw: {}, text: 'Continue', type: 'text' }],
+                    promptLogCount: 0,
+                    raw: {},
+                    role: 'user',
+                    timestamp: null,
+                },
+                {
+                    entryId: 'final',
+                    entryType: 'message',
+                    executionId: 'execution-a',
+                    parts: [{ raw: {}, text: 'Successfully completed the refactoring.', type: 'text' }],
+                    promptLogCount: 0,
+                    raw: {},
+                    role: 'assistant',
+                    timestamp: null,
+                },
+                {
+                    entryId: 'ack',
+                    entryType: 'message',
+                    executionId: 'placeholder-execution',
+                    parts: [{ raw: {}, text: 'On it.', type: 'text' }],
+                    promptLogCount: 0,
+                    raw: {},
+                    role: 'assistant',
+                    timestamp: null,
+                },
+            ],
+        });
+
+        expect(events[1]).toMatchObject({
+            kind: 'message',
+            phase: 'final_answer',
+            text: 'Successfully completed the refactoring.',
+        });
+        expect(events[2]).toMatchObject({ kind: 'message', phase: 'commentary', text: 'On it.' });
+    });
+
+    it('should render assistant progress followed by a tool call as commentary', () => {
+        const events = kiroTranscriptToThreadEvents({
+            ...transcript,
+            entries: [
+                {
+                    entryId: 'user-1',
+                    entryType: 'message',
+                    executionId: null,
+                    parts: [{ raw: {}, text: 'Continue', type: 'text' }],
+                    promptLogCount: 0,
+                    raw: {},
+                    role: 'user',
+                    timestamp: null,
+                },
+                {
+                    entryId: 'progress',
+                    entryType: 'message',
+                    executionId: 'execution-1',
+                    parts: [
+                        {
+                            raw: {},
+                            text: "These helpers should all be removed since they're internal. Let me remove them:",
+                            type: 'text',
+                        },
+                    ],
+                    promptLogCount: 0,
+                    raw: {},
+                    role: 'assistant',
+                    timestamp: null,
+                },
+                {
+                    entryId: 'tool-1',
+                    entryType: 'tool_call',
+                    executionId: 'execution-1',
+                    parts: [
+                        {
+                            raw: { toolCallId: 'tool-1', toolName: 'replace' },
+                            text: 'Replace file contents',
+                            type: 'text',
+                        },
+                    ],
+                    promptLogCount: 0,
+                    raw: {},
+                    role: 'tool',
+                    timestamp: null,
+                },
+                {
+                    entryId: 'user-2',
+                    entryType: 'message',
+                    executionId: null,
+                    parts: [{ raw: {}, text: 'Continue', type: 'text' }],
+                    promptLogCount: 0,
+                    raw: {},
+                    role: 'user',
+                    timestamp: null,
+                },
+            ],
+        });
+
+        expect(events[1]).toMatchObject({
+            kind: 'message',
+            phase: 'commentary',
+            text: "These helpers should all be removed since they're internal. Let me remove them:",
+        });
+    });
+
+    it('should adapt paired Kiro command calls and outputs with shared call identity', () => {
+        const events = kiroTranscriptToThreadEvents({
+            ...transcript,
+            entries: [
+                {
+                    entryId: 'execution-a:run-command',
+                    entryType: 'tool_call',
+                    executionId: 'execution-a',
+                    parts: [
+                        {
+                            raw: {
+                                command: 'kodeguard status --json 2>&1 | jq -C',
+                                toolCallId: 'execution-a:run-command',
+                                toolName: 'run_command',
+                                workdir: '/workspace/project',
+                            },
+                            text: 'kodeguard status --json 2>&1 | jq -C',
+                            type: 'text',
+                        },
+                    ],
+                    promptLogCount: 0,
+                    raw: { actionId: 'run-command' },
+                    role: 'tool',
+                    timestamp: null,
+                },
+                {
+                    entryId: 'execution-a:run-command:output',
+                    entryType: 'tool_output',
+                    executionId: 'execution-a',
+                    parts: [
+                        {
+                            raw: {
+                                exitCode: 1,
+                                toolCallId: 'execution-a:run-command',
+                                toolName: 'run_command',
+                            },
+                            text: '{ "status": "error", "kind": "toolchain-drift" }',
+                            type: 'text',
+                        },
+                    ],
+                    promptLogCount: 0,
+                    raw: { actionId: 'run-command' },
+                    role: 'tool',
+                    timestamp: null,
+                },
+            ],
+        });
+
+        expect(events).toHaveLength(2);
+        expect(events[0]).toMatchObject({
+            callId: 'execution-a:run-command',
+            command: 'kodeguard status --json 2>&1 | jq -C',
+            kind: 'tool_call',
+            name: 'run_command',
+            workdir: '/workspace/project',
+        });
+        expect(events[1]).toMatchObject({
+            callId: 'execution-a:run-command',
+            exitCode: 1,
+            kind: 'tool_output',
+            outputText: expect.stringContaining('toolchain-drift'),
         });
     });
 

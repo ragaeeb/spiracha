@@ -60,8 +60,9 @@ const loadOpenCodeSessionTranscript = async (sessionId: string) => {
         },
         {
             id: sessionId,
+            integration: 'opencode',
+            operation: 'ui-detail',
             path: dbPath,
-            source: 'opencode-ui',
         },
     );
 };

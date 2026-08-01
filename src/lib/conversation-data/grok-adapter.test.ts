@@ -62,6 +62,13 @@ const writeGrokConversation = async (grokHome: string, workspacePath: string) =>
             type: 'reasoning',
         },
         {
+            content: '',
+            model_id: 'grok-composer-2.5-fast',
+            tool_calls: [{ arguments: '{"pattern":"stale artifacts"}', id: 'call-1', name: 'Grep' }],
+            type: 'assistant',
+        },
+        { content: 'found 1 match', tool_call_id: 'call-1', type: 'tool_result' },
+        {
             content: 'Failed refresh leaves a mutated candidate tree with stale artifacts.',
             model_fingerprint: 'fp_123',
             model_id: 'grok-composer-2.5-fast',
@@ -125,6 +132,14 @@ describe('grok conversation adapter', () => {
 
         expect(orders).toEqual(orders.map((_, index) => index));
         expect(new Set(orders).size).toBe(orders.length);
+        expect(page.data[0]?.messages.find((message) => message.phase === 'tool_call')?.toolEvidence).toMatchObject({
+            callId: 'call-1',
+            name: 'Grep',
+        });
+        expect(page.data[0]?.messages.find((message) => message.phase === 'tool_output')?.toolEvidence).toMatchObject({
+            callId: 'call-1',
+            outputText: 'found 1 match',
+        });
     });
 
     it('should resolve and delete Grok conversations through the stable facade', async () => {

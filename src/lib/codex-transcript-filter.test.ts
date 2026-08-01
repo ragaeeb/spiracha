@@ -31,12 +31,14 @@ describe('Codex transcript filtering', () => {
         const commentary = event({ phase: 'commentary' });
         const hidden = event({ isHiddenByDefault: true });
         const user = event({ role: 'user' });
+        const hiddenUser = event({ isHiddenByDefault: true, role: 'user' });
 
         expect(shouldShowCodexTranscriptEvent(commentary, filters())).toBe(false);
         expect(shouldShowCodexTranscriptEvent(commentary, filters({ showCommentary: true }))).toBe(true);
         expect(shouldShowCodexTranscriptEvent(hidden, filters())).toBe(false);
         expect(shouldShowCodexTranscriptEvent(hidden, filters({ showExtraEvents: true }))).toBe(true);
         expect(shouldShowCodexTranscriptEvent(user, filters({ showUserMessages: false }))).toBe(false);
+        expect(shouldShowCodexTranscriptEvent(hiddenUser, filters({ showUserMessages: true }))).toBe(false);
     });
 
     it('should gate tool and extra events behind their matching controls', () => {

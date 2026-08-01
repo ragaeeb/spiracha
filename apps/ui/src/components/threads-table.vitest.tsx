@@ -119,6 +119,8 @@ vi.mock('#/components/ui/dropdown-menu', async () => {
 });
 
 const threadEntry: ThreadListEntry = {
+    hierarchy: { childThreadCount: 0, parentThreadId: null },
+    modelNames: ['gpt-5.4'],
     project: 'ushman',
     rolloutSizeBytes: 3 * 1024 * 1024 * 1024,
     stats: {
@@ -211,9 +213,38 @@ describe('ThreadsTable', () => {
 
         const link = screen.getAllByRole('link', { name: /continue reverse engineering/i })[0]!;
         expect(link.getAttribute('href')).toBe('/threads/thread-1');
+        expect(screen.queryByText('How do I continue?')).toBeNull();
     });
 
-    it('should show deferred tool stats when transcript parsing is skipped', () => {
+    it('should display every model used by a thread in chronological order', () => {
+        render(
+            <ThreadsTable
+                onDeleteThread={vi.fn()}
+                onDeleteThreads={vi.fn()}
+                onExportThread={vi.fn()}
+                onExportThreads={vi.fn()}
+                threads={[{ ...threadEntry, modelNames: ['gpt-5.6-sol', 'gpt-5.6-terra'] }]}
+            />,
+        );
+
+        expect(screen.getByText('gpt-5.6-sol, gpt-5.6-terra')).toBeTruthy();
+    });
+
+    it('should not render a tools column in the thread list', () => {
+        render(
+            <ThreadsTable
+                onDeleteThread={vi.fn()}
+                onDeleteThreads={vi.fn()}
+                onExportThread={vi.fn()}
+                onExportThreads={vi.fn()}
+                threads={[threadEntry]}
+            />,
+        );
+
+        expect(screen.queryByRole('button', { name: 'Tools' })).toBeNull();
+    });
+
+    it('should render a newer subagent directly beneath its parent as a tree row', () => {
         render(
             <ThreadsTable
                 onDeleteThread={vi.fn()}
@@ -223,17 +254,67 @@ describe('ThreadsTable', () => {
                 threads={[
                     {
                         ...threadEntry,
-                        stats: {
-                            ...threadEntry.stats,
-                            deferred: true,
-                            toolCallCount: 0,
+                        hierarchy: { childThreadCount: 1, parentThreadId: null },
+                        thread: {
+                            ...threadEntry.thread,
+                            updated_at: 2,
+                            updated_at_ms: 2,
+                        },
+                    },
+                    {
+                        ...threadEntry,
+                        hierarchy: { childThreadCount: 0, parentThreadId: 'thread-1' },
+                        thread: {
+                            ...threadEntry.thread,
+                            id: 'thread-2',
+                            thread_source: 'subagent',
+                            title: 'Inspect transcript renderer',
+                            updated_at: 3,
+                            updated_at_ms: 3,
                         },
                     },
                 ]}
             />,
         );
 
-        expect(screen.getByText('Deferred')).toBeTruthy();
+        const parentRow = screen.getByRole('link', { name: 'Continue reverse engineering' }).closest('tr');
+        const childRow = screen.getByRole('link', { name: 'Inspect transcript renderer' }).closest('tr');
+
+        expect(parentRow?.nextElementSibling).toBe(childRow);
+        expect(screen.queryByText('1 subagent')).toBeNull();
+        expect(screen.queryByText('Subagent')).toBeNull();
+        expect(screen.queryByText(/^Parent:/)).toBeNull();
+    });
+
+    it('should include selected subagents in bulk actions', () => {
+        const onExportThreads = vi.fn();
+
+        render(
+            <ThreadsTable
+                onDeleteThread={vi.fn()}
+                onDeleteThreads={vi.fn()}
+                onExportThread={vi.fn()}
+                onExportThreads={onExportThreads}
+                threads={[
+                    { ...threadEntry, hierarchy: { childThreadCount: 1, parentThreadId: null } },
+                    {
+                        ...threadEntry,
+                        hierarchy: { childThreadCount: 0, parentThreadId: 'thread-1' },
+                        thread: {
+                            ...threadEntry.thread,
+                            id: 'thread-2',
+                            thread_source: 'subagent',
+                            title: 'Inspect transcript renderer',
+                        },
+                    },
+                ]}
+            />,
+        );
+
+        fireEvent.click(screen.getByRole('checkbox', { name: 'Select row thread-2' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Export selected thread' }));
+
+        expect(onExportThreads).toHaveBeenCalledWith(['thread-2']);
     });
 
     it('should show the rollout size in the table', () => {

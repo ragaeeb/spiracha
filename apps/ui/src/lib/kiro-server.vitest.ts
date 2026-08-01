@@ -158,7 +158,8 @@ describe('Kiro server exports', () => {
             deletedSessionIds: ['session-first', 'session-second'],
         });
 
-        expect(listKiroSessionsForGroupMock).toHaveBeenCalledWith('workspace-a');
+        expect(listKiroSessionsForGroupMock).toHaveBeenCalledWith('workspace-a', '/tmp/kiro-sessions');
+        expect(readKiroSessionTranscriptMock).toHaveBeenCalledWith('/tmp/kiro-sessions', 'session-first');
         expect(deleteKiroSessionMock).toHaveBeenCalledTimes(3);
     });
 

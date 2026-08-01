@@ -15,10 +15,12 @@ import { Route as ThreadIdRouteImport } from './routes/$threadId'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as QoderIndexRouteImport } from './routes/qoder.index'
 import { Route as OpencodeIndexRouteImport } from './routes/opencode.index'
+import { Route as MinimaxCodeIndexRouteImport } from './routes/minimax-code.index'
 import { Route as KiroIndexRouteImport } from './routes/kiro.index'
 import { Route as GrokIndexRouteImport } from './routes/grok.index'
 import { Route as CursorIndexRouteImport } from './routes/cursor.index'
 import { Route as CodexIndexRouteImport } from './routes/codex.index'
+import { Route as ClineIndexRouteImport } from './routes/cline.index'
 import { Route as ClaudeCodeIndexRouteImport } from './routes/claude-code.index'
 import { Route as AntigravityIndexRouteImport } from './routes/antigravity.index'
 import { Route as ThreadsThreadIdRouteImport } from './routes/threads.$threadId'
@@ -26,6 +28,8 @@ import { Route as QoderWorkspaceKeyRouteImport } from './routes/qoder.$workspace
 import { Route as QoderSessionsSessionIdRouteImport } from './routes/qoder-sessions.$sessionId'
 import { Route as OpencodeWorkspaceKeyRouteImport } from './routes/opencode.$workspaceKey'
 import { Route as OpencodeSessionsSessionIdRouteImport } from './routes/opencode-sessions.$sessionId'
+import { Route as MinimaxCodeWorkspaceKeyRouteImport } from './routes/minimax-code.$workspaceKey'
+import { Route as MinimaxCodeSessionsSessionIdRouteImport } from './routes/minimax-code-sessions.$sessionId'
 import { Route as KiroWorkspaceKeyRouteImport } from './routes/kiro.$workspaceKey'
 import { Route as KiroSessionsSessionIdRouteImport } from './routes/kiro-sessions.$sessionId'
 import { Route as GrokWorkspaceKeyRouteImport } from './routes/grok.$workspaceKey'
@@ -33,6 +37,8 @@ import { Route as GrokSessionsSessionIdRouteImport } from './routes/grok-session
 import { Route as CursorWorkspaceKeyRouteImport } from './routes/cursor.$workspaceKey'
 import { Route as CursorThreadsComposerIdRouteImport } from './routes/cursor-threads.$composerId'
 import { Route as CodexProjectRouteImport } from './routes/codex.$project'
+import { Route as ClineWorkspaceKeyRouteImport } from './routes/cline.$workspaceKey'
+import { Route as ClineTasksTaskIdRouteImport } from './routes/cline-tasks.$taskId'
 import { Route as ClaudeCodeWorkspaceKeyRouteImport } from './routes/claude-code.$workspaceKey'
 import { Route as ClaudeCodeSessionsSessionIdRouteImport } from './routes/claude-code-sessions.$sessionId'
 import { Route as AntigravityWorkspaceKeyRouteImport } from './routes/antigravity.$workspaceKey'
@@ -44,7 +50,9 @@ import { Route as ApiV1ConversationQueryRouteImport } from './routes/api.v1.conv
 import { Route as ApiV1ConversationsExportRouteImport } from './routes/api.v1.conversations.export'
 import { Route as ApiV1ConversationsDeleteRouteImport } from './routes/api.v1.conversations.delete'
 import { Route as ApiV1ConversationsSourceIdRouteImport } from './routes/api.v1.conversations.$source.$id'
+import { Route as ApiV1CodexThreadsEventsRouteImport } from './routes/api.v1.codex.threads.events'
 import { Route as ApiV1ConversationsSourceIdExportRouteImport } from './routes/api.v1.conversations.$source.$id.export'
+import { Route as ApiV1ConversationsSourceIdEvidenceRouteImport } from './routes/api.v1.conversations.$source.$id.evidence'
 
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
@@ -76,6 +84,11 @@ const OpencodeIndexRoute = OpencodeIndexRouteImport.update({
   path: '/opencode/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const MinimaxCodeIndexRoute = MinimaxCodeIndexRouteImport.update({
+  id: '/minimax-code/',
+  path: '/minimax-code/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const KiroIndexRoute = KiroIndexRouteImport.update({
   id: '/kiro/',
   path: '/kiro/',
@@ -94,6 +107,11 @@ const CursorIndexRoute = CursorIndexRouteImport.update({
 const CodexIndexRoute = CodexIndexRouteImport.update({
   id: '/codex/',
   path: '/codex/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ClineIndexRoute = ClineIndexRouteImport.update({
+  id: '/cline/',
+  path: '/cline/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ClaudeCodeIndexRoute = ClaudeCodeIndexRouteImport.update({
@@ -132,6 +150,17 @@ const OpencodeSessionsSessionIdRoute =
     path: '/opencode-sessions/$sessionId',
     getParentRoute: () => rootRouteImport,
   } as any)
+const MinimaxCodeWorkspaceKeyRoute = MinimaxCodeWorkspaceKeyRouteImport.update({
+  id: '/minimax-code/$workspaceKey',
+  path: '/minimax-code/$workspaceKey',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MinimaxCodeSessionsSessionIdRoute =
+  MinimaxCodeSessionsSessionIdRouteImport.update({
+    id: '/minimax-code-sessions/$sessionId',
+    path: '/minimax-code-sessions/$sessionId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const KiroWorkspaceKeyRoute = KiroWorkspaceKeyRouteImport.update({
   id: '/kiro/$workspaceKey',
   path: '/kiro/$workspaceKey',
@@ -165,6 +194,16 @@ const CursorThreadsComposerIdRoute = CursorThreadsComposerIdRouteImport.update({
 const CodexProjectRoute = CodexProjectRouteImport.update({
   id: '/codex/$project',
   path: '/codex/$project',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ClineWorkspaceKeyRoute = ClineWorkspaceKeyRouteImport.update({
+  id: '/cline/$workspaceKey',
+  path: '/cline/$workspaceKey',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ClineTasksTaskIdRoute = ClineTasksTaskIdRouteImport.update({
+  id: '/cline-tasks/$taskId',
+  path: '/cline-tasks/$taskId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ClaudeCodeWorkspaceKeyRoute = ClaudeCodeWorkspaceKeyRouteImport.update({
@@ -227,10 +266,21 @@ const ApiV1ConversationsSourceIdRoute =
     path: '/$source/$id',
     getParentRoute: () => ApiV1ConversationsRoute,
   } as any)
+const ApiV1CodexThreadsEventsRoute = ApiV1CodexThreadsEventsRouteImport.update({
+  id: '/api/v1/codex/threads/events',
+  path: '/api/v1/codex/threads/events',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiV1ConversationsSourceIdExportRoute =
   ApiV1ConversationsSourceIdExportRouteImport.update({
     id: '/export',
     path: '/export',
+    getParentRoute: () => ApiV1ConversationsSourceIdRoute,
+  } as any)
+const ApiV1ConversationsSourceIdEvidenceRoute =
+  ApiV1ConversationsSourceIdEvidenceRouteImport.update({
+    id: '/evidence',
+    path: '/evidence',
     getParentRoute: () => ApiV1ConversationsSourceIdRoute,
   } as any)
 
@@ -243,6 +293,8 @@ export interface FileRoutesByFullPath {
   '/antigravity/$workspaceKey': typeof AntigravityWorkspaceKeyRoute
   '/claude-code-sessions/$sessionId': typeof ClaudeCodeSessionsSessionIdRoute
   '/claude-code/$workspaceKey': typeof ClaudeCodeWorkspaceKeyRoute
+  '/cline-tasks/$taskId': typeof ClineTasksTaskIdRoute
+  '/cline/$workspaceKey': typeof ClineWorkspaceKeyRoute
   '/codex/$project': typeof CodexProjectRoute
   '/cursor-threads/$composerId': typeof CursorThreadsComposerIdRoute
   '/cursor/$workspaceKey': typeof CursorWorkspaceKeyRoute
@@ -250,6 +302,8 @@ export interface FileRoutesByFullPath {
   '/grok/$workspaceKey': typeof GrokWorkspaceKeyRoute
   '/kiro-sessions/$sessionId': typeof KiroSessionsSessionIdRoute
   '/kiro/$workspaceKey': typeof KiroWorkspaceKeyRoute
+  '/minimax-code-sessions/$sessionId': typeof MinimaxCodeSessionsSessionIdRoute
+  '/minimax-code/$workspaceKey': typeof MinimaxCodeWorkspaceKeyRoute
   '/opencode-sessions/$sessionId': typeof OpencodeSessionsSessionIdRoute
   '/opencode/$workspaceKey': typeof OpencodeWorkspaceKeyRoute
   '/qoder-sessions/$sessionId': typeof QoderSessionsSessionIdRoute
@@ -257,10 +311,12 @@ export interface FileRoutesByFullPath {
   '/threads/$threadId': typeof ThreadsThreadIdRoute
   '/antigravity/': typeof AntigravityIndexRoute
   '/claude-code/': typeof ClaudeCodeIndexRoute
+  '/cline/': typeof ClineIndexRoute
   '/codex/': typeof CodexIndexRoute
   '/cursor/': typeof CursorIndexRoute
   '/grok/': typeof GrokIndexRoute
   '/kiro/': typeof KiroIndexRoute
+  '/minimax-code/': typeof MinimaxCodeIndexRoute
   '/opencode/': typeof OpencodeIndexRoute
   '/qoder/': typeof QoderIndexRoute
   '/api/v1/conversation-query': typeof ApiV1ConversationQueryRoute
@@ -269,7 +325,9 @@ export interface FileRoutesByFullPath {
   '/api/v1/sources': typeof ApiV1SourcesRoute
   '/api/v1/conversations/delete': typeof ApiV1ConversationsDeleteRoute
   '/api/v1/conversations/export': typeof ApiV1ConversationsExportRoute
+  '/api/v1/codex/threads/events': typeof ApiV1CodexThreadsEventsRoute
   '/api/v1/conversations/$source/$id': typeof ApiV1ConversationsSourceIdRouteWithChildren
+  '/api/v1/conversations/$source/$id/evidence': typeof ApiV1ConversationsSourceIdEvidenceRoute
   '/api/v1/conversations/$source/$id/export': typeof ApiV1ConversationsSourceIdExportRoute
 }
 export interface FileRoutesByTo {
@@ -281,6 +339,8 @@ export interface FileRoutesByTo {
   '/antigravity/$workspaceKey': typeof AntigravityWorkspaceKeyRoute
   '/claude-code-sessions/$sessionId': typeof ClaudeCodeSessionsSessionIdRoute
   '/claude-code/$workspaceKey': typeof ClaudeCodeWorkspaceKeyRoute
+  '/cline-tasks/$taskId': typeof ClineTasksTaskIdRoute
+  '/cline/$workspaceKey': typeof ClineWorkspaceKeyRoute
   '/codex/$project': typeof CodexProjectRoute
   '/cursor-threads/$composerId': typeof CursorThreadsComposerIdRoute
   '/cursor/$workspaceKey': typeof CursorWorkspaceKeyRoute
@@ -288,6 +348,8 @@ export interface FileRoutesByTo {
   '/grok/$workspaceKey': typeof GrokWorkspaceKeyRoute
   '/kiro-sessions/$sessionId': typeof KiroSessionsSessionIdRoute
   '/kiro/$workspaceKey': typeof KiroWorkspaceKeyRoute
+  '/minimax-code-sessions/$sessionId': typeof MinimaxCodeSessionsSessionIdRoute
+  '/minimax-code/$workspaceKey': typeof MinimaxCodeWorkspaceKeyRoute
   '/opencode-sessions/$sessionId': typeof OpencodeSessionsSessionIdRoute
   '/opencode/$workspaceKey': typeof OpencodeWorkspaceKeyRoute
   '/qoder-sessions/$sessionId': typeof QoderSessionsSessionIdRoute
@@ -295,10 +357,12 @@ export interface FileRoutesByTo {
   '/threads/$threadId': typeof ThreadsThreadIdRoute
   '/antigravity': typeof AntigravityIndexRoute
   '/claude-code': typeof ClaudeCodeIndexRoute
+  '/cline': typeof ClineIndexRoute
   '/codex': typeof CodexIndexRoute
   '/cursor': typeof CursorIndexRoute
   '/grok': typeof GrokIndexRoute
   '/kiro': typeof KiroIndexRoute
+  '/minimax-code': typeof MinimaxCodeIndexRoute
   '/opencode': typeof OpencodeIndexRoute
   '/qoder': typeof QoderIndexRoute
   '/api/v1/conversation-query': typeof ApiV1ConversationQueryRoute
@@ -307,7 +371,9 @@ export interface FileRoutesByTo {
   '/api/v1/sources': typeof ApiV1SourcesRoute
   '/api/v1/conversations/delete': typeof ApiV1ConversationsDeleteRoute
   '/api/v1/conversations/export': typeof ApiV1ConversationsExportRoute
+  '/api/v1/codex/threads/events': typeof ApiV1CodexThreadsEventsRoute
   '/api/v1/conversations/$source/$id': typeof ApiV1ConversationsSourceIdRouteWithChildren
+  '/api/v1/conversations/$source/$id/evidence': typeof ApiV1ConversationsSourceIdEvidenceRoute
   '/api/v1/conversations/$source/$id/export': typeof ApiV1ConversationsSourceIdExportRoute
 }
 export interface FileRoutesById {
@@ -320,6 +386,8 @@ export interface FileRoutesById {
   '/antigravity/$workspaceKey': typeof AntigravityWorkspaceKeyRoute
   '/claude-code-sessions/$sessionId': typeof ClaudeCodeSessionsSessionIdRoute
   '/claude-code/$workspaceKey': typeof ClaudeCodeWorkspaceKeyRoute
+  '/cline-tasks/$taskId': typeof ClineTasksTaskIdRoute
+  '/cline/$workspaceKey': typeof ClineWorkspaceKeyRoute
   '/codex/$project': typeof CodexProjectRoute
   '/cursor-threads/$composerId': typeof CursorThreadsComposerIdRoute
   '/cursor/$workspaceKey': typeof CursorWorkspaceKeyRoute
@@ -327,6 +395,8 @@ export interface FileRoutesById {
   '/grok/$workspaceKey': typeof GrokWorkspaceKeyRoute
   '/kiro-sessions/$sessionId': typeof KiroSessionsSessionIdRoute
   '/kiro/$workspaceKey': typeof KiroWorkspaceKeyRoute
+  '/minimax-code-sessions/$sessionId': typeof MinimaxCodeSessionsSessionIdRoute
+  '/minimax-code/$workspaceKey': typeof MinimaxCodeWorkspaceKeyRoute
   '/opencode-sessions/$sessionId': typeof OpencodeSessionsSessionIdRoute
   '/opencode/$workspaceKey': typeof OpencodeWorkspaceKeyRoute
   '/qoder-sessions/$sessionId': typeof QoderSessionsSessionIdRoute
@@ -334,10 +404,12 @@ export interface FileRoutesById {
   '/threads/$threadId': typeof ThreadsThreadIdRoute
   '/antigravity/': typeof AntigravityIndexRoute
   '/claude-code/': typeof ClaudeCodeIndexRoute
+  '/cline/': typeof ClineIndexRoute
   '/codex/': typeof CodexIndexRoute
   '/cursor/': typeof CursorIndexRoute
   '/grok/': typeof GrokIndexRoute
   '/kiro/': typeof KiroIndexRoute
+  '/minimax-code/': typeof MinimaxCodeIndexRoute
   '/opencode/': typeof OpencodeIndexRoute
   '/qoder/': typeof QoderIndexRoute
   '/api/v1/conversation-query': typeof ApiV1ConversationQueryRoute
@@ -346,7 +418,9 @@ export interface FileRoutesById {
   '/api/v1/sources': typeof ApiV1SourcesRoute
   '/api/v1/conversations/delete': typeof ApiV1ConversationsDeleteRoute
   '/api/v1/conversations/export': typeof ApiV1ConversationsExportRoute
+  '/api/v1/codex/threads/events': typeof ApiV1CodexThreadsEventsRoute
   '/api/v1/conversations/$source/$id': typeof ApiV1ConversationsSourceIdRouteWithChildren
+  '/api/v1/conversations/$source/$id/evidence': typeof ApiV1ConversationsSourceIdEvidenceRoute
   '/api/v1/conversations/$source/$id/export': typeof ApiV1ConversationsSourceIdExportRoute
 }
 export interface FileRouteTypes {
@@ -360,6 +434,8 @@ export interface FileRouteTypes {
     | '/antigravity/$workspaceKey'
     | '/claude-code-sessions/$sessionId'
     | '/claude-code/$workspaceKey'
+    | '/cline-tasks/$taskId'
+    | '/cline/$workspaceKey'
     | '/codex/$project'
     | '/cursor-threads/$composerId'
     | '/cursor/$workspaceKey'
@@ -367,6 +443,8 @@ export interface FileRouteTypes {
     | '/grok/$workspaceKey'
     | '/kiro-sessions/$sessionId'
     | '/kiro/$workspaceKey'
+    | '/minimax-code-sessions/$sessionId'
+    | '/minimax-code/$workspaceKey'
     | '/opencode-sessions/$sessionId'
     | '/opencode/$workspaceKey'
     | '/qoder-sessions/$sessionId'
@@ -374,10 +452,12 @@ export interface FileRouteTypes {
     | '/threads/$threadId'
     | '/antigravity/'
     | '/claude-code/'
+    | '/cline/'
     | '/codex/'
     | '/cursor/'
     | '/grok/'
     | '/kiro/'
+    | '/minimax-code/'
     | '/opencode/'
     | '/qoder/'
     | '/api/v1/conversation-query'
@@ -386,7 +466,9 @@ export interface FileRouteTypes {
     | '/api/v1/sources'
     | '/api/v1/conversations/delete'
     | '/api/v1/conversations/export'
+    | '/api/v1/codex/threads/events'
     | '/api/v1/conversations/$source/$id'
+    | '/api/v1/conversations/$source/$id/evidence'
     | '/api/v1/conversations/$source/$id/export'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -398,6 +480,8 @@ export interface FileRouteTypes {
     | '/antigravity/$workspaceKey'
     | '/claude-code-sessions/$sessionId'
     | '/claude-code/$workspaceKey'
+    | '/cline-tasks/$taskId'
+    | '/cline/$workspaceKey'
     | '/codex/$project'
     | '/cursor-threads/$composerId'
     | '/cursor/$workspaceKey'
@@ -405,6 +489,8 @@ export interface FileRouteTypes {
     | '/grok/$workspaceKey'
     | '/kiro-sessions/$sessionId'
     | '/kiro/$workspaceKey'
+    | '/minimax-code-sessions/$sessionId'
+    | '/minimax-code/$workspaceKey'
     | '/opencode-sessions/$sessionId'
     | '/opencode/$workspaceKey'
     | '/qoder-sessions/$sessionId'
@@ -412,10 +498,12 @@ export interface FileRouteTypes {
     | '/threads/$threadId'
     | '/antigravity'
     | '/claude-code'
+    | '/cline'
     | '/codex'
     | '/cursor'
     | '/grok'
     | '/kiro'
+    | '/minimax-code'
     | '/opencode'
     | '/qoder'
     | '/api/v1/conversation-query'
@@ -424,7 +512,9 @@ export interface FileRouteTypes {
     | '/api/v1/sources'
     | '/api/v1/conversations/delete'
     | '/api/v1/conversations/export'
+    | '/api/v1/codex/threads/events'
     | '/api/v1/conversations/$source/$id'
+    | '/api/v1/conversations/$source/$id/evidence'
     | '/api/v1/conversations/$source/$id/export'
   id:
     | '__root__'
@@ -436,6 +526,8 @@ export interface FileRouteTypes {
     | '/antigravity/$workspaceKey'
     | '/claude-code-sessions/$sessionId'
     | '/claude-code/$workspaceKey'
+    | '/cline-tasks/$taskId'
+    | '/cline/$workspaceKey'
     | '/codex/$project'
     | '/cursor-threads/$composerId'
     | '/cursor/$workspaceKey'
@@ -443,6 +535,8 @@ export interface FileRouteTypes {
     | '/grok/$workspaceKey'
     | '/kiro-sessions/$sessionId'
     | '/kiro/$workspaceKey'
+    | '/minimax-code-sessions/$sessionId'
+    | '/minimax-code/$workspaceKey'
     | '/opencode-sessions/$sessionId'
     | '/opencode/$workspaceKey'
     | '/qoder-sessions/$sessionId'
@@ -450,10 +544,12 @@ export interface FileRouteTypes {
     | '/threads/$threadId'
     | '/antigravity/'
     | '/claude-code/'
+    | '/cline/'
     | '/codex/'
     | '/cursor/'
     | '/grok/'
     | '/kiro/'
+    | '/minimax-code/'
     | '/opencode/'
     | '/qoder/'
     | '/api/v1/conversation-query'
@@ -462,7 +558,9 @@ export interface FileRouteTypes {
     | '/api/v1/sources'
     | '/api/v1/conversations/delete'
     | '/api/v1/conversations/export'
+    | '/api/v1/codex/threads/events'
     | '/api/v1/conversations/$source/$id'
+    | '/api/v1/conversations/$source/$id/evidence'
     | '/api/v1/conversations/$source/$id/export'
   fileRoutesById: FileRoutesById
 }
@@ -475,6 +573,8 @@ export interface RootRouteChildren {
   AntigravityWorkspaceKeyRoute: typeof AntigravityWorkspaceKeyRoute
   ClaudeCodeSessionsSessionIdRoute: typeof ClaudeCodeSessionsSessionIdRoute
   ClaudeCodeWorkspaceKeyRoute: typeof ClaudeCodeWorkspaceKeyRoute
+  ClineTasksTaskIdRoute: typeof ClineTasksTaskIdRoute
+  ClineWorkspaceKeyRoute: typeof ClineWorkspaceKeyRoute
   CodexProjectRoute: typeof CodexProjectRoute
   CursorThreadsComposerIdRoute: typeof CursorThreadsComposerIdRoute
   CursorWorkspaceKeyRoute: typeof CursorWorkspaceKeyRoute
@@ -482,6 +582,8 @@ export interface RootRouteChildren {
   GrokWorkspaceKeyRoute: typeof GrokWorkspaceKeyRoute
   KiroSessionsSessionIdRoute: typeof KiroSessionsSessionIdRoute
   KiroWorkspaceKeyRoute: typeof KiroWorkspaceKeyRoute
+  MinimaxCodeSessionsSessionIdRoute: typeof MinimaxCodeSessionsSessionIdRoute
+  MinimaxCodeWorkspaceKeyRoute: typeof MinimaxCodeWorkspaceKeyRoute
   OpencodeSessionsSessionIdRoute: typeof OpencodeSessionsSessionIdRoute
   OpencodeWorkspaceKeyRoute: typeof OpencodeWorkspaceKeyRoute
   QoderSessionsSessionIdRoute: typeof QoderSessionsSessionIdRoute
@@ -489,16 +591,19 @@ export interface RootRouteChildren {
   ThreadsThreadIdRoute: typeof ThreadsThreadIdRoute
   AntigravityIndexRoute: typeof AntigravityIndexRoute
   ClaudeCodeIndexRoute: typeof ClaudeCodeIndexRoute
+  ClineIndexRoute: typeof ClineIndexRoute
   CodexIndexRoute: typeof CodexIndexRoute
   CursorIndexRoute: typeof CursorIndexRoute
   GrokIndexRoute: typeof GrokIndexRoute
   KiroIndexRoute: typeof KiroIndexRoute
+  MinimaxCodeIndexRoute: typeof MinimaxCodeIndexRoute
   OpencodeIndexRoute: typeof OpencodeIndexRoute
   QoderIndexRoute: typeof QoderIndexRoute
   ApiV1ConversationQueryRoute: typeof ApiV1ConversationQueryRoute
   ApiV1ConversationsRoute: typeof ApiV1ConversationsRouteWithChildren
   ApiV1ResolveRoute: typeof ApiV1ResolveRoute
   ApiV1SourcesRoute: typeof ApiV1SourcesRoute
+  ApiV1CodexThreadsEventsRoute: typeof ApiV1CodexThreadsEventsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -545,6 +650,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OpencodeIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/minimax-code/': {
+      id: '/minimax-code/'
+      path: '/minimax-code'
+      fullPath: '/minimax-code/'
+      preLoaderRoute: typeof MinimaxCodeIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/kiro/': {
       id: '/kiro/'
       path: '/kiro'
@@ -571,6 +683,13 @@ declare module '@tanstack/react-router' {
       path: '/codex'
       fullPath: '/codex/'
       preLoaderRoute: typeof CodexIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/cline/': {
+      id: '/cline/'
+      path: '/cline'
+      fullPath: '/cline/'
+      preLoaderRoute: typeof ClineIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/claude-code/': {
@@ -622,6 +741,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OpencodeSessionsSessionIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/minimax-code/$workspaceKey': {
+      id: '/minimax-code/$workspaceKey'
+      path: '/minimax-code/$workspaceKey'
+      fullPath: '/minimax-code/$workspaceKey'
+      preLoaderRoute: typeof MinimaxCodeWorkspaceKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/minimax-code-sessions/$sessionId': {
+      id: '/minimax-code-sessions/$sessionId'
+      path: '/minimax-code-sessions/$sessionId'
+      fullPath: '/minimax-code-sessions/$sessionId'
+      preLoaderRoute: typeof MinimaxCodeSessionsSessionIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/kiro/$workspaceKey': {
       id: '/kiro/$workspaceKey'
       path: '/kiro/$workspaceKey'
@@ -669,6 +802,20 @@ declare module '@tanstack/react-router' {
       path: '/codex/$project'
       fullPath: '/codex/$project'
       preLoaderRoute: typeof CodexProjectRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/cline/$workspaceKey': {
+      id: '/cline/$workspaceKey'
+      path: '/cline/$workspaceKey'
+      fullPath: '/cline/$workspaceKey'
+      preLoaderRoute: typeof ClineWorkspaceKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/cline-tasks/$taskId': {
+      id: '/cline-tasks/$taskId'
+      path: '/cline-tasks/$taskId'
+      fullPath: '/cline-tasks/$taskId'
+      preLoaderRoute: typeof ClineTasksTaskIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/claude-code/$workspaceKey': {
@@ -748,6 +895,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiV1ConversationsSourceIdRouteImport
       parentRoute: typeof ApiV1ConversationsRoute
     }
+    '/api/v1/codex/threads/events': {
+      id: '/api/v1/codex/threads/events'
+      path: '/api/v1/codex/threads/events'
+      fullPath: '/api/v1/codex/threads/events'
+      preLoaderRoute: typeof ApiV1CodexThreadsEventsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/v1/conversations/$source/$id/export': {
       id: '/api/v1/conversations/$source/$id/export'
       path: '/export'
@@ -755,15 +909,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiV1ConversationsSourceIdExportRouteImport
       parentRoute: typeof ApiV1ConversationsSourceIdRoute
     }
+    '/api/v1/conversations/$source/$id/evidence': {
+      id: '/api/v1/conversations/$source/$id/evidence'
+      path: '/evidence'
+      fullPath: '/api/v1/conversations/$source/$id/evidence'
+      preLoaderRoute: typeof ApiV1ConversationsSourceIdEvidenceRouteImport
+      parentRoute: typeof ApiV1ConversationsSourceIdRoute
+    }
   }
 }
 
 interface ApiV1ConversationsSourceIdRouteChildren {
+  ApiV1ConversationsSourceIdEvidenceRoute: typeof ApiV1ConversationsSourceIdEvidenceRoute
   ApiV1ConversationsSourceIdExportRoute: typeof ApiV1ConversationsSourceIdExportRoute
 }
 
 const ApiV1ConversationsSourceIdRouteChildren: ApiV1ConversationsSourceIdRouteChildren =
   {
+    ApiV1ConversationsSourceIdEvidenceRoute:
+      ApiV1ConversationsSourceIdEvidenceRoute,
     ApiV1ConversationsSourceIdExportRoute:
       ApiV1ConversationsSourceIdExportRoute,
   }
@@ -798,6 +962,8 @@ const rootRouteChildren: RootRouteChildren = {
   AntigravityWorkspaceKeyRoute: AntigravityWorkspaceKeyRoute,
   ClaudeCodeSessionsSessionIdRoute: ClaudeCodeSessionsSessionIdRoute,
   ClaudeCodeWorkspaceKeyRoute: ClaudeCodeWorkspaceKeyRoute,
+  ClineTasksTaskIdRoute: ClineTasksTaskIdRoute,
+  ClineWorkspaceKeyRoute: ClineWorkspaceKeyRoute,
   CodexProjectRoute: CodexProjectRoute,
   CursorThreadsComposerIdRoute: CursorThreadsComposerIdRoute,
   CursorWorkspaceKeyRoute: CursorWorkspaceKeyRoute,
@@ -805,6 +971,8 @@ const rootRouteChildren: RootRouteChildren = {
   GrokWorkspaceKeyRoute: GrokWorkspaceKeyRoute,
   KiroSessionsSessionIdRoute: KiroSessionsSessionIdRoute,
   KiroWorkspaceKeyRoute: KiroWorkspaceKeyRoute,
+  MinimaxCodeSessionsSessionIdRoute: MinimaxCodeSessionsSessionIdRoute,
+  MinimaxCodeWorkspaceKeyRoute: MinimaxCodeWorkspaceKeyRoute,
   OpencodeSessionsSessionIdRoute: OpencodeSessionsSessionIdRoute,
   OpencodeWorkspaceKeyRoute: OpencodeWorkspaceKeyRoute,
   QoderSessionsSessionIdRoute: QoderSessionsSessionIdRoute,
@@ -812,16 +980,19 @@ const rootRouteChildren: RootRouteChildren = {
   ThreadsThreadIdRoute: ThreadsThreadIdRoute,
   AntigravityIndexRoute: AntigravityIndexRoute,
   ClaudeCodeIndexRoute: ClaudeCodeIndexRoute,
+  ClineIndexRoute: ClineIndexRoute,
   CodexIndexRoute: CodexIndexRoute,
   CursorIndexRoute: CursorIndexRoute,
   GrokIndexRoute: GrokIndexRoute,
   KiroIndexRoute: KiroIndexRoute,
+  MinimaxCodeIndexRoute: MinimaxCodeIndexRoute,
   OpencodeIndexRoute: OpencodeIndexRoute,
   QoderIndexRoute: QoderIndexRoute,
   ApiV1ConversationQueryRoute: ApiV1ConversationQueryRoute,
   ApiV1ConversationsRoute: ApiV1ConversationsRouteWithChildren,
   ApiV1ResolveRoute: ApiV1ResolveRoute,
   ApiV1SourcesRoute: ApiV1SourcesRoute,
+  ApiV1CodexThreadsEventsRoute: ApiV1CodexThreadsEventsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

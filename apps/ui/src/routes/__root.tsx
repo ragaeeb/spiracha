@@ -81,7 +81,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
             },
             {
                 content:
-                    'Browse local Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, and OpenCode history through a compact workspace UI.',
+                    'Browse local Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, MiniMax Code, and OpenCode history through a compact workspace UI.',
                 name: 'description',
             },
             {

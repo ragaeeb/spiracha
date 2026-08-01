@@ -18,6 +18,7 @@ const createMessage = (overrides: Partial<ConversationMessage>): ConversationMes
     phase: 'unknown',
     role: 'unknown',
     text: 'text',
+    toolEvidence: null,
     ...overrides,
 });
 
@@ -31,10 +32,12 @@ describe('conversation data facade', () => {
                 locations: {
                     antigravityRoots: [path.join(tempRoot, 'antigravity')],
                     claudeCodeProjectsDir: path.join(tempRoot, 'claude'),
+                    clineGlobalStorageDir: path.join(tempRoot, 'cline'),
                     codexDbPath: path.join(tempRoot, 'missing-codex.sqlite'),
                     cursorUserDir: path.join(tempRoot, 'cursor'),
                     grokSessionsDir: path.join(tempRoot, 'grok', 'sessions'),
                     kiroWorkspaceSessionsDir: path.join(tempRoot, 'kiro'),
+                    minimaxCodeSessionsDir: path.join(tempRoot, 'minimax-code'),
                     opencodeDbPath: path.join(tempRoot, 'missing-opencode.sqlite'),
                     qoderGlobalStateDb: path.join(tempRoot, 'missing-qoder.sqlite'),
                     qoderWorkspaceStorageDir: path.join(tempRoot, 'qoder-workspaces'),
@@ -64,10 +67,12 @@ describe('conversation data facade', () => {
                 locations: {
                     antigravityRoots: [path.join(tempRoot, 'antigravity')],
                     claudeCodeProjectsDir: path.join(tempRoot, 'claude'),
+                    clineGlobalStorageDir: path.join(tempRoot, 'cline'),
                     codexDbPath: path.join(tempRoot, 'missing-codex.sqlite'),
                     cursorUserDir: path.join(tempRoot, 'cursor'),
                     grokSessionsDir: path.join(tempRoot, 'grok', 'sessions'),
                     kiroWorkspaceSessionsDir: path.join(tempRoot, 'kiro'),
+                    minimaxCodeSessionsDir: path.join(tempRoot, 'minimax-code'),
                     opencodeDbPath: path.join(tempRoot, 'missing-opencode.sqlite'),
                     qoderGlobalStateDb: qoderDbPath,
                     qoderWorkspaceStorageDir: path.join(tempRoot, 'qoder-workspaces'),
@@ -139,6 +144,8 @@ describe('conversation data facade', () => {
 
     it('should return an isolated source metadata array', async () => {
         const first = await listConversationSources();
+        expect(first).toContainEqual({ label: 'Cline', source: 'cline' });
+        expect(first).toContainEqual({ label: 'MiniMax Code', source: 'minimax-code' });
         first.splice(0, first.length);
 
         expect(await listConversationSources()).not.toEqual([]);

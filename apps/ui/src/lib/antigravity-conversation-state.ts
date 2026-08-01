@@ -1,12 +1,18 @@
 import type { AntigravityConversation, AntigravityTranscriptSource } from '@spiracha/lib/antigravity-exporter-types';
 
-const READABLE_TRANSCRIPT_SOURCES: ReadonlySet<AntigravityTranscriptSource> = new Set(['overview', 'transcript']);
+const READABLE_TRANSCRIPT_SOURCES: ReadonlySet<AntigravityTranscriptSource> = new Set([
+    'overview',
+    'trajectory',
+    'transcript',
+]);
 
-export const hasReadableAntigravityConversation = (conversation: AntigravityConversation): boolean => {
+type AntigravityTranscriptState = Pick<AntigravityConversation, 'transcriptSource'>;
+
+export const hasReadableAntigravityConversation = (conversation: AntigravityTranscriptState): boolean => {
     return conversation.transcriptSource !== null && READABLE_TRANSCRIPT_SOURCES.has(conversation.transcriptSource);
 };
 
-export const hasEncryptedAntigravityConversation = (conversation: AntigravityConversation): boolean => {
+export const hasEncryptedAntigravityConversation = (conversation: AntigravityTranscriptState): boolean => {
     return conversation.transcriptSource === 'safe-storage';
 };
 

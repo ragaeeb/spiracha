@@ -35,7 +35,7 @@ function AnalyticsPage() {
     const analytics = useSuspenseQuery(analyticsQueryOptions(selectedProject)).data;
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-4">
             <PageHeader
                 actions={
                     <Select
@@ -68,7 +68,7 @@ function AnalyticsPage() {
                 title="Analytics"
             />
 
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <MetricCard label="Threads" value={formatNumber(analytics.summary.totalThreads)} />
                 <MetricCard label="Projects" value={formatNumber(analytics.summary.totalProjects)} />
                 <MetricCard label="Tokens" value={formatTokens(analytics.summary.totalTokens)} />

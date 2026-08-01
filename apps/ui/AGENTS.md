@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This directory is the local browser UI source tree for Spiracha. It reads Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, and OpenCode local data through TanStack Start server functions and shared root-package helpers.
+This directory is the local browser UI source tree for Spiracha. It reads Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, MiniMax Code, and OpenCode local data through TanStack Start server functions and shared root-package helpers.
 
 ## Commands
 
@@ -38,8 +38,9 @@ Important:
 - Qoder session detail lives at `/qoder-sessions/$sessionId`.
 - Cursor thread detail lives at `/cursor-threads/$composerId`.
 - Antigravity conversation detail lives at `/antigravity-conversations/$conversationId`.
+- MiniMax Code session detail lives at `/minimax-code-sessions/$sessionId`.
 - OpenCode session detail lives at `/opencode-sessions/$sessionId`.
-- Keep the Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, and OpenCode list/detail pages aligned around the same table-driven index/detail pattern when adding new source integrations.
+- Keep the Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, MiniMax Code, and OpenCode list/detail pages aligned around the same table-driven index/detail pattern when adding new source integrations.
 
 ## Shared Data Layer
 

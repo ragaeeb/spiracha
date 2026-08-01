@@ -91,7 +91,7 @@ function ProjectDetailErrorComponent({ error }: { error: Error }) {
 
 function ProjectThreadsLoadingState({ project }: { project: string }) {
     return (
-        <div aria-busy="true" aria-live="polite" className="space-y-6">
+        <div aria-busy="true" aria-live="polite" className="space-y-4">
             <PageHeader
                 eyebrow="Codex project"
                 subtitle="Loading project threads. Large local histories can take a moment."
@@ -265,7 +265,7 @@ function ProjectDetailPage() {
     }
 
     return (
-        <div aria-busy={threadsQuery.isFetching || undefined} className="space-y-6">
+        <div aria-busy={threadsQuery.isFetching || undefined} className="space-y-4">
             <PageHeader
                 actions={
                     <div className="flex flex-col gap-2 sm:flex-row">

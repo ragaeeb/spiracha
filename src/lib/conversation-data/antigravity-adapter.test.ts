@@ -1,8 +1,9 @@
+import { Database } from 'bun:sqlite';
 import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { listConversationsForPath } from '.';
+import { getConversation, listConversationsForPath } from '.';
 
 type SummaryFixture = {
     id: string;
@@ -80,6 +81,45 @@ const writeAntigravityTranscript = async (
     await Bun.write(path.join(logsDir, 'transcript_full.jsonl'), content);
 };
 
+const writeAntigravityCommandTrajectory = (root: string, conversationId: string, command: string, workdir: string) => {
+    const toolCall = [
+        ...encodeString(1, 'call-trajectory'),
+        ...encodeString(2, 'run_command'),
+        ...encodeString(3, JSON.stringify({ CommandLine: command, Cwd: workdir })),
+        ...encodeString(9, 'run_command'),
+    ];
+    const db = new Database(path.join(root, 'conversations', `${conversationId}.db`), { create: true });
+    db.exec(
+        'CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER, status INTEGER, metadata BLOB, step_payload BLOB)',
+    );
+    const insert = db.prepare(
+        'INSERT INTO steps (idx, step_type, status, metadata, step_payload) VALUES (?, ?, ?, ?, ?)',
+    );
+    insert.run(
+        1,
+        15,
+        3,
+        new Uint8Array(),
+        new Uint8Array([...encodeNumber(1, 15), ...encodeMessage(20, encodeMessage(7, toolCall))]),
+    );
+    insert.run(
+        2,
+        21,
+        3,
+        new Uint8Array(encodeMessage(4, toolCall)),
+        new Uint8Array([
+            ...encodeNumber(1, 21),
+            ...encodeMessage(28, [
+                ...encodeString(2, workdir),
+                ...encodeNumber(6, 1),
+                ...encodeMessage(21, encodeString(1, '{"status":"error"}\n')),
+                ...encodeString(23, command),
+            ]),
+        ]),
+    );
+    db.close();
+};
+
 describe('antigravity conversation adapter', () => {
     afterEach(async () => {
         await Promise.all(tempRoots.splice(0).map((root) => rm(root, { force: true, recursive: true })));
@@ -143,6 +183,40 @@ describe('antigravity conversation adapter', () => {
                 step_index: 4,
                 type: 'PLANNER_RESPONSE',
             },
+            {
+                content:
+                    '<USER_REQUEST>Continue</USER_REQUEST><USER_SETTINGS_CHANGE>The user changed setting `Model Selection` from Gemini 3.1 Pro (High) to Claude Sonnet 4.6 (Thinking). No need to comment.</USER_SETTINGS_CHANGE>',
+                created_at: '2026-06-17T16:00:05Z',
+                source: 'USER_EXPLICIT',
+                status: 'DONE',
+                step_index: 5,
+                type: 'USER_INPUT',
+            },
+            {
+                content: 'Claude response after the first model switch.',
+                created_at: '2026-06-17T16:00:06Z',
+                source: 'MODEL',
+                status: 'DONE',
+                step_index: 6,
+                type: 'PLANNER_RESPONSE',
+            },
+            {
+                content:
+                    '<USER_REQUEST>Continue again</USER_REQUEST><USER_SETTINGS_CHANGE>The user changed setting `Model Selection` from Claude Sonnet 4.6 (Thinking) to Gemini 3.6 Flash (High). No need to comment.</USER_SETTINGS_CHANGE>',
+                created_at: '2026-06-17T16:00:07Z',
+                source: 'USER_EXPLICIT',
+                status: 'DONE',
+                step_index: 7,
+                type: 'USER_INPUT',
+            },
+            {
+                content: 'Gemini Flash final answer.',
+                created_at: '2026-06-17T16:00:08Z',
+                source: 'MODEL',
+                status: 'DONE',
+                step_index: 8,
+                type: 'PLANNER_RESPONSE',
+            },
         ]);
 
         const page = await listConversationsForPath({
@@ -154,14 +228,102 @@ describe('antigravity conversation adapter', () => {
         });
 
         expect(page.data).toHaveLength(1);
-        expect(page.data[0]?.metadata.model).toBe('Gemini 3.1 Pro');
+        expect(page.data[0]?.metadata.model).toBe('Gemini 3.6 Flash');
         expect(page.data[0]?.messages).toEqual([
             expect.objectContaining({
                 phase: 'final_answer',
                 role: 'assistant',
-                text: 'Final answer with Unhandled Optional Chaining in Manifest.',
+                text: 'Gemini Flash final answer.',
             }),
         ]);
+        const detail = await getConversation({
+            id: conversationId,
+            locations: { antigravityRoots: [root] },
+            messageSelector: 'all',
+            source: 'antigravity',
+        });
+        expect(detail?.messages.find((message) => message.phase === 'tool_call')?.toolEvidence).toMatchObject({
+            callId: null,
+            name: 'view_file',
+        });
+        expect(
+            detail?.messages
+                .filter((message) => message.role === 'assistant' && message.text)
+                .map((message) => [message.text, message.metadata.model]),
+        ).toEqual([
+            ['First draft answer that should not be selected.', 'Gemini 3.1 Pro'],
+            ['I will inspect the manifest before answering.', 'Gemini 3.1 Pro'],
+            ['Final answer with Unhandled Optional Chaining in Manifest.', 'Gemini 3.1 Pro'],
+            ['Claude response after the first model switch.', 'Claude Sonnet 4.6'],
+            ['Gemini Flash final answer.', 'Gemini 3.6 Flash'],
+        ]);
+    });
+
+    it('should expose paired live trajectory evidence and invalidate cached messages after a WAL update', async () => {
+        const root = await makeTempRoot();
+        const project = path.join(root, 'project');
+        await mkdir(project, { recursive: true });
+        const conversationId = 'abababab-abab-4bab-8bab-abababababab';
+        await Bun.write(
+            path.join(root, 'agyhub_summaries_proto.pb'),
+            encodeSummaryIndex([
+                { id: conversationId, title: 'Command trajectory', workspaceUri: `file://${project}` },
+            ]),
+        );
+        writeAntigravityCommandTrajectory(root, conversationId, 'kodeguard capabilities --json', project);
+
+        const detail = await getConversation({
+            id: conversationId,
+            locations: { antigravityRoots: [root] },
+            messageSelector: 'all',
+            source: 'antigravity',
+        });
+
+        expect(detail?.messages).toHaveLength(2);
+        expect(detail?.messages[0]?.toolEvidence).toMatchObject({
+            callId: 'call-trajectory',
+            command: 'kodeguard capabilities --json',
+            inputText: expect.stringContaining('CommandLine'),
+            name: 'run_command',
+            workdir: project,
+        });
+        expect(detail?.messages[1]?.toolEvidence).toMatchObject({
+            callId: 'call-trajectory',
+            exitCode: 1,
+            name: 'run_command',
+            outputText: expect.stringContaining('"status":"error"'),
+            status: 'failed',
+        });
+        expect(detail?.messages[1]?.metadata).not.toHaveProperty('evidenceLimitation');
+
+        const databasePath = path.join(root, 'conversations', `${conversationId}.db`);
+        const writer = new Database(databasePath);
+        try {
+            writer.exec('PRAGMA journal_mode = WAL');
+            writer
+                .prepare('INSERT INTO steps (idx, step_type, status, metadata, step_payload) VALUES (?, ?, ?, ?, ?)')
+                .run(
+                    3,
+                    15,
+                    3,
+                    new Uint8Array(),
+                    new Uint8Array([
+                        ...encodeNumber(1, 15),
+                        ...encodeMessage(20, encodeString(1, 'Observed after the live WAL update.')),
+                    ]),
+                );
+
+            const refreshedDetail = await getConversation({
+                id: conversationId,
+                locations: { antigravityRoots: [root] },
+                messageSelector: 'all',
+                source: 'antigravity',
+            });
+            expect(refreshedDetail?.messages).toHaveLength(3);
+            expect(refreshedDetail?.messages[2]?.text).toBe('Observed after the live WAL update.');
+        } finally {
+            writer.close();
+        }
     });
 
     it('should match conversations that explicitly reference the requested project path', async () => {

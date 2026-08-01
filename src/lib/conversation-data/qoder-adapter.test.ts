@@ -93,7 +93,7 @@ describe('qoder conversation adapter', () => {
                     id: 'tool-1',
                     parts: [
                         {
-                            data: { content: 'const shared = {};', name: 'Read', tool_use_id: 'call-1' },
+                            data: { content: 'const shared = {};', name: 'Read' },
                             type: 'tool_result',
                         },
                     ],
@@ -154,16 +154,18 @@ describe('qoder conversation adapter', () => {
                 phase: 'tool_call',
                 role: 'tool',
                 text: 'Read\n{"file_path":"src/index.ts"}',
+                toolEvidence: expect.objectContaining({ callId: 'call-1', name: 'Read' }),
             }),
             expect.objectContaining({
                 metadata: {
                     requestId: null,
-                    toolCallId: 'call-1',
+                    toolCallId: 'tool-1:0',
                     toolName: 'Read',
                 },
                 phase: 'tool_output',
                 role: 'tool',
                 text: 'const shared = {};',
+                toolEvidence: expect.objectContaining({ callId: 'tool-1:0', outputText: 'const shared = {};' }),
             }),
             expect.objectContaining({
                 phase: 'final_answer',

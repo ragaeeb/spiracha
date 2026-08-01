@@ -1,7 +1,7 @@
 import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/codex-browser-types';
 import type { QoderSessionTranscript } from '@spiracha/lib/qoder-exporter-types';
 import { useMutation, useSuspenseQuery } from '@tanstack/react-query';
-import { createFileRoute, Link } from '@tanstack/react-router';
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { Download } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Breadcrumbs } from '#/components/breadcrumbs';
@@ -12,9 +12,9 @@ import { MetadataSection } from '#/components/metadata-section';
 import { MetricCard } from '#/components/metric-card';
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
-import { DEFAULT_SHOW_USER_MESSAGES, TranscriptView } from '#/components/transcript-view';
+import { TranscriptControls } from '#/components/transcript-controls';
+import { TranscriptView } from '#/components/transcript-view';
 import { Button } from '#/components/ui/button';
-import { Checkbox } from '#/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import type { ExportDialogOptions } from '#/lib/export-options';
@@ -22,21 +22,13 @@ import { formatDateTime, formatList, formatNumber } from '#/lib/formatters';
 import { qoderSessionDetailQueryOptions } from '#/lib/qoder-queries';
 import { exportQoderSessionFn } from '#/lib/qoder-server';
 import { getQoderThreadTranscriptStats, qoderTranscriptToThreadEvents } from '#/lib/qoder-transcript-events';
+import {
+    getTranscriptDisplayState,
+    parseThreadTranscriptSearch,
+    type ThreadTranscriptSearch,
+    withThreadTranscriptSearch,
+} from '#/lib/route-search';
 import { RouteStateResetBoundary } from '#/lib/route-state-reset';
-
-type TranscriptControlsProps = {
-    rawJsonDisabled?: boolean;
-    showCommentary: boolean;
-    showExtraEvents: boolean;
-    showRawJson: boolean;
-    showToolCalls: boolean;
-    showUserMessages: boolean;
-    onShowCommentaryChange: (checked: boolean) => void;
-    onShowExtraEventsChange: (checked: boolean) => void;
-    onShowRawJsonChange: (checked: boolean) => void;
-    onShowToolCallsChange: (checked: boolean) => void;
-    onShowUserMessagesChange: (checked: boolean) => void;
-};
 
 const QoderSessionDetailErrorComponent = ({ error }: { error: Error }) => {
     return <RouteErrorPanel error={error} title="Failed to load Qoder session" />;
@@ -90,66 +82,6 @@ const buildTranscriptStatsItems = (
     { label: 'Renderable parts', value: formatNumber(detail.renderablePartCount) },
 ];
 
-const QoderTranscriptControls = ({
-    rawJsonDisabled = false,
-    showCommentary,
-    showExtraEvents,
-    showRawJson,
-    showToolCalls,
-    showUserMessages,
-    onShowCommentaryChange,
-    onShowExtraEventsChange,
-    onShowRawJsonChange,
-    onShowToolCallsChange,
-    onShowUserMessagesChange,
-}: TranscriptControlsProps) => {
-    return (
-        <div className="flex flex-wrap gap-4 rounded-xl border border-[var(--border)] bg-[var(--panel)] px-4 py-3 shadow-[var(--panel-shadow)]">
-            <div className="flex items-center gap-2 text-sm">
-                <Checkbox
-                    checked={showToolCalls}
-                    id="qoder-transcript-show-tool-calls"
-                    onCheckedChange={(checked) => onShowToolCallsChange(checked === true)}
-                />
-                <label htmlFor="qoder-transcript-show-tool-calls">Show tool calls</label>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-                <Checkbox
-                    checked={showCommentary}
-                    id="qoder-transcript-show-commentary"
-                    onCheckedChange={(checked) => onShowCommentaryChange(checked === true)}
-                />
-                <label htmlFor="qoder-transcript-show-commentary">Show commentary</label>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-                <Checkbox
-                    checked={showExtraEvents}
-                    id="qoder-transcript-show-extra-events"
-                    onCheckedChange={(checked) => onShowExtraEventsChange(checked === true)}
-                />
-                <label htmlFor="qoder-transcript-show-extra-events">Show extra events</label>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-                <Checkbox
-                    checked={showRawJson}
-                    disabled={rawJsonDisabled}
-                    id="qoder-transcript-show-raw-json"
-                    onCheckedChange={(checked) => onShowRawJsonChange(checked === true)}
-                />
-                <label htmlFor="qoder-transcript-show-raw-json">Raw JSON</label>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-                <Checkbox
-                    checked={showUserMessages}
-                    id="qoder-transcript-show-user-messages"
-                    onCheckedChange={(checked) => onShowUserMessagesChange(checked === true)}
-                />
-                <label htmlFor="qoder-transcript-show-user-messages">User</label>
-            </div>
-        </div>
-    );
-};
-
 const QoderRawPanels = ({ detail, events }: { detail: QoderSessionTranscript; events: ThreadEvent[] }) => {
     return (
         <div className="space-y-4">
@@ -162,13 +94,18 @@ const QoderRawPanels = ({ detail, events }: { detail: QoderSessionTranscript; ev
 };
 
 const QoderSessionDetailPage = () => {
+    const navigate = useNavigate({ from: Route.fullPath });
+    const transcriptSearch = Route.useSearch();
+    const transcriptDisplay = getTranscriptDisplayState(transcriptSearch);
     const detail = useSuspenseQuery(qoderSessionDetailQueryOptions(Route.useParams().sessionId)).data;
     const [pendingExport, setPendingExport] = useState(false);
-    const [showToolCalls, setShowToolCalls] = useState(false);
-    const [showCommentary, setShowCommentary] = useState(false);
-    const [showExtraEvents, setShowExtraEvents] = useState(false);
-    const [showRawJson, setShowRawJson] = useState(false);
-    const [showUserMessages, setShowUserMessages] = useState(DEFAULT_SHOW_USER_MESSAGES);
+    const { showCommentary, showExtraEvents, showRawJson, showToolCalls, showUserMessages } = transcriptDisplay;
+    const updateTranscriptDisplay = (patch: Partial<ThreadTranscriptSearch>) => {
+        void navigate({
+            replace: true,
+            search: (previous: Record<string, unknown>) => withThreadTranscriptSearch(previous, patch),
+        });
+    };
     const transcriptEvents = useMemo(() => qoderTranscriptToThreadEvents(detail), [detail]);
     const transcriptStats = useMemo(() => getQoderThreadTranscriptStats(transcriptEvents), [transcriptEvents]);
     const modelLabel = detail.session.model ?? 'Qoder';
@@ -198,7 +135,7 @@ const QoderSessionDetailPage = () => {
     });
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-4">
             <PageHeader
                 actions={
                     <Button
@@ -236,7 +173,7 @@ const QoderSessionDetailPage = () => {
                 <MetricCard label="Model" value={modelLabel} />
             </div>
 
-            <Tabs className="space-y-4" defaultValue="transcript">
+            <Tabs className="space-y-3" defaultValue="transcript">
                 <TabsList className="grid w-fit min-w-[24rem] grid-cols-3 rounded-full border border-[var(--border)] bg-[var(--panel)] p-1">
                     <TabsTrigger className="rounded-full px-5 text-sm" value="transcript">
                         Transcript
@@ -250,18 +187,18 @@ const QoderSessionDetailPage = () => {
                 </TabsList>
 
                 <TabsContent className="space-y-3" value="transcript">
-                    <QoderTranscriptControls
+                    <TranscriptControls
                         rawJsonDisabled={transcriptEvents.length === 0}
                         showCommentary={showCommentary}
                         showExtraEvents={showExtraEvents}
                         showRawJson={showRawJson}
                         showToolCalls={showToolCalls}
                         showUserMessages={showUserMessages}
-                        onShowCommentaryChange={setShowCommentary}
-                        onShowExtraEventsChange={setShowExtraEvents}
-                        onShowRawJsonChange={setShowRawJson}
-                        onShowToolCallsChange={setShowToolCalls}
-                        onShowUserMessagesChange={setShowUserMessages}
+                        onShowCommentaryChange={(value) => updateTranscriptDisplay({ commentary: value })}
+                        onShowExtraEventsChange={(value) => updateTranscriptDisplay({ extra: value })}
+                        onShowRawJsonChange={(value) => updateTranscriptDisplay({ raw: value })}
+                        onShowToolCallsChange={(value) => updateTranscriptDisplay({ tools: value })}
+                        onShowUserMessagesChange={(value) => updateTranscriptDisplay({ user: value })}
                     />
                     {transcriptEvents.length > 0 ? (
                         <TranscriptView
@@ -275,11 +212,11 @@ const QoderSessionDetailPage = () => {
                             showUserMessages={showUserMessages}
                         />
                     ) : (
-                        <section className="rounded-[1.6rem] border border-[var(--border)] bg-[var(--panel)] p-5 shadow-[var(--panel-shadow)]">
+                        <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 shadow-[var(--panel-shadow)]">
                             <h3 className="font-semibold text-[var(--muted-foreground)] text-sm uppercase tracking-[0.18em]">
                                 Transcript
                             </h3>
-                            <p className="mt-4 text-[var(--muted-foreground)] text-sm">
+                            <p className="mt-3 text-[var(--muted-foreground)] text-sm">
                                 No renderable Qoder transcript content was found for this session.
                             </p>
                         </section>
@@ -302,6 +239,7 @@ const QoderSessionDetailPage = () => {
             </Tabs>
 
             <ExportDialog
+                focusedEvidenceTarget={{ id: detail.session.sessionId, source: 'qoder' }}
                 errorMessage={
                     exportSessionMutation.isError
                         ? exportSessionMutation.error instanceof Error
@@ -342,4 +280,5 @@ export const Route = createFileRoute('/qoder-sessions/$sessionId')({
             title="Loading session"
         />
     ),
+    validateSearch: parseThreadTranscriptSearch,
 });

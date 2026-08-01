@@ -453,8 +453,9 @@ describe('claude code workspace discovery', () => {
             'project:-Users-rhaq-workspace-ushman-corpus',
             projectsDir,
         );
-        const transcript = await readClaudeCodeSessionTranscript(projectsDir, 'session-active');
-        const aliasTranscript = await readClaudeCodeSessionTranscript(projectsDir, 'session-abandoned');
+        const transcript = await readClaudeCodeSessionTranscript(projectsDir, 'session-root');
+        const childTranscript = await readClaudeCodeSessionTranscript(projectsDir, 'session-active');
+        const abandonedTranscript = await readClaudeCodeSessionTranscript(projectsDir, 'session-abandoned');
         const exported = transcript
             ? renderClaudeCodeTranscript(transcript, {
                   includeCommentary: true,
@@ -464,12 +465,17 @@ describe('claude code workspace discovery', () => {
               })
             : null;
 
-        expect(workspaces[0]).toMatchObject({ messageCount: 4, sessionCount: 1 });
+        expect(workspaces[0]).toMatchObject({ sessionCount: 1 });
+        expect(abandonedTranscript?.session.sessionId).toBe('session-abandoned');
+        expect(
+            abandonedTranscript?.entries.flatMap((entry) => entry.parts.map((part) => part.text)).filter(Boolean),
+        ).toContain('Abandoned continuation branch');
         expect(sessions).toHaveLength(1);
         expect(sessions[0]).toMatchObject({
             assistantMessageCount: 2,
+            continuationSessionIds: ['session-root', 'session-abandoned', 'session-active'],
             messageCount: 4,
-            sessionId: 'session-active',
+            sessionId: 'session-root',
             title: 'Original user request',
             userMessageCount: 2,
         });
@@ -479,11 +485,10 @@ describe('claude code workspace discovery', () => {
             'Continued user request',
             'Continued assistant response',
         ]);
+        expect(
+            childTranscript?.entries.flatMap((entry) => entry.parts.map((part) => part.text)).filter(Boolean),
+        ).toEqual(['Continued user request', 'Continued assistant response']);
         expect(transcript?.rawEvents.some((event) => event.isCompactSummary === true)).toBe(true);
-        expect(aliasTranscript?.session.sessionId).toBe('session-active');
-        expect(aliasTranscript?.entries.map((entry) => entry.entryId)).toEqual(
-            transcript?.entries.map((entry) => entry.entryId),
-        );
         expect(exported).toContain('Original user request');
         expect(exported).toContain('Original assistant response');
         expect(exported).toContain('Continued user request');
@@ -519,7 +524,7 @@ describe('claude code workspace discovery', () => {
             ),
         ]);
 
-        const result = await deleteClaudeCodeSession(projectsDir, 'session-active');
+        const result = await deleteClaudeCodeSession(projectsDir, 'session-root');
 
         expect(result.deletedSessionIds.sort()).toEqual([...sessionIds].sort());
         for (const sessionId of sessionIds) {
@@ -527,7 +532,38 @@ describe('claude code workspace discovery', () => {
         }
     });
 
-    it('should tolerate concurrent deletes for aliases in the same compacted lineage', async () => {
+    it('should delete only a directly requested Claude Code continuation segment', async () => {
+        const projectsDir = await makeTempRoot();
+        const projectDirName = '-Users-rhaq-workspace-ushman-corpus';
+        await writeSession(projectsDir, projectDirName, 'session-root', [
+            buildMessageRecord(
+                'session-root',
+                'root-user',
+                'user',
+                'Original user request',
+                '2026-06-01T10:00:00.000Z',
+            ),
+            ...buildCompactionRecords('session-root'),
+        ]);
+        await writeSession(projectsDir, projectDirName, 'session-active', [
+            ...buildCompactionRecords('session-active'),
+            buildMessageRecord(
+                'session-active',
+                'active-user',
+                'user',
+                'Continued user request',
+                '2026-06-01T11:00:00.000Z',
+            ),
+        ]);
+
+        const result = await deleteClaudeCodeSession(projectsDir, 'session-active');
+
+        expect(result.deletedSessionIds).toEqual(['session-active']);
+        expect(await Bun.file(path.join(projectsDir, projectDirName, 'session-root.jsonl')).exists()).toBe(true);
+        expect(await Bun.file(path.join(projectsDir, projectDirName, 'session-active.jsonl')).exists()).toBe(false);
+    });
+
+    it('should tolerate concurrent parent and child deletes in the same compacted lineage', async () => {
         const projectsDir = await makeTempRoot();
         const projectDirName = '-Users-rhaq-workspace-ushman-corpus';
         await writeSession(projectsDir, projectDirName, 'session-root', [
@@ -609,6 +645,97 @@ describe('claude code workspace discovery', () => {
 
         expect(groups[0]?.worktree).toBe(expectedWorktree);
         expect(groups[0]?.label).toBe('my-project');
+    });
+
+    it('should preserve the initial project identity when a session later visits another repository', async () => {
+        const projectsDir = await makeTempRoot();
+        const ledgerCwd = path.join(homeDir, 'workspace', 'ushman-ledger');
+        const ushmanCwd = path.join(homeDir, 'workspace', 'ushman');
+        const records = buildSessionRecords('cross-repo-session', ledgerCwd).map((record, index) =>
+            index === 0 ? record : { ...record, cwd: ushmanCwd },
+        );
+        await writeSession(projectsDir, '-Users-rhaq-workspace-ushman-ledger', 'cross-repo-session', records);
+
+        const groups = await listClaudeCodeWorkspaceGroups(projectsDir);
+        const transcript = await readClaudeCodeSessionTranscript(projectsDir, 'cross-repo-session');
+
+        expect(groups).toHaveLength(1);
+        expect(groups[0]).toMatchObject({
+            label: 'ushman-ledger',
+            worktree: ledgerCwd,
+        });
+        expect(transcript?.session).toMatchObject({
+            cwd: ledgerCwd,
+            workspaceLabel: 'ushman-ledger',
+            worktree: ledgerCwd,
+        });
+        expect([...new Set(transcript?.entries.map((entry) => entry.cwd))]).toEqual([ledgerCwd, ushmanCwd]);
+    });
+
+    it('should keep the project root label when Claude Code sessions use generated worktrees', async () => {
+        const projectsDir = await makeTempRoot();
+        const directoryName = '-Users-rhaq-workspace-ushman-replay';
+        const projectRoot = path.join(homeDir, 'workspace', 'ushman-replay');
+        const generatedWorktree = path.join(projectRoot, '.claude', 'worktrees', 'awesome-hermann-b4681e');
+        await writeSession(
+            projectsDir,
+            directoryName,
+            'worktree-session',
+            buildSessionRecords('worktree-session', generatedWorktree, '2026-06-02T10:00:00.000Z'),
+        );
+
+        const groups = await listClaudeCodeWorkspaceGroups(projectsDir);
+        const sessions = await listClaudeCodeSessionsForGroup(`project:${directoryName}`, projectsDir);
+        const worktreeSession = sessions.find((session) => session.sessionId === 'worktree-session');
+
+        expect(groups[0]).toMatchObject({
+            label: 'ushman-replay',
+            uri: `file://${projectRoot}`,
+            worktree: projectRoot,
+        });
+        expect(worktreeSession).toMatchObject({
+            workspaceLabel: 'ushman-replay',
+            worktree: generatedWorktree,
+        });
+    });
+
+    it('should coalesce Claude Code worktree project directories into the root workspace', async () => {
+        const projectsDir = await makeTempRoot();
+        const rootDirectoryName = '-Users-rhaq-workspace-ushman-runtime-telemetry';
+        const worktreeDirectoryName = `${rootDirectoryName}--claude-worktrees-tel-runtime-contracts`;
+        const projectRoot = path.join(homeDir, 'workspace', 'ushman-runtime-telemetry');
+        const generatedWorktree = path.join(projectRoot, '.claude', 'worktrees', 'tel-runtime-contracts');
+        await writeSession(
+            projectsDir,
+            rootDirectoryName,
+            'root-session',
+            buildSessionRecords('root-session', projectRoot),
+        );
+        await writeSession(
+            projectsDir,
+            worktreeDirectoryName,
+            'worktree-session',
+            buildSessionRecords('worktree-session', generatedWorktree, '2026-06-02T10:00:00.000Z'),
+        );
+
+        const groups = await listClaudeCodeWorkspaceGroups(projectsDir);
+        const sessions = await listClaudeCodeSessionsForGroup(`project:${rootDirectoryName}`, projectsDir);
+        const worktreeTranscript = await readClaudeCodeSessionTranscript(projectsDir, 'worktree-session');
+
+        expect(groups).toHaveLength(1);
+        expect(groups[0]).toMatchObject({
+            directoryName: rootDirectoryName,
+            key: `project:${rootDirectoryName}`,
+            label: 'ushman-runtime-telemetry',
+            sessionCount: 2,
+            worktree: projectRoot,
+        });
+        expect(sessions.map((session) => session.sessionId).sort()).toEqual(['root-session', 'worktree-session']);
+        expect(sessions.map((session) => session.workspaceKey)).toEqual([
+            `project:${rootDirectoryName}`,
+            `project:${rootDirectoryName}`,
+        ]);
+        expect(worktreeTranscript?.session.workspaceKey).toBe(`project:${rootDirectoryName}`);
     });
 
     it('should omit raw payloads when requested for large UI responses', async () => {

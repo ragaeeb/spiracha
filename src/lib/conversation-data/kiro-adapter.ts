@@ -23,6 +23,7 @@ import {
     isWithinUpdatedWindow,
     normalizeAssistantPhase,
     normalizeRole,
+    normalizeToolStatus,
     toDateMs,
 } from './adapter-helpers';
 import { selectConversationMessages } from './message-selector';
@@ -39,10 +40,20 @@ import type {
 
 const KIRO_CONVERSATION_HYDRATION_CONCURRENCY = 4;
 
+const getPartString = (part: KiroTranscriptPart, key: string): string | null => {
+    const value = part.raw[key];
+    return typeof value === 'string' && value.trim() ? value : null;
+};
+
+const getPartNumber = (part: KiroTranscriptPart, key: string): number | null => {
+    const value = part.raw[key];
+    return typeof value === 'number' && Number.isFinite(value) ? value : null;
+};
+
 const getSessionsDir = (options: { locations?: { kiroWorkspaceSessionsDir?: string } }) =>
     options.locations?.kiroWorkspaceSessionsDir ?? resolveKiroWorkspaceSessionsDir();
 
-const partToMessages = (
+export const normalizeKiroTranscriptPart = (
     entry: KiroTranscriptEntry,
     part: KiroTranscriptPart,
     partIndex: number,
@@ -50,14 +61,63 @@ const partToMessages = (
 ): ConversationMessage[] => {
     const createdAtMs = toDateMs(entry.timestamp);
     if (entry.entryType === 'tool_call') {
+        const toolName = getPartString(part, 'toolName') ?? 'unknown';
+        const callId = getPartString(part, 'toolCallId') ?? entry.entryId;
         return createTextMessage({
             createdAtMs,
             id: `${entry.entryId}:${partIndex}`,
-            metadata: { executionId: entry.executionId },
+            metadata: {
+                executionId: entry.executionId,
+                toolCallId: callId,
+                toolName,
+            },
             order: partIndex,
             phase: 'tool_call',
             role: 'tool',
             text: part.text,
+            toolEvidence: {
+                callId,
+                command: getPartString(part, 'command'),
+                durationMs: null,
+                exitCode: null,
+                inputText: part.text ?? null,
+                name: toolName,
+                namespace: toolName.includes('.') ? (toolName.split('.')[0] ?? null) : null,
+                outputText: null,
+                status: 'unknown',
+                workdir: getPartString(part, 'workdir'),
+            },
+        });
+    }
+
+    if (entry.entryType === 'tool_output') {
+        const toolName = getPartString(part, 'toolName') ?? 'unknown';
+        const callId = getPartString(part, 'toolCallId');
+        const exitCode = getPartNumber(part, 'exitCode');
+        return createTextMessage({
+            createdAtMs,
+            id: `${entry.entryId}:${partIndex}`,
+            metadata: {
+                executionId: entry.executionId,
+                toolCallId: callId,
+                toolName,
+            },
+            order: partIndex,
+            phase: 'tool_output',
+            role: 'tool',
+            text: part.text,
+            toolEvidence: {
+                callId,
+                command: null,
+                durationMs: null,
+                exitCode,
+                inputText: null,
+                name: toolName,
+                namespace: toolName.includes('.') ? (toolName.split('.')[0] ?? null) : null,
+                outputText: part.text ?? null,
+                status: normalizeToolStatus(null, exitCode),
+                workdir: null,
+            },
         });
     }
 
@@ -76,7 +136,9 @@ const transcriptToMessages = (transcript: KiroSessionTranscript) => {
     const finalEntryIds = getFinalKiroAssistantMessageEntryIds(transcript.entries);
     return finalizeMessages(
         transcript.entries.flatMap((entry) =>
-            entry.parts.flatMap((part, partIndex) => partToMessages(entry, part, partIndex, finalEntryIds)),
+            entry.parts.flatMap((part, partIndex) =>
+                normalizeKiroTranscriptPart(entry, part, partIndex, finalEntryIds),
+            ),
         ),
     );
 };
@@ -92,8 +154,9 @@ const buildConversation = async (
         ? (loadedTranscript ??
           (await runWithTranscriptLoadLimit(() => readKiroSessionTranscript(sessionsDir, session.sessionId), {
               id: session.sessionId,
+              integration: 'kiro',
+              operation: 'api',
               path: session.filePath,
-              source: 'kiro-api',
           })))
         : null;
     const allMessages = transcript ? transcriptToMessages(transcript) : [];
@@ -113,6 +176,7 @@ const buildConversation = async (
         messageCount: options.includeMessages ? allMessages.length : session.messageCount,
         messages,
         metadata: {
+            continuationSessionIds: session.continuationSessionIds,
             defaultModelTitle: session.defaultModelTitle,
             filePath: session.filePath,
             model: session.selectedModel ?? session.defaultModelTitle,
@@ -154,8 +218,9 @@ const getKiroConversation = async (options: GetConversationOptions): Promise<Con
     const sessionsDir = getSessionsDir(options);
     const transcript = await runWithTranscriptLoadLimit(() => readKiroSessionTranscript(sessionsDir, options.id), {
         id: options.id,
+        integration: 'kiro',
+        operation: 'api',
         path: sessionsDir,
-        source: 'kiro-api',
     });
     return transcript
         ? buildConversation(

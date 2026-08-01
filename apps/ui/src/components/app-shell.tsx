@@ -16,41 +16,84 @@ import { type FormEvent, type PropsWithChildren, useEffect, useState } from 'rea
 import { packageMetadata } from '#/lib/package-metadata';
 import { cn } from '#/lib/utils';
 import { ThemeToggle } from './theme-toggle';
+import { Separator } from './ui/separator';
 
 type NavItem = {
     activePrefixes?: readonly string[];
     icon: typeof LayoutDashboard;
     label: string;
+    preload?: 'render';
     to: string;
 };
 
-const navItems: readonly NavItem[] = [
+const nonIntegrationNavItems: readonly NavItem[] = [
+    { icon: BarChart3, label: 'Analytics', to: '/analytics' },
     { icon: LayoutDashboard, label: 'Dashboard', to: '/' },
-    { activePrefixes: ['/codex', '/threads'], icon: FolderOpen, label: 'Codex', to: '/codex' },
+    { icon: Settings2, label: 'Settings', to: '/settings' },
+] as const;
+
+const integrationNavItems: readonly NavItem[] = [
+    {
+        activePrefixes: ['/antigravity', '/antigravity-conversations'],
+        icon: Sparkles,
+        label: 'Antigravity',
+        preload: 'render',
+        to: '/antigravity',
+    },
     {
         activePrefixes: ['/claude-code', '/claude-code-sessions'],
         icon: Bot,
         label: 'Claude Code',
         to: '/claude-code',
     },
+    { activePrefixes: ['/cline', '/cline-tasks'], icon: Bot, label: 'Cline', to: '/cline' },
+    { activePrefixes: ['/codex', '/threads'], icon: FolderOpen, label: 'Codex', to: '/codex' },
+    { activePrefixes: ['/cursor', '/cursor-threads'], icon: SquareTerminal, label: 'Cursor', to: '/cursor' },
     { activePrefixes: ['/grok', '/grok-sessions'], icon: Bot, label: 'Grok', to: '/grok' },
     { activePrefixes: ['/kiro', '/kiro-sessions'], icon: BrainCircuit, label: 'Kiro', to: '/kiro' },
-    { activePrefixes: ['/qoder', '/qoder-sessions'], icon: Workflow, label: 'Qoder', to: '/qoder' },
     {
-        activePrefixes: ['/antigravity', '/antigravity-conversations'],
-        icon: Sparkles,
-        label: 'Antigravity',
-        to: '/antigravity',
+        activePrefixes: ['/minimax-code', '/minimax-code-sessions'],
+        icon: BrainCircuit,
+        label: 'MiniMax Code',
+        to: '/minimax-code',
     },
-    { activePrefixes: ['/cursor', '/cursor-threads'], icon: SquareTerminal, label: 'Cursor', to: '/cursor' },
-    { activePrefixes: ['/opencode', '/opencode-sessions'], icon: Code2, label: 'OpenCode', to: '/opencode' },
-    { icon: BarChart3, label: 'Analytics', to: '/analytics' },
-    { icon: Settings2, label: 'Settings', to: '/settings' },
+    {
+        activePrefixes: ['/opencode', '/opencode-sessions'],
+        icon: Code2,
+        label: 'OpenCode',
+        preload: 'render',
+        to: '/opencode',
+    },
+    { activePrefixes: ['/qoder', '/qoder-sessions'], icon: Workflow, label: 'Qoder', to: '/qoder' },
 ] as const;
 
 const isNavItemActive = (pathname: string, item: NavItem) => {
     const prefixes = item.activePrefixes ?? [item.to];
     return prefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+};
+
+const renderNavItem = (pathname: string, item: NavItem) => {
+    const active = isNavItemActive(pathname, item);
+    const Icon = item.icon;
+
+    return (
+        <Link
+            activeOptions={{ includeSearch: false }}
+            aria-current={active ? 'page' : undefined}
+            key={item.to}
+            className={cn(
+                'flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition-colors',
+                active
+                    ? 'bg-[var(--accent-muted)] font-medium text-[var(--accent-foreground)]'
+                    : 'text-[var(--muted-foreground)] hover:bg-[var(--panel-secondary)] hover:text-[var(--foreground)]',
+            )}
+            preload={item.preload}
+            to={item.to}
+        >
+            <Icon className="size-4 shrink-0" />
+            <span>{item.label}</span>
+        </Link>
+    );
 };
 
 const GitHubIcon = ({ className }: { className?: string }) => (
@@ -91,25 +134,25 @@ export function AppShell({ children }: PropsWithChildren) {
     return (
         <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
             <div className="flex min-h-screen w-full flex-col lg:flex-row">
-                <aside className="border-[var(--border)] border-b bg-[var(--panel)]/90 px-5 py-5 backdrop-blur lg:sticky lg:top-0 lg:h-screen lg:w-[240px] lg:border-r lg:border-b-0 lg:px-5">
-                    <div className="flex items-start justify-between gap-4 lg:flex-col lg:items-stretch">
-                        <div className="space-y-1.5">
+                <aside className="border-[var(--border)] border-b bg-[var(--panel)]/90 px-4 py-4 backdrop-blur lg:sticky lg:top-0 lg:h-screen lg:w-[220px] lg:border-r lg:border-b-0 lg:px-4">
+                    <div className="flex items-start justify-between gap-3 lg:flex-col lg:items-stretch">
+                        <div className="space-y-1">
                             <p className="font-semibold text-[10px] text-[var(--muted-foreground)] uppercase tracking-[0.18em]">
                                 Spiracha <span className="tracking-normal">v{packageMetadata.version}</span>
                             </p>
-                            <div className="space-y-1">
-                                <h1 className="font-['IBM_Plex_Sans'] font-semibold text-lg tracking-[-0.02em]">
+                            <div className="flex items-center gap-2">
+                                <h1 className="font-['IBM_Plex_Sans'] font-semibold text-base tracking-[-0.02em]">
                                     Spiracha Console
                                 </h1>
                                 {packageMetadata.homepage ? (
                                     <a
                                         aria-label="Open Spiracha GitHub repository"
-                                        className="inline-flex size-7 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-[var(--panel-secondary)] hover:text-[var(--foreground)]"
+                                        className="inline-flex size-6 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-[var(--panel-secondary)] hover:text-[var(--foreground)]"
                                         href={packageMetadata.homepage}
                                         rel="noreferrer"
                                         target="_blank"
                                     >
-                                        <GitHubIcon className="size-4" />
+                                        <GitHubIcon className="size-3.5" />
                                     </a>
                                 ) : null}
                             </div>
@@ -117,16 +160,16 @@ export function AppShell({ children }: PropsWithChildren) {
                         <ThemeToggle />
                     </div>
 
-                    <search aria-label="Global project search" className="mt-5">
+                    <search aria-label="Global project search" className="mt-4">
                         <form className="relative" onSubmit={handleProjectSearch}>
                             <Search
                                 aria-hidden="true"
                                 className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-[var(--muted-foreground)]"
                             />
                             <input
-                                aria-label="Search Codex projects"
-                                className="h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--panel-secondary)] pr-3 pl-9 text-sm outline-none transition placeholder:text-[var(--muted-foreground)] focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)]/20"
-                                placeholder="Search Codex projects"
+                                aria-label="Search projects"
+                                className="h-8 w-full rounded-lg border border-[var(--border)] bg-[var(--panel-secondary)] pr-3 pl-9 text-xs outline-none transition placeholder:text-[var(--muted-foreground)] focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)]/20"
+                                placeholder="Search projects"
                                 type="search"
                                 value={projectQuery}
                                 onChange={(event) => setProjectQuery(event.target.value)}
@@ -134,33 +177,14 @@ export function AppShell({ children }: PropsWithChildren) {
                         </form>
                     </search>
 
-                    <nav className="mt-3 grid gap-1">
-                        {navItems.map((item) => {
-                            const active = isNavItemActive(pathname, item);
-                            const Icon = item.icon;
-
-                            return (
-                                <Link
-                                    activeOptions={{ includeSearch: false }}
-                                    aria-current={active ? 'page' : undefined}
-                                    key={item.to}
-                                    className={cn(
-                                        'flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors',
-                                        active
-                                            ? 'bg-[var(--accent-muted)] font-medium text-[var(--accent-foreground)]'
-                                            : 'text-[var(--muted-foreground)] hover:bg-[var(--panel-secondary)] hover:text-[var(--foreground)]',
-                                    )}
-                                    to={item.to}
-                                >
-                                    <Icon className="size-4 shrink-0" />
-                                    <span>{item.label}</span>
-                                </Link>
-                            );
-                        })}
+                    <nav className="mt-2 grid gap-0.5">
+                        {nonIntegrationNavItems.map((item) => renderNavItem(pathname, item))}
+                        <Separator aria-label="Integrations" className="my-2" decorative={false} />
+                        {integrationNavItems.map((item) => renderNavItem(pathname, item))}
                     </nav>
                 </aside>
 
-                <main className="min-w-0 flex-1 px-4 py-4 sm:px-5 sm:py-5 lg:px-6">{children}</main>
+                <main className="min-w-0 flex-1 px-3 py-3 sm:px-4 sm:py-4">{children}</main>
             </div>
         </div>
     );

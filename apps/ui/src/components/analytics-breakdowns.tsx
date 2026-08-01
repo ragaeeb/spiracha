@@ -57,8 +57,8 @@ export const AnalyticsBreakdowns = ({
     toolUsage,
 }: AnalyticsBreakdownsProps) => {
     return (
-        <div className="grid gap-6 xl:grid-cols-2">
-            <section className="space-y-4">
+        <div className="grid gap-4 xl:grid-cols-2">
+            <section className="space-y-3">
                 <div>
                     <h3 className="font-semibold text-sm">Most frequent tool calls</h3>
                     <p className="mt-1 text-[var(--muted-foreground)] text-sm">
@@ -68,7 +68,7 @@ export const AnalyticsBreakdowns = ({
                 <DataTable columns={toolUsageColumns} data={toolUsage} emptyMessage="No tool calls recorded." />
             </section>
 
-            <section className="space-y-4">
+            <section className="space-y-3">
                 <div>
                     <h3 className="font-semibold text-sm">Model token breakdown</h3>
                     <p className="mt-1 text-[var(--muted-foreground)] text-sm">
@@ -78,7 +78,7 @@ export const AnalyticsBreakdowns = ({
                 <DataTable columns={modelColumns} data={modelsByTokens} emptyMessage="No model usage recorded." />
             </section>
 
-            <section className="space-y-4">
+            <section className="space-y-3">
                 <div>
                     <h3 className="font-semibold text-sm">Client source breakdown</h3>
                     <p className="mt-1 text-[var(--muted-foreground)] text-sm">
@@ -88,7 +88,7 @@ export const AnalyticsBreakdowns = ({
                 <DataTable columns={distributionColumns} data={sources} emptyMessage="No client sources recorded." />
             </section>
 
-            <section className="space-y-4">
+            <section className="space-y-3">
                 <div>
                     <h3 className="font-semibold text-sm">Reasoning effort breakdown</h3>
                     <p className="mt-1 text-[var(--muted-foreground)] text-sm">

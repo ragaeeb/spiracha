@@ -58,8 +58,9 @@ const loadQoderSessionTranscript = async (sessionId: string) => {
         },
         {
             id: sessionId,
+            integration: 'qoder',
+            operation: 'ui-detail',
             path: globalStateDb,
-            source: 'qoder-ui',
         },
     );
 };

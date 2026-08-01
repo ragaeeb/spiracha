@@ -72,6 +72,7 @@ const transcript: ClaudeCodeSessionTranscript = {
         attachmentCount: 0,
         cacheCreationInputTokens: 2,
         cacheReadInputTokens: 3,
+        continuationSessionIds: ['session-a'],
         createdAtIso: '2026-06-01T10:00:00.000Z',
         createdAtMs: 1_780_307_200_000,
         cwd: '/Users/example/workspace/ushman-corpus',

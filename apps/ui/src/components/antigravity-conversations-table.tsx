@@ -3,7 +3,7 @@ import type { AntigravityDecryptionState } from '@spiracha/lib/antigravity-keych
 import { Link } from '@tanstack/react-router';
 import type { SortingState } from '@tanstack/react-table';
 import { createColumnHelper } from '@tanstack/react-table';
-import { Download, LockKeyhole, MoreHorizontal, ScrollText, Trash2 } from 'lucide-react';
+import { Download, GitFork, LockKeyhole, MoreHorizontal, ScrollText, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
 import { SelectionActionsToolbar } from '#/components/selection-actions-toolbar';
@@ -22,6 +22,7 @@ import {
     isAntigravityConversationLocked,
 } from '#/lib/antigravity-conversation-state';
 import { formatBytes, formatDateTime, formatNumber } from '#/lib/formatters';
+import { cn } from '#/lib/utils';
 
 type AntigravityConversationsTableProps = {
     conversations: AntigravityConversation[];
@@ -41,8 +42,107 @@ type ConversationExportState = {
     showConversationAction: boolean;
 };
 
-const columnHelper = createColumnHelper<AntigravityConversation>();
+type ConversationTreeNode = AntigravityConversation & {
+    children: ConversationTreeNode[];
+};
+
+const columnHelper = createColumnHelper<ConversationTreeNode>();
 const defaultSorting: SortingState = [{ desc: true, id: 'updatedAt' }];
+
+const ConversationTitleCell = ({
+    conversation,
+    decryptionState,
+    depth,
+}: {
+    conversation: ConversationTreeNode;
+    decryptionState: AntigravityDecryptionState | null;
+    depth: number;
+}) => {
+    const isSubagent = depth > 0;
+    const exportState = getConversationExportState(conversation, decryptionState);
+
+    return (
+        <div
+            className={cn('min-w-0', isSubagent ? 'border-[var(--border)] border-l-2 pl-3' : '')}
+            data-row-depth={depth}
+        >
+            <div className="flex min-w-0 items-center gap-2">
+                {isSubagent ? (
+                    <GitFork aria-hidden="true" className="size-4 shrink-0 text-[var(--muted-foreground)]" />
+                ) : null}
+                <Link
+                    className="block min-w-0 flex-1 space-y-1 rounded-md outline-none transition hover:opacity-80 focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                    params={{ conversationId: conversation.conversationId }}
+                    to="/antigravity-conversations/$conversationId"
+                >
+                    <div className="flex min-w-0 items-center gap-2">
+                        <p className="truncate font-medium underline-offset-2 hover:underline">{conversation.title}</p>
+                        {exportState.hasTranscript ? <Badge variant="secondary">transcript</Badge> : null}
+                        {exportState.hasArtifacts ? <Badge variant="outline">artifact</Badge> : null}
+                    </div>
+                    <p className="truncate text-[var(--muted-foreground)] text-xs">{conversation.conversationId}</p>
+                </Link>
+            </div>
+        </div>
+    );
+};
+
+const getConversationTreeRoots = (conversations: AntigravityConversation[]): ConversationTreeNode[] => {
+    const nodesById = new Map(
+        conversations.map((conversation) => [conversation.conversationId, { ...conversation, children: [] }]),
+    );
+    const childIdsByParentId = new Map<string, string[]>();
+    const rootIds: string[] = [];
+
+    for (const conversation of conversations) {
+        const conversationId = conversation.conversationId;
+        const parentConversationId = conversation.hierarchy.parentConversationId;
+        if (!parentConversationId || parentConversationId === conversationId || !nodesById.has(parentConversationId)) {
+            rootIds.push(conversationId);
+            continue;
+        }
+
+        const childIds = childIdsByParentId.get(parentConversationId) ?? [];
+        childIds.push(conversationId);
+        childIdsByParentId.set(parentConversationId, childIds);
+    }
+
+    const roots: ConversationTreeNode[] = [];
+    const attachedConversationIds = new Set<string>();
+    const attachNode = (conversationId: string, parent: ConversationTreeNode | null) => {
+        if (attachedConversationIds.has(conversationId)) {
+            return;
+        }
+
+        const node = nodesById.get(conversationId);
+        if (!node) {
+            return;
+        }
+
+        attachedConversationIds.add(conversationId);
+        if (parent) {
+            parent.children.push(node);
+        } else {
+            roots.push(node);
+        }
+
+        for (const childId of childIdsByParentId.get(conversationId) ?? []) {
+            attachNode(childId, node);
+        }
+    };
+
+    for (const conversationId of rootIds) {
+        attachNode(conversationId, null);
+    }
+    for (const conversation of conversations) {
+        attachNode(conversation.conversationId, null);
+    }
+
+    return roots;
+};
+
+const withoutChildren = ({ children: _children, ...conversation }: ConversationTreeNode): AntigravityConversation =>
+    conversation;
 
 const getConversationExportState = (
     conversation: AntigravityConversation,
@@ -94,26 +194,13 @@ const columns = (
 ) =>
     [
         columnHelper.accessor('title', {
-            cell: (info) => {
-                const exportState = getConversationExportState(info.row.original, decryptionState);
-
-                return (
-                    <Link
-                        className="block w-[16rem] max-w-[22rem] space-y-1 rounded-md outline-none transition hover:opacity-80 focus-visible:ring-2 focus-visible:ring-[var(--accent)] lg:w-auto"
-                        params={{ conversationId: info.row.original.conversationId }}
-                        to="/antigravity-conversations/$conversationId"
-                    >
-                        <div className="flex items-center gap-2">
-                            <p className="truncate font-medium underline-offset-2 hover:underline">{info.getValue()}</p>
-                            {exportState.hasTranscript ? <Badge variant="secondary">transcript</Badge> : null}
-                            {exportState.hasArtifacts ? <Badge variant="outline">artifact</Badge> : null}
-                        </div>
-                        <p className="truncate text-[var(--muted-foreground)] text-xs">
-                            {info.row.original.conversationId}
-                        </p>
-                    </Link>
-                );
-            },
+            cell: (info) => (
+                <ConversationTitleCell
+                    conversation={info.row.original}
+                    decryptionState={decryptionState}
+                    depth={info.row.depth}
+                />
+            ),
             header: 'Conversation',
         }),
         columnHelper.accessor('lastUpdatedAtMs', {
@@ -169,7 +256,7 @@ const columns = (
                             {exportState.showConversationAction ? (
                                 <DropdownMenuItem
                                     disabled={!exportState.canExportConversation}
-                                    onClick={() => onExportConversation(info.row.original)}
+                                    onClick={() => onExportConversation(withoutChildren(info.row.original))}
                                 >
                                     {exportState.lockedTranscript ? (
                                         <LockKeyhole className="mr-2 size-4" />
@@ -182,14 +269,14 @@ const columns = (
                                 </DropdownMenuItem>
                             ) : null}
                             {exportState.hasArtifacts ? (
-                                <DropdownMenuItem onClick={() => onExportArtifacts(info.row.original)}>
+                                <DropdownMenuItem onClick={() => onExportArtifacts(withoutChildren(info.row.original))}>
                                     <ScrollText className="mr-2 size-4" />
                                     Export artifacts
                                 </DropdownMenuItem>
                             ) : null}
                             <DropdownMenuItem
                                 className="text-[var(--destructive)]"
-                                onClick={() => onDeleteConversation(info.row.original)}
+                                onClick={() => onDeleteConversation(withoutChildren(info.row.original))}
                             >
                                 <Trash2 className="mr-2 size-4" />
                                 Delete conversation
@@ -216,14 +303,17 @@ export function AntigravityConversationsTable({
         () => columns(decryptionState, onDeleteConversation, onExportConversation, onExportArtifacts),
         [decryptionState, onDeleteConversation, onExportArtifacts, onExportConversation],
     );
+    const conversationTree = useMemo(() => getConversationTreeRoots(conversations), [conversations]);
 
     return (
         <DataTable
             columns={tableColumns}
-            data={conversations}
+            data={conversationTree}
             emptyMessage="No Antigravity conversations match the current workspace filter."
             enableRowSelection
+            expandAllRows
             getRowId={(row) => row.conversationId}
+            getSubRows={(row) => row.children}
             initialSorting={defaultSorting}
             renderToolbar={({ clearSelection, selectedRows }) => {
                 const selectedConversationIds = selectedRows.map((row) => row.conversationId);

@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createCodexBrowserFixture } from './codex-test-helpers';
 import {
+    getCachedCodexTranscriptModelNames,
     getCachedCodexTranscriptStats,
     getCachedThreadTranscriptPreview,
     getThreadRolloutLoadState,
@@ -18,6 +19,45 @@ afterEach(async () => {
 });
 
 describe('getCachedThreadTranscriptPreview', () => {
+    it('should retain every model in chronological order and attribute assistant messages after a switch', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-cache-model-history-test-'));
+        tempPaths.push(tempRoot);
+        const sessionFile = path.join(tempRoot, 'model-history.jsonl');
+        await Bun.write(
+            sessionFile,
+            [
+                JSON.stringify({ payload: { model: 'gpt-5.6-sol' }, type: 'turn_context' }),
+                JSON.stringify({
+                    payload: { message: 'First response', type: 'agent_message' },
+                    type: 'response_item',
+                }),
+                JSON.stringify({
+                    payload: { thread_settings: { model: 'gpt-5.6-terra' }, type: 'thread_settings_applied' },
+                    type: 'event_msg',
+                }),
+                JSON.stringify({ payload: { model: 'gpt-5.6-terra' }, type: 'turn_context' }),
+                JSON.stringify({
+                    payload: { message: 'Second response', type: 'agent_message' },
+                    type: 'response_item',
+                }),
+            ].join('\n'),
+        );
+
+        const [models, transcript] = await Promise.all([
+            getCachedCodexTranscriptModelNames(sessionFile),
+            getCachedThreadTranscriptPreview(sessionFile, { largeTranscriptThresholdBytes: Number.MAX_SAFE_INTEGER }),
+        ]);
+        const assistantMessages = transcript.events.filter(
+            (event) => event.kind === 'message' && event.role === 'assistant',
+        );
+
+        expect(models).toEqual(['gpt-5.6-sol', 'gpt-5.6-terra']);
+        expect(assistantMessages.map((event) => (event.kind === 'message' ? event.model : null))).toEqual([
+            'gpt-5.6-sol',
+            'gpt-5.6-terra',
+        ]);
+    });
+
     it('should report when a rollout should defer transcript loading', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-cache-state-test-'));
         tempPaths.push(tempRoot);
@@ -114,6 +154,51 @@ describe('getCachedThreadTranscriptPreview', () => {
         });
         expect(transcript.rawIncluded).toBe(false);
         expect(transcript.statsArePartial).toBe(true);
+    });
+
+    it('should exclude injected user-role context from the server-filtered UI transcript', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-cache-bootstrap-test-'));
+        tempPaths.push(tempRoot);
+        const sessionFile = path.join(tempRoot, 'bootstrap-context.jsonl');
+        await Bun.write(
+            sessionFile,
+            [
+                JSON.stringify({
+                    payload: {
+                        content: [
+                            { text: '<recommended_plugins>\nplugins\n</recommended_plugins>', type: 'input_text' },
+                            { text: '# AGENTS.md instructions for .\n\n<INSTRUCTIONS />', type: 'input_text' },
+                            { text: '<environment_context>context</environment_context>', type: 'input_text' },
+                        ],
+                        role: 'user',
+                        type: 'message',
+                    },
+                    type: 'response_item',
+                }),
+                JSON.stringify({
+                    payload: {
+                        content: [{ text: 'Actual user prompt', type: 'input_text' }],
+                        role: 'user',
+                        type: 'message',
+                    },
+                    type: 'response_item',
+                }),
+            ].join('\n'),
+        );
+
+        const transcript = await getCachedThreadTranscriptPreview(sessionFile, {
+            filters: {
+                showCommentary: false,
+                showExtraEvents: false,
+                showToolCalls: false,
+                showUserMessages: true,
+            },
+            largeTranscriptThresholdBytes: 1,
+            previewEventLimit: 10,
+        });
+
+        expect(transcript.events).toHaveLength(1);
+        expect(transcript.events[0]).toMatchObject({ role: 'user', text: 'Actual user prompt' });
     });
 
     it('should switch to preview mode when a rollout exceeds the default size threshold', async () => {

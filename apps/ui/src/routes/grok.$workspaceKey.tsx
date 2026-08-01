@@ -207,7 +207,7 @@ function GrokWorkspacePage() {
     };
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-4">
             <PageHeader
                 actions={
                     <div className="flex flex-col gap-2 sm:flex-row">

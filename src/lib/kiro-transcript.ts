@@ -65,6 +65,30 @@ const renderImagePart = (part: KiroTranscriptPart, options: KiroExportOptions): 
     return renderSection('Attachment', text, options.outputFormat);
 };
 
+const getPartString = (part: KiroTranscriptPart, key: string): string | null => {
+    const value = part.raw[key];
+    return typeof value === 'string' && value.trim() ? value : null;
+};
+
+const getPartNumber = (part: KiroTranscriptPart, key: string): number | null => {
+    const value = part.raw[key];
+    return typeof value === 'number' && Number.isFinite(value) ? value : null;
+};
+
+const renderToolCallPart = (part: KiroTranscriptPart, options: KiroExportOptions): string => {
+    const text = cleanExtractedText(part.text ?? '').trim();
+    const workdir = getPartString(part, 'workdir');
+    const body = [text, workdir ? `Working directory: ${workdir}` : ''].filter(Boolean).join('\n\n');
+    return body ? renderSection('Tool call', body, options.outputFormat) : '';
+};
+
+const renderToolOutputPart = (part: KiroTranscriptPart, options: KiroExportOptions): string => {
+    const text = cleanExtractedText(part.text ?? '').trim();
+    const exitCode = getPartNumber(part, 'exitCode');
+    const body = [exitCode === null ? '' : `Exit code: ${exitCode}`, text].filter(Boolean).join('\n\n');
+    return body ? renderSection('Tool output', body, options.outputFormat) : '';
+};
+
 const renderPart = (
     entry: KiroTranscriptEntry,
     part: KiroTranscriptPart,
@@ -72,7 +96,11 @@ const renderPart = (
     finalAssistantMessageEntryIds: Set<string>,
 ): string => {
     if (entry.entryType === 'tool_call') {
-        return options.includeTools && part.type === 'text' ? renderTextPart(part, 'Tool call', options) : '';
+        return options.includeTools && part.type === 'text' ? renderToolCallPart(part, options) : '';
+    }
+
+    if (entry.entryType === 'tool_output') {
+        return options.includeTools && part.type === 'text' ? renderToolOutputPart(part, options) : '';
     }
 
     if (getKiroMessagePhase(entry, finalAssistantMessageEntryIds) === 'commentary' && !options.includeCommentary) {

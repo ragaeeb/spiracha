@@ -52,8 +52,9 @@ export const renderCodexSessionFile = async (
             () => collectCodexTranscript(target.sessionFile, options, target.thread?.model ?? null),
             {
                 id: target.thread?.id,
+                integration: 'codex',
+                operation: 'export-inline',
                 path: target.sessionFile,
-                source: 'codex-export-inline',
             },
         );
     } catch (error) {
@@ -116,8 +117,9 @@ export const writeCodexSessionFileExport = async (
             },
             {
                 id: target.thread?.id,
+                integration: 'codex',
+                operation: 'export-stream',
                 path: target.sessionFile,
-                source: 'codex-export-stream',
             },
         );
 

@@ -84,6 +84,9 @@ describe('cursorConversationAdapter', () => {
             { phase: 'tool_output', text: 'source' },
         ]);
         expect(conversation?.metadata).not.toHaveProperty('transcriptDirs');
+        expect(conversation?.messages.find((message) => message.phase === 'tool_call')?.toolEvidence).toMatchObject({
+            name: 'read_file',
+        });
     });
 
     it('should list path-scoped Cursor conversations within an updated-time window', async () => {
