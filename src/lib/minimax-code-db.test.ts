@@ -142,9 +142,77 @@ describe('MiniMax Code db helpers', () => {
         expect(await Bun.file(generatedFile).text()).toBe('Keep generated workspace output');
         const db = new Database(runtimeDbPath, { readonly: true, strict: true });
         try {
-            const dump = db.serialize().toString();
-            expect(dump).not.toContain(fixture.sessionId);
-            expect(dump).toContain(keepSessionId);
+            const countRows = (query: string, ...values: string[]) => {
+                const row = db.query(query).get(...values) as { count: number };
+                return row.count;
+            };
+
+            expect(
+                countRows(
+                    'SELECT COUNT(*) AS count FROM local_runtime_sessions WHERE session_id = ?',
+                    fixture.sessionId,
+                ),
+            ).toBe(0);
+            expect(
+                countRows(
+                    'SELECT COUNT(*) AS count FROM local_runtime_message_rows WHERE session_id = ?',
+                    fixture.sessionId,
+                ),
+            ).toBe(0);
+            expect(
+                countRows(
+                    'SELECT COUNT(*) AS count FROM local_runtime_pi_history_rows WHERE session_id = ?',
+                    fixture.sessionId,
+                ),
+            ).toBe(0);
+            expect(
+                countRows(
+                    'SELECT COUNT(*) AS count FROM local_runtime_token_usage WHERE session_id = ?',
+                    fixture.sessionId,
+                ),
+            ).toBe(0);
+            expect(
+                countRows(
+                    'SELECT COUNT(*) AS count FROM local_runtime_turn_diffs WHERE session_id = ?',
+                    fixture.sessionId,
+                ),
+            ).toBe(0);
+            expect(
+                countRows(
+                    'SELECT COUNT(*) AS count FROM local_runtime_session_assets WHERE session_id = ?',
+                    fixture.sessionId,
+                ),
+            ).toBe(0);
+            expect(
+                countRows(
+                    'SELECT COUNT(*) AS count FROM local_runtime_communication_messages WHERE from_session = ? OR to_session = ?',
+                    fixture.sessionId,
+                    fixture.sessionId,
+                ),
+            ).toBe(0);
+            expect(
+                countRows(
+                    'SELECT COUNT(*) AS count FROM local_runtime_background_tasks WHERE owner_session_id = ?',
+                    fixture.sessionId,
+                ),
+            ).toBe(0);
+            expect(
+                countRows(
+                    'SELECT COUNT(*) AS count FROM local_runtime_background_task_events WHERE owner_session_id = ?',
+                    fixture.sessionId,
+                ),
+            ).toBe(0);
+            expect(
+                countRows(
+                    'SELECT COUNT(*) AS count FROM local_runtime_legacy_migrations WHERE local_session_id = ? OR legacy_daemon_session_id = ? OR legacy_framework_session_id = ?',
+                    fixture.sessionId,
+                    fixture.sessionId,
+                    fixture.sessionId,
+                ),
+            ).toBe(0);
+            expect(
+                countRows('SELECT COUNT(*) AS count FROM local_runtime_sessions WHERE session_id = ?', keepSessionId),
+            ).toBe(1);
         } finally {
             db.close();
         }
