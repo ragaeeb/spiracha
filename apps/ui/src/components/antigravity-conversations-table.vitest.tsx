@@ -120,6 +120,7 @@ const conversation: AntigravityConversation = {
     conversationMtimeMs: 1_700_000_000_000,
     conversationPath: '/tmp/conversation.pb',
     createdAtMs: 1_700_000_000_000,
+    hierarchy: { parentConversationId: null },
     indexedItemCount: 7,
     lastUpdatedAtMs: 1_700_000_100_000,
     model: null,
@@ -159,6 +160,33 @@ afterEach(() => {
 });
 
 describe('AntigravityConversationsTable', () => {
+    it('should render Antigravity sub-agents as nested rows beneath their parent', () => {
+        const parent = { ...conversation, conversationId: 'parent-conversation', title: 'Parent research' };
+        const child = {
+            ...conversation,
+            conversationId: 'child-conversation',
+            hierarchy: { parentConversationId: 'parent-conversation' },
+            title: 'Sub-agent research',
+        };
+
+        render(
+            <AntigravityConversationsTable
+                conversations={[parent, child]}
+                decryptionState={lockedState}
+                onDeleteConversation={vi.fn()}
+                onDeleteConversations={vi.fn()}
+                onExportArtifacts={vi.fn()}
+                onExportConversation={vi.fn()}
+                onExportConversations={vi.fn()}
+            />,
+        );
+
+        expect(screen.getByRole('link', { name: /Parent research/ })).toBeTruthy();
+        const childLink = screen.getByRole('link', { name: /Sub-agent research/ });
+        expect(childLink.closest('[data-row-depth="1"]')).toBeTruthy();
+        expect(childLink.closest('[data-row-depth="0"]')).toBeNull();
+    });
+
     it('should render the conversation title as a real link for opening in a new tab', () => {
         render(
             <AntigravityConversationsTable

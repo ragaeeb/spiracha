@@ -134,6 +134,7 @@ describe('conversation client', () => {
                 locations: {
                     antigravityRoots: [path.join(tempRoot, 'antigravity')],
                     claudeCodeProjectsDir: path.join(tempRoot, 'claude'),
+                    clineGlobalStorageDir: path.join(tempRoot, 'cline'),
                     codexDbPath: path.join(tempRoot, 'missing-codex.sqlite'),
                     cursorUserDir: path.join(tempRoot, 'cursor'),
                     kiroWorkspaceSessionsDir: path.join(tempRoot, 'kiro'),
@@ -187,6 +188,7 @@ describe('conversation client', () => {
             const locations = {
                 antigravityRoots: [path.join(tempRoot, 'antigravity')],
                 claudeCodeProjectsDir: path.join(tempRoot, 'claude'),
+                clineGlobalStorageDir: path.join(tempRoot, 'cline'),
                 codexDbPath: path.join(tempRoot, 'missing-codex.sqlite'),
                 cursorUserDir: path.join(tempRoot, 'cursor'),
                 kiroWorkspaceSessionsDir: path.join(tempRoot, 'kiro'),

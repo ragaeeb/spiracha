@@ -44,10 +44,12 @@ type ProtoField = {
 };
 
 type SummaryEntry = {
+    agentId: string | null;
     conversationId: string;
     createdAtMs: number | null;
     indexedItemCount: number | null;
     lastUpdatedAtMs: number | null;
+    parentAgentId: string | null;
     projectId: string | null;
     summaryPath: string;
     title: string;
@@ -308,11 +310,23 @@ const parseContextWorkspaceInfo = (field: ProtoField | null): WorkspaceInfo | nu
     return parseWorkspaceInfo(nestedWorkspace);
 };
 
+const parseParentAgentId = (contextFields: ProtoField[], conversationId: string): string | null => {
+    const explicitParentId = fieldString(contextFields, 5);
+    if (explicitParentId) {
+        return explicitParentId;
+    }
+
+    const contextConversationId = fieldString(contextFields, 6);
+    return contextConversationId && contextConversationId !== conversationId ? contextConversationId : null;
+};
+
 // Antigravity summary parsing is reverse-engineered from agyhub_summaries_proto.pb:
 // entry field 1 = conversation id, entry field 2 = summary message. Inside that summary,
 // field 1 = title, 2 = indexed item count, 3 = last-updated timestamp, 7 = created timestamp,
 // 9 = workspace info, and 17 = context metadata. Context field 18 is the Antigravity
-// project id; workspace parsing uses context field 7 or nested workspace field 1.
+// project id; workspace parsing uses context field 7 or nested workspace field 1. Context
+// field 3 identifies the agent instance, while fields 5/6 identify its parent agent for
+// sub-agent conversations (top-level conversations repeat their own id in field 6).
 const parseSummaryEntry = (entryField: ProtoField, summaryPath: string): SummaryEntry | null => {
     try {
         const entryFields = nestedFields(entryField);
@@ -331,10 +345,12 @@ const parseSummaryEntry = (entryField: ProtoField, summaryPath: string): Summary
 
         return {
             ...workspace,
+            agentId: fieldString(contextFields, 3),
             conversationId,
             createdAtMs: parseTimestampMs(firstField(summaryFields, 7)),
             indexedItemCount: fieldNumberValue(summaryFields, 2),
             lastUpdatedAtMs: parseTimestampMs(firstField(summaryFields, 3)),
+            parentAgentId: parseParentAgentId(contextFields, conversationId),
             projectId: fieldString(contextFields, 18),
             summaryPath,
             title: cleanTitle(fieldString(summaryFields, 1), conversationId),
@@ -342,6 +358,54 @@ const parseSummaryEntry = (entryField: ProtoField, summaryPath: string): Summary
     } catch {
         return null;
     }
+};
+
+const resolveConversationParentIds = (summaries: ReadonlyMap<string, SummaryEntry>): Map<string, string | null> => {
+    const entries = [...summaries.values()];
+    const conversationIdByAgentId = new Map(
+        entries
+            .filter((entry): entry is SummaryEntry & { agentId: string } => Boolean(entry.agentId))
+            .map((entry) => [entry.agentId, entry.conversationId]),
+    );
+    const roots = entries.filter((entry) => !entry.parentAgentId);
+    const rootsByProject = new Map<string | null, SummaryEntry[]>();
+    for (const root of roots) {
+        const projectRoots = rootsByProject.get(root.projectId) ?? [];
+        projectRoots.push(root);
+        rootsByProject.set(root.projectId, projectRoots);
+    }
+    for (const projectRoots of rootsByProject.values()) {
+        projectRoots.sort(
+            (left, right) =>
+                (right.lastUpdatedAtMs ?? right.createdAtMs ?? 0) - (left.lastUpdatedAtMs ?? left.createdAtMs ?? 0),
+        );
+    }
+    const parentIds = new Map<string, string | null>();
+
+    for (const entry of entries) {
+        if (!entry.parentAgentId) {
+            parentIds.set(entry.conversationId, null);
+            continue;
+        }
+
+        const directParentId = conversationIdByAgentId.get(entry.parentAgentId);
+        if (directParentId && directParentId !== entry.conversationId) {
+            parentIds.set(entry.conversationId, directParentId);
+            continue;
+        }
+
+        // Older Antigravity summaries retain the parent agent UUID but not a matching
+        // top-level summary. The latest top-level conversation already active in this
+        // project is the only durable parent signal in that format.
+        const candidates = rootsByProject.get(entry.projectId) ?? [];
+        const fallbackParent =
+            candidates.find(
+                (root) => (root.createdAtMs ?? root.lastUpdatedAtMs ?? 0) <= (entry.createdAtMs ?? Infinity),
+            ) ?? candidates[0];
+        parentIds.set(entry.conversationId, fallbackParent?.conversationId ?? null);
+    }
+
+    return parentIds;
 };
 
 export const readAntigravitySummaryIndex = async (summaryPath: string): Promise<SummaryEntry[]> => {
@@ -946,6 +1010,7 @@ const toConversation = (
     file: ConversationFile | undefined,
     artifacts: AntigravityArtifact[],
     transcript: TranscriptFile | undefined,
+    parentConversationId: string | null = null,
 ): AntigravityConversation => {
     const fallbackTitle = artifacts[0]?.summary ?? conversationId;
     const artifactBytes = artifacts.reduce((total, artifact) => total + artifact.bytes, 0);
@@ -964,6 +1029,7 @@ const toConversation = (
         conversationMtimeMs: file?.mtimeMs ?? null,
         conversationPath: file?.path ?? null,
         createdAtMs: summary?.createdAtMs ?? null,
+        hierarchy: { parentConversationId },
         indexedItemCount: summary?.indexedItemCount ?? null,
         lastUpdatedAtMs,
         model: transcript?.model ?? null,
@@ -992,6 +1058,7 @@ export const listAntigravityConversations = async (
         mergeArtifactMaps(roots),
         mergeTranscriptMaps(roots),
     ]);
+    const parentIds = resolveConversationParentIds(summaries);
 
     const ids = new Set<string>([
         ...summaries.keys(),
@@ -1007,6 +1074,7 @@ export const listAntigravityConversations = async (
                 conversationFiles.get(conversationId),
                 artifacts.get(conversationId) ?? [],
                 transcripts.get(conversationId),
+                parentIds.get(conversationId) ?? null,
             ),
         )
         .sort((a, b) => (b.lastUpdatedAtMs ?? 0) - (a.lastUpdatedAtMs ?? 0) || a.title.localeCompare(b.title));
@@ -1030,7 +1098,14 @@ export const getAntigravityConversationById = async (
     if (!summary && !file && artifacts.length === 0 && !transcript) {
         return null;
     }
-    return toConversation(conversationId, summary, file, artifacts, transcript);
+    return toConversation(
+        conversationId,
+        summary,
+        file,
+        artifacts,
+        transcript,
+        resolveConversationParentIds(summaries).get(conversationId) ?? null,
+    );
 };
 
 export const groupAntigravityConversations = (

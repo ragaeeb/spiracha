@@ -134,6 +134,7 @@ Focused evidence is a deterministic, lossy Markdown export for qualitative DX an
 | --- | --- | --- |
 | Codex | shared Codex DB probe list | `SPIRACHA_CODEX_DB` |
 | Claude Code | `~/.claude/projects` | `SPIRACHA_CLAUDE_CODE_PROJECTS_DIR` |
+| Cline | VS Code `User/globalStorage/saoudrizwan.claude-dev` | `SPIRACHA_CLINE_GLOBAL_STORAGE_DIR` |
 | Grok | `~/.grok/sessions` | `SPIRACHA_GROK_SESSIONS_DIR` |
 | Kiro | `~/Library/Application Support/Kiro/User/globalStorage/kiro.kiroagent/workspace-sessions` | `SPIRACHA_KIRO_WORKSPACE_SESSIONS_DIR` |
 | Qoder | `~/Library/Application Support/Qoder/User/globalStorage/state.vscdb` and `~/Library/Application Support/Qoder/User/workspaceStorage` | `SPIRACHA_QODER_GLOBAL_STATE_DB`, `SPIRACHA_QODER_WORKSPACE_STORAGE_DIR` |
@@ -157,8 +158,8 @@ Markdown transcript exports identify this parser contract with `transcript_schem
 
 - `/codex` and `/codex/$project` for Codex inventory and project threads.
 - `/threads/$threadId` for Codex thread detail.
-- `/claude-code`, `/grok`, `/kiro`, `/qoder`, `/cursor`, `/antigravity`, `/minimax-code`, and `/opencode` for source inventories.
-- Source detail routes include `/claude-code-sessions/$sessionId`, `/grok-sessions/$sessionId`, `/kiro-sessions/$sessionId`, `/qoder-sessions/$sessionId`, `/cursor-threads/$composerId`, `/antigravity-conversations/$conversationId`, `/minimax-code-sessions/$sessionId`, and `/opencode-sessions/$sessionId`.
+- `/claude-code`, `/cline`, `/grok`, `/kiro`, `/qoder`, `/cursor`, `/antigravity`, `/minimax-code`, and `/opencode` for source inventories.
+- Source detail routes include `/claude-code-sessions/$sessionId`, `/cline-tasks/$taskId`, `/grok-sessions/$sessionId`, `/kiro-sessions/$sessionId`, `/qoder-sessions/$sessionId`, `/cursor-threads/$composerId`, `/antigravity-conversations/$conversationId`, `/minimax-code-sessions/$sessionId`, and `/opencode-sessions/$sessionId`.
 - MiniMax Code workspace and detail pages support single, selected, and workspace-wide deletion. Deletion removes finalized session directories and authoritative runtime database rows while preserving generated workspace files and append-only observability logs.
 - `/analytics` for project-scoped Codex token totals, average and median thread size, archive counts, tool usage, model tokens, client sources, and reasoning-effort breakdowns.
 - `/settings` for transcript path conversion and username redaction. Export dialogs remember their own last submitted options.

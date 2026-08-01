@@ -1,6 +1,7 @@
 import { mapWithConcurrency } from '../concurrency';
 import { antigravityConversationAdapter } from './antigravity-adapter';
 import { claudeCodeConversationAdapter } from './claude-code-adapter';
+import { clineConversationAdapter } from './cline-adapter';
 import { codexConversationAdapter } from './codex-adapter';
 import { cursorConversationAdapter } from './cursor-adapter';
 import { grokConversationAdapter } from './grok-adapter';
@@ -68,6 +69,7 @@ export {
 const SOURCE_LABELS: Record<ConversationSource, string> = {
     antigravity: 'Antigravity',
     'claude-code': 'Claude Code',
+    cline: 'Cline',
     codex: 'Codex',
     cursor: 'Cursor',
     grok: 'Grok',
@@ -89,6 +91,7 @@ export const isConversationSource = (value: unknown): value is ConversationSourc
 const ADAPTERS: Partial<Record<ConversationSource, ConversationAdapter>> = {
     antigravity: antigravityConversationAdapter,
     'claude-code': claudeCodeConversationAdapter,
+    cline: clineConversationAdapter,
     codex: codexConversationAdapter,
     cursor: cursorConversationAdapter,
     grok: grokConversationAdapter,
@@ -103,6 +106,7 @@ const DEFAULT_LIMIT = 100;
 const DELETE_CONCURRENCY_BY_SOURCE: Record<ConversationSource, number> = {
     antigravity: 1,
     'claude-code': 4,
+    cline: 1,
     codex: 1,
     cursor: 1,
     grok: 1,
@@ -255,6 +259,9 @@ export const deleteConversations = async (
 const sourceFromSessionRoute = (segment: string): ConversationSource | null => {
     if (segment === 'claude-code-sessions') {
         return 'claude-code';
+    }
+    if (segment === 'cline-tasks') {
+        return 'cline';
     }
     if (segment === 'grok-sessions') {
         return 'grok';

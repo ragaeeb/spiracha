@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This repo is a Bun-first local app for browsing, exporting, and exposing agent conversation history from Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, MiniMax Code, and OpenCode.
+This repo is a Bun-first local app for browsing, exporting, and exposing agent conversation history from Codex, Claude Code, Cline, Grok, Kiro, Qoder, Cursor, Antigravity, MiniMax Code, and OpenCode.
 
 The command-line exporter, MCP server, and Codex plugin were removed in the 2.0 hard cut. Do not add bridge commands, compatibility aliases, or deprecated entrypoints back. New client workflows should use the stable HTTP API exposed by the UI server or the stable `spiracha/client` package export.
 
@@ -71,6 +71,7 @@ Codex browser/export modules:
 
 Source-specific browser/export modules:
 - `src/lib/claude-code-db.ts`, `src/lib/claude-code-exporter-types.ts`, `src/lib/claude-code-transcript-phase.ts`, `src/lib/claude-code-transcript.ts`
+- `src/lib/cline-db.ts`, `src/lib/cline-exporter-types.ts`, `src/lib/cline-transcript.ts`
 - `src/lib/grok-db.ts`, `src/lib/grok-exporter-types.ts`, `src/lib/grok-transcript-phase.ts`, `src/lib/grok-transcript.ts`
 - `src/lib/kiro-db.ts`, `src/lib/kiro-exporter-types.ts`, `src/lib/kiro-transcript-phase.ts`, `src/lib/kiro-transcript.ts` (detail data exposes history and execution sources separately plus the integrated transcript)
 - `src/lib/qoder-db.ts`, `src/lib/qoder-acp-client.ts`, `src/lib/qoder-exporter-types.ts`, `src/lib/qoder-transcript-phase.ts`, `src/lib/qoder-transcript.ts`
@@ -99,7 +100,7 @@ UI source tree:
 - `apps/ui/`
   - TanStack Start browser UI
   - API routes live under `apps/ui/src/routes/api.v1.*.ts`
-  - source routes include `/threads/$threadId`, `/claude-code-sessions/$sessionId`, `/grok-sessions/$sessionId`, `/kiro-sessions/$sessionId`, `/qoder-sessions/$sessionId`, `/cursor-threads/$composerId`, `/antigravity-conversations/$conversationId`, `/minimax-code-sessions/$sessionId`, and `/opencode-sessions/$sessionId`
+  - source routes include `/threads/$threadId`, `/claude-code-sessions/$sessionId`, `/cline-tasks/$taskId`, `/grok-sessions/$sessionId`, `/kiro-sessions/$sessionId`, `/qoder-sessions/$sessionId`, `/cursor-threads/$composerId`, `/antigravity-conversations/$conversationId`, `/minimax-code-sessions/$sessionId`, and `/opencode-sessions/$sessionId`
 
 ## Stable API Contract
 

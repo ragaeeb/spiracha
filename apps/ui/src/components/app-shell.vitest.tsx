@@ -84,19 +84,21 @@ describe('AppShell', () => {
                 .map((link) => link.textContent)
                 .filter(Boolean),
         ).toEqual([
+            'Analytics',
             'Dashboard',
-            'Codex',
+            'Settings',
+            'Antigravity',
             'Claude Code',
+            'Cline',
+            'Codex',
+            'Cursor',
             'Grok',
             'Kiro',
-            'Qoder',
-            'Antigravity',
-            'Cursor',
             'MiniMax Code',
             'OpenCode',
-            'Analytics',
-            'Settings',
+            'Qoder',
         ]);
+        expect(screen.getByRole('separator')).toBeTruthy();
     });
 
     it('should navigate global project searches into the URL-backed Codex inventory filter', () => {
@@ -109,7 +111,8 @@ describe('AppShell', () => {
             </AppShell>,
         );
 
-        const searchInput = screen.getByRole('searchbox', { name: 'Search Codex projects' });
+        const searchInput = screen.getByRole('searchbox', { name: 'Search projects' });
+        expect(searchInput.className).toContain('text-xs');
         expect(searchInput.getAttribute('value')).toBe('existing project');
 
         fireEvent.change(searchInput, { target: { value: '  Spiracha workspace  ' } });
@@ -131,7 +134,7 @@ describe('AppShell', () => {
             </AppShell>,
         );
 
-        expect(screen.getByRole('searchbox', { name: 'Search Codex projects' }).getAttribute('value')).toBe('');
+        expect(screen.getByRole('searchbox', { name: 'Search projects' }).getAttribute('value')).toBe('');
     });
 
     it('should keep Claude Code active on standalone session detail routes', () => {
@@ -228,5 +231,17 @@ describe('AppShell', () => {
         );
 
         expect(screen.getByRole('link', { name: 'MiniMax Code' }).className).toContain('bg-[var(--accent-muted)]');
+    });
+
+    it('should keep Cline active on standalone task detail routes', () => {
+        useRouterStateMock.mockReturnValue('/cline-tasks/1785560414951');
+
+        render(
+            <AppShell>
+                <div>Content area</div>
+            </AppShell>,
+        );
+
+        expect(screen.getByRole('link', { name: 'Cline' }).className).toContain('bg-[var(--accent-muted)]');
     });
 });

@@ -1,4 +1,5 @@
 export const CONVERSATION_SOURCES = [
+    'cline',
     'codex',
     'claude-code',
     'grok',
@@ -164,6 +165,7 @@ export type ConversationPage = {
 export type ConversationDataLocations = {
     antigravityRoots?: string[];
     claudeCodeProjectsDir?: string;
+    clineGlobalStorageDir?: string;
     codexDbPath?: string;
     cursorUserDir?: string;
     grokSessionsDir?: string;

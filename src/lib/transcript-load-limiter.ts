@@ -7,6 +7,7 @@ const MAX_TOTAL_TRANSCRIPT_LOAD_CONCURRENCY = 32;
 export type TranscriptLoadIntegration =
     | 'antigravity'
     | 'claude-code'
+    | 'cline'
     | 'codex'
     | 'cursor'
     | 'grok'

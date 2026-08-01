@@ -16,11 +16,13 @@ import { ANTIGRAVITY_TRANSCRIPT_MARKDOWN_VERSION } from './antigravity-transcrip
 import { antigravityMarkdownToThreadEvents } from './antigravity-transcript-events';
 
 type SummaryFixture = {
+    agentId?: string;
     id: string;
     title: string;
     indexedItemCount?: number;
     createdAtSeconds?: number;
     projectId?: string;
+    parentAgentId?: string;
     updatedAtSeconds?: number;
     workspaceUri?: string;
 };
@@ -207,9 +209,18 @@ const encodeWorkspace = (uri: string): number[] => {
     return encodeMessage(9, [...encodeString(1, uri), ...encodeString(2, uri), ...encodeString(4, 'main')]);
 };
 
-const encodeContext = (projectId: string, workspaceUri?: string): number[] => {
+const encodeContext = (
+    projectId: string,
+    conversationId: string,
+    workspaceUri?: string,
+    agentId?: string,
+    parentAgentId?: string,
+): number[] => {
     return encodeMessage(17, [
         ...(workspaceUri ? encodeMessage(1, [...encodeString(1, workspaceUri), ...encodeString(2, workspaceUri)]) : []),
+        ...(agentId ? encodeString(3, agentId) : []),
+        ...(parentAgentId ? encodeString(5, parentAgentId) : []),
+        ...encodeString(6, parentAgentId ?? conversationId),
         ...encodeString(18, projectId),
     ]);
 };
@@ -224,7 +235,15 @@ const encodeSummaryIndex = (summaries: SummaryFixture[]): Uint8Array => {
             ...encodeNumber(5, 1),
             ...encodeTimestamp(7, summary.createdAtSeconds ?? 1_700_000_000),
             ...(summary.workspaceUri ? encodeWorkspace(summary.workspaceUri) : []),
-            ...(summary.projectId ? encodeContext(summary.projectId, summary.workspaceUri) : []),
+            ...(summary.projectId
+                ? encodeContext(
+                      summary.projectId,
+                      summary.id,
+                      summary.workspaceUri,
+                      summary.agentId,
+                      summary.parentAgentId,
+                  )
+                : []),
         ];
 
         return encodeMessage(1, [...encodeString(1, summary.id), ...encodeMessage(2, summaryPayload)]);
@@ -316,6 +335,67 @@ describe('antigravity db discovery', () => {
         expect(conversations[0]?.artifacts[0]).toMatchObject({
             name: 'notes.md',
             summary: 'A generated implementation note.',
+        });
+    });
+
+    it('should resolve Antigravity sub-agent parents from summary metadata', async () => {
+        const root = await makeRoot();
+        const projectId = '00ea3331-909e-4010-a208-78f964ecfb59';
+        const olderRoot = '11111111-1111-4111-8111-111111111111';
+        const currentRoot = '22222222-2222-4222-8222-222222222222';
+        const childId = '33333333-3333-4333-8333-333333333333';
+        const directlyLinkedChild = '44444444-4444-4444-8444-444444444444';
+        await Bun.write(
+            path.join(root, 'agyhub_summaries_proto.pb'),
+            encodeSummaryIndex([
+                {
+                    agentId: 'older-agent',
+                    createdAtSeconds: 1_700_000_100,
+                    id: olderRoot,
+                    projectId,
+                    title: 'Older root',
+                    updatedAtSeconds: 1_700_000_100,
+                },
+                {
+                    agentId: 'current-agent',
+                    createdAtSeconds: 1_700_000_200,
+                    id: currentRoot,
+                    projectId,
+                    title: 'Current root',
+                    updatedAtSeconds: 1_700_000_200,
+                },
+                {
+                    createdAtSeconds: 1_700_000_250,
+                    id: childId,
+                    parentAgentId: 'missing-parent-agent',
+                    projectId,
+                    title: 'Research sub-agent',
+                    updatedAtSeconds: 1_700_000_300,
+                },
+                {
+                    createdAtSeconds: 1_700_000_260,
+                    id: directlyLinkedChild,
+                    parentAgentId: 'current-agent',
+                    projectId,
+                    title: 'Directly linked sub-agent',
+                    updatedAtSeconds: 1_700_000_310,
+                },
+            ]),
+        );
+
+        const conversations = await listAntigravityConversations([root]);
+
+        expect(conversations.find(({ conversationId }) => conversationId === olderRoot)?.hierarchy).toEqual({
+            parentConversationId: null,
+        });
+        expect(conversations.find(({ conversationId }) => conversationId === currentRoot)?.hierarchy).toEqual({
+            parentConversationId: null,
+        });
+        expect(conversations.find(({ conversationId }) => conversationId === childId)?.hierarchy).toEqual({
+            parentConversationId: currentRoot,
+        });
+        expect(conversations.find(({ conversationId }) => conversationId === directlyLinkedChild)?.hierarchy).toEqual({
+            parentConversationId: currentRoot,
         });
     });
 

@@ -20,6 +20,7 @@ import { Route as KiroIndexRouteImport } from './routes/kiro.index'
 import { Route as GrokIndexRouteImport } from './routes/grok.index'
 import { Route as CursorIndexRouteImport } from './routes/cursor.index'
 import { Route as CodexIndexRouteImport } from './routes/codex.index'
+import { Route as ClineIndexRouteImport } from './routes/cline.index'
 import { Route as ClaudeCodeIndexRouteImport } from './routes/claude-code.index'
 import { Route as AntigravityIndexRouteImport } from './routes/antigravity.index'
 import { Route as ThreadsThreadIdRouteImport } from './routes/threads.$threadId'
@@ -36,6 +37,8 @@ import { Route as GrokSessionsSessionIdRouteImport } from './routes/grok-session
 import { Route as CursorWorkspaceKeyRouteImport } from './routes/cursor.$workspaceKey'
 import { Route as CursorThreadsComposerIdRouteImport } from './routes/cursor-threads.$composerId'
 import { Route as CodexProjectRouteImport } from './routes/codex.$project'
+import { Route as ClineWorkspaceKeyRouteImport } from './routes/cline.$workspaceKey'
+import { Route as ClineTasksTaskIdRouteImport } from './routes/cline-tasks.$taskId'
 import { Route as ClaudeCodeWorkspaceKeyRouteImport } from './routes/claude-code.$workspaceKey'
 import { Route as ClaudeCodeSessionsSessionIdRouteImport } from './routes/claude-code-sessions.$sessionId'
 import { Route as AntigravityWorkspaceKeyRouteImport } from './routes/antigravity.$workspaceKey'
@@ -104,6 +107,11 @@ const CursorIndexRoute = CursorIndexRouteImport.update({
 const CodexIndexRoute = CodexIndexRouteImport.update({
   id: '/codex/',
   path: '/codex/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ClineIndexRoute = ClineIndexRouteImport.update({
+  id: '/cline/',
+  path: '/cline/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ClaudeCodeIndexRoute = ClaudeCodeIndexRouteImport.update({
@@ -186,6 +194,16 @@ const CursorThreadsComposerIdRoute = CursorThreadsComposerIdRouteImport.update({
 const CodexProjectRoute = CodexProjectRouteImport.update({
   id: '/codex/$project',
   path: '/codex/$project',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ClineWorkspaceKeyRoute = ClineWorkspaceKeyRouteImport.update({
+  id: '/cline/$workspaceKey',
+  path: '/cline/$workspaceKey',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ClineTasksTaskIdRoute = ClineTasksTaskIdRouteImport.update({
+  id: '/cline-tasks/$taskId',
+  path: '/cline-tasks/$taskId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ClaudeCodeWorkspaceKeyRoute = ClaudeCodeWorkspaceKeyRouteImport.update({
@@ -275,6 +293,8 @@ export interface FileRoutesByFullPath {
   '/antigravity/$workspaceKey': typeof AntigravityWorkspaceKeyRoute
   '/claude-code-sessions/$sessionId': typeof ClaudeCodeSessionsSessionIdRoute
   '/claude-code/$workspaceKey': typeof ClaudeCodeWorkspaceKeyRoute
+  '/cline-tasks/$taskId': typeof ClineTasksTaskIdRoute
+  '/cline/$workspaceKey': typeof ClineWorkspaceKeyRoute
   '/codex/$project': typeof CodexProjectRoute
   '/cursor-threads/$composerId': typeof CursorThreadsComposerIdRoute
   '/cursor/$workspaceKey': typeof CursorWorkspaceKeyRoute
@@ -291,6 +311,7 @@ export interface FileRoutesByFullPath {
   '/threads/$threadId': typeof ThreadsThreadIdRoute
   '/antigravity/': typeof AntigravityIndexRoute
   '/claude-code/': typeof ClaudeCodeIndexRoute
+  '/cline/': typeof ClineIndexRoute
   '/codex/': typeof CodexIndexRoute
   '/cursor/': typeof CursorIndexRoute
   '/grok/': typeof GrokIndexRoute
@@ -318,6 +339,8 @@ export interface FileRoutesByTo {
   '/antigravity/$workspaceKey': typeof AntigravityWorkspaceKeyRoute
   '/claude-code-sessions/$sessionId': typeof ClaudeCodeSessionsSessionIdRoute
   '/claude-code/$workspaceKey': typeof ClaudeCodeWorkspaceKeyRoute
+  '/cline-tasks/$taskId': typeof ClineTasksTaskIdRoute
+  '/cline/$workspaceKey': typeof ClineWorkspaceKeyRoute
   '/codex/$project': typeof CodexProjectRoute
   '/cursor-threads/$composerId': typeof CursorThreadsComposerIdRoute
   '/cursor/$workspaceKey': typeof CursorWorkspaceKeyRoute
@@ -334,6 +357,7 @@ export interface FileRoutesByTo {
   '/threads/$threadId': typeof ThreadsThreadIdRoute
   '/antigravity': typeof AntigravityIndexRoute
   '/claude-code': typeof ClaudeCodeIndexRoute
+  '/cline': typeof ClineIndexRoute
   '/codex': typeof CodexIndexRoute
   '/cursor': typeof CursorIndexRoute
   '/grok': typeof GrokIndexRoute
@@ -362,6 +386,8 @@ export interface FileRoutesById {
   '/antigravity/$workspaceKey': typeof AntigravityWorkspaceKeyRoute
   '/claude-code-sessions/$sessionId': typeof ClaudeCodeSessionsSessionIdRoute
   '/claude-code/$workspaceKey': typeof ClaudeCodeWorkspaceKeyRoute
+  '/cline-tasks/$taskId': typeof ClineTasksTaskIdRoute
+  '/cline/$workspaceKey': typeof ClineWorkspaceKeyRoute
   '/codex/$project': typeof CodexProjectRoute
   '/cursor-threads/$composerId': typeof CursorThreadsComposerIdRoute
   '/cursor/$workspaceKey': typeof CursorWorkspaceKeyRoute
@@ -378,6 +404,7 @@ export interface FileRoutesById {
   '/threads/$threadId': typeof ThreadsThreadIdRoute
   '/antigravity/': typeof AntigravityIndexRoute
   '/claude-code/': typeof ClaudeCodeIndexRoute
+  '/cline/': typeof ClineIndexRoute
   '/codex/': typeof CodexIndexRoute
   '/cursor/': typeof CursorIndexRoute
   '/grok/': typeof GrokIndexRoute
@@ -407,6 +434,8 @@ export interface FileRouteTypes {
     | '/antigravity/$workspaceKey'
     | '/claude-code-sessions/$sessionId'
     | '/claude-code/$workspaceKey'
+    | '/cline-tasks/$taskId'
+    | '/cline/$workspaceKey'
     | '/codex/$project'
     | '/cursor-threads/$composerId'
     | '/cursor/$workspaceKey'
@@ -423,6 +452,7 @@ export interface FileRouteTypes {
     | '/threads/$threadId'
     | '/antigravity/'
     | '/claude-code/'
+    | '/cline/'
     | '/codex/'
     | '/cursor/'
     | '/grok/'
@@ -450,6 +480,8 @@ export interface FileRouteTypes {
     | '/antigravity/$workspaceKey'
     | '/claude-code-sessions/$sessionId'
     | '/claude-code/$workspaceKey'
+    | '/cline-tasks/$taskId'
+    | '/cline/$workspaceKey'
     | '/codex/$project'
     | '/cursor-threads/$composerId'
     | '/cursor/$workspaceKey'
@@ -466,6 +498,7 @@ export interface FileRouteTypes {
     | '/threads/$threadId'
     | '/antigravity'
     | '/claude-code'
+    | '/cline'
     | '/codex'
     | '/cursor'
     | '/grok'
@@ -493,6 +526,8 @@ export interface FileRouteTypes {
     | '/antigravity/$workspaceKey'
     | '/claude-code-sessions/$sessionId'
     | '/claude-code/$workspaceKey'
+    | '/cline-tasks/$taskId'
+    | '/cline/$workspaceKey'
     | '/codex/$project'
     | '/cursor-threads/$composerId'
     | '/cursor/$workspaceKey'
@@ -509,6 +544,7 @@ export interface FileRouteTypes {
     | '/threads/$threadId'
     | '/antigravity/'
     | '/claude-code/'
+    | '/cline/'
     | '/codex/'
     | '/cursor/'
     | '/grok/'
@@ -537,6 +573,8 @@ export interface RootRouteChildren {
   AntigravityWorkspaceKeyRoute: typeof AntigravityWorkspaceKeyRoute
   ClaudeCodeSessionsSessionIdRoute: typeof ClaudeCodeSessionsSessionIdRoute
   ClaudeCodeWorkspaceKeyRoute: typeof ClaudeCodeWorkspaceKeyRoute
+  ClineTasksTaskIdRoute: typeof ClineTasksTaskIdRoute
+  ClineWorkspaceKeyRoute: typeof ClineWorkspaceKeyRoute
   CodexProjectRoute: typeof CodexProjectRoute
   CursorThreadsComposerIdRoute: typeof CursorThreadsComposerIdRoute
   CursorWorkspaceKeyRoute: typeof CursorWorkspaceKeyRoute
@@ -553,6 +591,7 @@ export interface RootRouteChildren {
   ThreadsThreadIdRoute: typeof ThreadsThreadIdRoute
   AntigravityIndexRoute: typeof AntigravityIndexRoute
   ClaudeCodeIndexRoute: typeof ClaudeCodeIndexRoute
+  ClineIndexRoute: typeof ClineIndexRoute
   CodexIndexRoute: typeof CodexIndexRoute
   CursorIndexRoute: typeof CursorIndexRoute
   GrokIndexRoute: typeof GrokIndexRoute
@@ -644,6 +683,13 @@ declare module '@tanstack/react-router' {
       path: '/codex'
       fullPath: '/codex/'
       preLoaderRoute: typeof CodexIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/cline/': {
+      id: '/cline/'
+      path: '/cline'
+      fullPath: '/cline/'
+      preLoaderRoute: typeof ClineIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/claude-code/': {
@@ -756,6 +802,20 @@ declare module '@tanstack/react-router' {
       path: '/codex/$project'
       fullPath: '/codex/$project'
       preLoaderRoute: typeof CodexProjectRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/cline/$workspaceKey': {
+      id: '/cline/$workspaceKey'
+      path: '/cline/$workspaceKey'
+      fullPath: '/cline/$workspaceKey'
+      preLoaderRoute: typeof ClineWorkspaceKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/cline-tasks/$taskId': {
+      id: '/cline-tasks/$taskId'
+      path: '/cline-tasks/$taskId'
+      fullPath: '/cline-tasks/$taskId'
+      preLoaderRoute: typeof ClineTasksTaskIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/claude-code/$workspaceKey': {
@@ -902,6 +962,8 @@ const rootRouteChildren: RootRouteChildren = {
   AntigravityWorkspaceKeyRoute: AntigravityWorkspaceKeyRoute,
   ClaudeCodeSessionsSessionIdRoute: ClaudeCodeSessionsSessionIdRoute,
   ClaudeCodeWorkspaceKeyRoute: ClaudeCodeWorkspaceKeyRoute,
+  ClineTasksTaskIdRoute: ClineTasksTaskIdRoute,
+  ClineWorkspaceKeyRoute: ClineWorkspaceKeyRoute,
   CodexProjectRoute: CodexProjectRoute,
   CursorThreadsComposerIdRoute: CursorThreadsComposerIdRoute,
   CursorWorkspaceKeyRoute: CursorWorkspaceKeyRoute,
@@ -918,6 +980,7 @@ const rootRouteChildren: RootRouteChildren = {
   ThreadsThreadIdRoute: ThreadsThreadIdRoute,
   AntigravityIndexRoute: AntigravityIndexRoute,
   ClaudeCodeIndexRoute: ClaudeCodeIndexRoute,
+  ClineIndexRoute: ClineIndexRoute,
   CodexIndexRoute: CodexIndexRoute,
   CursorIndexRoute: CursorIndexRoute,
   GrokIndexRoute: GrokIndexRoute,

@@ -44,6 +44,9 @@ export type AntigravityConversation = {
     conversationPath: string | null;
     createdAtMs: number | null;
     indexedItemCount: number | null;
+    hierarchy: {
+        parentConversationId: string | null;
+    };
     lastUpdatedAtMs: number | null;
     model: string | null;
     projectId: string | null;

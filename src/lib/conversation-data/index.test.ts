@@ -32,6 +32,7 @@ describe('conversation data facade', () => {
                 locations: {
                     antigravityRoots: [path.join(tempRoot, 'antigravity')],
                     claudeCodeProjectsDir: path.join(tempRoot, 'claude'),
+                    clineGlobalStorageDir: path.join(tempRoot, 'cline'),
                     codexDbPath: path.join(tempRoot, 'missing-codex.sqlite'),
                     cursorUserDir: path.join(tempRoot, 'cursor'),
                     grokSessionsDir: path.join(tempRoot, 'grok', 'sessions'),
@@ -66,6 +67,7 @@ describe('conversation data facade', () => {
                 locations: {
                     antigravityRoots: [path.join(tempRoot, 'antigravity')],
                     claudeCodeProjectsDir: path.join(tempRoot, 'claude'),
+                    clineGlobalStorageDir: path.join(tempRoot, 'cline'),
                     codexDbPath: path.join(tempRoot, 'missing-codex.sqlite'),
                     cursorUserDir: path.join(tempRoot, 'cursor'),
                     grokSessionsDir: path.join(tempRoot, 'grok', 'sessions'),
@@ -142,6 +144,7 @@ describe('conversation data facade', () => {
 
     it('should return an isolated source metadata array', async () => {
         const first = await listConversationSources();
+        expect(first).toContainEqual({ label: 'Cline', source: 'cline' });
         expect(first).toContainEqual({ label: 'MiniMax Code', source: 'minimax-code' });
         first.splice(0, first.length);
 

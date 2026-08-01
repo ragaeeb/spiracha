@@ -95,6 +95,7 @@ const makeConversation = (overrides: Partial<AntigravityConversation> = {}): Ant
     conversationMtimeMs: 1_700_000_000_000,
     conversationPath: '/tmp/conversation.pb',
     createdAtMs: 1_700_000_000_000,
+    hierarchy: { parentConversationId: null },
     indexedItemCount: 3,
     lastUpdatedAtMs: 1_700_000_100_000,
     model: null,

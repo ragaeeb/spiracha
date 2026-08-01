@@ -5,6 +5,7 @@ const serverFns = vi.hoisted(() => ({
     getAntigravityDecryptionStateFn: vi.fn(async () => 'antigravity-decryption'),
     getClaudeCodeSessionDetailFn: vi.fn(async () => 'claude-detail'),
     getClaudeCodeSessionTranscriptFn: vi.fn(async () => 'claude-transcript'),
+    getClineTaskDetailFn: vi.fn(async () => 'cline-detail'),
     getCursorThreadDetailFn: vi.fn(async () => 'cursor-detail'),
     getGrokSessionDetailFn: vi.fn(async () => 'grok-detail'),
     getKiroSessionDetailFn: vi.fn(async () => 'kiro-detail'),
@@ -15,6 +16,8 @@ const serverFns = vi.hoisted(() => ({
     listAntigravityWorkspacesFn: vi.fn(async () => 'antigravity-workspaces'),
     listClaudeCodeSessionsFn: vi.fn(async () => 'claude-sessions'),
     listClaudeCodeWorkspacesFn: vi.fn(async () => 'claude-workspaces'),
+    listClineTasksFn: vi.fn(async () => 'cline-tasks'),
+    listClineWorkspacesFn: vi.fn(async () => 'cline-workspaces'),
     listCursorThreadsFn: vi.fn(async () => 'cursor-threads'),
     listCursorWorkspacesFn: vi.fn(async () => 'cursor-workspaces'),
     listGrokSessionsFn: vi.fn(async () => 'grok-sessions'),
@@ -48,6 +51,11 @@ vi.mock('./cursor-server', () => ({
     getCursorThreadDetailFn: serverFns.getCursorThreadDetailFn,
     listCursorThreadsFn: serverFns.listCursorThreadsFn,
     listCursorWorkspacesFn: serverFns.listCursorWorkspacesFn,
+}));
+vi.mock('./cline-server', () => ({
+    getClineTaskDetailFn: serverFns.getClineTaskDetailFn,
+    listClineTasksFn: serverFns.listClineTasksFn,
+    listClineWorkspacesFn: serverFns.listClineWorkspacesFn,
 }));
 vi.mock('./grok-server', () => ({
     getGrokSessionDetailFn: serverFns.getGrokSessionDetailFn,
@@ -87,6 +95,7 @@ import {
     claudeCodeSessionTranscriptQueryOptions,
     claudeCodeWorkspacesQueryOptions,
 } from './claude-code-queries';
+import { clineTaskDetailQueryOptions, clineTasksQueryOptions, clineWorkspacesQueryOptions } from './cline-queries';
 import {
     cursorThreadDetailQueryOptions,
     cursorThreadsQueryOptions,
@@ -178,6 +187,16 @@ describe('source query options', () => {
 
         expect(serverFns.listCursorThreadsFn).toHaveBeenLastCalledWith({ data: { workspaceKey: '' } });
         expect(serverFns.getCursorThreadDetailFn).toHaveBeenLastCalledWith({ data: { composerId: '' } });
+    });
+
+    it('should configure Cline workspace, chat, and detail queries', async () => {
+        expect(await runQuery(clineWorkspacesQueryOptions())).toBe('cline-workspaces');
+        expect(await runQuery(clineTasksQueryOptions('workspace-a'))).toBe('cline-tasks');
+        expect(await runQuery(clineTaskDetailQueryOptions('1'))).toBe('cline-detail');
+        await expectDisabledQuery(clineTasksQueryOptions(null));
+        await expectDisabledQuery(clineTaskDetailQueryOptions(null));
+        expect(serverFns.listClineTasksFn).toHaveBeenLastCalledWith({ data: { workspaceKey: '' } });
+        expect(serverFns.getClineTaskDetailFn).toHaveBeenLastCalledWith({ data: { taskId: '' } });
     });
 
     it('should configure Grok, Kiro, and Qoder workspace, session, and detail queries', async () => {

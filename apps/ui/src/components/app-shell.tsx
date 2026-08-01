@@ -16,6 +16,7 @@ import { type FormEvent, type PropsWithChildren, useEffect, useState } from 'rea
 import { packageMetadata } from '#/lib/package-metadata';
 import { cn } from '#/lib/utils';
 import { ThemeToggle } from './theme-toggle';
+import { Separator } from './ui/separator';
 
 type NavItem = {
     activePrefixes?: readonly string[];
@@ -25,18 +26,13 @@ type NavItem = {
     to: string;
 };
 
-const navItems: readonly NavItem[] = [
+const nonIntegrationNavItems: readonly NavItem[] = [
+    { icon: BarChart3, label: 'Analytics', to: '/analytics' },
     { icon: LayoutDashboard, label: 'Dashboard', to: '/' },
-    { activePrefixes: ['/codex', '/threads'], icon: FolderOpen, label: 'Codex', to: '/codex' },
-    {
-        activePrefixes: ['/claude-code', '/claude-code-sessions'],
-        icon: Bot,
-        label: 'Claude Code',
-        to: '/claude-code',
-    },
-    { activePrefixes: ['/grok', '/grok-sessions'], icon: Bot, label: 'Grok', to: '/grok' },
-    { activePrefixes: ['/kiro', '/kiro-sessions'], icon: BrainCircuit, label: 'Kiro', to: '/kiro' },
-    { activePrefixes: ['/qoder', '/qoder-sessions'], icon: Workflow, label: 'Qoder', to: '/qoder' },
+    { icon: Settings2, label: 'Settings', to: '/settings' },
+] as const;
+
+const integrationNavItems: readonly NavItem[] = [
     {
         activePrefixes: ['/antigravity', '/antigravity-conversations'],
         icon: Sparkles,
@@ -44,7 +40,17 @@ const navItems: readonly NavItem[] = [
         preload: 'render',
         to: '/antigravity',
     },
+    {
+        activePrefixes: ['/claude-code', '/claude-code-sessions'],
+        icon: Bot,
+        label: 'Claude Code',
+        to: '/claude-code',
+    },
+    { activePrefixes: ['/cline', '/cline-tasks'], icon: Bot, label: 'Cline', to: '/cline' },
+    { activePrefixes: ['/codex', '/threads'], icon: FolderOpen, label: 'Codex', to: '/codex' },
     { activePrefixes: ['/cursor', '/cursor-threads'], icon: SquareTerminal, label: 'Cursor', to: '/cursor' },
+    { activePrefixes: ['/grok', '/grok-sessions'], icon: Bot, label: 'Grok', to: '/grok' },
+    { activePrefixes: ['/kiro', '/kiro-sessions'], icon: BrainCircuit, label: 'Kiro', to: '/kiro' },
     {
         activePrefixes: ['/minimax-code', '/minimax-code-sessions'],
         icon: BrainCircuit,
@@ -58,13 +64,36 @@ const navItems: readonly NavItem[] = [
         preload: 'render',
         to: '/opencode',
     },
-    { icon: BarChart3, label: 'Analytics', to: '/analytics' },
-    { icon: Settings2, label: 'Settings', to: '/settings' },
+    { activePrefixes: ['/qoder', '/qoder-sessions'], icon: Workflow, label: 'Qoder', to: '/qoder' },
 ] as const;
 
 const isNavItemActive = (pathname: string, item: NavItem) => {
     const prefixes = item.activePrefixes ?? [item.to];
     return prefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+};
+
+const renderNavItem = (pathname: string, item: NavItem) => {
+    const active = isNavItemActive(pathname, item);
+    const Icon = item.icon;
+
+    return (
+        <Link
+            activeOptions={{ includeSearch: false }}
+            aria-current={active ? 'page' : undefined}
+            key={item.to}
+            className={cn(
+                'flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition-colors',
+                active
+                    ? 'bg-[var(--accent-muted)] font-medium text-[var(--accent-foreground)]'
+                    : 'text-[var(--muted-foreground)] hover:bg-[var(--panel-secondary)] hover:text-[var(--foreground)]',
+            )}
+            preload={item.preload}
+            to={item.to}
+        >
+            <Icon className="size-4 shrink-0" />
+            <span>{item.label}</span>
+        </Link>
+    );
 };
 
 const GitHubIcon = ({ className }: { className?: string }) => (
@@ -138,9 +167,9 @@ export function AppShell({ children }: PropsWithChildren) {
                                 className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-[var(--muted-foreground)]"
                             />
                             <input
-                                aria-label="Search Codex projects"
-                                className="h-8 w-full rounded-lg border border-[var(--border)] bg-[var(--panel-secondary)] pr-3 pl-9 text-sm outline-none transition placeholder:text-[var(--muted-foreground)] focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)]/20"
-                                placeholder="Search Codex projects"
+                                aria-label="Search projects"
+                                className="h-8 w-full rounded-lg border border-[var(--border)] bg-[var(--panel-secondary)] pr-3 pl-9 text-xs outline-none transition placeholder:text-[var(--muted-foreground)] focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)]/20"
+                                placeholder="Search projects"
                                 type="search"
                                 value={projectQuery}
                                 onChange={(event) => setProjectQuery(event.target.value)}
@@ -149,29 +178,9 @@ export function AppShell({ children }: PropsWithChildren) {
                     </search>
 
                     <nav className="mt-2 grid gap-0.5">
-                        {navItems.map((item) => {
-                            const active = isNavItemActive(pathname, item);
-                            const Icon = item.icon;
-
-                            return (
-                                <Link
-                                    activeOptions={{ includeSearch: false }}
-                                    aria-current={active ? 'page' : undefined}
-                                    key={item.to}
-                                    className={cn(
-                                        'flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition-colors',
-                                        active
-                                            ? 'bg-[var(--accent-muted)] font-medium text-[var(--accent-foreground)]'
-                                            : 'text-[var(--muted-foreground)] hover:bg-[var(--panel-secondary)] hover:text-[var(--foreground)]',
-                                    )}
-                                    preload={item.preload}
-                                    to={item.to}
-                                >
-                                    <Icon className="size-4 shrink-0" />
-                                    <span>{item.label}</span>
-                                </Link>
-                            );
-                        })}
+                        {nonIntegrationNavItems.map((item) => renderNavItem(pathname, item))}
+                        <Separator aria-label="Integrations" className="my-2" decorative={false} />
+                        {integrationNavItems.map((item) => renderNavItem(pathname, item))}
                     </nav>
                 </aside>
 
