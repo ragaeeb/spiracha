@@ -105,6 +105,13 @@ describe('package manifest', () => {
         expect(manifest.scripts?.['typecheck:ui']).toContain('apps/ui/tsconfig.json');
     });
 
+    it('should require the packed bunx smoke test before publishing', async () => {
+        const manifest = await readPackageManifest();
+
+        expect(manifest.scripts?.['test:package']).toBe('bun run ./src/package-smoke.ts');
+        expect(manifest.scripts?.prepublishOnly).toBe('bun run build && bun run test:package');
+    });
+
     it('should document every supported source in contributor and UI metadata', async () => {
         const sourceLabels = [
             'Codex',

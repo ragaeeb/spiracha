@@ -154,7 +154,7 @@ const sessionSpecs: Array<{
     },
     {
         Component: ClaudeCodeSessionsTable as unknown as ComponentType<SessionTableProps>,
-        expectedValues: ['Claude model', '1,234', '2,500 tokens', '1.0.0'],
+        expectedValues: ['Claude Model', '1,234', '2,500 tokens', '1.0.0'],
         route: '/claude-code-sessions/claude-session',
         session: {
             lastActiveAtMs: 1_700_000_000_000,
@@ -261,6 +261,37 @@ describe('source session tables', () => {
             expect(onDeleteSession).toHaveBeenCalledWith(session);
         });
     }
+
+    it('should render Claude Code sub-agents as nested rows beneath their parent', () => {
+        const parent = {
+            ...sessionSpecs[1]!.session,
+            hierarchy: { parentSessionId: null },
+            sessionId: 'parent-session',
+            title: 'Fingerprint Wave 1 behavioral fixes',
+        };
+        const child = {
+            ...parent,
+            hierarchy: { parentSessionId: 'parent-session' },
+            model: 'claude-opus-5',
+            sessionId: 'agent-a1d79cbf732582863',
+            title: 'Implement fingerprint #100 and #101',
+        };
+
+        render(
+            <ClaudeCodeSessionsTable
+                sessions={[parent, child] as never}
+                onDeleteSession={vi.fn()}
+                onDeleteSessions={vi.fn()}
+                onExportSession={vi.fn()}
+                onExportSessions={vi.fn()}
+            />,
+        );
+
+        const childLink = screen.getByRole('link', { name: /Implement fingerprint #100 and #101/ });
+        expect(childLink.closest('[data-row-depth="1"]')).toBeTruthy();
+        expect(childLink.closest('[data-row-depth="0"]')).toBeNull();
+        expect(screen.getByText('Claude Opus 5')).toBeTruthy();
+    });
 });
 
 describe('source workspace tables', () => {

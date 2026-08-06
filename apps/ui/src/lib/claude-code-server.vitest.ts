@@ -86,6 +86,7 @@ const buildTranscript = (entryCount: number, filePath = '/tmp/session-large.json
         cwd: '/workspace/project',
         filePath,
         gitBranch: null,
+        hierarchy: { parentSessionId: null },
         inputTokens: 0,
         lastActiveAtIso: '2026-06-01T11:00:00.000Z',
         lastActiveAtMs: 2,

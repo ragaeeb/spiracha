@@ -35,7 +35,7 @@ import {
 } from '#/lib/claude-code-transcript-events';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import type { ExportDialogOptions } from '#/lib/export-options';
-import { formatDateTime, formatList, formatNumber, formatTokens } from '#/lib/formatters';
+import { formatDateTime, formatList, formatModelLabel, formatNumber, formatTokens } from '#/lib/formatters';
 import { getMutationErrorMessage } from '#/lib/mutation-error';
 import { applyPathTransforms } from '#/lib/path-utils';
 import {
@@ -90,7 +90,10 @@ const buildSessionMetadata = (detail: ClaudeCodeSessionTranscript) => [
     },
     { label: 'Worktree', value: detail.session.worktree },
     { label: 'CWD', value: detail.session.cwd },
-    { label: 'Model', value: detail.session.model ?? 'unknown' },
+    {
+        label: 'Model',
+        value: detail.session.model ? formatModelLabel(detail.session.model) : 'unknown',
+    },
     { label: 'Version', value: detail.session.version ?? 'unknown' },
     { label: 'Git branch', value: detail.session.gitBranch ?? 'unknown' },
     { label: 'Created', value: <span suppressHydrationWarning>{formatDateTime(detail.session.createdAtMs)}</span> },

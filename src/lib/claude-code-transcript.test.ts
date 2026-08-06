@@ -78,6 +78,7 @@ const transcript: ClaudeCodeSessionTranscript = {
         cwd: '/Users/example/workspace/ushman-corpus',
         filePath: '/Users/example/.claude/projects/-Users-example-workspace-ushman-corpus/session-a.jsonl',
         gitBranch: 'main',
+        hierarchy: { parentSessionId: null },
         inputTokens: 10,
         lastActiveAtIso: '2026-06-01T10:00:05.000Z',
         lastActiveAtMs: 1_780_307_205_000,

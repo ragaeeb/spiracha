@@ -39,6 +39,10 @@ const WORKSPACE_KEY_PREFIX = 'project:';
 type TranscriptFile = {
     directoryName: string;
     filePath: string;
+    model: string | null;
+    parentSessionId: string | null;
+    sessionId: string;
+    title: string | null;
 };
 
 type ParsedTranscriptFile = {
@@ -80,6 +84,7 @@ type SessionIdentity = {
     cwd: string | null;
     firstUserText: string | null;
     gitBranch: string | null;
+    isSubagent: boolean;
     model: string | null;
     sessionId: string;
     title: string | null;
@@ -480,7 +485,9 @@ const readTitleCandidate = (raw: Record<string, JsonValue>): string | null => {
 };
 
 const updateIdentityFromRaw = (identity: SessionIdentity, raw: Record<string, JsonValue>) => {
-    identity.sessionId = asString(raw.sessionId ?? null) ?? identity.sessionId;
+    if (!identity.isSubagent) {
+        identity.sessionId = asString(raw.sessionId ?? null) ?? identity.sessionId;
+    }
     identity.cwd = identity.cwd ?? asString(raw.cwd ?? null);
     identity.version = asString(raw.version ?? null) ?? identity.version;
     identity.gitBranch = asString(raw.gitBranch ?? null) ?? identity.gitBranch;
@@ -533,6 +540,7 @@ const toSessionSummary = (
         cwd: identity.cwd,
         filePath: file.filePath,
         gitBranch: identity.gitBranch,
+        hierarchy: { parentSessionId: file.parentSessionId },
         model: identity.model,
         sessionId: identity.sessionId,
         title: getTitle(identity),
@@ -617,9 +625,10 @@ const buildTranscriptFromRawEvents = (
         cwd: null,
         firstUserText: null,
         gitBranch: null,
-        model: null,
-        sessionId: path.basename(file.filePath, '.jsonl'),
-        title: null,
+        isSubagent: file.parentSessionId !== null,
+        model: file.model,
+        sessionId: file.sessionId,
+        title: file.title,
         version: null,
     };
     const stats = createEmptyStats();
@@ -686,15 +695,57 @@ const readTranscriptFile = async (
     };
 };
 
+const listJsonlPathsRecursively = async (directory: string): Promise<string[]> => {
+    const entries = await readDirectoryEntriesIfExists(directory);
+    const nestedPaths = await mapWithConcurrency(
+        entries.filter((entry) => entry.isDirectory()),
+        READ_CONCURRENCY,
+        (entry) => listJsonlPathsRecursively(path.join(directory, entry.name)),
+    );
+    return [
+        ...entries
+            .filter((entry) => entry.isFile() && entry.name.endsWith('.jsonl'))
+            .map((entry) => path.join(directory, entry.name)),
+        ...nestedPaths.flat(),
+    ];
+};
+
+const getTranscriptFileIdentity = (projectDir: string, filePath: string) => {
+    const relativeParts = path.relative(projectDir, filePath).split(path.sep);
+    const subagentsIndex = relativeParts.lastIndexOf('subagents');
+    return {
+        parentSessionId: subagentsIndex > 0 ? (relativeParts[subagentsIndex - 1] ?? null) : null,
+        sessionId: path.basename(filePath, '.jsonl'),
+    };
+};
+
+const readSubagentMetadata = async (filePath: string): Promise<{ model: string | null; title: string | null }> => {
+    const metadataPath = filePath.replace(/\.jsonl$/u, '.meta.json');
+    const value = await Bun.file(metadataPath)
+        .json()
+        .catch(() => null);
+    const metadata = asObject(value as JsonValue);
+    return {
+        model: asString(metadata?.model ?? null),
+        title: cleanLabel(asString(metadata?.description ?? null)),
+    };
+};
+
 const listTranscriptFilesForProject = async (projectsDir: string, directoryName: string): Promise<TranscriptFile[]> => {
     const projectDir = path.join(projectsDir, directoryName);
-    const entries = await readDirectoryEntriesIfExists(projectDir);
-    return entries
-        .filter((entry) => entry.isFile() && entry.name.endsWith('.jsonl'))
-        .map((entry) => ({
+    const filePaths = await listJsonlPathsRecursively(projectDir);
+    return mapWithConcurrency(filePaths, READ_CONCURRENCY, async (filePath) => {
+        const { parentSessionId, sessionId } = getTranscriptFileIdentity(projectDir, filePath);
+        const metadata = parentSessionId ? await readSubagentMetadata(filePath) : { model: null, title: null };
+        return {
             directoryName,
-            filePath: path.join(projectDir, entry.name),
-        }));
+            filePath,
+            model: metadata.model,
+            parentSessionId,
+            sessionId,
+            title: metadata.title,
+        };
+    });
 };
 
 const listProjectDirectoryNames = async (projectsDir: string): Promise<string[]> => {
@@ -954,7 +1005,14 @@ const coalesceTranscriptLineage = (lineage: ClaudeCodeSessionTranscript[]): Clau
     }
 
     const transcript = buildTranscriptFromRawEvents(
-        { directoryName, filePath: root.session.filePath },
+        {
+            directoryName,
+            filePath: root.session.filePath,
+            model: root.session.model,
+            parentSessionId: root.session.hierarchy.parentSessionId,
+            sessionId: root.session.sessionId,
+            title: root.session.title,
+        },
         buildLogicalRawEvents(lineage, canonical),
         canonical.session.lastActiveAtMs,
         true,
