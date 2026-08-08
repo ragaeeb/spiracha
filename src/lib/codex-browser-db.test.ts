@@ -445,6 +445,74 @@ describe('codex browser db', () => {
         });
     });
 
+    it('should omit internal guardian subagents from user-facing listings while keeping edge-linked children', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-orphan-subagent-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const parentThreadId = fixture.threads[0]!.threadId;
+        const attachedSubagentId = 'attached-subagent';
+        const orphanSubagentId = 'orphan-guardian';
+        const db = new Database(fixture.dbPath);
+        const insertThread = db.prepare(`
+            INSERT INTO threads (
+                id, rollout_path, created_at, updated_at, source, model_provider, cwd, title,
+                sandbox_policy, approval_mode, thread_source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+
+        insertThread.run(
+            attachedSubagentId,
+            path.join(tempRoot, `${attachedSubagentId}.jsonl`),
+            1779038000,
+            1779038001,
+            JSON.stringify({ subagent: { thread_spawn: { parent_thread_id: parentThreadId } } }),
+            'openai',
+            '/Users/example/workspace/spiracha',
+            'Inspect transcript renderer',
+            '{}',
+            'never',
+            'subagent',
+        );
+        insertThread.run(
+            orphanSubagentId,
+            path.join(tempRoot, `${orphanSubagentId}.jsonl`),
+            1779038002,
+            1779038003,
+            JSON.stringify({ subagent: { other: 'guardian' } }),
+            'openai',
+            '/Users/example/workspace/spiracha',
+            'Internal guardian review',
+            '{}',
+            'never',
+            'subagent',
+        );
+        db.prepare(`
+            INSERT INTO thread_spawn_edges (parent_thread_id, child_thread_id, status)
+            VALUES (?, ?, ?)
+        `).run(parentThreadId, attachedSubagentId, 'completed');
+        db.close();
+
+        const projectThreads = await listProjectThreads(fixture.dbPath, 'spiracha', {
+            includeTranscriptStats: false,
+        });
+        const scopedThreads = listScopedThreads(fixture.dbPath, 'spiracha');
+        const projects = await listCodexProjects(fixture.dbPath);
+        const dashboard = await getCodexDashboardSummary(fixture.dbPath);
+
+        expect(projectThreads.map((entry) => entry.thread.id)).toEqual(
+            expect.arrayContaining([parentThreadId, attachedSubagentId]),
+        );
+        expect(projectThreads.map((entry) => entry.thread.id)).not.toContain(orphanSubagentId);
+        expect(projectThreads.find((entry) => entry.thread.id === attachedSubagentId)?.hierarchy).toEqual({
+            childThreadCount: 0,
+            parentThreadId,
+        });
+        expect(scopedThreads.map((thread) => thread.id)).not.toContain(orphanSubagentId);
+        expect(projects.find((project) => project.name === 'spiracha')).toMatchObject({ threadCount: 3 });
+        expect(dashboard.totalThreads).toBe(4);
+        expect(dashboard.recentThreads.map((entry) => entry.thread.id)).not.toContain(orphanSubagentId);
+    });
+
     it('should read rollout activity without blocking the synchronous request path', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-async-activity-test-'));
         tempPaths.push(tempRoot);

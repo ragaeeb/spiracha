@@ -1165,6 +1165,7 @@ const existingAntigravityDeletePaths = async (root: string, conversationId: stri
     const conversationDir = getAntigravityConversationDir(root);
     const protobufPath = path.join(conversationDir, `${conversationId}.pb`);
     const databasePath = path.join(conversationDir, `${conversationId}.db`);
+    const annotationPath = path.join(root, 'annotations', `${conversationId}.pbtxt`);
     const artifactDir = path.join(getAntigravityBrainDir(root), conversationId);
     const logsDir = path.join(artifactDir, '.system_generated', 'logs');
     const candidates = [
@@ -1172,6 +1173,7 @@ const existingAntigravityDeletePaths = async (root: string, conversationId: stri
         databasePath,
         `${databasePath}-shm`,
         `${databasePath}-wal`,
+        annotationPath,
         path.join(logsDir, 'overview.txt'),
         path.join(logsDir, 'transcript.jsonl'),
         path.join(logsDir, 'transcript_full.jsonl'),
@@ -1179,6 +1181,18 @@ const existingAntigravityDeletePaths = async (root: string, conversationId: stri
     ];
     const exists = await Promise.all(candidates.map(pathExists));
     return candidates.filter((_, index) => exists[index]);
+};
+
+const removeAntigravityConversationPaths = async (root: string, conversationId: string): Promise<void> => {
+    const conversationDir = getAntigravityConversationDir(root);
+    await Promise.all([
+        rm(path.join(root, 'annotations', `${conversationId}.pbtxt`), { force: true }),
+        rm(path.join(conversationDir, `${conversationId}.pb`), { force: true }),
+        rm(path.join(conversationDir, `${conversationId}.db`), { force: true }),
+        rm(path.join(conversationDir, `${conversationId}.db-shm`), { force: true }),
+        rm(path.join(conversationDir, `${conversationId}.db-wal`), { force: true }),
+    ]);
+    await rm(path.join(getAntigravityBrainDir(root), conversationId), { force: true, recursive: true });
 };
 
 export const deleteAntigravityConversation = async (
@@ -1199,15 +1213,15 @@ export const deleteAntigravityConversation = async (
 
         const rootPaths = await existingAntigravityDeletePaths(root, conversationId);
         deletedPaths.push(...rootPaths);
+        await removeAntigravityConversationPaths(root, conversationId);
+    }
 
-        const conversationDir = getAntigravityConversationDir(root);
-        await Promise.all([
-            rm(path.join(conversationDir, `${conversationId}.pb`), { force: true }),
-            rm(path.join(conversationDir, `${conversationId}.db`), { force: true }),
-            rm(path.join(conversationDir, `${conversationId}.db-shm`), { force: true }),
-            rm(path.join(conversationDir, `${conversationId}.db-wal`), { force: true }),
-        ]);
-        await rm(path.join(getAntigravityBrainDir(root), conversationId), { force: true, recursive: true });
+    if (deletedSummary || deletedPaths.length > 0) {
+        await Bun.sleep(10);
+        for (const root of roots) {
+            await removeConversationFromSummaryIndex(getAntigravitySummaryIndexPath(root), conversationId);
+            await removeAntigravityConversationPaths(root, conversationId);
+        }
     }
 
     return {

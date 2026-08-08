@@ -243,6 +243,16 @@ const parseJsonSafely = (value: string | null) => {
     }
 };
 
+const getUserVisibleThreadFilter = (db: Database) => {
+    const threadColumns = db.query('PRAGMA table_info(threads)').all() as Array<{ name: string }>;
+    if (!threadColumns.some((column) => column.name === 'thread_source')) {
+        return '1';
+    }
+
+    // Codex stores internal guardian evaluations as subagent rows without user-facing chat entries.
+    return "NOT (thread_source = 'subagent' AND source LIKE '%guardian%')";
+};
+
 export const withReadonlyDb = <T>(dbPath: string, callback: (db: Database) => T): T => {
     return runWithSqliteRetry({
         action: () => {
@@ -306,10 +316,15 @@ export const resolveCodexThreadDbPath = () => {
 
 const readThreads = (dbPath: string, projectName: string | null = null): ThreadRow[] => {
     return withReadonlyDb(dbPath, (db) => {
-        const projectFilter = projectName ? `WHERE ${PROJECT_CWD_FILTER}` : '';
+        const filters = [getUserVisibleThreadFilter(db)];
+        if (projectName) {
+            filters.push(PROJECT_CWD_FILTER);
+        }
+
         return db
             .query(
-                `SELECT ${THREAD_ROW_COLUMNS} FROM threads ${projectFilter}
+                `SELECT ${THREAD_ROW_COLUMNS} FROM threads
+                 WHERE ${filters.join(' AND ')}
                  ORDER BY COALESCE(updated_at_ms, updated_at * 1000) DESC, id DESC`,
             )
             .all(...(projectName ? [projectName] : [])) as ThreadRow[];
@@ -1532,7 +1547,8 @@ const readProjectAggregateRows = (db: Database) => {
                 COUNT(*) AS thread_count,
                 COALESCE(SUM(tokens_used), 0) AS total_tokens
             FROM threads
-            WHERE typeof(cwd) = 'text' AND TRIM(cwd) <> ''
+            WHERE ${getUserVisibleThreadFilter(db)}
+              AND typeof(cwd) = 'text' AND TRIM(cwd) <> ''
             GROUP BY cwd, model
         `)
         .all() as ProjectAggregateRow[];
@@ -1705,6 +1721,7 @@ const readDashboardDatabaseData = (dbPath: string) => {
                     COUNT(*) AS total_threads,
                     COALESCE(SUM(tokens_used), 0) AS total_tokens
                 FROM threads
+                WHERE ${getUserVisibleThreadFilter(db)}
             `)
             .get() as DashboardDatabaseTotals;
         const recentCandidates = db
@@ -1721,7 +1738,8 @@ const readDashboardDatabaseData = (dbPath: string) => {
                     updated_at,
                     updated_at_ms
                 FROM threads
-                WHERE typeof(cwd) = 'text' AND TRIM(cwd) <> ''
+                WHERE ${getUserVisibleThreadFilter(db)}
+                  AND typeof(cwd) = 'text' AND TRIM(cwd) <> ''
             `)
             .all() as DashboardThreadCandidate[];
         const existingTableNames = getExistingTableNames(db);
