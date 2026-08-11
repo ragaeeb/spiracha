@@ -3,6 +3,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useDeferredValue, useState } from 'react';
 import { KiroWorkspacesTable } from '#/components/kiro-workspaces-table';
 import { ListSearchInput } from '#/components/list-search-input';
+import { LoadingPanel } from '#/components/loading-panel';
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
 import { kiroWorkspacesQueryOptions } from '#/lib/kiro-queries';
@@ -45,4 +46,8 @@ export const Route = createFileRoute('/kiro/')({
     component: KiroPage,
     errorComponent: KiroErrorComponent,
     loader: ({ context }) => context.queryClient.ensureQueryData(kiroWorkspacesQueryOptions()),
+    pendingComponent: () => (
+        <LoadingPanel description="Loading Kiro workspace and session metadata." title="Loading Kiro" />
+    ),
+    pendingMs: 0,
 });

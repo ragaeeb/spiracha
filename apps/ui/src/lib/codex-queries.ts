@@ -48,6 +48,7 @@ export const projectsQueryOptions = () =>
 
 export const projectThreadsQueryOptions = (project: string) =>
     queryOptions({
+        ...explicitThreadRefreshOnly,
         queryFn: () => listProjectThreadsFn({ data: { project } }),
         queryKey: ['project-threads', project],
         retry: retrySqliteQuery,

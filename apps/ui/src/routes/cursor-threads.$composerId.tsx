@@ -21,7 +21,7 @@ import { deleteCursorThreadsFn, exportCursorThreadFn, type getCursorThreadDetail
 import { cursorTranscriptToThreadEvents, getCursorThreadTranscriptStats } from '#/lib/cursor-transcript-events';
 import { downloadTextFile, downloadUrlFile } from '#/lib/download';
 import type { ExportDialogOptions } from '#/lib/export-options';
-import { formatBytes, formatDateTime, formatList, formatNumber } from '#/lib/formatters';
+import { formatBytes, formatDateTime, formatList, formatModelLabel, formatNumber } from '#/lib/formatters';
 import {
     getTranscriptDisplayState,
     parseThreadTranscriptSearch,
@@ -50,6 +50,8 @@ const buildCursorThreadMetadata = (detail: CursorThreadDetail) => {
         },
         { label: 'Workspace key', value: <span data-mono="true">{detail.thread.workspaceKey}</span> },
         { label: 'Mode', value: detail.thread.mode ?? 'unknown' },
+        { label: 'Model', value: detail.thread.model ? formatModelLabel(detail.thread.model) : 'unknown' },
+        { label: 'Reasoning', value: detail.thread.reasoningEffort ?? 'unknown' },
         {
             label: 'Created',
             value: <span suppressHydrationWarning>{formatDateTime(detail.thread.createdAtMs)}</span>,
@@ -252,7 +254,11 @@ const CursorThreadDetailPage = () => {
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <MetricCard label="Messages" value={formatNumber(detail.thread.bubbleCount)} />
                 <MetricCard label="Size" value={formatBytes(detail.thread.bubbleBytes)} />
-                <MetricCard label="Mode" value={detail.thread.mode ?? 'unknown'} />
+                <MetricCard
+                    helper={detail.thread.reasoningEffort ? `${detail.thread.reasoningEffort} reasoning` : undefined}
+                    label="Model"
+                    value={detail.thread.model ? formatModelLabel(detail.thread.model) : 'unknown'}
+                />
                 <MetricCard
                     helper={`${formatNumber(detail.transcript?.renderableBubbleCount ?? 0)} renderable`}
                     label="Omitted"
@@ -289,7 +295,7 @@ const CursorThreadDetailPage = () => {
                     />
                     {detail.transcript && transcriptEvents.length > 0 ? (
                         <TranscriptView
-                            assistantModel={null}
+                            assistantModel={detail.thread.model}
                             events={transcriptEvents}
                             projectPath={null}
                             showCommentary={showCommentary}

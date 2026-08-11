@@ -5,6 +5,7 @@ import { useDeferredValue, useState } from 'react';
 import { CursorWorkspacesTable } from '#/components/cursor-workspaces-table';
 import { DeleteConfirmDialog } from '#/components/delete-confirm-dialog';
 import { ListSearchInput } from '#/components/list-search-input';
+import { LoadingPanel } from '#/components/loading-panel';
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
 import { cursorWorkspacesQueryOptions } from '#/lib/cursor-queries';
@@ -15,6 +16,10 @@ import { matchesTextQuery } from '#/lib/text-filter';
 const CursorErrorComponent = ({ error }: { error: Error }) => {
     return <RouteErrorPanel error={error} title="Failed to load Cursor workspaces" />;
 };
+
+const CursorPendingComponent = () => (
+    <LoadingPanel description="Loading Cursor workspace and thread metadata." title="Loading Cursor" />
+);
 
 const CursorPage = () => {
     const queryClient = useQueryClient();
@@ -120,4 +125,6 @@ export const Route = createFileRoute('/cursor/')({
     component: CursorPage,
     errorComponent: CursorErrorComponent,
     loader: ({ context }) => context.queryClient.ensureQueryData(cursorWorkspacesQueryOptions()),
+    pendingComponent: CursorPendingComponent,
+    pendingMs: 0,
 });

@@ -29,6 +29,15 @@ type ComposerEntry = Record<string, JsonValue> & {
     workspaceIdentifier?: { id?: string } | null;
 };
 
+type ComposerHeaderRow = {
+    composerId: string;
+    workspaceId: string | null;
+    createdAt: number | null;
+    lastUpdatedAt: number | null;
+    isSubagent: number | null;
+    value: string | null;
+};
+
 export const CURSOR_READONLY_DB_OPEN_FLAGS = constants.SQLITE_OPEN_READONLY | constants.SQLITE_OPEN_URI;
 
 // Cursor databases are WAL-mode. A plain read-only open fails once Cursor cleanly shuts down and
@@ -165,12 +174,48 @@ const parseCodeWorkspaceFolders = async (workspaceFilePath: string): Promise<str
     }
 };
 
+const parseComposerHeaderRow = (row: ComposerHeaderRow): ComposerEntry => {
+    let parsed: ComposerEntry = {};
+    try {
+        parsed = (asObject(JSON.parse(row.value ?? '{}') as JsonValue) ?? {}) as ComposerEntry;
+    } catch {
+        parsed = {};
+    }
+
+    return {
+        ...parsed,
+        composerId: row.composerId,
+        createdAt: asNumber(parsed.createdAt ?? null) ?? row.createdAt,
+        isSubagent: row.isSubagent === 1,
+        lastUpdatedAt: asNumber(parsed.lastUpdatedAt ?? null) ?? row.lastUpdatedAt,
+        workspaceIdentifier: parsed.workspaceIdentifier ?? (row.workspaceId ? { id: row.workspaceId } : null),
+    };
+};
+
+const readModernComposerHeaders = (db: Database): ComposerEntry[] => {
+    const modernTable = db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'composerHeaders'").get();
+    if (!modernTable) {
+        return [];
+    }
+
+    const rows = db
+        .query('SELECT composerId, workspaceId, createdAt, lastUpdatedAt, isSubagent, value FROM composerHeaders')
+        .all() as ComposerHeaderRow[];
+    return rows.map(parseComposerHeaderRow);
+};
+
 export const loadGlobalComposerHeaders = (globalDbPath: string): ComposerEntry[] => {
     try {
         const db = openCursorReadonlyDb(globalDbPath);
         try {
-            const data = readItemValue<{ allComposers?: ComposerEntry[] }>(db, COMPOSER_HEADERS_KEY);
-            return data?.allComposers ?? [];
+            const legacy = readItemValue<{ allComposers?: ComposerEntry[] }>(db, COMPOSER_HEADERS_KEY);
+            const headersById = new Map<string, ComposerEntry>();
+            for (const header of [...(legacy?.allComposers ?? []), ...readModernComposerHeaders(db)]) {
+                if (header.composerId) {
+                    headersById.set(header.composerId, header);
+                }
+            }
+            return [...headersById.values()];
         } finally {
             db.close();
         }
@@ -520,8 +565,16 @@ type GlobalHead = {
     lastUpdatedAtMs: number | null;
     mode: string | null;
     pathHint: string | null;
+    model: string | null;
+    reasoningEffort: string | null;
+    status: string | null;
 };
-type HeaderInfo = { name: string | null; uriPath: string | null; bucketId: string | null };
+type HeaderInfo = {
+    name: string | null;
+    uriPath: string | null;
+    bucketId: string | null;
+    parentComposerId: string | null;
+};
 type BubbleStat = { count: number; bytes: number };
 
 type CursorDiscovery = {
@@ -718,8 +771,11 @@ const parseGlobalHead = (value: string | null): GlobalHead => {
             createdAtMs: null,
             lastUpdatedAtMs: null,
             mode: null,
+            model: null,
             name: null,
             pathHint: null,
+            reasoningEffort: null,
+            status: null,
         };
     }
 
@@ -730,8 +786,11 @@ const parseGlobalHead = (value: string | null): GlobalHead => {
             createdAtMs: null,
             lastUpdatedAtMs: null,
             mode: null,
+            model: null,
             name: null,
             pathHint: inferFolderFromBlob(value),
+            reasoningEffort: null,
+            status: null,
         };
     }
 
@@ -740,17 +799,35 @@ const parseGlobalHead = (value: string | null): GlobalHead => {
             createdAtMs: null,
             lastUpdatedAtMs: null,
             mode: null,
+            model: null,
             name: null,
             pathHint: inferFolderFromBlob(value),
+            reasoningEffort: null,
+            status: null,
         };
     }
+
+    const modelConfig = asObject(parsed.modelConfig ?? null);
+    const selectedModels = Array.isArray(modelConfig?.selectedModels) ? modelConfig.selectedModels : [];
+    const selectedModel = selectedModels
+        .map((entry) => asObject(entry))
+        .find((entry) => asString(entry?.modelId ?? null) === asString(modelConfig?.modelName ?? null));
+    const parameters = Array.isArray(selectedModel?.parameters) ? selectedModel.parameters : [];
+    const reasoningEffort = parameters
+        .map((parameter) => asObject(parameter))
+        .find((parameter) => asString(parameter?.id ?? null) === 'effort');
+    const rawModel = asString(modelConfig?.modelName ?? null);
+    const encodedGrokModel = rawModel?.match(/^cursor-(grok-[\d.]+)-(low|medium|high)$/u);
 
     return {
         createdAtMs: asNumber(parsed.createdAt ?? null),
         lastUpdatedAtMs: asNumber(parsed.lastUpdatedAt ?? null),
         mode: asString(parsed.unifiedMode ?? null),
+        model: encodedGrokModel?.[1] ?? rawModel,
         name: asString(parsed.name ?? null),
         pathHint: inferFolderFromBlob(value),
+        reasoningEffort: asString(reasoningEffort?.value ?? null) ?? encodedGrokModel?.[2] ?? null,
+        status: asString(parsed.status ?? null),
     };
 };
 
@@ -791,9 +868,11 @@ const readHeaderInfo = (globalDbPath: string): Map<string, HeaderInfo> => {
             | { id?: string; uri?: { path?: string; fsPath?: string } }
             | undefined;
         const uriPath = identifier?.uri?.path ?? identifier?.uri?.fsPath ?? null;
+        const subagentInfo = asObject(header.subagentInfo ?? null);
         info.set(header.composerId, {
             bucketId: identifier?.id ?? null,
             name: typeof header.name === 'string' ? header.name : null,
+            parentComposerId: asString(subagentInfo?.parentComposerId ?? null),
             uriPath: uriPath ? normalizeCursorPath(uriPath) : null,
         });
     }
@@ -825,6 +904,10 @@ type ResolvedThread = {
     groupKey: string;
     groupLabel: string;
     bucketId: string | null;
+    model: string | null;
+    reasoningEffort: string | null;
+    parentComposerId: string | null;
+    status: string | null;
 };
 
 const findLinkedBucketId = (
@@ -904,8 +987,12 @@ const resolveThreadFolder = (
         groupLabel: folder ? path.basename(folder) : 'Unknown project',
         lastUpdatedAtMs: head?.lastUpdatedAtMs ?? null,
         mode: head?.mode ?? null,
+        model: head?.model ?? null,
         name: head?.name || headerInfo?.name || '(untitled)',
+        parentComposerId: headerInfo?.parentComposerId ?? null,
+        reasoningEffort: head?.reasoningEffort ?? null,
         stat,
+        status: head?.status ?? null,
     };
 };
 
@@ -917,7 +1004,10 @@ const toThreadSummary = (resolved: ResolvedThread): CursorThreadSummary => ({
     createdAtMs: resolved.createdAtMs,
     lastUpdatedAtMs: resolved.lastUpdatedAtMs,
     mode: resolved.mode,
+    model: resolved.model,
     name: resolved.name,
+    parentComposerId: resolved.parentComposerId,
+    reasoningEffort: resolved.reasoningEffort,
     transcriptDirs: [],
     workspaceKey: resolved.groupKey,
     workspaceLabel: resolved.groupLabel,
@@ -931,14 +1021,24 @@ const assembleDiscovery = (
     const threadsByKey = new Map<string, CursorThreadSummary[]>();
     const lastActiveByKey = new Map<string, number>();
 
+    const groupLabels = new Map(bucketGroups.map((group) => [group.key, group.label]));
     for (const thread of resolved) {
+        if (thread.stat.count === 0 && thread.status === 'aborted') {
+            continue;
+        }
+
         // Empty threads with no resolvable workspace are pure noise; keep them out of the catch-all.
         if (thread.groupKey === UNKNOWN_GROUP_KEY && thread.stat.count === 0) {
             continue;
         }
 
         const list = threadsByKey.get(thread.groupKey) ?? [];
-        list.push(toThreadSummary(thread));
+        list.push(
+            toThreadSummary({
+                ...thread,
+                groupLabel: groupLabels.get(thread.groupKey) ?? thread.groupLabel,
+            }),
+        );
         threadsByKey.set(thread.groupKey, list);
         lastActiveByKey.set(
             thread.groupKey,

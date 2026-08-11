@@ -3,6 +3,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useDeferredValue, useState } from 'react';
 import { ClaudeCodeWorkspacesTable } from '#/components/claude-code-workspaces-table';
 import { ListSearchInput } from '#/components/list-search-input';
+import { LoadingPanel } from '#/components/loading-panel';
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
 import { claudeCodeWorkspacesQueryOptions } from '#/lib/claude-code-queries';
@@ -12,6 +13,10 @@ export const Route = createFileRoute('/claude-code/')({
     component: ClaudeCodePage,
     errorComponent: ClaudeCodeErrorComponent,
     loader: ({ context }) => context.queryClient.ensureQueryData(claudeCodeWorkspacesQueryOptions()),
+    pendingComponent: () => (
+        <LoadingPanel description="Loading Claude Code workspace and session metadata." title="Loading Claude Code" />
+    ),
+    pendingMs: 0,
 });
 
 function ClaudeCodeErrorComponent({ error }: { error: Error }) {

@@ -492,6 +492,29 @@ describe('antigravity db discovery', () => {
         expect(conversation?.conversationBytes).toBe(3);
     });
 
+    it('should ignore empty Antigravity databases recreated without the trajectory schema', async () => {
+        const root = await makeRoot();
+        const orphanedId = '65656565-6565-4656-8656-656565656565';
+        const retainedId = '66666666-6666-4666-8666-666666666666';
+        const orphanedDatabase = new Database(path.join(root, 'conversations', `${orphanedId}.db`), {
+            create: true,
+        });
+        orphanedDatabase.close();
+        await Bun.write(path.join(root, 'conversations', `${retainedId}.pb`), new Uint8Array([1, 2, 3]));
+
+        const conversations = await listAntigravityConversations([root]);
+
+        expect(conversations.map((conversation) => conversation.conversationId)).toEqual([retainedId]);
+    });
+
+    it('should still surface malformed Antigravity trajectory databases', async () => {
+        const root = await makeRoot();
+        const conversationId = '67676767-6767-4676-8676-676767676767';
+        await Bun.write(path.join(root, 'conversations', `${conversationId}.db`), 'not a sqlite database');
+
+        await expect(listAntigravityConversations([root])).rejects.toThrow(/malformed|not a database/iu);
+    });
+
     it('should render markdown exports for Antigravity brain artifacts', async () => {
         const root = await makeRoot();
         const conversationId = '55555555-5555-4555-8555-555555555555';

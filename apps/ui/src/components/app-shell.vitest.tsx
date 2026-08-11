@@ -15,6 +15,7 @@ vi.mock('@tanstack/react-router', () => ({
         children,
         className,
         preload,
+        preloadDelay,
         to,
         ...props
     }: {
@@ -22,12 +23,13 @@ vi.mock('@tanstack/react-router', () => ({
         activeOptions?: { includeSearch?: boolean };
         children: ReactNode;
         className: string;
-        preload?: 'render';
+        preload?: 'intent';
+        preloadDelay?: number;
         to: string;
     }) => {
         linkActiveOptionsMock(to, activeOptions);
         return (
-            <a className={className} data-preload={preload} href={to} {...props}>
+            <a className={className} data-preload={preload} data-preload-delay={preloadDelay} href={to} {...props}>
                 {children}
             </a>
         );
@@ -72,9 +74,22 @@ describe('AppShell', () => {
         expect(screen.getByRole('link', { name: /Codex/i }).className).toContain('bg-[var(--accent-muted)]');
         expect(screen.getByRole('link', { name: /Codex/i }).getAttribute('aria-current')).toBe('page');
         expect(linkActiveOptionsMock).toHaveBeenCalledWith('/codex', { includeSearch: false });
-        expect(screen.getByRole('link', { name: 'Antigravity' }).getAttribute('data-preload')).toBe('render');
-        expect(screen.getByRole('link', { name: 'OpenCode' }).getAttribute('data-preload')).toBe('render');
-        expect(screen.getByRole('link', { name: 'Codex' }).getAttribute('data-preload')).toBeNull();
+        for (const integration of [
+            'Antigravity',
+            'Claude Code',
+            'Cline',
+            'Codex',
+            'Cursor',
+            'Grok',
+            'Kiro',
+            'MiniMax Code',
+            'OpenCode',
+            'Qoder',
+        ]) {
+            const link = screen.getByRole('link', { name: integration });
+            expect(link.getAttribute('data-preload')).toBe('intent');
+            expect(link.getAttribute('data-preload-delay')).toBe('0');
+        }
         expect(screen.getByRole('link', { name: /Dashboard/i }).className).toContain(
             'hover:bg-[var(--panel-secondary)]',
         );

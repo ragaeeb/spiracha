@@ -47,4 +47,5 @@ export const Route = createFileRoute('/minimax-code/')({
     pendingComponent: () => (
         <LoadingPanel description="Loading MiniMax Code workspace and session metadata." title="Loading MiniMax Code" />
     ),
+    pendingMs: 0,
 });

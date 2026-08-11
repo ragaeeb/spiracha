@@ -22,7 +22,6 @@ type NavItem = {
     activePrefixes?: readonly string[];
     icon: typeof LayoutDashboard;
     label: string;
-    preload?: 'render';
     to: string;
 };
 
@@ -37,7 +36,6 @@ const integrationNavItems: readonly NavItem[] = [
         activePrefixes: ['/antigravity', '/antigravity-conversations'],
         icon: Sparkles,
         label: 'Antigravity',
-        preload: 'render',
         to: '/antigravity',
     },
     {
@@ -50,7 +48,12 @@ const integrationNavItems: readonly NavItem[] = [
     { activePrefixes: ['/codex', '/threads'], icon: FolderOpen, label: 'Codex', to: '/codex' },
     { activePrefixes: ['/cursor', '/cursor-threads'], icon: SquareTerminal, label: 'Cursor', to: '/cursor' },
     { activePrefixes: ['/grok', '/grok-sessions'], icon: Bot, label: 'Grok', to: '/grok' },
-    { activePrefixes: ['/kiro', '/kiro-sessions'], icon: BrainCircuit, label: 'Kiro', to: '/kiro' },
+    {
+        activePrefixes: ['/kiro', '/kiro-sessions'],
+        icon: BrainCircuit,
+        label: 'Kiro',
+        to: '/kiro',
+    },
     {
         activePrefixes: ['/minimax-code', '/minimax-code-sessions'],
         icon: BrainCircuit,
@@ -61,7 +64,6 @@ const integrationNavItems: readonly NavItem[] = [
         activePrefixes: ['/opencode', '/opencode-sessions'],
         icon: Code2,
         label: 'OpenCode',
-        preload: 'render',
         to: '/opencode',
     },
     { activePrefixes: ['/qoder', '/qoder-sessions'], icon: Workflow, label: 'Qoder', to: '/qoder' },
@@ -72,7 +74,7 @@ const isNavItemActive = (pathname: string, item: NavItem) => {
     return prefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 };
 
-const renderNavItem = (pathname: string, item: NavItem) => {
+const renderNavItem = (pathname: string, item: NavItem, preload?: 'intent') => {
     const active = isNavItemActive(pathname, item);
     const Icon = item.icon;
 
@@ -87,7 +89,8 @@ const renderNavItem = (pathname: string, item: NavItem) => {
                     ? 'bg-[var(--accent-muted)] font-medium text-[var(--accent-foreground)]'
                     : 'text-[var(--muted-foreground)] hover:bg-[var(--panel-secondary)] hover:text-[var(--foreground)]',
             )}
-            preload={item.preload}
+            preload={preload}
+            preloadDelay={preload ? 0 : undefined}
             to={item.to}
         >
             <Icon className="size-4 shrink-0" />
@@ -180,7 +183,7 @@ export function AppShell({ children }: PropsWithChildren) {
                     <nav className="mt-2 grid gap-0.5">
                         {nonIntegrationNavItems.map((item) => renderNavItem(pathname, item))}
                         <Separator aria-label="Integrations" className="my-2" decorative={false} />
-                        {integrationNavItems.map((item) => renderNavItem(pathname, item))}
+                        {integrationNavItems.map((item) => renderNavItem(pathname, item, 'intent'))}
                     </nav>
                 </aside>
 

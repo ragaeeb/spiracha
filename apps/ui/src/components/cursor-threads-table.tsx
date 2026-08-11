@@ -2,7 +2,7 @@ import type { CursorThreadSummary } from '@spiracha/lib/cursor-exporter-types';
 import { Link } from '@tanstack/react-router';
 import type { SortingState } from '@tanstack/react-table';
 import { createColumnHelper } from '@tanstack/react-table';
-import { Download, MoreHorizontal, Trash2 } from 'lucide-react';
+import { Download, GitFork, MoreHorizontal, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
 import { SelectionActionsToolbar } from '#/components/selection-actions-toolbar';
@@ -13,7 +13,8 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu';
-import { formatBytes, formatDateTime, formatNumber } from '#/lib/formatters';
+import { formatBytes, formatDateTime, formatModelLabel, formatNumber } from '#/lib/formatters';
+import { cn } from '#/lib/utils';
 
 type CursorThreadsTableProps = {
     onDeleteThread: (thread: CursorThreadSummary) => void;
@@ -23,8 +24,50 @@ type CursorThreadsTableProps = {
     threads: CursorThreadSummary[];
 };
 
-const columnHelper = createColumnHelper<CursorThreadSummary>();
+type CursorThreadTreeNode = CursorThreadSummary & { children: CursorThreadTreeNode[] };
+
+const columnHelper = createColumnHelper<CursorThreadTreeNode>();
 const defaultSorting: SortingState = [{ desc: true, id: 'updatedAt' }];
+
+const CursorThreadTitleCell = ({ depth, thread }: { depth: number; thread: CursorThreadTreeNode }) => (
+    <div className={cn('min-w-0', depth > 0 ? 'border-[var(--border)] border-l-2 pl-3' : '')} data-row-depth={depth}>
+        <div className="flex min-w-0 items-center gap-2">
+            {depth > 0 ? (
+                <GitFork aria-hidden="true" className="size-4 shrink-0 text-[var(--muted-foreground)]" />
+            ) : null}
+            <Link
+                className="block min-w-0 flex-1 space-y-1 rounded-md outline-none transition hover:opacity-80 focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                params={{ composerId: thread.composerId }}
+                to="/cursor-threads/$composerId"
+            >
+                <p className="truncate font-medium underline-offset-2 hover:underline">{thread.name}</p>
+                <p className="truncate text-[var(--muted-foreground)] text-xs">
+                    {thread.mode ? `${thread.mode} · ` : ''}
+                    {thread.composerId}
+                </p>
+            </Link>
+        </div>
+    </div>
+);
+
+const getCursorThreadTreeRoots = (threads: CursorThreadSummary[]): CursorThreadTreeNode[] => {
+    const nodesById = new Map<string, CursorThreadTreeNode>(
+        threads.map((thread) => [thread.composerId, { ...thread, children: [] as CursorThreadTreeNode[] }]),
+    );
+    const roots: CursorThreadTreeNode[] = [];
+    for (const thread of threads) {
+        const node = nodesById.get(thread.composerId)!;
+        const parent = thread.parentComposerId ? nodesById.get(thread.parentComposerId) : null;
+        if (parent && parent !== node) {
+            parent.children.push(node);
+        } else {
+            roots.push(node);
+        }
+    }
+    return roots;
+};
+
+const withoutChildren = ({ children: _children, ...thread }: CursorThreadTreeNode): CursorThreadSummary => thread;
 
 const columns = (
     onDeleteThread: (thread: CursorThreadSummary) => void,
@@ -32,19 +75,7 @@ const columns = (
 ) =>
     [
         columnHelper.accessor('name', {
-            cell: (info) => (
-                <Link
-                    className="block w-[16rem] max-w-[20rem] space-y-1 rounded-md outline-none transition hover:opacity-80 focus-visible:ring-2 focus-visible:ring-[var(--accent)] lg:w-auto"
-                    params={{ composerId: info.row.original.composerId }}
-                    to="/cursor-threads/$composerId"
-                >
-                    <p className="truncate font-medium underline-offset-2 hover:underline">{info.getValue()}</p>
-                    <p className="truncate text-[var(--muted-foreground)] text-xs">
-                        {info.row.original.mode ? `${info.row.original.mode} · ` : ''}
-                        {info.row.original.composerId}
-                    </p>
-                </Link>
-            ),
+            cell: (info) => <CursorThreadTitleCell depth={info.row.depth} thread={info.row.original} />,
             header: 'Thread',
         }),
         columnHelper.accessor('lastUpdatedAtMs', {
@@ -68,6 +99,19 @@ const columns = (
         columnHelper.accessor('mode', {
             cell: (info) => <span className="font-mono text-sm">{info.getValue() ?? 'unknown'}</span>,
             header: 'Mode',
+        }),
+        columnHelper.accessor('model', {
+            cell: (info) => (
+                <div className="space-y-1 text-sm">
+                    <div>{info.getValue() ? formatModelLabel(info.getValue()) : 'unknown'}</div>
+                    {info.row.original.reasoningEffort ? (
+                        <div className="text-[var(--muted-foreground)] text-xs">
+                            {info.row.original.reasoningEffort} reasoning
+                        </div>
+                    ) : null}
+                </div>
+            ),
+            header: 'Model',
         }),
         columnHelper.accessor('bubbleCount', {
             cell: (info) => <span className="font-mono text-sm">{formatNumber(info.getValue())}</span>,
@@ -95,14 +139,14 @@ const columns = (
                     <DropdownMenuContent align="end">
                         <DropdownMenuItem
                             disabled={info.row.original.bubbleCount === 0}
-                            onClick={() => onExportThread(info.row.original)}
+                            onClick={() => onExportThread(withoutChildren(info.row.original))}
                         >
                             <Download className="mr-2 size-4" />
                             Export thread
                         </DropdownMenuItem>
                         <DropdownMenuItem
                             className="text-[var(--destructive)]"
-                            onClick={() => onDeleteThread(info.row.original)}
+                            onClick={() => onDeleteThread(withoutChildren(info.row.original))}
                         >
                             <Trash2 className="mr-2 size-4" />
                             Delete thread
@@ -124,14 +168,17 @@ export const CursorThreadsTable = ({
     threads,
 }: CursorThreadsTableProps) => {
     const tableColumns = useMemo(() => columns(onDeleteThread, onExportThread), [onDeleteThread, onExportThread]);
+    const threadTreeRoots = useMemo(() => getCursorThreadTreeRoots(threads), [threads]);
 
     return (
         <DataTable
             columns={tableColumns}
-            data={threads}
+            data={threadTreeRoots}
             emptyMessage="No Cursor threads match the current workspace filter."
             enableRowSelection
+            expandAllRows
             getRowId={(row) => row.composerId}
+            getSubRows={(row) => row.children}
             initialSorting={defaultSorting}
             renderToolbar={({ clearSelection, selectedRows }) => {
                 const selectedComposerIds = selectedRows.map((row) => row.composerId);

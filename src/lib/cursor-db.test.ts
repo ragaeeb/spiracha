@@ -113,6 +113,93 @@ describe('cursor-db workspace discovery', () => {
         expect(group?.threadCount).toBe(1);
     });
 
+    it('should group modern Cursor orchestrators and subagents under their multi-root workspace', async () => {
+        const userDir = await makeUserDir();
+        const workspaceFilePath = path.join(userDir, 'multi-root.code-workspace');
+        await Bun.write(
+            workspaceFilePath,
+            JSON.stringify({ folders: [{ path: '/Users/test/workspace/app' }, { path: '/Users/test/workspace/e2e' }] }),
+        );
+        await createCursorFixture(userDir, {
+            buckets: [
+                {
+                    bucketId: 'multi-root-bucket',
+                    workspace: `file://${workspaceFilePath}`,
+                },
+            ],
+            composerTableHeaders: [
+                { bucketId: 'multi-root-bucket', composerId: 'orchestrator' },
+                {
+                    bucketId: 'multi-root-bucket',
+                    composerId: 'subagent',
+                    isSubagent: true,
+                    parentComposerId: 'orchestrator',
+                },
+                {
+                    bucketId: 'multi-root-bucket',
+                    composerId: 'aborted-draft',
+                    isArchived: true,
+                },
+            ],
+            threads: [
+                {
+                    bubbles: [{ bubbleId: 'root-user', text: 'You are the orchestrator and lead...', type: 1 }],
+                    composerId: 'orchestrator',
+                    model: 'claude-fable-5',
+                    name: 'Vendor externalization gap',
+                    reasoningEffort: 'low',
+                },
+                {
+                    bubbles: [
+                        {
+                            bubbleId: 'child-user',
+                            text: 'You are investigating a parked...',
+                            toolCall: {
+                                name: 'read_file',
+                                rawArgs: '{"path":"/Users/test/workspace/e2e/src/test.ts"}',
+                            },
+                            type: 1,
+                        },
+                    ],
+                    composerId: 'subagent',
+                    model: 'cursor-grok-4.5-medium',
+                    name: 'Investigate parked test',
+                },
+                {
+                    bubbles: [],
+                    composerId: 'aborted-draft',
+                    model: 'claude-fable-5',
+                    name: 'Vendor externalization gap',
+                    status: 'aborted',
+                },
+            ],
+        });
+
+        const groups = await listCursorWorkspaceGroups(userDir);
+        const workspace = groups.find((group) => group.key === `workspace:${workspaceFilePath}`);
+        const threads = await listCursorThreadsForGroup(workspace!, userDir, { includeTranscriptDirs: false });
+
+        expect(workspace?.threadCount).toBe(2);
+        expect(threads.every((thread) => thread.workspaceLabel === 'multi-root.code-workspace')).toBe(true);
+        expect(threads).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    composerId: 'orchestrator',
+                    model: 'claude-fable-5',
+                    parentComposerId: null,
+                    reasoningEffort: 'low',
+                }),
+                expect.objectContaining({
+                    composerId: 'subagent',
+                    model: 'grok-4.5',
+                    parentComposerId: 'orchestrator',
+                    reasoningEffort: 'medium',
+                }),
+            ]),
+        );
+        expect(groups.find((group) => group.key === 'folder:/Users/test/workspace/e2e')?.threadCount ?? 0).toBe(0);
+    });
+
     it('should match a workspace by folder basename query', async () => {
         const userDir = await makeUserDir();
         await createCursorFixture(userDir, baseSpec());

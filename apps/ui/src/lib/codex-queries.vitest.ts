@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+    projectThreadsQueryOptions,
     threadSnapshotQueryOptions,
     threadTranscriptPreviewQueryOptions,
     threadTranscriptQueryOptions,
@@ -16,6 +17,7 @@ describe('threadSnapshotQueryOptions', () => {
 
     it('should not passively refresh thread data while live mode is disabled', () => {
         const queries = [
+            projectThreadsQueryOptions('project-1'),
             threadSnapshotQueryOptions('thread-1'),
             threadTranscriptPreviewQueryOptions('thread-1'),
             threadTranscriptQueryOptions('thread-1'),

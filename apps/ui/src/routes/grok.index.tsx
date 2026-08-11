@@ -3,6 +3,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useDeferredValue, useState } from 'react';
 import { GrokWorkspacesTable } from '#/components/grok-workspaces-table';
 import { ListSearchInput } from '#/components/list-search-input';
+import { LoadingPanel } from '#/components/loading-panel';
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
 import { grokWorkspacesQueryOptions } from '#/lib/grok-queries';
@@ -11,6 +12,10 @@ import { matchesTextQuery } from '#/lib/text-filter';
 const GrokErrorComponent = ({ error }: { error: Error }) => {
     return <RouteErrorPanel error={error} title="Failed to load Grok workspaces" />;
 };
+
+const GrokPendingComponent = () => (
+    <LoadingPanel description="Loading Grok workspace and session metadata." title="Loading Grok" />
+);
 
 const GrokPage = () => {
     const workspaces = useSuspenseQuery(grokWorkspacesQueryOptions()).data;
@@ -45,4 +50,6 @@ export const Route = createFileRoute('/grok/')({
     component: GrokPage,
     errorComponent: GrokErrorComponent,
     loader: ({ context }) => context.queryClient.ensureQueryData(grokWorkspacesQueryOptions()),
+    pendingComponent: GrokPendingComponent,
+    pendingMs: 0,
 });

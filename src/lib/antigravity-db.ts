@@ -132,6 +132,9 @@ const isFileMissingError = (error: unknown): boolean => {
     return code === 'ENOENT' || code === 'ENOTDIR';
 };
 
+const isMissingTrajectorySchemaError = (error: unknown): boolean =>
+    error instanceof Error && /^no such table: (?:main\.)?steps$/iu.test(error.message);
+
 const readVarint = (buffer: Uint8Array, start: number, end: number): { next: number; value: number } => {
     let value = 0;
     let multiplier = 1;
@@ -555,7 +558,7 @@ const readConversationFileCandidate = async (
             },
         };
     } catch (error) {
-        if (isFileMissingError(error)) {
+        if (isFileMissingError(error) || isMissingTrajectorySchemaError(error)) {
             return null;
         }
 

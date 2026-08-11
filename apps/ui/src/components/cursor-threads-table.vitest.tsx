@@ -123,7 +123,10 @@ const thread: CursorThreadSummary = {
     createdAtMs: 1_700_000_000_000,
     lastUpdatedAtMs: 1_700_000_100_000,
     mode: 'agent',
+    model: 'claude-fable-5',
     name: 'Fix the checkout flow',
+    parentComposerId: null,
+    reasoningEffort: 'low',
     transcriptDirs: [],
     workspaceKey: 'folder:/Users/user/workspace/demo',
     workspaceLabel: 'demo',
@@ -177,6 +180,35 @@ describe('CursorThreadsTable', () => {
 
         expect(onExportThreads).toHaveBeenCalledWith(['thread-1', 'thread-2']);
         expect(onDeleteThreads).toHaveBeenCalledWith(['thread-1', 'thread-2']);
+    });
+
+    it('should nest subagents under their orchestrator and display their models', () => {
+        render(
+            <CursorThreadsTable
+                onDeleteThread={vi.fn()}
+                onDeleteThreads={vi.fn()}
+                onExportThread={vi.fn()}
+                onExportThreads={vi.fn()}
+                threads={[
+                    thread,
+                    {
+                        ...thread,
+                        composerId: 'subagent-1',
+                        model: 'grok-4.5',
+                        name: 'Investigate parked test',
+                        parentComposerId: 'thread-1',
+                        reasoningEffort: 'medium',
+                    },
+                ]}
+            />,
+        );
+
+        expect(screen.getByText('Claude Fable 5')).toBeTruthy();
+        expect(screen.getByText('Grok 4.5')).toBeTruthy();
+        expect(screen.getByText('medium reasoning')).toBeTruthy();
+        expect(
+            screen.getByText('Investigate parked test').closest('[data-row-depth]')?.getAttribute('data-row-depth'),
+        ).toBe('1');
     });
 
     it('should trigger single-thread export and delete actions from the row menu', async () => {
