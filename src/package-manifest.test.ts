@@ -82,15 +82,14 @@ describe('package manifest', () => {
     it('should use one package manifest for root, UI, and direct client workflows', async () => {
         const manifest = await readPackageManifest();
 
-        expect(await Bun.file(path.join(process.cwd(), 'apps/ui/package.json')).exists()).toBe(false);
+        expect(await Bun.file(path.join(process.cwd(), 'apps/ui')).exists()).toBe(false);
         expect(manifest.workspaces).toBeUndefined();
         expect(manifest.imports).toEqual({
-            '#/*': './apps/ui/src/*',
+            '#/*': './src/ui/*',
         });
-        expect(manifest.files).not.toContain('apps/ui/package.json');
 
         for (const command of Object.values(manifest.scripts ?? {})) {
-            expect(command).not.toContain('bun run --cwd apps/ui');
+            expect(command).not.toContain('apps/ui');
         }
     });
 
@@ -101,8 +100,17 @@ describe('package manifest', () => {
             expect(manifest.devDependencies?.[dependencyName], dependencyName).toBeDefined();
         }
 
-        expect(manifest.scripts?.['test:ui']).toContain('apps/ui/vitest.config.ts');
-        expect(manifest.scripts?.['typecheck:ui']).toContain('apps/ui/tsconfig.json');
+        expect(manifest.scripts?.['test:ui']).toBe('vitest run --config vitest.config.ts');
+        expect(manifest.scripts?.typecheck).toBe('bunx tsc --noEmit');
+        expect(manifest.scripts?.['typecheck:root']).toBeUndefined();
+        expect(manifest.scripts?.['typecheck:ui']).toBeUndefined();
+    });
+
+    it('should require the packed bunx smoke test before publishing', async () => {
+        const manifest = await readPackageManifest();
+
+        expect(manifest.scripts?.['test:package']).toBe('bun run ./src/package-smoke.ts');
+        expect(manifest.scripts?.prepublishOnly).toBe('bun run build && bun run test:package');
     });
 
     it('should document every supported source in contributor and UI metadata', async () => {
@@ -117,7 +125,7 @@ describe('package manifest', () => {
             'MiniMax Code',
             'OpenCode',
         ];
-        const documentedFiles = ['README.md', 'AGENTS.md', 'apps/ui/AGENTS.md', 'apps/ui/src/routes/__root.tsx'];
+        const documentedFiles = ['README.md', 'AGENTS.md', 'src/ui/routes/__root.tsx'];
 
         for (const filePath of documentedFiles) {
             const content = await Bun.file(path.join(process.cwd(), filePath)).text();
@@ -163,8 +171,9 @@ describe('package manifest', () => {
         expect(output).toMatch(/packed .*package\.json/u);
         expect(output).toContain('bin/spiracha.ts');
         expect(output).toContain('src/client.ts');
-        expect(output).toContain('apps/ui/vite.config.ts');
-        expect(output).not.toContain('apps/ui/package.json');
+        expect(output).toContain('vite.config.ts');
+        expect(output).toContain('src/ui/routes/__root.tsx');
+        expect(output).not.toContain('apps/ui');
     });
 
     it('should keep the package file list free of removed CLI files', async () => {
@@ -173,12 +182,12 @@ describe('package manifest', () => {
         expect(manifest.files).toContain('src/lib/**/*.ts');
         expect(manifest.files).toContain('src/client.ts');
         expect(manifest.files).toContain('bin/spiracha.ts');
-        expect(manifest.files).toContain('apps/ui/src/**/*');
-        expect(manifest.files).toContain('apps/ui/public/**/*');
-        expect(manifest.files).toContain('apps/ui/vite.config.ts');
-        expect(manifest.files).not.toContain('apps/ui/package.json');
-        expect(manifest.files).toContain('!apps/ui/src/**/*.vitest.ts');
-        expect(manifest.files).toContain('!apps/ui/src/**/*.vitest.tsx');
+        expect(manifest.files).toContain('src/ui/**/*');
+        expect(manifest.files).toContain('public/**/*');
+        expect(manifest.files).toContain('vite.config.ts');
+        expect(manifest.files).toContain('tsconfig.json');
+        expect(manifest.files).toContain('!src/ui/**/*.vitest.ts');
+        expect(manifest.files).toContain('!src/ui/**/*.vitest.tsx');
         expect(manifest.files).toContain('!src/lib/**/*.test.ts');
         expect(manifest.files).toContain('!src/lib/*-test-helpers.ts');
         expect(manifest.files).not.toContain('STABLE_DATA_API.md');

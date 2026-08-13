@@ -107,6 +107,9 @@ export type CursorThreadSummary = {
     bubbleBytes: number;
     transcriptDirs: string[];
     mode: string | null;
+    model: string | null;
+    reasoningEffort: string | null;
+    parentComposerId: string | null;
 };
 
 export type CursorBubbleKind = 'user' | 'assistant' | 'unknown';

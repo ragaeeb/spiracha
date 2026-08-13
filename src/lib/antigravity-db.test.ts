@@ -492,6 +492,29 @@ describe('antigravity db discovery', () => {
         expect(conversation?.conversationBytes).toBe(3);
     });
 
+    it('should ignore empty Antigravity databases recreated without the trajectory schema', async () => {
+        const root = await makeRoot();
+        const orphanedId = '65656565-6565-4656-8656-656565656565';
+        const retainedId = '66666666-6666-4666-8666-666666666666';
+        const orphanedDatabase = new Database(path.join(root, 'conversations', `${orphanedId}.db`), {
+            create: true,
+        });
+        orphanedDatabase.close();
+        await Bun.write(path.join(root, 'conversations', `${retainedId}.pb`), new Uint8Array([1, 2, 3]));
+
+        const conversations = await listAntigravityConversations([root]);
+
+        expect(conversations.map((conversation) => conversation.conversationId)).toEqual([retainedId]);
+    });
+
+    it('should still surface malformed Antigravity trajectory databases', async () => {
+        const root = await makeRoot();
+        const conversationId = '67676767-6767-4676-8676-676767676767';
+        await Bun.write(path.join(root, 'conversations', `${conversationId}.db`), 'not a sqlite database');
+
+        await expect(listAntigravityConversations([root])).rejects.toThrow(/malformed|not a database/iu);
+    });
+
     it('should render markdown exports for Antigravity brain artifacts', async () => {
         const root = await makeRoot();
         const conversationId = '55555555-5555-4555-8555-555555555555';
@@ -1028,7 +1051,9 @@ describe('antigravity db discovery', () => {
         const deletedDatabaseWalPath = `${deletedDatabasePath}-wal`;
         const deletedTranscriptPath = path.join(deletedLogsDir, 'overview.txt');
         const deletedFullTranscriptPath = path.join(deletedLogsDir, 'transcript_full.jsonl');
+        const deletedAnnotationPath = path.join(root, 'annotations', `${deletedId}.pbtxt`);
         await mkdir(deletedLogsDir, { recursive: true });
+        await mkdir(path.dirname(deletedAnnotationPath), { recursive: true });
         await Bun.write(
             path.join(root, 'agyhub_summaries_proto.pb'),
             encodeSummaryIndex([
@@ -1042,6 +1067,7 @@ describe('antigravity db discovery', () => {
         await Bun.write(deletedDatabaseWalPath, new Uint8Array([8]));
         await Bun.write(deletedTranscriptPath, '{}\n');
         await Bun.write(deletedFullTranscriptPath, '{}\n');
+        await Bun.write(deletedAnnotationPath, 'last_user_view_time: { seconds: 1700000000 }\n');
         await Bun.write(path.join(deletedArtifactDir, 'artifact.md'), 'Generated artifact.\n');
         await Bun.write(path.join(root, 'conversations', `${retainedId}.pb`), new Uint8Array([4, 5]));
 
@@ -1051,6 +1077,7 @@ describe('antigravity db discovery', () => {
         expect(result.deletedPaths.sort()).toEqual(
             [
                 deletedArtifactDir,
+                deletedAnnotationPath,
                 deletedConversationPath,
                 deletedDatabasePath,
                 deletedDatabaseShmPath,
@@ -1065,10 +1092,62 @@ describe('antigravity db discovery', () => {
         expect(await Bun.file(deletedDatabaseWalPath).exists()).toBe(false);
         expect(await Bun.file(deletedTranscriptPath).exists()).toBe(false);
         expect(await Bun.file(deletedFullTranscriptPath).exists()).toBe(false);
+        expect(await Bun.file(deletedAnnotationPath).exists()).toBe(false);
         expect(await Bun.file(path.join(deletedArtifactDir, 'artifact.md')).exists()).toBe(false);
 
         const conversations = await listAntigravityConversations([root]);
         expect(conversations.map((conversation) => conversation.conversationId)).toEqual([retainedId]);
+    });
+
+    it('should report incomplete deletion when a recreated conversation database remains', async () => {
+        const root = await makeRoot();
+        const conversationId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+        const databasePath = path.join(root, 'conversations', `${conversationId}.db`);
+        await Bun.write(databasePath, new Uint8Array([1, 2, 3]));
+        let recreated = false;
+        const recreateAfterUnlink = (async () => {
+            for (let attempt = 0; attempt < 100; attempt += 1) {
+                if (!(await Bun.file(databasePath).exists())) {
+                    await Bun.write(databasePath, new Uint8Array([4, 5, 6]));
+                    recreated = true;
+                    return;
+                }
+                await Bun.sleep(1);
+            }
+        })();
+
+        const result = await deleteAntigravityConversation([root], conversationId);
+        await recreateAfterUnlink;
+
+        expect(recreated).toBe(true);
+        expect(result.deletedConversationIds).toEqual([]);
+        expect(await Bun.file(databasePath).exists()).toBe(true);
+        expect(result.deletedPaths).toContain(databasePath);
+    });
+
+    it('should report incomplete deletion when Antigravity recreates the database after cleanup', async () => {
+        const root = await makeRoot();
+        const conversationId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+        const databasePath = path.join(root, 'conversations', `${conversationId}.db`);
+        await Bun.write(databasePath, new Uint8Array([1, 2, 3]));
+        let recreationAttempts = 0;
+        const recreateAfterUnlink = (async () => {
+            for (let attempt = 0; attempt < 4; attempt += 1) {
+                if (!(await Bun.file(databasePath).exists())) {
+                    await Bun.write(databasePath, new Uint8Array([4, 5, 6]));
+                    recreationAttempts += 1;
+                }
+                await Bun.sleep(1);
+            }
+        })();
+
+        const result = await deleteAntigravityConversation([root], conversationId);
+        await recreateAfterUnlink;
+
+        expect(recreationAttempts).toBeGreaterThan(0);
+        expect(result.deletedConversationIds).toEqual([]);
+        expect(await Bun.file(databasePath).exists()).toBe(true);
+        expect(result.deletedPaths).toContain(databasePath);
     });
 
     it('should replace a read-only Antigravity summary index atomically', async () => {

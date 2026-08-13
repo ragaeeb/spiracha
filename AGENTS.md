@@ -26,7 +26,7 @@ Main entrypoints:
 - Do not use decorative repeated-character section headers.
 - Use `it('should...')` style tests.
 - Unit tests live next to their implementation.
-- `apps/ui/src/routeTree.gen.ts` is generated and must not be manually edited.
+- `src/ui/routeTree.gen.ts` is generated and must not be manually edited.
 
 ## Architecture
 
@@ -97,9 +97,9 @@ Shared utilities:
 - `src/coverage-check.ts`
 
 UI source tree:
-- `apps/ui/`
+- `src/ui/`
   - TanStack Start browser UI
-  - API routes live under `apps/ui/src/routes/api.v1.*.ts`
+  - API routes live under `src/ui/routes/api.v1.*.ts`
   - source routes include `/threads/$threadId`, `/claude-code-sessions/$sessionId`, `/cline-tasks/$taskId`, `/grok-sessions/$sessionId`, `/kiro-sessions/$sessionId`, `/qoder-sessions/$sessionId`, `/cursor-threads/$composerId`, `/antigravity-conversations/$conversationId`, `/minimax-code-sessions/$sessionId`, and `/opencode-sessions/$sessionId`
 
 ## Stable API Contract
@@ -151,7 +151,7 @@ When changing risky areas:
 - Source adapter changes: update the matching `src/lib/conversation-data/*-adapter.ts` tests or add one next to the adapter.
 - Transcript parsing/rendering: update the matching source transcript tests.
 - Codex browsing/delete/analytics: update `src/lib/codex-browser-db.test.ts` and `src/lib/codex-analytics.test.ts`.
-- UI behavior: update/add Vitest files under `apps/ui/src/**/*.vitest.tsx`.
+- UI behavior: update/add Vitest files under `src/ui/**/*.vitest.tsx`.
 - API route behavior: add a real UI server/browser smoke when route registration or SSR behavior changes.
 
 ## Common Commands
@@ -171,7 +171,7 @@ rtk bun run test:ui
 
 - Keep root-package source modules imported by the UI available through `@spiracha/lib/*`.
 - The repository has one package manifest. Keep UI runtime dependencies needed by packaged `bunx spiracha` in root `dependencies` and build/test-only tooling in root `devDependencies`.
-- Root-owned UI Vite commands use `apps/ui` as their internal working directory and run through `bun --bun` because TanStack and server functions depend on that application root and Bun-only modules like `bun:sqlite`. Do not add a nested manifest to achieve this. UI Vitest commands use the normal Node runtime.
+- UI Vite commands run from the repository root with `bun --bun`, so TanStack, server functions, the stable API, and the browser route tree all resolve from one manifest and one dependency graph. UI Vitest commands use the normal Node runtime.
 - TanStack Start server functions should use `.validator(...)`, not deprecated `.inputValidator(...)`.
 - API routes should use route-level `server.handlers`.
 - Keep `*-transcript-phase.ts` modules browser-safe; UI client adapters import them directly.

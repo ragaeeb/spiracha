@@ -1,7 +1,7 @@
 # spiracha
 
 <p align="center">
-  <img src="apps/ui/public/icon.svg" alt="Spiracha icon" width="96" height="100">
+  <img src="public/icon.svg" alt="Spiracha icon" width="96" height="100">
 </p>
 
 [![license](https://img.shields.io/npm/l/spiracha)](LICENSE.md)
@@ -180,11 +180,11 @@ bun run test:ui
 
 `bun run coverage` enforces at least 90% line coverage independently for the root Bun suite and the UI Vitest suite, and reports function coverage and per-file hotspots for follow-up.
 
-Run one root test file with `bun test src/lib/shared.test.ts`. Run one UI test file with `bun run test:ui --run apps/ui/src/components/export-dialog.vitest.tsx`.
+Run one root test file with `bun test src/lib/shared.test.ts`. Run one UI test file with `bun run test:ui --run src/ui/components/export-dialog.vitest.tsx`.
 
-Spiracha has one package manifest. The `apps/ui` directory remains a source boundary, but all UI and direct-client commands and dependencies are owned at the repository root. Root-owned Vite commands use `apps/ui` as their internal working directory and run through `bun --bun` because TanStack server functions import Bun-only modules such as `bun:sqlite`; Vitest uses its normal Node runtime.
+Spiracha has one application boundary: the stable API, server functions, browser route tree, and UI all live under the root package and resolve through one manifest and one dependency graph. Vite runs from the repository root with Bun because TanStack server functions import Bun-only modules such as `bun:sqlite`; Vitest uses its normal Node runtime.
 
-TanStack Router generates `apps/ui/src/routeTree.gen.ts` during development/build. Do not edit it manually; after adding or renaming route files, run `bun run build` (or start the dev server) and include the generated update.
+TanStack Router generates `src/ui/routeTree.gen.ts` during development/build. Do not edit it manually; after adding or renaming route files, run `bun run build` (or start the dev server) and include the generated update.
 
 ## Breaking Consequences
 

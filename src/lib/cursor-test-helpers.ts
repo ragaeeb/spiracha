@@ -25,6 +25,9 @@ export type FixtureThread = {
     headRichText?: string;
     headText?: string;
     unifiedMode?: string;
+    model?: string;
+    reasoningEffort?: string;
+    status?: string;
     bubbles: FixtureBubble[];
     omittedBubbleHeaders?: number;
 };
@@ -41,6 +44,13 @@ export type CursorFixtureSpec = {
     buckets: FixtureBucket[];
     threads: FixtureThread[];
     headerLinks?: Array<{ composerId: string; bucketId: string; uriPath?: string }>;
+    composerTableHeaders?: Array<{
+        composerId: string;
+        bucketId: string;
+        isSubagent?: boolean;
+        isArchived?: boolean;
+        parentComposerId?: string;
+    }>;
     historyEntries?: Array<{ resource: string; timestamps?: number[] }>;
 };
 
@@ -89,8 +99,20 @@ const writeGlobalThread = (db: Database, thread: FixtureThread) => {
         createdAt: thread.createdAt ?? null,
         fullConversationHeadersOnly: orderedHeaders,
         lastUpdatedAt: thread.lastUpdatedAt ?? null,
+        modelConfig: thread.model
+            ? {
+                  modelName: thread.model,
+                  selectedModels: [
+                      {
+                          modelId: thread.model,
+                          parameters: thread.reasoningEffort ? [{ id: 'effort', value: thread.reasoningEffort }] : [],
+                      },
+                  ],
+              }
+            : undefined,
         name: thread.name ?? null,
         richText: thread.headRichText ?? '',
+        status: thread.status,
         text: thread.headText ?? '',
         totalBubbleHeaderCount: orderedHeaders.length + omitted,
         unifiedMode: thread.unifiedMode ?? 'agent',
@@ -132,6 +154,43 @@ const buildHeaderEntry = (thread: FixtureThread, bucketId: string, uriPath?: str
     workspaceIdentifier: buildWorkspaceIdentifier(bucketId, uriPath),
 });
 
+const writeModernHeaders = (
+    db: Database,
+    links: NonNullable<CursorFixtureSpec['composerTableHeaders']>,
+    threadsById: Map<string, FixtureThread>,
+) => {
+    db.exec(
+        'CREATE TABLE composerHeaders (composerId TEXT PRIMARY KEY, workspaceId TEXT, createdAt INTEGER, lastUpdatedAt INTEGER, isArchived INTEGER, isSubagent INTEGER, recency INTEGER, checkpointAt INTEGER, value TEXT)',
+    );
+    for (const link of links) {
+        const thread = threadsById.get(link.composerId);
+        if (!thread) {
+            continue;
+        }
+        const header = {
+            ...buildHeaderEntry(thread, link.bucketId),
+            subagentInfo: link.parentComposerId
+                ? {
+                      parentComposerId: link.parentComposerId,
+                      rootParentConversationId: link.parentComposerId,
+                  }
+                : undefined,
+        };
+        db.run(
+            'INSERT INTO composerHeaders (composerId, workspaceId, createdAt, lastUpdatedAt, isArchived, isSubagent, recency, checkpointAt, value) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?)',
+            [
+                link.composerId,
+                link.bucketId,
+                thread.createdAt ?? null,
+                thread.lastUpdatedAt ?? null,
+                link.isArchived ? 1 : 0,
+                link.isSubagent ? 1 : 0,
+                JSON.stringify(header),
+            ],
+        );
+    }
+};
+
 const writeGlobalDb = async (userDir: string, spec: CursorFixtureSpec) => {
     const globalDir = path.join(userDir, 'globalStorage');
     await mkdir(globalDir, { recursive: true });
@@ -150,6 +209,10 @@ const writeGlobalDb = async (userDir: string, spec: CursorFixtureSpec) => {
             })
             .filter((entry): entry is ReturnType<typeof buildHeaderEntry> => entry !== null);
         insertItem(db, 'composer.composerHeaders', { allComposers: headers });
+
+        if (spec.composerTableHeaders) {
+            writeModernHeaders(db, spec.composerTableHeaders, threadsById);
+        }
     } finally {
         db.close();
     }

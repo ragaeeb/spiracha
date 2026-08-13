@@ -6,13 +6,13 @@ describe('coverage check helpers', () => {
         const summary = summarizeLcovReport(
             'ui',
             [
-                'SF:src/components/theme-toggle.tsx',
+                'SF:src/ui/components/theme-toggle.tsx',
                 'FNF:2',
                 'FNH:2',
                 'LF:10',
                 'LH:9',
                 'end_of_record',
-                'SF:src/components/ui/dialog.tsx',
+                'SF:src/ui/components/ui/dialog.tsx',
                 'FNF:10',
                 'FNH:0',
                 'LF:20',
@@ -24,7 +24,7 @@ describe('coverage check helpers', () => {
         expect(summary.lineCoverage).toBe(90);
         expect(summary.functionCoverage).toBe(100);
         expect(summary.fileSummaries).toHaveLength(1);
-        expect(summary.fileSummaries[0]?.filePath).toBe('src/components/theme-toggle.tsx');
+        expect(summary.fileSummaries[0]?.filePath).toBe('src/ui/components/theme-toggle.tsx');
     });
 
     it('should split lcov records correctly for CRLF line endings and missing trailing newlines', () => {

@@ -1,0 +1,53 @@
+import { useSuspenseQuery } from '@tanstack/react-query';
+import { createFileRoute } from '@tanstack/react-router';
+import { useDeferredValue, useState } from 'react';
+import { KiroWorkspacesTable } from '#/components/kiro-workspaces-table';
+import { ListSearchInput } from '#/components/list-search-input';
+import { LoadingPanel } from '#/components/loading-panel';
+import { PageHeader } from '#/components/page-header';
+import { RouteErrorPanel } from '#/components/route-error-panel';
+import { kiroWorkspacesQueryOptions } from '#/lib/kiro-queries';
+import { matchesTextQuery } from '#/lib/text-filter';
+
+const KiroErrorComponent = ({ error }: { error: Error }) => {
+    return <RouteErrorPanel error={error} title="Failed to load Kiro workspaces" />;
+};
+
+const KiroPage = () => {
+    const workspaces = useSuspenseQuery(kiroWorkspacesQueryOptions()).data;
+    const [searchInput, setSearchInput] = useState('');
+    const deferredSearch = useDeferredValue(searchInput);
+
+    const visibleWorkspaces = workspaces.filter((workspace) =>
+        matchesTextQuery(deferredSearch, [workspace.label, workspace.worktree, workspace.key, workspace.directoryName]),
+    );
+
+    return (
+        <div className="space-y-4">
+            <PageHeader
+                actions={
+                    <ListSearchInput
+                        placeholder="Search workspace name or path"
+                        value={searchInput}
+                        onValueChange={setSearchInput}
+                    />
+                }
+                eyebrow="Inventory"
+                subtitle="Workspace groups are derived from local Kiro workspace session files."
+                title="Kiro"
+            />
+
+            <KiroWorkspacesTable workspaces={visibleWorkspaces} />
+        </div>
+    );
+};
+
+export const Route = createFileRoute('/kiro/')({
+    component: KiroPage,
+    errorComponent: KiroErrorComponent,
+    loader: ({ context }) => context.queryClient.ensureQueryData(kiroWorkspacesQueryOptions()),
+    pendingComponent: () => (
+        <LoadingPanel description="Loading Kiro workspace and session metadata." title="Loading Kiro" />
+    ),
+    pendingMs: 0,
+});

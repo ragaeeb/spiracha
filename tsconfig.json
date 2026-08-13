@@ -1,5 +1,6 @@
 {
     "compilerOptions": {
+        "allowImportingTsExtensions": true,
         "allowSyntheticDefaultImports": true,
         "allowUnreachableCode": false,
         "allowUnusedLabels": false,
@@ -9,7 +10,8 @@
         "forceConsistentCasingInFileNames": true,
         "importHelpers": false,
         "isolatedModules": true,
-        "lib": ["ESNext", "DOM"],
+        "jsx": "react-jsx",
+        "lib": ["ESNext", "DOM", "DOM.Iterable"],
         "module": "ESNext",
         "moduleDetection": "force",
         "moduleResolution": "Bundler",
@@ -20,7 +22,9 @@
         "noUnusedParameters": true,
         "outDir": "./dist",
         "paths": {
-            "@/*": ["./src/*"]
+            "@/*": ["./src/*"],
+            "@spiracha/*": ["./src/*"],
+            "#/*": ["./src/ui/*"]
         },
         "removeComments": false,
         "rootDir": ".",
@@ -29,7 +33,7 @@
         "sourceMap": true,
         "strict": true,
         "target": "ESNext",
-        "types": ["bun", "node"],
+        "types": ["bun", "node", "vite/client"],
         "verbatimModuleSyntax": true
     },
     "exclude": ["node_modules", "dist"],

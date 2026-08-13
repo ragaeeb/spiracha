@@ -41,6 +41,10 @@ export type ClaudeCodeWorkspaceGroup = {
     worktree: string;
 };
 
+export type ClaudeCodeSessionHierarchy = {
+    parentSessionId: string | null;
+};
+
 export type ClaudeCodeSessionSummary = {
     assistantMessageCount: number;
     attachmentCount: number;
@@ -51,6 +55,7 @@ export type ClaudeCodeSessionSummary = {
     cwd: string | null;
     filePath: string;
     gitBranch: string | null;
+    hierarchy: ClaudeCodeSessionHierarchy;
     inputTokens: number;
     lastActiveAtIso: string | null;
     lastActiveAtMs: number | null;

@@ -11,7 +11,7 @@ export const resolveSpirachaPackageRoot = (binDir = import.meta.dir): string => 
 
 export const buildSpirachaDevServerCommand = (packageRoot = resolveSpirachaPackageRoot()): SpirachaDevServerCommand => ({
     args: ['--bun', 'vite', 'dev', '--host', '127.0.0.1', '--port', process.env.PORT || '3000'],
-    cwd: path.join(packageRoot, 'apps', 'ui'),
+    cwd: packageRoot,
 });
 
 type SpirachaChildProcess = {

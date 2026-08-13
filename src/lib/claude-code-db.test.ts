@@ -35,6 +35,20 @@ const writeSession = async (projectsDir: string, projectDirName: string, session
     await writeJsonl(path.join(projectDir, `${sessionId}.jsonl`), records);
 };
 
+const writeSubagent = async (
+    projectsDir: string,
+    projectDirName: string,
+    parentSessionId: string,
+    agentId: string,
+    records: unknown[],
+    metadata: Record<string, unknown>,
+) => {
+    const subagentsDir = path.join(projectsDir, projectDirName, parentSessionId, 'subagents');
+    await mkdir(subagentsDir, { recursive: true });
+    await writeJsonl(path.join(subagentsDir, `${agentId}.jsonl`), records);
+    await Bun.write(path.join(subagentsDir, `${agentId}.meta.json`), JSON.stringify(metadata));
+};
+
 const buildSessionRecords = (sessionId: string, cwd: string, firstTimestamp = '2026-06-01T10:00:00.000Z') => [
     {
         cwd,
@@ -281,6 +295,70 @@ describe('claude code workspace discovery', () => {
             type: 'tool_result',
         });
         expect(transcript?.rawEvents).toHaveLength(3);
+    });
+
+    it('should list Claude Code sub-agents beneath their parent with metadata titles and models', async () => {
+        const projectsDir = await makeTempRoot();
+        const projectDirName = '-Users-rhaq-workspace-ushman-corpus';
+        const parentSessionId = 'parent-session';
+        const agentId = 'agent-a1d79cbf732582863';
+        await writeSession(
+            projectsDir,
+            projectDirName,
+            parentSessionId,
+            buildSessionRecords(parentSessionId, corpusCwd),
+        );
+        await writeSubagent(
+            projectsDir,
+            projectDirName,
+            parentSessionId,
+            agentId,
+            [
+                {
+                    cwd: corpusCwd,
+                    isSidechain: true,
+                    message: { content: 'Implement the requested issues.', role: 'user' },
+                    sessionId: parentSessionId,
+                    timestamp: '2026-06-01T10:01:00.000Z',
+                    type: 'user',
+                    uuid: 'subagent-user',
+                },
+                {
+                    cwd: corpusCwd,
+                    isSidechain: true,
+                    message: { content: 'The issues are implemented.', model: 'claude-opus-5', role: 'assistant' },
+                    parentUuid: 'subagent-user',
+                    sessionId: parentSessionId,
+                    timestamp: '2026-06-01T10:01:01.000Z',
+                    type: 'assistant',
+                    uuid: 'subagent-assistant',
+                },
+            ],
+            { agentType: 'general-purpose', description: 'Implement fingerprint #100 and #101', model: 'opus' },
+        );
+
+        const sessions = await listClaudeCodeSessionsForGroup(
+            'project:-Users-rhaq-workspace-ushman-corpus',
+            projectsDir,
+        );
+        const childTranscript = await readClaudeCodeSessionTranscript(projectsDir, agentId);
+        const child = sessions.find((session) => session.sessionId === agentId);
+
+        expect(sessions).toHaveLength(2);
+        expect(child).toMatchObject({
+            hierarchy: { parentSessionId },
+            model: 'claude-opus-5',
+            sessionId: agentId,
+            title: 'Implement fingerprint #100 and #101',
+        });
+        expect(childTranscript?.session).toMatchObject({
+            model: 'claude-opus-5',
+            sessionId: agentId,
+            title: 'Implement fingerprint #100 and #101',
+        });
+        expect(sessions.find((session) => session.sessionId === parentSessionId)).toMatchObject({
+            hierarchy: { parentSessionId: null },
+        });
     });
 
     it('should count Claude response fragments once and exclude synthetic user rows from message totals', async () => {
