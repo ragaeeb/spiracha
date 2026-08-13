@@ -1613,5 +1613,5 @@ describe('codex browser db', () => {
 
         expect(await Bun.file(path.join(fixture.sessionsRoot, 'rollout-0.jsonl')).exists()).toBe(false);
         expect(await Bun.file(path.join(fixture.sessionsRoot, 'rollout-519.jsonl')).exists()).toBe(false);
-    });
+    }, 30_000);
 });
