@@ -116,6 +116,36 @@ const UNKNOWN_WORKSPACE: WorkspaceInfo = {
     workspaceUri: null,
 };
 
+const ANTIGRAVITY_SQLITE_CLEANUP_ATTEMPT_TIMEOUT_MS = 2_500;
+const ANTIGRAVITY_SQLITE_CLEANUP_LOCK_POLL_INTERVAL_MS = 25;
+const ANTIGRAVITY_SQLITE_CLEANUP_RECREATION_WATCH_MS = 120;
+type AntigravityDatabase = {
+    close: () => void;
+    exec: (query: string) => void;
+};
+
+type AntigravityDatabaseConstructor = new (databasePath: string) => AntigravityDatabase;
+
+let antigravityDatabaseConstructorPromise: Promise<AntigravityDatabaseConstructor | null> | undefined;
+
+const getAntigravityDatabaseConstructor = async () => {
+    if (!antigravityDatabaseConstructorPromise) {
+        antigravityDatabaseConstructorPromise = (async () => {
+            try {
+                const importSqlite = new Function('moduleName', 'return import(moduleName)') as (
+                    specifier: string,
+                ) => Promise<{ Database: AntigravityDatabaseConstructor }>;
+                const sqlite = await importSqlite('bun:sqlite');
+                return sqlite.Database;
+            } catch {
+                return null;
+            }
+        })();
+    }
+
+    return antigravityDatabaseConstructorPromise;
+};
+
 const decoder = new TextDecoder();
 
 const pathExists = async (target: string): Promise<boolean> => {
@@ -1198,6 +1228,149 @@ const removeAntigravityConversationPaths = async (root: string, conversationId: 
     await rm(path.join(getAntigravityBrainDir(root), conversationId), { force: true, recursive: true });
 };
 
+const getAntigravityConversationDatabasePath = (root: string, conversationId: string) =>
+    path.join(getAntigravityConversationDir(root), `${conversationId}.db`);
+
+const tryAcquireAntigravityConversationDbOwner = async (databasePath: string): Promise<boolean> => {
+    const Database = await getAntigravityDatabaseConstructor();
+    if (!Database) {
+        return true;
+    }
+
+    let db: AntigravityDatabase | undefined;
+    try {
+        db = new Database(databasePath);
+        db.exec('PRAGMA busy_timeout = 250');
+        db.exec('BEGIN IMMEDIATE');
+        db.exec('COMMIT');
+        return true;
+    } catch (error) {
+        const message = String(error).toLowerCase();
+        return !(message.includes('database is locked') || message.includes('database is busy'));
+    } finally {
+        db?.close();
+    }
+};
+
+const waitForAntigravityConversationDbOwnership = async (
+    databasePath: string,
+    options: {
+        requireMissingStability?: boolean;
+        maxWaitMs?: number;
+    } = {},
+) => {
+    const { requireMissingStability = false, maxWaitMs = ANTIGRAVITY_SQLITE_CLEANUP_ATTEMPT_TIMEOUT_MS } = options;
+    const deadline = Date.now() + maxWaitMs;
+
+    while (Date.now() < deadline) {
+        if (!(await pathExists(databasePath))) {
+            if (!requireMissingStability) {
+                return true;
+            }
+            await Bun.sleep(ANTIGRAVITY_SQLITE_CLEANUP_LOCK_POLL_INTERVAL_MS);
+            continue;
+        }
+
+        if (requireMissingStability) {
+            return false;
+        }
+
+        if (await tryAcquireAntigravityConversationDbOwner(databasePath)) {
+            return true;
+        }
+
+        await Bun.sleep(ANTIGRAVITY_SQLITE_CLEANUP_LOCK_POLL_INTERVAL_MS);
+    }
+
+    return requireMissingStability;
+};
+
+const listExistingAntigravityDeletePaths = async (roots: string[], conversationId: string): Promise<string[]> => {
+    const grouped = await Promise.all(roots.map((root) => existingAntigravityDeletePaths(root, conversationId)));
+    return grouped.flat();
+};
+
+type AntigravityConversationRemoval = {
+    conversationRootsWithDatabasePath: Set<string>;
+    deletedPaths: string[];
+    deletedSummary: boolean;
+};
+
+const removeAntigravityConversationFromRoots = async (
+    roots: string[],
+    conversationId: string,
+): Promise<AntigravityConversationRemoval> => {
+    const deletedPaths: string[] = [];
+    let deletedSummary = false;
+    const conversationRootsWithDatabasePath = new Set<string>();
+
+    for (const root of roots) {
+        deletedSummary =
+            (await removeConversationFromSummaryIndex(getAntigravitySummaryIndexPath(root), conversationId)) ||
+            deletedSummary;
+
+        const rootPaths = await existingAntigravityDeletePaths(root, conversationId);
+        const databasePath = getAntigravityConversationDatabasePath(root, conversationId);
+        if (rootPaths.includes(databasePath)) {
+            conversationRootsWithDatabasePath.add(root);
+        }
+        deletedPaths.push(...rootPaths);
+        await removeAntigravityConversationPaths(root, conversationId);
+    }
+
+    return {
+        conversationRootsWithDatabasePath,
+        deletedPaths,
+        deletedSummary,
+    };
+};
+
+const waitForAntigravityConversationCleanup = async (
+    roots: string[],
+    conversationId: string,
+    conversationRootsWithDatabasePath: Set<string>,
+): Promise<boolean> => {
+    let hadOwnershipTimeout = false;
+
+    for (const root of roots) {
+        const databasePath = getAntigravityConversationDatabasePath(root, conversationId);
+        if (await pathExists(databasePath)) {
+            hadOwnershipTimeout =
+                hadOwnershipTimeout || !(await waitForAntigravityConversationDbOwnership(databasePath));
+        }
+    }
+
+    for (const root of roots) {
+        await removeConversationFromSummaryIndex(getAntigravitySummaryIndexPath(root), conversationId);
+        await removeAntigravityConversationPaths(root, conversationId);
+    }
+
+    for (const root of roots) {
+        const databasePath = getAntigravityConversationDatabasePath(root, conversationId);
+        if (await pathExists(databasePath)) {
+            hadOwnershipTimeout =
+                hadOwnershipTimeout ||
+                !(await waitForAntigravityConversationDbOwnership(databasePath, {
+                    maxWaitMs: ANTIGRAVITY_SQLITE_CLEANUP_RECREATION_WATCH_MS,
+                }));
+        }
+    }
+
+    for (const root of conversationRootsWithDatabasePath) {
+        const databasePath = getAntigravityConversationDatabasePath(root, conversationId);
+        if (!(await pathExists(databasePath))) {
+            hadOwnershipTimeout =
+                hadOwnershipTimeout ||
+                !(await waitForAntigravityConversationDbOwnership(databasePath, {
+                    maxWaitMs: ANTIGRAVITY_SQLITE_CLEANUP_RECREATION_WATCH_MS,
+                    requireMissingStability: true,
+                }));
+        }
+    }
+
+    return hadOwnershipTimeout;
+};
+
 export const deleteAntigravityConversation = async (
     roots: string[],
     conversationId: string,
@@ -1206,24 +1379,22 @@ export const deleteAntigravityConversation = async (
         return { deletedConversationIds: [], deletedPaths: [] };
     }
 
-    const deletedPaths: string[] = [];
-    let deletedSummary = false;
-
-    for (const root of roots) {
-        deletedSummary =
-            (await removeConversationFromSummaryIndex(getAntigravitySummaryIndexPath(root), conversationId)) ||
-            deletedSummary;
-
-        const rootPaths = await existingAntigravityDeletePaths(root, conversationId);
-        deletedPaths.push(...rootPaths);
-        await removeAntigravityConversationPaths(root, conversationId);
-    }
+    const removal = await removeAntigravityConversationFromRoots(roots, conversationId);
+    const { conversationRootsWithDatabasePath, deletedPaths, deletedSummary } = removal;
 
     if (deletedSummary || deletedPaths.length > 0) {
-        await Bun.sleep(10);
-        for (const root of roots) {
-            await removeConversationFromSummaryIndex(getAntigravitySummaryIndexPath(root), conversationId);
-            await removeAntigravityConversationPaths(root, conversationId);
+        const hadOwnershipTimeout = await waitForAntigravityConversationCleanup(
+            roots,
+            conversationId,
+            conversationRootsWithDatabasePath,
+        );
+
+        const remainingPaths = await listExistingAntigravityDeletePaths(roots, conversationId);
+        if (hadOwnershipTimeout || remainingPaths.length > 0) {
+            return {
+                deletedConversationIds: [],
+                deletedPaths: [...new Set([...deletedPaths, ...remainingPaths])],
+            };
         }
     }
 

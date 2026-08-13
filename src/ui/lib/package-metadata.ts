@@ -1,4 +1,4 @@
-import packageJsonRaw from '../../../../package.json?raw';
+import packageJsonRaw from '../../../package.json?raw';
 
 type PackageMetadata = {
     homepage: string;

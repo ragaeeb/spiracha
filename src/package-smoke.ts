@@ -83,20 +83,34 @@ const runCommand = async (argv: string[], cwd: string) => {
     }
 };
 
-const waitForServer = async (url: string) => {
+const waitForServer = async (url: string): Promise<PackagedUiProbe> => {
     const deadline = Date.now() + STARTUP_TIMEOUT_MS;
     let lastError = 'no response';
 
     while (Date.now() < deadline) {
+        const remainingMs = Math.max(1, deadline - Date.now());
+        const startupSignal = AbortSignal.timeout(remainingMs);
+        const abortController = new AbortController();
+        const timeoutId = setTimeout(() => abortController.abort(), remainingMs);
+        const signal = AbortSignal.any([startupSignal, abortController.signal]);
+
         try {
-            const response = await fetch(url);
+            const response = await fetch(url, { signal });
             if (response.ok) {
-                return response;
+                clearTimeout(timeoutId);
+                return {
+                    bodyText: await response.text(),
+                    contentType: response.headers.get('content-type'),
+                    ok: response.ok,
+                };
             }
 
             lastError = `HTTP ${response.status}`;
         } catch (error) {
             lastError = error instanceof Error ? error.message : String(error);
+        } finally {
+            clearTimeout(timeoutId);
+            abortController.abort();
         }
 
         await Bun.sleep(250);
@@ -133,16 +147,12 @@ export const runPackagedUiSmokeTest = async (cwd = process.cwd()) => {
         const url = `http://${HOST}:${port}/`;
 
         try {
-            const response = await waitForServer(url);
-            const probe = {
-                bodyText: await response.text(),
-                contentType: response.headers.get('content-type'),
-                ok: response.ok,
-            };
+            const probe = await waitForServer(url);
             if (!isPackagedUiHealthyResponse(probe)) {
                 throw new Error(`Packaged Spiracha returned an unhealthy response at ${url}.`);
             }
         } catch (error) {
+            proc.kill('SIGTERM');
             const [stdoutText, stderrText] = await Promise.all([stdoutPromise, stderrPromise]);
             throw new Error(
                 [

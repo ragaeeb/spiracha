@@ -9,59 +9,54 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as SettingsRouteImport } from './routes/settings'
-import { Route as AnalyticsRouteImport } from './routes/analytics'
-import { Route as ThreadIdRouteImport } from './routes/$threadId'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as QoderIndexRouteImport } from './routes/qoder.index'
-import { Route as OpencodeIndexRouteImport } from './routes/opencode.index'
-import { Route as MinimaxCodeIndexRouteImport } from './routes/minimax-code.index'
-import { Route as KiroIndexRouteImport } from './routes/kiro.index'
-import { Route as GrokIndexRouteImport } from './routes/grok.index'
-import { Route as CursorIndexRouteImport } from './routes/cursor.index'
-import { Route as CodexIndexRouteImport } from './routes/codex.index'
-import { Route as ClineIndexRouteImport } from './routes/cline.index'
-import { Route as ClaudeCodeIndexRouteImport } from './routes/claude-code.index'
-import { Route as AntigravityIndexRouteImport } from './routes/antigravity.index'
-import { Route as ThreadsThreadIdRouteImport } from './routes/threads.$threadId'
-import { Route as QoderWorkspaceKeyRouteImport } from './routes/qoder.$workspaceKey'
-import { Route as QoderSessionsSessionIdRouteImport } from './routes/qoder-sessions.$sessionId'
-import { Route as OpencodeWorkspaceKeyRouteImport } from './routes/opencode.$workspaceKey'
-import { Route as OpencodeSessionsSessionIdRouteImport } from './routes/opencode-sessions.$sessionId'
-import { Route as MinimaxCodeWorkspaceKeyRouteImport } from './routes/minimax-code.$workspaceKey'
-import { Route as MinimaxCodeSessionsSessionIdRouteImport } from './routes/minimax-code-sessions.$sessionId'
-import { Route as KiroWorkspaceKeyRouteImport } from './routes/kiro.$workspaceKey'
-import { Route as KiroSessionsSessionIdRouteImport } from './routes/kiro-sessions.$sessionId'
-import { Route as GrokWorkspaceKeyRouteImport } from './routes/grok.$workspaceKey'
-import { Route as GrokSessionsSessionIdRouteImport } from './routes/grok-sessions.$sessionId'
-import { Route as CursorWorkspaceKeyRouteImport } from './routes/cursor.$workspaceKey'
-import { Route as CursorThreadsComposerIdRouteImport } from './routes/cursor-threads.$composerId'
-import { Route as CodexProjectRouteImport } from './routes/codex.$project'
-import { Route as ClineWorkspaceKeyRouteImport } from './routes/cline.$workspaceKey'
-import { Route as ClineTasksTaskIdRouteImport } from './routes/cline-tasks.$taskId'
-import { Route as ClaudeCodeWorkspaceKeyRouteImport } from './routes/claude-code.$workspaceKey'
-import { Route as ClaudeCodeSessionsSessionIdRouteImport } from './routes/claude-code-sessions.$sessionId'
-import { Route as AntigravityWorkspaceKeyRouteImport } from './routes/antigravity.$workspaceKey'
+import { Route as ThreadIdRouteImport } from './routes/$threadId'
+import { Route as AnalyticsRouteImport } from './routes/analytics'
+import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as AntigravityConversationsConversationIdRouteImport } from './routes/antigravity-conversations.$conversationId'
-import { Route as ApiV1SourcesRouteImport } from './routes/api.v1.sources'
-import { Route as ApiV1ResolveRouteImport } from './routes/api.v1.resolve'
-import { Route as ApiV1ConversationsRouteImport } from './routes/api.v1.conversations'
+import { Route as AntigravityIndexRouteImport } from './routes/antigravity.index'
+import { Route as AntigravityWorkspaceKeyRouteImport } from './routes/antigravity.$workspaceKey'
+import { Route as ClaudeCodeSessionsSessionIdRouteImport } from './routes/claude-code-sessions.$sessionId'
+import { Route as ClaudeCodeIndexRouteImport } from './routes/claude-code.index'
+import { Route as ClaudeCodeWorkspaceKeyRouteImport } from './routes/claude-code.$workspaceKey'
+import { Route as ClineTasksTaskIdRouteImport } from './routes/cline-tasks.$taskId'
+import { Route as ClineIndexRouteImport } from './routes/cline.index'
+import { Route as ClineWorkspaceKeyRouteImport } from './routes/cline.$workspaceKey'
+import { Route as CodexIndexRouteImport } from './routes/codex.index'
+import { Route as CodexProjectRouteImport } from './routes/codex.$project'
+import { Route as CursorThreadsComposerIdRouteImport } from './routes/cursor-threads.$composerId'
+import { Route as CursorIndexRouteImport } from './routes/cursor.index'
+import { Route as CursorWorkspaceKeyRouteImport } from './routes/cursor.$workspaceKey'
+import { Route as GrokSessionsSessionIdRouteImport } from './routes/grok-sessions.$sessionId'
+import { Route as GrokIndexRouteImport } from './routes/grok.index'
+import { Route as GrokWorkspaceKeyRouteImport } from './routes/grok.$workspaceKey'
+import { Route as KiroSessionsSessionIdRouteImport } from './routes/kiro-sessions.$sessionId'
+import { Route as KiroIndexRouteImport } from './routes/kiro.index'
+import { Route as KiroWorkspaceKeyRouteImport } from './routes/kiro.$workspaceKey'
+import { Route as MinimaxCodeSessionsSessionIdRouteImport } from './routes/minimax-code-sessions.$sessionId'
+import { Route as MinimaxCodeIndexRouteImport } from './routes/minimax-code.index'
+import { Route as MinimaxCodeWorkspaceKeyRouteImport } from './routes/minimax-code.$workspaceKey'
+import { Route as OpencodeSessionsSessionIdRouteImport } from './routes/opencode-sessions.$sessionId'
+import { Route as OpencodeIndexRouteImport } from './routes/opencode.index'
+import { Route as OpencodeWorkspaceKeyRouteImport } from './routes/opencode.$workspaceKey'
+import { Route as QoderSessionsSessionIdRouteImport } from './routes/qoder-sessions.$sessionId'
+import { Route as QoderIndexRouteImport } from './routes/qoder.index'
+import { Route as QoderWorkspaceKeyRouteImport } from './routes/qoder.$workspaceKey'
+import { Route as ThreadsThreadIdRouteImport } from './routes/threads.$threadId'
 import { Route as ApiV1ConversationQueryRouteImport } from './routes/api.v1.conversation-query'
-import { Route as ApiV1ConversationsExportRouteImport } from './routes/api.v1.conversations.export'
+import { Route as ApiV1ConversationsRouteImport } from './routes/api.v1.conversations'
+import { Route as ApiV1ResolveRouteImport } from './routes/api.v1.resolve'
+import { Route as ApiV1SourcesRouteImport } from './routes/api.v1.sources'
 import { Route as ApiV1ConversationsDeleteRouteImport } from './routes/api.v1.conversations.delete'
-import { Route as ApiV1ConversationsSourceIdRouteImport } from './routes/api.v1.conversations.$source.$id'
+import { Route as ApiV1ConversationsExportRouteImport } from './routes/api.v1.conversations.export'
 import { Route as ApiV1CodexThreadsEventsRouteImport } from './routes/api.v1.codex.threads.events'
-import { Route as ApiV1ConversationsSourceIdExportRouteImport } from './routes/api.v1.conversations.$source.$id.export'
+import { Route as ApiV1ConversationsSourceIdRouteImport } from './routes/api.v1.conversations.$source.$id'
 import { Route as ApiV1ConversationsSourceIdEvidenceRouteImport } from './routes/api.v1.conversations.$source.$id.evidence'
+import { Route as ApiV1ConversationsSourceIdExportRouteImport } from './routes/api.v1.conversations.$source.$id.export'
 
-const SettingsRoute = SettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AnalyticsRoute = AnalyticsRouteImport.update({
-  id: '/analytics',
-  path: '/analytics',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ThreadIdRoute = ThreadIdRouteImport.update({
@@ -69,157 +64,14 @@ const ThreadIdRoute = ThreadIdRouteImport.update({
   path: '/$threadId',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const AnalyticsRoute = AnalyticsRouteImport.update({
+  id: '/analytics',
+  path: '/analytics',
   getParentRoute: () => rootRouteImport,
 } as any)
-const QoderIndexRoute = QoderIndexRouteImport.update({
-  id: '/qoder/',
-  path: '/qoder/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const OpencodeIndexRoute = OpencodeIndexRouteImport.update({
-  id: '/opencode/',
-  path: '/opencode/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const MinimaxCodeIndexRoute = MinimaxCodeIndexRouteImport.update({
-  id: '/minimax-code/',
-  path: '/minimax-code/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const KiroIndexRoute = KiroIndexRouteImport.update({
-  id: '/kiro/',
-  path: '/kiro/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const GrokIndexRoute = GrokIndexRouteImport.update({
-  id: '/grok/',
-  path: '/grok/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CursorIndexRoute = CursorIndexRouteImport.update({
-  id: '/cursor/',
-  path: '/cursor/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CodexIndexRoute = CodexIndexRouteImport.update({
-  id: '/codex/',
-  path: '/codex/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ClineIndexRoute = ClineIndexRouteImport.update({
-  id: '/cline/',
-  path: '/cline/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ClaudeCodeIndexRoute = ClaudeCodeIndexRouteImport.update({
-  id: '/claude-code/',
-  path: '/claude-code/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AntigravityIndexRoute = AntigravityIndexRouteImport.update({
-  id: '/antigravity/',
-  path: '/antigravity/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ThreadsThreadIdRoute = ThreadsThreadIdRouteImport.update({
-  id: '/threads/$threadId',
-  path: '/threads/$threadId',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const QoderWorkspaceKeyRoute = QoderWorkspaceKeyRouteImport.update({
-  id: '/qoder/$workspaceKey',
-  path: '/qoder/$workspaceKey',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const QoderSessionsSessionIdRoute = QoderSessionsSessionIdRouteImport.update({
-  id: '/qoder-sessions/$sessionId',
-  path: '/qoder-sessions/$sessionId',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const OpencodeWorkspaceKeyRoute = OpencodeWorkspaceKeyRouteImport.update({
-  id: '/opencode/$workspaceKey',
-  path: '/opencode/$workspaceKey',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const OpencodeSessionsSessionIdRoute =
-  OpencodeSessionsSessionIdRouteImport.update({
-    id: '/opencode-sessions/$sessionId',
-    path: '/opencode-sessions/$sessionId',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const MinimaxCodeWorkspaceKeyRoute = MinimaxCodeWorkspaceKeyRouteImport.update({
-  id: '/minimax-code/$workspaceKey',
-  path: '/minimax-code/$workspaceKey',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const MinimaxCodeSessionsSessionIdRoute =
-  MinimaxCodeSessionsSessionIdRouteImport.update({
-    id: '/minimax-code-sessions/$sessionId',
-    path: '/minimax-code-sessions/$sessionId',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const KiroWorkspaceKeyRoute = KiroWorkspaceKeyRouteImport.update({
-  id: '/kiro/$workspaceKey',
-  path: '/kiro/$workspaceKey',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const KiroSessionsSessionIdRoute = KiroSessionsSessionIdRouteImport.update({
-  id: '/kiro-sessions/$sessionId',
-  path: '/kiro-sessions/$sessionId',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const GrokWorkspaceKeyRoute = GrokWorkspaceKeyRouteImport.update({
-  id: '/grok/$workspaceKey',
-  path: '/grok/$workspaceKey',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const GrokSessionsSessionIdRoute = GrokSessionsSessionIdRouteImport.update({
-  id: '/grok-sessions/$sessionId',
-  path: '/grok-sessions/$sessionId',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CursorWorkspaceKeyRoute = CursorWorkspaceKeyRouteImport.update({
-  id: '/cursor/$workspaceKey',
-  path: '/cursor/$workspaceKey',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CursorThreadsComposerIdRoute = CursorThreadsComposerIdRouteImport.update({
-  id: '/cursor-threads/$composerId',
-  path: '/cursor-threads/$composerId',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CodexProjectRoute = CodexProjectRouteImport.update({
-  id: '/codex/$project',
-  path: '/codex/$project',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ClineWorkspaceKeyRoute = ClineWorkspaceKeyRouteImport.update({
-  id: '/cline/$workspaceKey',
-  path: '/cline/$workspaceKey',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ClineTasksTaskIdRoute = ClineTasksTaskIdRouteImport.update({
-  id: '/cline-tasks/$taskId',
-  path: '/cline-tasks/$taskId',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ClaudeCodeWorkspaceKeyRoute = ClaudeCodeWorkspaceKeyRouteImport.update({
-  id: '/claude-code/$workspaceKey',
-  path: '/claude-code/$workspaceKey',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ClaudeCodeSessionsSessionIdRoute =
-  ClaudeCodeSessionsSessionIdRouteImport.update({
-    id: '/claude-code-sessions/$sessionId',
-    path: '/claude-code-sessions/$sessionId',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const AntigravityWorkspaceKeyRoute = AntigravityWorkspaceKeyRouteImport.update({
-  id: '/antigravity/$workspaceKey',
-  path: '/antigravity/$workspaceKey',
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AntigravityConversationsConversationIdRoute =
@@ -228,19 +80,152 @@ const AntigravityConversationsConversationIdRoute =
     path: '/antigravity-conversations/$conversationId',
     getParentRoute: () => rootRouteImport,
   } as any)
-const ApiV1SourcesRoute = ApiV1SourcesRouteImport.update({
-  id: '/api/v1/sources',
-  path: '/api/v1/sources',
+const AntigravityIndexRoute = AntigravityIndexRouteImport.update({
+  id: '/antigravity/',
+  path: '/antigravity/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiV1ResolveRoute = ApiV1ResolveRouteImport.update({
-  id: '/api/v1/resolve',
-  path: '/api/v1/resolve',
+const AntigravityWorkspaceKeyRoute = AntigravityWorkspaceKeyRouteImport.update({
+  id: '/antigravity/$workspaceKey',
+  path: '/antigravity/$workspaceKey',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiV1ConversationsRoute = ApiV1ConversationsRouteImport.update({
-  id: '/api/v1/conversations',
-  path: '/api/v1/conversations',
+const ClaudeCodeSessionsSessionIdRoute =
+  ClaudeCodeSessionsSessionIdRouteImport.update({
+    id: '/claude-code-sessions/$sessionId',
+    path: '/claude-code-sessions/$sessionId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ClaudeCodeIndexRoute = ClaudeCodeIndexRouteImport.update({
+  id: '/claude-code/',
+  path: '/claude-code/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ClaudeCodeWorkspaceKeyRoute = ClaudeCodeWorkspaceKeyRouteImport.update({
+  id: '/claude-code/$workspaceKey',
+  path: '/claude-code/$workspaceKey',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ClineTasksTaskIdRoute = ClineTasksTaskIdRouteImport.update({
+  id: '/cline-tasks/$taskId',
+  path: '/cline-tasks/$taskId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ClineIndexRoute = ClineIndexRouteImport.update({
+  id: '/cline/',
+  path: '/cline/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ClineWorkspaceKeyRoute = ClineWorkspaceKeyRouteImport.update({
+  id: '/cline/$workspaceKey',
+  path: '/cline/$workspaceKey',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CodexIndexRoute = CodexIndexRouteImport.update({
+  id: '/codex/',
+  path: '/codex/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CodexProjectRoute = CodexProjectRouteImport.update({
+  id: '/codex/$project',
+  path: '/codex/$project',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CursorThreadsComposerIdRoute = CursorThreadsComposerIdRouteImport.update({
+  id: '/cursor-threads/$composerId',
+  path: '/cursor-threads/$composerId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CursorIndexRoute = CursorIndexRouteImport.update({
+  id: '/cursor/',
+  path: '/cursor/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CursorWorkspaceKeyRoute = CursorWorkspaceKeyRouteImport.update({
+  id: '/cursor/$workspaceKey',
+  path: '/cursor/$workspaceKey',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GrokSessionsSessionIdRoute = GrokSessionsSessionIdRouteImport.update({
+  id: '/grok-sessions/$sessionId',
+  path: '/grok-sessions/$sessionId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GrokIndexRoute = GrokIndexRouteImport.update({
+  id: '/grok/',
+  path: '/grok/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GrokWorkspaceKeyRoute = GrokWorkspaceKeyRouteImport.update({
+  id: '/grok/$workspaceKey',
+  path: '/grok/$workspaceKey',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const KiroSessionsSessionIdRoute = KiroSessionsSessionIdRouteImport.update({
+  id: '/kiro-sessions/$sessionId',
+  path: '/kiro-sessions/$sessionId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const KiroIndexRoute = KiroIndexRouteImport.update({
+  id: '/kiro/',
+  path: '/kiro/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const KiroWorkspaceKeyRoute = KiroWorkspaceKeyRouteImport.update({
+  id: '/kiro/$workspaceKey',
+  path: '/kiro/$workspaceKey',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MinimaxCodeSessionsSessionIdRoute =
+  MinimaxCodeSessionsSessionIdRouteImport.update({
+    id: '/minimax-code-sessions/$sessionId',
+    path: '/minimax-code-sessions/$sessionId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const MinimaxCodeIndexRoute = MinimaxCodeIndexRouteImport.update({
+  id: '/minimax-code/',
+  path: '/minimax-code/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MinimaxCodeWorkspaceKeyRoute = MinimaxCodeWorkspaceKeyRouteImport.update({
+  id: '/minimax-code/$workspaceKey',
+  path: '/minimax-code/$workspaceKey',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OpencodeSessionsSessionIdRoute =
+  OpencodeSessionsSessionIdRouteImport.update({
+    id: '/opencode-sessions/$sessionId',
+    path: '/opencode-sessions/$sessionId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const OpencodeIndexRoute = OpencodeIndexRouteImport.update({
+  id: '/opencode/',
+  path: '/opencode/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OpencodeWorkspaceKeyRoute = OpencodeWorkspaceKeyRouteImport.update({
+  id: '/opencode/$workspaceKey',
+  path: '/opencode/$workspaceKey',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const QoderSessionsSessionIdRoute = QoderSessionsSessionIdRouteImport.update({
+  id: '/qoder-sessions/$sessionId',
+  path: '/qoder-sessions/$sessionId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const QoderIndexRoute = QoderIndexRouteImport.update({
+  id: '/qoder/',
+  path: '/qoder/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const QoderWorkspaceKeyRoute = QoderWorkspaceKeyRouteImport.update({
+  id: '/qoder/$workspaceKey',
+  path: '/qoder/$workspaceKey',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ThreadsThreadIdRoute = ThreadsThreadIdRouteImport.update({
+  id: '/threads/$threadId',
+  path: '/threads/$threadId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiV1ConversationQueryRoute = ApiV1ConversationQueryRouteImport.update({
@@ -248,22 +233,31 @@ const ApiV1ConversationQueryRoute = ApiV1ConversationQueryRouteImport.update({
   path: '/api/v1/conversation-query',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiV1ConversationsExportRoute =
-  ApiV1ConversationsExportRouteImport.update({
-    id: '/export',
-    path: '/export',
-    getParentRoute: () => ApiV1ConversationsRoute,
-  } as any)
+const ApiV1ConversationsRoute = ApiV1ConversationsRouteImport.update({
+  id: '/api/v1/conversations',
+  path: '/api/v1/conversations',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiV1ResolveRoute = ApiV1ResolveRouteImport.update({
+  id: '/api/v1/resolve',
+  path: '/api/v1/resolve',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiV1SourcesRoute = ApiV1SourcesRouteImport.update({
+  id: '/api/v1/sources',
+  path: '/api/v1/sources',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiV1ConversationsDeleteRoute =
   ApiV1ConversationsDeleteRouteImport.update({
     id: '/delete',
     path: '/delete',
     getParentRoute: () => ApiV1ConversationsRoute,
   } as any)
-const ApiV1ConversationsSourceIdRoute =
-  ApiV1ConversationsSourceIdRouteImport.update({
-    id: '/$source/$id',
-    path: '/$source/$id',
+const ApiV1ConversationsExportRoute =
+  ApiV1ConversationsExportRouteImport.update({
+    id: '/export',
+    path: '/export',
     getParentRoute: () => ApiV1ConversationsRoute,
   } as any)
 const ApiV1CodexThreadsEventsRoute = ApiV1CodexThreadsEventsRouteImport.update({
@@ -271,16 +265,22 @@ const ApiV1CodexThreadsEventsRoute = ApiV1CodexThreadsEventsRouteImport.update({
   path: '/api/v1/codex/threads/events',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiV1ConversationsSourceIdExportRoute =
-  ApiV1ConversationsSourceIdExportRouteImport.update({
-    id: '/export',
-    path: '/export',
-    getParentRoute: () => ApiV1ConversationsSourceIdRoute,
+const ApiV1ConversationsSourceIdRoute =
+  ApiV1ConversationsSourceIdRouteImport.update({
+    id: '/$source/$id',
+    path: '/$source/$id',
+    getParentRoute: () => ApiV1ConversationsRoute,
   } as any)
 const ApiV1ConversationsSourceIdEvidenceRoute =
   ApiV1ConversationsSourceIdEvidenceRouteImport.update({
     id: '/evidence',
     path: '/evidence',
+    getParentRoute: () => ApiV1ConversationsSourceIdRoute,
+  } as any)
+const ApiV1ConversationsSourceIdExportRoute =
+  ApiV1ConversationsSourceIdExportRouteImport.update({
+    id: '/export',
+    path: '/export',
     getParentRoute: () => ApiV1ConversationsSourceIdRoute,
   } as any)
 
@@ -608,18 +608,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/settings': {
-      id: '/settings'
-      path: '/settings'
-      fullPath: '/settings'
-      preLoaderRoute: typeof SettingsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/analytics': {
-      id: '/analytics'
-      path: '/analytics'
-      fullPath: '/analytics'
-      preLoaderRoute: typeof AnalyticsRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/$threadId': {
@@ -629,214 +622,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ThreadIdRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+    '/analytics': {
+      id: '/analytics'
+      path: '/analytics'
+      fullPath: '/analytics'
+      preLoaderRoute: typeof AnalyticsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/qoder/': {
-      id: '/qoder/'
-      path: '/qoder'
-      fullPath: '/qoder/'
-      preLoaderRoute: typeof QoderIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/opencode/': {
-      id: '/opencode/'
-      path: '/opencode'
-      fullPath: '/opencode/'
-      preLoaderRoute: typeof OpencodeIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/minimax-code/': {
-      id: '/minimax-code/'
-      path: '/minimax-code'
-      fullPath: '/minimax-code/'
-      preLoaderRoute: typeof MinimaxCodeIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/kiro/': {
-      id: '/kiro/'
-      path: '/kiro'
-      fullPath: '/kiro/'
-      preLoaderRoute: typeof KiroIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/grok/': {
-      id: '/grok/'
-      path: '/grok'
-      fullPath: '/grok/'
-      preLoaderRoute: typeof GrokIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/cursor/': {
-      id: '/cursor/'
-      path: '/cursor'
-      fullPath: '/cursor/'
-      preLoaderRoute: typeof CursorIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/codex/': {
-      id: '/codex/'
-      path: '/codex'
-      fullPath: '/codex/'
-      preLoaderRoute: typeof CodexIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/cline/': {
-      id: '/cline/'
-      path: '/cline'
-      fullPath: '/cline/'
-      preLoaderRoute: typeof ClineIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/claude-code/': {
-      id: '/claude-code/'
-      path: '/claude-code'
-      fullPath: '/claude-code/'
-      preLoaderRoute: typeof ClaudeCodeIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/antigravity/': {
-      id: '/antigravity/'
-      path: '/antigravity'
-      fullPath: '/antigravity/'
-      preLoaderRoute: typeof AntigravityIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/threads/$threadId': {
-      id: '/threads/$threadId'
-      path: '/threads/$threadId'
-      fullPath: '/threads/$threadId'
-      preLoaderRoute: typeof ThreadsThreadIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/qoder/$workspaceKey': {
-      id: '/qoder/$workspaceKey'
-      path: '/qoder/$workspaceKey'
-      fullPath: '/qoder/$workspaceKey'
-      preLoaderRoute: typeof QoderWorkspaceKeyRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/qoder-sessions/$sessionId': {
-      id: '/qoder-sessions/$sessionId'
-      path: '/qoder-sessions/$sessionId'
-      fullPath: '/qoder-sessions/$sessionId'
-      preLoaderRoute: typeof QoderSessionsSessionIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/opencode/$workspaceKey': {
-      id: '/opencode/$workspaceKey'
-      path: '/opencode/$workspaceKey'
-      fullPath: '/opencode/$workspaceKey'
-      preLoaderRoute: typeof OpencodeWorkspaceKeyRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/opencode-sessions/$sessionId': {
-      id: '/opencode-sessions/$sessionId'
-      path: '/opencode-sessions/$sessionId'
-      fullPath: '/opencode-sessions/$sessionId'
-      preLoaderRoute: typeof OpencodeSessionsSessionIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/minimax-code/$workspaceKey': {
-      id: '/minimax-code/$workspaceKey'
-      path: '/minimax-code/$workspaceKey'
-      fullPath: '/minimax-code/$workspaceKey'
-      preLoaderRoute: typeof MinimaxCodeWorkspaceKeyRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/minimax-code-sessions/$sessionId': {
-      id: '/minimax-code-sessions/$sessionId'
-      path: '/minimax-code-sessions/$sessionId'
-      fullPath: '/minimax-code-sessions/$sessionId'
-      preLoaderRoute: typeof MinimaxCodeSessionsSessionIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/kiro/$workspaceKey': {
-      id: '/kiro/$workspaceKey'
-      path: '/kiro/$workspaceKey'
-      fullPath: '/kiro/$workspaceKey'
-      preLoaderRoute: typeof KiroWorkspaceKeyRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/kiro-sessions/$sessionId': {
-      id: '/kiro-sessions/$sessionId'
-      path: '/kiro-sessions/$sessionId'
-      fullPath: '/kiro-sessions/$sessionId'
-      preLoaderRoute: typeof KiroSessionsSessionIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/grok/$workspaceKey': {
-      id: '/grok/$workspaceKey'
-      path: '/grok/$workspaceKey'
-      fullPath: '/grok/$workspaceKey'
-      preLoaderRoute: typeof GrokWorkspaceKeyRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/grok-sessions/$sessionId': {
-      id: '/grok-sessions/$sessionId'
-      path: '/grok-sessions/$sessionId'
-      fullPath: '/grok-sessions/$sessionId'
-      preLoaderRoute: typeof GrokSessionsSessionIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/cursor/$workspaceKey': {
-      id: '/cursor/$workspaceKey'
-      path: '/cursor/$workspaceKey'
-      fullPath: '/cursor/$workspaceKey'
-      preLoaderRoute: typeof CursorWorkspaceKeyRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/cursor-threads/$composerId': {
-      id: '/cursor-threads/$composerId'
-      path: '/cursor-threads/$composerId'
-      fullPath: '/cursor-threads/$composerId'
-      preLoaderRoute: typeof CursorThreadsComposerIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/codex/$project': {
-      id: '/codex/$project'
-      path: '/codex/$project'
-      fullPath: '/codex/$project'
-      preLoaderRoute: typeof CodexProjectRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/cline/$workspaceKey': {
-      id: '/cline/$workspaceKey'
-      path: '/cline/$workspaceKey'
-      fullPath: '/cline/$workspaceKey'
-      preLoaderRoute: typeof ClineWorkspaceKeyRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/cline-tasks/$taskId': {
-      id: '/cline-tasks/$taskId'
-      path: '/cline-tasks/$taskId'
-      fullPath: '/cline-tasks/$taskId'
-      preLoaderRoute: typeof ClineTasksTaskIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/claude-code/$workspaceKey': {
-      id: '/claude-code/$workspaceKey'
-      path: '/claude-code/$workspaceKey'
-      fullPath: '/claude-code/$workspaceKey'
-      preLoaderRoute: typeof ClaudeCodeWorkspaceKeyRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/claude-code-sessions/$sessionId': {
-      id: '/claude-code-sessions/$sessionId'
-      path: '/claude-code-sessions/$sessionId'
-      fullPath: '/claude-code-sessions/$sessionId'
-      preLoaderRoute: typeof ClaudeCodeSessionsSessionIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/antigravity/$workspaceKey': {
-      id: '/antigravity/$workspaceKey'
-      path: '/antigravity/$workspaceKey'
-      fullPath: '/antigravity/$workspaceKey'
-      preLoaderRoute: typeof AntigravityWorkspaceKeyRouteImport
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/antigravity-conversations/$conversationId': {
@@ -846,25 +643,207 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AntigravityConversationsConversationIdRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/v1/sources': {
-      id: '/api/v1/sources'
-      path: '/api/v1/sources'
-      fullPath: '/api/v1/sources'
-      preLoaderRoute: typeof ApiV1SourcesRouteImport
+    '/antigravity/': {
+      id: '/antigravity/'
+      path: '/antigravity'
+      fullPath: '/antigravity/'
+      preLoaderRoute: typeof AntigravityIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/v1/resolve': {
-      id: '/api/v1/resolve'
-      path: '/api/v1/resolve'
-      fullPath: '/api/v1/resolve'
-      preLoaderRoute: typeof ApiV1ResolveRouteImport
+    '/antigravity/$workspaceKey': {
+      id: '/antigravity/$workspaceKey'
+      path: '/antigravity/$workspaceKey'
+      fullPath: '/antigravity/$workspaceKey'
+      preLoaderRoute: typeof AntigravityWorkspaceKeyRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/v1/conversations': {
-      id: '/api/v1/conversations'
-      path: '/api/v1/conversations'
-      fullPath: '/api/v1/conversations'
-      preLoaderRoute: typeof ApiV1ConversationsRouteImport
+    '/claude-code-sessions/$sessionId': {
+      id: '/claude-code-sessions/$sessionId'
+      path: '/claude-code-sessions/$sessionId'
+      fullPath: '/claude-code-sessions/$sessionId'
+      preLoaderRoute: typeof ClaudeCodeSessionsSessionIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/claude-code/': {
+      id: '/claude-code/'
+      path: '/claude-code'
+      fullPath: '/claude-code/'
+      preLoaderRoute: typeof ClaudeCodeIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/claude-code/$workspaceKey': {
+      id: '/claude-code/$workspaceKey'
+      path: '/claude-code/$workspaceKey'
+      fullPath: '/claude-code/$workspaceKey'
+      preLoaderRoute: typeof ClaudeCodeWorkspaceKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/cline-tasks/$taskId': {
+      id: '/cline-tasks/$taskId'
+      path: '/cline-tasks/$taskId'
+      fullPath: '/cline-tasks/$taskId'
+      preLoaderRoute: typeof ClineTasksTaskIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/cline/': {
+      id: '/cline/'
+      path: '/cline'
+      fullPath: '/cline/'
+      preLoaderRoute: typeof ClineIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/cline/$workspaceKey': {
+      id: '/cline/$workspaceKey'
+      path: '/cline/$workspaceKey'
+      fullPath: '/cline/$workspaceKey'
+      preLoaderRoute: typeof ClineWorkspaceKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/codex/': {
+      id: '/codex/'
+      path: '/codex'
+      fullPath: '/codex/'
+      preLoaderRoute: typeof CodexIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/codex/$project': {
+      id: '/codex/$project'
+      path: '/codex/$project'
+      fullPath: '/codex/$project'
+      preLoaderRoute: typeof CodexProjectRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/cursor-threads/$composerId': {
+      id: '/cursor-threads/$composerId'
+      path: '/cursor-threads/$composerId'
+      fullPath: '/cursor-threads/$composerId'
+      preLoaderRoute: typeof CursorThreadsComposerIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/cursor/': {
+      id: '/cursor/'
+      path: '/cursor'
+      fullPath: '/cursor/'
+      preLoaderRoute: typeof CursorIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/cursor/$workspaceKey': {
+      id: '/cursor/$workspaceKey'
+      path: '/cursor/$workspaceKey'
+      fullPath: '/cursor/$workspaceKey'
+      preLoaderRoute: typeof CursorWorkspaceKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/grok-sessions/$sessionId': {
+      id: '/grok-sessions/$sessionId'
+      path: '/grok-sessions/$sessionId'
+      fullPath: '/grok-sessions/$sessionId'
+      preLoaderRoute: typeof GrokSessionsSessionIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/grok/': {
+      id: '/grok/'
+      path: '/grok'
+      fullPath: '/grok/'
+      preLoaderRoute: typeof GrokIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/grok/$workspaceKey': {
+      id: '/grok/$workspaceKey'
+      path: '/grok/$workspaceKey'
+      fullPath: '/grok/$workspaceKey'
+      preLoaderRoute: typeof GrokWorkspaceKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/kiro-sessions/$sessionId': {
+      id: '/kiro-sessions/$sessionId'
+      path: '/kiro-sessions/$sessionId'
+      fullPath: '/kiro-sessions/$sessionId'
+      preLoaderRoute: typeof KiroSessionsSessionIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/kiro/': {
+      id: '/kiro/'
+      path: '/kiro'
+      fullPath: '/kiro/'
+      preLoaderRoute: typeof KiroIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/kiro/$workspaceKey': {
+      id: '/kiro/$workspaceKey'
+      path: '/kiro/$workspaceKey'
+      fullPath: '/kiro/$workspaceKey'
+      preLoaderRoute: typeof KiroWorkspaceKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/minimax-code-sessions/$sessionId': {
+      id: '/minimax-code-sessions/$sessionId'
+      path: '/minimax-code-sessions/$sessionId'
+      fullPath: '/minimax-code-sessions/$sessionId'
+      preLoaderRoute: typeof MinimaxCodeSessionsSessionIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/minimax-code/': {
+      id: '/minimax-code/'
+      path: '/minimax-code'
+      fullPath: '/minimax-code/'
+      preLoaderRoute: typeof MinimaxCodeIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/minimax-code/$workspaceKey': {
+      id: '/minimax-code/$workspaceKey'
+      path: '/minimax-code/$workspaceKey'
+      fullPath: '/minimax-code/$workspaceKey'
+      preLoaderRoute: typeof MinimaxCodeWorkspaceKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/opencode-sessions/$sessionId': {
+      id: '/opencode-sessions/$sessionId'
+      path: '/opencode-sessions/$sessionId'
+      fullPath: '/opencode-sessions/$sessionId'
+      preLoaderRoute: typeof OpencodeSessionsSessionIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/opencode/': {
+      id: '/opencode/'
+      path: '/opencode'
+      fullPath: '/opencode/'
+      preLoaderRoute: typeof OpencodeIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/opencode/$workspaceKey': {
+      id: '/opencode/$workspaceKey'
+      path: '/opencode/$workspaceKey'
+      fullPath: '/opencode/$workspaceKey'
+      preLoaderRoute: typeof OpencodeWorkspaceKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/qoder-sessions/$sessionId': {
+      id: '/qoder-sessions/$sessionId'
+      path: '/qoder-sessions/$sessionId'
+      fullPath: '/qoder-sessions/$sessionId'
+      preLoaderRoute: typeof QoderSessionsSessionIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/qoder/': {
+      id: '/qoder/'
+      path: '/qoder'
+      fullPath: '/qoder/'
+      preLoaderRoute: typeof QoderIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/qoder/$workspaceKey': {
+      id: '/qoder/$workspaceKey'
+      path: '/qoder/$workspaceKey'
+      fullPath: '/qoder/$workspaceKey'
+      preLoaderRoute: typeof QoderWorkspaceKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/threads/$threadId': {
+      id: '/threads/$threadId'
+      path: '/threads/$threadId'
+      fullPath: '/threads/$threadId'
+      preLoaderRoute: typeof ThreadsThreadIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/v1/conversation-query': {
@@ -874,12 +853,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiV1ConversationQueryRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/v1/conversations/export': {
-      id: '/api/v1/conversations/export'
-      path: '/export'
-      fullPath: '/api/v1/conversations/export'
-      preLoaderRoute: typeof ApiV1ConversationsExportRouteImport
-      parentRoute: typeof ApiV1ConversationsRoute
+    '/api/v1/conversations': {
+      id: '/api/v1/conversations'
+      path: '/api/v1/conversations'
+      fullPath: '/api/v1/conversations'
+      preLoaderRoute: typeof ApiV1ConversationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/resolve': {
+      id: '/api/v1/resolve'
+      path: '/api/v1/resolve'
+      fullPath: '/api/v1/resolve'
+      preLoaderRoute: typeof ApiV1ResolveRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/sources': {
+      id: '/api/v1/sources'
+      path: '/api/v1/sources'
+      fullPath: '/api/v1/sources'
+      preLoaderRoute: typeof ApiV1SourcesRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/v1/conversations/delete': {
       id: '/api/v1/conversations/delete'
@@ -888,11 +881,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiV1ConversationsDeleteRouteImport
       parentRoute: typeof ApiV1ConversationsRoute
     }
-    '/api/v1/conversations/$source/$id': {
-      id: '/api/v1/conversations/$source/$id'
-      path: '/$source/$id'
-      fullPath: '/api/v1/conversations/$source/$id'
-      preLoaderRoute: typeof ApiV1ConversationsSourceIdRouteImport
+    '/api/v1/conversations/export': {
+      id: '/api/v1/conversations/export'
+      path: '/export'
+      fullPath: '/api/v1/conversations/export'
+      preLoaderRoute: typeof ApiV1ConversationsExportRouteImport
       parentRoute: typeof ApiV1ConversationsRoute
     }
     '/api/v1/codex/threads/events': {
@@ -902,18 +895,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiV1CodexThreadsEventsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/v1/conversations/$source/$id/export': {
-      id: '/api/v1/conversations/$source/$id/export'
-      path: '/export'
-      fullPath: '/api/v1/conversations/$source/$id/export'
-      preLoaderRoute: typeof ApiV1ConversationsSourceIdExportRouteImport
-      parentRoute: typeof ApiV1ConversationsSourceIdRoute
+    '/api/v1/conversations/$source/$id': {
+      id: '/api/v1/conversations/$source/$id'
+      path: '/$source/$id'
+      fullPath: '/api/v1/conversations/$source/$id'
+      preLoaderRoute: typeof ApiV1ConversationsSourceIdRouteImport
+      parentRoute: typeof ApiV1ConversationsRoute
     }
     '/api/v1/conversations/$source/$id/evidence': {
       id: '/api/v1/conversations/$source/$id/evidence'
       path: '/evidence'
       fullPath: '/api/v1/conversations/$source/$id/evidence'
       preLoaderRoute: typeof ApiV1ConversationsSourceIdEvidenceRouteImport
+      parentRoute: typeof ApiV1ConversationsSourceIdRoute
+    }
+    '/api/v1/conversations/$source/$id/export': {
+      id: '/api/v1/conversations/$source/$id/export'
+      path: '/export'
+      fullPath: '/api/v1/conversations/$source/$id/export'
+      preLoaderRoute: typeof ApiV1ConversationsSourceIdExportRouteImport
       parentRoute: typeof ApiV1ConversationsSourceIdRoute
     }
   }

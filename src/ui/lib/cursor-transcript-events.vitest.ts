@@ -57,7 +57,7 @@ const buildMultiStepTranscript = (): CursorThreadTranscript => ({
             text: 'I will inspect the component first.',
             thinking: null,
             toolCall: {
-                argumentsText: '{"cmd":"sed -n 1,160p apps/ui/src/components/export-dialog.tsx"}',
+                argumentsText: '{"cmd":"sed -n 1,160p src/ui/components/export-dialog.tsx"}',
                 callId: 'call-1',
                 name: 'exec_command',
                 resultText: 'component source',

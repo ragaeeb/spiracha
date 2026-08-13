@@ -36,7 +36,8 @@ const SessionTitleCell = ({ depth, session }: { depth: number; session: ClaudeCo
 
     return (
         <div
-            className={cn('min-w-0', isSubagent ? 'border-[var(--border)] border-l-2 pl-3' : '')}
+            className={cn('min-w-0', isSubagent ? 'border-[var(--border)] border-l-2' : '')}
+            style={isSubagent ? { paddingLeft: `${depth * 0.75}rem` } : undefined}
             data-row-depth={depth}
         >
             <div className="flex min-w-0 items-center gap-2">

@@ -1099,7 +1099,7 @@ describe('antigravity db discovery', () => {
         expect(conversations.map((conversation) => conversation.conversationId)).toEqual([retainedId]);
     });
 
-    it('should remove a conversation database recreated once by an active Antigravity SQLite connection', async () => {
+    it('should report incomplete deletion when a recreated conversation database remains', async () => {
         const root = await makeRoot();
         const conversationId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
         const databasePath = path.join(root, 'conversations', `${conversationId}.db`);
@@ -1116,11 +1116,38 @@ describe('antigravity db discovery', () => {
             }
         })();
 
-        await deleteAntigravityConversation([root], conversationId);
+        const result = await deleteAntigravityConversation([root], conversationId);
         await recreateAfterUnlink;
 
         expect(recreated).toBe(true);
-        expect(await Bun.file(databasePath).exists()).toBe(false);
+        expect(result.deletedConversationIds).toEqual([]);
+        expect(await Bun.file(databasePath).exists()).toBe(true);
+        expect(result.deletedPaths).toContain(databasePath);
+    });
+
+    it('should report incomplete deletion when Antigravity recreates the database after cleanup', async () => {
+        const root = await makeRoot();
+        const conversationId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+        const databasePath = path.join(root, 'conversations', `${conversationId}.db`);
+        await Bun.write(databasePath, new Uint8Array([1, 2, 3]));
+        let recreationAttempts = 0;
+        const recreateAfterUnlink = (async () => {
+            for (let attempt = 0; attempt < 4; attempt += 1) {
+                if (!(await Bun.file(databasePath).exists())) {
+                    await Bun.write(databasePath, new Uint8Array([4, 5, 6]));
+                    recreationAttempts += 1;
+                }
+                await Bun.sleep(1);
+            }
+        })();
+
+        const result = await deleteAntigravityConversation([root], conversationId);
+        await recreateAfterUnlink;
+
+        expect(recreationAttempts).toBeGreaterThan(0);
+        expect(result.deletedConversationIds).toEqual([]);
+        expect(await Bun.file(databasePath).exists()).toBe(true);
+        expect(result.deletedPaths).toContain(databasePath);
     });
 
     it('should replace a read-only Antigravity summary index atomically', async () => {

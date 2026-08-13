@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import packageJsonRaw from '../../../../package.json?raw';
+import packageJsonRaw from '../../../package.json?raw';
 
 const useRouterStateMock = vi.fn();
 const searchQueryMock = vi.fn();

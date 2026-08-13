@@ -276,10 +276,17 @@ describe('source session tables', () => {
             sessionId: 'agent-a1d79cbf732582863',
             title: 'Implement fingerprint #100 and #101',
         };
+        const grandchild = {
+            ...child,
+            hierarchy: { parentSessionId: 'agent-a1d79cbf732582863' },
+            model: 'claude-opus-5',
+            sessionId: 'agent-7f8e90e8',
+            title: 'Follow-up review for #101',
+        };
 
         render(
             <ClaudeCodeSessionsTable
-                sessions={[parent, child] as never}
+                sessions={[parent, child, grandchild] as never}
                 onDeleteSession={vi.fn()}
                 onDeleteSessions={vi.fn()}
                 onExportSession={vi.fn()}
@@ -288,9 +295,15 @@ describe('source session tables', () => {
         );
 
         const childLink = screen.getByRole('link', { name: /Implement fingerprint #100 and #101/ });
+        const grandchildLink = screen.getByRole('link', { name: /Follow-up review for #101/ });
         expect(childLink.closest('[data-row-depth="1"]')).toBeTruthy();
         expect(childLink.closest('[data-row-depth="0"]')).toBeNull();
-        expect(screen.getByText('Claude Opus 5')).toBeTruthy();
+        expect(grandchildLink.closest('[data-row-depth="2"]')).toBeTruthy();
+        expect((childLink.closest('[data-row-depth="1"]') as HTMLElement | null)?.style.paddingLeft).toBe('0.75rem');
+        expect((grandchildLink.closest('[data-row-depth="2"]') as HTMLElement | null)?.style.paddingLeft).toBe(
+            '1.5rem',
+        );
+        expect(screen.getAllByText('Claude Opus 5')).toHaveLength(2);
     });
 });
 

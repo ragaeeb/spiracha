@@ -1,5 +1,6 @@
 import { createReadStream } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import tailwindcss from '@tailwindcss/vite';
 import { devtools } from '@tanstack/devtools-vite';
 import { tanstackStart } from '@tanstack/react-start/plugin/vite';
@@ -9,9 +10,9 @@ import {
     buildUiExportContentDisposition,
     resolveReadableUiExportFileFromRequestPath,
     UI_EXPORT_URL_PREFIX,
-} from '../../src/lib/ui-export-files';
+} from './src/lib/ui-export-files.ts';
 
-const uiRoot = __dirname;
+const appRoot = path.dirname(fileURLToPath(import.meta.url));
 
 const getExportContentType = (filePath: string) => {
     if (filePath.endsWith('.zip')) {
@@ -76,17 +77,17 @@ const spirachaExportFiles = (): Plugin => {
 };
 
 const config = defineConfig({
-    plugins: [spirachaExportFiles(), devtools(), tailwindcss(), tanstackStart(), viteReact()],
+    plugins: [spirachaExportFiles(), devtools(), tailwindcss(), tanstackStart({ srcDirectory: 'src/ui' }), viteReact()],
     resolve: {
         alias: {
-            '@spiracha': path.resolve(uiRoot, '..', '..', 'src'),
+            '@spiracha': path.resolve(appRoot, 'src'),
         },
         tsconfigPaths: true,
     },
-    root: uiRoot,
+    root: appRoot,
     server: {
         fs: {
-            allow: [path.resolve(uiRoot, '..', '..')],
+            allow: [appRoot],
         },
     },
 });

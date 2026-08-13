@@ -52,6 +52,19 @@ function RootErrorComponent({ error }: { error: Error }) {
     );
 }
 
+function RootNotFoundComponent() {
+    return (
+        <div className="flex min-h-screen items-center justify-center bg-[#101418] px-4 text-[#eef3f7]">
+            <div className="max-w-[30rem] text-center">
+                <h1 className="mb-3 font-semibold text-base">Page not found</h1>
+                <p className="my-2 text-[#99a3af] text-[0.875rem] leading-6">
+                    The requested Spiracha route does not exist.
+                </p>
+            </div>
+        </div>
+    );
+}
+
 export const Route = createRootRouteWithContext<RouterContext>()({
     component: RootComponent,
     errorComponent: RootErrorComponent,
@@ -90,6 +103,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
         ],
     }),
     loader: () => getInitialSettingsFn(),
+    notFoundComponent: RootNotFoundComponent,
 });
 
 function RootComponent() {

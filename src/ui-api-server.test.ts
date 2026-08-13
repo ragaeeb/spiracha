@@ -70,13 +70,15 @@ const fetchWithTimeout = (url: string, init?: RequestInit) => {
 };
 
 const startUiDevServer = (port: number, env: NodeJS.ProcessEnv) => {
-    const uiDirectory = path.join(process.cwd(), 'apps', 'ui');
-    return Bun.spawn(['bun', '--bun', 'vite', 'dev', '--host', '127.0.0.1', '--port', String(port), '--strictPort'], {
-        cwd: uiDirectory,
-        env,
-        stderr: 'pipe',
-        stdout: 'pipe',
-    });
+    return Bun.spawn(
+        [process.execPath, '--bun', 'vite', 'dev', '--host', '127.0.0.1', '--port', String(port), '--strictPort'],
+        {
+            cwd: process.cwd(),
+            env,
+            stderr: 'pipe',
+            stdout: 'pipe',
+        },
+    );
 };
 
 describe('UI API server routes', () => {

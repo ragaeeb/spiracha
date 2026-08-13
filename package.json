@@ -13,7 +13,7 @@
         "@tailwindcss/typography": "0.5.20",
         "@tailwindcss/vite": "4.3.3",
         "@tanstack/devtools-vite": "0.8.3",
-        "@tanstack/match-sorter-utils": "9.1.2",
+        "@tanstack/match-sorter-utils": "8.19.4",
         "@tanstack/react-devtools": "0.10.10",
         "@tanstack/react-query": "5.101.4",
         "@tanstack/react-query-devtools": "5.101.4",
@@ -21,7 +21,7 @@
         "@tanstack/react-router-devtools": "1.167.1",
         "@tanstack/react-router-ssr-query": "1.167.1",
         "@tanstack/react-start": "1.168.44",
-        "@tanstack/react-table": "9.1.2",
+        "@tanstack/react-table": "8.21.3",
         "@tanstack/react-virtual": "3.14.9",
         "@tanstack/router-plugin": "1.168.30",
         "@vitejs/plugin-react": "6.0.5",
@@ -71,13 +71,13 @@
     },
     "files": [
         "bin/spiracha.ts",
-        "apps/ui/components.json",
-        "apps/ui/public/**/*",
-        "apps/ui/src/**/*",
-        "!apps/ui/src/**/*.vitest.ts",
-        "!apps/ui/src/**/*.vitest.tsx",
-        "apps/ui/tsconfig.json",
-        "apps/ui/vite.config.ts",
+        "components.json",
+        "public/**/*",
+        "src/ui/**/*",
+        "!src/ui/**/*.vitest.ts",
+        "!src/ui/**/*.vitest.tsx",
+        "tsconfig.json",
+        "vite.config.ts",
         "src/client.ts",
         "src/lib/**/*.ts",
         "!src/lib/**/*.test.ts",
@@ -87,7 +87,7 @@
     ],
     "homepage": "https://github.com/ragaeeb/spiracha",
     "imports": {
-        "#/*": "./apps/ui/src/*"
+        "#/*": "./src/ui/*"
     },
     "keywords": [
         "codex",
@@ -113,20 +113,18 @@
         "url": "git+https://github.com/ragaeeb/spiracha.git"
     },
     "scripts": {
-        "build": "bun run typecheck && bun --cwd apps/ui --bun vite build",
+        "build": "bun run typecheck && bun --bun vite build",
         "coverage": "bun run coverage:root && bun run coverage:ui",
         "coverage:root": "bun test --coverage --coverage-reporter=lcov --coverage-dir coverage && bun run ./src/coverage-check.ts root",
-        "coverage:ui": "vitest run --coverage --config apps/ui/vitest.config.ts && bun run ./src/coverage-check.ts ui",
+        "coverage:ui": "vitest run --coverage --config vitest.config.ts && bun run ./src/coverage-check.ts ui",
         "format": "biome check . --write && biome lint . --write",
         "lint": "biome check .",
         "prepublishOnly": "bun run build && bun run test:package",
-        "start": "bun --cwd apps/ui --bun vite dev --host 127.0.0.1 --port 3000",
+        "start": "bun --bun vite dev --host 127.0.0.1 --port 3000",
         "test:package": "bun run ./src/package-smoke.ts",
-        "test:ui": "vitest run --config apps/ui/vitest.config.ts",
-        "typecheck": "bun run typecheck:root && bun run typecheck:ui",
-        "typecheck:root": "bunx tsc --noEmit",
-        "typecheck:ui": "bunx tsc --noEmit -p apps/ui/tsconfig.json",
-        "ui:preview": "bun --cwd apps/ui --bun vite preview"
+        "test:ui": "vitest run --config vitest.config.ts",
+        "typecheck": "bunx tsc --noEmit",
+        "ui:preview": "bun --bun vite preview"
     },
     "type": "module",
     "version": "2.3.0"

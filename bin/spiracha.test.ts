@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'bun:test';
 import { EventEmitter } from 'node:events';
-import path from 'node:path';
 import { buildSpirachaDevServerCommand, resolveSpirachaPackageRoot, waitForSpirachaDevServer } from './spiracha';
 
 describe('spiracha executable launcher', () => {
@@ -9,7 +8,7 @@ describe('spiracha executable launcher', () => {
 
         expect(buildSpirachaDevServerCommand(packageRoot)).toEqual({
             args: ['--bun', 'vite', 'dev', '--host', '127.0.0.1', '--port', '3000'],
-            cwd: path.join(packageRoot, 'apps', 'ui'),
+            cwd: packageRoot,
         });
     });
 
