@@ -1,7 +1,6 @@
 import type { ThreadListEntry } from '@spiracha/lib/codex-browser-types';
 import { Link } from '@tanstack/react-router';
 import type { SortingState } from '@tanstack/react-table';
-import { createColumnHelper } from '@tanstack/react-table';
 import { Download, GitFork, MoreHorizontal, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
@@ -13,6 +12,7 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu';
+import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatBytes, formatDateTime, formatTokens } from '#/lib/formatters';
 import { cn } from '#/lib/utils';
 
@@ -28,7 +28,7 @@ type ThreadTreeNode = ThreadListEntry & {
     children: ThreadTreeNode[];
 };
 
-const columnHelper = createColumnHelper<ThreadTreeNode>();
+const columnHelper = createDataTableColumnHelper<ThreadTreeNode>();
 const defaultSorting: SortingState = [{ desc: true, id: 'updatedAt' }];
 
 const ThreadTitleCell = ({ depth, thread }: { depth: number; thread: ThreadTreeNode }) => {

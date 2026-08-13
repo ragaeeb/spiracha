@@ -1,23 +1,14 @@
-import {
-    type ColumnDef,
-    flexRender,
-    getCoreRowModel,
-    getExpandedRowModel,
-    getFilteredRowModel,
-    getSortedRowModel,
-    type RowSelectionState,
-    type SortingState,
-    useReactTable,
-} from '@tanstack/react-table';
+import { flexRender, type RowData, type RowSelectionState, type SortingState, useTable } from '@tanstack/react-table';
 import { ArrowDownUp } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { Checkbox } from '#/components/ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '#/components/ui/table';
+import { type DataTableColumnDef, dataTableFeatures } from '#/lib/data-table-config';
 import { cn } from '#/lib/utils';
 
-type DataTableProps<TData> = {
+type DataTableProps<TData extends RowData> = {
     className?: string;
-    columns: ReadonlyArray<ColumnDef<TData, any>>;
+    columns: ReadonlyArray<DataTableColumnDef<TData, any>>;
     data: TData[];
     emptyMessage: string;
     enableRowSelection?: boolean;
@@ -68,7 +59,7 @@ const applySelectionState = (selection: RowSelectionState, rowIds: string[], che
     return nextSelection;
 };
 
-const getDataRowIds = <TData,>(
+const getDataRowIds = <TData extends RowData>(
     data: TData[],
     getRowId: DataTableProps<TData>['getRowId'],
     getSubRows: DataTableProps<TData>['getSubRows'],
@@ -81,7 +72,7 @@ const getDataRowIds = <TData,>(
     });
 };
 
-export function DataTable<TData>({
+export function DataTable<TData extends RowData>({
     className,
     columns,
     data,
@@ -131,7 +122,7 @@ export function DataTable<TData>({
         lastSelectedRowIdRef.current = rowId;
     };
 
-    const selectionColumn: ColumnDef<TData, any> = {
+    const selectionColumn: DataTableColumnDef<TData, any> = {
         cell: ({ row }) => (
             <Checkbox
                 aria-label={`Select row ${row.id}`}
@@ -168,17 +159,14 @@ export function DataTable<TData>({
         id: 'select',
     };
     const tableColumns = enableRowSelection ? [selectionColumn, ...columns] : [...columns];
-    const table = useReactTable({
+    const table = useTable<typeof dataTableFeatures, TData>({
         autoResetPageIndex: false,
         columns: tableColumns,
         data,
         enableRowSelection,
         enableSortingRemoval: false,
-        getCoreRowModel: getCoreRowModel(),
-        getExpandedRowModel: getExpandedRowModel(),
-        getFilteredRowModel: getFilteredRowModel(),
+        features: dataTableFeatures,
         getRowId,
-        getSortedRowModel: getSortedRowModel(),
         getSubRows,
         onRowSelectionChange: setRowSelection,
         onSortingChange: setSorting,

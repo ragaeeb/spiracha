@@ -1,10 +1,10 @@
 import type { ClineWorkspaceGroup } from '@spiracha/lib/cline-exporter-types';
 import { Link } from '@tanstack/react-router';
-import { createColumnHelper } from '@tanstack/react-table';
 import { DataTable } from '#/components/data-table';
+import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatDateTime, formatNumber } from '#/lib/formatters';
 
-const columnHelper = createColumnHelper<ClineWorkspaceGroup>();
+const columnHelper = createDataTableColumnHelper<ClineWorkspaceGroup>();
 const columns = [
     columnHelper.accessor('label', {
         cell: (info) => (

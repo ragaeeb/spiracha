@@ -1,7 +1,6 @@
 import type { ClineTaskSummary } from '@spiracha/lib/cline-exporter-types';
 import { Link } from '@tanstack/react-router';
 import type { SortingState } from '@tanstack/react-table';
-import { createColumnHelper } from '@tanstack/react-table';
 import { Download, MoreHorizontal, Star, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
@@ -13,6 +12,7 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu';
+import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatDateTime, formatNumber } from '#/lib/formatters';
 
 type Props = {
@@ -23,7 +23,7 @@ type Props = {
     sessions: ClineTaskSummary[];
 };
 
-const columnHelper = createColumnHelper<ClineTaskSummary>();
+const columnHelper = createDataTableColumnHelper<ClineTaskSummary>();
 const defaultSorting: SortingState = [{ desc: true, id: 'lastActive' }];
 
 const buildColumns = (onDelete: Props['onDeleteSession'], onExport: Props['onExportSession']) =>

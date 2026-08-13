@@ -1,14 +1,14 @@
 import type { OpenCodeWorkspaceGroup } from '@spiracha/lib/opencode-exporter-types';
 import { Link } from '@tanstack/react-router';
-import { createColumnHelper } from '@tanstack/react-table';
 import { DataTable } from '#/components/data-table';
+import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatDateTime, formatNumber } from '#/lib/formatters';
 
 type OpenCodeWorkspacesTableProps = {
     workspaces: OpenCodeWorkspaceGroup[];
 };
 
-const columnHelper = createColumnHelper<OpenCodeWorkspaceGroup>();
+const columnHelper = createDataTableColumnHelper<OpenCodeWorkspaceGroup>();
 
 const columns = [
     columnHelper.accessor('label', {

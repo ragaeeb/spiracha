@@ -4,11 +4,11 @@ import type {
     ModelTokenSummary,
     ToolUsageSummary,
 } from '@spiracha/lib/codex-browser-types';
-import { createColumnHelper } from '@tanstack/react-table';
+import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatNumber, formatTokens } from '#/lib/formatters';
 import { DataTable } from './data-table';
 
-const toolUsageColumnHelper = createColumnHelper<ToolUsageSummary>();
+const toolUsageColumnHelper = createDataTableColumnHelper<ToolUsageSummary>();
 const toolUsageColumns = [
     toolUsageColumnHelper.accessor('name', {
         cell: (info) => <span className="font-mono text-sm">{info.getValue()}</span>,
@@ -20,7 +20,7 @@ const toolUsageColumns = [
     }),
 ] as const;
 
-const modelColumnHelper = createColumnHelper<ModelTokenSummary>();
+const modelColumnHelper = createDataTableColumnHelper<ModelTokenSummary>();
 const modelColumns = [
     modelColumnHelper.accessor('model', {
         cell: (info) => <span className="font-mono text-sm">{info.getValue()}</span>,
@@ -36,7 +36,7 @@ const modelColumns = [
     }),
 ] as const;
 
-const distributionColumnHelper = createColumnHelper<DistributionItem>();
+const distributionColumnHelper = createDataTableColumnHelper<DistributionItem>();
 const distributionColumns = [
     distributionColumnHelper.accessor('label', {
         cell: (info) => <span className="font-mono text-sm">{info.getValue()}</span>,

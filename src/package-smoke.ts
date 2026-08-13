@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { createCodexBrowserFixture } from './lib/codex-test-helpers';
 
 type PackageManifest = {
     name: string;
@@ -18,6 +19,16 @@ type PackagedUiProbe = {
 
 const HOST = '127.0.0.1';
 const STARTUP_TIMEOUT_MS = 30_000;
+
+export const buildPackagedUiProcessEnv = (
+    environment: NodeJS.ProcessEnv,
+    port: number,
+    codexDbPath: string,
+): NodeJS.ProcessEnv => ({
+    ...environment,
+    PORT: String(port),
+    SPIRACHA_CODEX_DB: codexDbPath,
+});
 
 export const getPackedTarballPath = (directory: string, packageName: string, version: string) =>
     path.join(directory, `${packageName}-${version}.tgz`);
@@ -129,16 +140,15 @@ export const runPackagedUiSmokeTest = async (cwd = process.cwd()) => {
     const packageTgz = getPackedTarballPath(tempDirectory, manifest.name, manifest.version);
 
     try {
+        const codexFixtureRoot = await mkdtemp(path.join(tempDirectory, 'codex-fixture-'));
+        const codexFixture = await createCodexBrowserFixture(codexFixtureRoot);
         await runCommand([process.execPath, 'pm', 'pack', '--destination', tempDirectory], cwd);
         await Bun.write(path.join(tempDirectory, 'package.json'), '{"name":"spiracha-smoke","private":true}\n');
 
         const bunx = Bun.which('bunx') ?? 'bunx';
         const proc = Bun.spawn([bunx, '--package', packageTgz, 'spiracha'], {
             cwd: tempDirectory,
-            env: {
-                ...process.env,
-                PORT: String(port),
-            },
+            env: buildPackagedUiProcessEnv(process.env, port, codexFixture.dbPath),
             stderr: 'pipe',
             stdout: 'pipe',
         });

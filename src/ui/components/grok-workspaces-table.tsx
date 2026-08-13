@@ -1,14 +1,14 @@
 import type { GrokWorkspaceGroup } from '@spiracha/lib/grok-exporter-types';
 import { Link } from '@tanstack/react-router';
-import { createColumnHelper } from '@tanstack/react-table';
 import { DataTable } from '#/components/data-table';
+import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatDateTime, formatNumber } from '#/lib/formatters';
 
 type GrokWorkspacesTableProps = {
     workspaces: GrokWorkspaceGroup[];
 };
 
-const columnHelper = createColumnHelper<GrokWorkspaceGroup>();
+const columnHelper = createDataTableColumnHelper<GrokWorkspaceGroup>();
 
 const columns = [
     columnHelper.accessor('label', {

@@ -1,6 +1,6 @@
-import type { ColumnDef } from '@tanstack/react-table';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { DataTableColumnDef } from '#/lib/data-table-config';
 import { DataTable } from './data-table';
 
 type Row = {
@@ -9,7 +9,7 @@ type Row = {
     tokens: number;
 };
 
-const columns: ColumnDef<Row>[] = [
+const columns: DataTableColumnDef<Row>[] = [
     {
         accessorKey: 'model',
         cell: (info) => info.getValue<string>(),

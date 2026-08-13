@@ -1,7 +1,6 @@
 import type { OpenCodeSessionSummary } from '@spiracha/lib/opencode-exporter-types';
 import { Link } from '@tanstack/react-router';
 import type { SortingState } from '@tanstack/react-table';
-import { createColumnHelper } from '@tanstack/react-table';
 import { Download, MoreHorizontal, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
@@ -14,6 +13,7 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu';
+import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatDateTime, formatNumber, formatTokens } from '#/lib/formatters';
 
 type OpenCodeSessionsTableProps = {
@@ -24,7 +24,7 @@ type OpenCodeSessionsTableProps = {
     sessions: OpenCodeSessionSummary[];
 };
 
-const columnHelper = createColumnHelper<OpenCodeSessionSummary>();
+const columnHelper = createDataTableColumnHelper<OpenCodeSessionSummary>();
 const defaultSorting: SortingState = [{ desc: true, id: 'updatedAt' }];
 
 const formatCost = (value: number) => {

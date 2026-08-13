@@ -1,7 +1,6 @@
 import type { CursorThreadSummary } from '@spiracha/lib/cursor-exporter-types';
 import { Link } from '@tanstack/react-router';
 import type { SortingState } from '@tanstack/react-table';
-import { createColumnHelper } from '@tanstack/react-table';
 import { Download, GitFork, MoreHorizontal, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
@@ -13,6 +12,7 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu';
+import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatBytes, formatDateTime, formatModelLabel, formatNumber } from '#/lib/formatters';
 import { cn } from '#/lib/utils';
 
@@ -26,7 +26,7 @@ type CursorThreadsTableProps = {
 
 type CursorThreadTreeNode = CursorThreadSummary & { children: CursorThreadTreeNode[] };
 
-const columnHelper = createColumnHelper<CursorThreadTreeNode>();
+const columnHelper = createDataTableColumnHelper<CursorThreadTreeNode>();
 const defaultSorting: SortingState = [{ desc: true, id: 'updatedAt' }];
 
 const CursorThreadTitleCell = ({ depth, thread }: { depth: number; thread: CursorThreadTreeNode }) => (

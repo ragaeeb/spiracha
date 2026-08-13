@@ -1,7 +1,6 @@
 import type { ClaudeCodeSessionSummary } from '@spiracha/lib/claude-code-exporter-types';
 import { Link } from '@tanstack/react-router';
 import type { SortingState } from '@tanstack/react-table';
-import { createColumnHelper } from '@tanstack/react-table';
 import { Download, GitFork, MoreHorizontal, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
@@ -13,6 +12,7 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu';
+import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatDateTime, formatModelLabel, formatNumber, formatTokens } from '#/lib/formatters';
 import { cn } from '#/lib/utils';
 
@@ -28,7 +28,7 @@ type ClaudeCodeSessionTreeNode = ClaudeCodeSessionSummary & {
     children: ClaudeCodeSessionTreeNode[];
 };
 
-const columnHelper = createColumnHelper<ClaudeCodeSessionTreeNode>();
+const columnHelper = createDataTableColumnHelper<ClaudeCodeSessionTreeNode>();
 const defaultSorting: SortingState = [{ desc: true, id: 'lastActive' }];
 
 const SessionTitleCell = ({ depth, session }: { depth: number; session: ClaudeCodeSessionTreeNode }) => {

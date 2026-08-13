@@ -1,14 +1,14 @@
 import type { QoderWorkspaceGroup } from '@spiracha/lib/qoder-exporter-types';
 import { Link } from '@tanstack/react-router';
-import { createColumnHelper } from '@tanstack/react-table';
 import { DataTable } from '#/components/data-table';
+import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatDateTime, formatNumber } from '#/lib/formatters';
 
 type QoderWorkspacesTableProps = {
     workspaces: QoderWorkspaceGroup[];
 };
 
-const columnHelper = createColumnHelper<QoderWorkspaceGroup>();
+const columnHelper = createDataTableColumnHelper<QoderWorkspaceGroup>();
 
 const columns = [
     columnHelper.accessor('label', {

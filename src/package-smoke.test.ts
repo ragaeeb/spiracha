@@ -1,8 +1,25 @@
 import { describe, expect, it } from 'bun:test';
 import path from 'node:path';
-import { getPackedTarballPath, isPackagedUiHealthyResponse } from './package-smoke';
+import { buildPackagedUiProcessEnv, getPackedTarballPath, isPackagedUiHealthyResponse } from './package-smoke';
 
 describe('packaged UI smoke helpers', () => {
+    it('should bind the packaged UI to its isolated Codex fixture', () => {
+        expect(
+            buildPackagedUiProcessEnv(
+                {
+                    HOME: '/home/runner',
+                    SPIRACHA_CODEX_DB: '/home/runner/.codex/state_5.sqlite',
+                },
+                45337,
+                '/tmp/spiracha-package-smoke/state.sqlite',
+            ),
+        ).toMatchObject({
+            HOME: '/home/runner',
+            PORT: '45337',
+            SPIRACHA_CODEX_DB: '/tmp/spiracha-package-smoke/state.sqlite',
+        });
+    });
+
     it('should derive the packed tarball path from package metadata', () => {
         expect(getPackedTarballPath('/tmp/spiracha', 'spiracha', '2.3.0')).toBe(
             path.join('/tmp/spiracha', 'spiracha-2.3.0.tgz'),

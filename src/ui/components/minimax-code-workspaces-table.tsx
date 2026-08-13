@@ -1,14 +1,14 @@
 import type { MiniMaxCodeWorkspaceGroup } from '@spiracha/lib/minimax-code-exporter-types';
 import { Link } from '@tanstack/react-router';
-import { createColumnHelper } from '@tanstack/react-table';
 import { DataTable } from '#/components/data-table';
+import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatDateTime, formatNumber } from '#/lib/formatters';
 
 type MiniMaxCodeWorkspacesTableProps = {
     workspaces: MiniMaxCodeWorkspaceGroup[];
 };
 
-const columnHelper = createColumnHelper<MiniMaxCodeWorkspaceGroup>();
+const columnHelper = createDataTableColumnHelper<MiniMaxCodeWorkspaceGroup>();
 
 const columns = [
     columnHelper.accessor('label', {

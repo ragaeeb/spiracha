@@ -1,14 +1,14 @@
 import type { ClaudeCodeWorkspaceGroup } from '@spiracha/lib/claude-code-exporter-types';
 import { Link } from '@tanstack/react-router';
-import { createColumnHelper } from '@tanstack/react-table';
 import { DataTable } from '#/components/data-table';
+import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatDateTime, formatNumber } from '#/lib/formatters';
 
 type ClaudeCodeWorkspacesTableProps = {
     workspaces: ClaudeCodeWorkspaceGroup[];
 };
 
-const columnHelper = createColumnHelper<ClaudeCodeWorkspaceGroup>();
+const columnHelper = createDataTableColumnHelper<ClaudeCodeWorkspaceGroup>();
 
 const columns = [
     columnHelper.accessor('label', {

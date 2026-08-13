@@ -1,6 +1,5 @@
 import type { CursorWorkspaceGroup } from '@spiracha/lib/cursor-exporter-types';
 import { Link } from '@tanstack/react-router';
-import { createColumnHelper } from '@tanstack/react-table';
 import { MoreHorizontal, RefreshCcw, Trash2 } from 'lucide-react';
 import { DataTable } from '#/components/data-table';
 import { Badge } from '#/components/ui/badge';
@@ -11,6 +10,7 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu';
+import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatDateTime, formatNumber } from '#/lib/formatters';
 
 type CursorWorkspacesTableProps = {
@@ -19,7 +19,7 @@ type CursorWorkspacesTableProps = {
     workspaces: CursorWorkspaceGroup[];
 };
 
-const columnHelper = createColumnHelper<CursorWorkspaceGroup>();
+const columnHelper = createDataTableColumnHelper<CursorWorkspaceGroup>();
 
 const getWorkspaceLocation = (workspace: CursorWorkspaceGroup) => workspace.folders[0] ?? workspace.uri;
 

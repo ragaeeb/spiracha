@@ -1,7 +1,6 @@
 import type { MiniMaxCodeSessionSummary } from '@spiracha/lib/minimax-code-exporter-types';
 import { Link } from '@tanstack/react-router';
 import type { SortingState } from '@tanstack/react-table';
-import { createColumnHelper } from '@tanstack/react-table';
 import { Download, MoreHorizontal, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
@@ -13,6 +12,7 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu';
+import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatDateTime, formatNumber } from '#/lib/formatters';
 
 type MiniMaxCodeSessionsTableProps = {
@@ -23,7 +23,7 @@ type MiniMaxCodeSessionsTableProps = {
     sessions: MiniMaxCodeSessionSummary[];
 };
 
-const columnHelper = createColumnHelper<MiniMaxCodeSessionSummary>();
+const columnHelper = createDataTableColumnHelper<MiniMaxCodeSessionSummary>();
 const defaultSorting: SortingState = [{ desc: true, id: 'lastActive' }];
 
 const buildColumns = (

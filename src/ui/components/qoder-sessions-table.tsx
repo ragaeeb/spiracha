@@ -1,7 +1,6 @@
 import type { QoderSessionSummary } from '@spiracha/lib/qoder-exporter-types';
 import { Link } from '@tanstack/react-router';
 import type { SortingState } from '@tanstack/react-table';
-import { createColumnHelper } from '@tanstack/react-table';
 import { Download, MoreHorizontal } from 'lucide-react';
 import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
@@ -13,6 +12,7 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu';
+import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatDateTime, formatNumber } from '#/lib/formatters';
 
 type QoderSessionsTableProps = {
@@ -21,7 +21,7 @@ type QoderSessionsTableProps = {
     sessions: QoderSessionSummary[];
 };
 
-const columnHelper = createColumnHelper<QoderSessionSummary>();
+const columnHelper = createDataTableColumnHelper<QoderSessionSummary>();
 const defaultSorting: SortingState = [{ desc: true, id: 'lastActive' }];
 
 const columns = (onExportSession: (session: QoderSessionSummary) => void) =>

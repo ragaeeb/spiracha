@@ -2,7 +2,6 @@ import type { AntigravityConversation } from '@spiracha/lib/antigravity-exporter
 import type { AntigravityDecryptionState } from '@spiracha/lib/antigravity-keychain';
 import { Link } from '@tanstack/react-router';
 import type { SortingState } from '@tanstack/react-table';
-import { createColumnHelper } from '@tanstack/react-table';
 import { Download, GitFork, LockKeyhole, MoreHorizontal, ScrollText, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
@@ -21,6 +20,7 @@ import {
     hasReadableAntigravityConversation,
     isAntigravityConversationLocked,
 } from '#/lib/antigravity-conversation-state';
+import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatBytes, formatDateTime, formatNumber } from '#/lib/formatters';
 import { cn } from '#/lib/utils';
 
@@ -46,7 +46,7 @@ type ConversationTreeNode = AntigravityConversation & {
     children: ConversationTreeNode[];
 };
 
-const columnHelper = createColumnHelper<ConversationTreeNode>();
+const columnHelper = createDataTableColumnHelper<ConversationTreeNode>();
 const defaultSorting: SortingState = [{ desc: true, id: 'updatedAt' }];
 
 const ConversationTitleCell = ({

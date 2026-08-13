@@ -1,7 +1,6 @@
 import type { KiroSessionSummary } from '@spiracha/lib/kiro-exporter-types';
 import { Link } from '@tanstack/react-router';
 import type { SortingState } from '@tanstack/react-table';
-import { createColumnHelper } from '@tanstack/react-table';
 import { Download, MoreHorizontal, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
@@ -13,6 +12,7 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu';
+import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatDateTime, formatNumber } from '#/lib/formatters';
 
 type KiroSessionsTableProps = {
@@ -23,7 +23,7 @@ type KiroSessionsTableProps = {
     sessions: KiroSessionSummary[];
 };
 
-const columnHelper = createColumnHelper<KiroSessionSummary>();
+const columnHelper = createDataTableColumnHelper<KiroSessionSummary>();
 const defaultSorting: SortingState = [{ desc: true, id: 'lastActive' }];
 
 const columns = (

@@ -1,6 +1,5 @@
 import type { ProjectSummary } from '@spiracha/lib/codex-browser-types';
 import { Link } from '@tanstack/react-router';
-import { createColumnHelper } from '@tanstack/react-table';
 import { MoreHorizontal, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
@@ -11,6 +10,7 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu';
+import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatDateTime, formatList, formatNumber, formatTokens } from '#/lib/formatters';
 
 type ProjectsTableProps = {
@@ -18,7 +18,7 @@ type ProjectsTableProps = {
     onDeleteProject: (project: ProjectSummary) => void;
 };
 
-const columnHelper = createColumnHelper<ProjectSummary>();
+const columnHelper = createDataTableColumnHelper<ProjectSummary>();
 
 const columns = (onDeleteProject: (project: ProjectSummary) => void) =>
     [

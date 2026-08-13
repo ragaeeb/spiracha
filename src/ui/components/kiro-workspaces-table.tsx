@@ -1,14 +1,14 @@
 import type { KiroWorkspaceGroup } from '@spiracha/lib/kiro-exporter-types';
 import { Link } from '@tanstack/react-router';
-import { createColumnHelper } from '@tanstack/react-table';
 import { DataTable } from '#/components/data-table';
+import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatDateTime, formatNumber } from '#/lib/formatters';
 
 type KiroWorkspacesTableProps = {
     workspaces: KiroWorkspaceGroup[];
 };
 
-const columnHelper = createColumnHelper<KiroWorkspaceGroup>();
+const columnHelper = createDataTableColumnHelper<KiroWorkspaceGroup>();
 
 const columns = [
     columnHelper.accessor('label', {

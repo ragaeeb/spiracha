@@ -1,14 +1,14 @@
 import type { AntigravityWorkspaceGroup } from '@spiracha/lib/antigravity-exporter-types';
 import { Link } from '@tanstack/react-router';
-import { createColumnHelper } from '@tanstack/react-table';
 import { DataTable } from '#/components/data-table';
+import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatBytes, formatDateTime, formatNumber } from '#/lib/formatters';
 
 type AntigravityWorkspacesTableProps = {
     workspaces: AntigravityWorkspaceGroup[];
 };
 
-const columnHelper = createColumnHelper<AntigravityWorkspaceGroup>();
+const columnHelper = createDataTableColumnHelper<AntigravityWorkspaceGroup>();
 
 const columns = [
     columnHelper.accessor('label', {
