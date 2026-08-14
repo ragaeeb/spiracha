@@ -385,6 +385,60 @@ describe('cursor-db workspace discovery', () => {
         expect(threads[0]?.transcriptDirs).toEqual([transcriptDir]);
     });
 
+    it('should discover a Cursor CLI transcript without a SQLite composer record', async () => {
+        const userDir = await makeUserDir();
+        const composerId = '73d679d2-5311-4e00-8be3-af67fbf0fa87';
+        const projectDir = path.join(userDir, 'projects', 'Users-test-workspace-kalu');
+        const transcriptDir = path.join(projectDir, 'agent-transcripts', composerId);
+        await mkdir(transcriptDir, { recursive: true });
+        await Bun.write(
+            path.join(projectDir, '.workspace-trusted'),
+            JSON.stringify({ workspacePath: '/Users/test/workspace/kalu' }),
+        );
+        await Bun.write(
+            path.join(transcriptDir, `${composerId}.jsonl`),
+            [
+                JSON.stringify({
+                    message: {
+                        content: [
+                            {
+                                text: 'READ-ONLY review triage. Read root and nearest AGENTS.',
+                                type: 'text',
+                            },
+                        ],
+                    },
+                    role: 'user',
+                }),
+                JSON.stringify({
+                    message: { content: [{ text: 'Review complete.', type: 'text' }] },
+                    role: 'assistant',
+                }),
+            ].join('\n'),
+        );
+
+        const groups = await listCursorWorkspaceGroups(userDir);
+        const group = groups.find((candidate) => candidate.key === 'folder:/Users/test/workspace/kalu');
+        const threads = group ? await listCursorThreadsForGroup(group, userDir) : [];
+        const transcript = await readCursorThreadTranscriptWithAgentFiles(
+            getCursorGlobalDbPath(userDir),
+            composerId,
+            userDir,
+        );
+
+        expect(group?.folders).toEqual(['/Users/test/workspace/kalu']);
+        expect(threads).toHaveLength(1);
+        expect(threads[0]).toMatchObject({
+            bubbleCount: 2,
+            composerId,
+            name: 'READ-ONLY review triage. Read root and nearest AGENTS.',
+            transcriptDirs: [transcriptDir],
+        });
+        expect(transcript?.bubbles.map((bubble) => bubble.text)).toEqual([
+            'READ-ONLY review triage. Read root and nearest AGENTS.',
+            'Review complete.',
+        ]);
+    });
+
     it('should reject composer ids that escape the agent transcript directory', async () => {
         const userDir = await makeUserDir();
         await mkdir(path.join(userDir, 'projects', 'demo-project', 'agent-transcripts'), { recursive: true });

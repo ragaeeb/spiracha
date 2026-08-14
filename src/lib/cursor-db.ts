@@ -1112,9 +1112,10 @@ const buildDiscovery = async (userDir: string, options: CursorDiscoveryOptions =
     const buckets = await loadCursorBuckets(userDir);
     const bucketGroups = groupCursorBuckets(buckets);
     const globalDbPath = getCursorGlobalDbPath(userDir);
+    const cliThreads = await readCursorCliTranscriptThreads(userDir, options);
 
     if (!(await pathExists(globalDbPath))) {
-        return assembleDiscovery([], bucketGroups, new Map());
+        return assembleDiscovery(cliThreads, bucketGroups, new Map());
     }
 
     const bucketIdToGroupKey = new Map<string, string>();
@@ -1130,7 +1131,7 @@ const buildDiscovery = async (userDir: string, options: CursorDiscoveryOptions =
     try {
         const heads = readAllHeads(db, options);
         if (options.updatedAfterMs !== undefined && heads.size === 0) {
-            return assembleDiscovery([], bucketGroups, new Map());
+            return assembleDiscovery(cliThreads, bucketGroups, new Map());
         }
 
         const headerInfo = readHeaderInfo(globalDbPath);
@@ -1159,7 +1160,12 @@ const buildDiscovery = async (userDir: string, options: CursorDiscoveryOptions =
 
         const fileHistoryActivity =
             options.updatedAfterMs === undefined ? await readCursorFileHistoryProjectActivity(userDir) : new Map();
-        return assembleDiscovery(resolved, bucketGroups, fileHistoryActivity);
+        const knownComposerIds = new Set(universe);
+        return assembleDiscovery(
+            [...resolved, ...cliThreads.filter((thread) => !knownComposerIds.has(thread.composerId))],
+            bucketGroups,
+            fileHistoryActivity,
+        );
     } finally {
         db.close();
     }
@@ -1490,17 +1496,146 @@ const listCursorAgentTranscriptFiles = async (transcriptDir: string, composerId:
     return [...files].sort();
 };
 
-const readCursorAgentTranscriptBubbles = async (composerId: string, userDir: string): Promise<CursorBubble[]> => {
-    const transcriptDirs = await findCursorTranscriptDirs(composerId, userDir);
+type CursorAgentTranscript = {
+    bubbles: CursorBubble[];
+    bytes: number;
+    createdAtMs: number | null;
+    lastUpdatedAtMs: number | null;
+};
+
+const readCursorAgentTranscript = async (
+    composerId: string,
+    userDir: string,
+    transcriptDirs?: string[],
+): Promise<CursorAgentTranscript> => {
+    const resolvedTranscriptDirs = transcriptDirs ?? (await findCursorTranscriptDirs(composerId, userDir));
     const bubbles: CursorBubble[] = [];
-    for (const transcriptDir of transcriptDirs.sort()) {
+    let bytes = 0;
+    let createdAtMs: number | null = null;
+    let lastUpdatedAtMs: number | null = null;
+    for (const transcriptDir of [...resolvedTranscriptDirs].sort()) {
         const files = await listCursorAgentTranscriptFiles(transcriptDir, composerId);
         for (const file of files) {
+            let fileStat: Awaited<ReturnType<typeof stat>>;
+            try {
+                fileStat = await stat(file);
+            } catch {
+                continue;
+            }
+
+            bytes += fileStat.size;
+            if (fileStat.birthtimeMs > 0 && (createdAtMs === null || fileStat.birthtimeMs < createdAtMs)) {
+                createdAtMs = fileStat.birthtimeMs;
+            }
+            lastUpdatedAtMs = Math.max(lastUpdatedAtMs ?? 0, fileStat.mtimeMs);
             bubbles.push(...(await readCursorAgentTranscriptFile(file)));
         }
     }
 
-    return bubbles;
+    return { bubbles, bytes, createdAtMs, lastUpdatedAtMs };
+};
+
+const readCursorProjectWorkspacePath = async (projectDir: string): Promise<string | null> => {
+    try {
+        const data = (await Bun.file(path.join(projectDir, '.workspace-trusted')).json()) as {
+            workspacePath?: unknown;
+        };
+        return typeof data.workspacePath === 'string' ? normalizeCursorPath(data.workspacePath) || null : null;
+    } catch {
+        return null;
+    }
+};
+
+const getCursorAgentThreadName = (bubbles: CursorBubble[]): string => {
+    const firstUserBubble = bubbles.find((bubble) => bubble.kind === 'user' && bubble.text.trim());
+    const raw = firstUserBubble?.text ?? '';
+    const query = raw.match(/<user_query>\s*([\s\S]*?)\s*<\/user_query>/u)?.[1] ?? raw;
+    return normalizeBubbleText(query).slice(0, 200) || '(untitled)';
+};
+
+type CursorDirectoryEntry = { isDirectory: () => boolean; name: string };
+
+const readCursorDirectoryEntries = async (directory: string): Promise<CursorDirectoryEntry[]> => {
+    try {
+        return await readdir(directory, { withFileTypes: true });
+    } catch {
+        return [];
+    }
+};
+
+const isCursorCliTranscriptAfterUpdate = (transcript: CursorAgentTranscript, updatedAfterMs?: number): boolean => {
+    return updatedAfterMs === undefined || (transcript.lastUpdatedAtMs ?? 0) > updatedAfterMs;
+};
+
+const readCursorCliTranscriptThread = async (
+    userDir: string,
+    agentTranscriptsDir: string,
+    workspacePath: string | null,
+    transcriptEntry: CursorDirectoryEntry,
+    options: CursorDiscoveryOptions,
+): Promise<ResolvedThread | null> => {
+    if (!transcriptEntry.isDirectory() || !isSafeCursorComposerId(transcriptEntry.name)) {
+        return null;
+    }
+
+    const transcriptDir = path.join(agentTranscriptsDir, transcriptEntry.name);
+    const transcript = await readCursorAgentTranscript(transcriptEntry.name, userDir, [transcriptDir]);
+    if (transcript.bubbles.length === 0 || !isCursorCliTranscriptAfterUpdate(transcript, options.updatedAfterMs)) {
+        return null;
+    }
+
+    const folder = workspacePath;
+    return {
+        bucketId: null,
+        composerId: transcriptEntry.name,
+        createdAtMs: transcript.createdAtMs,
+        folder,
+        groupKey: folder ? `folder:${folder}` : UNKNOWN_GROUP_KEY,
+        groupLabel: folder ? path.basename(folder) : 'Unknown project',
+        lastUpdatedAtMs: transcript.lastUpdatedAtMs,
+        mode: null,
+        model: null,
+        name: getCursorAgentThreadName(transcript.bubbles),
+        parentComposerId: null,
+        reasoningEffort: null,
+        stat: { bytes: transcript.bytes, count: transcript.bubbles.length },
+        status: null,
+    };
+};
+
+const keepNewestCursorCliThread = (threadsById: Map<string, ResolvedThread>, candidate: ResolvedThread): void => {
+    const existing = threadsById.get(candidate.composerId);
+    if (!existing || (candidate.lastUpdatedAtMs ?? 0) > (existing.lastUpdatedAtMs ?? 0)) {
+        threadsById.set(candidate.composerId, candidate);
+    }
+};
+
+const readCursorCliTranscriptThreads = async (
+    userDir: string,
+    options: CursorDiscoveryOptions,
+): Promise<ResolvedThread[]> => {
+    const projectsDir = getCursorProjectsDir(userDir);
+    const projectEntries = (await readCursorDirectoryEntries(projectsDir)).filter((entry) => entry.isDirectory());
+    const threadsById = new Map<string, ResolvedThread>();
+    for (const projectEntry of projectEntries) {
+        const projectDir = path.join(projectsDir, projectEntry.name);
+        const agentTranscriptsDir = path.join(projectDir, 'agent-transcripts');
+        const workspacePath = await readCursorProjectWorkspacePath(projectDir);
+        for (const transcriptEntry of await readCursorDirectoryEntries(agentTranscriptsDir)) {
+            const candidate = await readCursorCliTranscriptThread(
+                userDir,
+                agentTranscriptsDir,
+                workspacePath,
+                transcriptEntry,
+                options,
+            );
+            if (candidate) {
+                keepNewestCursorCliThread(threadsById, candidate);
+            }
+        }
+    }
+
+    return [...threadsById.values()];
 };
 
 const mergeAgentTranscriptTail = (
@@ -1575,13 +1710,30 @@ export const readCursorThreadTranscriptWithAgentFiles = async (
     composerId: string,
     userDir = inferCursorUserDirFromGlobalDbPath(globalDbPath),
 ): Promise<CursorThreadTranscript | null> => {
-    const transcript = readCursorThreadTranscript(globalDbPath, composerId);
+    const transcript = (await pathExists(globalDbPath)) ? readCursorThreadTranscript(globalDbPath, composerId) : null;
+    const agentTranscript = await readCursorAgentTranscript(composerId, userDir);
     if (!transcript) {
-        return null;
+        if (agentTranscript.bubbles.length === 0) {
+            return null;
+        }
+
+        return {
+            bubbles: agentTranscript.bubbles,
+            head: {
+                composerId,
+                createdAtMs: agentTranscript.createdAtMs,
+                lastUpdatedAtMs: agentTranscript.lastUpdatedAtMs,
+                mode: null,
+                name: getCursorAgentThreadName(agentTranscript.bubbles),
+                orderedBubbleIds: agentTranscript.bubbles.map((bubble) => bubble.bubbleId),
+                totalBubbleHeaders: agentTranscript.bubbles.length,
+            },
+            omittedBubbleCount: 0,
+            renderableBubbleCount: agentTranscript.bubbles.length,
+        };
     }
 
-    const agentBubbles = await readCursorAgentTranscriptBubbles(composerId, userDir);
-    return mergeAgentTranscriptTail(transcript, agentBubbles);
+    return mergeAgentTranscriptTail(transcript, agentTranscript.bubbles);
 };
 
 const readAllBubbleIds = (db: Database, composerId: string): string[] => {

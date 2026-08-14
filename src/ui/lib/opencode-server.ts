@@ -94,6 +94,7 @@ export const exportOpenCodeSessionFn = createServerFn({ method: 'POST' })
             cwd: transcript.session.worktree,
             fallbackBaseName: 'opencode-session',
             outputFormat: data.outputFormat,
+            platform: 'opencode',
             sessionId: transcript.session.sessionId,
             updatedAtMs: transcript.session.lastUpdatedAtMs,
             zipArchive: data.zipArchive,
@@ -133,6 +134,7 @@ export const exportOpenCodeSessionsFn = createServerFn({ method: 'POST' })
             entries,
             fallbackBaseName: 'opencode-sessions',
             outputFormat: data.outputFormat,
+            platform: 'opencode',
             zipArchive: data.zipArchive,
         });
     });

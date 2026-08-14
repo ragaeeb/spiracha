@@ -1,3 +1,4 @@
+import type { CursorWorkspaceGroup } from '@spiracha/lib/cursor-exporter-types';
 import { isSafeCursorComposerId } from '@spiracha/lib/cursor-id';
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
@@ -62,6 +63,30 @@ const findGroupByKey = async (workspaceKey: string) => {
     return group;
 };
 
+const findCursorWorkspacesByComposerId = async (
+    workspaceGroups: CursorWorkspaceGroup[],
+    composerIds: string[],
+): Promise<Map<string, CursorWorkspaceGroup>> => {
+    const requestedIds = new Set(composerIds);
+    const workspacesByComposerId = new Map<string, CursorWorkspaceGroup>();
+    const { listCursorThreadsForGroup } = await import('@spiracha/lib/cursor-db');
+
+    for (const group of workspaceGroups) {
+        const threads = await listCursorThreadsForGroup(group, undefined, { includeTranscriptDirs: false });
+        for (const thread of threads) {
+            if (requestedIds.has(thread.composerId)) {
+                workspacesByComposerId.set(thread.composerId, group);
+            }
+        }
+
+        if (workspacesByComposerId.size === requestedIds.size) {
+            break;
+        }
+    }
+
+    return workspacesByComposerId;
+};
+
 const renderCursorZipDownload = async (
     rendered: Array<{
         composerId: string;
@@ -83,6 +108,7 @@ const renderCursorZipDownload = async (
         })),
         fallbackBaseName: 'cursor',
         outputFormat,
+        platform: 'cursor',
         zipArchive: true,
     });
 };
@@ -115,6 +141,7 @@ const renderCursorDownload = async (input: {
     const globalDbPath = getCursorGlobalDbPath();
     const { listCursorWorkspaceGroups } = await import('@spiracha/lib/cursor-db');
     const workspaceGroups = await listCursorWorkspaceGroups();
+    const workspacesByComposerId = await findCursorWorkspacesByComposerId(workspaceGroups, input.composerIds);
     const rendered = await Promise.all(
         input.composerIds.map(async (composerId) => {
             const transcript = await runWithTranscriptLoadLimit(
@@ -141,10 +168,7 @@ const renderCursorDownload = async (input: {
                 throw new Error(`Thread has no exportable content: ${composerId}`);
             }
 
-            const workspace =
-                workspaceGroups.find((candidate) =>
-                    candidate.buckets.some((bucket) => bucket.threadComposerIds.includes(composerId)),
-                ) ?? null;
+            const workspace = workspacesByComposerId.get(composerId);
 
             return {
                 composerId,
@@ -167,6 +191,7 @@ const renderCursorDownload = async (input: {
             cwd: entry.cwd,
             fallbackBaseName: 'cursor-thread',
             outputFormat: input.outputFormat,
+            platform: 'cursor',
             sessionId: entry.composerId,
             updatedAtMs: entry.updatedAtMs,
             zipArchive: false,

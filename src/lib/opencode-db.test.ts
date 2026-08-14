@@ -194,6 +194,60 @@ describe('opencode db helpers', () => {
         expect(groups[0]?.partCount).toBe(6);
     });
 
+    it('should expose global OpenCode sessions as directory workspaces', async () => {
+        const dbPath = await makeDbPath();
+        const worktree = '/Users/test/Downloads/import_export_deep_research_prompt_pack';
+        await createOpenCodeFixture(dbPath, {
+            projects: [{ id: 'global', worktree: '/' }],
+            sessions: [
+                {
+                    directory: worktree,
+                    id: 'ses_download_one',
+                    messages: [],
+                    projectId: 'global',
+                    timeUpdated: 1_700_000_100_000,
+                    title: 'Imported prompt one',
+                },
+                {
+                    directory: worktree,
+                    id: 'ses_download_two',
+                    messages: [],
+                    projectId: 'global',
+                    timeUpdated: 1_700_000_200_000,
+                    title: 'Imported prompt two',
+                },
+                {
+                    directory: '/Users/test/Downloads/another-project',
+                    id: 'ses_other',
+                    messages: [],
+                    projectId: 'global',
+                    timeUpdated: 1_700_000_300_000,
+                    title: 'Another project session',
+                },
+            ],
+        });
+
+        const groups = await listOpenCodeWorkspaceGroups(dbPath);
+        const downloadGroup = groups.find((group) => group.worktree === worktree);
+
+        expect(groups).toHaveLength(2);
+        expect(downloadGroup).toMatchObject({
+            label: 'import_export_deep_research_prompt_pack',
+            sessionCount: 2,
+            worktree,
+        });
+        expect(downloadGroup?.key).toMatch(/^directory:/u);
+
+        const sessions = await listOpenCodeSessionsForGroup(downloadGroup?.key ?? '', dbPath);
+
+        expect(sessions.map((session) => session.sessionId)).toEqual(['ses_download_two', 'ses_download_one']);
+        expect(sessions[0]).toMatchObject({
+            workspaceKey: downloadGroup?.key,
+            workspaceLabel: 'import_export_deep_research_prompt_pack',
+            worktree,
+        });
+    });
+
     it('should read a WAL database when its sidecar files do not exist', async () => {
         const dbPath = await createFixtureDb();
         const db = new Database(dbPath);

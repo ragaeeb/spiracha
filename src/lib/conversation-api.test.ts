@@ -709,7 +709,7 @@ describe('conversation API handler', () => {
 
         expect(response.status).toBe(200);
         expect(response.headers.get('Content-Type')).toBe('application/zip');
-        expect(response.headers.get('Content-Disposition')).toContain('grok-conversations-2.zip');
+        expect(response.headers.get('Content-Disposition')).toContain('grok_repo-1970-01-01-0000-threads-2.zip');
         expect(renderedSelectors).toEqual(['all', 'all']);
         const bytes = new Uint8Array(await response.arrayBuffer());
         expect(Array.from(bytes.slice(0, 2))).toEqual([0x50, 0x4b]);

@@ -257,6 +257,7 @@ describe('Cursor export server functions', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         listCursorWorkspaceGroupsMock.mockResolvedValue([workspaceOne]);
+        listCursorThreadsForGroupMock.mockResolvedValue([makeThread()]);
         readCursorThreadTranscriptWithAgentFilesMock.mockResolvedValue(transcript);
         renderCursorTranscriptMock.mockReturnValue('rendered transcript');
         renderSourceSessionDownloadMock.mockResolvedValue({
@@ -266,6 +267,27 @@ describe('Cursor export server functions', () => {
             mode: 'download',
         });
         renderSourceSessionsDownloadMock.mockResolvedValue({ mode: 'download_url' });
+    });
+
+    it('should use the Cursor workspace path when naming ZIP archives', async () => {
+        await exportCursorThreadsFn({
+            data: {
+                composerIds: ['thread-1'],
+                includeCommentary: true,
+                includeMetadata: true,
+                includeTools: true,
+                outputFormat: 'md',
+                zipArchive: true,
+            },
+        });
+
+        expect(renderSourceSessionsDownloadMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                entries: [expect.objectContaining({ cwd: '/tmp/one', sessionId: 'thread-1' })],
+                fallbackBaseName: 'cursor',
+                platform: 'cursor',
+            }),
+        );
     });
 
     it('should forward every single-thread export option to the renderer', async () => {

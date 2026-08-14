@@ -94,6 +94,7 @@ export const exportKiroSessionFn = createServerFn({ method: 'POST' })
             cwd: transcript.session.workspacePath ?? transcript.session.worktree,
             fallbackBaseName: 'kiro-session',
             outputFormat: data.outputFormat,
+            platform: 'kiro',
             sessionId: transcript.session.sessionId,
             updatedAtMs: transcript.session.lastActiveAtMs,
             zipArchive: data.zipArchive,
@@ -133,6 +134,7 @@ export const exportKiroSessionsFn = createServerFn({ method: 'POST' })
             entries,
             fallbackBaseName: 'kiro-sessions',
             outputFormat: data.outputFormat,
+            platform: 'kiro',
             zipArchive: data.zipArchive,
         });
     });

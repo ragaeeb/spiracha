@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'bun:test';
 import {
     buildBatchExportBaseName,
+    buildExportArchiveBaseName,
     getExportMimeType,
+    getExportPlatformName,
     resolveUniqueExportFileBaseName,
     sanitizeExportFileName,
 } from './ui-export-archive';
@@ -28,6 +30,16 @@ describe('ui export archive helpers', () => {
         expect(resolveUniqueExportFileBaseName('same-2', used)).toBe('same-2');
         expect(resolveUniqueExportFileBaseName('same', used)).toBe('same-3');
         expect(resolveUniqueExportFileBaseName('SAME', used)).toBe('SAME-4');
+    });
+
+    it('should prefix archive names with the owning platform', () => {
+        expect(buildExportArchiveBaseName('cline', 'spiracha-2026-05-17-1712-019e36d7')).toBe(
+            'cline_spiracha-2026-05-17-1712-019e36d7',
+        );
+        expect(buildExportArchiveBaseName('minimax', 'project-2026-05-17-1712-threads-2')).toBe(
+            'minimax_project-2026-05-17-1712-threads-2',
+        );
+        expect(getExportPlatformName('minimax-code')).toBe('minimax');
     });
 
     it('should name batch archives from the project, latest conversation time, and selected thread count', () => {

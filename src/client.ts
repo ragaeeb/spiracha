@@ -29,6 +29,7 @@ import type {
     ResolvedConversationRef,
 } from './lib/conversation-data/types';
 import { createConversationMarkdownZip } from './lib/conversation-zip-export';
+import { getExportPlatformName } from './lib/ui-export-archive';
 
 export type {
     ConversationDataLocations,
@@ -370,14 +371,17 @@ const exportLocalConversationsZip = async (
         entries: conversations.map((conversation, index) => {
             const resolvedConversation = conversation!;
             return {
+                cwd: resolvedConversation.workspacePath,
                 fallbackBaseName: `${options.source}-${options.ids[index]}`,
                 markdown: renderLocalConversationMarkdown(resolvedConversation, {
                     messageSelector: options.messageSelector ?? 'all',
                 }),
                 title: resolvedConversation.title,
+                updatedAtMs: resolvedConversation.updatedAtMs,
             };
         }),
-        fileBaseName: `${options.source}-conversations-${options.ids.length}`,
+        fallbackProjectName: `${options.source}-conversations`,
+        platform: getExportPlatformName(options.source),
     });
 };
 

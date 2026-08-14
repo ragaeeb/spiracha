@@ -10,15 +10,35 @@ describe('createConversationMarkdownZip', () => {
         const longTitle = '会話'.repeat(100);
         const result = await createConversationMarkdownZip({
             entries: [
-                { fallbackBaseName: 'first', markdown: '# One', title: longTitle },
-                { fallbackBaseName: 'second', markdown: '# Two', title: longTitle },
-                { fallbackBaseName: 'fallback-title', markdown: '# Three', title: '' },
+                {
+                    cwd: '/Users/example/workspace/spiracha',
+                    fallbackBaseName: 'first',
+                    markdown: '# One',
+                    title: longTitle,
+                    updatedAtMs: Date.UTC(2026, 4, 17, 17, 11),
+                },
+                {
+                    cwd: '/Users/example/workspace/spiracha',
+                    fallbackBaseName: 'second',
+                    markdown: '# Two',
+                    title: longTitle,
+                    updatedAtMs: Date.UTC(2026, 4, 17, 17, 12),
+                },
+                {
+                    cwd: '/Users/example/workspace/spiracha',
+                    fallbackBaseName: 'fallback-title',
+                    markdown: '# Three',
+                    title: '',
+                    updatedAtMs: null,
+                },
             ],
-            fileBaseName: 'bundle',
+            fallbackProjectName: 'conversations',
+            platform: 'minimax',
         });
         const archive = unzipSync(new Uint8Array(await result.blob.arrayBuffer()));
         const names = Object.keys(archive);
 
+        expect(result.fileName).toBe('minimax_spiracha-2026-05-17-1712-threads-3.zip');
         expect(names).toHaveLength(3);
         expect(new Set(names).size).toBe(3);
         expect(names.every((name) => Buffer.byteLength(name) <= 255)).toBe(true);
@@ -26,22 +46,30 @@ describe('createConversationMarkdownZip', () => {
     });
 
     it('should clean temporary artifacts when building an entry throws', async () => {
-        const fileBaseName = `zip-cleanup-${randomUUID()}`;
+        const fallbackProjectName = `zip-cleanup-${randomUUID()}`;
         const entry = { fallbackBaseName: 'broken', title: 'Broken' } as {
+            cwd: string | null;
             fallbackBaseName: string;
             markdown: string;
             title: string;
+            updatedAtMs: number | null;
         };
+        entry.cwd = null;
+        entry.updatedAtMs = null;
         Object.defineProperty(entry, 'markdown', {
             get: () => {
                 throw new Error('synthetic markdown read failure');
             },
         });
 
-        await expect(createConversationMarkdownZip({ entries: [entry], fileBaseName })).rejects.toThrow(
-            'synthetic markdown read failure',
-        );
+        await expect(
+            createConversationMarkdownZip({
+                entries: [entry],
+                fallbackProjectName,
+                platform: 'cline',
+            }),
+        ).rejects.toThrow('synthetic markdown read failure');
 
-        expect((await readdir(os.tmpdir())).filter((name) => name.startsWith(fileBaseName))).toEqual([]);
+        expect((await readdir(os.tmpdir())).filter((name) => name.startsWith(fallbackProjectName))).toEqual([]);
     });
 });

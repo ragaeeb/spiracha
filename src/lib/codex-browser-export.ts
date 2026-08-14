@@ -6,7 +6,12 @@ import type { CodexTranscriptRenderOptions } from './codex-thread-types';
 import { renderCodexSessionFile, writeCodexSessionFileExport } from './codex-transcript-renderer';
 import { applyPathTransforms, type PathDisplaySettings } from './path-transforms';
 import type { ExportFormat } from './shared';
-import { buildBatchExportBaseName, buildConversationExportBaseName, getExportMimeType } from './ui-export-archive';
+import {
+    buildBatchExportBaseName,
+    buildConversationExportBaseName,
+    buildExportArchiveBaseName,
+    getExportMimeType,
+} from './ui-export-archive';
 import { buildUiExportDownloadUrl, ensureUiExportDir } from './ui-export-files';
 import { zipExportDirectory, zipExportFile } from './ui-export-zip';
 
@@ -53,6 +58,8 @@ const buildExportBaseName = (thread: ReturnType<typeof getThreadBrowseData>['thr
         'thread',
     );
 };
+
+const buildArchiveBaseName = (baseName: string) => buildExportArchiveBaseName('codex', baseName);
 
 const buildUniqueArchivePath = (exportDir: string, exportBaseName: string) => {
     return path.join(exportDir, `${exportBaseName}-${randomUUID()}.zip`);
@@ -186,10 +193,10 @@ export const renderCodexThreadDownload = async (
             input.zipArchive ||
             rolloutSnapshotBefore.sizeBytes > (input.largeExportThresholdBytes ?? LARGE_BROWSER_EXPORT_THRESHOLD_BYTES)
         ) {
-            const exportBaseName = fileBaseName;
+            const exportBaseName = buildArchiveBaseName(fileBaseName);
             const exportDir = await resolvePublicExportDir(input.publicExportDir);
             const workspaceDir = await createExportWorkspace(exportDir, exportBaseName);
-            const savedPath = path.join(workspaceDir, `${exportBaseName}.${extension}`);
+            const savedPath = path.join(workspaceDir, fileName);
             const zipPath = buildUniqueArchivePath(exportDir, exportBaseName);
             try {
                 const saved = await writeCodexSessionFileExport(
@@ -287,12 +294,14 @@ export const renderCodexThreadsDownload = async (
     const browseEntries = threadIds.map((threadId) => getThreadBrowseData(input.dbPath, threadId));
     const threads = browseEntries.map((entry) => entry.thread);
     const exportDir = await resolvePublicExportDir(input.publicExportDir);
-    const exportBaseName = buildBatchExportBaseName(
-        threads.map((thread) => ({
-            cwd: thread.cwd,
-            updatedAtMs: thread.updated_at_ms ?? thread.updated_at * 1000,
-        })),
-        'threads',
+    const exportBaseName = buildArchiveBaseName(
+        buildBatchExportBaseName(
+            threads.map((thread) => ({
+                cwd: thread.cwd,
+                updatedAtMs: thread.updated_at_ms ?? thread.updated_at * 1000,
+            })),
+            'threads',
+        ),
     );
     const bundleDirectory = await createExportWorkspace(exportDir, exportBaseName);
     const zipPath = buildUniqueArchivePath(exportDir, exportBaseName);

@@ -32,7 +32,7 @@ describe('conversation data facade', () => {
                 locations: {
                     antigravityRoots: [path.join(tempRoot, 'antigravity')],
                     claudeCodeProjectsDir: path.join(tempRoot, 'claude'),
-                    clineGlobalStorageDir: path.join(tempRoot, 'cline'),
+                    clineDataDir: path.join(tempRoot, 'cline'),
                     codexDbPath: path.join(tempRoot, 'missing-codex.sqlite'),
                     cursorUserDir: path.join(tempRoot, 'cursor'),
                     grokSessionsDir: path.join(tempRoot, 'grok', 'sessions'),
@@ -67,7 +67,7 @@ describe('conversation data facade', () => {
                 locations: {
                     antigravityRoots: [path.join(tempRoot, 'antigravity')],
                     claudeCodeProjectsDir: path.join(tempRoot, 'claude'),
-                    clineGlobalStorageDir: path.join(tempRoot, 'cline'),
+                    clineDataDir: path.join(tempRoot, 'cline'),
                     codexDbPath: path.join(tempRoot, 'missing-codex.sqlite'),
                     cursorUserDir: path.join(tempRoot, 'cursor'),
                     grokSessionsDir: path.join(tempRoot, 'grok', 'sessions'),

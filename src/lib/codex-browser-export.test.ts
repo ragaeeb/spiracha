@@ -179,7 +179,7 @@ describe('renderCodexThreadDownload', () => {
         }
         expect(download.downloadUrl.endsWith('.zip')).toBe(true);
         expect(download.fileName.endsWith('.zip')).toBe(true);
-        expect(download.fileName.startsWith('spiracha-2026-05-17-1712-019e36d7')).toBe(true);
+        expect(download.fileName.startsWith('codex_spiracha-2026-05-17-1712-019e36d7')).toBe(true);
         expect(await Bun.file(path.join(tempRoot, path.basename(download.downloadUrl))).exists()).toBe(true);
     });
 
@@ -206,6 +206,7 @@ describe('renderCodexThreadDownload', () => {
             throw new Error('expected zipped download url mode');
         }
         expect(download.fileName.endsWith('.zip')).toBe(true);
+        expect(download.fileName.startsWith('codex_')).toBe(true);
 
         const zipPath = path.join(tempRoot, path.basename(download.downloadUrl));
         const entries = await listZipEntries(zipPath);
@@ -279,6 +280,7 @@ describe('renderCodexThreadDownload', () => {
             throw new Error('expected zipped batch download url mode');
         }
         expect(download.fileName.endsWith('.zip')).toBe(true);
+        expect(download.fileName.startsWith('codex_')).toBe(true);
         expect(download.fileName.includes('threads-2')).toBe(true);
         expect(await Bun.file(path.join(tempRoot, path.basename(download.downloadUrl))).exists()).toBe(true);
     });

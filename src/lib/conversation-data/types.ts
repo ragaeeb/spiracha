@@ -166,7 +166,7 @@ export type ConversationPage = {
 export type ConversationDataLocations = {
     antigravityRoots?: string[];
     claudeCodeProjectsDir?: string;
-    clineGlobalStorageDir?: string;
+    clineDataDir?: string;
     codexDbPath?: string;
     cursorUserDir?: string;
     grokSessionsDir?: string;

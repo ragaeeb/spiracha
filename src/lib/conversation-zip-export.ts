@@ -2,18 +2,26 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { resolveUniqueExportFileBaseName, sanitizeExportFileName } from './ui-export-archive';
+import {
+    buildBatchExportBaseName,
+    buildExportArchiveBaseName,
+    resolveUniqueExportFileBaseName,
+    sanitizeExportFileName,
+} from './ui-export-archive';
 import { zipExportDirectory } from './ui-export-zip';
 
 type ConversationMarkdownZipEntry = {
+    cwd: string | null;
     fallbackBaseName: string;
     markdown: string;
     title: string | null;
+    updatedAtMs: number | null;
 };
 
 type ConversationMarkdownZipOptions = {
     entries: ConversationMarkdownZipEntry[];
-    fileBaseName: string;
+    fallbackProjectName: string;
+    platform: Parameters<typeof buildExportArchiveBaseName>[0];
 };
 
 const EXPORT_BASE_NAME_BYTE_LIMIT = 120;
@@ -45,15 +53,17 @@ const toSafeFileBaseName = (value: string | null, fallback: string) => {
 
 export const createConversationMarkdownZip = async ({
     entries,
-    fileBaseName,
+    fallbackProjectName,
+    platform,
 }: ConversationMarkdownZipOptions): Promise<ConversationMarkdownZip> => {
     if (entries.length === 0) {
         throw new Error('No conversations selected for export');
     }
 
-    const safeBaseName = toSafeFileBaseName(fileBaseName, 'conversations');
-    const workspaceDir = await mkdtemp(path.join(os.tmpdir(), `${safeBaseName}-`));
-    const zipPath = path.join(os.tmpdir(), `${safeBaseName}-${randomUUID()}.zip`);
+    const safeBaseName = buildBatchExportBaseName(entries, fallbackProjectName);
+    const archiveBaseName = buildExportArchiveBaseName(platform, safeBaseName);
+    const workspaceDir = await mkdtemp(path.join(os.tmpdir(), `${archiveBaseName}-`));
+    const zipPath = path.join(os.tmpdir(), `${archiveBaseName}-${randomUUID()}.zip`);
     const usedBaseNames = new Map<string, number>();
 
     try {
@@ -66,7 +76,7 @@ export const createConversationMarkdownZip = async ({
         await zipExportDirectory(workspaceDir, zipPath);
         return {
             blob: new Blob([await Bun.file(zipPath).arrayBuffer()], { type: 'application/zip' }),
-            fileName: `${safeBaseName}.zip`,
+            fileName: `${archiveBaseName}.zip`,
             mimeType: 'application/zip',
         };
     } finally {

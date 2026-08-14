@@ -12,6 +12,7 @@ import {
     renderAntigravityArtifactsMarkdown,
     renderAntigravityConversationMarkdown,
 } from './antigravity-db';
+import { resolveAntigravityRoots } from './antigravity-exporter-types';
 import { ANTIGRAVITY_TRANSCRIPT_MARKDOWN_VERSION } from './antigravity-transcript-contract';
 import { antigravityMarkdownToThreadEvents } from './antigravity-transcript-events';
 
@@ -276,6 +277,10 @@ const runGit = async (cwd: string, args: string[]): Promise<void> => {
 };
 
 describe('antigravity db discovery', () => {
+    it('should include the Antigravity CLI root in default discovery roots', () => {
+        expect(resolveAntigravityRoots()).toContain(path.join(os.homedir(), '.gemini', 'antigravity-cli'));
+    });
+
     it('should resolve one conversation without requiring a collection scan', async () => {
         const root = await makeRoot();
         const conversationId = '12111111-1111-4111-8111-111111111111';

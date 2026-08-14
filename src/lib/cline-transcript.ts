@@ -24,8 +24,8 @@ export const renderClineTranscript = (transcript: ClineTaskTranscript, options: 
     const lines = [renderDocumentTitle(cleanInlineTitle(task.title), options.outputFormat), ''];
     if (options.includeMetadata) {
         const metadata: MetadataEntry[] = [
-            { key: 'exported_from', value: 'cline_ui_messages' },
-            { key: 'task_id', value: task.taskId },
+            { key: 'exported_from', value: 'cline_session_messages' },
+            { key: 'session_id', value: task.taskId },
             { key: 'workspace', value: task.worktree },
             { key: 'model', value: task.modelId },
             { key: 'created_at_unix_ms', value: task.createdAtMs },

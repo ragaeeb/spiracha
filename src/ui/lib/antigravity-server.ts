@@ -303,6 +303,7 @@ export const exportAntigravityConversations = async (input: z.input<typeof expor
         entries,
         fallbackBaseName: 'antigravity-conversations',
         outputFormat: data.outputFormat,
+        platform: 'antigravity',
         zipArchive: data.zipArchive,
     });
 };

@@ -92,6 +92,7 @@ export const exportQoderSessionFn = createServerFn({ method: 'POST' })
             cwd: transcript.session.workspacePath ?? transcript.session.worktree,
             fallbackBaseName: 'qoder-session',
             outputFormat: data.outputFormat,
+            platform: 'qoder',
             sessionId: transcript.session.sessionId,
             updatedAtMs: transcript.session.lastActiveAtMs,
             zipArchive: data.zipArchive,
@@ -131,6 +132,7 @@ export const exportQoderSessionsFn = createServerFn({ method: 'POST' })
             entries,
             fallbackBaseName: 'qoder-sessions',
             outputFormat: data.outputFormat,
+            platform: 'qoder',
             zipArchive: data.zipArchive,
         });
     });

@@ -190,7 +190,9 @@ describe('UI API server routes', () => {
                 );
                 expect(batchExportResponse.status).toBe(200);
                 expect(batchExportResponse.headers.get('Content-Type')).toBe('application/zip');
-                expect(batchExportResponse.headers.get('Content-Disposition')).toContain('codex-conversations-2.zip');
+                expect(batchExportResponse.headers.get('Content-Disposition')).toContain(
+                    'codex_spiracha-2026-05-17-1712-threads-2.zip',
+                );
                 const batchExportBytes = new Uint8Array(await batchExportResponse.arrayBuffer());
                 expect(Array.from(batchExportBytes.slice(0, 2))).toEqual([0x50, 0x4b]);
 
