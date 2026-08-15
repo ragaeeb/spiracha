@@ -15,3 +15,8 @@ const escapeSqlLikeValue = (value: string): string => value.replace(/[\\%_]/gu, 
 export const buildCursorBubbleKeyLikePattern = (composerId: string): string => {
     return `bubbleId:${escapeSqlLikeValue(composerId)}:%`;
 };
+
+export const getCursorBubbleKeyRange = (composerId: string): { end: string; start: string } => {
+    const start = `bubbleId:${composerId}:`;
+    return { end: `bubbleId:${composerId};`, start };
+};

@@ -210,6 +210,17 @@ export type DashboardSummary = {
     totalTokens: number;
 };
 
+export type CodexSessionIndexEntry = {
+    id: string;
+    thread_name?: string;
+    updated_at?: string;
+};
+
+export type CodexSessionIndexReconciliation = {
+    dryRun: true;
+    staleEntries: CodexSessionIndexEntry[];
+};
+
 export type DeleteThreadsResult = {
     deletedSessionFiles: string[];
     deletedThreadIds: string[];

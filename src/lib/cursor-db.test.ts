@@ -7,6 +7,7 @@ import {
     CURSOR_READONLY_DB_OPEN_FLAGS,
     decodeCursorUri,
     findCursorTranscriptDirs,
+    findCursorTranscriptDirsForComposerIds,
     findCursorWorkspaceGroups,
     getCursorReadonlyDbUri,
     listCursorThreadsForGroup,
@@ -383,6 +384,20 @@ describe('cursor-db workspace discovery', () => {
         const threads = await listCursorThreadsForGroup(group!, userDir);
 
         expect(threads[0]?.transcriptDirs).toEqual([transcriptDir]);
+    });
+
+    it('should resolve transcript directories for a deletion batch in one result map', async () => {
+        const userDir = await makeUserDir();
+        await createCursorFixture(userDir, baseSpec());
+        const firstDir = path.join(userDir, 'projects', 'first', 'agent-transcripts', 'thread-1');
+        const secondDir = path.join(userDir, 'projects', 'second', 'agent-transcripts', 'thread-2');
+        await Promise.all([mkdir(firstDir, { recursive: true }), mkdir(secondDir, { recursive: true })]);
+
+        const matches = await findCursorTranscriptDirsForComposerIds(['thread-1', 'thread-2', '../../unsafe'], userDir);
+
+        expect(matches.get('thread-1')).toEqual([firstDir]);
+        expect(matches.get('thread-2')).toEqual([secondDir]);
+        expect(matches.has('../../unsafe')).toBe(false);
     });
 
     it('should discover a Cursor CLI transcript without a SQLite composer record', async () => {

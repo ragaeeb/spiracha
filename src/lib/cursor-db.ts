@@ -491,41 +491,62 @@ const countBubbles = (db: Database, composerId: string): { count: number; bytes:
     return { bytes: row.bytes, count: row.count };
 };
 
-export const findCursorTranscriptDirs = async (
-    composerId: string,
+export const findCursorTranscriptDirsForComposerIds = async (
+    composerIds: Iterable<string>,
     userDir = resolveCursorUserDir(),
-): Promise<string[]> => {
-    if (!isSafeCursorComposerId(composerId)) {
-        return [];
+): Promise<Map<string, string[]>> => {
+    const safeComposerIds = new Set([...composerIds].filter(isSafeCursorComposerId));
+    const matches = new Map([...safeComposerIds].map((composerId) => [composerId, [] as string[]]));
+    if (safeComposerIds.size === 0) {
+        return matches;
     }
 
     const projectsDir = getCursorProjectsDir(userDir);
     if (!(await pathExists(projectsDir))) {
-        return [];
+        return matches;
     }
 
-    const matches: string[] = [];
     let projectDirs: string[] = [];
     try {
         projectDirs = await readdir(projectsDir);
     } catch {
-        return [];
+        return matches;
     }
 
-    for (const projectDir of projectDirs) {
-        const agentTranscriptsDir = path.resolve(projectsDir, projectDir, 'agent-transcripts');
-        const transcriptDir = path.resolve(agentTranscriptsDir, composerId);
-        const relativePath = path.relative(agentTranscriptsDir, transcriptDir);
-        if (!relativePath || relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath)) {
-            continue;
-        }
+    await Promise.all(
+        projectDirs.map(async (projectDir) => {
+            const agentTranscriptsDir = path.resolve(projectsDir, projectDir, 'agent-transcripts');
+            let entries: string[];
+            try {
+                entries = await readdir(agentTranscriptsDir);
+            } catch {
+                return;
+            }
 
-        if (await pathExists(transcriptDir)) {
-            matches.push(transcriptDir);
-        }
-    }
+            for (const composerId of entries) {
+                if (!safeComposerIds.has(composerId)) {
+                    continue;
+                }
+
+                const transcriptDir = path.resolve(agentTranscriptsDir, composerId);
+                const relativePath = path.relative(agentTranscriptsDir, transcriptDir);
+                if (!relativePath || relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath)) {
+                    continue;
+                }
+
+                matches.get(composerId)!.push(transcriptDir);
+            }
+        }),
+    );
 
     return matches;
+};
+
+export const findCursorTranscriptDirs = async (
+    composerId: string,
+    userDir = resolveCursorUserDir(),
+): Promise<string[]> => {
+    return (await findCursorTranscriptDirsForComposerIds([composerId], userDir)).get(composerId) ?? [];
 };
 
 export type ListCursorThreadsOptions = {
@@ -545,12 +566,14 @@ export const listCursorThreadsForGroup = async (
         return threads;
     }
 
-    return Promise.all(
-        threads.map(async (thread) => ({
-            ...thread,
-            transcriptDirs: await findCursorTranscriptDirs(thread.composerId, userDir),
-        })),
+    const transcriptDirsByComposerId = await findCursorTranscriptDirsForComposerIds(
+        threads.map((thread) => thread.composerId),
+        userDir,
     );
+    return threads.map((thread) => ({
+        ...thread,
+        transcriptDirs: transcriptDirsByComposerId.get(thread.composerId) ?? [],
+    }));
 };
 
 // Older threads' workspace buckets get pruned by Cursor over time, and many threads predate the

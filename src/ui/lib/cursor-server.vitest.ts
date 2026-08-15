@@ -1,12 +1,15 @@
 import type {
     CursorThreadSummary,
     CursorThreadTranscript,
+    CursorWorkspaceBucket,
     CursorWorkspaceGroup,
 } from '@spiracha/lib/cursor-exporter-types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
     collectCursorThreadsForDeletionMock,
+    deleteCursorWorkspaceBucketsMock,
+    deleteCursorWorkspaceHistoryMock,
     isCursorRunningMock,
     listCursorThreadsForGroupMock,
     listCursorWorkspaceGroupsMock,
@@ -18,6 +21,8 @@ const {
     renderSourceSessionsDownloadMock,
 } = vi.hoisted(() => ({
     collectCursorThreadsForDeletionMock: vi.fn(),
+    deleteCursorWorkspaceBucketsMock: vi.fn(),
+    deleteCursorWorkspaceHistoryMock: vi.fn(),
     isCursorRunningMock: vi.fn(),
     listCursorThreadsForGroupMock: vi.fn(),
     listCursorWorkspaceGroupsMock: vi.fn(),
@@ -66,6 +71,8 @@ vi.mock('@spiracha/lib/cursor-exporter-types', () => ({
 
 vi.mock('@spiracha/lib/cursor-recovery', () => ({
     collectCursorThreadsForDeletion: collectCursorThreadsForDeletionMock,
+    deleteCursorWorkspaceBuckets: deleteCursorWorkspaceBucketsMock,
+    deleteCursorWorkspaceHistory: deleteCursorWorkspaceHistoryMock,
     isCursorRunning: isCursorRunningMock,
     pruneCursorThreads: pruneCursorThreadsMock,
     recoverCursorWorkspaceGroup: recoverCursorWorkspaceGroupMock,
@@ -83,6 +90,7 @@ vi.mock('./source-session-export-server', () => ({
 import {
     deleteCursorThreadsFn,
     deleteCursorWorkspaceFn,
+    deleteCursorWorkspacesFn,
     exportCursorThreadFn,
     exportCursorThreadsFn,
     findCursorThreadByComposerId,
@@ -110,6 +118,21 @@ const workspaceTwo: CursorWorkspaceGroup = {
     needsRecovery: false,
     threadCount: 1,
     uri: 'file:///tmp/two',
+};
+
+const workspaceBucket: CursorWorkspaceBucket = {
+    bucketId: 'bucket-1',
+    composerCount: 0,
+    dbPath: '/tmp/cursor/workspaceStorage/bucket-1/state.vscdb',
+    dbSizeBytes: 1024,
+    folders: workspaceOne.folders,
+    globalHeaderCount: 3,
+    kind: 'folder',
+    label: workspaceOne.label,
+    mtimeMs: workspaceOne.lastActiveMs,
+    threadComposerIds: ['thread-1', 'thread-2', 'aborted-thread'],
+    uri: workspaceOne.uri,
+    workspaceJsonPath: '/tmp/cursor/workspaceStorage/bucket-1/workspace.json',
 };
 
 const makeThread = (overrides: Partial<CursorThreadSummary> = {}): CursorThreadSummary => ({
@@ -191,6 +214,7 @@ describe('deleteCursorThreadsFn', () => {
         };
         collectCursorThreadsForDeletionMock.mockResolvedValue(deletableThreads);
         pruneCursorThreadsMock.mockResolvedValue(result);
+        deleteCursorWorkspaceBucketsMock.mockResolvedValue(1);
 
         await expect(deleteCursorThreadsFn({ data: { composerIds: ['thread-1', 'thread-2'] } })).resolves.toBe(result);
 
@@ -228,28 +252,99 @@ describe('deleteCursorWorkspaceFn', () => {
     });
 
     it('should delete every Cursor thread in a workspace', async () => {
+        const workspace = { ...workspaceOne, buckets: [workspaceBucket], threadCount: 3 };
         const workspaceThreads = [makeThread(), makeThread({ composerId: 'thread-2' })];
-        const deletableThreads = workspaceThreads.map((thread) => ({ composerId: thread.composerId }));
+        const deletableThreads = [...workspaceThreads, makeThread({ composerId: 'aborted-thread' })].map((thread) => ({
+            composerId: thread.composerId,
+        }));
         const result = {
             bubblesDeleted: 5,
-            composerDataDeleted: 2,
-            composerIds: ['thread-1', 'thread-2'],
-            headersRemoved: 2,
+            composerDataDeleted: 3,
+            composerIds: ['thread-1', 'thread-2', 'aborted-thread'],
+            headersRemoved: 3,
             transcriptDirsRemoved: 2,
             workspaceBucketsUpdated: 1,
         };
-        listCursorWorkspaceGroupsMock.mockResolvedValue([workspaceOne]);
+        listCursorWorkspaceGroupsMock.mockResolvedValue([workspace]);
         listCursorThreadsForGroupMock.mockResolvedValue(workspaceThreads);
         collectCursorThreadsForDeletionMock.mockResolvedValue(deletableThreads);
         pruneCursorThreadsMock.mockResolvedValue(result);
 
-        await expect(deleteCursorWorkspaceFn({ data: { workspaceKey: workspaceOne.key } })).resolves.toBe(result);
+        await expect(deleteCursorWorkspaceFn({ data: { workspaceKey: workspace.key } })).resolves.toBe(result);
 
-        expect(listCursorThreadsForGroupMock).toHaveBeenCalledWith(workspaceOne, undefined, {
+        expect(listCursorThreadsForGroupMock).toHaveBeenCalledWith(workspace, undefined, {
             includeTranscriptDirs: false,
         });
-        expect(collectCursorThreadsForDeletionMock).toHaveBeenCalledWith(['thread-1', 'thread-2']);
+        expect(collectCursorThreadsForDeletionMock).toHaveBeenCalledWith(['thread-1', 'thread-2', 'aborted-thread']);
         expect(pruneCursorThreadsMock).toHaveBeenCalledWith(deletableThreads, true);
+        expect(deleteCursorWorkspaceBucketsMock).toHaveBeenCalledWith(workspace);
+        expect(deleteCursorWorkspaceHistoryMock).toHaveBeenCalledWith(workspace);
+    });
+
+    it('should remove an already-empty Cursor workspace bucket', async () => {
+        const result = {
+            bubblesDeleted: 0,
+            composerDataDeleted: 0,
+            composerIds: [],
+            headersRemoved: 0,
+            transcriptDirsRemoved: 0,
+            workspaceBucketsUpdated: 0,
+        };
+        listCursorWorkspaceGroupsMock.mockResolvedValue([workspaceOne]);
+        listCursorThreadsForGroupMock.mockResolvedValue([]);
+        deleteCursorWorkspaceBucketsMock.mockResolvedValue(1);
+
+        await expect(deleteCursorWorkspaceFn({ data: { workspaceKey: workspaceOne.key } })).resolves.toEqual(result);
+
+        expect(collectCursorThreadsForDeletionMock).not.toHaveBeenCalled();
+        expect(pruneCursorThreadsMock).not.toHaveBeenCalled();
+        expect(deleteCursorWorkspaceBucketsMock).toHaveBeenCalledWith(workspaceOne);
+        expect(deleteCursorWorkspaceHistoryMock).toHaveBeenCalledWith(workspaceOne);
+    });
+});
+
+describe('deleteCursorWorkspacesFn', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        isCursorRunningMock.mockResolvedValue(false);
+    });
+
+    it('should delete multiple Cursor workspaces in one request', async () => {
+        const workspaceOneResult = {
+            bubblesDeleted: 1,
+            composerDataDeleted: 1,
+            composerIds: ['thread-1'],
+            headersRemoved: 1,
+            transcriptDirsRemoved: 1,
+            workspaceBucketsUpdated: 1,
+        };
+        const workspaceTwoResult = {
+            bubblesDeleted: 2,
+            composerDataDeleted: 1,
+            composerIds: ['thread-2'],
+            headersRemoved: 1,
+            transcriptDirsRemoved: 1,
+            workspaceBucketsUpdated: 1,
+        };
+        listCursorWorkspaceGroupsMock.mockResolvedValue([workspaceOne, workspaceTwo]);
+        listCursorThreadsForGroupMock
+            .mockResolvedValueOnce([makeThread()])
+            .mockResolvedValueOnce([makeThread({ composerId: 'thread-2', workspaceKey: workspaceTwo.key })]);
+        collectCursorThreadsForDeletionMock
+            .mockResolvedValueOnce([{ composerId: 'thread-1' }])
+            .mockResolvedValueOnce([{ composerId: 'thread-2' }]);
+        pruneCursorThreadsMock.mockResolvedValueOnce(workspaceOneResult).mockResolvedValueOnce(workspaceTwoResult);
+
+        await expect(
+            deleteCursorWorkspacesFn({ data: { workspaceKeys: [workspaceOne.key, workspaceTwo.key] } }),
+        ).resolves.toEqual([workspaceOneResult, workspaceTwoResult]);
+
+        expect(isCursorRunningMock).toHaveBeenCalledTimes(1);
+        expect(listCursorWorkspaceGroupsMock).toHaveBeenCalledTimes(1);
+        expect(deleteCursorWorkspaceBucketsMock).toHaveBeenNthCalledWith(1, workspaceOne);
+        expect(deleteCursorWorkspaceBucketsMock).toHaveBeenNthCalledWith(2, workspaceTwo);
+        expect(deleteCursorWorkspaceHistoryMock).toHaveBeenNthCalledWith(1, workspaceOne);
+        expect(deleteCursorWorkspaceHistoryMock).toHaveBeenNthCalledWith(2, workspaceTwo);
     });
 });
 

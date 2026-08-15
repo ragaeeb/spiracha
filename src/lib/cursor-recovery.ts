@@ -4,7 +4,8 @@ import { readdir, realpath, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { mapWithConcurrency } from './concurrency';
 import {
-    findCursorTranscriptDirs,
+    decodeCursorUri,
+    findCursorTranscriptDirsForComposerIds,
     invalidateCursorDiscoveryCache,
     listCursorWorkspaceGroups,
     loadGlobalComposerHeaders,
@@ -20,9 +21,10 @@ import {
     type CursorWorkspaceGroup,
     getCursorGlobalDbPath,
     getCursorProjectsDir,
+    getCursorWorkspaceStorageDir,
     resolveCursorUserDir,
 } from './cursor-exporter-types';
-import { assertSafeCursorComposerId, buildCursorBubbleKeyLikePattern } from './cursor-id';
+import { assertSafeCursorComposerId, buildCursorBubbleKeyLikePattern, getCursorBubbleKeyRange } from './cursor-id';
 
 type ComposerEntry = {
     composerId?: string;
@@ -55,6 +57,15 @@ export const isCursorRunning = async (): Promise<boolean> => {
 
 const backupStamp = (): string => new Date().toISOString().replace(/[-:]/gu, '').replace(/\..+/u, '').replace('T', '-');
 const CURSOR_BACKUP_RETENTION_COUNT = 5;
+const CURSOR_SQLITE_BATCH_SIZE = 200;
+
+const chunkValues = <T>(values: T[], size: number): T[][] => {
+    const chunks: T[][] = [];
+    for (let index = 0; index < values.length; index += size) {
+        chunks.push(values.slice(index, index + size));
+    }
+    return chunks;
+};
 
 const writeRetainedCursorBackup = async (basePath: string, label: string, value: unknown): Promise<string> => {
     const directory = path.dirname(basePath);
@@ -87,17 +98,44 @@ const backupComposerHeaders = async (globalDbPath: string): Promise<string> => {
 const backupPrunedThreads = async (globalDbPath: string, composerIds: string[]): Promise<string> => {
     const db = openCursorReadonlyDb(globalDbPath);
     try {
+        const hasModernHeaders = hasComposerHeadersTable(db);
+        const bubblesByComposerId = readBubblesForComposerIds(db, composerIds);
         const dump = composerIds.map((composerId) => ({
-            bubbles: db
-                .query(`SELECT key, value FROM cursorDiskKV WHERE key LIKE ? ESCAPE '\\'`)
-                .all(buildCursorBubbleKeyLikePattern(composerId)),
+            bubbles: bubblesByComposerId.get(composerId) ?? [],
             composerData: readJsonItemFromKv(db, `composerData:${composerId}`),
             composerId,
+            modernComposerHeader: hasModernHeaders
+                ? db.query('SELECT * FROM composerHeaders WHERE composerId = ?').get(composerId)
+                : null,
         }));
         return writeRetainedCursorBackup(globalDbPath, 'prunedThreads', dump);
     } finally {
         db.close();
     }
+};
+
+const readBubblesForComposerIds = (
+    db: Database,
+    composerIds: string[],
+): Map<string, Array<{ key: string; value: string }>> => {
+    const bubblesByComposerId = new Map<string, Array<{ key: string; value: string }>>(
+        composerIds.map((composerId) => [composerId, []]),
+    );
+    for (const chunk of chunkValues(composerIds, CURSOR_SQLITE_BATCH_SIZE)) {
+        const parameters: string[] = [];
+        const query = chunk
+            .map((composerId) => {
+                const range = getCursorBubbleKeyRange(composerId);
+                parameters.push(composerId, range.start, range.end);
+                return 'SELECT ? AS composerId, key, value FROM cursorDiskKV WHERE key >= ? AND key < ?';
+            })
+            .join(' UNION ALL ');
+        const rows = db.query(query).all(...parameters) as Array<{ composerId: string; key: string; value: string }>;
+        for (const row of rows) {
+            bubblesByComposerId.get(row.composerId)?.push({ key: row.key, value: row.value });
+        }
+    }
+    return bubblesByComposerId;
 };
 
 const readJsonItemFromKv = (db: Database, key: string): unknown => {
@@ -133,6 +171,9 @@ const writeJsonItem = (db: Database, key: string, value: unknown): void => {
         [key, JSON.stringify(value)],
     );
 };
+
+const hasComposerHeadersTable = (db: Database): boolean =>
+    Boolean(db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'composerHeaders'").get());
 
 const scoreComposer = (entry: ComposerEntry): number =>
     Number(Boolean(entry.name)) + Number(entry.lastUpdatedAt ?? 0) + Number(entry.totalLinesAdded ?? 0);
@@ -248,6 +289,25 @@ const countBubbles = (db: Database, composerId: string): number => {
         .query(`SELECT COUNT(*) AS count FROM cursorDiskKV WHERE key LIKE ? ESCAPE '\\'`)
         .get(buildCursorBubbleKeyLikePattern(composerId)) as { count: number };
     return row.count;
+};
+
+const countBubblesForComposerIds = (db: Database, composerIds: string[]): Map<string, number> => {
+    const counts = new Map<string, number>();
+    for (const chunk of chunkValues(composerIds, CURSOR_SQLITE_BATCH_SIZE)) {
+        const parameters: string[] = [];
+        const query = chunk
+            .map((composerId) => {
+                const range = getCursorBubbleKeyRange(composerId);
+                parameters.push(composerId, range.start, range.end);
+                return 'SELECT ? AS composerId, COUNT(*) AS count FROM cursorDiskKV WHERE key >= ? AND key < ?';
+            })
+            .join(' UNION ALL ');
+        const rows = db.query(query).all(...parameters) as Array<{ composerId: string; count: number }>;
+        for (const row of rows) {
+            counts.set(row.composerId, row.count);
+        }
+    }
+    return counts;
 };
 
 export const recoverCursorWorkspaceGroup = async (
@@ -410,27 +470,39 @@ const removeThreadFromBucket = (db: Database, composerIds: Set<string>): boolean
 };
 
 const pruneGlobalThread = (db: Database, composerId: string): { bubbles: number; composerData: number } => {
-    const bubbleResult = db.run(`DELETE FROM cursorDiskKV WHERE key LIKE ? ESCAPE '\\'`, [
-        buildCursorBubbleKeyLikePattern(composerId),
-    ]);
+    const range = getCursorBubbleKeyRange(composerId);
+    const bubbleResult = db.run('DELETE FROM cursorDiskKV WHERE key >= ? AND key < ?', [range.start, range.end]);
     const headResult = db.run('DELETE FROM cursorDiskKV WHERE key = ?', [`composerData:${composerId}`]);
     return { bubbles: bubbleResult.changes ?? 0, composerData: headResult.changes ?? 0 };
 };
 
 const removeThreadHeaders = (db: Database, composerIds: Set<string>): number => {
+    const removedIds = new Set<string>();
     const data = readJsonItem<{ allComposers?: ComposerEntry[] }>(db, COMPOSER_HEADERS_KEY);
-    if (!data?.allComposers?.length) {
-        return 0;
+    if (data?.allComposers?.length) {
+        data.allComposers = data.allComposers.filter((entry) => {
+            const composerId = entry.composerId ?? '';
+            if (composerIds.has(composerId)) {
+                removedIds.add(composerId);
+                return false;
+            }
+            return true;
+        });
+        if (removedIds.size > 0) {
+            writeJsonItem(db, COMPOSER_HEADERS_KEY, data);
+        }
     }
 
-    const before = data.allComposers.length;
-    data.allComposers = data.allComposers.filter((entry) => !composerIds.has(entry.composerId ?? ''));
-    const removed = before - data.allComposers.length;
-    if (removed > 0) {
-        writeJsonItem(db, COMPOSER_HEADERS_KEY, data);
+    if (hasComposerHeadersTable(db)) {
+        for (const composerId of composerIds) {
+            const result = db.run('DELETE FROM composerHeaders WHERE composerId = ?', [composerId]);
+            if ((result.changes ?? 0) > 0) {
+                removedIds.add(composerId);
+            }
+        }
     }
 
-    return removed;
+    return removedIds.size;
 };
 
 export const pruneCursorThreads = async (
@@ -551,16 +623,25 @@ const restoreBucketComposerData = (dbPath: string, snapshot: BucketComposerDataS
     }
 };
 
-const pruneWorkspaceBuckets = async (composerIds: Set<string>, userDir: string) => {
-    // Scan every bucket: a thread can live in more than one bucket's composer.composerData (e.g. the
-    // current bucket plus the older bucket it was recovered from), so remove it from all of them.
-    const groups = await listCursorWorkspaceGroups(userDir);
+const getCursorBucketDbPathsForComposerIds = (
+    groups: CursorWorkspaceGroup[],
+    composerIds: Set<string>,
+): Set<string> => {
     const dbPaths = new Set<string>();
     for (const group of groups) {
         for (const bucket of group.buckets) {
-            dbPaths.add(bucket.dbPath);
+            if (bucket.threadComposerIds.some((composerId) => composerIds.has(composerId))) {
+                dbPaths.add(bucket.dbPath);
+            }
         }
     }
+    return dbPaths;
+};
+
+const pruneWorkspaceBuckets = async (composerIds: Set<string>, userDir: string) => {
+    // A thread can live in multiple recovered buckets, so update every matching bucket without
+    // opening unrelated workspace databases.
+    const dbPaths = getCursorBucketDbPathsForComposerIds(await listCursorWorkspaceGroups(userDir), composerIds);
 
     const snapshots = new Map<string, BucketComposerDataSnapshot>();
     for (const dbPath of dbPaths) {
@@ -619,6 +700,151 @@ const pruneTranscriptDirs = async (threads: CursorThreadSummary[], result: Curso
     result.transcriptDirsRemoved = transcriptDirs.length;
 };
 
+export const deleteCursorWorkspaceBuckets = async (
+    group: CursorWorkspaceGroup,
+    userDir = resolveCursorUserDir(),
+): Promise<number> => {
+    const workspaceStorageDir = path.resolve(getCursorWorkspaceStorageDir(userDir));
+    const canonicalStorageDir = await realpath(workspaceStorageDir).catch(() => workspaceStorageDir);
+    const bucketRoots: Array<{ exists: boolean; path: string }> = [];
+
+    for (const bucket of group.buckets) {
+        const bucketRoot = path.resolve(path.dirname(bucket.workspaceJsonPath));
+        const dbRoot = path.resolve(path.dirname(bucket.dbPath));
+        if (
+            bucketRoot !== dbRoot ||
+            path.dirname(bucketRoot) !== workspaceStorageDir ||
+            path.basename(bucketRoot) !== bucket.bucketId
+        ) {
+            throw new Error(`Unsafe Cursor workspace bucket directory: ${bucketRoot}`);
+        }
+
+        const canonicalBucketRoot = await realpath(bucketRoot).catch((error) => {
+            if ((error as { code?: unknown }).code === 'ENOENT') {
+                return null;
+            }
+            throw error;
+        });
+        if (canonicalBucketRoot && path.dirname(canonicalBucketRoot) !== canonicalStorageDir) {
+            throw new Error(`Unsafe Cursor workspace bucket directory: ${bucketRoot}`);
+        }
+
+        bucketRoots.push({ exists: canonicalBucketRoot !== null, path: bucketRoot });
+    }
+
+    let removed = 0;
+    try {
+        for (const bucketRoot of bucketRoots) {
+            await rm(bucketRoot.path, { force: true, recursive: true });
+            removed += Number(bucketRoot.exists);
+        }
+    } finally {
+        invalidateCursorDiscoveryCache();
+    }
+
+    return removed;
+};
+
+const normalizeCursorHistoryPath = (value: string): string | null => {
+    const decoded = decodeCursorUri(value.trim());
+    return decoded && path.isAbsolute(decoded) ? path.resolve(decoded) : null;
+};
+
+const isCursorHistoryEntryForWorkspace = (resource: string, folders: string[]): boolean => {
+    const resourcePath = normalizeCursorHistoryPath(resource);
+    if (!resourcePath) {
+        return false;
+    }
+
+    return folders.some((folder) => {
+        const relative = path.relative(folder, resourcePath);
+        return (
+            relative === '' ||
+            (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative))
+        );
+    });
+};
+
+const assertSafeCursorHistoryEntryPath = (
+    canonicalHistoryDir: string,
+    entryPath: string,
+    canonicalEntryPath: string,
+): void => {
+    const relativeEntryPath = path.relative(canonicalHistoryDir, canonicalEntryPath);
+    if (
+        relativeEntryPath === '' ||
+        relativeEntryPath === '..' ||
+        relativeEntryPath.startsWith(`..${path.sep}`) ||
+        path.isAbsolute(relativeEntryPath) ||
+        path.dirname(relativeEntryPath) !== '.'
+    ) {
+        throw new Error(`Unsafe Cursor history entry directory: ${entryPath}`);
+    }
+};
+
+export const deleteCursorWorkspaceHistory = async (
+    group: CursorWorkspaceGroup,
+    userDir = resolveCursorUserDir(),
+): Promise<number> => {
+    const folders = group.folders.map(normalizeCursorHistoryPath).filter((folder): folder is string => folder !== null);
+    const historyDir = path.resolve(path.join(userDir, 'History'));
+    let removed = 0;
+
+    try {
+        if (folders.length === 0) {
+            return 0;
+        }
+
+        const canonicalHistoryDir = await realpath(historyDir).catch((error) => {
+            if ((error as { code?: unknown }).code === 'ENOENT') {
+                return null;
+            }
+            throw error;
+        });
+        if (!canonicalHistoryDir) {
+            return 0;
+        }
+
+        const entries = await readdir(historyDir, { withFileTypes: true });
+        for (const entry of entries) {
+            if (!entry.isDirectory()) {
+                continue;
+            }
+
+            const entryPath = path.join(historyDir, entry.name);
+            const canonicalEntryPath = await realpath(entryPath).catch((error) => {
+                if ((error as { code?: unknown }).code === 'ENOENT') {
+                    return null;
+                }
+                throw error;
+            });
+            if (!canonicalEntryPath) {
+                continue;
+            }
+
+            assertSafeCursorHistoryEntryPath(canonicalHistoryDir, entryPath, canonicalEntryPath);
+
+            let data: { resource?: unknown };
+            try {
+                data = (await Bun.file(path.join(entryPath, 'entries.json')).json()) as { resource?: unknown };
+            } catch {
+                continue;
+            }
+
+            if (typeof data.resource !== 'string' || !isCursorHistoryEntryForWorkspace(data.resource, folders)) {
+                continue;
+            }
+
+            await rm(entryPath, { force: true, recursive: true });
+            removed += 1;
+        }
+    } finally {
+        invalidateCursorDiscoveryCache();
+    }
+
+    return removed;
+};
+
 // Builds the minimal thread records needed to fully delete the given composer ids (bubble counts for
 // reporting and the on-disk transcript directories to remove). Used by the UI delete actions.
 export const collectCursorThreadsForDeletion = async (
@@ -632,9 +858,13 @@ export const collectCursorThreadsForDeletion = async (
     try {
         for (const composerId of composerIds) {
             assertSafeCursorComposerId(composerId);
+        }
+        const bubbleCounts = countBubblesForComposerIds(db, composerIds);
+        const transcriptDirs = await findCursorTranscriptDirsForComposerIds(composerIds, userDir);
+        for (const composerId of composerIds) {
             summaries.push({
                 bubbleBytes: 0,
-                bubbleCount: countBubbles(db, composerId),
+                bubbleCount: bubbleCounts.get(composerId) ?? 0,
                 bucketId: null,
                 composerId,
                 createdAtMs: null,
@@ -644,7 +874,7 @@ export const collectCursorThreadsForDeletion = async (
                 name: '',
                 parentComposerId: null,
                 reasoningEffort: null,
-                transcriptDirs: await findCursorTranscriptDirs(composerId, userDir),
+                transcriptDirs: transcriptDirs.get(composerId) ?? [],
                 workspaceKey: '',
                 workspaceLabel: '',
             });

@@ -8,6 +8,10 @@ const workspaceSchema = z.object({
     workspaceKey: z.string().min(1),
 });
 
+const workspacesSchema = z.object({
+    workspaceKeys: z.array(z.string().min(1)).min(1),
+});
+
 const composerIdSchema = z.string().refine(isSafeCursorComposerId, {
     message: 'Invalid Cursor composer id.',
 });
@@ -61,6 +65,52 @@ const findGroupByKey = async (workspaceKey: string) => {
     }
 
     return group;
+};
+
+const findGroupsByKeys = async (workspaceKeys: string[]) => {
+    const { listCursorWorkspaceGroups } = await import('@spiracha/lib/cursor-db');
+    const groupsByKey = new Map((await listCursorWorkspaceGroups()).map((group) => [group.key, group]));
+
+    return workspaceKeys.map((workspaceKey) => {
+        const group = groupsByKey.get(workspaceKey);
+        if (!group) {
+            throw new Error(`Cursor workspace not found: ${workspaceKey}`);
+        }
+
+        return group;
+    });
+};
+
+const deleteCursorWorkspaceGroup = async (group: CursorWorkspaceGroup) => {
+    const { listCursorThreadsForGroup } = await import('@spiracha/lib/cursor-db');
+    const {
+        collectCursorThreadsForDeletion,
+        deleteCursorWorkspaceBuckets,
+        deleteCursorWorkspaceHistory,
+        pruneCursorThreads,
+    } = await import('@spiracha/lib/cursor-recovery');
+    const threads = await listCursorThreadsForGroup(group, undefined, { includeTranscriptDirs: false });
+    const composerIds = [
+        ...new Set([
+            ...threads.map((thread) => thread.composerId),
+            ...group.buckets.flatMap((bucket) => bucket.threadComposerIds),
+        ]),
+    ];
+    const result =
+        composerIds.length === 0
+            ? {
+                  bubblesDeleted: 0,
+                  composerDataDeleted: 0,
+                  composerIds: [],
+                  headersRemoved: 0,
+                  transcriptDirsRemoved: 0,
+                  workspaceBucketsUpdated: 0,
+              }
+            : await pruneCursorThreads(await collectCursorThreadsForDeletion(composerIds), true);
+
+    await deleteCursorWorkspaceBuckets(group);
+    await deleteCursorWorkspaceHistory(group);
+    return result;
 };
 
 const findCursorWorkspacesByComposerId = async (
@@ -292,23 +342,20 @@ export const deleteCursorThreadsFn = createServerFn({ method: 'POST' })
 export const deleteCursorWorkspaceFn = createServerFn({ method: 'POST' })
     .validator(workspaceSchema)
     .handler(async ({ data }) => {
-        const { listCursorThreadsForGroup } = await import('@spiracha/lib/cursor-db');
-        const { collectCursorThreadsForDeletion, pruneCursorThreads } = await import('@spiracha/lib/cursor-recovery');
         await ensureCursorClosedForWrite();
         const group = await findGroupByKey(data.workspaceKey);
-        const threads = await listCursorThreadsForGroup(group, undefined, { includeTranscriptDirs: false });
-        const composerIds = threads.map((thread) => thread.composerId);
-        if (composerIds.length === 0) {
-            return {
-                bubblesDeleted: 0,
-                composerDataDeleted: 0,
-                composerIds: [],
-                headersRemoved: 0,
-                transcriptDirsRemoved: 0,
-                workspaceBucketsUpdated: 0,
-            };
+        return deleteCursorWorkspaceGroup(group);
+    });
+
+export const deleteCursorWorkspacesFn = createServerFn({ method: 'POST' })
+    .validator(workspacesSchema)
+    .handler(async ({ data }) => {
+        await ensureCursorClosedForWrite();
+        const groups = await findGroupsByKeys(data.workspaceKeys);
+        const results = [];
+        for (const group of groups) {
+            results.push(await deleteCursorWorkspaceGroup(group));
         }
 
-        const deletable = await collectCursorThreadsForDeletion(composerIds);
-        return pruneCursorThreads(deletable, true);
+        return results;
     });

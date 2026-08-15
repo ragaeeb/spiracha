@@ -14,6 +14,7 @@ import {
     listProjectThreads,
     listScopedThreads,
     mergeSessionIndexLinesForRewrite,
+    reconcileCodexSessionIndex,
     resolveCodexThreadDbPath,
     withReadonlyDb,
 } from './codex-browser-db';
@@ -140,6 +141,148 @@ const createLiveSchemaDeleteFixture = async (tempRoot: string) => {
         sessionFile,
         threadId,
     };
+};
+
+const createPaginatedHistoryDatabase = (tempRoot: string, threadIds: string[]) => {
+    const historyPath = path.join(tempRoot, 'thread_history_1.sqlite');
+    const db = new Database(historyPath);
+    db.exec(`
+        CREATE TABLE thread_items (
+            thread_id TEXT NOT NULL,
+            turn_id TEXT NOT NULL,
+            item_id TEXT NOT NULL,
+            rollout_ordinal INTEGER NOT NULL,
+            created_at_ms INTEGER NOT NULL,
+            item_json TEXT NOT NULL,
+            item_type TEXT NOT NULL DEFAULT '',
+            updated_at_ordinal INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (thread_id, turn_id, item_id)
+        );
+
+        CREATE TABLE thread_turns (
+            thread_id TEXT NOT NULL,
+            turn_id TEXT NOT NULL,
+            rollout_ordinal INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            error_json TEXT,
+            started_at INTEGER,
+            completed_at INTEGER,
+            duration_ms INTEGER,
+            first_user_item_id TEXT,
+            final_agent_item_id TEXT,
+            rollout_byte_offset INTEGER,
+            rollout_end_ordinal INTEGER,
+            rollout_end_byte_offset INTEGER,
+            PRIMARY KEY (thread_id, turn_id)
+        );
+
+        CREATE TABLE thread_history_projection_state (
+            thread_id TEXT PRIMARY KEY,
+            next_rollout_byte_offset INTEGER NOT NULL,
+            next_rollout_ordinal INTEGER NOT NULL
+        );
+    `);
+
+    const insertItem = db.prepare(`
+        INSERT INTO thread_items (
+            thread_id, turn_id, item_id, rollout_ordinal, created_at_ms, item_json
+        ) VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    const insertTurn = db.prepare(`
+        INSERT INTO thread_turns (thread_id, turn_id, rollout_ordinal, status)
+        VALUES (?, ?, ?, ?)
+    `);
+    const insertProjectionState = db.prepare(`
+        INSERT INTO thread_history_projection_state (
+            thread_id, next_rollout_byte_offset, next_rollout_ordinal
+        ) VALUES (?, ?, ?)
+    `);
+
+    for (const [index, threadId] of threadIds.entries()) {
+        const turnId = `turn-${index}`;
+        insertItem.run(threadId, turnId, `item-${index}`, index, index, JSON.stringify({ threadId }));
+        insertTurn.run(threadId, turnId, index, 'completed');
+        insertProjectionState.run(threadId, index, index);
+    }
+
+    db.close();
+    return historyPath;
+};
+
+const readPaginatedHistoryCounts = (historyPath: string, threadIds: string[]) => {
+    const db = new Database(historyPath, { readonly: true });
+    const placeholders = threadIds.map(() => '?').join(', ');
+    try {
+        return {
+            items: Number(
+                (
+                    db
+                        .query(`SELECT COUNT(*) AS count FROM thread_items WHERE thread_id IN (${placeholders})`)
+                        .get(...threadIds) as { count: number }
+                ).count,
+            ),
+            projectionStates: Number(
+                (
+                    db
+                        .query(
+                            `SELECT COUNT(*) AS count FROM thread_history_projection_state WHERE thread_id IN (${placeholders})`,
+                        )
+                        .get(...threadIds) as { count: number }
+                ).count,
+            ),
+            turns: Number(
+                (
+                    db
+                        .query(`SELECT COUNT(*) AS count FROM thread_turns WHERE thread_id IN (${placeholders})`)
+                        .get(...threadIds) as { count: number }
+                ).count,
+            ),
+        };
+    } finally {
+        db.close();
+    }
+};
+
+const addFallbackSessionIndexEntry = async (tempRoot: string, threadId: string, projectName: string) => {
+    const sessionFile = path.join(
+        tempRoot,
+        'sessions',
+        '2026',
+        '06',
+        '14',
+        `rollout-2026-06-14T10-00-00-${threadId}.jsonl`,
+    );
+    await mkdir(path.dirname(sessionFile), { recursive: true });
+    await Bun.write(
+        sessionFile,
+        `${JSON.stringify({
+            payload: {
+                cli_version: '0.140.0-alpha.2',
+                cwd: `/Users/user/workspace/${projectName}`,
+                id: threadId,
+                model_provider: 'openai',
+                originator: 'Codex Desktop',
+                source: 'vscode',
+                thread_source: 'user',
+                timestamp: '2026-06-14T10:00:00.000Z',
+            },
+            timestamp: '2026-06-14T10:00:00.000Z',
+            type: 'session_meta',
+        })}\n`,
+    );
+
+    const sessionIndexPath = path.join(tempRoot, 'session_index.jsonl');
+    const existing = (await Bun.file(sessionIndexPath).exists()) ? await Bun.file(sessionIndexPath).text() : '';
+    await Bun.write(
+        sessionIndexPath,
+        `${existing}${JSON.stringify({
+            id: threadId,
+            thread_name: `Fallback ${threadId}`,
+            updated_at: '2026-06-14T10:00:00.000Z',
+        })}\n`,
+    );
+
+    return sessionFile;
 };
 
 const createMinimalBrowseSchemaFixture = async (tempRoot: string) => {
@@ -1238,6 +1381,153 @@ describe('codex browser db', () => {
         const db = new Database(fixture.dbPath, { readonly: true });
         expect(db.query('SELECT COUNT(*) AS count FROM threads').get()).toEqual({ count: 0 });
         db.close();
+    });
+
+    it('should delete paginated history rows for an individual thread', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-delete-history-thread-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const targetThreadId = fixture.threads[0]!.threadId;
+        const retainedThreadId = fixture.threads[1]!.threadId;
+        const historyPath = createPaginatedHistoryDatabase(tempRoot, [targetThreadId, retainedThreadId]);
+
+        const result = await deleteCodexThread(fixture.dbPath, targetThreadId);
+
+        expect(result.deletedThreadIds).toEqual([targetThreadId]);
+        expect(readPaginatedHistoryCounts(historyPath, [targetThreadId])).toEqual({
+            items: 0,
+            projectionStates: 0,
+            turns: 0,
+        });
+        expect(readPaginatedHistoryCounts(historyPath, [retainedThreadId])).toEqual({
+            items: 1,
+            projectionStates: 1,
+            turns: 1,
+        });
+    });
+
+    it('should bulk-delete paginated history rows while retaining unrelated threads', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-delete-history-batch-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const deletedThreadIds = fixture.threads.slice(0, 2).map((thread) => thread.threadId);
+        const retainedThreadId = fixture.threads[2]!.threadId;
+        const historyPath = createPaginatedHistoryDatabase(tempRoot, [...deletedThreadIds, retainedThreadId]);
+
+        const result = await deleteCodexThreads(fixture.dbPath, [...deletedThreadIds, deletedThreadIds[0]!]);
+
+        expect(result.deletedThreadIds.sort()).toEqual([...deletedThreadIds].sort());
+        expect(readPaginatedHistoryCounts(historyPath, deletedThreadIds)).toEqual({
+            items: 0,
+            projectionStates: 0,
+            turns: 0,
+        });
+        expect(readPaginatedHistoryCounts(historyPath, [retainedThreadId])).toEqual({
+            items: 1,
+            projectionStates: 1,
+            turns: 1,
+        });
+    });
+
+    it('should roll back state and paginated history deletion when history mutation fails', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-delete-history-rollback-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const deletedThreadIds = fixture.threads.slice(0, 2).map((thread) => thread.threadId);
+        const historyPath = createPaginatedHistoryDatabase(tempRoot, deletedThreadIds);
+        const historyDb = new Database(historyPath);
+        historyDb.exec(`
+            CREATE TRIGGER fail_history_delete
+            BEFORE DELETE ON thread_turns
+            BEGIN
+                SELECT RAISE(ABORT, 'history deletion blocked');
+            END;
+        `);
+        historyDb.close();
+
+        await expect(deleteCodexThreads(fixture.dbPath, deletedThreadIds)).rejects.toThrow('history deletion blocked');
+
+        const stateDb = new Database(fixture.dbPath, { readonly: true });
+        try {
+            expect(
+                stateDb.query('SELECT COUNT(*) AS count FROM threads WHERE id IN (?, ?)').get(...deletedThreadIds),
+            ).toEqual({ count: deletedThreadIds.length });
+        } finally {
+            stateDb.close();
+        }
+        expect(readPaginatedHistoryCounts(historyPath, deletedThreadIds)).toEqual({
+            items: deletedThreadIds.length,
+            projectionStates: deletedThreadIds.length,
+            turns: deletedThreadIds.length,
+        });
+    });
+
+    it('should delete project paginated history for state and fallback-only threads', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-delete-project-history-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const fallbackThreadId = '019ec3d5-859d-77d0-b851-256ae567ff67';
+        const fallbackSessionFile = await addFallbackSessionIndexEntry(tempRoot, fallbackThreadId, 'spiracha');
+        const retainedThreadId = fixture.threads[2]!.threadId;
+        const sessionIndexPath = path.join(tempRoot, 'session_index.jsonl');
+        const retainedSessionIndexEntry = JSON.stringify({
+            id: retainedThreadId,
+            thread_name: 'Retained thread',
+            updated_at: '2026-06-14T10:01:00.000Z',
+        });
+        await Bun.write(sessionIndexPath, `${await Bun.file(sessionIndexPath).text()}${retainedSessionIndexEntry}\n`);
+        const deletedThreadIds = [fixture.threads[0]!.threadId, fixture.threads[1]!.threadId, fallbackThreadId];
+        const historyPath = createPaginatedHistoryDatabase(tempRoot, [...deletedThreadIds, retainedThreadId]);
+
+        const result = await deleteCodexProject(fixture.dbPath, 'spiracha', { deleteSessionFiles: true });
+
+        expect(result.deletedThreadIds.sort()).toEqual([...deletedThreadIds].sort());
+        expect(await Bun.file(fallbackSessionFile).exists()).toBe(false);
+        expect(await Bun.file(sessionIndexPath).text()).toBe(`${retainedSessionIndexEntry}\n`);
+        expect(readPaginatedHistoryCounts(historyPath, deletedThreadIds)).toEqual({
+            items: 0,
+            projectionStates: 0,
+            turns: 0,
+        });
+        expect(readPaginatedHistoryCounts(historyPath, [retainedThreadId])).toEqual({
+            items: 1,
+            projectionStates: 1,
+            turns: 1,
+        });
+    });
+
+    it('should report stale session-index entries in a dry run without mutating history', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-reconcile-session-index-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const indexedThreadId = fixture.threads[0]!.threadId;
+        const fallbackThreadId = '019ec3d5-859d-77d0-b851-256ae567ff68';
+        const staleThreadId = '019ec3d5-859d-77d0-b851-256ae567ff69';
+        const fallbackSessionFile = await addFallbackSessionIndexEntry(tempRoot, fallbackThreadId, 'spiracha');
+        const sessionIndexPath = path.join(tempRoot, 'session_index.jsonl');
+        await Bun.write(
+            sessionIndexPath,
+            [
+                { id: indexedThreadId, thread_name: 'Indexed state thread' },
+                { id: fallbackThreadId, thread_name: 'Indexed rollout thread' },
+                { id: staleThreadId, thread_name: 'Stale index entry' },
+            ]
+                .map((entry) => JSON.stringify(entry))
+                .join('\n') + '\n',
+        );
+        const historyPath = createPaginatedHistoryDatabase(tempRoot, [indexedThreadId, staleThreadId]);
+        const initialSessionIndex = await Bun.file(sessionIndexPath).text();
+        const initialHistoryCounts = readPaginatedHistoryCounts(historyPath, [indexedThreadId, staleThreadId]);
+
+        const result = reconcileCodexSessionIndex(fixture.dbPath);
+
+        expect(result).toEqual({
+            dryRun: true,
+            staleEntries: [{ id: staleThreadId, thread_name: 'Stale index entry' }],
+        });
+        expect(await Bun.file(sessionIndexPath).text()).toBe(initialSessionIndex);
+        expect(readPaginatedHistoryCounts(historyPath, [indexedThreadId, staleThreadId])).toEqual(initialHistoryCounts);
+        expect(await Bun.file(fallbackSessionFile).exists()).toBe(true);
     });
 
     it('should resolve the configured Codex thread database path', () => {

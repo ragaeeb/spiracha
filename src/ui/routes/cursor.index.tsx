@@ -9,7 +9,7 @@ import { LoadingPanel } from '#/components/loading-panel';
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
 import { cursorWorkspacesQueryOptions } from '#/lib/cursor-queries';
-import { deleteCursorWorkspaceFn, recoverCursorWorkspaceFn } from '#/lib/cursor-server';
+import { deleteCursorWorkspaceFn, deleteCursorWorkspacesFn, recoverCursorWorkspaceFn } from '#/lib/cursor-server';
 import { getMutationErrorMessage } from '#/lib/mutation-error';
 import { matchesTextQuery } from '#/lib/text-filter';
 
@@ -21,11 +21,23 @@ const CursorPendingComponent = () => (
     <LoadingPanel description="Loading Cursor workspace and thread metadata." title="Loading Cursor" />
 );
 
+const getWorkspaceDeleteDescription = (workspaces: CursorWorkspaceGroup[] | null) => {
+    if (!workspaces) {
+        return '';
+    }
+
+    if (workspaces.length === 1) {
+        return `Permanently delete every thread for "${workspaces[0]!.label}" from Cursor's database and remove any on-disk transcript directories. Quit Cursor first. This cannot be undone.`;
+    }
+
+    return `Permanently delete every thread from ${workspaces.length} selected Cursor workspaces and remove any on-disk transcript directories. Quit Cursor first. This cannot be undone.`;
+};
+
 const CursorPage = () => {
     const queryClient = useQueryClient();
     const workspaces = useSuspenseQuery(cursorWorkspacesQueryOptions()).data;
     const [searchInput, setSearchInput] = useState('');
-    const [pendingDelete, setPendingDelete] = useState<CursorWorkspaceGroup | null>(null);
+    const [pendingDelete, setPendingDelete] = useState<CursorWorkspaceGroup[] | null>(null);
     const deferredSearch = useDeferredValue(searchInput);
 
     const invalidateCursorQueries = async () => {
@@ -39,8 +51,15 @@ const CursorPage = () => {
     });
 
     const deleteWorkspaceMutation = useMutation({
-        mutationFn: (workspace: CursorWorkspaceGroup) =>
-            deleteCursorWorkspaceFn({ data: { workspaceKey: workspace.key } }),
+        mutationFn: async (selectedWorkspaces: CursorWorkspaceGroup[]) => {
+            if (selectedWorkspaces.length === 1) {
+                return [await deleteCursorWorkspaceFn({ data: { workspaceKey: selectedWorkspaces[0]!.key } })];
+            }
+
+            return deleteCursorWorkspacesFn({
+                data: { workspaceKeys: selectedWorkspaces.map((workspace) => workspace.key) },
+            });
+        },
         onSuccess: async () => {
             await invalidateCursorQueries();
             setPendingDelete(null);
@@ -72,7 +91,8 @@ const CursorPage = () => {
             />
 
             <CursorWorkspacesTable
-                onDeleteWorkspace={setPendingDelete}
+                onDeleteWorkspace={(workspace) => setPendingDelete([workspace])}
+                onDeleteWorkspaces={setPendingDelete}
                 onRecoverWorkspace={(workspace) => recoverWorkspaceMutation.mutate(workspace)}
                 workspaces={visibleWorkspaces}
             />
@@ -94,15 +114,17 @@ const CursorPage = () => {
             ) : null}
 
             <DeleteConfirmDialog
-                confirmLabel={deleteWorkspaceMutation.isPending ? 'Deleting...' : 'Delete workspace'}
-                description={
-                    pendingDelete
-                        ? `Permanently delete every thread for "${pendingDelete.label}" from Cursor's database and remove any on-disk transcript directories. Quit Cursor first. This cannot be undone.`
-                        : ''
+                confirmLabel={
+                    deleteWorkspaceMutation.isPending
+                        ? 'Deleting...'
+                        : pendingDelete?.length === 1
+                          ? 'Delete workspace'
+                          : 'Delete workspaces'
                 }
+                description={getWorkspaceDeleteDescription(pendingDelete)}
                 errorMessage={getMutationErrorMessage(deleteWorkspaceMutation.error, 'Workspace deletion failed')}
                 open={pendingDelete !== null}
-                title="Delete Cursor workspace?"
+                title={pendingDelete?.length === 1 ? 'Delete Cursor workspace?' : 'Delete Cursor workspaces?'}
                 onConfirm={() => {
                     if (!pendingDelete) {
                         return;

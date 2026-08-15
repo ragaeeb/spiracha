@@ -6,6 +6,7 @@ import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { pathToFileURL } from 'node:url';
 import type {
+    CodexSessionIndexReconciliation,
     DashboardSummary,
     DashboardThreadSummary,
     DeleteProjectResult,
@@ -334,6 +335,17 @@ const readThreads = (dbPath: string, projectName: string | null = null): ThreadR
 const resolveCodexDirFromDbPath = (dbPath: string) => {
     const dbDir = path.dirname(dbPath);
     return path.basename(dbDir) === 'sqlite' ? path.dirname(dbDir) : dbDir;
+};
+
+const resolveCodexHistoryDbPath = (dbPath: string) =>
+    path.join(resolveCodexDirFromDbPath(dbPath), 'thread_history_1.sqlite');
+
+const hasRegularFile = (filePath: string) => {
+    try {
+        return statSync(filePath).isFile();
+    } catch {
+        return false;
+    }
 };
 
 const resolveCodexRolloutPath = (dbPath: string, rolloutPath: string) =>
@@ -1210,6 +1222,13 @@ const getExistingTableNames = (db: Database) => {
     return new Set(rows.map((row) => row.name));
 };
 
+const getExistingCodexHistoryTableNames = (db: Database) => {
+    const rows = db.query('SELECT name FROM codex_history.sqlite_master WHERE type = ?').all('table') as Array<{
+        name: string;
+    }>;
+    return new Set(rows.map((row) => row.name));
+};
+
 type ThreadSpawnEdge = {
     child_thread_id: string;
     parent_thread_id: string;
@@ -1297,8 +1316,59 @@ const getThreadDeleteTargets = (db: Database, threadIds: string[]) => {
     return targets;
 };
 
-const deleteThreadIds = (db: Database, threadIds: string[]): DeleteThreadsResult => {
+const deleteStateThreadRows = (db: Database, existingTableNames: Set<string>, threadIds: string[]) => {
     if (threadIds.length === 0) {
+        return;
+    }
+
+    const placeholders = threadIds.map(() => '?').join(', ');
+
+    // Codex schema differs across versions, so only touch dependent tables that actually exist.
+    if (existingTableNames.has('thread_dynamic_tools')) {
+        db.query(`DELETE FROM thread_dynamic_tools WHERE thread_id IN (${placeholders})`).run(...threadIds);
+    }
+
+    if (existingTableNames.has('thread_goals')) {
+        db.query(`DELETE FROM thread_goals WHERE thread_id IN (${placeholders})`).run(...threadIds);
+    }
+
+    if (existingTableNames.has('stage1_outputs')) {
+        db.query(`DELETE FROM stage1_outputs WHERE thread_id IN (${placeholders})`).run(...threadIds);
+    }
+
+    if (existingTableNames.has('thread_spawn_edges')) {
+        db.query(
+            `DELETE FROM thread_spawn_edges WHERE parent_thread_id IN (${placeholders}) OR child_thread_id IN (${placeholders})`,
+        ).run(...threadIds, ...threadIds);
+    }
+
+    db.query(`DELETE FROM threads WHERE id IN (${placeholders})`).run(...threadIds);
+};
+
+const deleteHistoryThreadRows = (db: Database, historyTableNames: Set<string>, threadIds: string[]) => {
+    if (threadIds.length === 0) {
+        return;
+    }
+
+    const placeholders = threadIds.map(() => '?').join(', ');
+    if (historyTableNames.has('thread_items')) {
+        db.query(`DELETE FROM codex_history.thread_items WHERE thread_id IN (${placeholders})`).run(...threadIds);
+    }
+
+    if (historyTableNames.has('thread_turns')) {
+        db.query(`DELETE FROM codex_history.thread_turns WHERE thread_id IN (${placeholders})`).run(...threadIds);
+    }
+
+    if (historyTableNames.has('thread_history_projection_state')) {
+        db.query(`DELETE FROM codex_history.thread_history_projection_state WHERE thread_id IN (${placeholders})`).run(
+            ...threadIds,
+        );
+    }
+};
+
+const deleteThreadIds = (db: Database, dbPath: string, threadIds: string[]): DeleteThreadsResult => {
+    const uniqueThreadIds = uniqueValues(threadIds);
+    if (uniqueThreadIds.length === 0) {
         return {
             deletedSessionFiles: [],
             deletedThreadIds: [],
@@ -1306,44 +1376,33 @@ const deleteThreadIds = (db: Database, threadIds: string[]): DeleteThreadsResult
     }
 
     const existingTableNames = getExistingTableNames(db);
-    const threadTargets = getThreadDeleteTargets(db, threadIds);
+    const threadTargets = getThreadDeleteTargets(db, uniqueThreadIds);
     const existingIds = threadTargets.map((target) => target.id);
 
-    if (existingIds.length === 0) {
-        return {
-            deletedSessionFiles: [],
-            deletedThreadIds: [],
-        };
-    }
-
-    const deleteMany = db.transaction((ids: string[]) => {
-        for (const threadIdChunk of chunkValues(ids, SQLITE_DELETE_BATCH_SIZE)) {
-            const placeholders = threadIdChunk.map(() => '?').join(', ');
-
-            // Codex schema differs across versions, so only touch dependent tables that actually exist.
-            if (existingTableNames.has('thread_dynamic_tools')) {
-                db.query(`DELETE FROM thread_dynamic_tools WHERE thread_id IN (${placeholders})`).run(...threadIdChunk);
-            }
-
-            if (existingTableNames.has('thread_goals')) {
-                db.query(`DELETE FROM thread_goals WHERE thread_id IN (${placeholders})`).run(...threadIdChunk);
-            }
-
-            if (existingTableNames.has('stage1_outputs')) {
-                db.query(`DELETE FROM stage1_outputs WHERE thread_id IN (${placeholders})`).run(...threadIdChunk);
-            }
-
-            if (existingTableNames.has('thread_spawn_edges')) {
-                db.query(
-                    `DELETE FROM thread_spawn_edges WHERE parent_thread_id IN (${placeholders}) OR child_thread_id IN (${placeholders})`,
-                ).run(...threadIdChunk, ...threadIdChunk);
-            }
-
-            db.query(`DELETE FROM threads WHERE id IN (${placeholders})`).run(...threadIdChunk);
+    const existingIdSet = new Set(existingIds);
+    let historyAttached = false;
+    try {
+        const historyDbPath = resolveCodexHistoryDbPath(dbPath);
+        if (hasRegularFile(historyDbPath)) {
+            db.query('ATTACH DATABASE ? AS codex_history').run(historyDbPath);
+            historyAttached = true;
         }
-    });
 
-    deleteMany(existingIds);
+        const historyTableNames = historyAttached ? getExistingCodexHistoryTableNames(db) : new Set<string>();
+        const deleteMany = db.transaction((ids: string[]) => {
+            for (const threadIdChunk of chunkValues(ids, SQLITE_DELETE_BATCH_SIZE)) {
+                const stateThreadIds = threadIdChunk.filter((threadId) => existingIdSet.has(threadId));
+                deleteStateThreadRows(db, existingTableNames, stateThreadIds);
+                deleteHistoryThreadRows(db, historyTableNames, threadIdChunk);
+            }
+        });
+
+        deleteMany(uniqueThreadIds);
+    } finally {
+        if (historyAttached) {
+            db.query('DETACH DATABASE codex_history').run();
+        }
+    }
 
     return {
         deletedSessionFiles: threadTargets.map((target) => target.rollout_path),
@@ -1557,6 +1616,20 @@ const readProjectAggregateRows = (db: Database) => {
 const readDbThreadIds = (db: Database) => {
     const rows = db.query('SELECT id FROM threads').all() as Array<{ id: string }>;
     return new Set(rows.map((row) => row.id));
+};
+
+export const reconcileCodexSessionIndex = (dbPath: string): CodexSessionIndexReconciliation => {
+    const codexDir = resolveCodexDirFromDbPath(dbPath);
+    const existingThreadIds = withReadonlyDb(dbPath, (db) => readDbThreadIds(db));
+    const sessionFilesByThreadId = getSessionFilesByThreadId(path.join(codexDir, 'sessions'));
+    const staleEntries = readSessionIndexEntries(codexDir).filter(
+        (entry) => !existingThreadIds.has(entry.id) && !sessionFilesByThreadId.has(entry.id),
+    );
+
+    return {
+        dryRun: true,
+        staleEntries,
+    };
 };
 
 const readProjectSummaryDatabaseData = (dbPath: string) => {
@@ -1814,7 +1887,7 @@ export const deleteCodexThread = async (
         await validateSessionFileDeletionTargets(dbPath, threadIds);
     }
     const result = withWritableDb(dbPath, (db) => {
-        return deleteThreadIds(db, threadIds);
+        return deleteThreadIds(db, dbPath, threadIds);
     });
 
     try {
@@ -1844,7 +1917,7 @@ export const deleteCodexThreads = async (
         await validateSessionFileDeletionTargets(dbPath, uniqueThreadIds);
     }
     const result = withWritableDb(dbPath, (db) => {
-        return deleteThreadIds(db, uniqueThreadIds);
+        return deleteThreadIds(db, dbPath, uniqueThreadIds);
     });
 
     try {
@@ -1887,7 +1960,7 @@ export const deleteCodexProject = async (
         await validateSessionFileDeletionTargets(dbPath, allThreadIds);
     }
     const result = withWritableDb(dbPath, (db) => {
-        const deleted = deleteThreadIds(db, projectThreadIds);
+        const deleted = deleteThreadIds(db, dbPath, allThreadIds);
 
         return {
             ...deleted,

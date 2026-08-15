@@ -5,7 +5,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { listCursorWorkspaceGroups } from './cursor-db';
 import { getCursorGlobalDbPath } from './cursor-exporter-types';
-import { collectCursorThreadsForDeletion, pruneCursorThreads, recoverCursorWorkspaceGroup } from './cursor-recovery';
+import {
+    collectCursorThreadsForDeletion,
+    deleteCursorWorkspaceBuckets,
+    deleteCursorWorkspaceHistory,
+    pruneCursorThreads,
+    recoverCursorWorkspaceGroup,
+} from './cursor-recovery';
 import { type CursorFixtureSpec, createCursorFixture } from './cursor-test-helpers';
 
 const tempDirs: string[] = [];
@@ -221,6 +227,82 @@ describe('pruneCursorThreads', () => {
         expect(result.workspaceBucketsUpdated).toBe(2);
         const [group] = await listCursorWorkspaceGroups(userDir);
         expect(group?.threadCount).toBe(0);
+    });
+
+    it('should delete modern composer headers so removed threads are not rediscovered', async () => {
+        const userDir = await makeUserDir('cursor-delete-modern-headers-');
+        await createCursorFixture(userDir, {
+            buckets: [
+                {
+                    bucketId: 'modern-bucket',
+                    folder: 'file:///Users/test/workspace/modern',
+                },
+            ],
+            composerTableHeaders: [{ bucketId: 'modern-bucket', composerId: 'thread-1' }],
+            threads: [
+                {
+                    bubbles: [{ bubbleId: 'b1', text: 'delete me', type: 1 }],
+                    composerId: 'thread-1',
+                    name: 'Modern thread',
+                },
+            ],
+        });
+
+        const deletable = await collectCursorThreadsForDeletion(['thread-1'], userDir);
+        const result = await pruneCursorThreads(deletable, true, userDir);
+        const db = new Database(getCursorGlobalDbPath(userDir), { readonly: true });
+        try {
+            expect(db.query('SELECT COUNT(*) AS count FROM composerHeaders').get()).toEqual({ count: 0 });
+        } finally {
+            db.close();
+        }
+
+        const [group] = await listCursorWorkspaceGroups(userDir);
+        await deleteCursorWorkspaceBuckets(group!, userDir);
+        const groups = await listCursorWorkspaceGroups(userDir);
+        expect(result.headersRemoved).toBe(1);
+        expect(groups.find((group) => group.key === 'folder:/Users/test/workspace/modern')).toBeUndefined();
+    });
+
+    it('should physically remove every storage bucket for an already-empty workspace', async () => {
+        const userDir = await makeUserDir('cursor-delete-empty-workspace-');
+        await createCursorFixture(userDir, {
+            buckets: [
+                { bucketId: 'empty-a', folder: 'file:///Users/test/workspace/empty' },
+                { bucketId: 'empty-b', folder: 'file:///Users/test/workspace/empty' },
+            ],
+            threads: [],
+        });
+        const [group] = await listCursorWorkspaceGroups(userDir);
+
+        await expect(deleteCursorWorkspaceBuckets(group!, userDir)).resolves.toBe(2);
+
+        for (const bucket of group!.buckets) {
+            expect(await Bun.file(bucket.workspaceJsonPath).exists()).toBe(false);
+        }
+        expect(await listCursorWorkspaceGroups(userDir)).toEqual([]);
+    });
+
+    it('should remove matching file-history entries without deleting a sibling workspace', async () => {
+        const userDir = await makeUserDir('cursor-delete-file-history-');
+        await createCursorFixture(userDir, {
+            buckets: [],
+            historyEntries: [
+                { resource: 'file:///Users/test/workspace/file-history/src/index.ts' },
+                { resource: 'file:///Users/test/workspace/file-history-other/src/index.ts' },
+                { resource: 'file:///Users/test/workspace/file-history/docs/notes.md' },
+            ],
+            threads: [],
+        });
+        const groups = await listCursorWorkspaceGroups(userDir);
+        const group = groups.find((candidate) => candidate.key === 'folder:/Users/test/workspace/file-history');
+
+        expect(group).toMatchObject({ buckets: [], threadCount: 0 });
+        await expect(deleteCursorWorkspaceHistory(group!, userDir)).resolves.toBe(2);
+
+        expect(await Bun.file(path.join(userDir, 'History', 'history-0', 'entries.json')).exists()).toBe(false);
+        expect(await Bun.file(path.join(userDir, 'History', 'history-1', 'entries.json')).exists()).toBe(true);
+        expect(await Bun.file(path.join(userDir, 'History', 'history-2', 'entries.json')).exists()).toBe(false);
     });
 
     it('should restore earlier bucket updates when a later bucket mutation fails', async () => {
