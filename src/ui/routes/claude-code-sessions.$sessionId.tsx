@@ -33,7 +33,7 @@ import {
     claudeCodeTranscriptToThreadEvents,
     getClaudeCodeThreadTranscriptStats,
 } from '#/lib/claude-code-transcript-events';
-import { downloadTextFile, downloadUrlFile } from '#/lib/download';
+import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import type { ExportDialogOptions } from '#/lib/export-options';
 import { formatDateTime, formatList, formatModelLabel, formatNumber, formatTokens } from '#/lib/formatters';
 import { getMutationErrorMessage } from '#/lib/mutation-error';
@@ -180,6 +180,7 @@ const ClaudeCodeTranscriptPreviewNotice = ({
 };
 
 function ClaudeCodeSessionDetailPage() {
+    const downloadCancellation = useDownloadCancellation();
     const navigate = useNavigate({ from: Route.fullPath });
     const transcriptSearch = Route.useSearch();
     const transcriptDisplay = getTranscriptDisplayState(transcriptSearch);
@@ -263,7 +264,7 @@ function ClaudeCodeSessionDetailPage() {
                 return;
             }
 
-            await downloadUrlFile(download.fileName, download.downloadUrl);
+            await downloadUrlFileWithCancellation(downloadCancellation, download.fileName, download.downloadUrl);
         },
         onSuccess: () => {
             setPendingExport(false);

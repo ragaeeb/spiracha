@@ -16,14 +16,15 @@ export type AntigravityDecryptionState = {
     status: 'error' | 'locked' | 'unlocked' | 'unsupported';
 };
 
+export type AntigravityDecryptionCapability = Readonly<{
+    decryptSafeStoragePayload: (payload: Buffer | Uint8Array | string) => string | null;
+}>;
+
 const execFileAsync = promisify(execFile);
 const SAFE_STORAGE_SALT = 'saltysalt';
 const SAFE_STORAGE_ITERATIONS = 1003;
 const SAFE_STORAGE_KEY_LENGTH = 16;
 const SAFE_STORAGE_IV = Buffer.alloc(16, 0x20);
-
-let cachedKeychainSecret: string | null = null;
-let lastKeychainError: string | null = null;
 
 export const deriveAntigravitySafeStorageKey = (keychainSecret: string | Buffer): Buffer => {
     return pbkdf2Sync(keychainSecret, SAFE_STORAGE_SALT, SAFE_STORAGE_ITERATIONS, SAFE_STORAGE_KEY_LENGTH, 'sha1');
@@ -120,13 +121,17 @@ export const decryptAntigravitySafeStoragePayload = (
     return null;
 };
 
+export const createAntigravityDecryptionCapability = (keychainSecret: string): AntigravityDecryptionCapability => ({
+    decryptSafeStoragePayload: (payload) => decryptAntigravitySafeStoragePayload(payload, keychainSecret),
+});
+
 export const getAntigravityDecryptionState = ({
-    cachedSecret = cachedKeychainSecret,
-    lastError = lastKeychainError,
+    error = null,
+    hasAccess = false,
     platform = process.platform,
 }: {
-    cachedSecret?: string | null;
-    lastError?: string | null;
+    error?: string | null;
+    hasAccess?: boolean;
     platform?: NodeJS.Platform;
 } = {}): AntigravityDecryptionState => {
     if (platform !== 'darwin') {
@@ -142,7 +147,7 @@ export const getAntigravityDecryptionState = ({
         };
     }
 
-    if (cachedSecret) {
+    if (hasAccess) {
         return {
             canRequestAccess: true,
             error: null,
@@ -157,17 +162,15 @@ export const getAntigravityDecryptionState = ({
 
     return {
         canRequestAccess: true,
-        error: lastError,
+        error,
         isUnlocked: false,
         keychainAccount: ANTIGRAVITY_KEYCHAIN_ACCOUNT,
         keychainService: ANTIGRAVITY_KEYCHAIN_SERVICE,
         platform,
         provider: 'keychain',
-        status: lastError ? 'error' : 'locked',
+        status: error ? 'error' : 'locked',
     };
 };
-
-export const getCachedAntigravityKeychainSecret = (): string | null => cachedKeychainSecret;
 
 export const getAntigravityKeychainExecOptions = () => ({ timeout: 10_000 });
 
@@ -189,14 +192,28 @@ export const readAntigravityKeychainSecret = async (): Promise<string> => {
     return secret;
 };
 
-export const unlockAntigravityDecryption = async (): Promise<AntigravityDecryptionState> => {
-    try {
-        cachedKeychainSecret = await readAntigravityKeychainSecret();
-        lastKeychainError = null;
-    } catch (error) {
-        cachedKeychainSecret = null;
-        lastKeychainError = error instanceof Error ? error.message : String(error);
+const getAntigravityKeychainError = (error: unknown): string => {
+    return error instanceof Error ? error.message : String(error);
+};
+
+export const withAntigravityDecryptionCapability = async <T>(
+    action: (capability: AntigravityDecryptionCapability) => T | Promise<T>,
+): Promise<T> => {
+    const keychainSecret = await readAntigravityKeychainSecret();
+    return action(createAntigravityDecryptionCapability(keychainSecret));
+};
+
+export const probeAntigravityDecryptionState = async (): Promise<AntigravityDecryptionState> => {
+    if (process.platform !== 'darwin') {
+        return getAntigravityDecryptionState();
     }
 
-    return getAntigravityDecryptionState();
+    try {
+        await readAntigravityKeychainSecret();
+        return getAntigravityDecryptionState({ hasAccess: true });
+    } catch (error) {
+        return getAntigravityDecryptionState({ error: getAntigravityKeychainError(error) });
+    }
 };
+
+export const unlockAntigravityDecryption = probeAntigravityDecryptionState;

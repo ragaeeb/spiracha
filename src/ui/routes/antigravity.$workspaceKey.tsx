@@ -23,7 +23,7 @@ import {
     exportAntigravityArtifactsFn,
     exportAntigravityConversationsFn,
 } from '#/lib/antigravity-server';
-import { downloadTextFile, downloadUrlFile } from '#/lib/download';
+import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { matchesTextQuery } from '#/lib/text-filter';
 import { isWorkspaceEmptiedByDelete } from '#/lib/workspace-delete-navigation';
@@ -129,6 +129,7 @@ function AntigravityWorkspaceErrorComponent({ error }: { error: Error }) {
 }
 
 function AntigravityWorkspacePage() {
+    const downloadCancellation = useDownloadCancellation();
     const navigate = useNavigate({ from: Route.fullPath });
     const params = Route.useParams();
     const queryClient = useQueryClient();
@@ -167,7 +168,7 @@ function AntigravityWorkspacePage() {
                 return;
             }
 
-            await downloadUrlFile(download.fileName, download.downloadUrl);
+            await downloadUrlFileWithCancellation(downloadCancellation, download.fileName, download.downloadUrl);
         },
         onSuccess: () => {
             setPendingExport(null);

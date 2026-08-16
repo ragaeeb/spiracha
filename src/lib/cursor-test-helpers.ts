@@ -280,3 +280,45 @@ export const createCursorFixture = async (userDir: string, spec: CursorFixtureSp
     await writeGlobalDb(userDir, spec);
     await writeHistoryEntries(userDir, spec);
 };
+
+export const holdCursorWriteLock = async (dbPath: string, durationMs = 180) => {
+    const script = `
+import { Database } from 'bun:sqlite';
+
+const db = new Database(Bun.argv.at(-1), { create: false, readwrite: true });
+db.exec('PRAGMA journal_mode = WAL');
+db.exec('PRAGMA busy_timeout = 0');
+db.exec('BEGIN IMMEDIATE');
+console.log('CURSOR_LOCK_READY');
+await Bun.sleep(Number(Bun.argv.at(-2)));
+db.exec('COMMIT');
+db.close();
+`;
+    const childProcess = Bun.spawn([process.execPath, '-e', script, String(durationMs), dbPath], {
+        stderr: 'pipe',
+        stdout: 'pipe',
+    });
+    const reader = childProcess.stdout?.getReader();
+    if (!reader) {
+        childProcess.kill();
+        await childProcess.exited;
+        throw new Error('Cursor SQLite lock helper did not expose stdout');
+    }
+
+    const decoder = new TextDecoder();
+    let output = '';
+    try {
+        while (true) {
+            const next = await reader.read();
+            output += decoder.decode(next.value ?? new Uint8Array(), { stream: !next.done });
+            if (output.includes('CURSOR_LOCK_READY')) {
+                return childProcess;
+            }
+            if (next.done) {
+                throw new Error(`Cursor SQLite lock helper exited before locking: ${output}`);
+            }
+        }
+    } finally {
+        reader.releaseLock();
+    }
+};

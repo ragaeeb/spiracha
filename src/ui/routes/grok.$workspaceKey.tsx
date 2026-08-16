@@ -11,7 +11,7 @@ import { LoadingPanel } from '#/components/loading-panel';
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
 import { Button } from '#/components/ui/button';
-import { downloadTextFile, downloadUrlFile } from '#/lib/download';
+import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { grokSessionsQueryOptions, grokWorkspacesQueryOptions } from '#/lib/grok-queries';
 import {
@@ -101,6 +101,7 @@ function GrokWorkspaceErrorComponent({ error }: { error: Error }) {
 }
 
 function GrokWorkspacePage() {
+    const downloadCancellation = useDownloadCancellation();
     const navigate = useNavigate({ from: Route.fullPath });
     const params = Route.useParams();
     const queryClient = useQueryClient();
@@ -141,7 +142,7 @@ function GrokWorkspacePage() {
                 return;
             }
 
-            await downloadUrlFile(download.fileName, download.downloadUrl);
+            await downloadUrlFileWithCancellation(downloadCancellation, download.fileName, download.downloadUrl);
         },
         onSuccess: () => {
             setPendingExport(null);

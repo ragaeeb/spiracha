@@ -19,7 +19,7 @@ import {
     exportThreadsFn,
     recoverProjectThreadsFn,
 } from '#/lib/codex-server';
-import { downloadTextFile, downloadUrlFile } from '#/lib/download';
+import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { getMutationErrorMessage } from '#/lib/mutation-error';
 import { parseTextQuerySearch, withTextQuerySearch } from '#/lib/route-search';
@@ -115,6 +115,7 @@ const getThreadExportErrorMessage = (error: unknown): string | null => {
 };
 
 function ProjectDetailPage() {
+    const downloadCancellation = useDownloadCancellation();
     const navigate = useNavigate({ from: Route.fullPath });
     const params = Route.useParams();
     const project = useMemo(() => decodeProjectParam(params.project), [params.project]);
@@ -209,7 +210,7 @@ function ProjectDetailPage() {
                 return;
             }
 
-            await downloadUrlFile(download.fileName, download.downloadUrl);
+            await downloadUrlFileWithCancellation(downloadCancellation, download.fileName, download.downloadUrl);
         },
         onError: (error, variables) => {
             console.error('[spiracha:export-ui] failed', {

@@ -33,7 +33,7 @@ import {
     exportAntigravityConversationFn,
     type getAntigravityConversationDetailFn,
 } from '#/lib/antigravity-server';
-import { downloadTextFile, downloadUrlFile } from '#/lib/download';
+import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import type { ExportDialogOptions } from '#/lib/export-options';
 import { formatBytes, formatDateTime, formatList, formatNumber } from '#/lib/formatters';
 import {
@@ -249,6 +249,7 @@ function AntigravityRawPanels({
 }
 
 function AntigravityConversationDetailPage() {
+    const downloadCancellation = useDownloadCancellation();
     const navigate = useNavigate({ from: Route.fullPath });
     const queryClient = useQueryClient();
     const transcriptSearch = Route.useSearch();
@@ -292,7 +293,7 @@ function AntigravityConversationDetailPage() {
                 return;
             }
 
-            await downloadUrlFile(download.fileName, download.downloadUrl);
+            await downloadUrlFileWithCancellation(downloadCancellation, download.fileName, download.downloadUrl);
         },
         onSuccess: () => {
             setExportOpen(false);

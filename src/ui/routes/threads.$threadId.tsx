@@ -33,7 +33,7 @@ import {
 import { deleteThreadFn, exportThreadFn, type getThreadSnapshotFn } from '#/lib/codex-server';
 import { connectCodexThreadLiveUpdates, refreshCodexThreadLiveQueries } from '#/lib/codex-thread-live';
 import type { CodexThreadLiveStatus } from '#/lib/codex-thread-live-types';
-import { downloadTextFile, downloadUrlFile } from '#/lib/download';
+import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import { formatBooleanLabel, formatBytes, formatDateTime, formatList, formatTokens } from '#/lib/formatters';
 import { getMutationErrorMessage } from '#/lib/mutation-error';
 import { applyPathTransforms } from '#/lib/path-utils';
@@ -639,6 +639,7 @@ function ThreadToolsTab({
 }
 
 function ThreadDetailPageContent() {
+    const downloadCancellation = useDownloadCancellation();
     const { navigate, search, transcriptFilters, updateTranscriptSearch } = useThreadTranscriptRouteSearch();
     const queryClient = useQueryClient();
     const params = Route.useParams();
@@ -742,7 +743,7 @@ function ThreadDetailPageContent() {
                 return;
             }
 
-            await downloadUrlFile(download.fileName, download.downloadUrl);
+            await downloadUrlFileWithCancellation(downloadCancellation, download.fileName, download.downloadUrl);
         },
         onError: (error) => {
             console.error('[spiracha:export-ui] failed', {

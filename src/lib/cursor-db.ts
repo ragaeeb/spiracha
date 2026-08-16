@@ -22,6 +22,7 @@ import {
 } from './cursor-exporter-types';
 import { buildCursorBubbleKeyLikePattern, isSafeCursorComposerId } from './cursor-id';
 import { asNumber, asObject, asString, type JsonValue, pathExists, toFileUri } from './shared';
+import { runWithSqliteRetry } from './sqlite-retry';
 
 type ComposerEntry = Record<string, JsonValue> & {
     composerId?: string;
@@ -60,6 +61,57 @@ export const openCursorReadonlyDb = (dbPath: string): Database => {
     const hasWalSidecars = existsSync(`${dbPath}-wal`) || existsSync(`${dbPath}-shm`);
     return new Database(getCursorReadonlyDbUri(dbPath, !hasWalSidecars), CURSOR_READONLY_DB_OPEN_FLAGS);
 };
+
+const assertSynchronousCursorCallback = <T>(result: T): T => {
+    if (
+        result !== null &&
+        (typeof result === 'object' || typeof result === 'function') &&
+        'then' in result &&
+        typeof result.then === 'function'
+    ) {
+        throw new TypeError('Cursor SQLite callbacks must be synchronous');
+    }
+
+    return result;
+};
+
+export const withCursorReadonlyDb = <T>(dbPath: string, callback: (db: Database) => T): T =>
+    runWithSqliteRetry({
+        action: () => {
+            const db = openCursorReadonlyDb(dbPath);
+            try {
+                return assertSynchronousCursorCallback(callback(db));
+            } finally {
+                db.close();
+            }
+        },
+    });
+
+export const withCursorWriteTransaction = <T>(dbPath: string, callback: (db: Database) => T): T =>
+    runWithSqliteRetry({
+        action: () => {
+            const db = new Database(dbPath, { create: false, readwrite: true });
+            let transactionStarted = false;
+            try {
+                db.exec('PRAGMA busy_timeout = 0');
+                db.exec('BEGIN IMMEDIATE');
+                transactionStarted = true;
+                const result = assertSynchronousCursorCallback(callback(db));
+                db.exec('COMMIT');
+                transactionStarted = false;
+                return result;
+            } catch (error) {
+                if (transactionStarted) {
+                    try {
+                        db.exec('ROLLBACK');
+                    } catch {}
+                }
+                throw error;
+            } finally {
+                db.close();
+            }
+        },
+    });
 
 const isMissingOrUnreadableCursorStoreError = (error: unknown): boolean => {
     const code = (error as { code?: unknown }).code;
@@ -204,21 +256,21 @@ const readModernComposerHeaders = (db: Database): ComposerEntry[] => {
     return rows.map(parseComposerHeaderRow);
 };
 
+export const loadGlobalComposerHeadersStrict = (globalDbPath: string): ComposerEntry[] =>
+    withCursorReadonlyDb(globalDbPath, (db) => {
+        const legacy = readItemValue<{ allComposers?: ComposerEntry[] }>(db, COMPOSER_HEADERS_KEY);
+        const headersById = new Map<string, ComposerEntry>();
+        for (const header of [...(legacy?.allComposers ?? []), ...readModernComposerHeaders(db)]) {
+            if (header.composerId) {
+                headersById.set(header.composerId, header);
+            }
+        }
+        return [...headersById.values()];
+    });
+
 export const loadGlobalComposerHeaders = (globalDbPath: string): ComposerEntry[] => {
     try {
-        const db = openCursorReadonlyDb(globalDbPath);
-        try {
-            const legacy = readItemValue<{ allComposers?: ComposerEntry[] }>(db, COMPOSER_HEADERS_KEY);
-            const headersById = new Map<string, ComposerEntry>();
-            for (const header of [...(legacy?.allComposers ?? []), ...readModernComposerHeaders(db)]) {
-                if (header.composerId) {
-                    headersById.set(header.composerId, header);
-                }
-            }
-            return [...headersById.values()];
-        } finally {
-            db.close();
-        }
+        return loadGlobalComposerHeadersStrict(globalDbPath);
     } catch (error) {
         warnCursorDataIssue('global_composer_headers_unavailable', {
             error: error instanceof Error ? error.message : String(error),
@@ -265,23 +317,29 @@ const resolveBucketIdentity = async (
     return { folders: [], kind: 'unknown', label: bucketId, uri: '' };
 };
 
+const readBucketComposerIdsStrict = (dbPath: string): string[] =>
+    withCursorReadonlyDb(dbPath, (db) => {
+        const data = readItemValue<{ allComposers?: ComposerEntry[] }>(db, COMPOSER_DATA_KEY);
+        return (data?.allComposers ?? [])
+            .map((entry) => entry.composerId)
+            .filter((value): value is string => Boolean(value));
+    });
+
 const readBucketComposerIds = (dbPath: string): string[] => {
     try {
-        const db = openCursorReadonlyDb(dbPath);
-        try {
-            const data = readItemValue<{ allComposers?: ComposerEntry[] }>(db, COMPOSER_DATA_KEY);
-            return (data?.allComposers ?? [])
-                .map((entry) => entry.composerId)
-                .filter((value): value is string => Boolean(value));
-        } finally {
-            db.close();
-        }
+        return readBucketComposerIdsStrict(dbPath);
     } catch {
         return [];
     }
 };
 
-export const loadCursorBuckets = async (userDir = resolveCursorUserDir()): Promise<CursorWorkspaceBucket[]> => {
+type CursorBucketComposerIdReader = (dbPath: string) => string[];
+
+const loadCursorBucketsInternal = async (
+    userDir: string,
+    readHeaders: (globalDbPath: string) => ComposerEntry[],
+    readComposerIds: CursorBucketComposerIdReader,
+): Promise<CursorWorkspaceBucket[]> => {
     const workspaceStorageDir = getCursorWorkspaceStorageDir(userDir);
     let bucketIds: string[] = [];
     try {
@@ -293,7 +351,7 @@ export const loadCursorBuckets = async (userDir = resolveCursorUserDir()): Promi
     const globalDbPath = getCursorGlobalDbPath(userDir);
     const headerIdsByBucket = new Map<string, Set<string>>();
     if (await pathExists(globalDbPath)) {
-        for (const header of loadGlobalComposerHeaders(globalDbPath)) {
+        for (const header of readHeaders(globalDbPath)) {
             const id = header.workspaceIdentifier?.id;
             if (id && header.composerId) {
                 const set = headerIdsByBucket.get(id) ?? new Set<string>();
@@ -305,7 +363,7 @@ export const loadCursorBuckets = async (userDir = resolveCursorUserDir()): Promi
 
     const buckets: CursorWorkspaceBucket[] = [];
     for (const bucketId of bucketIds) {
-        const bucket = await buildBucket(workspaceStorageDir, bucketId, headerIdsByBucket);
+        const bucket = await buildBucket(workspaceStorageDir, bucketId, headerIdsByBucket, readComposerIds);
         if (bucket) {
             buckets.push(bucket);
         }
@@ -314,10 +372,17 @@ export const loadCursorBuckets = async (userDir = resolveCursorUserDir()): Promi
     return buckets;
 };
 
+export const loadCursorBuckets = async (userDir = resolveCursorUserDir()): Promise<CursorWorkspaceBucket[]> =>
+    loadCursorBucketsInternal(userDir, loadGlobalComposerHeaders, readBucketComposerIds);
+
+const loadCursorBucketsStrict = async (userDir: string): Promise<CursorWorkspaceBucket[]> =>
+    loadCursorBucketsInternal(userDir, loadGlobalComposerHeadersStrict, readBucketComposerIdsStrict);
+
 const buildBucket = async (
     workspaceStorageDir: string,
     bucketId: string,
     headerIdsByBucket: Map<string, Set<string>>,
+    readComposerIds: CursorBucketComposerIdReader,
 ): Promise<CursorWorkspaceBucket | null> => {
     const root = path.join(workspaceStorageDir, bucketId);
     const workspaceJsonPath = path.join(root, 'workspace.json');
@@ -337,7 +402,7 @@ const buildBucket = async (
     try {
         identity = await resolveBucketIdentity(wsData, bucketId);
         dbStat = await stat(dbPath);
-        composerIds = readBucketComposerIds(dbPath);
+        composerIds = readComposerIds(dbPath);
     } catch (error) {
         if (isMissingOrUnreadableCursorStoreError(error)) {
             return null;
@@ -606,6 +671,7 @@ type CursorDiscovery = {
 };
 
 type CursorDiscoveryOptions = {
+    strict?: boolean;
     updatedAfterMs?: number;
 };
 
@@ -880,9 +946,9 @@ const readBubbleStats = (db: Database, composerIds?: Iterable<string>): Map<stri
     return new Map(rows.map((row) => [row.id, { bytes: row.bytes, count: row.count }]));
 };
 
-const readHeaderInfo = (globalDbPath: string): Map<string, HeaderInfo> => {
+const readHeaderInfo = (globalDbPath: string, strict = false): Map<string, HeaderInfo> => {
     const info = new Map<string, HeaderInfo>();
-    for (const header of loadGlobalComposerHeaders(globalDbPath)) {
+    for (const header of (strict ? loadGlobalComposerHeadersStrict : loadGlobalComposerHeaders)(globalDbPath)) {
         if (!header.composerId) {
             continue;
         }
@@ -903,10 +969,10 @@ const readHeaderInfo = (globalDbPath: string): Map<string, HeaderInfo> => {
     return info;
 };
 
-const collectBucketComposerIds = (buckets: CursorWorkspaceBucket[]): Map<string, string> => {
+const collectBucketComposerIds = (buckets: CursorWorkspaceBucket[], strict = false): Map<string, string> => {
     const map = new Map<string, string>();
     for (const bucket of buckets) {
-        for (const composerId of readBucketComposerIds(bucket.dbPath)) {
+        for (const composerId of (strict ? readBucketComposerIdsStrict : readBucketComposerIds)(bucket.dbPath)) {
             if (!map.has(composerId)) {
                 map.set(composerId, bucket.bucketId);
             }
@@ -1132,7 +1198,7 @@ const buildDiscoveryGroups = (
 };
 
 const buildDiscovery = async (userDir: string, options: CursorDiscoveryOptions = {}): Promise<CursorDiscovery> => {
-    const buckets = await loadCursorBuckets(userDir);
+    const buckets = await (options.strict ? loadCursorBucketsStrict(userDir) : loadCursorBuckets(userDir));
     const bucketGroups = groupCursorBuckets(buckets);
     const globalDbPath = getCursorGlobalDbPath(userDir);
     const cliThreads = await readCursorCliTranscriptThreads(userDir, options);
@@ -1150,15 +1216,15 @@ const buildDiscovery = async (userDir: string, options: CursorDiscoveryOptions =
         }
     }
 
-    const db = openCursorReadonlyDb(globalDbPath);
-    try {
+    const databaseResult = withCursorReadonlyDb(globalDbPath, (db) => {
         const heads = readAllHeads(db, options);
         if (options.updatedAfterMs !== undefined && heads.size === 0) {
-            return assembleDiscovery(cliThreads, bucketGroups, new Map());
+            return { kind: 'empty' as const };
         }
 
-        const headerInfo = readHeaderInfo(globalDbPath);
-        const bucketComposerIds = options.updatedAfterMs === undefined ? collectBucketComposerIds(buckets) : new Map();
+        const headerInfo = readHeaderInfo(globalDbPath, options.strict);
+        const bucketComposerIds =
+            options.updatedAfterMs === undefined ? collectBucketComposerIds(buckets, options.strict) : new Map();
         const stats = readBubbleStats(db, options.updatedAfterMs === undefined ? undefined : heads.keys());
         const universe =
             options.updatedAfterMs === undefined
@@ -1181,24 +1247,31 @@ const buildDiscovery = async (userDir: string, options: CursorDiscoveryOptions =
             );
         }
 
-        const fileHistoryActivity =
-            options.updatedAfterMs === undefined ? await readCursorFileHistoryProjectActivity(userDir) : new Map();
         const knownComposerIds = new Set(universe);
-        return assembleDiscovery(
-            [...resolved, ...cliThreads.filter((thread) => !knownComposerIds.has(thread.composerId))],
-            bucketGroups,
-            fileHistoryActivity,
-        );
-    } finally {
-        db.close();
+        return { kind: 'resolved' as const, knownComposerIds, resolved };
+    });
+
+    if (databaseResult.kind === 'empty') {
+        return assembleDiscovery(cliThreads, bucketGroups, new Map());
     }
+
+    const fileHistoryActivity =
+        options.updatedAfterMs === undefined ? await readCursorFileHistoryProjectActivity(userDir) : new Map();
+    return assembleDiscovery(
+        [
+            ...databaseResult.resolved,
+            ...cliThreads.filter((thread) => !databaseResult.knownComposerIds.has(thread.composerId)),
+        ],
+        bucketGroups,
+        fileHistoryActivity,
+    );
 };
 
 const discoverCursorWorkspaces = async (
     userDir: string,
     options: CursorDiscoveryOptions = {},
 ): Promise<CursorDiscovery> => {
-    if (options.updatedAfterMs !== undefined) {
+    if (options.updatedAfterMs !== undefined || options.strict) {
         return await buildDiscovery(userDir, options);
     }
 
@@ -1212,34 +1285,32 @@ const discoverCursorWorkspaces = async (
     return value;
 };
 
-export const readCursorThreadHead = (globalDbPath: string, composerId: string): CursorThreadHead | null => {
-    const db = openCursorReadonlyDb(globalDbPath);
-    try {
-        const head = readKvValue<Record<string, JsonValue>>(db, `composerData:${composerId}`);
-        if (!head) {
-            return null;
-        }
-
-        const headerList = Array.isArray(head.fullConversationHeadersOnly)
-            ? (head.fullConversationHeadersOnly as JsonValue[])
-            : [];
-        const orderedBubbleIds = headerList
-            .map((item) => asString(asObject(item)?.bubbleId ?? null))
-            .filter((value): value is string => Boolean(value));
-
-        return {
-            composerId,
-            createdAtMs: asNumber(head.createdAt ?? null),
-            lastUpdatedAtMs: asNumber(head.lastUpdatedAt ?? null),
-            mode: asString(head.unifiedMode ?? null),
-            name: asString(head.name ?? null),
-            orderedBubbleIds,
-            totalBubbleHeaders: headerList.length,
-        };
-    } finally {
-        db.close();
+const readCursorThreadHeadFromDb = (db: Database, composerId: string): CursorThreadHead | null => {
+    const head = readKvValue<Record<string, JsonValue>>(db, `composerData:${composerId}`);
+    if (!head) {
+        return null;
     }
+
+    const headerList = Array.isArray(head.fullConversationHeadersOnly)
+        ? (head.fullConversationHeadersOnly as JsonValue[])
+        : [];
+    const orderedBubbleIds = headerList
+        .map((item) => asString(asObject(item)?.bubbleId ?? null))
+        .filter((value): value is string => Boolean(value));
+
+    return {
+        composerId,
+        createdAtMs: asNumber(head.createdAt ?? null),
+        lastUpdatedAtMs: asNumber(head.lastUpdatedAt ?? null),
+        mode: asString(head.unifiedMode ?? null),
+        name: asString(head.name ?? null),
+        orderedBubbleIds,
+        totalBubbleHeaders: headerList.length,
+    };
 };
+
+export const readCursorThreadHead = (globalDbPath: string, composerId: string): CursorThreadHead | null =>
+    withCursorReadonlyDb(globalDbPath, (db) => readCursorThreadHeadFromDb(db, composerId));
 
 const toBubbleKind = (rawType: JsonValue): CursorBubbleKind => {
     if (rawType === 1) {
@@ -1697,13 +1768,12 @@ const inferCursorUserDirFromGlobalDbPath = (globalDbPath: string): string => {
 };
 
 export const readCursorThreadTranscript = (globalDbPath: string, composerId: string): CursorThreadTranscript | null => {
-    const head = readCursorThreadHead(globalDbPath, composerId);
-    if (!head) {
-        return null;
-    }
+    return withCursorReadonlyDb(globalDbPath, (db) => {
+        const head = readCursorThreadHeadFromDb(db, composerId);
+        if (!head) {
+            return null;
+        }
 
-    const db = openCursorReadonlyDb(globalDbPath);
-    try {
         const orderedIds = head.orderedBubbleIds.length > 0 ? head.orderedBubbleIds : readAllBubbleIds(db, composerId);
         const bubbles: CursorBubble[] = [];
         for (const bubbleId of orderedIds) {
@@ -1723,9 +1793,7 @@ export const readCursorThreadTranscript = (globalDbPath: string, composerId: str
             omittedBubbleCount,
             renderableBubbleCount: bubbles.length,
         };
-    } finally {
-        db.close();
-    }
+    });
 };
 
 export const readCursorThreadTranscriptWithAgentFiles = async (

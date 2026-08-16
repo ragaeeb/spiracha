@@ -4,12 +4,14 @@ import { mkdir, mkdtemp, rm, utimes } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
+    CodexDbCompatibilityError,
     CodexThreadNotFoundError,
     deleteCodexProject,
     deleteCodexThread,
     deleteCodexThreads,
     getCodexDashboardSummary,
     getThreadBrowseData,
+    getThreadBrowseDataBatch,
     listCodexProjects,
     listProjectThreads,
     listScopedThreads,
@@ -1174,6 +1176,60 @@ describe('codex browser db', () => {
         expect(threads[0]?.rolloutSizeBytes).toBeGreaterThan(0);
     });
 
+    it('should reject a browse database with an actionable typed compatibility error', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-schema-compatibility-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createMinimalBrowseSchemaFixture(tempRoot);
+        const db = new Database(fixture.dbPath);
+        db.exec('ALTER TABLE threads DROP COLUMN preview');
+        db.close();
+
+        expect(() => getThreadBrowseData(fixture.dbPath, fixture.threadId)).toThrow(CodexDbCompatibilityError);
+        try {
+            getThreadBrowseData(fixture.dbPath, fixture.threadId);
+            throw new Error('expected schema compatibility failure');
+        } catch (error) {
+            expect(error).toBeInstanceOf(CodexDbCompatibilityError);
+            expect(error).toMatchObject({
+                code: 'CODEX_DB_INCOMPATIBLE',
+                missingColumns: ['threads.preview'],
+            });
+            expect((error as Error).message).toContain('threads.preview');
+        }
+    });
+
+    it('should batch browse in request order with fallback and missing outcomes without unbounded id parameters', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-batch-browse-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const fallbackThreadId = '019ec3d5-859d-77d0-b851-256ae567ff70';
+        await addFallbackSessionIndexEntry(tempRoot, fallbackThreadId, 'spiracha');
+        const missingThreadId = '019ec3d5-859d-77d0-b851-256ae567ff71';
+        const ids = [
+            fixture.threads[1]!.threadId,
+            missingThreadId,
+            fallbackThreadId,
+            fixture.threads[0]!.threadId,
+            ...Array.from({ length: 1_000 }, (_, index) => `missing-${index}`),
+        ];
+
+        const results = getThreadBrowseDataBatch(fixture.dbPath, ids);
+
+        expect(results).toHaveLength(ids.length);
+        expect(results.slice(0, 4).map((result) => [result.threadId, result.status, result.source])).toEqual([
+            [fixture.threads[1]!.threadId, 'found', 'database'],
+            [missingThreadId, 'missing', 'missing'],
+            [fallbackThreadId, 'found', 'fallback'],
+            [fixture.threads[0]!.threadId, 'found', 'database'],
+        ]);
+        expect(results[0]).toMatchObject({
+            data: {
+                relations: { parentThreadId: fixture.threads[0]!.threadId },
+            },
+        });
+        expect(results.every((result) => result.threadId === ids[results.indexOf(result)])).toBe(true);
+    });
+
     it('should prefer the Codex session index title over the stored prompt text', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-session-index-title-test-'));
         tempPaths.push(tempRoot);
@@ -1380,6 +1436,92 @@ describe('codex browser db', () => {
         );
         const db = new Database(fixture.dbPath, { readonly: true });
         expect(db.query('SELECT COUNT(*) AS count FROM threads').get()).toEqual({ count: 0 });
+        db.close();
+    });
+
+    it('should make repeated same-id deletion idempotent and report optional cleanup outcomes', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-delete-idempotence-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const threadId = fixture.threads[0]!.threadId;
+
+        const first = await deleteCodexThreads(fixture.dbPath, [threadId, threadId]);
+        const second = await deleteCodexThreads(fixture.dbPath, [threadId]);
+
+        expect(first).toMatchObject({
+            cleanup: {
+                deletedSessionFiles: [],
+                requested: false,
+            },
+            deletedThreadIds: [threadId],
+        });
+        expect(second).toMatchObject({
+            cleanup: {
+                deletedSessionFiles: [],
+                requested: false,
+            },
+            deletedThreadIds: [],
+        });
+    });
+
+    it('should let a competing writer release its lock before the configured busy timeout expires', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-busy-timeout-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const threadId = fixture.threads[0]!.threadId;
+        const childScript = `
+            import { Database } from 'bun:sqlite';
+            const db = new Database(Bun.argv.at(-1));
+            db.exec('BEGIN EXCLUSIVE');
+            await Bun.sleep(150);
+            db.exec('COMMIT');
+            db.close();
+        `;
+        const holder = Bun.spawn([process.execPath, '-e', childScript, fixture.dbPath], {
+            cwd: process.cwd(),
+            stderr: 'pipe',
+            stdout: 'pipe',
+        });
+        await Bun.sleep(25);
+        const result = await deleteCodexThread(fixture.dbPath, threadId);
+        const holderExitCode = await holder.exited;
+
+        expect(holderExitCode).toBe(0);
+        expect(result.deletedThreadIds).toEqual([threadId]);
+    });
+
+    it('should make concurrent child-process deletes of one id idempotent', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-competing-delete-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const threadId = fixture.threads[0]!.threadId;
+        const childScript = `
+            import { deleteCodexThread } from './src/lib/codex-browser-db.ts';
+            const result = await deleteCodexThread(Bun.argv.at(-2), Bun.argv.at(-1));
+            console.log(JSON.stringify(result.deletedThreadIds));
+        `;
+        const processes = [0, 1].map(() =>
+            Bun.spawn([process.execPath, '-e', childScript, fixture.dbPath, threadId], {
+                cwd: process.cwd(),
+                stderr: 'pipe',
+                stdout: 'pipe',
+            }),
+        );
+        const outcomes = await Promise.all(
+            processes.map(async (processHandle) => {
+                const output = await new Response(processHandle.stdout).text();
+                const errorOutput = await new Response(processHandle.stderr).text();
+                const exitCode = await processHandle.exited;
+                return { errorOutput: errorOutput.trim(), exitCode, output: output.trim() };
+            }),
+        );
+
+        if (!outcomes.every((outcome) => outcome.exitCode === 0)) {
+            throw new Error(JSON.stringify(outcomes));
+        }
+        expect(outcomes.flatMap((outcome) => JSON.parse(outcome.output) as string[]).sort()).toEqual([threadId]);
+        const db = new Database(fixture.dbPath, { readonly: true });
+        expect(db.query('SELECT COUNT(*) AS count FROM threads WHERE id = ?').get(threadId)).toEqual({ count: 0 });
         db.close();
     });
 

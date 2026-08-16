@@ -13,7 +13,7 @@ import { RouteErrorPanel } from '#/components/route-error-panel';
 import { Button } from '#/components/ui/button';
 import { clineTasksQueryOptions, clineWorkspacesQueryOptions } from '#/lib/cline-queries';
 import { deleteClineTaskFn, deleteClineTasksFn, exportClineTaskFn, exportClineTasksFn } from '#/lib/cline-server';
-import { downloadTextFile, downloadUrlFile } from '#/lib/download';
+import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { matchesTextQuery } from '#/lib/text-filter';
 import { isWorkspaceEmptiedByDelete } from '#/lib/workspace-delete-navigation';
@@ -27,6 +27,7 @@ const findWorkspace = (workspaces: ClineWorkspaceGroup[], key: string) => {
 };
 
 const ClineWorkspacePage = () => {
+    const downloadCancellation = useDownloadCancellation();
     const navigate = useNavigate({ from: Route.fullPath });
     const queryClient = useQueryClient();
     const workspaces = useSuspenseQuery(clineWorkspacesQueryOptions()).data;
@@ -65,7 +66,7 @@ const ClineWorkspacePage = () => {
             if (download.mode === 'download') {
                 downloadTextFile(download.fileName, download.content, download.mimeType);
             } else {
-                await downloadUrlFile(download.fileName, download.downloadUrl);
+                await downloadUrlFileWithCancellation(downloadCancellation, download.fileName, download.downloadUrl);
             }
         },
         onSuccess: () => setExportTasks([]),

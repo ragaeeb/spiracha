@@ -41,7 +41,12 @@ describe('ExportDialog', () => {
         vi.stubGlobal('fetch', fetchMock);
         vi.stubGlobal('URL', { ...URL, createObjectURL: vi.fn(() => 'blob:evidence'), revokeObjectURL: vi.fn() });
         const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
-        const downloadTextFile = vi.spyOn(download, 'downloadTextFile').mockImplementation(() => undefined);
+        const downloadTextFile = vi
+            .spyOn(download, 'downloadTextFile')
+            .mockImplementation((_fileName, _content, _mimeType, options) => {
+                options?.onStateChange?.('ready');
+                options?.onStateChange?.('downloading');
+            });
 
         try {
             render(
@@ -68,7 +73,9 @@ describe('ExportDialog', () => {
                 'codex-thread-1-focused-evidence.md',
                 '# Focused evidence: Thread 1\n',
                 'text/markdown; charset=utf-8',
+                { onStateChange: expect.any(Function) },
             );
+            expect(screen.getByRole('status').textContent).toBe('Starting download...');
         } finally {
             HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
             anchorClick.mockRestore();

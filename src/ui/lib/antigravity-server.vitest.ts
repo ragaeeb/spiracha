@@ -3,9 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
     deleteAntigravityConversationMock,
-    getAntigravityDecryptionStateMock,
+    probeAntigravityDecryptionStateMock,
     getAntigravityConversationByIdMock,
-    getCachedAntigravityKeychainSecretMock,
     listAntigravityConversationsMock,
     listAntigravityWorkspaceGroupsMock,
     renderAntigravityArtifactsMarkdownMock,
@@ -14,19 +13,20 @@ const {
     resolveAntigravityProjectNamesMock,
     resolveAntigravityRootsMock,
     unlockAntigravityDecryptionMock,
+    withAntigravityDecryptionCapabilityMock,
 } = vi.hoisted(() => ({
     deleteAntigravityConversationMock: vi.fn(),
     getAntigravityConversationByIdMock: vi.fn(),
-    getAntigravityDecryptionStateMock: vi.fn(),
-    getCachedAntigravityKeychainSecretMock: vi.fn(),
     listAntigravityConversationsMock: vi.fn(),
     listAntigravityWorkspaceGroupsMock: vi.fn(),
+    probeAntigravityDecryptionStateMock: vi.fn(),
     renderAntigravityArtifactsMarkdownMock: vi.fn(),
     renderAntigravityConversationMarkdownMock: vi.fn(),
     renderSourceSessionsDownloadMock: vi.fn(),
     resolveAntigravityProjectNamesMock: vi.fn(),
     resolveAntigravityRootsMock: vi.fn(),
     unlockAntigravityDecryptionMock: vi.fn(),
+    withAntigravityDecryptionCapabilityMock: vi.fn(),
 }));
 
 vi.mock('@tanstack/react-start', () => ({
@@ -56,9 +56,9 @@ vi.mock('@spiracha/lib/antigravity-trajectory', () => ({
 }));
 
 vi.mock('@spiracha/lib/antigravity-keychain', () => ({
-    getAntigravityDecryptionState: getAntigravityDecryptionStateMock,
-    getCachedAntigravityKeychainSecret: getCachedAntigravityKeychainSecretMock,
+    probeAntigravityDecryptionState: probeAntigravityDecryptionStateMock,
     unlockAntigravityDecryption: unlockAntigravityDecryptionMock,
+    withAntigravityDecryptionCapability: withAntigravityDecryptionCapabilityMock,
 }));
 
 vi.mock('@spiracha/lib/antigravity-projects', () => ({
@@ -118,7 +118,7 @@ const makeConversation = (overrides: Partial<AntigravityConversation> = {}): Ant
 describe('antigravity-server', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        getAntigravityDecryptionStateMock.mockResolvedValue(null);
+        probeAntigravityDecryptionStateMock.mockResolvedValue(null);
         getAntigravityConversationByIdMock.mockImplementation(async (conversationId: string) =>
             (await listAntigravityConversationsMock()).find(
                 (conversation: AntigravityConversation) => conversation.conversationId === conversationId,
@@ -128,6 +128,9 @@ describe('antigravity-server', () => {
         resolveAntigravityProjectNamesMock.mockResolvedValue(new Map());
         resolveAntigravityRootsMock.mockReturnValue(['/tmp/root']);
         unlockAntigravityDecryptionMock.mockResolvedValue(null);
+        withAntigravityDecryptionCapabilityMock.mockImplementation(async (action: (capability: unknown) => unknown) =>
+            action({ decryptSafeStoragePayload: vi.fn() }),
+        );
         renderSourceSessionsDownloadMock.mockImplementation(async ({ entries }) => ({
             fileName: `${entries[0]?.cwd}-threads-${entries.length}.zip`,
             mode: 'download_url',
@@ -142,7 +145,6 @@ describe('antigravity-server', () => {
                 transcriptSource,
             });
             listAntigravityConversationsMock.mockResolvedValue([conversation]);
-            getCachedAntigravityKeychainSecretMock.mockReturnValue(null);
             renderAntigravityConversationMarkdownMock.mockResolvedValue('transcript markdown');
             renderAntigravityArtifactsMarkdownMock.mockResolvedValue(null);
 
@@ -152,6 +154,28 @@ describe('antigravity-server', () => {
             expect(detail.conversationMarkdown).toBe('transcript markdown');
         },
     );
+
+    it('should reacquire an opaque decryption capability for every protected request', async () => {
+        const conversation = makeConversation({
+            transcriptPath: null,
+            transcriptSource: 'safe-storage',
+        });
+        listAntigravityConversationsMock.mockResolvedValue([conversation]);
+        renderAntigravityConversationMarkdownMock.mockResolvedValue('decrypted transcript');
+        renderAntigravityArtifactsMarkdownMock.mockResolvedValue(null);
+
+        await loadAntigravityConversationDetail(conversation.conversationId);
+        await loadAntigravityConversationExport(conversation.conversationId);
+
+        expect(withAntigravityDecryptionCapabilityMock).toHaveBeenCalledTimes(2);
+        expect(renderAntigravityConversationMarkdownMock).toHaveBeenCalledWith(conversation, {
+            decryptionCapability: expect.objectContaining({ decryptSafeStoragePayload: expect.any(Function) }),
+        });
+        expect(renderAntigravityConversationMarkdownMock).not.toHaveBeenCalledWith(
+            conversation,
+            expect.objectContaining({ keychainSecret: expect.anything() }),
+        );
+    });
 
     it('should return the resolved Antigravity project group for detail navigation', async () => {
         const projectId = '00ea3331-909e-4010-a208-78f964ecfb59';
@@ -170,7 +194,6 @@ describe('antigravity-server', () => {
                 uri: null,
             },
         ]);
-        getCachedAntigravityKeychainSecretMock.mockReturnValue(null);
         renderAntigravityConversationMarkdownMock.mockResolvedValue('transcript markdown');
         renderAntigravityArtifactsMarkdownMock.mockResolvedValue(null);
 
@@ -221,7 +244,6 @@ describe('antigravity-server', () => {
                 uri: null,
             },
         ]);
-        getCachedAntigravityKeychainSecretMock.mockReturnValue(null);
         renderAntigravityConversationMarkdownMock.mockResolvedValue('transcript markdown');
 
         const result = await exportAntigravityConversations({
@@ -244,7 +266,6 @@ describe('antigravity-server', () => {
     it('should forward every dialog option to Antigravity transcript rendering', async () => {
         const conversation = makeConversation();
         listAntigravityConversationsMock.mockResolvedValue([conversation]);
-        getCachedAntigravityKeychainSecretMock.mockReturnValue(null);
         renderAntigravityConversationMarkdownMock.mockResolvedValue('plain transcript');
 
         await exportAntigravityConversations({
@@ -260,7 +281,6 @@ describe('antigravity-server', () => {
             includeCommentary: false,
             includeMetadata: false,
             includeTools: false,
-            keychainSecret: null,
             outputFormat: 'txt',
         });
         expect(renderSourceSessionsDownloadMock).toHaveBeenCalledWith(
@@ -275,7 +295,6 @@ describe('antigravity-server', () => {
     it('should apply every dialog option and download mode to a single conversation export', async () => {
         const conversation = makeConversation();
         listAntigravityConversationsMock.mockResolvedValue([conversation]);
-        getCachedAntigravityKeychainSecretMock.mockReturnValue(null);
         renderAntigravityConversationMarkdownMock.mockResolvedValue('plain transcript');
 
         const result = await exportAntigravityConversationFn({
@@ -293,7 +312,6 @@ describe('antigravity-server', () => {
             includeCommentary: false,
             includeMetadata: false,
             includeTools: false,
-            keychainSecret: null,
             outputFormat: 'txt',
         });
         expect(renderSourceSessionsDownloadMock).toHaveBeenCalledWith(
@@ -312,7 +330,6 @@ describe('antigravity-server', () => {
     it('should suppress duplicate conversation markdown when artifacts render the same content', async () => {
         const conversation = makeConversation({ artifactCount: 1 });
         listAntigravityConversationsMock.mockResolvedValue([conversation]);
-        getCachedAntigravityKeychainSecretMock.mockReturnValue(null);
         renderAntigravityConversationMarkdownMock.mockResolvedValue('# Duplicate\n\nsame body');
         renderAntigravityArtifactsMarkdownMock.mockResolvedValue('# Duplicate\n\nsame body');
 
@@ -332,7 +349,6 @@ describe('antigravity-server', () => {
             transcriptSource: null,
         });
         listAntigravityConversationsMock.mockResolvedValue([conversation]);
-        getCachedAntigravityKeychainSecretMock.mockReturnValue(null);
         renderAntigravityConversationMarkdownMock.mockResolvedValue('# Artifacts\n\nartifact body');
 
         await expect(loadAntigravityConversationExport(conversation.conversationId)).rejects.toThrow(

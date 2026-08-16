@@ -19,7 +19,7 @@ import {
     exportCursorThreadsFn,
     recoverCursorWorkspaceFn,
 } from '#/lib/cursor-server';
-import { downloadTextFile, downloadUrlFile } from '#/lib/download';
+import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { getMutationErrorMessage } from '#/lib/mutation-error';
 import { matchesTextQuery } from '#/lib/text-filter';
@@ -112,6 +112,7 @@ const CursorWorkspaceErrorComponent = ({ error }: { error: Error }) => {
 };
 
 const CursorWorkspacePage = () => {
+    const downloadCancellation = useDownloadCancellation();
     const navigate = useNavigate();
     const params = Route.useParams();
     const queryClient = useQueryClient();
@@ -188,7 +189,7 @@ const CursorWorkspacePage = () => {
                 return;
             }
 
-            await downloadUrlFile(download.fileName, download.downloadUrl);
+            await downloadUrlFileWithCancellation(downloadCancellation, download.fileName, download.downloadUrl);
         },
         onSuccess: () => {
             setPendingExport(null);

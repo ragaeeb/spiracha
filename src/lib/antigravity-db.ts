@@ -11,7 +11,7 @@ import {
     getAntigravitySummaryIndexPath,
     resolveAntigravityRoots,
 } from './antigravity-exporter-types';
-import { decryptAntigravitySafeStoragePayload } from './antigravity-keychain';
+import type { AntigravityDecryptionCapability } from './antigravity-keychain';
 import { resolveAntigravityProjectNames } from './antigravity-projects';
 import {
     type AntigravityTrajectoryEntry,
@@ -23,7 +23,12 @@ import {
     ANTIGRAVITY_TRANSCRIPT_MARKDOWN_VERSION,
     ANTIGRAVITY_TRANSCRIPT_VERSION_METADATA_KEY,
 } from './antigravity-transcript-contract';
-import { readAntigravityTranscriptHistory } from './antigravity-transcript-history';
+import {
+    type AntigravityParseDiagnostic,
+    parseAntigravityJsonlText,
+    readAntigravityJsonlFile,
+    readAntigravityTranscriptHistory,
+} from './antigravity-transcript-history';
 import { getAntigravityAssistantPhase, getFinalAntigravityAssistantSequences } from './antigravity-transcript-phase';
 import { mapWithConcurrency } from './concurrency';
 import {
@@ -75,6 +80,7 @@ type ConversationFile = {
 
 const ANTIGRAVITY_ARTIFACT_READ_CONCURRENCY = 16;
 const ANTIGRAVITY_CONVERSATION_FILE_READ_CONCURRENCY = 8;
+const ANTIGRAVITY_MAX_PROTO_RECORD_BYTES = 8 * 1024 * 1024;
 const SAFE_CONVERSATION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
 const isSafeConversationId = (value: string) => SAFE_CONVERSATION_ID_PATTERN.test(value);
@@ -100,10 +106,10 @@ export type AntigravityConversationMessage = {
 };
 
 export type AntigravityConversationRenderOptions = {
+    decryptionCapability?: AntigravityDecryptionCapability;
     includeCommentary?: boolean;
     includeMetadata?: boolean;
     includeTools?: boolean;
-    keychainSecret?: string | null;
     outputFormat?: ExportFormat;
 };
 
@@ -229,6 +235,159 @@ const parseProtoFields = (buffer: Uint8Array, start = 0, end = buffer.length): P
     }
 
     return fields;
+};
+
+type IndexedProtoRecord = {
+    byteOffset: number;
+    bytes: Uint8Array;
+};
+
+type ProtoBounds = {
+    end: number;
+    fieldNumber: number;
+    payloadEnd: number;
+    payloadStart: number;
+    wireType: number;
+};
+
+const getLengthDelimitedProtoBounds = (
+    buffer: Uint8Array,
+    fieldNumber: number,
+    index: number,
+    wireType: number,
+): ProtoBounds | null => {
+    const length = readVarint(buffer, index, buffer.length);
+    const payloadStart = length.next;
+    if (length.value > ANTIGRAVITY_MAX_PROTO_RECORD_BYTES) {
+        throw new Error(`Protobuf record exceeds ${ANTIGRAVITY_MAX_PROTO_RECORD_BYTES} bytes`);
+    }
+
+    const end = payloadStart + length.value;
+    if (end > buffer.length) {
+        return null;
+    }
+
+    return { end, fieldNumber, payloadEnd: end, payloadStart, wireType };
+};
+
+const tryGetProtoBounds = (buffer: Uint8Array, start: number): ProtoBounds | null => {
+    try {
+        const key = readVarint(buffer, start, buffer.length);
+        const fieldNumber = key.value >> 3;
+        const wireType = key.value & 7;
+        if (fieldNumber <= 0) {
+            throw new Error(`Invalid protobuf field number: ${fieldNumber}`);
+        }
+        const index = key.next;
+        switch (wireType) {
+            case 0: {
+                const value = readVarint(buffer, index, buffer.length);
+                return { end: value.next, fieldNumber, payloadEnd: value.next, payloadStart: index, wireType };
+            }
+            case 1:
+                return index + 8 > buffer.length
+                    ? null
+                    : { end: index + 8, fieldNumber, payloadEnd: index + 8, payloadStart: index, wireType };
+            case 2:
+                return getLengthDelimitedProtoBounds(buffer, fieldNumber, index, wireType);
+            case 5:
+                return index + 4 > buffer.length
+                    ? null
+                    : { end: index + 4, fieldNumber, payloadEnd: index + 4, payloadStart: index, wireType };
+            default:
+                throw new Error(`Unsupported protobuf wire type: ${wireType}`);
+        }
+    } catch (error) {
+        if (error instanceof Error && /Unterminated protobuf varint/iu.test(error.message)) {
+            return null;
+        }
+        throw error;
+    }
+};
+
+const appendBytes = (left: Uint8Array, right: Uint8Array): Uint8Array => {
+    const combined = new Uint8Array(left.length + right.length);
+    combined.set(left);
+    combined.set(right, left.length);
+    return combined;
+};
+
+const consumeProtoRecord = (
+    buffer: Uint8Array,
+    index: number,
+    bufferOffset: number,
+    fieldNumber: number,
+    diagnostics: AntigravityParseDiagnostic[],
+    records: IndexedProtoRecord[],
+): number | null => {
+    let bounds: ProtoBounds | null;
+    try {
+        bounds = tryGetProtoBounds(buffer, index);
+    } catch (error) {
+        diagnostics.push({
+            byteOffset: bufferOffset + index,
+            kind: 'protobuf',
+            message: `Invalid Antigravity protobuf field: ${error instanceof Error ? error.message : String(error)}`,
+        });
+        return index + 1;
+    }
+
+    if (!bounds) {
+        return null;
+    }
+
+    if (bounds.fieldNumber === fieldNumber && bounds.wireType === 2) {
+        records.push({
+            byteOffset: bufferOffset + index,
+            bytes: buffer.slice(index, bounds.end),
+        });
+    }
+
+    return bounds.end;
+};
+
+const readAntigravityProtobufRecords = async (
+    filePath: string,
+    fieldNumber: number,
+): Promise<{ diagnostics: AntigravityParseDiagnostic[]; records: IndexedProtoRecord[] }> => {
+    const reader = Bun.file(filePath).stream().getReader();
+    const diagnostics: AntigravityParseDiagnostic[] = [];
+    const records: IndexedProtoRecord[] = [];
+    let buffer: Uint8Array<ArrayBufferLike> = new Uint8Array();
+    let bufferOffset = 0;
+
+    const consume = () => {
+        let index = 0;
+        while (index < buffer.length) {
+            const nextIndex = consumeProtoRecord(buffer, index, bufferOffset, fieldNumber, diagnostics, records);
+            if (nextIndex === null) {
+                break;
+            }
+            index = nextIndex;
+        }
+        if (index > 0) {
+            buffer = buffer.slice(index);
+            bufferOffset += index;
+        }
+    };
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+            break;
+        }
+        buffer = appendBytes(buffer, value);
+        consume();
+    }
+    consume();
+    if (buffer.length > 0) {
+        diagnostics.push({
+            byteOffset: bufferOffset,
+            kind: 'protobuf',
+            message: 'Truncated Antigravity protobuf input',
+        });
+    }
+    return { diagnostics, records };
 };
 
 const firstField = (fields: ProtoField[], fieldNumber: number): ProtoField | null =>
@@ -441,20 +600,59 @@ const resolveConversationParentIds = (summaries: ReadonlyMap<string, SummaryEntr
     return parentIds;
 };
 
-export const readAntigravitySummaryIndex = async (summaryPath: string): Promise<SummaryEntry[]> => {
+export type AntigravitySummaryReadResult = {
+    diagnostics: AntigravityParseDiagnostic[];
+    entries: SummaryEntry[];
+};
+
+export const readAntigravitySummaryIndexWithDiagnostics = async (
+    summaryPath: string,
+): Promise<AntigravitySummaryReadResult> => {
     if (!(await pathExists(summaryPath))) {
-        return [];
+        return { diagnostics: [], entries: [] };
     }
 
     try {
-        const buffer = new Uint8Array(await Bun.file(summaryPath).arrayBuffer());
-        return parseProtoFields(buffer)
-            .filter((field) => field.fieldNumber === 1)
-            .map((field) => parseSummaryEntry(field, summaryPath))
-            .filter((entry): entry is SummaryEntry => entry !== null);
+        const result = await readAntigravityProtobufRecords(summaryPath, 1);
+        const entries: SummaryEntry[] = [];
+        for (const record of result.records) {
+            try {
+                const field = parseProtoFields(record.bytes)[0];
+                const entry = field ? parseSummaryEntry(field, summaryPath) : null;
+                if (entry) {
+                    entries.push(entry);
+                } else {
+                    result.diagnostics.push({
+                        byteOffset: record.byteOffset,
+                        kind: 'protobuf',
+                        message: 'Invalid Antigravity summary record',
+                    });
+                }
+            } catch (error) {
+                result.diagnostics.push({
+                    byteOffset: record.byteOffset,
+                    kind: 'protobuf',
+                    message: `Invalid Antigravity summary record: ${error instanceof Error ? error.message : String(error)}`,
+                });
+            }
+        }
+        return { diagnostics: result.diagnostics, entries };
     } catch {
-        return [];
+        return {
+            diagnostics: [
+                {
+                    byteOffset: null,
+                    kind: 'protobuf',
+                    message: 'Unable to read Antigravity summary index',
+                },
+            ],
+            entries: [],
+        };
     }
+};
+
+export const readAntigravitySummaryIndex = async (summaryPath: string): Promise<SummaryEntry[]> => {
+    return (await readAntigravitySummaryIndexWithDiagnostics(summaryPath)).entries;
 };
 
 const getFieldBounds = (
@@ -824,9 +1022,9 @@ const analyzeTranscriptFile = async (filePath: string, size: number, mtimeMs: nu
     if (cached) {
         return cached;
     }
-    const text = await Bun.file(filePath).text();
     let model: string | null = null;
-    const entries = parseLogEntries(text);
+    const entries = (await readAntigravityJsonlFile(filePath, (line) => JSON.parse(line) as AntigravityLogEntry))
+        .records;
     for (const entry of entries) {
         model = extractModelSelectionChange(getString(entry.content) ?? '')?.to ?? model;
     }
@@ -1450,18 +1648,7 @@ type AntigravityLogEntry = {
 };
 
 const parseLogEntries = (content: string): AntigravityLogEntry[] => {
-    return content
-        .split(/\r?\n/u)
-        .map((line) => line.trim())
-        .filter(Boolean)
-        .map((line) => {
-            try {
-                return JSON.parse(line) as AntigravityLogEntry;
-            } catch {
-                return null;
-            }
-        })
-        .filter((entry): entry is AntigravityLogEntry => entry !== null);
+    return parseAntigravityJsonlText(content, (line) => JSON.parse(line) as AntigravityLogEntry).records;
 };
 
 const getString = (value: unknown): string | null => (typeof value === 'string' ? value : null);
@@ -1515,20 +1702,20 @@ const logEntryHeading = (entry: AntigravityLogEntry): string => {
 };
 
 type ResolvedAntigravityConversationRenderOptions = {
+    decryptionCapability: AntigravityDecryptionCapability | null;
     includeCommentary: boolean;
     includeMetadata: boolean;
     includeTools: boolean;
-    keychainSecret: string | null;
     outputFormat: ExportFormat;
 };
 
 const resolveAntigravityRenderOptions = (
     options: AntigravityConversationRenderOptions,
 ): ResolvedAntigravityConversationRenderOptions => ({
+    decryptionCapability: options.decryptionCapability ?? null,
     includeCommentary: options.includeCommentary ?? true,
     includeMetadata: options.includeMetadata ?? true,
     includeTools: options.includeTools ?? true,
-    keychainSecret: options.keychainSecret ?? null,
     outputFormat: options.outputFormat ?? 'md',
 });
 
@@ -1702,9 +1889,15 @@ const carryForwardLogEntryModels = (entries: AntigravityLogEntry[]): Antigravity
 };
 
 const readConversationLogEntries = async (conversation: AntigravityConversation): Promise<AntigravityLogEntry[]> => {
-    const generatedContent = conversation.transcriptPath ? await Bun.file(conversation.transcriptPath).text() : '';
-    const generatedEntries = parseLogEntries(generatedContent);
-    if (generatedContent.trim() && generatedEntries.length === 0 && conversation.transcriptSource !== 'trajectory') {
+    const generatedResult = conversation.transcriptPath
+        ? await readAntigravityJsonlFile(conversation.transcriptPath, (line) => JSON.parse(line) as AntigravityLogEntry)
+        : { diagnostics: [], records: [] };
+    const generatedEntries = generatedResult.records;
+    if (
+        generatedResult.diagnostics.length > 0 &&
+        generatedEntries.length === 0 &&
+        conversation.transcriptSource !== 'trajectory'
+    ) {
         throw new Error(`Antigravity transcript is corrupt: ${conversation.transcriptPath}`);
     }
     const historicalContents = conversation.transcriptPath
@@ -2003,9 +2196,9 @@ export const renderAntigravityConversationMarkdown = async (
         return transcript;
     }
 
-    if (resolvedOptions.keychainSecret && conversation.conversationPath) {
+    if (resolvedOptions.decryptionCapability && conversation.conversationPath) {
         const encrypted = Buffer.from(await Bun.file(conversation.conversationPath).arrayBuffer());
-        const decrypted = decryptAntigravitySafeStoragePayload(encrypted, resolvedOptions.keychainSecret);
+        const decrypted = resolvedOptions.decryptionCapability.decryptSafeStoragePayload(encrypted);
         if (decrypted) {
             return renderDecryptedSafeStorage(conversation, decrypted, resolvedOptions);
         }

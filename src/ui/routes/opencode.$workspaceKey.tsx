@@ -11,7 +11,7 @@ import { OpenCodeSessionsTable } from '#/components/opencode-sessions-table';
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
 import { Button } from '#/components/ui/button';
-import { downloadTextFile, downloadUrlFile } from '#/lib/download';
+import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { openCodeSessionsQueryOptions, openCodeWorkspacesQueryOptions } from '#/lib/opencode-queries';
 import {
@@ -118,6 +118,7 @@ function OpenCodeWorkspaceContent({
     sessions: OpenCodeSessionSummary[];
     workspace: OpenCodeWorkspaceGroup;
 }) {
+    const downloadCancellation = useDownloadCancellation();
     const navigate = useNavigate({ from: Route.fullPath });
     const queryClient = useQueryClient();
     const [searchInput, setSearchInput] = useState('');
@@ -154,7 +155,7 @@ function OpenCodeWorkspaceContent({
                 return;
             }
 
-            await downloadUrlFile(download.fileName, download.downloadUrl);
+            await downloadUrlFileWithCancellation(downloadCancellation, download.fileName, download.downloadUrl);
         },
         onSuccess: () => {
             setPendingExport(null);

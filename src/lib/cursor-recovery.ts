@@ -1,4 +1,4 @@
-import { Database } from 'bun:sqlite';
+import type { Database } from 'bun:sqlite';
 import { randomUUID } from 'node:crypto';
 import { readdir, realpath, rm } from 'node:fs/promises';
 import path from 'node:path';
@@ -8,8 +8,9 @@ import {
     findCursorTranscriptDirsForComposerIds,
     invalidateCursorDiscoveryCache,
     listCursorWorkspaceGroups,
-    loadGlobalComposerHeaders,
-    openCursorReadonlyDb,
+    loadGlobalComposerHeadersStrict,
+    withCursorReadonlyDb,
+    withCursorWriteTransaction,
 } from './cursor-db';
 import {
     COMPOSER_DATA_KEY,
@@ -84,23 +85,19 @@ const writeRetainedCursorBackup = async (basePath: string, label: string, value:
 // The Cursor global DB can be multiple gigabytes, so copying the whole file per operation is not
 // viable. We instead write small, targeted JSON backups of only the data each operation touches.
 const backupComposerHeaders = async (globalDbPath: string): Promise<string> => {
-    const db = openCursorReadonlyDb(globalDbPath);
-    let headers: unknown;
-    try {
-        headers = readJsonItem(db, COMPOSER_HEADERS_KEY) ?? { allComposers: [] };
-    } finally {
-        db.close();
-    }
+    const headers = withCursorReadonlyDb(
+        globalDbPath,
+        (db) => readJsonItem(db, COMPOSER_HEADERS_KEY) ?? { allComposers: [] },
+    );
 
     return writeRetainedCursorBackup(globalDbPath, 'composerHeaders', headers);
 };
 
 const backupPrunedThreads = async (globalDbPath: string, composerIds: string[]): Promise<string> => {
-    const db = openCursorReadonlyDb(globalDbPath);
-    try {
+    const dump = withCursorReadonlyDb(globalDbPath, (db) => {
         const hasModernHeaders = hasComposerHeadersTable(db);
         const bubblesByComposerId = readBubblesForComposerIds(db, composerIds);
-        const dump = composerIds.map((composerId) => ({
+        return composerIds.map((composerId) => ({
             bubbles: bubblesByComposerId.get(composerId) ?? [],
             composerData: readJsonItemFromKv(db, `composerData:${composerId}`),
             composerId,
@@ -108,10 +105,8 @@ const backupPrunedThreads = async (globalDbPath: string, composerIds: string[]):
                 ? db.query('SELECT * FROM composerHeaders WHERE composerId = ?').get(composerId)
                 : null,
         }));
-        return writeRetainedCursorBackup(globalDbPath, 'prunedThreads', dump);
-    } finally {
-        db.close();
-    }
+    });
+    return writeRetainedCursorBackup(globalDbPath, 'prunedThreads', dump);
 };
 
 const readBubblesForComposerIds = (
@@ -216,17 +211,10 @@ const buildWorkspaceIdentifier = (bucket: CursorWorkspaceBucket): { id: string; 
 };
 
 const composersForBucket = (bucket: CursorWorkspaceBucket, headers: ComposerEntry[]): ComposerEntry[] => {
-    let fromBucket: ComposerEntry[] = [];
-    try {
-        const db = openCursorReadonlyDb(bucket.dbPath);
-        try {
-            fromBucket = readJsonItem<ComposerData>(db, COMPOSER_DATA_KEY)?.allComposers ?? [];
-        } finally {
-            db.close();
-        }
-    } catch {
-        fromBucket = [];
-    }
+    const fromBucket = withCursorReadonlyDb(
+        bucket.dbPath,
+        (db) => readJsonItem<ComposerData>(db, COMPOSER_DATA_KEY)?.allComposers ?? [],
+    );
 
     const linked = headers.filter((header) => header.workspaceIdentifier?.id === bucket.bucketId);
     return mergeComposerEntries([...fromBucket, ...linked]);
@@ -322,7 +310,7 @@ export const recoverCursorWorkspaceGroup = async (
     }
 
     const globalDbPath = getCursorGlobalDbPath(userDir);
-    const headers = loadGlobalComposerHeaders(globalDbPath);
+    const headers = loadGlobalComposerHeadersStrict(globalDbPath);
     const { target, sources } = chooseTargetBucket(group);
     const sourceBucketIds = new Set(sources.map((bucket) => bucket.bucketId));
 
@@ -339,32 +327,23 @@ export const recoverCursorWorkspaceGroup = async (
     await backupComposerHeaders(globalDbPath);
     await backupTargetBucketComposerData(target, currentBucketData);
 
-    const db = new Database(globalDbPath);
-    let committed = false;
+    writeTargetBucketComposerData(target, buildTargetBucketComposerData(currentBucketData.data, merged));
+
     let relinked = 0;
     let added = 0;
     try {
-        db.exec('BEGIN IMMEDIATE');
-        writeTargetBucketComposerData(target, buildTargetBucketComposerData(currentBucketData.data, merged));
-        ({ relinked, added } = relinkHeaders(db, merged, sourceBucketIds, target));
-        db.exec('COMMIT');
-        committed = true;
+        ({ relinked, added } = withCursorWriteTransaction(globalDbPath, (db) =>
+            relinkHeaders(db, merged, sourceBucketIds, target),
+        ));
     } catch (error) {
-        if (!committed) {
-            try {
-                db.exec('ROLLBACK');
-            } catch {}
-
-            try {
-                writeTargetBucketComposerData(target, currentBucketData);
-            } catch {}
+        try {
+            writeTargetBucketComposerData(target, currentBucketData);
+        } catch (rollbackError) {
+            throw new AggregateError([error, rollbackError], 'Cursor recovery and bucket rollback both failed');
         }
-
         throw error;
-    } finally {
-        db.close();
-        invalidateCursorDiscoveryCache();
     }
+    invalidateCursorDiscoveryCache();
 
     return buildRecoverResult(group, target, merged, globalDbPath, relinked, added);
 };
@@ -373,16 +352,13 @@ export const recoverCursorWorkspaceGroup = async (
 // the global headers, so we write the merged threads into the active bucket as well as relinking
 // global headers. This mirrors what Cursor itself stores and makes recovery work for both layouts.
 const readTargetBucketComposerData = (target: CursorWorkspaceBucket): BucketComposerDataSnapshot => {
-    const db = openCursorReadonlyDb(target.dbPath);
-    try {
+    return withCursorReadonlyDb(target.dbPath, (db) => {
         const data = readJsonItem<ComposerData>(db, COMPOSER_DATA_KEY);
         return {
             data: data ?? {},
             exists: data !== null,
         };
-    } finally {
-        db.close();
-    }
+    });
 };
 
 const backupTargetBucketComposerData = async (
@@ -409,17 +385,14 @@ const writeTargetBucketComposerData = (
     target: CursorWorkspaceBucket,
     snapshot: BucketComposerDataSnapshot | ComposerData,
 ): void => {
-    const db = new Database(target.dbPath);
-    try {
+    withCursorWriteTransaction(target.dbPath, (db) => {
         if ('exists' in snapshot && !snapshot.exists) {
             db.run('DELETE FROM ItemTable WHERE key = ?', [COMPOSER_DATA_KEY]);
             return;
         }
 
         writeJsonItem(db, COMPOSER_DATA_KEY, 'exists' in snapshot ? snapshot.data : snapshot);
-    } finally {
-        db.close();
-    }
+    });
 };
 
 const buildRecoverResult = (
@@ -430,8 +403,7 @@ const buildRecoverResult = (
     relinked: number,
     added: number,
 ): CursorRecoverResult => {
-    const db = openCursorReadonlyDb(globalDbPath);
-    try {
+    return withCursorReadonlyDb(globalDbPath, (db) => {
         return {
             activeBucketId: target.bucketId,
             addedHeaderCount: added,
@@ -446,9 +418,7 @@ const buildRecoverResult = (
                 })),
             workspaceKey: group.key,
         };
-    } finally {
-        db.close();
-    }
+    });
 };
 
 const removeThreadFromBucket = (db: Database, composerIds: Set<string>): boolean => {
@@ -580,12 +550,7 @@ const pruneGlobalThreads = async (
     composerIds: Set<string>,
     result: CursorPruneResult,
 ): Promise<void> => {
-    const db = new Database(globalDbPath);
-    let transactionStarted = false;
-    try {
-        db.exec('PRAGMA busy_timeout = 5000');
-        db.exec('BEGIN IMMEDIATE');
-        transactionStarted = true;
+    const deleted = withCursorWriteTransaction(globalDbPath, (db) => {
         let bubblesDeleted = 0;
         let composerDataDeleted = 0;
         for (const thread of threads) {
@@ -595,32 +560,21 @@ const pruneGlobalThreads = async (
         }
 
         const headersRemoved = removeThreadHeaders(db, composerIds);
-        db.exec('COMMIT');
-        transactionStarted = false;
-        result.bubblesDeleted += bubblesDeleted;
-        result.composerDataDeleted += composerDataDeleted;
-        result.headersRemoved = headersRemoved;
-    } catch (error) {
-        if (transactionStarted) {
-            db.exec('ROLLBACK');
-        }
-        throw error;
-    } finally {
-        db.close();
-    }
+        return { bubblesDeleted, composerDataDeleted, headersRemoved };
+    });
+    result.bubblesDeleted += deleted.bubblesDeleted;
+    result.composerDataDeleted += deleted.composerDataDeleted;
+    result.headersRemoved = deleted.headersRemoved;
 };
 
 const restoreBucketComposerData = (dbPath: string, snapshot: BucketComposerDataSnapshot): void => {
-    const db = new Database(dbPath);
-    try {
+    withCursorWriteTransaction(dbPath, (db) => {
         if (snapshot.exists) {
             writeJsonItem(db, COMPOSER_DATA_KEY, snapshot.data);
         } else {
             db.run('DELETE FROM ItemTable WHERE key = ?', [COMPOSER_DATA_KEY]);
         }
-    } finally {
-        db.close();
-    }
+    });
 };
 
 const getCursorBucketDbPathsForComposerIds = (
@@ -641,17 +595,18 @@ const getCursorBucketDbPathsForComposerIds = (
 const pruneWorkspaceBuckets = async (composerIds: Set<string>, userDir: string) => {
     // A thread can live in multiple recovered buckets, so update every matching bucket without
     // opening unrelated workspace databases.
-    const dbPaths = getCursorBucketDbPathsForComposerIds(await listCursorWorkspaceGroups(userDir), composerIds);
+    const dbPaths = getCursorBucketDbPathsForComposerIds(
+        await listCursorWorkspaceGroups(userDir, { strict: true }),
+        composerIds,
+    );
 
     const snapshots = new Map<string, BucketComposerDataSnapshot>();
     for (const dbPath of dbPaths) {
-        const db = openCursorReadonlyDb(dbPath);
-        try {
+        const snapshot = withCursorReadonlyDb(dbPath, (db) => {
             const data = readJsonItem<ComposerData>(db, COMPOSER_DATA_KEY);
-            snapshots.set(dbPath, { data: data ?? {}, exists: data !== null });
-        } finally {
-            db.close();
-        }
+            return { data: data ?? {}, exists: data !== null };
+        });
+        snapshots.set(dbPath, snapshot);
     }
 
     const updatedPaths: string[] = [];
@@ -671,13 +626,9 @@ const pruneWorkspaceBuckets = async (composerIds: Set<string>, userDir: string) 
 
     try {
         for (const dbPath of dbPaths) {
-            const db = new Database(dbPath);
-            try {
-                if (removeThreadFromBucket(db, composerIds)) {
-                    updatedPaths.push(dbPath);
-                }
-            } finally {
-                db.close();
+            const updated = withCursorWriteTransaction(dbPath, (db) => removeThreadFromBucket(db, composerIds));
+            if (updated) {
+                updatedPaths.push(dbPath);
             }
         }
     } catch (error) {
@@ -852,35 +803,32 @@ export const collectCursorThreadsForDeletion = async (
     userDir = resolveCursorUserDir(),
 ): Promise<CursorThreadSummary[]> => {
     const globalDbPath = getCursorGlobalDbPath(userDir);
-    const db = openCursorReadonlyDb(globalDbPath);
     const summaries: CursorThreadSummary[] = [];
 
-    try {
+    const bubbleCounts = withCursorReadonlyDb(globalDbPath, (db) => {
         for (const composerId of composerIds) {
             assertSafeCursorComposerId(composerId);
         }
-        const bubbleCounts = countBubblesForComposerIds(db, composerIds);
-        const transcriptDirs = await findCursorTranscriptDirsForComposerIds(composerIds, userDir);
-        for (const composerId of composerIds) {
-            summaries.push({
-                bubbleBytes: 0,
-                bubbleCount: bubbleCounts.get(composerId) ?? 0,
-                bucketId: null,
-                composerId,
-                createdAtMs: null,
-                lastUpdatedAtMs: null,
-                mode: null,
-                model: null,
-                name: '',
-                parentComposerId: null,
-                reasoningEffort: null,
-                transcriptDirs: transcriptDirs.get(composerId) ?? [],
-                workspaceKey: '',
-                workspaceLabel: '',
-            });
-        }
-    } finally {
-        db.close();
+        return countBubblesForComposerIds(db, composerIds);
+    });
+    const transcriptDirs = await findCursorTranscriptDirsForComposerIds(composerIds, userDir);
+    for (const composerId of composerIds) {
+        summaries.push({
+            bubbleBytes: 0,
+            bubbleCount: bubbleCounts.get(composerId) ?? 0,
+            bucketId: null,
+            composerId,
+            createdAtMs: null,
+            lastUpdatedAtMs: null,
+            mode: null,
+            model: null,
+            name: '',
+            parentComposerId: null,
+            reasoningEffort: null,
+            transcriptDirs: transcriptDirs.get(composerId) ?? [],
+            workspaceKey: '',
+            workspaceLabel: '',
+        });
     }
 
     return summaries;

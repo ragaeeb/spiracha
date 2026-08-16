@@ -20,7 +20,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
 import { clineTaskDetailQueryOptions, clineWorkspacesQueryOptions } from '#/lib/cline-queries';
 import { deleteClineTaskFn, exportClineTaskFn } from '#/lib/cline-server';
 import { clineTranscriptToThreadEvents, getClineThreadTranscriptStats } from '#/lib/cline-transcript-events';
-import { downloadTextFile, downloadUrlFile } from '#/lib/download';
+import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import type { ExportDialogOptions } from '#/lib/export-options';
 import { formatDateTime, formatList, formatNumber } from '#/lib/formatters';
 import { RouteStateResetBoundary } from '#/lib/route-state-reset';
@@ -60,6 +60,7 @@ const statsItems = (detail: ClineTaskTranscript, events: ThreadEvent[], stats: T
 ];
 
 const ClineTaskDetailPage = () => {
+    const downloadCancellation = useDownloadCancellation();
     const navigate = useNavigate({ from: Route.fullPath });
     const queryClient = useQueryClient();
     const detail = useSuspenseQuery(clineTaskDetailQueryOptions(Route.useParams().taskId)).data;
@@ -78,7 +79,7 @@ const ClineTaskDetailPage = () => {
             if (download.mode === 'download') {
                 downloadTextFile(download.fileName, download.content, download.mimeType);
             } else {
-                await downloadUrlFile(download.fileName, download.downloadUrl);
+                await downloadUrlFileWithCancellation(downloadCancellation, download.fileName, download.downloadUrl);
             }
         },
         onSuccess: () => setExportOpen(false),

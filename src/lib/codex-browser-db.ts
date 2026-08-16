@@ -6,7 +6,9 @@ import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { pathToFileURL } from 'node:url';
 import type {
+    CodexDbSchemaProfile,
     CodexSessionIndexReconciliation,
+    CodexThreadBrowseBatchResult,
     DashboardSummary,
     DashboardThreadSummary,
     DeleteProjectResult,
@@ -21,7 +23,7 @@ import {
     getCachedCodexTranscriptStats,
     getThreadRolloutLoadState,
 } from './codex-thread-cache';
-import type { ThreadRelations, ThreadRow } from './codex-thread-types';
+import type { SpawnEdgeRow, ThreadRelations, ThreadRow } from './codex-thread-types';
 import { DEFAULT_CODEX_DIR, DEFAULT_DB_PATH } from './codex-thread-types';
 import { mapWithConcurrency } from './concurrency';
 import { getPortablePathBasename } from './portable-path';
@@ -58,6 +60,65 @@ const THREAD_ROW_COLUMNS = `
     agent_role, memory_mode, model, reasoning_effort, agent_path, created_at_ms,
     updated_at_ms, thread_source, preview
 `;
+const REQUIRED_BROWSE_THREAD_COLUMNS = [
+    'id',
+    'rollout_path',
+    'created_at',
+    'updated_at',
+    'source',
+    'model_provider',
+    'cwd',
+    'title',
+    'sandbox_policy',
+    'approval_mode',
+    'tokens_used',
+    'has_user_event',
+    'archived',
+    'archived_at',
+    'git_sha',
+    'git_branch',
+    'git_origin_url',
+    'cli_version',
+    'first_user_message',
+    'agent_nickname',
+    'agent_role',
+    'memory_mode',
+    'model',
+    'reasoning_effort',
+    'agent_path',
+    'created_at_ms',
+    'updated_at_ms',
+    'thread_source',
+    'preview',
+] as const;
+const CODEX_BROWSE_SCHEMA_PROFILE: CodexDbSchemaProfile = {
+    name: 'codex-state-5-thread-browse-v1',
+    requiredColumns: {
+        thread_dynamic_tools: [
+            'thread_id',
+            'position',
+            'name',
+            'description',
+            'input_schema',
+            'defer_loading',
+            'namespace',
+        ],
+        thread_goals: [
+            'thread_id',
+            'goal_id',
+            'objective',
+            'status',
+            'token_budget',
+            'tokens_used',
+            'time_used_seconds',
+            'created_at_ms',
+            'updated_at_ms',
+        ],
+        thread_spawn_edges: ['parent_thread_id', 'child_thread_id', 'status'],
+        threads: REQUIRED_BROWSE_THREAD_COLUMNS,
+    },
+    requiredTables: ['threads'],
+};
 const PROJECT_CWD_FILTER = `
     typeof(cwd) = 'text'
     AND (
@@ -220,15 +281,28 @@ const compareThreadsByRecentActivity = (
     right: Pick<ThreadRow, 'id' | 'updated_at' | 'updated_at_ms'>,
 ) => getThreadUpdatedAtMs(right) - getThreadUpdatedAtMs(left) || compareCodeUnits(right.id, left.id);
 
-const parseDynamicToolRow = (row: Record<string, number | string | null>): DynamicToolRow => {
+const parseDynamicToolRow = (row: unknown): DynamicToolRow => {
+    const values = row as Record<string, unknown>;
+    const requiredString = (field: string) => {
+        const value = values[field];
+        if (typeof value !== 'string') {
+            throw new CodexDbCompatibilityError(CODEX_BROWSE_SCHEMA_PROFILE, [], [], [`thread_dynamic_tools.${field}`]);
+        }
+        return value;
+    };
+    const position = values.position;
+    if (typeof position !== 'number' || !Number.isFinite(position)) {
+        throw new CodexDbCompatibilityError(CODEX_BROWSE_SCHEMA_PROFILE, [], [], ['thread_dynamic_tools.position']);
+    }
+
     return {
-        deferLoading: Number(row.defer_loading ?? 0) === 1,
-        description: String(row.description ?? ''),
-        inputSchema: parseJsonSafely(typeof row.input_schema === 'string' ? row.input_schema : null),
-        name: String(row.name ?? 'unknown'),
-        namespace: typeof row.namespace === 'string' ? row.namespace : null,
-        position: Number(row.position ?? 0),
-        threadId: String(row.thread_id),
+        deferLoading: Number(values.defer_loading ?? 0) === 1,
+        description: requiredString('description'),
+        inputSchema: parseJsonSafely(typeof values.input_schema === 'string' ? values.input_schema : null),
+        name: requiredString('name'),
+        namespace: typeof values.namespace === 'string' ? values.namespace : null,
+        position,
+        threadId: requiredString('thread_id'),
     };
 };
 
@@ -241,6 +315,232 @@ const parseJsonSafely = (value: string | null) => {
         return JSON.parse(value) as DynamicToolRow['inputSchema'];
     } catch {
         return null;
+    }
+};
+
+const decodeThreadGoalRow = (row: unknown): ThreadGoalRow => {
+    const values = row as Record<string, unknown>;
+    const requiredString = (field: keyof ThreadGoalRow) => {
+        const value = values[field];
+        if (typeof value !== 'string') {
+            throw new CodexDbCompatibilityError(CODEX_BROWSE_SCHEMA_PROFILE, [], [], [`thread_goals.${String(field)}`]);
+        }
+        return value;
+    };
+    const requiredNumber = (field: keyof ThreadGoalRow) => {
+        const value = values[field];
+        if (typeof value !== 'number' || !Number.isFinite(value)) {
+            throw new CodexDbCompatibilityError(CODEX_BROWSE_SCHEMA_PROFILE, [], [], [`thread_goals.${String(field)}`]);
+        }
+        return value;
+    };
+    const nullableNumber = (field: keyof ThreadGoalRow) => {
+        const value = values[field];
+        if (value === null) {
+            return null;
+        }
+        if (typeof value !== 'number' || !Number.isFinite(value)) {
+            throw new CodexDbCompatibilityError(CODEX_BROWSE_SCHEMA_PROFILE, [], [], [`thread_goals.${String(field)}`]);
+        }
+        return value;
+    };
+
+    return {
+        created_at_ms: requiredNumber('created_at_ms'),
+        goal_id: requiredString('goal_id'),
+        objective: requiredString('objective'),
+        status: requiredString('status'),
+        time_used_seconds: requiredNumber('time_used_seconds'),
+        token_budget: nullableNumber('token_budget'),
+        tokens_used: requiredNumber('tokens_used'),
+        updated_at_ms: requiredNumber('updated_at_ms'),
+    };
+};
+
+const decodeThreadSpawnEdgeRow = (row: unknown): ThreadSpawnEdge => {
+    const values = row as Record<string, unknown>;
+    if (typeof values.parent_thread_id !== 'string') {
+        throw new CodexDbCompatibilityError(
+            CODEX_BROWSE_SCHEMA_PROFILE,
+            [],
+            [],
+            ['thread_spawn_edges.parent_thread_id'],
+        );
+    }
+    if (typeof values.child_thread_id !== 'string') {
+        throw new CodexDbCompatibilityError(
+            CODEX_BROWSE_SCHEMA_PROFILE,
+            [],
+            [],
+            ['thread_spawn_edges.child_thread_id'],
+        );
+    }
+    if (typeof values.status !== 'string') {
+        throw new CodexDbCompatibilityError(CODEX_BROWSE_SCHEMA_PROFILE, [], [], ['thread_spawn_edges.status']);
+    }
+    return {
+        child_thread_id: values.child_thread_id,
+        parent_thread_id: values.parent_thread_id,
+        status: values.status,
+    };
+};
+
+export class CodexDbCompatibilityError extends Error {
+    readonly code = 'CODEX_DB_INCOMPATIBLE';
+    readonly invalidFields: string[];
+    readonly missingColumns: string[];
+    readonly missingTables: string[];
+    readonly profileName: string;
+
+    constructor(
+        profile: CodexDbSchemaProfile,
+        missingTables: string[],
+        missingColumns: string[],
+        invalidFields: string[] = [],
+    ) {
+        const details = [
+            missingTables.length > 0 ? `missing tables: ${missingTables.join(', ')}` : '',
+            missingColumns.length > 0 ? `missing columns: ${missingColumns.join(', ')}` : '',
+            invalidFields.length > 0 ? `invalid fields: ${invalidFields.join(', ')}` : '',
+        ].filter(Boolean);
+        super(`Unsupported Codex database schema for ${profile.name}; ${details.join('; ')}`);
+        this.name = 'CodexDbCompatibilityError';
+        this.missingColumns = missingColumns;
+        this.missingTables = missingTables;
+        this.profileName = profile.name;
+        this.invalidFields = invalidFields;
+    }
+}
+
+const getSchemaTableColumns = (db: Database, tableName: string) => {
+    return new Set(
+        (db.query(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>).map((column) => column.name),
+    );
+};
+
+const assertCodexSchemaCompatibility = (db: Database, profile: CodexDbSchemaProfile) => {
+    const tableNames = new Set(
+        (db.query("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map(
+            (table) => table.name,
+        ),
+    );
+    const missingTables = profile.requiredTables.filter((tableName) => !tableNames.has(tableName));
+    const missingColumns: string[] = [];
+
+    for (const [tableName, requiredColumns] of Object.entries(profile.requiredColumns)) {
+        if (!tableNames.has(tableName)) {
+            continue;
+        }
+
+        const actualColumns = getSchemaTableColumns(db, tableName);
+        for (const columnName of requiredColumns) {
+            if (!actualColumns.has(columnName)) {
+                missingColumns.push(`${tableName}.${columnName}`);
+            }
+        }
+    }
+
+    if (missingTables.length > 0 || missingColumns.length > 0) {
+        throw new CodexDbCompatibilityError(profile, missingTables, missingColumns);
+    }
+
+    return tableNames;
+};
+
+const decodeThreadRow = (row: unknown): ThreadRow => {
+    const values = row as Record<string, unknown>;
+    const invalidFields: string[] = [];
+    const requiredString = (field: keyof ThreadRow) => {
+        const value = values[field];
+        if (typeof value !== 'string') {
+            invalidFields.push(`threads.${String(field)}`);
+            return '';
+        }
+        return value;
+    };
+    const requiredNumber = (field: keyof ThreadRow) => {
+        const value = values[field];
+        if (typeof value !== 'number' || !Number.isFinite(value)) {
+            invalidFields.push(`threads.${String(field)}`);
+            return 0;
+        }
+        return value;
+    };
+    const nullableString = (field: keyof ThreadRow) => {
+        const value = values[field];
+        if (value === null || value === undefined) {
+            return null;
+        }
+        if (typeof value !== 'string') {
+            invalidFields.push(`threads.${String(field)}`);
+            return null;
+        }
+        return value;
+    };
+    const nullableNumber = (field: keyof ThreadRow) => {
+        const value = values[field];
+        if (value === null || value === undefined) {
+            return null;
+        }
+        if (typeof value !== 'number' || !Number.isFinite(value)) {
+            invalidFields.push(`threads.${String(field)}`);
+            return null;
+        }
+        return value;
+    };
+
+    const decoded: ThreadRow = {
+        agent_nickname: nullableString('agent_nickname'),
+        agent_path: nullableString('agent_path'),
+        agent_role: nullableString('agent_role'),
+        approval_mode: requiredString('approval_mode'),
+        archived: requiredNumber('archived'),
+        archived_at: nullableNumber('archived_at'),
+        cli_version: requiredString('cli_version'),
+        created_at: requiredNumber('created_at'),
+        created_at_ms: nullableNumber('created_at_ms'),
+        cwd: requiredString('cwd'),
+        first_user_message: requiredString('first_user_message'),
+        git_branch: nullableString('git_branch'),
+        git_origin_url: nullableString('git_origin_url'),
+        git_sha: nullableString('git_sha'),
+        has_user_event: requiredNumber('has_user_event'),
+        id: requiredString('id'),
+        memory_mode: requiredString('memory_mode'),
+        model: nullableString('model'),
+        model_provider: requiredString('model_provider'),
+        preview: requiredString('preview'),
+        reasoning_effort: nullableString('reasoning_effort'),
+        rollout_path: requiredString('rollout_path'),
+        sandbox_policy: requiredString('sandbox_policy'),
+        source: requiredString('source'),
+        thread_source: nullableString('thread_source'),
+        title: requiredString('title'),
+        tokens_used: requiredNumber('tokens_used'),
+        updated_at: requiredNumber('updated_at'),
+        updated_at_ms: nullableNumber('updated_at_ms'),
+    };
+    if (invalidFields.length > 0) {
+        throw new CodexDbCompatibilityError(CODEX_BROWSE_SCHEMA_PROFILE, [], [], invalidFields);
+    }
+    return decoded;
+};
+
+const withSqliteTransaction = <T>(db: Database, callback: (db: Database) => T): T => {
+    db.exec('BEGIN DEFERRED');
+    let open = true;
+    try {
+        const result = callback(db);
+        db.exec('COMMIT');
+        open = false;
+        return result;
+    } catch (error) {
+        if (open) {
+            try {
+                db.exec('ROLLBACK');
+            } catch {}
+        }
+        throw error;
     }
 };
 
@@ -279,7 +579,7 @@ const withWritableDb = <T>(dbPath: string, callback: (db: Database) => T): T => 
         },
     });
     try {
-        const result = callback(db);
+        const result = runWithSqliteRetry({ action: () => callback(db) });
         if (isPromiseLike(result)) {
             throw new Error('Database callbacks must be synchronous');
         }
@@ -1184,39 +1484,6 @@ const mapProjectSummaries = (projectMap: ProjectSummaryMap): ProjectSummary[] =>
         });
 };
 
-const getRelationsForThread = (db: Database, threadId: string, existingTableNames: Set<string>): ThreadRelations => {
-    if (!existingTableNames.has('thread_spawn_edges')) {
-        return {
-            childEdges: [],
-            parentThreadId: null,
-        };
-    }
-
-    const parentRow = db
-        .query(
-            'SELECT parent_thread_id, child_thread_id, status FROM thread_spawn_edges WHERE child_thread_id = ? LIMIT 1',
-        )
-        .get(threadId) as {
-        child_thread_id: string;
-        parent_thread_id: string;
-        status: string;
-    } | null;
-    const childRows = db
-        .query(
-            'SELECT parent_thread_id, child_thread_id, status FROM thread_spawn_edges WHERE parent_thread_id = ? ORDER BY child_thread_id ASC',
-        )
-        .all(threadId) as Array<{
-        child_thread_id: string;
-        parent_thread_id: string;
-        status: string;
-    }>;
-
-    return {
-        childEdges: childRows,
-        parentThreadId: parentRow?.parent_thread_id ?? null,
-    };
-};
-
 const getExistingTableNames = (db: Database) => {
     const rows = db.query('SELECT name FROM sqlite_master WHERE type = ?').all('table') as Array<{ name: string }>;
     return new Set(rows.map((row) => row.name));
@@ -1229,10 +1496,7 @@ const getExistingCodexHistoryTableNames = (db: Database) => {
     return new Set(rows.map((row) => row.name));
 };
 
-type ThreadSpawnEdge = {
-    child_thread_id: string;
-    parent_thread_id: string;
-};
+type ThreadSpawnEdge = SpawnEdgeRow;
 
 const readThreadHierarchyEdges = (db: Database, threadIds: string[]): ThreadSpawnEdge[] => {
     if (!getExistingTableNames(db).has('thread_spawn_edges')) {
@@ -1370,34 +1634,42 @@ const deleteThreadIds = (db: Database, dbPath: string, threadIds: string[]): Del
     const uniqueThreadIds = uniqueValues(threadIds);
     if (uniqueThreadIds.length === 0) {
         return {
+            cleanup: {
+                deletedSessionFiles: [],
+                requested: false,
+                sessionIndexEntriesRemoved: [],
+            },
             deletedSessionFiles: [],
             deletedThreadIds: [],
         };
     }
 
-    const existingTableNames = getExistingTableNames(db);
-    const threadTargets = getThreadDeleteTargets(db, uniqueThreadIds);
-    const existingIds = threadTargets.map((target) => target.id);
-
-    const existingIdSet = new Set(existingIds);
+    let threadTargets: Array<{ id: string; rollout_path: string }> = [];
+    let existingIds: string[] = [];
     let historyAttached = false;
     try {
-        const historyDbPath = resolveCodexHistoryDbPath(dbPath);
-        if (hasRegularFile(historyDbPath)) {
-            db.query('ATTACH DATABASE ? AS codex_history').run(historyDbPath);
-            historyAttached = true;
-        }
+        withSqliteTransaction(db, (transactionDb) => {
+            const existingTableNames = getExistingTableNames(transactionDb);
+            threadTargets = getThreadDeleteTargets(transactionDb, uniqueThreadIds);
+            existingIds = threadTargets.map((target) => target.id);
+            const existingIdSet = new Set(existingIds);
+            const historyDbPath = resolveCodexHistoryDbPath(dbPath);
+            if (hasRegularFile(historyDbPath)) {
+                // SQLite coordinates this transaction across the attached database for normal commits. A process
+                // crash during WAL commit is not claimed to be crash-atomic across both database files.
+                transactionDb.query('ATTACH DATABASE ? AS codex_history').run(historyDbPath);
+                historyAttached = true;
+            }
 
-        const historyTableNames = historyAttached ? getExistingCodexHistoryTableNames(db) : new Set<string>();
-        const deleteMany = db.transaction((ids: string[]) => {
-            for (const threadIdChunk of chunkValues(ids, SQLITE_DELETE_BATCH_SIZE)) {
+            const historyTableNames = historyAttached
+                ? getExistingCodexHistoryTableNames(transactionDb)
+                : new Set<string>();
+            for (const threadIdChunk of chunkValues(uniqueThreadIds, SQLITE_DELETE_BATCH_SIZE)) {
                 const stateThreadIds = threadIdChunk.filter((threadId) => existingIdSet.has(threadId));
-                deleteStateThreadRows(db, existingTableNames, stateThreadIds);
-                deleteHistoryThreadRows(db, historyTableNames, threadIdChunk);
+                deleteStateThreadRows(transactionDb, existingTableNames, stateThreadIds);
+                deleteHistoryThreadRows(transactionDb, historyTableNames, threadIdChunk);
             }
         });
-
-        deleteMany(uniqueThreadIds);
     } finally {
         if (historyAttached) {
             db.query('DETACH DATABASE codex_history').run();
@@ -1405,6 +1677,11 @@ const deleteThreadIds = (db: Database, dbPath: string, threadIds: string[]): Del
     }
 
     return {
+        cleanup: {
+            deletedSessionFiles: [],
+            requested: false,
+            sessionIndexEntriesRemoved: [],
+        },
         deletedSessionFiles: threadTargets.map((target) => target.rollout_path),
         deletedThreadIds: existingIds,
     };
@@ -1727,56 +2004,221 @@ export const listProjectThreads = async (
     return entries.sort((left, right) => compareThreadsByRecentActivity(left.thread, right.thread));
 };
 
-export const getThreadBrowseData = (dbPath: string, threadId: string): ThreadBrowseData => {
-    return withReadonlyDb(dbPath, (db) => {
-        const existingTableNames = getExistingTableNames(db);
-        const dbThread = db.query('SELECT * FROM threads WHERE id = ? LIMIT 1').get(threadId) as ThreadRow | null;
-        const thread = dbThread ?? readFallbackThreadRowById(dbPath, threadId, { includeSubagents: true }) ?? null;
-        if (!thread) {
-            throw new CodexThreadNotFoundError(threadId);
-        }
-        const indexedThread = applySessionIndexThreadNames(dbPath, [thread])[0]!;
-        const normalizedThread = normalizeThreadDisplayText({
-            ...indexedThread,
-            rollout_path: resolveCodexRolloutPath(dbPath, indexedThread.rollout_path),
-        });
+type ThreadBrowseDatabaseData = {
+    dynamicToolsByThreadId: Map<string, DynamicToolRow[]>;
+    goalsByThreadId: Map<string, ThreadGoalRow[]>;
+    relationsByThreadId: Map<string, ThreadRelations>;
+    threadsById: Map<string, ThreadRow>;
+};
 
-        const dynamicTools =
-            dbThread && existingTableNames.has('thread_dynamic_tools')
-                ? (
-                      db
-                          .query(
-                              'SELECT thread_id, position, name, description, input_schema, defer_loading, namespace FROM thread_dynamic_tools WHERE thread_id = ? ORDER BY position ASC',
-                          )
-                          .all(threadId) as Array<Record<string, number | string | null>>
-                  ).map((row) => parseDynamicToolRow(row))
-                : parseFallbackDynamicTools(readFallbackSessionMeta(thread.rollout_path) ?? {}, threadId);
-        const goals =
-            dbThread && existingTableNames.has('thread_goals')
-                ? (db
-                      .query(
-                          'SELECT goal_id, objective, status, token_budget, tokens_used, time_used_seconds, created_at_ms, updated_at_ms FROM thread_goals WHERE thread_id = ? ORDER BY updated_at_ms DESC, goal_id ASC',
-                      )
-                      .all(threadId) as ThreadGoalRow[])
-                : [];
+const readBrowseThreadRows = (db: Database, threadIdChunk: string[], threadsById: Map<string, ThreadRow>) => {
+    const placeholders = threadIdChunk.map(() => '?').join(', ');
+    const rows = db
+        .query(`SELECT ${THREAD_ROW_COLUMNS} FROM threads WHERE id IN (${placeholders})`)
+        .all(...threadIdChunk) as unknown[];
+    for (const row of rows) {
+        const thread = decodeThreadRow(row);
+        threadsById.set(thread.id, thread);
+    }
+};
+
+const readBrowseDynamicTools = (
+    db: Database,
+    threadIdChunk: string[],
+    dynamicToolsByThreadId: Map<string, DynamicToolRow[]>,
+) => {
+    const placeholders = threadIdChunk.map(() => '?').join(', ');
+    const rows = db
+        .query(
+            `SELECT thread_id, position, name, description, input_schema, defer_loading, namespace
+             FROM thread_dynamic_tools
+             WHERE thread_id IN (${placeholders})
+             ORDER BY thread_id ASC, position ASC`,
+        )
+        .all(...threadIdChunk) as unknown[];
+    for (const row of rows) {
+        const tool = parseDynamicToolRow(row);
+        const tools = dynamicToolsByThreadId.get(tool.threadId) ?? [];
+        tools.push(tool);
+        dynamicToolsByThreadId.set(tool.threadId, tools);
+    }
+};
+
+const readBrowseGoals = (db: Database, threadIdChunk: string[], goalsByThreadId: Map<string, ThreadGoalRow[]>) => {
+    const placeholders = threadIdChunk.map(() => '?').join(', ');
+    const rows = db
+        .query(
+            `SELECT thread_id, goal_id, objective, status, token_budget, tokens_used,
+                    time_used_seconds, created_at_ms, updated_at_ms
+             FROM thread_goals
+             WHERE thread_id IN (${placeholders})
+             ORDER BY thread_id ASC, updated_at_ms DESC, goal_id ASC`,
+        )
+        .all(...threadIdChunk) as unknown[];
+    for (const row of rows) {
+        const values = row as Record<string, unknown>;
+        if (typeof values.thread_id !== 'string') {
+            throw new CodexDbCompatibilityError(CODEX_BROWSE_SCHEMA_PROFILE, [], [], ['thread_goals.thread_id']);
+        }
+        const goals = goalsByThreadId.get(values.thread_id) ?? [];
+        goals.push(decodeThreadGoalRow(row));
+        goalsByThreadId.set(values.thread_id, goals);
+    }
+};
+
+const readBrowseRelations = (
+    db: Database,
+    threadIdChunk: string[],
+    relationsByThreadId: Map<string, ThreadRelations>,
+) => {
+    const placeholders = threadIdChunk.map(() => '?').join(', ');
+    const rows = db
+        .query(
+            `SELECT parent_thread_id, child_thread_id, status
+             FROM thread_spawn_edges
+             WHERE parent_thread_id IN (${placeholders}) OR child_thread_id IN (${placeholders})
+             ORDER BY parent_thread_id ASC, child_thread_id ASC`,
+        )
+        .all(...threadIdChunk, ...threadIdChunk) as unknown[];
+    for (const row of rows) {
+        const edge = decodeThreadSpawnEdgeRow(row);
+        const parentRelations = relationsByThreadId.get(edge.parent_thread_id);
+        if (parentRelations) {
+            parentRelations.childEdges.push(edge);
+        }
+        const childRelations = relationsByThreadId.get(edge.child_thread_id);
+        if (childRelations) {
+            childRelations.parentThreadId = edge.parent_thread_id;
+        }
+    }
+};
+
+const readThreadBrowseDatabaseData = (dbPath: string, requestedThreadIds: string[]): ThreadBrowseDatabaseData => {
+    const threadIds = uniqueValues(requestedThreadIds);
+    return withReadonlyDb(dbPath, (db) =>
+        withSqliteTransaction(db, (snapshotDb) => {
+            const existingTableNames = assertCodexSchemaCompatibility(snapshotDb, CODEX_BROWSE_SCHEMA_PROFILE);
+            const threadsById = new Map<string, ThreadRow>();
+            const dynamicToolsByThreadId = new Map<string, DynamicToolRow[]>();
+            const goalsByThreadId = new Map<string, ThreadGoalRow[]>();
+            const relationsByThreadId = new Map<string, ThreadRelations>(
+                threadIds.map((threadId) => [threadId, { childEdges: [], parentThreadId: null }]),
+            );
+
+            for (const threadIdChunk of chunkValues(threadIds, SQLITE_DELETE_BATCH_SIZE)) {
+                readBrowseThreadRows(snapshotDb, threadIdChunk, threadsById);
+                if (existingTableNames.has('thread_dynamic_tools')) {
+                    readBrowseDynamicTools(snapshotDb, threadIdChunk, dynamicToolsByThreadId);
+                }
+
+                if (existingTableNames.has('thread_goals')) {
+                    readBrowseGoals(snapshotDb, threadIdChunk, goalsByThreadId);
+                }
+
+                if (existingTableNames.has('thread_spawn_edges')) {
+                    readBrowseRelations(snapshotDb, threadIdChunk, relationsByThreadId);
+                }
+            }
+
+            return { dynamicToolsByThreadId, goalsByThreadId, relationsByThreadId, threadsById };
+        }),
+    );
+};
+
+const buildThreadBrowseData = (
+    dbPath: string,
+    thread: ThreadRow,
+    source: 'database' | 'fallback',
+    databaseData: ThreadBrowseDatabaseData | null,
+): ThreadBrowseData => {
+    // Session-index titles and fallback transcript metadata are filesystem reads and intentionally happen after
+    // the SQLite snapshot has committed.
+    const indexedThread = applySessionIndexThreadNames(dbPath, [thread])[0]!;
+    const normalizedThread = normalizeThreadDisplayText({
+        ...indexedThread,
+        rollout_path: resolveCodexRolloutPath(dbPath, indexedThread.rollout_path),
+    });
+    const dynamicTools =
+        source === 'database'
+            ? (databaseData?.dynamicToolsByThreadId.get(thread.id) ?? [])
+            : parseFallbackDynamicTools(readFallbackSessionMeta(normalizedThread.rollout_path) ?? {}, thread.id);
+    const goals = source === 'database' ? (databaseData?.goalsByThreadId.get(thread.id) ?? []) : [];
+    const relations =
+        source === 'database'
+            ? (databaseData?.relationsByThreadId.get(thread.id) ?? { childEdges: [], parentThreadId: null })
+            : { childEdges: [], parentThreadId: null };
+
+    return {
+        dynamicTools,
+        goals: goals.map((goal) => ({
+            createdAtMs: goal.created_at_ms,
+            goalId: goal.goal_id,
+            objective: goal.objective,
+            status: goal.status,
+            timeUsedSeconds: goal.time_used_seconds,
+            tokenBudget: goal.token_budget,
+            tokensUsed: goal.tokens_used,
+            updatedAtMs: goal.updated_at_ms,
+        })),
+        project: getPortablePathBasename(normalizedThread.cwd),
+        relations,
+        thread: normalizedThread,
+    };
+};
+
+export const getThreadBrowseDataBatch = (dbPath: string, threadIds: string[]): CodexThreadBrowseBatchResult[] => {
+    if (threadIds.length === 0) {
+        return [];
+    }
+
+    const databaseData = readThreadBrowseDatabaseData(dbPath, threadIds);
+    const fallbackThreadsById = new Map<string, ThreadRow>();
+    for (const threadId of uniqueValues(threadIds)) {
+        if (databaseData.threadsById.has(threadId)) {
+            continue;
+        }
+        const fallbackThread = readFallbackThreadRowById(dbPath, threadId, { includeSubagents: true });
+        if (fallbackThread) {
+            fallbackThreadsById.set(threadId, fallbackThread);
+        }
+    }
+
+    return threadIds.map((threadId) => {
+        const databaseThread = databaseData.threadsById.get(threadId);
+        if (databaseThread) {
+            return {
+                data: buildThreadBrowseData(dbPath, databaseThread, 'database', databaseData),
+                source: 'database',
+                status: 'found',
+                threadId,
+            };
+        }
+
+        const fallbackThread = fallbackThreadsById.get(threadId);
+        if (fallbackThread) {
+            return {
+                data: buildThreadBrowseData(dbPath, fallbackThread, 'fallback', null),
+                source: 'fallback',
+                status: 'found',
+                threadId,
+            };
+        }
 
         return {
-            dynamicTools,
-            goals: goals.map((goal) => ({
-                createdAtMs: goal.created_at_ms,
-                goalId: goal.goal_id,
-                objective: goal.objective,
-                status: goal.status,
-                timeUsedSeconds: goal.time_used_seconds,
-                tokenBudget: goal.token_budget,
-                tokensUsed: goal.tokens_used,
-                updatedAtMs: goal.updated_at_ms,
-            })),
-            project: getPortablePathBasename(normalizedThread.cwd),
-            relations: getRelationsForThread(db, threadId, existingTableNames),
-            thread: normalizedThread,
+            data: null,
+            source: 'missing',
+            status: 'missing',
+            threadId,
         };
     });
+};
+
+export const getThreadBrowseData = (dbPath: string, threadId: string): ThreadBrowseData => {
+    const result = getThreadBrowseDataBatch(dbPath, [threadId])[0]!;
+    if (result.status === 'missing') {
+        throw new CodexThreadNotFoundError(threadId);
+    }
+    return result.data;
 };
 
 type DashboardDatabaseTotals = {
@@ -1899,6 +2341,11 @@ export const deleteCodexThread = async (
         );
 
         return {
+            cleanup: {
+                deletedSessionFiles: sessionIndexResult.deletedSessionFiles,
+                requested: Boolean(options.deleteSessionFiles),
+                sessionIndexEntriesRemoved: sessionIndexResult.deletedThreadIds,
+            },
             deletedSessionFiles: sessionIndexResult.deletedSessionFiles,
             deletedThreadIds: uniqueValues([...result.deletedThreadIds, ...sessionIndexResult.deletedThreadIds]),
         };
@@ -1929,6 +2376,11 @@ export const deleteCodexThreads = async (
         );
 
         return {
+            cleanup: {
+                deletedSessionFiles: sessionIndexResult.deletedSessionFiles,
+                requested: Boolean(options.deleteSessionFiles),
+                sessionIndexEntriesRemoved: sessionIndexResult.deletedThreadIds,
+            },
             deletedSessionFiles: sessionIndexResult.deletedSessionFiles,
             deletedThreadIds: uniqueValues([...result.deletedThreadIds, ...sessionIndexResult.deletedThreadIds]),
         };
@@ -1978,6 +2430,11 @@ export const deleteCodexProject = async (
 
         return {
             ...result,
+            cleanup: {
+                deletedSessionFiles: sessionIndexResult.deletedSessionFiles,
+                requested: Boolean(options.deleteSessionFiles),
+                sessionIndexEntriesRemoved: sessionIndexResult.deletedThreadIds,
+            },
             deletedSessionFiles: sessionIndexResult.deletedSessionFiles,
             deletedThreadIds: uniqueValues([...result.deletedThreadIds, ...sessionIndexResult.deletedThreadIds]),
         };

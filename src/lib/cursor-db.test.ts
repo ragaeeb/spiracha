@@ -17,9 +17,10 @@ import {
     readCursorThreadHead,
     readCursorThreadTranscript,
     readCursorThreadTranscriptWithAgentFiles,
+    withCursorReadonlyDb,
 } from './cursor-db';
 import { getCursorGlobalDbPath } from './cursor-exporter-types';
-import { type CursorFixtureSpec, createCursorFixture } from './cursor-test-helpers';
+import { type CursorFixtureSpec, createCursorFixture, holdCursorWriteLock } from './cursor-test-helpers';
 
 const tempDirs: string[] = [];
 
@@ -859,6 +860,36 @@ describe('openCursorReadonlyDb', () => {
             db.close();
             writable.close();
         }
+    });
+
+    it('should read through a retry-aware callback while a writer holds the WAL database', async () => {
+        const userDir = await makeUserDir();
+        await createCursorFixture(userDir, baseSpec());
+        const globalDbPath = getCursorGlobalDbPath(userDir);
+        const lockProcess = await holdCursorWriteLock(globalDbPath);
+
+        try {
+            const count = withCursorReadonlyDb(globalDbPath, (db) => {
+                return (db.query('SELECT COUNT(*) AS count FROM cursorDiskKV').get() as { count: number }).count;
+            });
+
+            expect(count).toBeGreaterThan(0);
+        } finally {
+            lockProcess.kill();
+            await lockProcess.exited;
+        }
+    });
+
+    it('should reject an asynchronous callback instead of closing its handle early', async () => {
+        const userDir = await makeUserDir();
+        await createCursorFixture(userDir, baseSpec());
+
+        expect(() =>
+            withCursorReadonlyDb(getCursorGlobalDbPath(userDir), async () => {
+                await Promise.resolve();
+                return null;
+            }),
+        ).toThrow('Cursor SQLite callbacks must be synchronous');
     });
 });
 

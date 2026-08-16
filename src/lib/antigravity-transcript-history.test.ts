@@ -2,7 +2,11 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { readAntigravityTranscriptHistory } from './antigravity-transcript-history';
+import {
+    parseAntigravityJsonlText,
+    readAntigravityJsonlFile,
+    readAntigravityTranscriptHistory,
+} from './antigravity-transcript-history';
 
 const temporaryDirectories: string[] = [];
 
@@ -27,6 +31,44 @@ const makeRepository = async (): Promise<string> => {
 };
 
 describe('Antigravity transcript history', () => {
+    it('should preserve valid JSONL records around corruption with bounded diagnostics', () => {
+        const result = parseAntigravityJsonlText(
+            `${JSON.stringify({ step_index: 1 })}\n{malformed}\n${JSON.stringify({ step_index: 3 })}\n`,
+            (line) => JSON.parse(line) as { step_index: number },
+        );
+
+        expect(result.records).toEqual([{ step_index: 1 }, { step_index: 3 }]);
+        expect(result.diagnostics).toEqual([
+            expect.objectContaining({
+                byteOffset: Buffer.byteLength(`${JSON.stringify({ step_index: 1 })}\n`),
+                line: 2,
+                message: 'Invalid Antigravity JSONL record',
+            }),
+        ]);
+    });
+
+    it('should bound overlong JSONL lines and continue reading later records', async () => {
+        const directory = await mkdtemp(path.join(tmpdir(), 'antigravity-jsonl-'));
+        temporaryDirectories.push(directory);
+        const transcriptPath = path.join(directory, 'transcript.jsonl');
+        await Bun.write(transcriptPath, `${'x'.repeat(32)}\n{"step_index":9}\n`);
+
+        const result = await readAntigravityJsonlFile(
+            transcriptPath,
+            (line) => JSON.parse(line) as { step_index: number },
+            { maxLineBytes: 16 },
+        );
+
+        expect(result.records).toEqual([{ step_index: 9 }]);
+        expect(result.diagnostics).toEqual([
+            expect.objectContaining({
+                byteOffset: 0,
+                line: 1,
+                truncated: true,
+            }),
+        ]);
+    });
+
     it('should skip history recovery when the current transcript already starts at its first step', async () => {
         expect(await readAntigravityTranscriptHistory('/missing/transcript.jsonl', null)).toEqual([]);
         expect(await readAntigravityTranscriptHistory('/missing/transcript.jsonl', 0)).toEqual([]);

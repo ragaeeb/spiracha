@@ -16,7 +16,12 @@ import {
     DialogTitle,
 } from '#/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '#/components/ui/select';
-import { downloadTextFile } from '#/lib/download';
+import {
+    cancelActiveDownloads,
+    type DownloadLifecycleState,
+    downloadTextFile,
+    resetActiveDownloads,
+} from '#/lib/download';
 import { requestEvidenceExport } from '#/lib/evidence-export';
 import type { ExportDialogOptions } from '#/lib/export-options';
 import { useSettings } from '#/lib/settings-store';
@@ -147,6 +152,28 @@ const EvidencePreview = ({ preview }: { preview: ConversationEvidenceExport }) =
     </div>
 );
 
+const getDownloadStateMessage = (state: DownloadLifecycleState) => {
+    switch (state) {
+        case 'preparing':
+            return 'Preparing export...';
+        case 'ready':
+            return 'Export ready.';
+        case 'downloading':
+            return 'Starting download...';
+        case 'cancelled':
+            return 'Export cancelled.';
+        case 'failed':
+            return 'Export failed.';
+    }
+};
+
+const DownloadStateMessage = ({ state }: { state: DownloadLifecycleState | null }) =>
+    state ? (
+        <p aria-live="polite" className="text-[var(--muted-foreground)] text-sm" role="status">
+            {getDownloadStateMessage(state)}
+        </p>
+    ) : null;
+
 export function ExportDialog({
     disabled = false,
     errorMessage = null,
@@ -168,11 +195,20 @@ export function ExportDialog({
     const [preview, setPreview] = useState<ConversationEvidenceExport | null>(null);
     const [evidenceError, setEvidenceError] = useState<string | null>(null);
     const [evidencePending, setEvidencePending] = useState(false);
+    const [downloadState, setDownloadState] = useState<DownloadLifecycleState | null>(null);
     const submissionInProgress = useRef(false);
     const previousPending = useRef(pending);
     const effectiveZipArchive = forceZipArchive || options.zipArchive;
     const displayedError = evidenceError ?? errorMessage;
     const zipDescriptionId = useId();
+    const handleOpenChange = (nextOpen: boolean) => {
+        if (nextOpen) {
+            resetActiveDownloads();
+        } else {
+            cancelActiveDownloads();
+        }
+        onOpenChange(nextOpen);
+    };
 
     useEffect(() => {
         if (!open) {
@@ -184,6 +220,7 @@ export function ExportDialog({
             setPreview(null);
             setEvidenceError(null);
             setEvidencePending(false);
+            setDownloadState(null);
         }
     }, [open, settings.exportDefaults]);
 
@@ -191,6 +228,7 @@ export function ExportDialog({
         if ((previousPending.current && !pending) || errorMessage) {
             setSubmitted(false);
             submissionInProgress.current = false;
+            setDownloadState(errorMessage ? 'failed' : null);
         }
         previousPending.current = pending;
     }, [errorMessage, pending]);
@@ -219,6 +257,7 @@ export function ExportDialog({
         }
         submissionInProgress.current = true;
         setSubmitted(true);
+        setDownloadState('preparing');
         if (mode === 'focused') {
             const result = preview ?? (await loadEvidence());
             if (result && focusedEvidenceTarget) {
@@ -226,6 +265,7 @@ export function ExportDialog({
                     `${focusedEvidenceTarget.source}-${focusedEvidenceTarget.id}-focused-evidence.md`,
                     result.markdown,
                     'text/markdown; charset=utf-8',
+                    { onStateChange: setDownloadState },
                 );
             }
             submissionInProgress.current = false;
@@ -237,7 +277,7 @@ export function ExportDialog({
     };
 
     return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
+        <Dialog open={open} onOpenChange={handleOpenChange}>
             <DialogContent className="max-h-[90vh] overflow-y-auto border-[var(--border)] bg-[var(--panel)] text-[var(--foreground)] sm:max-w-3xl">
                 <DialogHeader>
                     <DialogTitle>{title}</DialogTitle>
@@ -296,6 +336,7 @@ export function ExportDialog({
                 </div>
 
                 {preview && mode === 'focused' ? <EvidencePreview preview={preview} /> : null}
+                <DownloadStateMessage state={downloadState} />
                 {displayedError ? <p className="text-[var(--destructive)] text-sm">{displayedError}</p> : null}
 
                 <DialogFooter>

@@ -9,6 +9,7 @@ import {
     groupAntigravityConversations,
     listAntigravityConversations,
     readAntigravityConversationMessages,
+    readAntigravitySummaryIndexWithDiagnostics,
     renderAntigravityArtifactsMarkdown,
     renderAntigravityConversationMarkdown,
 } from './antigravity-db';
@@ -279,6 +280,21 @@ const runGit = async (cwd: string, args: string[]): Promise<void> => {
 describe('antigravity db discovery', () => {
     it('should include the Antigravity CLI root in default discovery roots', () => {
         expect(resolveAntigravityRoots()).toContain(path.join(os.homedir(), '.gemini', 'antigravity-cli'));
+    });
+
+    it('should preserve valid summary records around protobuf corruption with diagnostics', async () => {
+        const root = await makeRoot();
+        const summaryPath = path.join(root, 'agyhub_summaries_proto.pb');
+        const first = encodeSummaryIndex([{ id: '11111111-1111-4111-8111-111111111111', title: 'First summary' }]);
+        const second = encodeSummaryIndex([{ id: '22222222-2222-4222-8222-222222222222', title: 'Second summary' }]);
+        await Bun.write(summaryPath, new Uint8Array([...first, 0xff, ...second]));
+
+        const result = await readAntigravitySummaryIndexWithDiagnostics(summaryPath);
+
+        expect(result.entries.map((entry) => entry.title)).toEqual(['First summary', 'Second summary']);
+        expect(result.diagnostics).toEqual([
+            expect.objectContaining({ byteOffset: first.byteLength, kind: 'protobuf' }),
+        ]);
     });
 
     it('should resolve one conversation without requiring a collection scan', async () => {

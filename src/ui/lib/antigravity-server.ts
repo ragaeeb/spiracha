@@ -2,7 +2,11 @@ import type { AntigravityConversation } from '@spiracha/lib/antigravity-exporter
 import { buildConversationExportBaseName } from '@spiracha/lib/ui-export-archive';
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
-import { canExportAntigravityConversation, isAntigravityConversationLocked } from './antigravity-conversation-state';
+import {
+    canExportAntigravityConversation,
+    hasEncryptedAntigravityConversation,
+    isAntigravityConversationLocked,
+} from './antigravity-conversation-state';
 import { runDeleteBatch } from './delete-batch';
 
 const workspaceSchema = z.object({
@@ -41,8 +45,8 @@ export const listAntigravityWorkspacesFn = createServerFn({ method: 'GET' }).han
 });
 
 export const getAntigravityDecryptionStateFn = createServerFn({ method: 'GET' }).handler(async () => {
-    const { getAntigravityDecryptionState } = await import('@spiracha/lib/antigravity-keychain');
-    return getAntigravityDecryptionState();
+    const { probeAntigravityDecryptionState } = await import('@spiracha/lib/antigravity-keychain');
+    return probeAntigravityDecryptionState();
 });
 
 export const unlockAntigravityDecryptionFn = createServerFn({ method: 'POST' }).handler(async () => {
@@ -88,16 +92,33 @@ export const loadAntigravityConversationDetail = async (conversationId: string) 
     const { renderAntigravityArtifactsMarkdown, renderAntigravityConversationMarkdown } = await import(
         '@spiracha/lib/antigravity-db'
     );
-    const { getCachedAntigravityKeychainSecret } = await import('@spiracha/lib/antigravity-keychain');
     const conversation = await findAntigravityConversationById(conversationId);
-    const keychainSecret = getCachedAntigravityKeychainSecret();
-    const hasKeychainSecret = Boolean(keychainSecret);
-    const transcriptLocked = isAntigravityConversationLocked(conversation, hasKeychainSecret);
+    const isEncrypted = hasEncryptedAntigravityConversation(conversation);
+    const renderConversation = async () => {
+        if (!isEncrypted) {
+            return renderAntigravityConversationMarkdown(conversation);
+        }
+
+        const { withAntigravityDecryptionCapability } = await import('@spiracha/lib/antigravity-keychain');
+        return withAntigravityDecryptionCapability((decryptionCapability) =>
+            renderAntigravityConversationMarkdown(conversation, { decryptionCapability }),
+        );
+    };
+    let renderedConversationMarkdown: string | null = null;
+    let transcriptLocked = false;
+    try {
+        renderedConversationMarkdown = await renderConversation();
+    } catch (error) {
+        if (!isEncrypted) {
+            throw error;
+        }
+        transcriptLocked = true;
+    }
     const [[conversationMarkdown, artifactsMarkdown], conversationGroup] = await Promise.all([
         runWithTranscriptLoadLimit(
             async () =>
                 Promise.all([
-                    transcriptLocked ? null : renderAntigravityConversationMarkdown(conversation, { keychainSecret }),
+                    transcriptLocked ? null : renderedConversationMarkdown,
                     conversation.artifactCount > 0 ? renderAntigravityArtifactsMarkdown(conversation) : null,
                 ]),
             {
@@ -134,13 +155,11 @@ export const loadAntigravityConversationExport = async (
 ) => {
     const { runWithTranscriptLoadLimit } = await import('@spiracha/lib/transcript-load-limiter');
     const { renderAntigravityConversationMarkdown } = await import('@spiracha/lib/antigravity-db');
-    const { getCachedAntigravityKeychainSecret } = await import('@spiracha/lib/antigravity-keychain');
     const conversation = loadedConversation ?? (await findAntigravityConversationById(conversationId));
-    const keychainSecret = getCachedAntigravityKeychainSecret();
-    const hasKeychainSecret = Boolean(keychainSecret);
+    const isEncrypted = hasEncryptedAntigravityConversation(conversation);
 
-    if (!canExportAntigravityConversation(conversation, hasKeychainSecret)) {
-        if (isAntigravityConversationLocked(conversation, hasKeychainSecret)) {
+    if (!canExportAntigravityConversation(conversation, false) && !isEncrypted) {
+        if (isAntigravityConversationLocked(conversation, true)) {
             throw new Error('Unlock Antigravity Keychain access before exporting transcript logs.');
         }
 
@@ -148,14 +167,27 @@ export const loadAntigravityConversationExport = async (
     }
 
     const content = await runWithTranscriptLoadLimit(
-        () =>
-            renderAntigravityConversationMarkdown(conversation, {
+        async () => {
+            const renderOptions = {
                 includeCommentary: options.includeCommentary,
                 includeMetadata: options.includeMetadata,
                 includeTools: options.includeTools,
-                keychainSecret,
                 outputFormat: options.outputFormat,
-            }),
+            };
+            try {
+                if (!isEncrypted) {
+                    return renderAntigravityConversationMarkdown(conversation, renderOptions);
+                }
+
+                const { withAntigravityDecryptionCapability } = await import('@spiracha/lib/antigravity-keychain');
+                return withAntigravityDecryptionCapability((decryptionCapability) =>
+                    renderAntigravityConversationMarkdown(conversation, { ...renderOptions, decryptionCapability }),
+                );
+            } catch (error) {
+                const message = error instanceof Error ? ` ${error.message}` : '';
+                throw new Error(`Unlock Antigravity Keychain access before exporting transcript logs.${message}`);
+            }
+        },
         {
             id: conversation.conversationId,
             integration: 'antigravity',

@@ -11,7 +11,7 @@ import { MiniMaxCodeSessionsTable } from '#/components/minimax-code-sessions-tab
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
 import { Button } from '#/components/ui/button';
-import { downloadTextFile, downloadUrlFile } from '#/lib/download';
+import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { miniMaxCodeSessionsQueryOptions, miniMaxCodeWorkspacesQueryOptions } from '#/lib/minimax-code-queries';
 import {
@@ -84,6 +84,7 @@ const MiniMaxCodeWorkspaceErrorComponent = ({ error }: { error: Error }) => {
 };
 
 const MiniMaxCodeWorkspacePage = () => {
+    const downloadCancellation = useDownloadCancellation();
     const navigate = useNavigate({ from: Route.fullPath });
     const params = Route.useParams();
     const queryClient = useQueryClient();
@@ -140,7 +141,7 @@ const MiniMaxCodeWorkspacePage = () => {
                 downloadTextFile(download.fileName, download.content, download.mimeType);
                 return;
             }
-            await downloadUrlFile(download.fileName, download.downloadUrl);
+            await downloadUrlFileWithCancellation(downloadCancellation, download.fileName, download.downloadUrl);
         },
         onSuccess: () => setPendingExport(null),
     });

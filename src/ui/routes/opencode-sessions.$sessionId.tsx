@@ -17,7 +17,7 @@ import { TranscriptControls } from '#/components/transcript-controls';
 import { TranscriptView } from '#/components/transcript-view';
 import { Button } from '#/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
-import { downloadTextFile, downloadUrlFile } from '#/lib/download';
+import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import type { ExportDialogOptions } from '#/lib/export-options';
 import { formatDateTime, formatList, formatNumber, formatTokens } from '#/lib/formatters';
 import { openCodeSessionDetailQueryOptions, openCodeWorkspacesQueryOptions } from '#/lib/opencode-queries';
@@ -87,6 +87,7 @@ const OpenCodeRawPanels = ({ detail, events }: { detail: OpenCodeSessionTranscri
 };
 
 const OpenCodeSessionDetailPage = () => {
+    const downloadCancellation = useDownloadCancellation();
     const navigate = useNavigate({ from: Route.fullPath });
     const transcriptSearch = Route.useSearch();
     const transcriptDisplay = getTranscriptDisplayState(transcriptSearch);
@@ -127,7 +128,7 @@ const OpenCodeSessionDetailPage = () => {
                 return;
             }
 
-            await downloadUrlFile(download.fileName, download.downloadUrl);
+            await downloadUrlFileWithCancellation(downloadCancellation, download.fileName, download.downloadUrl);
         },
         onSuccess: () => {
             setPendingExport(false);

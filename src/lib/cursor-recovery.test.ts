@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { listCursorWorkspaceGroups } from './cursor-db';
+import { listCursorWorkspaceGroups, withCursorWriteTransaction } from './cursor-db';
 import { getCursorGlobalDbPath } from './cursor-exporter-types';
 import {
     collectCursorThreadsForDeletion,
@@ -12,7 +12,7 @@ import {
     pruneCursorThreads,
     recoverCursorWorkspaceGroup,
 } from './cursor-recovery';
-import { type CursorFixtureSpec, createCursorFixture } from './cursor-test-helpers';
+import { type CursorFixtureSpec, createCursorFixture, holdCursorWriteLock } from './cursor-test-helpers';
 
 const tempDirs: string[] = [];
 
@@ -112,6 +112,61 @@ describe('recoverCursorWorkspaceGroup', () => {
         } finally {
             db.close();
         }
+    });
+
+    it('should retry a same-database write transaction after a competing writer releases the lock', async () => {
+        const userDir = await makeUserDir('cursor-recover-lock-');
+        await createCursorFixture(userDir, recoverySpec());
+        const globalDbPath = getCursorGlobalDbPath(userDir);
+        const lockProcess = await holdCursorWriteLock(globalDbPath);
+
+        try {
+            const changes = withCursorWriteTransaction(
+                globalDbPath,
+                (db) =>
+                    db.run('INSERT OR REPLACE INTO ItemTable (key, value) VALUES (?, ?)', ['spiracha.retry-test', 'ok'])
+                        .changes,
+            );
+
+            expect(changes).toBe(1);
+        } finally {
+            lockProcess.kill();
+            await lockProcess.exited;
+        }
+    });
+
+    it('should restore the target bucket when the global transaction exhausts its retry budget', async () => {
+        const userDir = await makeUserDir('cursor-recover-lock-exhausted-');
+        await createCursorFixture(userDir, recoverySpec());
+        const [group] = await listCursorWorkspaceGroups(userDir);
+        const targetBucket = group!.buckets[0]!;
+        const globalDbPath = getCursorGlobalDbPath(userDir);
+        const lockProcess = await holdCursorWriteLock(globalDbPath, 1_000);
+
+        try {
+            await expect(recoverCursorWorkspaceGroup(group!, true, userDir)).rejects.toThrow(
+                'SQLite operation failed after 4 attempts',
+            );
+        } finally {
+            lockProcess.kill();
+            await lockProcess.exited;
+        }
+
+        const targetDb = new Database(targetBucket.dbPath, { readonly: true });
+        try {
+            expect(targetDb.query("SELECT value FROM ItemTable WHERE key = 'composer.composerData'").get()).toBeNull();
+        } finally {
+            targetDb.close();
+        }
+        expect(readHeaders(globalDbPath)[0]?.workspaceIdentifier?.id).toBe('bucket-old');
+    });
+
+    it('should fail closed without creating a missing Cursor database', async () => {
+        const userDir = await makeUserDir('cursor-recover-missing-');
+        const dbPath = path.join(userDir, 'missing', 'state.vscdb');
+
+        expect(() => withCursorWriteTransaction(dbPath, () => undefined)).toThrow();
+        expect(await Bun.file(dbPath).exists()).toBe(false);
     });
 });
 
@@ -354,6 +409,49 @@ describe('pruneCursorThreads', () => {
             globalDb.query("SELECT COUNT(*) AS count FROM cursorDiskKV WHERE key LIKE 'bubbleId:thread-1:%'").get(),
         ).toEqual({ count: 2 });
         globalDb.close();
+    });
+
+    it('should restore earlier bucket updates when a later bucket remains locked', async () => {
+        const userDir = await makeUserDir('cursor-delete-bucket-lock-');
+        const spec = recoverySpec();
+        spec.buckets.push({
+            bucketId: 'bucket-second',
+            composerIds: ['thread-1'],
+            folder: spec.buckets[0]!.folder,
+            threadsInComposerData: true,
+        });
+        await createCursorFixture(userDir, spec);
+        const [group] = await listCursorWorkspaceGroups(userDir);
+        const failingBucket = group!.buckets.at(-1)!;
+        const lockProcess = await holdCursorWriteLock(failingBucket.dbPath, 1_000);
+        const deletable = await collectCursorThreadsForDeletion(['thread-1'], userDir);
+
+        try {
+            await expect(pruneCursorThreads(deletable, true, userDir)).rejects.toThrow(
+                'SQLite operation failed after 4 attempts',
+            );
+        } finally {
+            lockProcess.kill();
+            await lockProcess.exited;
+        }
+
+        let bucketsContainingThread = 0;
+        for (const bucket of group!.buckets) {
+            const db = new Database(bucket.dbPath, { readonly: true });
+            const row = db.query("SELECT value FROM ItemTable WHERE key = 'composer.composerData'").get() as {
+                value: string;
+            } | null;
+            db.close();
+            if (!row) {
+                continue;
+            }
+            const composerIds = (
+                JSON.parse(row.value) as { allComposers: Array<{ composerId: string }> }
+            ).allComposers.map((composer) => composer.composerId);
+            expect(composerIds).toContain('thread-1');
+            bucketsContainingThread += 1;
+        }
+        expect(bucketsContainingThread).toBe(2);
     });
 
     it('should treat underscores in composer ids as literals when deleting bubble keys', async () => {
