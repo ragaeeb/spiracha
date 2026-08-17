@@ -34,6 +34,7 @@ import { deleteThreadFn, exportThreadFn, type getThreadSnapshotFn } from '#/lib/
 import { connectCodexThreadLiveUpdates, refreshCodexThreadLiveQueries } from '#/lib/codex-thread-live';
 import type { CodexThreadLiveStatus } from '#/lib/codex-thread-live-types';
 import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
+import type { ExportLifecycleCallbacks } from '#/lib/export-options';
 import { formatBooleanLabel, formatBytes, formatDateTime, formatList, formatTokens } from '#/lib/formatters';
 import { getMutationErrorMessage } from '#/lib/mutation-error';
 import { applyPathTransforms } from '#/lib/path-utils';
@@ -707,24 +708,27 @@ function ThreadDetailPageContent() {
     };
 
     const exportThreadMutation = useMutation({
-        mutationFn: async (options: {
-            includeCommentary: boolean;
-            includeTools: boolean;
-            includeMetadata: boolean;
-            outputFormat: 'md' | 'txt';
-            zipArchive: boolean;
-        }) => {
+        mutationFn: async (
+            options: {
+                includeCommentary: boolean;
+                includeTools: boolean;
+                includeMetadata: boolean;
+                outputFormat: 'md' | 'txt';
+                zipArchive: boolean;
+            } & ExportLifecycleCallbacks,
+        ) => {
+            const { onDownloadStateChange, ...exportOptions } = options;
             console.info('[spiracha:export-ui] request', {
-                outputFormat: options.outputFormat,
+                outputFormat: exportOptions.outputFormat,
                 project: snapshot.project,
                 selectedThreadCount: 1,
                 selectedThreadIds: [snapshot.thread.id],
-                zipArchive: options.zipArchive,
+                zipArchive: exportOptions.zipArchive,
             });
 
             const download = await exportThreadFn({
                 data: {
-                    ...options,
+                    ...exportOptions,
                     ...settings,
                     threadId: snapshot.thread.id,
                 },
@@ -739,11 +743,16 @@ function ThreadDetailPageContent() {
             });
 
             if (download.mode === 'download') {
-                downloadTextFile(download.fileName, download.content, download.mimeType);
-                return;
+                downloadTextFile(download.fileName, download.content, download.mimeType, {
+                    onStateChange: onDownloadStateChange,
+                });
+                return download;
             }
 
-            await downloadUrlFileWithCancellation(downloadCancellation, download.fileName, download.downloadUrl);
+            await downloadUrlFileWithCancellation(downloadCancellation, download.fileName, download.downloadUrl, {
+                onStateChange: onDownloadStateChange,
+            });
+            return download;
         },
         onError: (error) => {
             console.error('[spiracha:export-ui] failed', {
@@ -923,9 +932,9 @@ function ThreadDetailPageContent() {
                 focusedEvidenceTarget={{ id: snapshot.thread.id, source: 'codex' }}
                 open={exportOpen}
                 pending={exportThreadMutation.isPending}
-                onExport={(options) => {
+                onExport={(options, callbacks) => {
                     if (!transcriptMissing) {
-                        exportThreadMutation.mutate(options);
+                        exportThreadMutation.mutate({ ...options, ...callbacks });
                     }
                 }}
                 onOpenChange={(open) => {

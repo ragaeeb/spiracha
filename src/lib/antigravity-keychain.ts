@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { createDecipheriv, pbkdf2Sync } from 'node:crypto';
 import { promisify } from 'node:util';
+import { AntigravityDecryptionCapabilityError } from './antigravity-decryption-error';
 
 export const ANTIGRAVITY_KEYCHAIN_SERVICE = 'Antigravity Safe Storage';
 export const ANTIGRAVITY_KEYCHAIN_ACCOUNT = 'Antigravity Key';
@@ -19,15 +20,6 @@ export type AntigravityDecryptionState = {
 export type AntigravityDecryptionCapability = Readonly<{
     decryptSafeStoragePayload: (payload: Buffer | Uint8Array | string) => string | null;
 }>;
-
-export class AntigravityDecryptionCapabilityError extends Error {
-    readonly code = 'ANTIGRAVITY_DECRYPTION_CAPABILITY';
-
-    constructor(cause: unknown) {
-        super('Antigravity decryption capability is unavailable', { cause });
-        this.name = 'AntigravityDecryptionCapabilityError';
-    }
-}
 
 const execFileAsync = promisify(execFile);
 const SAFE_STORAGE_SALT = 'saltysalt';

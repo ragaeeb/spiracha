@@ -15,6 +15,7 @@ const {
     listCursorThreadsForGroupMock,
     listCursorWorkspaceGroupsMock,
     pruneCursorThreadsMock,
+    retryCursorWorkspaceCleanupMock,
     readCursorThreadTranscriptWithAgentFilesMock,
     recoverCursorWorkspaceGroupMock,
     renderCursorTranscriptMock,
@@ -34,6 +35,7 @@ const {
     renderCursorTranscriptMock: vi.fn(),
     renderSourceSessionDownloadMock: vi.fn(),
     renderSourceSessionsDownloadMock: vi.fn(),
+    retryCursorWorkspaceCleanupMock: vi.fn(),
 }));
 
 vi.mock('@tanstack/react-start', () => ({
@@ -79,6 +81,7 @@ vi.mock('@spiracha/lib/cursor-recovery', () => ({
     isCursorRunning: isCursorRunningMock,
     pruneCursorThreads: pruneCursorThreadsMock,
     recoverCursorWorkspaceGroup: recoverCursorWorkspaceGroupMock,
+    retryCursorWorkspaceCleanup: retryCursorWorkspaceCleanupMock,
 }));
 
 vi.mock('@spiracha/lib/cursor-transcript', () => ({
@@ -175,6 +178,8 @@ describe('findCursorThreadByComposerId', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         isCursorRunningMock.mockResolvedValue(false);
+        deleteCursorWorkspaceBucketsMock.mockResolvedValue({ cleanupFailures: [], removedPaths: [] });
+        deleteCursorWorkspaceHistoryMock.mockResolvedValue({ cleanupFailures: [], removedPaths: [] });
     });
 
     it('should query workspace threads without transcript directory discovery', async () => {
@@ -217,7 +222,7 @@ describe('deleteCursorThreadsFn', () => {
         };
         collectCursorThreadsForDeletionMock.mockResolvedValue(deletableThreads);
         pruneCursorThreadsMock.mockResolvedValue(result);
-        deleteCursorWorkspaceBucketsMock.mockResolvedValue(1);
+        deleteCursorWorkspaceBucketsMock.mockResolvedValue({ cleanupFailures: [], removedPaths: [] });
 
         await expect(deleteCursorThreadsFn({ data: { composerIds: ['thread-1', 'thread-2'] } })).resolves.toBe(result);
 
@@ -252,6 +257,8 @@ describe('deleteCursorWorkspaceFn', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         isCursorRunningMock.mockResolvedValue(false);
+        deleteCursorWorkspaceBucketsMock.mockResolvedValue({ cleanupFailures: [], removedPaths: [] });
+        deleteCursorWorkspaceHistoryMock.mockResolvedValue({ cleanupFailures: [], removedPaths: [] });
     });
 
     it('should delete every Cursor thread in a workspace', async () => {
@@ -287,22 +294,188 @@ describe('deleteCursorWorkspaceFn', () => {
     it('should remove an already-empty Cursor workspace bucket', async () => {
         const result = {
             bubblesDeleted: 0,
+            cleanupFailures: [],
             composerDataDeleted: 0,
             composerIds: [],
             headersRemoved: 0,
             transcriptDirsRemoved: 0,
+            transcriptDirsRemovedPaths: [],
             workspaceBucketsUpdated: 0,
         };
         listCursorWorkspaceGroupsMock.mockResolvedValue([workspaceOne]);
         listCursorThreadsForGroupMock.mockResolvedValue([]);
-        deleteCursorWorkspaceBucketsMock.mockResolvedValue(1);
+        deleteCursorWorkspaceBucketsMock.mockResolvedValue({ cleanupFailures: [], removedPaths: [] });
 
-        await expect(deleteCursorWorkspaceFn({ data: { workspaceKey: workspaceOne.key } })).resolves.toEqual(result);
+        await expect(deleteCursorWorkspaceFn({ data: { workspaceKey: workspaceOne.key } })).resolves.toEqual({
+            ...result,
+            workspaceBucketsRemovedPaths: [],
+            workspaceHistoryRemovedPaths: [],
+        });
 
         expect(collectCursorThreadsForDeletionMock).not.toHaveBeenCalled();
         expect(pruneCursorThreadsMock).not.toHaveBeenCalled();
         expect(deleteCursorWorkspaceBucketsMock).toHaveBeenCalledWith(workspaceOne);
         expect(deleteCursorWorkspaceHistoryMock).toHaveBeenCalledWith(workspaceOne);
+    });
+
+    it('should return filesystem cleanup failures after the database deletion succeeds', async () => {
+        const result = {
+            bubblesDeleted: 1,
+            cleanupFailures: [],
+            composerDataDeleted: 1,
+            composerIds: ['thread-1'],
+            headersRemoved: 1,
+            transcriptDirsRemoved: 1,
+            workspaceBucketsUpdated: 1,
+        };
+        listCursorWorkspaceGroupsMock.mockResolvedValue([workspaceOne]);
+        listCursorThreadsForGroupMock.mockResolvedValue([makeThread()]);
+        collectCursorThreadsForDeletionMock.mockResolvedValue([{ composerId: 'thread-1' }]);
+        pruneCursorThreadsMock.mockResolvedValue(result);
+        deleteCursorWorkspaceBucketsMock.mockResolvedValue({
+            cleanupFailures: [{ error: 'workspace bucket is busy', path: '/tmp/bucket-b', phase: 'workspace_buckets' }],
+            removedPaths: ['/tmp/bucket-a'],
+        });
+        deleteCursorWorkspaceHistoryMock.mockResolvedValue({ cleanupFailures: [], removedPaths: [] });
+
+        await expect(deleteCursorWorkspaceFn({ data: { workspaceKey: workspaceOne.key } })).resolves.toMatchObject({
+            ...result,
+            cleanupFailures: [{ error: 'workspace bucket is busy', path: '/tmp/bucket-b', phase: 'workspace_buckets' }],
+            retryTarget: { token: expect.any(String) },
+            workspaceBucketsRemovedPaths: ['/tmp/bucket-a'],
+        });
+        expect(deleteCursorWorkspaceHistoryMock).toHaveBeenCalledWith(workspaceOne);
+    });
+
+    it('should retry cleanup from the returned target after the workspace is no longer discoverable', async () => {
+        const retryPlan = {
+            bucketPaths: [],
+            composerIds: ['thread-1'],
+            folders: workspaceOne.folders,
+            historyPaths: [],
+            transcriptDirs: ['/tmp/transcript/thread-1'],
+            workspaceKey: workspaceOne.key,
+        };
+        const firstResult = {
+            bubblesDeleted: 1,
+            cleanupFailures: [
+                {
+                    error: 'transcript is busy',
+                    path: '/tmp/transcript/thread-1',
+                    phase: 'transcript_directory' as const,
+                },
+            ],
+            composerDataDeleted: 1,
+            composerIds: ['thread-1'],
+            headersRemoved: 1,
+            transcriptDirsRemoved: 0,
+            transcriptDirsRemovedPaths: [],
+            workspaceBucketsUpdated: 1,
+        };
+        const retryResult = { ...firstResult, cleanupFailures: [] };
+        listCursorWorkspaceGroupsMock.mockResolvedValueOnce([workspaceOne]);
+        listCursorThreadsForGroupMock.mockResolvedValueOnce([makeThread()]);
+        collectCursorThreadsForDeletionMock.mockResolvedValueOnce([{ composerId: 'thread-1' }]);
+        pruneCursorThreadsMock.mockResolvedValueOnce(firstResult);
+        retryCursorWorkspaceCleanupMock.mockResolvedValue(retryResult);
+        deleteCursorWorkspaceBucketsMock.mockResolvedValue({ cleanupFailures: [], removedPaths: [] });
+        deleteCursorWorkspaceHistoryMock.mockResolvedValue({ cleanupFailures: [], removedPaths: [] });
+
+        const firstResponse = await deleteCursorWorkspaceFn({ data: { workspaceKey: workspaceOne.key } });
+        expect(firstResponse).toMatchObject({ retryTarget: { token: expect.any(String) } });
+        expect(firstResponse).not.toHaveProperty('retryPlan');
+        if (!firstResponse.retryTarget) {
+            throw new Error('Expected a server-held Cursor cleanup retry token.');
+        }
+        await expect(
+            deleteCursorWorkspaceFn({
+                data: { retry: firstResponse.retryTarget, workspaceKey: 'folder:/tmp/other-workspace' },
+            }),
+        ).rejects.toThrow('does not match the workspace key');
+        expect(retryCursorWorkspaceCleanupMock).not.toHaveBeenCalled();
+        await expect(
+            deleteCursorWorkspaceFn({ data: { retry: firstResponse.retryTarget, workspaceKey: workspaceOne.key } }),
+        ).resolves.toEqual(retryResult);
+
+        expect(retryCursorWorkspaceCleanupMock).toHaveBeenCalledWith(retryPlan);
+        expect(listCursorWorkspaceGroupsMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('should consume a retry token before awaiting cleanup so concurrent replays are rejected', async () => {
+        const result = {
+            bubblesDeleted: 0,
+            cleanupFailures: [],
+            composerDataDeleted: 0,
+            composerIds: ['thread-1'],
+            headersRemoved: 0,
+            transcriptDirsRemoved: 0,
+            workspaceBucketsUpdated: 0,
+        };
+        listCursorWorkspaceGroupsMock.mockResolvedValue([workspaceOne]);
+        listCursorThreadsForGroupMock.mockResolvedValue([makeThread()]);
+        collectCursorThreadsForDeletionMock.mockResolvedValue([{ composerId: 'thread-1' }]);
+        pruneCursorThreadsMock.mockResolvedValue(result);
+        deleteCursorWorkspaceBucketsMock.mockResolvedValue({
+            cleanupFailures: [{ error: 'busy', path: '/tmp/bucket', phase: 'workspace_buckets' }],
+            removedPaths: [],
+        });
+        deleteCursorWorkspaceHistoryMock.mockResolvedValue({ cleanupFailures: [], removedPaths: [] });
+
+        const firstResponse = await deleteCursorWorkspaceFn({ data: { workspaceKey: workspaceOne.key } });
+        if (!firstResponse.retryTarget) {
+            throw new Error('Expected a server-held Cursor cleanup retry token.');
+        }
+
+        let releaseRetry!: (value: typeof result) => void;
+        retryCursorWorkspaceCleanupMock.mockImplementation(
+            () => new Promise((resolve) => (releaseRetry = resolve as (value: typeof result) => void)),
+        );
+        const retryInput = { data: { retry: firstResponse.retryTarget, workspaceKey: workspaceOne.key } };
+        const firstRetry = deleteCursorWorkspaceFn(retryInput);
+        await vi.waitFor(() => expect(retryCursorWorkspaceCleanupMock).toHaveBeenCalledTimes(1));
+
+        await expect(deleteCursorWorkspaceFn(retryInput)).rejects.toThrow('missing or expired');
+        releaseRetry({ ...result, cleanupFailures: [] });
+        await expect(firstRetry).resolves.toMatchObject({ cleanupFailures: [] });
+    });
+
+    it('should validate duplicate batch retry tokens before consuming any token', async () => {
+        listCursorWorkspaceGroupsMock.mockResolvedValue([workspaceOne]);
+        listCursorThreadsForGroupMock.mockResolvedValue([]);
+        deleteCursorWorkspaceBucketsMock.mockResolvedValue({
+            cleanupFailures: [{ error: 'busy', path: '/tmp/bucket', phase: 'workspace_buckets' }],
+            removedPaths: [],
+        });
+        deleteCursorWorkspaceHistoryMock.mockResolvedValue({ cleanupFailures: [], removedPaths: [] });
+
+        const firstResponse = await deleteCursorWorkspaceFn({ data: { workspaceKey: workspaceOne.key } });
+        if (!firstResponse.retryTarget) {
+            throw new Error('Expected a server-held Cursor cleanup retry token.');
+        }
+
+        retryCursorWorkspaceCleanupMock.mockResolvedValue({
+            bubblesDeleted: 0,
+            cleanupFailures: [],
+            composerDataDeleted: 0,
+            composerIds: [],
+            headersRemoved: 0,
+            transcriptDirsRemoved: 0,
+            transcriptDirsRemovedPaths: [],
+            workspaceBucketsUpdated: 0,
+        });
+        await expect(
+            deleteCursorWorkspacesFn({
+                data: {
+                    retryTargets: [firstResponse.retryTarget, firstResponse.retryTarget],
+                    workspaceKeys: [workspaceOne.key, workspaceOne.key],
+                },
+            }),
+        ).rejects.toThrow('must not reuse a token');
+        expect(retryCursorWorkspaceCleanupMock).not.toHaveBeenCalled();
+
+        await expect(
+            deleteCursorWorkspaceFn({ data: { retry: firstResponse.retryTarget, workspaceKey: workspaceOne.key } }),
+        ).resolves.toMatchObject({ cleanupFailures: [] });
     });
 });
 
@@ -310,6 +483,16 @@ describe('deleteCursorWorkspacesFn', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         isCursorRunningMock.mockResolvedValue(false);
+        listCursorWorkspaceGroupsMock.mockReset();
+        deleteCursorWorkspaceBucketsMock.mockResolvedValue({ cleanupFailures: [], removedPaths: [] });
+        deleteCursorWorkspaceHistoryMock.mockResolvedValue({ cleanupFailures: [], removedPaths: [] });
+    });
+
+    it('should reject workspace deletion batches larger than the retry token capacity', async () => {
+        const workspaceKeys = Array.from({ length: 129 }, (_value, index) => `folder:/tmp/workspace-${index}`);
+
+        await expect(deleteCursorWorkspacesFn({ data: { workspaceKeys } })).rejects.toThrow();
+        expect(isCursorRunningMock).not.toHaveBeenCalled();
     });
 
     it('should delete multiple Cursor workspaces in one request', async () => {
@@ -340,7 +523,7 @@ describe('deleteCursorWorkspacesFn', () => {
 
         await expect(
             deleteCursorWorkspacesFn({ data: { workspaceKeys: [workspaceOne.key, workspaceTwo.key] } }),
-        ).resolves.toEqual([workspaceOneResult, workspaceTwoResult]);
+        ).resolves.toMatchObject([workspaceOneResult, workspaceTwoResult]);
 
         expect(isCursorRunningMock).toHaveBeenCalledTimes(1);
         expect(listCursorWorkspaceGroupsMock).toHaveBeenCalledTimes(1);

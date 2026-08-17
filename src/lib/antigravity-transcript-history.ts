@@ -206,16 +206,20 @@ const consumeJsonlText = <T>(
     }
 };
 
-export const readAntigravityJsonlFile = async <T>(
-    filePath: string,
+export const readAntigravityJsonlStream = async <T>(
+    stream: ReadableStream<Uint8Array>,
     parse: (line: string) => T,
-    options: { maxLineBytes?: number } = {},
+    options: { maxLineBytes?: number; signal?: AbortSignal } = {},
 ): Promise<AntigravityJsonlReadResult<T>> => {
     const diagnostics: AntigravityParseDiagnostic[] = [];
     const records: T[] = [];
     const maxLineBytes = options.maxLineBytes ?? DEFAULT_JSONL_MAX_LINE_BYTES;
-    const reader = Bun.file(filePath).stream().getReader();
+    const reader = stream.getReader();
     const decoder = new TextDecoder();
+    const abort = () => {
+        void reader.cancel().catch(() => undefined);
+    };
+    options.signal?.addEventListener('abort', abort, { once: true });
     const state: JsonlStreamState = {
         discardingOverlongLine: false,
         lineBytesSeen: 0,
@@ -226,30 +230,51 @@ export const readAntigravityJsonlFile = async <T>(
     };
     const consume = (text: string) => consumeJsonlText(text, state, { diagnostics, maxLineBytes, parse, records });
 
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-            consume(decoder.decode());
-            break;
+    let completed = false;
+    try {
+        while (true) {
+            if (options.signal?.aborted) {
+                throw new Error('Antigravity JSONL stream aborted');
+            }
+            const { done, value } = await reader.read();
+            if (options.signal?.aborted) {
+                throw new Error('Antigravity JSONL stream aborted');
+            }
+            if (done) {
+                consume(decoder.decode());
+                break;
+            }
+            consume(decoder.decode(value, { stream: true }));
         }
-        consume(decoder.decode(value, { stream: true }));
-    }
-    if (state.pending || state.pendingBytes > 0) {
-        if (!state.discardingOverlongLine) {
-            parseJsonlLine(
-                state.pending,
-                state.lineNumber,
-                state.lineOffset,
-                parse,
-                diagnostics,
-                records,
-                maxLineBytes,
-            );
+        if (state.pending || state.pendingBytes > 0) {
+            if (!state.discardingOverlongLine) {
+                parseJsonlLine(
+                    state.pending,
+                    state.lineNumber,
+                    state.lineOffset,
+                    parse,
+                    diagnostics,
+                    records,
+                    maxLineBytes,
+                );
+            }
         }
+        completed = true;
+        return { diagnostics, records };
+    } finally {
+        options.signal?.removeEventListener('abort', abort);
+        if (!completed) {
+            await reader.cancel().catch(() => undefined);
+        }
+        reader.releaseLock();
     }
-
-    return { diagnostics, records };
 };
+
+export const readAntigravityJsonlFile = async <T>(
+    filePath: string,
+    parse: (line: string) => T,
+    options: { maxLineBytes?: number; signal?: AbortSignal } = {},
+): Promise<AntigravityJsonlReadResult<T>> => readAntigravityJsonlStream(Bun.file(filePath).stream(), parse, options);
 
 const getMinimumStepIndex = (content: string): number | null => {
     let minimum: number | null = null;

@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { readdir } from 'node:fs/promises';
 import os from 'node:os';
 import { unzipSync } from 'fflate';
-import { createConversationMarkdownZip } from './conversation-zip-export';
+import { cleanupConversationZipArtifacts, createConversationMarkdownZip } from './conversation-zip-export';
 
 describe('createConversationMarkdownZip', () => {
     it('should byte-limit multibyte entry names and keep duplicate names unique', async () => {
@@ -71,5 +71,15 @@ describe('createConversationMarkdownZip', () => {
         ).rejects.toThrow('synthetic markdown read failure');
 
         expect((await readdir(os.tmpdir())).filter((name) => name.startsWith('cline_'))).toEqual([]);
+    });
+
+    it('should retain temporary cleanup failures for reporting without throwing them', async () => {
+        const failures = await cleanupConversationZipArtifacts('/tmp/workspace', '/tmp/archive.zip', async (target) => {
+            if (target === '/tmp/archive.zip') {
+                throw new Error('archive cleanup failed');
+            }
+        });
+
+        expect(failures).toEqual([{ error: 'archive cleanup failed', path: '/tmp/archive.zip' }]);
     });
 });

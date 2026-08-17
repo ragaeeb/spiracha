@@ -171,7 +171,7 @@ function ProjectDetailPage() {
     });
 
     const exportThreadMutation = useMutation({
-        mutationFn: async ({ ids, options }: ExportSelectionMutationInput) => {
+        mutationFn: async ({ ids, onDownloadStateChange, options }: ExportSelectionMutationInput) => {
             console.info('[spiracha:export-ui] request', {
                 outputFormat: options.outputFormat,
                 project,
@@ -206,11 +206,16 @@ function ProjectDetailPage() {
             });
 
             if (download.mode === 'download') {
-                downloadTextFile(download.fileName, download.content, download.mimeType);
-                return;
+                downloadTextFile(download.fileName, download.content, download.mimeType, {
+                    onStateChange: onDownloadStateChange,
+                });
+                return download;
             }
 
-            await downloadUrlFileWithCancellation(downloadCancellation, download.fileName, download.downloadUrl);
+            await downloadUrlFileWithCancellation(downloadCancellation, download.fileName, download.downloadUrl, {
+                onStateChange: onDownloadStateChange,
+            });
+            return download;
         },
         onError: (error, variables) => {
             console.error('[spiracha:export-ui] failed', {
@@ -220,7 +225,11 @@ function ProjectDetailPage() {
                 selectedThreadIds: variables.ids,
             });
         },
-        onSuccess: () => {
+        onSuccess: (download) => {
+            if (download.mode === 'download_url' && (download.skippedThreadCount ?? 0) > 0) {
+                return;
+            }
+
             setPendingExport(null);
         },
     });
@@ -373,11 +382,16 @@ function ProjectDetailPage() {
                 forceZipArchive={shouldForceZipArchive(pendingExport)}
                 open={pendingExport !== null}
                 pending={exportThreadMutation.isPending}
+                skippedThreadCount={
+                    exportThreadMutation.data?.mode === 'download_url'
+                        ? exportThreadMutation.data.skippedThreadCount
+                        : undefined
+                }
                 title={pendingExport ? `Export ${pendingExport.threadLabel}` : 'Export thread'}
-                onExport={(options) => {
+                onExport={(options, callbacks) => {
                     if (pendingExport) {
                         exportThreadMutation.mutate(
-                            createExportSelectionMutationInput(pendingExport.threadIds, options),
+                            createExportSelectionMutationInput(pendingExport.threadIds, options, callbacks),
                         );
                     }
                 }}

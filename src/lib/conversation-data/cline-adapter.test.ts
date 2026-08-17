@@ -30,11 +30,13 @@ describe('Cline conversation adapter', () => {
         expect(page.data).toHaveLength(1);
         expect(page.data[0]).toMatchObject({
             id: CLINE_SESSION_ID,
-            metadata: { isFavorited: true, modelId: 'deepseek/deepseek-v4-flash' },
+            metadata: { isFavorited: true },
+            model: 'deepseek/deepseek-v4-flash',
             source: 'cline',
             title: 'Fix issue 1494 per the implementation plan',
             workspacePath,
         });
+        expect(page.data[0]?.metadata).not.toHaveProperty('modelId');
         expect(page.data[0]?.messages).toEqual([
             expect.objectContaining({
                 phase: 'final_answer',

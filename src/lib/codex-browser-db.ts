@@ -592,6 +592,13 @@ export const withReadonlyDb = <T>(dbPath: string, callback: (db: Database) => T)
                 db.close();
             }
         },
+        onRetry: ({ attempt, delayMs, error }) => {
+            console.warn('[spiracha:codex] SQLite read retry', {
+                attempt,
+                delayMs,
+                error: error instanceof Error ? error.message : String(error),
+            });
+        },
     });
 };
 
@@ -781,7 +788,7 @@ const readSessionIndexEntries = (codexDir: string): SessionIndexEntry[] => {
     let fingerprint = 'missing';
     try {
         const metadata = statSync(sessionIndexPath);
-        fingerprint = `${metadata.size}:${metadata.mtimeMs}`;
+        fingerprint = `${metadata.size}:${metadata.mtimeMs}:${metadata.ctimeMs}:${metadata.ino}`;
     } catch {}
     const cached = sessionIndexEntriesCache.get(codexDir);
     if (cached?.fingerprint === fingerprint) {
@@ -869,7 +876,7 @@ const getSessionFileIndexFingerprint = (sessionsDir: string) => {
     const toFingerprintPart = (targetPath: string) => {
         try {
             const metadata = statSync(targetPath);
-            return `${metadata.size}:${metadata.mtimeMs}`;
+            return `${metadata.size}:${metadata.mtimeMs}:${metadata.ctimeMs}:${metadata.ino}`;
         } catch {
             return 'missing';
         }
@@ -1705,8 +1712,8 @@ const deleteThreadIds = (db: Database, dbPath: string, threadIds: string[]): Del
             if (hasRegularFile(historyDbPath)) {
                 // SQLite coordinates this transaction across the attached database for normal commits. A process
                 // crash during WAL commit is not claimed to be crash-atomic across both database files.
-                historyAttached = true;
                 transactionDb.query('ATTACH DATABASE ? AS codex_history').run(historyDbPath);
+                historyAttached = true;
             }
 
             const historyTableNames = historyAttached

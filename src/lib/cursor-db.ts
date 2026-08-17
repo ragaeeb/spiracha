@@ -20,7 +20,7 @@ import {
     getCursorWorkspaceStorageDir,
     resolveCursorUserDir,
 } from './cursor-exporter-types';
-import { buildCursorBubbleKeyLikePattern, isSafeCursorComposerId } from './cursor-id';
+import { getCursorBubbleKeyRange, isCursorBubbleKeyForComposer, isSafeCursorComposerId } from './cursor-id';
 import { asNumber, asObject, asString, type JsonValue, pathExists, toFileUri } from './shared';
 import { runWithSqliteRetry } from './sqlite-retry';
 
@@ -41,6 +41,7 @@ type ComposerHeaderRow = {
 
 export const CURSOR_READONLY_DB_OPEN_FLAGS = constants.SQLITE_OPEN_READONLY | constants.SQLITE_OPEN_URI;
 export const CURSOR_SQLITE_RETRY_DELAYS_MS = [40, 120, 250] as const;
+export const CURSOR_MAX_HISTORY_ENTRIES_BYTES = 8 * 1024 * 1024;
 
 // Cursor databases are WAL-mode. A plain read-only open fails once Cursor cleanly shuts down and
 // removes the -wal/-shm sidecars, and the failure only surfaces at query time (so a try/catch around
@@ -557,12 +558,15 @@ export const findCursorWorkspaceGroups = (groups: CursorWorkspaceGroup[], query:
 };
 
 const countBubbles = (db: Database, composerId: string): { count: number; bytes: number } => {
-    const row = db
-        .query(
-            `SELECT COUNT(*) AS count, COALESCE(SUM(length(value)), 0) AS bytes FROM cursorDiskKV WHERE key LIKE ? ESCAPE '\\'`,
-        )
-        .get(buildCursorBubbleKeyLikePattern(composerId)) as { count: number; bytes: number };
-    return { bytes: row.bytes, count: row.count };
+    const range = getCursorBubbleKeyRange(composerId);
+    const rows = db
+        .query('SELECT key, value FROM cursorDiskKV WHERE key >= ? AND key < ?')
+        .all(range.start, range.end) as Array<{ key: string; value: string }>;
+    const exactRows = rows.filter((row) => isCursorBubbleKeyForComposer(row.key, row.value, composerId));
+    return {
+        bytes: exactRows.reduce((sum, row) => sum + row.value.length, 0),
+        count: exactRows.length,
+    };
 };
 
 export const findCursorTranscriptDirsForComposerIds = async (
@@ -769,6 +773,58 @@ const inferFolderFromBlob = (blob: string): string | null => {
     return matches ? inferFolderFromPaths(matches) : null;
 };
 
+const readCursorHistoryActivityEntry = async (
+    entriesPath: string,
+): Promise<{ folder: string; lastActiveMs: number } | null> => {
+    let entriesStat: Awaited<ReturnType<typeof stat>>;
+    try {
+        entriesStat = await stat(entriesPath);
+    } catch (error) {
+        if ((error as { code?: unknown }).code !== 'ENOENT' && (error as { code?: unknown }).code !== 'ENOTDIR') {
+            warnCursorDataIssue('history_entries_stat_failed', {
+                entriesPath,
+                error: error instanceof Error ? error.message : String(error),
+            });
+        }
+        return null;
+    }
+    if (entriesStat.size > CURSOR_MAX_HISTORY_ENTRIES_BYTES) {
+        warnCursorDataIssue('history_entries_oversized', {
+            entriesPath,
+            maxBytes: CURSOR_MAX_HISTORY_ENTRIES_BYTES,
+            sizeBytes: entriesStat.size,
+        });
+        return null;
+    }
+
+    let data: { resource?: unknown; entries?: unknown };
+    try {
+        data = (await Bun.file(entriesPath).json()) as { resource?: unknown; entries?: unknown };
+    } catch (error) {
+        warnCursorDataIssue('invalid_history_entries_json', {
+            entriesPath,
+            error: error instanceof Error ? error.message : String(error),
+        });
+        return null;
+    }
+
+    const resource = typeof data.resource === 'string' ? data.resource : '';
+    const folder = containerRootFromPath(resource);
+    if (!folder || isNoisePath(folder)) {
+        return null;
+    }
+
+    const entries = Array.isArray(data.entries) ? data.entries : [];
+    const timestamps = entries.map((item) => {
+        if (!item || typeof item !== 'object') {
+            return 0;
+        }
+        const timestamp = (item as { timestamp?: unknown }).timestamp;
+        return typeof timestamp === 'number' && Number.isFinite(timestamp) ? timestamp : 0;
+    });
+    return { folder, lastActiveMs: Math.max(0, ...timestamps) };
+};
+
 const readCursorFileHistoryProjectActivity = async (userDir: string): Promise<Map<string, number>> => {
     const historyDir = path.join(userDir, 'History');
     let entries: Array<{ isDirectory: () => boolean; name: string }> = [];
@@ -784,54 +840,44 @@ const readCursorFileHistoryProjectActivity = async (userDir: string): Promise<Ma
             continue;
         }
 
-        const entriesPath = path.join(historyDir, entry.name, 'entries.json');
-        let data: { resource?: string; entries?: Array<{ timestamp?: number }> };
-        try {
-            data = (await Bun.file(entriesPath).json()) as {
-                resource?: string;
-                entries?: Array<{ timestamp?: number }>;
-            };
-        } catch {
-            continue;
+        const record = await readCursorHistoryActivityEntry(path.join(historyDir, entry.name, 'entries.json'));
+        if (record) {
+            activity.set(record.folder, Math.max(activity.get(record.folder) ?? 0, record.lastActiveMs));
         }
-
-        const resource = typeof data.resource === 'string' ? data.resource : '';
-        const folder = containerRootFromPath(resource);
-        if (!folder || isNoisePath(folder)) {
-            continue;
-        }
-
-        const lastActiveMs = Math.max(0, ...(data.entries ?? []).map((item) => item.timestamp ?? 0));
-        activity.set(folder, Math.max(activity.get(folder) ?? 0, lastActiveMs));
     }
 
     return activity;
 };
 
+const extractCursorBubblePaths = (value: string): string[] => {
+    let bubble: Record<string, JsonValue>;
+    try {
+        bubble = JSON.parse(value) as Record<string, JsonValue>;
+    } catch {
+        return [];
+    }
+
+    const tool = asObject(bubble.toolFormerData ?? null);
+    if (!tool) {
+        return [];
+    }
+
+    const blob = `${asString(tool.rawArgs ?? null) ?? ''} ${asString(tool.params ?? null) ?? ''}`;
+    return blob.match(ABS_PATH_RE) ?? [];
+};
+
 const inferFolderFromBubbles = (db: Database, composerId: string): string | null => {
+    const range = getCursorBubbleKeyRange(composerId);
     const rows = db
-        .query(`SELECT value FROM cursorDiskKV WHERE key LIKE ? ESCAPE '\\' LIMIT 80`)
-        .all(buildCursorBubbleKeyLikePattern(composerId)) as Array<{ value: string }>;
+        .query('SELECT key, value FROM cursorDiskKV WHERE key >= ? AND key < ? LIMIT 80')
+        .all(range.start, range.end) as Array<{ key: string; value: string }>;
     const paths: string[] = [];
 
-    for (const { value } of rows) {
-        let bubble: Record<string, JsonValue>;
-        try {
-            bubble = JSON.parse(value) as Record<string, JsonValue>;
-        } catch {
+    for (const { key, value } of rows) {
+        if (!isCursorBubbleKeyForComposer(key, value, composerId)) {
             continue;
         }
-
-        const tool = asObject(bubble.toolFormerData ?? null);
-        if (!tool) {
-            continue;
-        }
-
-        const blob = `${asString(tool.rawArgs ?? null) ?? ''} ${asString(tool.params ?? null) ?? ''}`;
-        const matches = blob.match(ABS_PATH_RE);
-        if (matches) {
-            paths.push(...matches);
-        }
+        paths.push(...extractCursorBubblePaths(value));
 
         if (paths.length > 200) {
             break;
@@ -929,30 +975,42 @@ const parseGlobalHead = (value: string | null): GlobalHead => {
     };
 };
 
-const readBubbleStats = (db: Database, composerIds?: Iterable<string>): Map<string, BubbleStat> => {
-    const ids = composerIds ? [...composerIds] : null;
-    if (ids?.length === 0) {
+const readBubbleStats = (db: Database, composerIds: Iterable<string>): Map<string, BubbleStat> => {
+    const ids = [...new Set(composerIds)];
+    if (ids.length === 0) {
         return new Map();
     }
 
-    // Keys are `bubbleId:<composerId>:<bubbleId>`; composer ids contain no colon, so slice up to the
-    // next ':' rather than assuming a fixed UUID length (keeps tests and any id format working).
-    const query =
-        ids === null
-            ? `SELECT substr(key, 10, instr(substr(key, 10), ':') - 1) AS id,
-                    COUNT(*) AS count,
-                    COALESCE(SUM(length(value)), 0) AS bytes
-             FROM cursorDiskKV WHERE key GLOB 'bubbleId:*:*' GROUP BY id`
-            : `SELECT substr(key, 10, instr(substr(key, 10), ':') - 1) AS id,
-                    COUNT(*) AS count,
-                    COALESCE(SUM(length(value)), 0) AS bytes
-             FROM cursorDiskKV
-             WHERE key GLOB 'bubbleId:*:*'
-                AND substr(key, 10, instr(substr(key, 10), ':') - 1) IN (${ids.map(() => '?').join(',')})
-             GROUP BY id`;
-    const rows = db.query(query).all(...(ids ?? [])) as Array<{ id: string; count: number; bytes: number }>;
+    const stats = new Map<string, BubbleStat>();
+    for (let index = 0; index < ids.length; index += 200) {
+        const chunk = ids.slice(index, index + 200);
+        const query = chunk
+            .map(() => 'SELECT ? AS composerId, key, value FROM cursorDiskKV WHERE key >= ? AND key < ?')
+            .join(' UNION ALL ');
+        const parameters = chunk.flatMap((composerId) => {
+            const range = getCursorBubbleKeyRange(composerId);
+            return [composerId, range.start, range.end];
+        });
+        const rows = db.query(query).all(...parameters) as Array<{
+            composerId: string;
+            key: string;
+            value: string;
+        }>;
+        for (const row of rows) {
+            if (!isCursorBubbleKeyForComposer(row.key, row.value, row.composerId)) {
+                continue;
+            }
 
-    return new Map(rows.map((row) => [row.id, { bytes: row.bytes, count: row.count }]));
+            const composerId = row.composerId;
+            const current = stats.get(composerId) ?? { bytes: 0, count: 0 };
+            stats.set(composerId, {
+                bytes: current.bytes + row.value.length,
+                count: current.count + 1,
+            });
+        }
+    }
+
+    return stats;
 };
 
 const readHeaderInfo = (globalDbPath: string, strict = false): Map<string, HeaderInfo> => {
@@ -1234,11 +1292,11 @@ const buildDiscovery = async (userDir: string, options: CursorDiscoveryOptions =
         const headerInfo = readHeaderInfo(globalDbPath, options.strict);
         const bucketComposerIds =
             options.updatedAfterMs === undefined ? collectBucketComposerIds(buckets, options.strict) : new Map();
-        const stats = readBubbleStats(db, options.updatedAfterMs === undefined ? undefined : heads.keys());
         const universe =
             options.updatedAfterMs === undefined
                 ? new Set<string>([...heads.keys(), ...headerInfo.keys(), ...bucketComposerIds.keys()])
                 : new Set<string>(heads.keys());
+        const stats = readBubbleStats(db, universe);
         const resolved: ResolvedThread[] = [];
 
         for (const composerId of universe) {
@@ -1857,8 +1915,11 @@ export const readCursorThreadTranscriptWithAgentFiles = async (
 
 const readAllBubbleIds = (db: Database, composerId: string): string[] => {
     const prefix = `bubbleId:${composerId}:`;
+    const range = getCursorBubbleKeyRange(composerId);
     const rows = db
-        .query(`SELECT key FROM cursorDiskKV WHERE key LIKE ? ESCAPE '\\' ORDER BY key ASC`)
-        .all(buildCursorBubbleKeyLikePattern(composerId)) as Array<{ key: string }>;
-    return rows.map((row) => row.key.slice(prefix.length));
+        .query('SELECT key, value FROM cursorDiskKV WHERE key >= ? AND key < ? ORDER BY key ASC')
+        .all(range.start, range.end) as Array<{ key: string; value: string }>;
+    return rows
+        .filter((row) => isCursorBubbleKeyForComposer(row.key, row.value, composerId))
+        .map((row) => row.key.slice(prefix.length));
 };

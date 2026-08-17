@@ -1385,6 +1385,29 @@ describe('codex browser db', () => {
         expect(detail.thread.title).toBe('Implement thread hierarchy');
     });
 
+    it('should invalidate session-index metadata when content changes without size or mtime changes', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-session-index-fingerprint-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const sessionIndexPath = path.join(tempRoot, 'session_index.jsonl');
+        const fixedTime = new Date('2026-01-01T00:00:00.000Z');
+        await Bun.write(
+            sessionIndexPath,
+            `${JSON.stringify({ id: fixture.threads[0]!.threadId, thread_name: 'Alpha title' })}\n`,
+        );
+        await utimes(sessionIndexPath, fixedTime, fixedTime);
+
+        expect(getThreadBrowseData(fixture.dbPath, fixture.threads[0]!.threadId).thread.title).toBe('Alpha title');
+
+        await Bun.write(
+            sessionIndexPath,
+            `${JSON.stringify({ id: fixture.threads[0]!.threadId, thread_name: 'Bravo title' })}\n`,
+        );
+        await utimes(sessionIndexPath, fixedTime, fixedTime);
+
+        expect(getThreadBrowseData(fixture.dbPath, fixture.threads[0]!.threadId).thread.title).toBe('Bravo title');
+    });
+
     it('should retain every model used by a project thread instead of only the final database model', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-model-history-test-'));
         tempPaths.push(tempRoot);
@@ -1908,6 +1931,26 @@ describe('codex browser db', () => {
             count: 1,
         });
         verificationDb.close();
+    });
+
+    it('should detach history only after a successful ATTACH', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-attach-cleanup-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        await Bun.write(path.join(tempRoot, 'thread_history_1.sqlite'), 'not a sqlite database');
+        const warnings: unknown[][] = [];
+        const originalWarn = console.warn;
+        console.warn = (...args) => {
+            warnings.push(args);
+        };
+
+        try {
+            await expect(deleteCodexThread(fixture.dbPath, fixture.threads[0]!.threadId)).rejects.toThrow();
+        } finally {
+            console.warn = originalWarn;
+        }
+
+        expect(warnings.some((args) => String(args[0]).includes('SQLite history detach failed'))).toBe(false);
     });
 
     it('should keep a deleted DB thread from reappearing through the fallback session index', async () => {

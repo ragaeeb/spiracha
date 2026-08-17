@@ -11,6 +11,16 @@ export class DownloadCancelledError extends Error {
     }
 }
 
+export class DownloadAvailabilityError extends Error {
+    readonly status: number;
+
+    constructor(status: number) {
+        super(`Download URL probe failed with HTTP ${status}`);
+        this.name = 'DownloadAvailabilityError';
+        this.status = status;
+    }
+}
+
 type DownloadTextOptions = {
     createObjectUrl?: (blob: Blob) => string;
     documentRef?: Document;
@@ -216,6 +226,10 @@ const probeDownloadUrl = async (
             return true;
         }
 
+        if (response.status !== 404) {
+            throw new DownloadAvailabilityError(response.status);
+        }
+
         logDownloadEvent(logger, 'warn', 'url_not_ready', {
             attempt,
             downloadUrl,
@@ -227,6 +241,10 @@ const probeDownloadUrl = async (
         const cancellationError = asCancellationError(error, signal);
         if (cancellationError) {
             throw cancellationError;
+        }
+
+        if (error instanceof DownloadAvailabilityError) {
+            throw error;
         }
 
         logDownloadEvent(logger, 'warn', 'url_probe_failed', {

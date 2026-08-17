@@ -46,6 +46,33 @@ export type ConversationMarkdownZip = {
     mimeType: 'application/zip';
 };
 
+export type ConversationZipCleanupFailure = {
+    error: string;
+    path: string;
+};
+
+export const cleanupConversationZipArtifacts = async (
+    workspaceDir: string,
+    zipPath: string,
+    remove: typeof rm = rm,
+): Promise<ConversationZipCleanupFailure[]> => {
+    const results = await Promise.allSettled([
+        remove(workspaceDir, { force: true, recursive: true }),
+        remove(zipPath, { force: true }),
+    ]);
+    const paths = [workspaceDir, zipPath];
+    return results.flatMap((result, index) =>
+        result.status === 'rejected'
+            ? [
+                  {
+                      error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+                      path: paths[index]!,
+                  },
+              ]
+            : [],
+    );
+};
+
 const toSafeFileBaseName = (value: string | null, fallback: string) => {
     const sanitized = sanitizeExportFileName(value?.trim() || '') || sanitizeExportFileName(fallback) || 'conversation';
     return truncateUtf8(sanitized, EXPORT_BASE_NAME_BYTE_LIMIT) || 'conversation';
@@ -80,6 +107,9 @@ export const createConversationMarkdownZip = async ({
             mimeType: 'application/zip',
         };
     } finally {
-        await Promise.all([rm(workspaceDir, { force: true, recursive: true }), rm(zipPath, { force: true })]);
+        const cleanupFailures = await cleanupConversationZipArtifacts(workspaceDir, zipPath);
+        for (const failure of cleanupFailures) {
+            console.warn('[spiracha:export] temporary cleanup failed', failure);
+        }
     }
 };

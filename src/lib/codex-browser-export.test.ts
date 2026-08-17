@@ -4,7 +4,13 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { strFromU8, unzipSync } from 'fflate';
-import { isArchiveWideFailure, renderCodexThreadDownload, renderCodexThreadsDownload } from './codex-browser-export';
+import { CodexThreadNotFoundError } from './codex-browser-db';
+import {
+    isArchiveWideFailure,
+    isPerEntryExportFailure,
+    renderCodexThreadDownload,
+    renderCodexThreadsDownload,
+} from './codex-browser-export';
 import { createCodexBrowserFixture, createCodexFixture } from './codex-test-helpers';
 import { UI_EXPORT_DIR_ENV } from './ui-export-files';
 
@@ -86,6 +92,11 @@ describe('renderCodexThreadDownload', () => {
         expect(isArchiveWideFailure({ code: 'EACCES' })).toBe(true);
         expect(isArchiveWideFailure({ cause: { code: 'OTHER' } })).toBe(false);
         expect(isArchiveWideFailure({ code: 42 })).toBe(false);
+    });
+
+    it('should only classify known rollout failures as per-entry export failures', () => {
+        expect(isPerEntryExportFailure(new Error('unexpected renderer bug'))).toBe(false);
+        expect(isPerEntryExportFailure(new CodexThreadNotFoundError('thread-missing'))).toBe(true);
     });
 
     it('should render a thread export to downloadable markdown content', async () => {

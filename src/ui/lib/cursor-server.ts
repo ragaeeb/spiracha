@@ -1,20 +1,130 @@
-import type { CursorWorkspaceGroup } from '@spiracha/lib/cursor-exporter-types';
+import { randomUUID } from 'node:crypto';
+import path from 'node:path';
+import type {
+    CursorCleanupRetryPlan,
+    CursorCleanupRetryTarget,
+    CursorPruneResult,
+    CursorWorkspaceGroup,
+} from '@spiracha/lib/cursor-exporter-types';
 import { isSafeCursorComposerId } from '@spiracha/lib/cursor-id';
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
 import { renderSourceSessionDownload, renderSourceSessionsDownload } from './source-session-export-server';
 
+const composerIdSchema = z.string().refine(isSafeCursorComposerId, {
+    message: 'Invalid Cursor composer id.',
+});
+
+const cleanupRetryTargetSchema = z.object({
+    token: z.string().uuid(),
+});
+
+const CURSOR_CLEANUP_RETRY_TTL_MS = 5 * 60 * 1000;
+const CURSOR_CLEANUP_RETRY_MAX = 128;
+
 const workspaceSchema = z.object({
     workspaceKey: z.string().min(1),
 });
 
-const workspacesSchema = z.object({
-    workspaceKeys: z.array(z.string().min(1)).min(1),
+const deleteWorkspaceSchema = workspaceSchema.extend({
+    retry: cleanupRetryTargetSchema.optional(),
 });
 
-const composerIdSchema = z.string().refine(isSafeCursorComposerId, {
-    message: 'Invalid Cursor composer id.',
+const workspacesSchema = z.object({
+    retryTargets: z.array(cleanupRetryTargetSchema.nullable()).max(CURSOR_CLEANUP_RETRY_MAX).optional(),
+    workspaceKeys: z.array(z.string().min(1)).min(1).max(CURSOR_CLEANUP_RETRY_MAX),
 });
+
+// Keep filesystem retry paths server-side; clients receive only bounded, opaque, single-use tokens.
+const cursorCleanupRetryPlans = new Map<string, { createdAtMs: number; plan: CursorCleanupRetryPlan }>();
+
+const purgeExpiredCursorCleanupRetryPlans = (nowMs = Date.now()) => {
+    for (const [token, record] of cursorCleanupRetryPlans) {
+        if (nowMs - record.createdAtMs >= CURSOR_CLEANUP_RETRY_TTL_MS) {
+            cursorCleanupRetryPlans.delete(token);
+        }
+    }
+};
+
+const registerCursorCleanupRetryPlan = (plan: CursorCleanupRetryPlan): CursorCleanupRetryTarget => {
+    const nowMs = Date.now();
+    purgeExpiredCursorCleanupRetryPlans(nowMs);
+    while (cursorCleanupRetryPlans.size >= CURSOR_CLEANUP_RETRY_MAX) {
+        const oldestToken = cursorCleanupRetryPlans.keys().next().value;
+        if (typeof oldestToken !== 'string') {
+            break;
+        }
+        cursorCleanupRetryPlans.delete(oldestToken);
+    }
+
+    const token = randomUUID();
+    cursorCleanupRetryPlans.set(token, { createdAtMs: nowMs, plan });
+    return { token };
+};
+
+const resolveCursorCleanupRetryPlan = (target: CursorCleanupRetryTarget): CursorCleanupRetryPlan => {
+    purgeExpiredCursorCleanupRetryPlans();
+    const record = cursorCleanupRetryPlans.get(target.token);
+    if (!record) {
+        throw new Error('Cursor cleanup retry token is missing or expired.');
+    }
+
+    return record.plan;
+};
+
+const consumeCursorCleanupRetryPlan = (
+    target: CursorCleanupRetryTarget,
+    workspaceKey: string,
+): CursorCleanupRetryPlan => {
+    const plan = resolveCursorCleanupRetryPlan(target);
+    if (plan.workspaceKey !== workspaceKey) {
+        throw new Error('Cursor workspace retry target does not match the workspace key.');
+    }
+
+    cursorCleanupRetryPlans.delete(target.token);
+    return plan;
+};
+
+const consumeCursorCleanupRetryPlans = (
+    targets: Array<CursorCleanupRetryTarget | null>,
+    workspaceKeys: string[],
+): Array<CursorCleanupRetryPlan | null> => {
+    const plans = targets.map(() => null as CursorCleanupRetryPlan | null);
+    const seenTokens = new Set<string>();
+    for (const [index, target] of targets.entries()) {
+        if (!target) {
+            continue;
+        }
+        if (seenTokens.has(target.token)) {
+            throw new Error('Cursor workspace retry targets must not reuse a token in one request.');
+        }
+        seenTokens.add(target.token);
+        const plan = resolveCursorCleanupRetryPlan(target);
+        if (plan.workspaceKey !== workspaceKeys[index]) {
+            throw new Error('Cursor workspace retry target does not match the workspace key.');
+        }
+        plans[index] = plan;
+    }
+
+    for (const target of targets) {
+        if (target) {
+            cursorCleanupRetryPlans.delete(target.token);
+        }
+    }
+
+    return plans;
+};
+
+const finalizeCursorPruneResult = (result: CursorPruneResult): CursorPruneResult => {
+    const retryPlan = result.retryPlan;
+    delete result.retryPlan;
+    delete result.retryTarget;
+    if (result.cleanupFailures.length > 0 && retryPlan) {
+        result.retryTarget = registerCursorCleanupRetryPlan(retryPlan);
+    }
+
+    return result;
+};
 
 const threadSchema = z.object({
     composerId: composerIdSchema,
@@ -81,6 +191,11 @@ const findGroupsByKeys = async (workspaceKeys: string[]) => {
     });
 };
 
+const toCleanupFailureMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
+const isCursorSafetyError = (error: unknown): boolean =>
+    error instanceof Error && error.message.startsWith('Unsafe Cursor');
+
 const deleteCursorWorkspaceGroup = async (group: CursorWorkspaceGroup) => {
     const { listCursorThreadsForGroup } = await import('@spiracha/lib/cursor-db');
     const {
@@ -96,21 +211,81 @@ const deleteCursorWorkspaceGroup = async (group: CursorWorkspaceGroup) => {
             ...group.buckets.flatMap((bucket) => bucket.threadComposerIds),
         ]),
     ];
-    const result =
+    const deletableThreads = composerIds.length === 0 ? [] : await collectCursorThreadsForDeletion(composerIds);
+    const result: CursorPruneResult =
         composerIds.length === 0
             ? {
                   bubblesDeleted: 0,
+                  cleanupFailures: [],
                   composerDataDeleted: 0,
                   composerIds: [],
                   headersRemoved: 0,
                   transcriptDirsRemoved: 0,
+                  transcriptDirsRemovedPaths: [],
                   workspaceBucketsUpdated: 0,
               }
-            : await pruneCursorThreads(await collectCursorThreadsForDeletion(composerIds), true);
+            : await pruneCursorThreads(deletableThreads, true);
 
-    await deleteCursorWorkspaceBuckets(group);
-    await deleteCursorWorkspaceHistory(group);
-    return result;
+    result.cleanupFailures ??= [];
+    try {
+        const bucketCleanup = await deleteCursorWorkspaceBuckets(group);
+        result.workspaceBucketsRemovedPaths = bucketCleanup.removedPaths;
+        result.cleanupFailures.push(...bucketCleanup.cleanupFailures);
+    } catch (error) {
+        if (isCursorSafetyError(error)) {
+            throw error;
+        }
+        result.cleanupFailures.push({
+            error: toCleanupFailureMessage(error),
+            phase: 'workspace_buckets',
+        });
+    }
+    try {
+        const historyCleanup = await deleteCursorWorkspaceHistory(group);
+        result.workspaceHistoryRemovedPaths = historyCleanup.removedPaths;
+        result.cleanupFailures.push(...historyCleanup.cleanupFailures);
+    } catch (error) {
+        if (isCursorSafetyError(error)) {
+            throw error;
+        }
+        result.cleanupFailures.push({
+            error: toCleanupFailureMessage(error),
+            phase: 'workspace_history',
+        });
+    }
+    if (result.cleanupFailures.length > 0) {
+        const transcriptFailure = result.cleanupFailures.some((failure) => failure.phase === 'transcript_directory');
+        const bucketFailure = result.cleanupFailures.some((failure) => failure.phase === 'workspace_buckets');
+        result.retryPlan = {
+            bucketPaths: result.cleanupFailures
+                .filter((failure) => failure.phase === 'workspace_buckets' && failure.path)
+                .map((failure) => failure.path!)
+                .concat(
+                    bucketFailure &&
+                        result.cleanupFailures.some((failure) => failure.phase === 'workspace_buckets' && !failure.path)
+                        ? group.buckets.map((bucket) => path.dirname(bucket.workspaceJsonPath))
+                        : [],
+                ),
+            composerIds,
+            folders: group.folders,
+            historyPaths: result.cleanupFailures
+                .filter((failure) => failure.phase === 'workspace_history' && failure.path)
+                .map((failure) => failure.path!),
+            transcriptDirs: result.cleanupFailures
+                .filter((failure) => failure.phase === 'transcript_directory' && failure.path)
+                .map((failure) => failure.path!)
+                .concat(
+                    transcriptFailure &&
+                        result.cleanupFailures.some(
+                            (failure) => failure.phase === 'transcript_directory' && !failure.path,
+                        )
+                        ? deletableThreads.flatMap((thread) => thread.transcriptDirs)
+                        : [],
+                ),
+            workspaceKey: group.key,
+        };
+    }
+    return finalizeCursorPruneResult(result);
 };
 
 const findCursorWorkspacesByComposerId = async (
@@ -349,9 +524,14 @@ export const deleteCursorThreadsFn = createServerFn({ method: 'POST' })
     });
 
 export const deleteCursorWorkspaceFn = createServerFn({ method: 'POST' })
-    .validator(workspaceSchema)
+    .validator(deleteWorkspaceSchema)
     .handler(async ({ data }) => {
         await ensureCursorClosedForWrite();
+        if (data.retry) {
+            const retryPlan = consumeCursorCleanupRetryPlan(data.retry, data.workspaceKey);
+            const { retryCursorWorkspaceCleanup } = await import('@spiracha/lib/cursor-recovery');
+            return finalizeCursorPruneResult(await retryCursorWorkspaceCleanup(retryPlan));
+        }
         const group = await findGroupByKey(data.workspaceKey);
         return deleteCursorWorkspaceGroup(group);
     });
@@ -360,10 +540,23 @@ export const deleteCursorWorkspacesFn = createServerFn({ method: 'POST' })
     .validator(workspacesSchema)
     .handler(async ({ data }) => {
         await ensureCursorClosedForWrite();
-        const groups = await findGroupsByKeys(data.workspaceKeys);
-        const results = [];
-        for (const group of groups) {
-            results.push(await deleteCursorWorkspaceGroup(group));
+        const retryTargets = data.retryTargets ?? [];
+        if (retryTargets.length > 0 && retryTargets.length !== data.workspaceKeys.length) {
+            throw new Error('Cursor workspace retry targets must match the workspace key count.');
+        }
+        const retryPlans = consumeCursorCleanupRetryPlans(retryTargets, data.workspaceKeys);
+        const groupKeys = data.workspaceKeys.filter((_workspaceKey, index) => !retryPlans[index]);
+        const groupsByKey = new Map((await findGroupsByKeys(groupKeys)).map((group) => [group.key, group]));
+        const results: CursorPruneResult[] = [];
+        for (const [index, workspaceKey] of data.workspaceKeys.entries()) {
+            const retryTarget = retryTargets[index];
+            const retryPlan = retryPlans[index];
+            if (retryTarget && retryPlan) {
+                const { retryCursorWorkspaceCleanup } = await import('@spiracha/lib/cursor-recovery');
+                results.push(finalizeCursorPruneResult(await retryCursorWorkspaceCleanup(retryPlan)));
+                continue;
+            }
+            results.push(await deleteCursorWorkspaceGroup(groupsByKey.get(workspaceKey)!));
         }
 
         return results;

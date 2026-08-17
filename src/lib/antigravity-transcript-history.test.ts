@@ -5,6 +5,7 @@ import path from 'node:path';
 import {
     parseAntigravityJsonlText,
     readAntigravityJsonlFile,
+    readAntigravityJsonlStream,
     readAntigravityTranscriptHistory,
 } from './antigravity-transcript-history';
 
@@ -90,6 +91,56 @@ describe('Antigravity transcript history', () => {
         expect(result.diagnostics).toEqual([
             expect.objectContaining({ byteOffset: Buffer.byteLength(`${first}\r\n`), line: 2 }),
         ]);
+    });
+
+    it('should cancel an interrupted JSONL stream and release its reader', async () => {
+        const firstRecord = new TextEncoder().encode('{"step_index":1}\n');
+        let cancelled = false;
+        const stream = new ReadableStream<Uint8Array>({
+            cancel() {
+                cancelled = true;
+            },
+            pull(controller) {
+                if (controller.desiredSize && controller.desiredSize > 0) {
+                    controller.enqueue(firstRecord);
+                }
+            },
+        });
+        const abortController = new AbortController();
+        const read = readAntigravityJsonlStream(stream, (line) => JSON.parse(line) as { step_index: number }, {
+            signal: abortController.signal,
+        });
+        await Promise.resolve();
+        abortController.abort();
+
+        await expect(read).rejects.toThrow('aborted');
+        expect(cancelled).toBe(true);
+    });
+
+    it('should reject when abort cancels a blocked reader that reports done', async () => {
+        let resolveRead: ((result: ReadableStreamReadResult<Uint8Array>) => void) | undefined;
+        let cancelled = false;
+        const stream = {
+            getReader: () => ({
+                cancel: async () => {
+                    cancelled = true;
+                    resolveRead?.({ done: true, value: undefined });
+                },
+                read: () =>
+                    new Promise<ReadableStreamReadResult<Uint8Array>>((resolve) => {
+                        resolveRead = resolve;
+                    }),
+                releaseLock: () => undefined,
+            }),
+        } as unknown as ReadableStream<Uint8Array>;
+        const abortController = new AbortController();
+        const read = readAntigravityJsonlStream(stream, JSON.parse, { signal: abortController.signal });
+
+        await Promise.resolve();
+        abortController.abort();
+
+        await expect(read).rejects.toThrow('aborted');
+        expect(cancelled).toBe(true);
     });
 
     it('should skip history recovery when the current transcript already starts at its first step', async () => {

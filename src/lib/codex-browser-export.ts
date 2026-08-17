@@ -10,6 +10,7 @@ import {
 } from './codex-browser-db';
 import type { ThreadBrowseData } from './codex-browser-types';
 import {
+    CodexRolloutContentError,
     CodexRolloutMutationError,
     type CodexRolloutSnapshot,
     CodexRolloutSourceError,
@@ -62,6 +63,7 @@ export type CodexThreadDownload =
 
 const LARGE_BROWSER_EXPORT_THRESHOLD_BYTES = 128 * 1024 * 1024;
 const MAX_ROLLOUT_EXPORT_ATTEMPTS = 2;
+const ROLLOUT_RETRY_BACKOFF_MS = 40;
 const BATCH_MANIFEST_FILE_NAME = 'spiracha-manifest.json';
 const BATCH_MANIFEST_SCHEMA_VERSION = 1;
 const ARCHIVE_WIDE_FILE_ERROR_CODES = new Set(['EACCES', 'EIO', 'ENOSPC', 'ENOTDIR', 'EPERM', 'EROFS']);
@@ -190,12 +192,19 @@ const withStableRolloutSnapshot = async <T>({
 
             return await render({ browseData, rollout, snapshotPath });
         } catch (error) {
-            if (error instanceof CodexRolloutMutationError && attempt < MAX_ROLLOUT_EXPORT_ATTEMPTS) {
+            if (
+                (error instanceof CodexRolloutContentError || error instanceof CodexRolloutMutationError) &&
+                attempt < MAX_ROLLOUT_EXPORT_ATTEMPTS
+            ) {
+                const delayMs = ROLLOUT_RETRY_BACKOFF_MS * 2 ** (attempt - 1);
                 logExportEvent('warn', 'rollout_retry', {
                     attempt,
+                    delayMs,
+                    errorCode: error.code,
                     nextAttempt: attempt + 1,
                     threadId,
                 });
+                await Bun.sleep(delayMs);
                 continue;
             }
 
@@ -254,6 +263,15 @@ export const isArchiveWideFailure = (error: unknown) => {
     const candidate = error as { cause?: unknown; code?: unknown };
     const codes = [candidate.code, (candidate.cause as { code?: unknown } | undefined)?.code];
     return codes.some((code): code is string => typeof code === 'string' && ARCHIVE_WIDE_FILE_ERROR_CODES.has(code));
+};
+
+export const isPerEntryExportFailure = (error: unknown) => {
+    return (
+        error instanceof CodexThreadNotFoundError ||
+        error instanceof CodexRolloutContentError ||
+        error instanceof CodexRolloutMutationError ||
+        error instanceof CodexRolloutSourceError
+    );
 };
 
 export const renderCodexThreadDownload = async (
@@ -449,6 +467,10 @@ const renderCodexBatchEntry = async (
         return { fileName: relativeFileName, status: 'exported', threadId: result.threadId };
     } catch (error) {
         if (isArchiveWideFailure(error)) {
+            throw error;
+        }
+
+        if (!isPerEntryExportFailure(error)) {
             throw error;
         }
 

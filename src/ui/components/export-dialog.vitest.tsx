@@ -90,13 +90,16 @@ describe('ExportDialog', () => {
 
         fireEvent.click(screen.getByText('Download export'));
 
-        expect(onExport).toHaveBeenCalledWith({
-            includeCommentary: false,
-            includeMetadata: true,
-            includeTools: true,
-            outputFormat: 'md',
-            zipArchive: false,
-        });
+        expect(onExport).toHaveBeenCalledWith(
+            expect.objectContaining({
+                includeCommentary: false,
+                includeMetadata: true,
+                includeTools: true,
+                outputFormat: 'md',
+                zipArchive: false,
+            }),
+            expect.any(Object),
+        );
     });
 
     it('should submit the selected export options', async () => {
@@ -113,13 +116,16 @@ describe('ExportDialog', () => {
             fireEvent.click(screen.getByText('Plain text (.txt)'));
             fireEvent.click(screen.getAllByRole('button', { name: 'Download export' })[0]!);
 
-            expect(onExport).toHaveBeenCalledWith({
-                includeCommentary: true,
-                includeMetadata: false,
-                includeTools: true,
-                outputFormat: 'txt',
-                zipArchive: false,
-            });
+            expect(onExport).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    includeCommentary: true,
+                    includeMetadata: false,
+                    includeTools: true,
+                    outputFormat: 'txt',
+                    zipArchive: false,
+                }),
+                expect.any(Object),
+            );
         } finally {
             HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
         }
@@ -160,13 +166,16 @@ describe('ExportDialog', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
         fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
 
-        expect(onExport).toHaveBeenCalledWith({
-            includeCommentary: false,
-            includeMetadata: true,
-            includeTools: false,
-            outputFormat: 'md',
-            zipArchive: false,
-        });
+        expect(onExport).toHaveBeenCalledWith(
+            expect.objectContaining({
+                includeCommentary: false,
+                includeMetadata: true,
+                includeTools: false,
+                outputFormat: 'md',
+                zipArchive: false,
+            }),
+            expect.any(Object),
+        );
         expect(onOpenChange).toHaveBeenCalledWith(false);
         expect(cancelActiveDownloads).toHaveBeenCalledTimes(1);
         cancelActiveDownloads.mockRestore();
@@ -259,6 +268,19 @@ describe('ExportDialog', () => {
         }
     });
 
+    it('should expose full export lifecycle updates and partial export counts', () => {
+        const onExport = vi.fn((_options, lifecycle) => {
+            lifecycle.onDownloadStateChange?.('ready');
+        });
+
+        render(<ExportDialog open skippedThreadCount={2} onExport={onExport} onOpenChange={vi.fn()} />);
+
+        fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
+
+        expect(screen.getAllByRole('status').map((status) => status.textContent)).toContain('Export ready.');
+        expect(screen.getByText('Export completed with 2 skipped threads.')).toBeTruthy();
+    });
+
     it('should submit zip archive when selected', () => {
         const onExport = vi.fn();
 
@@ -267,13 +289,16 @@ describe('ExportDialog', () => {
         fireEvent.click(screen.getByRole('checkbox', { name: /zip archive/i }));
         fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
 
-        expect(onExport).toHaveBeenCalledWith({
-            includeCommentary: false,
-            includeMetadata: true,
-            includeTools: true,
-            outputFormat: 'md',
-            zipArchive: true,
-        });
+        expect(onExport).toHaveBeenCalledWith(
+            expect.objectContaining({
+                includeCommentary: false,
+                includeMetadata: true,
+                includeTools: true,
+                outputFormat: 'md',
+                zipArchive: true,
+            }),
+            expect.any(Object),
+        );
     });
 
     it('should force zip archive for multi-thread exports', () => {
@@ -288,13 +313,16 @@ describe('ExportDialog', () => {
 
         fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
 
-        expect(onExport).toHaveBeenCalledWith({
-            includeCommentary: false,
-            includeMetadata: true,
-            includeTools: true,
-            outputFormat: 'md',
-            zipArchive: true,
-        });
+        expect(onExport).toHaveBeenCalledWith(
+            expect.objectContaining({
+                includeCommentary: false,
+                includeMetadata: true,
+                includeTools: true,
+                outputFormat: 'md',
+                zipArchive: true,
+            }),
+            expect.any(Object),
+        );
     });
 
     it('should remember successfully submitted options after closing and reopening', () => {
@@ -316,13 +344,16 @@ describe('ExportDialog', () => {
 
         fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
 
-        expect(onExport).toHaveBeenLastCalledWith({
-            includeCommentary: true,
-            includeMetadata: false,
-            includeTools: true,
-            outputFormat: 'md',
-            zipArchive: true,
-        });
+        expect(onExport).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                includeCommentary: true,
+                includeMetadata: false,
+                includeTools: true,
+                outputFormat: 'md',
+                zipArchive: true,
+            }),
+            expect.any(Object),
+        );
     });
 
     it('should discard canceled drafts without overwriting submitted defaults', () => {
@@ -345,13 +376,16 @@ describe('ExportDialog', () => {
         rerender(renderDialog(true));
         fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
 
-        expect(onExport).toHaveBeenLastCalledWith({
-            includeCommentary: true,
-            includeMetadata: true,
-            includeTools: true,
-            outputFormat: 'md',
-            zipArchive: false,
-        });
+        expect(onExport).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                includeCommentary: true,
+                includeMetadata: true,
+                includeTools: true,
+                outputFormat: 'md',
+                zipArchive: false,
+            }),
+            expect.any(Object),
+        );
     });
 
     it('should not persist forced multi-thread zip as the single-thread default', () => {
@@ -373,13 +407,16 @@ describe('ExportDialog', () => {
         rerender(renderDialog(true, false));
         fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
 
-        expect(onExport).toHaveBeenLastCalledWith({
-            includeCommentary: false,
-            includeMetadata: true,
-            includeTools: true,
-            outputFormat: 'md',
-            zipArchive: false,
-        });
+        expect(onExport).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                includeCommentary: false,
+                includeMetadata: true,
+                includeTools: true,
+                outputFormat: 'md',
+                zipArchive: false,
+            }),
+            expect.any(Object),
+        );
     });
 
     it('should show export errors inline while dialog remains open', () => {
@@ -409,12 +446,15 @@ describe('ExportDialog', () => {
         expect(dialogQueries.getByText('Choose the transcript format and export options.')).toBeTruthy();
 
         fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
-        expect(onExport).toHaveBeenCalledWith({
-            includeCommentary: false,
-            includeMetadata: true,
-            includeTools: true,
-            outputFormat: 'md',
-            zipArchive: false,
-        });
+        expect(onExport).toHaveBeenCalledWith(
+            expect.objectContaining({
+                includeCommentary: false,
+                includeMetadata: true,
+                includeTools: true,
+                outputFormat: 'md',
+                zipArchive: false,
+            }),
+            expect.any(Object),
+        );
     });
 });

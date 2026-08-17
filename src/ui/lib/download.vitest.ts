@@ -135,6 +135,25 @@ describe('downloadUrlFile', () => {
         ).rejects.toThrow('Download file was not available after 2 attempts: missing.zip');
     });
 
+    it('should fail fast for permanent HTTP probe failures', async () => {
+        const sleep = vi.fn(async () => {});
+
+        await expect(
+            waitForDownloadUrlAvailability('/__exports/failed.zip', 'failed.zip', {
+                fetchImpl: vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 500 })),
+                logger: {
+                    error: vi.fn(),
+                    info: vi.fn(),
+                    warn: vi.fn(),
+                },
+                maxAttempts: 3,
+                sleep,
+            }),
+        ).rejects.toThrow('Download URL probe failed with HTTP 500');
+
+        expect(sleep).not.toHaveBeenCalled();
+    });
+
     it('should abort a pending HEAD fetch without probing again or creating an anchor', async () => {
         const controller = new AbortController();
         const fetchImpl = vi.fn<typeof fetch>();

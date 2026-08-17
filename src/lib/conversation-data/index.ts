@@ -242,13 +242,16 @@ export const deleteConversations = async (
     );
     const deletedIdSet = new Set(rawResults.flatMap(({ result }) => result.deletedIds));
     const results: DeleteConversationItemResult[] = rawResults.map(({ id, result }) => ({
+        ...(result.cleanupFailures?.length ? { cleanupFailures: result.cleanupFailures } : {}),
         deleted: result.deletedIds.length > 0 || deletedIdSet.has(id),
         deletedFiles: result.deletedFiles,
         deletedIds: result.deletedIds,
         id,
     }));
+    const cleanupFailures = results.flatMap((result) => result.cleanupFailures ?? []);
 
     return {
+        ...(cleanupFailures.length > 0 ? { cleanupFailures } : {}),
         deletedFiles: [...new Set(results.flatMap((result) => result.deletedFiles))],
         deletedIds: [...deletedIdSet],
         missingIds: results.filter((result) => !result.deleted).map((result) => result.id),

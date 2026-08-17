@@ -178,6 +178,32 @@ describe('antigravity-server', () => {
         );
     });
 
+    it('should acquire one decryption capability for a protected batch export', async () => {
+        const conversations = [
+            makeConversation({
+                conversationId: 'encrypted-1',
+                conversationPath: null,
+                transcriptPath: null,
+                transcriptSource: 'safe-storage',
+            }),
+            makeConversation({
+                conversationId: 'encrypted-2',
+                conversationPath: null,
+                transcriptPath: null,
+                transcriptSource: 'safe-storage',
+            }),
+        ];
+        listAntigravityConversationsMock.mockResolvedValue(conversations);
+
+        await exportAntigravityConversations({
+            conversationIds: conversations.map((conversation) => conversation.conversationId),
+            outputFormat: 'md',
+            zipArchive: true,
+        });
+
+        expect(withAntigravityDecryptionCapabilityMock).toHaveBeenCalledTimes(1);
+    });
+
     it('should map only decryption capability acquisition failures to locked detail state', async () => {
         const conversation = makeConversation({ transcriptPath: null, transcriptSource: 'safe-storage' });
         listAntigravityConversationsMock.mockResolvedValue([conversation]);
@@ -190,6 +216,15 @@ describe('antigravity-server', () => {
         );
         const detail = await loadAntigravityConversationDetail(conversation.conversationId);
         expect(detail.transcriptLocked).toBe(true);
+    });
+
+    it('should not map an untyped capability-shaped error to locked detail state', async () => {
+        const conversation = makeConversation({ transcriptPath: null, transcriptSource: 'safe-storage' });
+        listAntigravityConversationsMock.mockResolvedValue([conversation]);
+        const error = { code: 'ANTIGRAVITY_DECRYPTION_CAPABILITY', message: 'not a typed error' };
+        withAntigravityDecryptionCapabilityMock.mockRejectedValue(error);
+
+        await expect(loadAntigravityConversationDetail(conversation.conversationId)).rejects.toBe(error);
     });
 
     it('should propagate protected transcript renderer failures unchanged', async () => {

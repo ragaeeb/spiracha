@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, rm, utimes } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
+    CURSOR_MAX_HISTORY_ENTRIES_BYTES,
     CURSOR_READONLY_DB_OPEN_FLAGS,
     CURSOR_SQLITE_RETRY_DELAYS_MS,
     decodeCursorUri,
@@ -114,6 +115,110 @@ describe('cursor-db workspace discovery', () => {
         const [group] = await listCursorWorkspaceGroups(userDir);
 
         expect(group?.threadCount).toBe(1);
+    });
+
+    it('should count bubbles for composer ids containing colons', async () => {
+        const userDir = await makeUserDir();
+        await createCursorFixture(userDir, {
+            buckets: [
+                {
+                    bucketId: 'colon-bucket',
+                    composerIds: ['thread:colon'],
+                    folder: 'file:///Users/test/workspace/colon',
+                    threadsInComposerData: true,
+                },
+            ],
+            headerLinks: [{ bucketId: 'colon-bucket', composerId: 'thread:colon' }],
+            threads: [{ bubbles: [{ bubbleId: 'b1', text: 'colon-safe', type: 1 }], composerId: 'thread:colon' }],
+        });
+
+        const [group] = await listCursorWorkspaceGroups(userDir);
+        const threads = await listCursorThreadsForGroup(group!, userDir, { includeTranscriptDirs: false });
+
+        expect(threads).toEqual([expect.objectContaining({ bubbleCount: 1, composerId: 'thread:colon' })]);
+    });
+
+    it('should keep a short composer id separate from a colon-bearing child id', async () => {
+        const userDir = await makeUserDir();
+        await createCursorFixture(userDir, {
+            buckets: [
+                {
+                    bucketId: 'prefix-bucket',
+                    composerIds: ['thread', 'thread:child'],
+                    folder: 'file:///Users/test/workspace/prefix',
+                    threadsInComposerData: true,
+                },
+            ],
+            headerLinks: [
+                { bucketId: 'prefix-bucket', composerId: 'thread' },
+                { bucketId: 'prefix-bucket', composerId: 'thread:child' },
+            ],
+            threads: [
+                { bubbles: [{ bubbleId: 'parent-bubble', text: 'parent', type: 1 }], composerId: 'thread' },
+                {
+                    bubbles: [{ bubbleId: 'child-bubble', text: 'child', type: 1 }],
+                    composerId: 'thread:child',
+                },
+            ],
+        });
+
+        const [group] = await listCursorWorkspaceGroups(userDir);
+        const threads = await listCursorThreadsForGroup(group!, userDir, { includeTranscriptDirs: false });
+
+        expect(new Map(threads.map((thread) => [thread.composerId, thread.bubbleCount]))).toEqual(
+            new Map([
+                ['thread', 1],
+                ['thread:child', 1],
+            ]),
+        );
+    });
+
+    it('should diagnose oversized history entries before parsing them', async () => {
+        const userDir = await makeUserDir();
+        await createCursorFixture(userDir, {
+            buckets: [],
+            historyEntries: [{ resource: 'file:///Users/test/workspace/oversized/src/index.ts' }],
+            threads: [],
+        });
+        const entriesPath = path.join(userDir, 'History', 'history-0', 'entries.json');
+        await Bun.write(
+            entriesPath,
+            JSON.stringify({
+                padding: 'x'.repeat(CURSOR_MAX_HISTORY_ENTRIES_BYTES),
+                resource: 'file:///Users/test/workspace/oversized/src/index.ts',
+            }),
+        );
+
+        const warnings: unknown[][] = [];
+        const originalWarn = console.warn;
+        console.warn = (...args: unknown[]) => warnings.push(args);
+        try {
+            await listCursorWorkspaceGroups(userDir);
+        } finally {
+            console.warn = originalWarn;
+        }
+
+        expect(warnings.some((args) => String(args[0]).includes('history_entries_oversized'))).toBe(true);
+    });
+
+    it('should tolerate a valid but malformed history entries shape', async () => {
+        const userDir = await makeUserDir();
+        await createCursorFixture(userDir, {
+            buckets: [],
+            historyEntries: [{ resource: 'file:///Users/test/workspace/malformed-shape/src/index.ts' }],
+            threads: [],
+        });
+        await Bun.write(
+            path.join(userDir, 'History', 'history-0', 'entries.json'),
+            JSON.stringify({
+                entries: { timestamp: 'not-a-number' },
+                resource: 'file:///Users/test/workspace/malformed-shape',
+            }),
+        );
+
+        await expect(listCursorWorkspaceGroups(userDir)).resolves.toEqual([
+            expect.objectContaining({ key: 'folder:/Users/test/workspace/malformed-shape' }),
+        ]);
     });
 
     it('should group modern Cursor orchestrators and subagents under their multi-root workspace', async () => {

@@ -55,8 +55,8 @@ const toMessageEventMessage = (event: MessageEvent): ConversationMessage | null 
     return {
         createdAtMs: toDateMs(event.timestamp),
         id: `codex:${event.sequence}`,
+        ...(event.model ? { model: event.model } : {}),
         metadata: {
-            model: event.model,
             variant: event.variant,
         },
         order: event.sequence,
@@ -217,6 +217,7 @@ const buildCodexConversation = async (
         ),
         id: thread.id,
         matches,
+        ...(thread.model ? { model: thread.model } : {}),
         messageCount: options.includeMessages ? allMessages.length : null,
         messages,
         metadata: {
@@ -225,7 +226,6 @@ const buildCodexConversation = async (
             agentRole: thread.agent_role,
             archived: Boolean(thread.archived),
             cliVersion: thread.cli_version,
-            model: thread.model,
             modelProvider: thread.model_provider,
             tokensUsed: thread.tokens_used,
         },

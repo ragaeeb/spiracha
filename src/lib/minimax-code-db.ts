@@ -527,7 +527,10 @@ const toRuntimeJsonValue = (value: unknown): JsonValue | null => {
 };
 
 const readRuntimeSessionRecord = (row: Record<string, unknown>): Record<string, JsonValue> | null => {
-    const record = asObject(typeof row.record_json === 'string' ? parseJsonValue(row.record_json) : null) ?? {};
+    const recordJson = asObject(typeof row.record_json === 'string' ? parseJsonValue(row.record_json) : null) ?? {};
+    const extraData =
+        asObject(typeof row.extra_data_json === 'string' ? parseJsonValue(row.extra_data_json) : null) ?? {};
+    const record = { ...extraData, ...recordJson };
     const columnMappings = [
         ['agent_name', 'agentName'],
         ['app_mode', 'appMode'],

@@ -268,6 +268,49 @@ describe('MiniMax Code db helpers', () => {
         });
     });
 
+    it('should read the effective model from runtime extra_data_json', async () => {
+        const tempRoot = await makeTempRoot();
+        const sessionsDir = path.join(tempRoot, 'v2', 'sessions');
+        const workspacePath = path.join(tempRoot, 'project');
+        const fixture = await writeManifestMessagesSession(sessionsDir, 'mvs_extradata123');
+        const runtimeDbPath = resolveMiniMaxCodeRuntimeDbPath(sessionsDir);
+        await mkdir(path.dirname(runtimeDbPath), { recursive: true });
+
+        const db = new Database(runtimeDbPath, { create: true, strict: true });
+        try {
+            db.run(
+                'CREATE TABLE local_runtime_sessions (session_id TEXT PRIMARY KEY, record_json TEXT NOT NULL, updated_at_ms INTEGER NOT NULL, extra_data_json TEXT NOT NULL)',
+            );
+            db.query(
+                'INSERT INTO local_runtime_sessions (session_id, record_json, updated_at_ms, extra_data_json) VALUES (?, ?, ?, ?)',
+            ).run(
+                fixture.sessionId,
+                JSON.stringify({
+                    sessionId: fixture.sessionId,
+                    status: 'idle',
+                    title: 'Runtime model metadata',
+                    updatedAtMs: 1_786_000_000_100,
+                    workspaceDir: workspacePath,
+                }),
+                1_786_000_000_100,
+                JSON.stringify({
+                    effectiveModel: 'minimax/MiniMax-M3',
+                    effectiveModelVariant: 'thinking',
+                }),
+            );
+        } finally {
+            db.close();
+        }
+
+        const transcript = await readMiniMaxCodeSessionTranscript(sessionsDir, fixture.sessionId);
+
+        expect(transcript?.session).toMatchObject({
+            currentModelId: 'minimax/MiniMax-M3',
+            currentModelVariant: 'thinking',
+            worktree: workspacePath,
+        });
+    });
+
     it('should reject manifest messages sessions without runtime workspace metadata', async () => {
         const tempRoot = await makeTempRoot();
         const sessionsDir = path.join(tempRoot, 'v2', 'sessions');

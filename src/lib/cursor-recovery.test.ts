@@ -1,9 +1,14 @@
 import { Database } from 'bun:sqlite';
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdir, mkdtemp, rm, symlink, utimes } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, rename, rm, symlink, utimes } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { CURSOR_SQLITE_RETRY_DELAYS_MS, listCursorWorkspaceGroups, withCursorWriteTransaction } from './cursor-db';
+import {
+    CURSOR_MAX_HISTORY_ENTRIES_BYTES,
+    CURSOR_SQLITE_RETRY_DELAYS_MS,
+    listCursorWorkspaceGroups,
+    withCursorWriteTransaction,
+} from './cursor-db';
 import { getCursorGlobalDbPath } from './cursor-exporter-types';
 import {
     collectCursorThreadsForDeletion,
@@ -11,6 +16,7 @@ import {
     deleteCursorWorkspaceHistory,
     pruneCursorThreads,
     recoverCursorWorkspaceGroup,
+    retryCursorWorkspaceCleanup,
 } from './cursor-recovery';
 import { type CursorFixtureSpec, createCursorFixture, holdCursorWriteLock } from './cursor-test-helpers';
 
@@ -212,6 +218,38 @@ describe('pruneCursorThreads', () => {
         expect(await Bun.file(path.join(externalTranscriptDir, 'sentinel.txt')).exists()).toBe(true);
     });
 
+    it('should reject a transcript symlink to another composer directory inside Cursor projects', async () => {
+        const userDir = await makeUserDir('cursor-prune-internal-symlink-');
+        const transcriptRoot = path.join(userDir, 'projects', 'demo', 'agent-transcripts');
+        const targetDir = path.join(transcriptRoot, 'thread-2');
+        const linkedDir = path.join(transcriptRoot, 'thread-1');
+        await mkdir(targetDir, { recursive: true });
+        await Bun.write(path.join(targetDir, 'sentinel.txt'), 'keep');
+        await symlink(targetDir, linkedDir);
+
+        const thread = {
+            bubbleBytes: 0,
+            bubbleCount: 0,
+            bucketId: null,
+            composerId: 'thread-1',
+            createdAtMs: null,
+            lastUpdatedAtMs: null,
+            mode: null,
+            model: null,
+            name: 'Unsafe thread',
+            parentComposerId: null,
+            reasoningEffort: null,
+            transcriptDirs: [linkedDir],
+            workspaceKey: '',
+            workspaceLabel: '',
+        };
+
+        await expect(pruneCursorThreads([thread], true, userDir)).rejects.toThrow(
+            `Unsafe Cursor transcript directory: ${linkedDir}`,
+        );
+        expect(await Bun.file(path.join(targetDir, 'sentinel.txt')).exists()).toBe(true);
+    });
+
     it('should preview deletion impact without applying', async () => {
         const userDir = await makeUserDir('cursor-prune-dry-');
         await createCursorFixture(userDir, recoverySpec());
@@ -336,12 +374,33 @@ describe('pruneCursorThreads', () => {
         });
         const [group] = await listCursorWorkspaceGroups(userDir);
 
-        await expect(deleteCursorWorkspaceBuckets(group!, userDir)).resolves.toBe(2);
+        await expect(deleteCursorWorkspaceBuckets(group!, userDir)).resolves.toEqual({
+            cleanupFailures: [],
+            removedPaths: group!.buckets.map((bucket) => path.dirname(bucket.workspaceJsonPath)),
+        });
 
         for (const bucket of group!.buckets) {
             expect(await Bun.file(bucket.workspaceJsonPath).exists()).toBe(false);
         }
         expect(await listCursorWorkspaceGroups(userDir)).toEqual([]);
+    });
+
+    it('should reject a bucket symlink even when its target is inside workspace storage', async () => {
+        const userDir = await makeUserDir('cursor-delete-bucket-symlink-');
+        await createCursorFixture(userDir, {
+            buckets: [{ bucketId: 'bucket-link', folder: 'file:///Users/test/workspace/link' }],
+            threads: [],
+        });
+        const [group] = await listCursorWorkspaceGroups(userDir);
+        const bucketRoot = path.join(userDir, 'workspaceStorage', 'bucket-link');
+        const targetRoot = path.join(userDir, 'workspaceStorage', 'bucket-target');
+        await rename(bucketRoot, targetRoot);
+        await symlink(targetRoot, bucketRoot);
+
+        await expect(deleteCursorWorkspaceBuckets(group!, userDir)).rejects.toThrow(
+            'Unsafe Cursor workspace bucket directory',
+        );
+        expect(await Bun.file(path.join(targetRoot, 'workspace.json')).exists()).toBe(true);
     });
 
     it('should remove matching file-history entries without deleting a sibling workspace', async () => {
@@ -359,11 +418,179 @@ describe('pruneCursorThreads', () => {
         const group = groups.find((candidate) => candidate.key === 'folder:/Users/test/workspace/file-history');
 
         expect(group).toMatchObject({ buckets: [], threadCount: 0 });
-        await expect(deleteCursorWorkspaceHistory(group!, userDir)).resolves.toBe(2);
+        await expect(deleteCursorWorkspaceHistory(group!, userDir)).resolves.toEqual({
+            cleanupFailures: [],
+            removedPaths: expect.arrayContaining([
+                path.join(userDir, 'History', 'history-0'),
+                path.join(userDir, 'History', 'history-2'),
+            ]),
+        });
 
         expect(await Bun.file(path.join(userDir, 'History', 'history-0', 'entries.json')).exists()).toBe(false);
         expect(await Bun.file(path.join(userDir, 'History', 'history-1', 'entries.json')).exists()).toBe(true);
         expect(await Bun.file(path.join(userDir, 'History', 'history-2', 'entries.json')).exists()).toBe(false);
+    });
+
+    it('should diagnose corrupt history entries and continue deleting valid siblings', async () => {
+        const userDir = await makeUserDir('cursor-delete-corrupt-history-');
+        await createCursorFixture(userDir, {
+            buckets: [],
+            historyEntries: [
+                { resource: 'file:///Users/test/workspace/corrupt/src/index.ts' },
+                { resource: 'file:///Users/test/workspace/corrupt/src/other.ts' },
+            ],
+            threads: [],
+        });
+        await Bun.write(path.join(userDir, 'History', 'history-0', 'entries.json'), '{not-json');
+        const [group] = await listCursorWorkspaceGroups(userDir);
+        const warnings: unknown[][] = [];
+        const originalWarn = console.warn;
+        console.warn = (...args: unknown[]) => warnings.push(args);
+        let result: Awaited<ReturnType<typeof deleteCursorWorkspaceHistory>>;
+        try {
+            result = await deleteCursorWorkspaceHistory(group!, userDir);
+        } finally {
+            console.warn = originalWarn;
+        }
+
+        expect(await Bun.file(path.join(userDir, 'History', 'history-0', 'entries.json')).exists()).toBe(true);
+        expect(warnings.some((args) => String(args[0]).includes('invalid_history_entries_json'))).toBe(true);
+        expect(result.removedPaths).toEqual([path.join(userDir, 'History', 'history-1')]);
+        expect(result.cleanupFailures).toEqual([
+            expect.objectContaining({
+                path: path.join(userDir, 'History', 'history-0'),
+                phase: 'workspace_history',
+            }),
+        ]);
+    });
+
+    it('should skip oversized history entries and report partial cleanup', async () => {
+        const userDir = await makeUserDir('cursor-delete-oversized-history-');
+        await createCursorFixture(userDir, {
+            buckets: [],
+            historyEntries: [
+                { resource: 'file:///Users/test/workspace/oversized/src/index.ts' },
+                { resource: 'file:///Users/test/workspace/oversized/src/other.ts' },
+            ],
+            threads: [],
+        });
+        await Bun.write(
+            path.join(userDir, 'History', 'history-0', 'entries.json'),
+            JSON.stringify({
+                padding: 'x'.repeat(CURSOR_MAX_HISTORY_ENTRIES_BYTES),
+                resource: 'file:///Users/test/workspace/oversized/src/index.ts',
+            }),
+        );
+        const [group] = await listCursorWorkspaceGroups(userDir);
+        const warnings: unknown[][] = [];
+        const originalWarn = console.warn;
+        console.warn = (...args: unknown[]) => warnings.push(args);
+        let result: Awaited<ReturnType<typeof deleteCursorWorkspaceHistory>>;
+        try {
+            result = await deleteCursorWorkspaceHistory(group!, userDir);
+        } finally {
+            console.warn = originalWarn;
+        }
+
+        expect(result.removedPaths).toEqual([path.join(userDir, 'History', 'history-1')]);
+        expect(await Bun.file(path.join(userDir, 'History', 'history-0', 'entries.json')).exists()).toBe(true);
+        expect(warnings.some((args) => String(args[0]).includes('history_entries_oversized'))).toBe(true);
+        expect(result.cleanupFailures).toEqual([
+            expect.objectContaining({
+                path: path.join(userDir, 'History', 'history-0'),
+                phase: 'workspace_history',
+            }),
+        ]);
+    });
+
+    it('should create an atomic prune backup containing legacy global headers', async () => {
+        const userDir = await makeUserDir('cursor-prune-backup-');
+        await createCursorFixture(userDir, recoverySpec());
+        const [group] = await listCursorWorkspaceGroups(userDir);
+        const threads = await collectCursorThreadsForDeletion(['thread-1'], userDir);
+
+        await pruneCursorThreads(threads, true, userDir);
+
+        const backupFiles = (await readdir(path.join(userDir, 'globalStorage'))).filter(
+            (entry) => entry.includes('.prunedThreads.') && entry.endsWith('.json'),
+        );
+        expect(backupFiles).toHaveLength(1);
+        expect((await readdir(path.join(userDir, 'globalStorage'))).some((entry) => entry.includes('.tmp-'))).toBe(
+            false,
+        );
+        const backup = (await Bun.file(path.join(userDir, 'globalStorage', backupFiles[0]!)).json()) as {
+            headers?: { allComposers?: Array<{ composerId?: string }> };
+        };
+        expect(backup.headers?.allComposers?.map((header) => header.composerId)).toContain('thread-1');
+        expect(group).toBeDefined();
+    });
+
+    it('should count unique transcript directories that were actually removed', async () => {
+        const userDir = await makeUserDir('cursor-prune-partial-cleanup-');
+        await createCursorFixture(userDir, recoverySpec());
+        const transcriptDir = path.join(userDir, 'projects', 'demo', 'agent-transcripts', 'thread-1');
+        await mkdir(transcriptDir, { recursive: true });
+        const thread = (await collectCursorThreadsForDeletion(['thread-1'], userDir))[0]!;
+        const result = await pruneCursorThreads(
+            [{ ...thread, transcriptDirs: [transcriptDir, transcriptDir] }],
+            true,
+            userDir,
+        );
+
+        expect(result.transcriptDirsRemoved).toBe(1);
+        expect(result.transcriptDirsRemovedPaths).toEqual([transcriptDir]);
+    });
+
+    it('should discover transcript directories when a deletion summary omits them', async () => {
+        const userDir = await makeUserDir('cursor-prune-discover-transcript-');
+        await createCursorFixture(userDir, recoverySpec());
+        const transcriptDir = path.join(userDir, 'projects', 'demo', 'agent-transcripts', 'thread-1');
+        await mkdir(transcriptDir, { recursive: true });
+        await Bun.write(path.join(transcriptDir, 'messages.jsonl'), '{}\n');
+        const thread = (await collectCursorThreadsForDeletion(['thread-1'], userDir))[0]!;
+
+        const result = await pruneCursorThreads([{ ...thread, transcriptDirs: [] }], true, userDir);
+
+        expect(result.transcriptDirsRemoved).toBe(1);
+        expect(result.transcriptDirsRemovedPaths).toEqual([transcriptDir]);
+        expect(await Bun.file(path.join(transcriptDir, 'messages.jsonl')).exists()).toBe(false);
+    });
+
+    it('should retry a failed transcript cleanup from its target after workspace discovery is gone', async () => {
+        const userDir = await makeUserDir('cursor-retry-transcript-cleanup-');
+        await createCursorFixture(userDir, recoverySpec());
+        const transcriptDir = path.join(userDir, 'projects', 'demo', 'agent-transcripts', 'thread-1');
+        await mkdir(transcriptDir, { recursive: true });
+        await Bun.write(path.join(transcriptDir, 'messages.jsonl'), '{}\n');
+        await rm(path.join(userDir, 'workspaceStorage'), { force: true, recursive: true });
+
+        const result = await retryCursorWorkspaceCleanup(
+            {
+                bucketPaths: [],
+                composerIds: ['thread-1'],
+                folders: ['/Users/test/workspace/demo'],
+                historyPaths: [],
+                transcriptDirs: [transcriptDir],
+                workspaceKey: 'folder:/Users/test/workspace/demo',
+            },
+            userDir,
+        );
+
+        expect(result.cleanupFailures).toEqual([]);
+        expect(result.transcriptDirsRemovedPaths).toEqual([transcriptDir]);
+        expect(await Bun.file(path.join(transcriptDir, 'messages.jsonl')).exists()).toBe(false);
+    });
+
+    it('should treat an already-missing workspace storage directory as an idempotent cleanup', async () => {
+        const userDir = await makeUserDir('cursor-delete-missing-storage-');
+        await createCursorFixture(userDir, recoverySpec());
+        const [group] = await listCursorWorkspaceGroups(userDir);
+        await rm(path.join(userDir, 'workspaceStorage'), { force: true, recursive: true });
+
+        await expect(deleteCursorWorkspaceBuckets(group!, userDir)).resolves.toEqual({
+            cleanupFailures: [],
+            removedPaths: [],
+        });
     });
 
     it('should restore earlier bucket updates when a later bucket mutation fails', async () => {
@@ -506,6 +733,59 @@ describe('pruneCursorThreads', () => {
 
             expect(result.bubblesDeleted).toBe(1);
             expect(remaining.count).toBe(1);
+        } finally {
+            db.close();
+        }
+    });
+
+    it('should count, back up, and delete only the requested composer when ids share a colon prefix', async () => {
+        const userDir = await makeUserDir('cursor-delete-prefix-');
+        await createCursorFixture(userDir, {
+            buckets: [
+                {
+                    bucketId: 'prefix-bucket',
+                    composerIds: ['thread', 'thread:child'],
+                    folder: 'file:///Users/test/workspace/prefix',
+                    threadsInComposerData: true,
+                },
+            ],
+            headerLinks: [
+                { bucketId: 'prefix-bucket', composerId: 'thread' },
+                { bucketId: 'prefix-bucket', composerId: 'thread:child' },
+            ],
+            threads: [
+                { bubbles: [{ bubbleId: 'parent-bubble', text: 'parent', type: 1 }], composerId: 'thread' },
+                {
+                    bubbles: [{ bubbleId: 'child-bubble', text: 'child', type: 1 }],
+                    composerId: 'thread:child',
+                },
+            ],
+        });
+
+        const deletable = await collectCursorThreadsForDeletion(['thread'], userDir);
+        expect(deletable[0]?.bubbleCount).toBe(1);
+
+        const result = await pruneCursorThreads(deletable, true, userDir);
+        expect(result.bubblesDeleted).toBe(1);
+
+        const backupFiles = (await readdir(path.join(userDir, 'globalStorage'))).filter(
+            (entry) => entry.includes('.prunedThreads.') && entry.endsWith('.json'),
+        );
+        const backup = (await Bun.file(path.join(userDir, 'globalStorage', backupFiles[0]!)).json()) as {
+            threads?: Array<{ composerId: string; bubbles: Array<{ key: string }> }>;
+        };
+        expect(
+            backup.threads?.map((thread) => ({
+                bubbles: thread.bubbles.map((bubble) => bubble.key),
+                composerId: thread.composerId,
+            })),
+        ).toEqual([{ bubbles: ['bubbleId:thread:parent-bubble'], composerId: 'thread' }]);
+
+        const db = new Database(getCursorGlobalDbPath(userDir), { readonly: true });
+        try {
+            expect(db.query("SELECT key FROM cursorDiskKV WHERE key LIKE 'bubbleId:%' ORDER BY key").all()).toEqual([
+                { key: 'bubbleId:thread:child:child-bubble' },
+            ]);
         } finally {
             db.close();
         }

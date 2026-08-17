@@ -410,6 +410,52 @@ describe('TranscriptView', () => {
         expect(screen.getByText('I am working through the codebase now.')).toBeTruthy();
     });
 
+    it('should reveal a MiniMax commentary finding when commentary is enabled', () => {
+        const commentaryFinding: ThreadEvent = {
+            isHiddenByDefault: false,
+            kind: 'message',
+            memoryCitation: null,
+            model: null,
+            phase: 'commentary',
+            raw: { eventType: 'message', source: 'minimax_code_snapshot' },
+            role: 'assistant',
+            sequence: 142,
+            text: '### 25. validate.ts — not enough view; need to read to identify if it gates requestedPhase',
+            timestamp: null,
+            variant: 'agent_message',
+        };
+
+        const { rerender } = render(
+            <TranscriptView
+                assistantModel="minimax/MiniMax-M3"
+                events={[commentaryFinding]}
+                projectPath="/Users/example/workspace/kalu"
+                showCommentary={false}
+                showExtraEvents={false}
+                showRawJson={false}
+                showToolCalls={false}
+                showUserMessages={false}
+            />,
+        );
+
+        expect(screen.queryByText(/not enough view; need to read/u)).toBeNull();
+
+        rerender(
+            <TranscriptView
+                assistantModel="minimax/MiniMax-M3"
+                events={[commentaryFinding]}
+                projectPath="/Users/example/workspace/kalu"
+                showCommentary
+                showExtraEvents={false}
+                showRawJson={false}
+                showToolCalls={false}
+                showUserMessages={false}
+            />,
+        );
+
+        expect(screen.getByText(/not enough view; need to read/u)).toBeTruthy();
+    });
+
     it('should hide user messages when user messages are disabled', () => {
         render(
             <TranscriptView

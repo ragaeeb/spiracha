@@ -50,10 +50,12 @@ const partToMessages = (
 ): ConversationMessage[] => {
     const createdAtMs = toDateMs(entry.timestamp);
     const baseId = `${entry.entryId}:${partIndex}`;
+    const model = entry.model ?? undefined;
     if (part.type === 'text') {
         return createTextMessage({
             createdAtMs,
             id: baseId,
+            model,
             order: partIndex,
             phase: normalizeAssistantPhase(getClaudeCodeAssistantMessagePhase(entry), 'unknown'),
             role: normalizeRole(entry.role),
@@ -65,6 +67,7 @@ const partToMessages = (
         return createTextMessage({
             createdAtMs,
             id: baseId,
+            model,
             order: partIndex,
             phase: 'reasoning',
             role: 'assistant',
@@ -78,6 +81,7 @@ const partToMessages = (
             createdAtMs,
             id: baseId,
             metadata: { toolName: part.toolName, toolUseId: part.toolUseId },
+            model,
             order: partIndex,
             phase: 'tool_call',
             role: 'tool',
@@ -102,6 +106,7 @@ const partToMessages = (
             createdAtMs,
             id: baseId,
             metadata: { isError: part.isError, toolUseId: part.toolUseId },
+            model,
             order: partIndex,
             phase: 'tool_output',
             role: 'tool',
@@ -127,6 +132,7 @@ const partToMessages = (
             createdAtMs,
             id: baseId,
             metadata: { attachmentType: part.attachmentType ?? null },
+            model,
             order: partIndex,
             phase: 'unknown',
             role: normalizeRole(entry.role),
@@ -175,13 +181,13 @@ const buildConversation = async (
         ),
         id: session.sessionId,
         matches,
+        ...(session.model ? { model: session.model } : {}),
         messageCount: options.includeMessages ? allMessages.length : session.messageCount,
         messages,
         metadata: {
             continuationSessionIds: session.continuationSessionIds,
             filePath: session.filePath,
             gitBranch: session.gitBranch,
-            model: session.model,
             totalTokens: session.totalTokens,
             version: session.version,
         },

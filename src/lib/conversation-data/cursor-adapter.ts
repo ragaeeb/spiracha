@@ -6,6 +6,7 @@ import {
 } from '../cursor-db';
 import type {
     CursorBubble,
+    CursorPruneResult,
     CursorThreadSummary,
     CursorThreadTranscript,
     CursorWorkspaceGroup,
@@ -31,6 +32,7 @@ import type {
     ConversationMessage,
     ConversationPathMatch,
     DeleteConversationOptions,
+    DeleteConversationResult,
     GetConversationOptions,
     ListConversationsForPathOptions,
 } from './types';
@@ -155,6 +157,7 @@ const buildConversation = async (
         ),
         id: thread.composerId,
         matches,
+        ...(thread.model ? { model: thread.model } : {}),
         messageCount: options.includeMessages ? allMessages.length : thread.bubbleCount,
         messages,
         metadata: {
@@ -229,13 +232,15 @@ export const deleteCursorConversation = async (
     if (threads.length === 0) {
         return { deletedFiles: [], deletedIds: [] };
     }
-    const deletedFiles = threads.flatMap((thread) => thread.transcriptDirs);
     const result = await pruneCursorThreads(threads, true, userDir);
-    return {
-        deletedFiles,
-        deletedIds: result.composerIds,
-    };
+    return toCursorDeleteConversationResult(result);
 };
+
+export const toCursorDeleteConversationResult = (result: CursorPruneResult): DeleteConversationResult => ({
+    ...(result.cleanupFailures.length > 0 ? { cleanupFailures: result.cleanupFailures } : {}),
+    deletedFiles: result.transcriptDirsRemovedPaths,
+    deletedIds: result.composerIds,
+});
 
 export const cursorConversationAdapter: ConversationAdapter = {
     deleteConversation: deleteCursorConversation,

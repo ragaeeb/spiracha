@@ -53,6 +53,7 @@ describe('opencodeConversationAdapter', () => {
                             role: 'assistant',
                         },
                     ],
+                    model: { id: 'openai/gpt-5.4', providerID: 'openai', variant: null },
                     projectId: 'project-1',
                     title: 'Think literal',
                 },
@@ -74,6 +75,9 @@ describe('opencodeConversationAdapter', () => {
                 text: '<think>literal user input</think>',
             }),
         );
+        expect(conversation).toMatchObject({ model: 'openai/gpt-5.4' });
+        expect(conversation?.metadata).not.toHaveProperty('model');
+        expect(conversation?.metadata).not.toHaveProperty('modelLabel');
         expect(conversation?.messages).not.toContainEqual(
             expect.objectContaining({ role: 'assistant', text: 'literal user input' }),
         );
@@ -125,6 +129,7 @@ describe('opencodeConversationAdapter', () => {
         expect(conversations.map(({ id }) => id)).toEqual(['session-in-window']);
         expect(conversations[0]?.matches[0]?.kind).toBe('exact');
         expect(conversations[0]?.messages).toEqual([]);
+        expect(conversations[0]).not.toHaveProperty('model');
         expect(excluded).toEqual([]);
     });
 });

@@ -86,4 +86,14 @@ describe('UI export ZIP helpers', () => {
         const entries = unzipSync(new Uint8Array(await Bun.file(zipPath).arrayBuffer()));
         expect(Object.keys(entries)).toEqual(['thread.md']);
     });
+
+    it('should remove a stale destination when a ZIP input fails', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'ui-export-zip-cleanup-'));
+        tempPaths.push(tempRoot);
+        const zipPath = path.join(tempRoot, 'partial.zip');
+        await Bun.write(zipPath, 'partial archive');
+
+        await expect(zipExportFile(path.join(tempRoot, 'missing.md'), zipPath)).rejects.toThrow();
+        expect(await Bun.file(zipPath).exists()).toBe(false);
+    });
 });

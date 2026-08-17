@@ -248,6 +248,7 @@ type ProtoBounds = {
     fieldNumber: number;
     payloadEnd: number;
     payloadStart: number;
+    oversized?: boolean;
     wireType: number;
 };
 
@@ -259,11 +260,17 @@ const getLengthDelimitedProtoBounds = (
 ): ProtoBounds | null => {
     const length = readVarint(buffer, index, buffer.length);
     const payloadStart = length.next;
-    if (length.value > ANTIGRAVITY_MAX_PROTO_RECORD_BYTES) {
-        throw new Error(`Protobuf record exceeds ${ANTIGRAVITY_MAX_PROTO_RECORD_BYTES} bytes`);
-    }
-
     const end = payloadStart + length.value;
+    if (length.value > ANTIGRAVITY_MAX_PROTO_RECORD_BYTES) {
+        return {
+            end,
+            fieldNumber,
+            oversized: true,
+            payloadEnd: end,
+            payloadStart,
+            wireType,
+        };
+    }
     if (end > buffer.length) {
         return null;
     }
@@ -322,7 +329,7 @@ const consumeProtoRecord = (
     fieldNumber: number,
     diagnostics: AntigravityParseDiagnostic[],
     records: IndexedProtoRecord[],
-): number | null => {
+): number | null | { skipBytes: number } => {
     let bounds: ProtoBounds | null;
     try {
         bounds = tryGetProtoBounds(buffer, index);
@@ -339,6 +346,15 @@ const consumeProtoRecord = (
         return null;
     }
 
+    if (bounds.oversized) {
+        appendAntigravityDiagnostic(diagnostics, {
+            byteOffset: bufferOffset + index,
+            kind: 'protobuf',
+            message: `Protobuf record exceeds ${ANTIGRAVITY_MAX_PROTO_RECORD_BYTES} bytes`,
+        });
+        return { skipBytes: bounds.end - index };
+    }
+
     if (bounds.fieldNumber === fieldNumber && bounds.wireType === 2) {
         records.push({
             byteOffset: bufferOffset + index,
@@ -347,6 +363,58 @@ const consumeProtoRecord = (
     }
 
     return bounds.end;
+};
+
+const consumePendingProtoBytes = (
+    pending: Uint8Array,
+    index: number,
+    skipBytes: number,
+): { consumed: number; blocked: boolean; remainingSkipBytes: number } => {
+    if (skipBytes === 0) {
+        return { blocked: false, consumed: 0, remainingSkipBytes: 0 };
+    }
+
+    const consumed = Math.min(skipBytes, pending.length - index);
+    return {
+        blocked: consumed < skipBytes,
+        consumed,
+        remainingSkipBytes: skipBytes - consumed,
+    };
+};
+
+type ProtoConsumeState = {
+    skipByteOffset: number | null;
+    skipBytes: number;
+};
+
+const consumeOneProtoSegment = (
+    pending: Uint8Array,
+    index: number,
+    bufferOffset: number,
+    fieldNumber: number,
+    diagnostics: AntigravityParseDiagnostic[],
+    records: IndexedProtoRecord[],
+    state: ProtoConsumeState,
+): { blocked: boolean; nextIndex: number } => {
+    if (state.skipBytes > 0) {
+        const skipped = consumePendingProtoBytes(pending, index, state.skipBytes);
+        state.skipBytes = skipped.remainingSkipBytes;
+        if (state.skipBytes === 0) {
+            state.skipByteOffset = null;
+        }
+        return { blocked: skipped.blocked, nextIndex: index + skipped.consumed };
+    }
+
+    const nextIndex = consumeProtoRecord(pending, index, bufferOffset, fieldNumber, diagnostics, records);
+    if (nextIndex === null) {
+        return { blocked: true, nextIndex: index };
+    }
+    if (typeof nextIndex === 'object') {
+        state.skipBytes = nextIndex.skipBytes;
+        state.skipByteOffset = bufferOffset + index;
+        return { blocked: false, nextIndex: index };
+    }
+    return { blocked: false, nextIndex };
 };
 
 const readAntigravityProtobufRecords = async (
@@ -360,6 +428,7 @@ const readAntigravityProtobufRecords = async (
     let readIndex = 0;
     let writeIndex = 0;
     let bufferOffset = 0;
+    const protoState: ProtoConsumeState = { skipByteOffset: null, skipBytes: 0 };
 
     const appendChunk = (chunk: Uint8Array<ArrayBufferLike>) => {
         const unreadBytes = writeIndex - readIndex;
@@ -386,11 +455,19 @@ const readAntigravityProtobufRecords = async (
         const pending = buffer.subarray(readIndex, writeIndex);
         let index = 0;
         while (index < pending.length) {
-            const nextIndex = consumeProtoRecord(pending, index, bufferOffset, fieldNumber, diagnostics, records);
-            if (nextIndex === null) {
+            const result = consumeOneProtoSegment(
+                pending,
+                index,
+                bufferOffset,
+                fieldNumber,
+                diagnostics,
+                records,
+                protoState,
+            );
+            index = result.nextIndex;
+            if (result.blocked) {
                 break;
             }
-            index = nextIndex;
         }
         if (index > 0) {
             readIndex += index;
@@ -402,23 +479,32 @@ const readAntigravityProtobufRecords = async (
         }
     };
 
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-            break;
+    let completed = false;
+    try {
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) {
+                break;
+            }
+            appendChunk(value);
+            consume();
         }
-        appendChunk(value);
         consume();
+        if (writeIndex > readIndex || protoState.skipBytes > 0) {
+            appendAntigravityDiagnostic(diagnostics, {
+                byteOffset: protoState.skipByteOffset ?? bufferOffset,
+                kind: 'protobuf',
+                message: 'Truncated Antigravity protobuf input',
+            });
+        }
+        completed = true;
+        return { diagnostics, records };
+    } finally {
+        if (!completed) {
+            await reader.cancel().catch(() => undefined);
+        }
+        reader.releaseLock();
     }
-    consume();
-    if (writeIndex > readIndex) {
-        appendAntigravityDiagnostic(diagnostics, {
-            byteOffset: bufferOffset,
-            kind: 'protobuf',
-            message: 'Truncated Antigravity protobuf input',
-        });
-    }
-    return { diagnostics, records };
 };
 
 const firstField = (fields: ProtoField[], fieldNumber: number): ProtoField | null =>

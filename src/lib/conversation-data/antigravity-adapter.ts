@@ -155,19 +155,21 @@ const readMessages = async (conversation: AntigravityConversation) => {
               )
             : await load();
     return finalizeMessages(
-        messages.map(
-            (message, entryIndex): ConversationMessage => ({
+        messages.map((message, entryIndex): ConversationMessage => {
+            const { model: sourceModel, ...sourceMetadata } = message.metadata;
+            const model = typeof sourceModel === 'string' ? sourceModel : undefined;
+            return {
                 ...message,
+                ...(model ? { model } : {}),
                 id: `${conversation.conversationId}:${message.order}:${message.role}:${message.phase}:${entryIndex}`,
                 metadata: {
-                    ...message.metadata,
+                    ...sourceMetadata,
                     ...getEvidenceLimitationMetadata(message),
-                    model: typeof message.metadata.model === 'string' ? message.metadata.model : null,
                     transcriptSource: conversation.transcriptSource,
                 },
                 toolEvidence: antigravityToolEvidence(message),
-            }),
-        ),
+            };
+        }),
     );
 };
 
@@ -192,12 +194,12 @@ const buildConversation = async (
         ),
         id: conversation.conversationId,
         matches,
+        ...(conversation.model ? { model: conversation.model } : {}),
         messageCount: options.includeMessages ? allMessages.length : conversation.transcriptEntryCount,
         messages,
         metadata: {
             artifactCount: conversation.artifactCount,
             lockedTranscript: conversation.transcriptSource === 'safe-storage',
-            model: conversation.model,
             transcriptSource: conversation.transcriptSource,
         },
         source: 'antigravity',

@@ -1,6 +1,6 @@
 import { Database } from 'bun:sqlite';
 import { afterEach, describe, expect, it, spyOn } from 'bun:test';
-import { chmod, mkdir, mkdtemp, readdir, rm, stat } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, rm, stat, symlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -269,6 +269,25 @@ describe('opencode db helpers', () => {
             });
             expect(infoSpy).toHaveBeenCalledWith('[spiracha:opencode-db] invalid-global-session-directory', {
                 sessionId: 'ses_blank_two',
+            });
+        } finally {
+            infoSpy.mockRestore();
+        }
+    });
+
+    it('should reject a blank global session during a direct transcript lookup with a diagnostic', async () => {
+        const dbPath = await makeDbPath();
+        await createOpenCodeFixture(dbPath, {
+            projects: [{ id: 'global', worktree: '/' }],
+            sessions: [{ directory: '   ', id: 'ses_blank_direct', messages: [], projectId: 'global', title: 'Blank' }],
+        });
+        process.env.SPIRACHA_OPENCODE_DB_LOGS = '1';
+        const infoSpy = spyOn(console, 'info').mockImplementation(() => undefined);
+
+        try {
+            await expect(readOpenCodeSessionTranscript(dbPath, 'ses_blank_direct')).resolves.toBeNull();
+            expect(infoSpy).toHaveBeenCalledWith('[spiracha:opencode-db] invalid-global-session-directory', {
+                sessionId: 'ses_blank_direct',
             });
         } finally {
             infoSpy.mockRestore();
@@ -779,5 +798,13 @@ describe('opencode db helpers', () => {
                 process.env.SPIRACHA_OPENCODE_DESKTOP_STATE_DIR = previousStateDir;
             }
         }
+    });
+
+    it('should ignore a desktop state file that disappears before it can be read', async () => {
+        const stateDir = await mkdtemp(path.join(os.tmpdir(), 'opencode-desktop-state-race-'));
+        tempDirs.push(stateDir);
+        await symlink(path.join(stateDir, 'missing-target'), path.join(stateDir, 'removed.dat'));
+
+        await expect(deleteOpenCodeDesktopSessionState(['ses_removed'], stateDir)).resolves.toEqual([]);
     });
 });

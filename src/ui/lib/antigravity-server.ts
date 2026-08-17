@@ -1,4 +1,6 @@
+import { AntigravityDecryptionCapabilityError } from '@spiracha/lib/antigravity-decryption-error';
 import type { AntigravityConversation } from '@spiracha/lib/antigravity-exporter-types';
+import type { AntigravityDecryptionCapability } from '@spiracha/lib/antigravity-keychain';
 import { buildConversationExportBaseName } from '@spiracha/lib/ui-export-archive';
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
@@ -39,14 +41,7 @@ const deleteConversationsSchema = z.object({
     conversationIds: z.array(z.string().min(1)).min(1),
 });
 
-export class AntigravityDecryptionCapabilityError extends Error {
-    readonly code = 'ANTIGRAVITY_DECRYPTION_CAPABILITY';
-
-    constructor(cause: unknown) {
-        super('Antigravity decryption capability is unavailable', { cause });
-        this.name = 'AntigravityDecryptionCapabilityError';
-    }
-}
+export { AntigravityDecryptionCapabilityError };
 
 const acquireAntigravityDecryptionCapability = async () => {
     const { withAntigravityDecryptionCapability } = await import('@spiracha/lib/antigravity-keychain');
@@ -54,10 +49,21 @@ const acquireAntigravityDecryptionCapability = async () => {
 };
 
 const isAntigravityDecryptionCapabilityError = (error: unknown): boolean =>
-    error instanceof AntigravityDecryptionCapabilityError ||
-    (typeof error === 'object' &&
-        error !== null &&
-        (error as { code?: unknown }).code === 'ANTIGRAVITY_DECRYPTION_CAPABILITY');
+    error instanceof AntigravityDecryptionCapabilityError;
+
+const acquireAntigravityExportCapability = async (): Promise<AntigravityDecryptionCapability> => {
+    try {
+        return await acquireAntigravityDecryptionCapability();
+    } catch (error) {
+        if (!isAntigravityDecryptionCapabilityError(error)) {
+            throw error;
+        }
+        const message = error instanceof Error ? ` ${error.message}` : '';
+        throw new Error(`Unlock Antigravity Keychain access before exporting transcript logs.${message}`, {
+            cause: error,
+        });
+    }
+};
 
 export const listAntigravityWorkspacesFn = createServerFn({ method: 'GET' }).handler(async () => {
     const { listAntigravityWorkspaceGroups } = await import('@spiracha/lib/antigravity-db');
@@ -160,6 +166,7 @@ export const loadAntigravityConversationDetail = async (conversationId: string) 
 };
 
 type AntigravityConversationExportOptions = {
+    decryptionCapability?: AntigravityDecryptionCapability;
     includeCommentary?: boolean;
     includeMetadata?: boolean;
     includeTools?: boolean;
@@ -197,7 +204,8 @@ export const loadAntigravityConversationExport = async (
                     return renderAntigravityConversationMarkdown(conversation, renderOptions);
                 }
 
-                const decryptionCapability = await acquireAntigravityDecryptionCapability();
+                const decryptionCapability =
+                    options.decryptionCapability ?? (await acquireAntigravityExportCapability());
                 return renderAntigravityConversationMarkdown(conversation, { ...renderOptions, decryptionCapability });
             } catch (error) {
                 if (!isAntigravityDecryptionCapabilityError(error)) {
@@ -311,6 +319,9 @@ export const exportAntigravityConversations = async (input: z.input<typeof expor
         }
         return conversation;
     });
+    const decryptionCapability = selectedConversations.some(hasEncryptedAntigravityConversation)
+        ? await acquireAntigravityExportCapability()
+        : undefined;
     const projectNames = await resolveAntigravityProjectNames(
         selectedConversations.flatMap((conversation) => (conversation.projectId ? [conversation.projectId] : [])),
     );
@@ -320,6 +331,7 @@ export const exportAntigravityConversations = async (input: z.input<typeof expor
             const result = await loadAntigravityConversationExport(
                 conversationId,
                 {
+                    decryptionCapability,
                     includeCommentary: data.includeCommentary,
                     includeMetadata: data.includeMetadata,
                     includeTools: data.includeTools,

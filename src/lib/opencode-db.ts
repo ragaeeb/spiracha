@@ -128,6 +128,11 @@ const logOpenCodeDb = (event: string, details: Record<string, unknown>) => {
     }
 };
 
+const isMissingFileError = (error: unknown): boolean => {
+    const code = (error as { code?: unknown }).code;
+    return code === 'ENOENT' || code === 'ENOTDIR';
+};
+
 const runWithOpenCodeDbLimit = async <T>(operation: string, dbPath: string, action: () => T): Promise<T> => {
     const loadId = nextOpenCodeDbLoadId;
     nextOpenCodeDbLoadId += 1;
@@ -647,7 +652,12 @@ export const listOpenCodeSessionsForGroup = async (
 };
 
 const readOpenCodeSessionSummary = (db: Database, sessionId: string): OpenCodeSessionSummary | null => {
-    return readSessionSummaries(db, `s.id = ? AND ${MAIN_SESSION_FILTER}`, [sessionId])[0] ?? null;
+    const session = readSessionSummaries(db, `s.id = ? AND ${MAIN_SESSION_FILTER}`, [sessionId])[0] ?? null;
+    if (session?.projectId === GLOBAL_OPENCODE_PROJECT_ID && !session.directory.trim()) {
+        logOpenCodeDb('invalid-global-session-directory', { sessionId });
+        return null;
+    }
+    return session;
 };
 
 const readOpenCodeSessionTreeIds = (db: Database, sessionId: string): string[] => {
@@ -966,19 +976,34 @@ export const deleteOpenCodeDesktopSessionState = async (
 
         const sessionIdSet = new Set(sessionIds);
         const worktreeSet = new Set(worktrees);
-        const fileNames = (await readdir(stateDir)).filter((fileName) => fileName.endsWith('.dat'));
+        let fileNames: string[];
+        try {
+            fileNames = (await readdir(stateDir)).filter((fileName) => fileName.endsWith('.dat'));
+        } catch (error) {
+            if (isMissingFileError(error)) {
+                return [];
+            }
+            throw error;
+        }
         const changedFiles = await mapWithConcurrency(
             fileNames,
             DESKTOP_STATE_FILE_CONCURRENCY,
             async (fileName): Promise<string | null> => {
                 const filePath = path.join(stateDir, fileName);
-                const state = parseMutableJsonObject(await Bun.file(filePath).text());
-                if (!state || !cleanOpenCodeDesktopStateObject(state, sessionIdSet, worktreeSet)) {
-                    return null;
-                }
+                try {
+                    const state = parseMutableJsonObject(await Bun.file(filePath).text());
+                    if (!state || !cleanOpenCodeDesktopStateObject(state, sessionIdSet, worktreeSet)) {
+                        return null;
+                    }
 
-                await writeOpenCodeDesktopState(filePath, state);
-                return filePath;
+                    await writeOpenCodeDesktopState(filePath, state);
+                    return filePath;
+                } catch (error) {
+                    if (isMissingFileError(error)) {
+                        return null;
+                    }
+                    throw error;
+                }
             },
         );
 

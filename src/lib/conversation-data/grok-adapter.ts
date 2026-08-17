@@ -53,7 +53,7 @@ const partToMessages = (
         return createTextMessage({
             createdAtMs: entry.createdAtMs,
             id: part.partId,
-            metadata: { modelFingerprint: entry.modelFingerprint, modelId: entry.modelId },
+            model: entry.modelId ?? undefined,
             order,
             phase: normalizeAssistantPhase(getGrokTextPartPhase(entry, part, finalTextPartIds), 'unknown'),
             role: normalizeRole(entry.role),
@@ -158,6 +158,7 @@ const buildConversation = async (
     const messages = options.includeMessages
         ? selectConversationMessages(allMessages, options.messageSelector ?? 'last_final_answer')
         : [];
+    const model = session.currentModelId ?? session.modelLabel ?? undefined;
 
     return {
         createdAtMs: session.createdAtMs,
@@ -168,14 +169,13 @@ const buildConversation = async (
         ),
         id: session.sessionId,
         matches,
+        ...(model ? { model } : {}),
         messageCount: options.includeMessages ? allMessages.length : session.messageCount,
         messages,
         metadata: {
             agentName: session.agentName,
-            currentModelId: session.currentModelId,
             gitBranch: session.gitBranch,
             headCommit: session.headCommit,
-            modelLabel: session.modelLabel,
             renderablePartCount: session.renderablePartCount,
             sandboxProfile: session.sandboxProfile,
         },

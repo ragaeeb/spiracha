@@ -341,6 +341,43 @@ describe('antigravity db discovery', () => {
         expect(result.diagnostics).toHaveLength(100);
     });
 
+    it('should continue after an oversized protobuf record with one bounded diagnostic', async () => {
+        const root = await makeRoot();
+        const summaryPath = path.join(root, 'agyhub_summaries_proto.pb');
+        const oversizedLength = 8 * 1024 * 1024 + 1;
+        const oversized = [0x0a, ...encodeVarint(oversizedLength), ...new Array(oversizedLength).fill(0)];
+        const valid = encodeSummaryIndex([
+            { id: '55555555-5555-4555-8555-555555555555', title: 'After oversized record' },
+        ]);
+        await Bun.write(summaryPath, new Uint8Array([...oversized, ...valid]));
+
+        const result = await readAntigravitySummaryIndexWithDiagnostics(summaryPath);
+
+        expect(result.entries.map((entry) => entry.title)).toEqual(['After oversized record']);
+        expect(result.diagnostics).toEqual([
+            expect.objectContaining({
+                byteOffset: 0,
+                kind: 'protobuf',
+                message: expect.stringContaining('exceeds'),
+            }),
+        ]);
+    });
+
+    it('should diagnose an oversized protobuf record truncated at EOF', async () => {
+        const root = await makeRoot();
+        const summaryPath = path.join(root, 'agyhub_summaries_proto.pb');
+        const oversizedLength = 8 * 1024 * 1024 + 1;
+        await Bun.write(summaryPath, new Uint8Array([0x0a, ...encodeVarint(oversizedLength), 0x01, 0x02, 0x03]));
+
+        const result = await readAntigravitySummaryIndexWithDiagnostics(summaryPath);
+
+        expect(result.entries).toEqual([]);
+        expect(result.diagnostics).toEqual([
+            expect.objectContaining({ byteOffset: 0, message: expect.stringContaining('exceeds') }),
+            expect.objectContaining({ byteOffset: 0, message: 'Truncated Antigravity protobuf input' }),
+        ]);
+    });
+
     it('should resolve one conversation without requiring a collection scan', async () => {
         const root = await makeRoot();
         const conversationId = '12111111-1111-4111-8111-111111111111';

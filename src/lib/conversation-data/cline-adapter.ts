@@ -74,6 +74,7 @@ const buildConversation = async (
         deepLinks: createDeepLinks('cline', task.taskId, createConversationUiPath('cline-tasks', task.taskId)),
         id: task.taskId,
         matches,
+        ...(task.modelId ? { model: task.modelId } : {}),
         messageCount: options.includeMessages ? allMessages.length : task.messageCount,
         messages: options.includeMessages
             ? selectConversationMessages(allMessages, options.messageSelector ?? 'last_final_answer')
@@ -82,7 +83,6 @@ const buildConversation = async (
             cacheReads: task.cacheReads,
             cacheWrites: task.cacheWrites,
             isFavorited: task.isFavorited,
-            modelId: task.modelId,
             tokensIn: task.tokensIn,
             tokensOut: task.tokensOut,
             totalCost: task.totalCost,

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import {
+    type CodexRolloutContentError,
     type CodexRolloutIdentity,
     CodexRolloutMutationError,
     type CodexRolloutSourceError,
@@ -28,7 +29,9 @@ describe('Codex rollout snapshots', () => {
             {
                 copy: async (sourcePath, snapshotPath) => {
                     copied.push(`${sourcePath}->${snapshotPath}`);
+                    return 4;
                 },
+                hash: async () => 'stable-content',
                 stat: async () => identity(),
             },
         );
@@ -39,6 +42,7 @@ describe('Codex rollout snapshots', () => {
 
     it('should reject a source that changes while the snapshot is copied', async () => {
         let statCall = 0;
+        let hashCall = 0;
 
         await expect(
             copyStableCodexRollout(
@@ -49,7 +53,11 @@ describe('Codex rollout snapshots', () => {
                     threadId: 'thread-2',
                 },
                 {
-                    copy: async () => {},
+                    copy: async () => 4,
+                    hash: async () => {
+                        hashCall += 1;
+                        return hashCall === 3 ? 'changed-content' : 'stable-content';
+                    },
                     stat: async () => {
                         statCall += 1;
                         return identity(statCall === 2 ? { sizeBytes: 5 } : {});
@@ -57,6 +65,80 @@ describe('Codex rollout snapshots', () => {
                 },
             ),
         ).rejects.toBeInstanceOf(CodexRolloutMutationError);
+    });
+
+    it('should accept metadata churn when the source content still matches the snapshot', async () => {
+        let statCall = 0;
+
+        await expect(
+            copyStableCodexRollout(
+                {
+                    attempt: 2,
+                    snapshotPath: '/tmp/attempt.jsonl',
+                    sourcePath: '/tmp/source.jsonl',
+                    threadId: 'thread-metadata-churn',
+                },
+                {
+                    copy: async () => 4,
+                    hash: async () => 'stable-content',
+                    stat: async () => {
+                        statCall += 1;
+                        return identity(statCall === 2 ? { inode: 9, modificationTimeMs: 8 } : {});
+                    },
+                },
+            ),
+        ).resolves.toMatchObject({ threadId: 'thread-metadata-churn' });
+    });
+
+    it('should reject a snapshot when the copy reports a byte mismatch', async () => {
+        await expect(
+            copyStableCodexRollout(
+                {
+                    attempt: 1,
+                    snapshotPath: '/tmp/attempt.jsonl',
+                    sourcePath: '/tmp/source.jsonl',
+                    threadId: 'thread-truncated',
+                },
+                {
+                    copy: async () => 3,
+                    hash: async () => 'stable-content',
+                    stat: async () => identity({ sizeBytes: 4 }),
+                },
+            ),
+        ).rejects.toMatchObject({
+            actualBytes: 3,
+            code: 'CODEX_ROLLOUT_CONTENT_INVALID',
+            expectedBytes: 4,
+            threadId: 'thread-truncated',
+        } satisfies Partial<CodexRolloutContentError>);
+    });
+
+    it('should reject a same-size snapshot whose content hash differs', async () => {
+        let hashCall = 0;
+
+        await expect(
+            copyStableCodexRollout(
+                {
+                    attempt: 1,
+                    snapshotPath: '/tmp/attempt.jsonl',
+                    sourcePath: '/tmp/source.jsonl',
+                    threadId: 'thread-torn-copy',
+                },
+                {
+                    copy: async () => 4,
+                    hash: async () => {
+                        hashCall += 1;
+                        return hashCall === 1 ? 'source-content' : 'snapshot-content';
+                    },
+                    stat: async () => identity(),
+                },
+            ),
+        ).rejects.toMatchObject({
+            actualHash: 'snapshot-content',
+            code: 'CODEX_ROLLOUT_CONTENT_INVALID',
+            expectedHash: 'source-content',
+            threadId: 'thread-torn-copy',
+        });
     });
 
     it('should classify a missing source during stat as missing', async () => {
@@ -71,7 +153,8 @@ describe('Codex rollout snapshots', () => {
                     threadId: 'thread-missing',
                 },
                 {
-                    copy: async () => {},
+                    copy: async () => 4,
+                    hash: async () => 'stable-content',
                     stat: async () => {
                         throw error;
                     },
@@ -100,6 +183,7 @@ describe('Codex rollout snapshots', () => {
                     copy: async () => {
                         throw error;
                     },
+                    hash: async () => 'stable-content',
                     stat: async () => identity(),
                 },
             ),
