@@ -336,14 +336,18 @@ export function ExportDialog({
     const displayedError = evidenceError ?? errorMessage;
     const zipDescriptionId = useId();
     const handleOpenChange = (nextOpen: boolean) => {
-        if (nextOpen) {
-            resetActiveDownloads();
-        } else {
+        if (!nextOpen) {
             submissionToken.current += 1;
             cancelActiveDownloads();
         }
         onOpenChange(nextOpen);
     };
+
+    useEffect(() => {
+        if (open) {
+            resetActiveDownloads();
+        }
+    }, [open]);
 
     useEffect(() => {
         if (!open) {

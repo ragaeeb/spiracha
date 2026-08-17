@@ -49,7 +49,7 @@ export function AntigravityKeychainPanel() {
                     </p>
                     <p className="mt-1 text-[var(--muted-foreground)] text-xs">
                         {isUnlocked
-                            ? 'The current Keychain check succeeded. Transcript exports can reacquire access for each protected request.'
+                            ? 'Antigravity Keychain access is enabled for this server process. Transcript exports can use the cached access until the process restarts.'
                             : `Spiracha needs one-time access to ${decryptionState.keychainService} to decrypt Antigravity transcript data. macOS will ask for approval after you click unlock.`}
                     </p>
                     {error ? (

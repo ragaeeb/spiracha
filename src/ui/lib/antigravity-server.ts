@@ -71,8 +71,8 @@ export const listAntigravityWorkspacesFn = createServerFn({ method: 'GET' }).han
 });
 
 export const getAntigravityDecryptionStateFn = createServerFn({ method: 'GET' }).handler(async () => {
-    const { probeAntigravityDecryptionState } = await import('@spiracha/lib/antigravity-keychain');
-    return probeAntigravityDecryptionState();
+    const { getAntigravityDecryptionState } = await import('@spiracha/lib/antigravity-keychain');
+    return getAntigravityDecryptionState();
 });
 
 export const unlockAntigravityDecryptionFn = createServerFn({ method: 'POST' }).handler(async () => {
@@ -255,8 +255,10 @@ export const deleteAntigravityConversationsById = async (conversationIds: string
     const { deleteAntigravityConversation } = await import('@spiracha/lib/antigravity-db');
     const { resolveAntigravityRoots } = await import('@spiracha/lib/antigravity-exporter-types');
     const roots = resolveAntigravityRoots();
-    const results = await runDeleteBatch(conversationIds, (conversationId) =>
-        deleteAntigravityConversation(roots, conversationId),
+    const results = await runDeleteBatch(
+        conversationIds,
+        (conversationId) => deleteAntigravityConversation(roots, conversationId),
+        { concurrency: 1 },
     );
     const deletedConversationIds = results.flatMap((result) => result.deletedConversationIds);
     if (deletedConversationIds.length === 0) {

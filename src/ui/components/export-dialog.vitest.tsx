@@ -181,6 +181,20 @@ describe('ExportDialog', () => {
         cancelActiveDownloads.mockRestore();
     });
 
+    it('should reset cancelled downloads when the controlled dialog reopens', async () => {
+        const onOpenChange = vi.fn();
+        const resetActiveDownloads = vi.spyOn(download, 'resetActiveDownloads');
+        const renderDialog = (open: boolean) => (
+            <ExportDialog open={open} onExport={vi.fn()} onOpenChange={onOpenChange} />
+        );
+        const { rerender } = render(renderDialog(false));
+
+        rerender(renderDialog(true));
+
+        await waitFor(() => expect(resetActiveDownloads).toHaveBeenCalledTimes(1));
+        resetActiveDownloads.mockRestore();
+    });
+
     it('should not download focused evidence after the dialog is cancelled', async () => {
         const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
         HTMLElement.prototype.scrollIntoView = vi.fn();

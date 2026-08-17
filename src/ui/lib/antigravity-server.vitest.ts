@@ -3,10 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
     deleteAntigravityConversationMock,
-    probeAntigravityDecryptionStateMock,
     getAntigravityConversationByIdMock,
+    getAntigravityDecryptionStateMock,
     listAntigravityConversationsMock,
     listAntigravityWorkspaceGroupsMock,
+    probeAntigravityDecryptionStateMock,
     renderAntigravityArtifactsMarkdownMock,
     renderAntigravityConversationMarkdownMock,
     renderSourceSessionsDownloadMock,
@@ -17,6 +18,7 @@ const {
 } = vi.hoisted(() => ({
     deleteAntigravityConversationMock: vi.fn(),
     getAntigravityConversationByIdMock: vi.fn(),
+    getAntigravityDecryptionStateMock: vi.fn(),
     listAntigravityConversationsMock: vi.fn(),
     listAntigravityWorkspaceGroupsMock: vi.fn(),
     probeAntigravityDecryptionStateMock: vi.fn(),
@@ -56,6 +58,7 @@ vi.mock('@spiracha/lib/antigravity-trajectory', () => ({
 }));
 
 vi.mock('@spiracha/lib/antigravity-keychain', () => ({
+    getAntigravityDecryptionState: getAntigravityDecryptionStateMock,
     probeAntigravityDecryptionState: probeAntigravityDecryptionStateMock,
     unlockAntigravityDecryption: unlockAntigravityDecryptionMock,
     withAntigravityDecryptionCapability: withAntigravityDecryptionCapabilityMock,
@@ -83,6 +86,7 @@ import {
     deleteAntigravityConversationsById,
     exportAntigravityConversationFn,
     exportAntigravityConversations,
+    getAntigravityDecryptionStateFn,
     loadAntigravityConversationDetail,
     loadAntigravityConversationExport,
 } from './antigravity-server';
@@ -119,6 +123,16 @@ const makeConversation = (overrides: Partial<AntigravityConversation> = {}): Ant
 describe('antigravity-server', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        getAntigravityDecryptionStateMock.mockReturnValue({
+            canRequestAccess: true,
+            error: null,
+            isUnlocked: false,
+            keychainAccount: 'Antigravity Key',
+            keychainService: 'Antigravity Safe Storage',
+            platform: 'darwin',
+            provider: 'keychain',
+            status: 'locked',
+        });
         probeAntigravityDecryptionStateMock.mockResolvedValue(null);
         getAntigravityConversationByIdMock.mockImplementation(async (conversationId: string) =>
             (await listAntigravityConversationsMock()).find(
@@ -136,6 +150,26 @@ describe('antigravity-server', () => {
             fileName: `${entries[0]?.cwd}-threads-${entries.length}.zip`,
             mode: 'download_url',
         }));
+    });
+
+    it('should read cached decryption state without probing Keychain on route entry', async () => {
+        const state = {
+            canRequestAccess: true,
+            error: null,
+            isUnlocked: false,
+            keychainAccount: 'Antigravity Key',
+            keychainService: 'Antigravity Safe Storage',
+            platform: 'darwin' as const,
+            provider: 'keychain' as const,
+            status: 'locked' as const,
+        };
+        getAntigravityDecryptionStateMock.mockReturnValue(state);
+
+        const result = await getAntigravityDecryptionStateFn();
+
+        expect(result).toBe(state);
+        expect(getAntigravityDecryptionStateMock).toHaveBeenCalledOnce();
+        expect(probeAntigravityDecryptionStateMock).not.toHaveBeenCalled();
     });
 
     it.each(['overview', 'trajectory'] as const)(
@@ -447,6 +481,32 @@ describe('antigravity-server', () => {
                 '/tmp/root/brain/conversation-2',
             ],
         });
+    });
+
+    it('should serialize bulk Antigravity deletes that rewrite the shared summary index', async () => {
+        let releaseFirstDelete: (() => void) | undefined;
+        const firstDeleteBlocked = new Promise<void>((resolve) => {
+            releaseFirstDelete = resolve;
+        });
+        deleteAntigravityConversationMock.mockImplementation(async (_roots, conversationId: string) => {
+            if (conversationId === 'conversation-1') {
+                await firstDeleteBlocked;
+            }
+            return {
+                deletedConversationIds: [conversationId],
+                deletedPaths: [`/tmp/root/${conversationId}.pb`],
+            };
+        });
+
+        const deletion = deleteAntigravityConversationsById(['conversation-1', 'conversation-2']);
+        await vi.waitFor(() => expect(deleteAntigravityConversationMock).toHaveBeenCalled());
+        try {
+            expect(deleteAntigravityConversationMock).toHaveBeenCalledTimes(1);
+        } finally {
+            releaseFirstDelete?.();
+        }
+        await deletion;
+        expect(deleteAntigravityConversationMock).toHaveBeenCalledTimes(2);
     });
 
     it('should reject bulk Antigravity delete when nothing was removed', async () => {
