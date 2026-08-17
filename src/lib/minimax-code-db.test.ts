@@ -9,6 +9,7 @@ import {
     listMiniMaxCodeWorkspaceGroups,
     readMiniMaxCodeSessionTranscript,
 } from './minimax-code-db';
+import { resolveMiniMaxCodeRuntimeDbPath } from './minimax-code-exporter-types';
 import { writeMiniMaxCodeRuntimeFixture, writeMiniMaxCodeSessionFixture } from './minimax-code-test-helpers';
 
 const tempRoots: string[] = [];
@@ -17,6 +18,119 @@ const makeTempRoot = async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'minimax-code-db-test-'));
     tempRoots.push(tempRoot);
     return tempRoot;
+};
+
+const writeManifestMessagesSession = async (sessionsDir: string, sessionId: string) => {
+    const encodedSessionId = Buffer.from(sessionId).toString('base64').replace(/=+$/u, '');
+    const sessionDir = path.join(sessionsDir, '2026', '08', '17', `12-00-00-000-session_${encodedSessionId}`);
+    await mkdir(sessionDir, { recursive: true });
+    await Bun.write(
+        path.join(sessionDir, 'manifest.json'),
+        `${JSON.stringify({
+            createdAtMs: 1_786_000_000_000,
+            layout: 'v2-final-dated-session',
+            paths: {
+                ledger: 'ledger.jsonl',
+                messages: 'messages.jsonl',
+                reports: 'reports',
+                sessionDir: path.basename(sessionDir),
+                snapshot: 'snapshot.json',
+            },
+            schemaVersion: 1,
+            sessionId,
+            source: 'local-runtime',
+            updatedAtMs: 1_786_000_000_100,
+        })}\n`,
+    );
+    const messages = [
+        {
+            message: {
+                content: [{ text: 'Please review this workspace.', type: 'text' }],
+                role: 'user',
+                timestamp: 1_786_000_000_010,
+            },
+            message_id: 'message-user',
+            turn_id: 'turn-1',
+        },
+        {
+            message: {
+                content: [
+                    { thinking: 'I will inspect the workspace first.', type: 'thinking' },
+                    { arguments: { command: 'pwd' }, id: 'call-1', name: 'bash', type: 'toolCall' },
+                ],
+                model: 'MiniMax-M3',
+                role: 'assistant',
+                stopReason: 'toolUse',
+                timestamp: 1_786_000_000_020,
+            },
+            message_id: 'message-assistant-tool',
+            turn_id: 'turn-1',
+        },
+        {
+            message: {
+                content: [{ text: '/workspace/spiracha', type: 'text' }],
+                details: {},
+                isError: false,
+                role: 'toolResult',
+                timestamp: 1_786_000_000_030,
+                toolCallId: 'call-1',
+                toolName: 'bash',
+            },
+            message_id: 'message-tool-result',
+            turn_id: 'turn-1',
+        },
+        {
+            message: {
+                content: [{ text: 'The workspace is ready for review.', type: 'text' }],
+                model: 'MiniMax-M3',
+                role: 'assistant',
+                stopReason: 'stop',
+                timestamp: 1_786_000_000_040,
+            },
+            message_id: 'message-assistant-final',
+            turn_id: 'turn-1',
+        },
+    ];
+    await Bun.write(
+        path.join(sessionDir, 'messages.jsonl'),
+        `${messages.map((message) => JSON.stringify(message)).join('\n')}\n`,
+    );
+    return { sessionDir, sessionId };
+};
+
+const writeRuntimeSessionMetadata = async (
+    sessionsDir: string,
+    sessionId: string,
+    workspacePath?: string,
+): Promise<void> => {
+    const runtimeDbPath = resolveMiniMaxCodeRuntimeDbPath(sessionsDir);
+    await mkdir(path.dirname(runtimeDbPath), { recursive: true });
+    const db = new Database(runtimeDbPath, { create: true, strict: true });
+    try {
+        db.run(
+            'CREATE TABLE local_runtime_sessions (session_id TEXT PRIMARY KEY, record_json TEXT NOT NULL, updated_at_ms INTEGER NOT NULL)',
+        );
+        db.query('INSERT INTO local_runtime_sessions (session_id, record_json, updated_at_ms) VALUES (?, ?, ?)').run(
+            sessionId,
+            JSON.stringify({
+                agentName: 'main',
+                archived: false,
+                createdAtMs: 1_786_000_000_000,
+                effectiveModel: 'minimax/MiniMax-M3',
+                effectiveModelVariant: 'thinking',
+                runtime: 'pi-agent',
+                sessionId,
+                sessionType: 'root',
+                status: 'idle',
+                title: 'Manifest messages review',
+                updatedAtMs: 1_786_000_000_100,
+                ...(workspacePath ? { workspaceDir: workspacePath } : {}),
+            }),
+            1_786_000_000_100,
+        );
+    } finally {
+        db.close();
+    }
 };
 
 describe('MiniMax Code db helpers', () => {
@@ -118,6 +232,49 @@ describe('MiniMax Code db helpers', () => {
         );
 
         await expect(listMiniMaxCodeWorkspaceGroups(sessionsDir)).resolves.toEqual([]);
+    });
+
+    it('should list and read sessions stored as manifest.json plus messages.jsonl', async () => {
+        const tempRoot = await makeTempRoot();
+        const sessionsDir = path.join(tempRoot, 'v2', 'sessions');
+        const workspacePath = path.join(tempRoot, 'project');
+        const fixture = await writeManifestMessagesSession(sessionsDir, 'mvs_112233aabbcc');
+        await writeRuntimeSessionMetadata(sessionsDir, fixture.sessionId, workspacePath);
+
+        const workspaces = await listMiniMaxCodeWorkspaceGroups(sessionsDir);
+        expect(workspaces).toEqual([
+            expect.objectContaining({
+                key: `workspace:${encodeURIComponent(workspacePath)}`,
+                messageCount: 3,
+                sessionCount: 1,
+                worktree: workspacePath,
+            }),
+        ]);
+
+        const transcript = await readMiniMaxCodeSessionTranscript(sessionsDir, fixture.sessionId);
+        expect(transcript?.messages.map((message) => message.role)).toEqual(['user', 'assistant', 'assistant']);
+        expect(transcript?.messages[1]?.reasoning).toBe('I will inspect the workspace first.');
+        expect(transcript?.messages[1]?.toolCalls[0]).toMatchObject({
+            callId: 'call-1',
+            command: 'pwd',
+            outputText: '/workspace/spiracha',
+            status: 'succeeded',
+            toolName: 'bash',
+        });
+        expect(transcript?.session).toMatchObject({
+            sessionId: fixture.sessionId,
+            title: 'Manifest messages review',
+            worktree: workspacePath,
+        });
+    });
+
+    it('should reject manifest messages sessions without runtime workspace metadata', async () => {
+        const tempRoot = await makeTempRoot();
+        const sessionsDir = path.join(tempRoot, 'v2', 'sessions');
+        await writeManifestMessagesSession(sessionsDir, 'mvs_aabbcc112233');
+
+        await expect(listMiniMaxCodeWorkspaceGroups(sessionsDir)).resolves.toEqual([]);
+        await expect(readMiniMaxCodeSessionTranscript(sessionsDir, 'mvs_aabbcc112233')).resolves.toBeNull();
     });
 
     it('should delete a finalized session directory and every authoritative runtime row', async () => {
