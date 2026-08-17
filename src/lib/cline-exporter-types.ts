@@ -10,9 +10,19 @@ export const resolveClineDataDir = (env: NodeJS.ProcessEnv = process.env, homeDi
     return env.SPIRACHA_CLINE_DATA_DIR?.trim() || getDefaultClineDataDir(homeDir);
 };
 
+export const CLINE_SESSION_ID_PATTERN = /^[\p{L}\p{N}_-]+$/u;
+
+export const isSafeClineSessionId = (sessionId: string): boolean => CLINE_SESSION_ID_PATTERN.test(sessionId);
+
+export type ClineIndexCleanupResult =
+    | { status: 'deleted' }
+    | { status: 'not_found' }
+    | { message: string; status: 'failed' };
+
 export type DeleteClineTaskResult = {
     deletedFiles: string[];
     deletedTaskIds: string[];
+    indexCleanup: ClineIndexCleanupResult;
 };
 
 export type ClineWorkspaceGroup = {
@@ -75,6 +85,7 @@ export type ClineTaskSummary = {
     userMessageCount: number;
     workspaceKey: string;
     workspaceLabel: string;
+    workspaceSource?: 'metadata' | 'session_directory';
     worktree: string;
 };
 

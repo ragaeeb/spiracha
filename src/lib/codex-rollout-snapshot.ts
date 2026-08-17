@@ -105,6 +105,21 @@ const isSameIdentity = (before: CodexRolloutIdentity, after: CodexRolloutIdentit
     );
 };
 
+const runSourceOperation = async <T>(
+    operation: () => Promise<T>,
+    context: { sourcePath: string; threadId: string },
+): Promise<T> => {
+    try {
+        return await operation();
+    } catch (error) {
+        throw new CodexRolloutSourceError({
+            cause: error,
+            code: isMissingError(error) ? 'CODEX_ROLLOUT_MISSING' : 'CODEX_ROLLOUT_UNREADABLE',
+            ...context,
+        });
+    }
+};
+
 export const copyStableCodexRollout = async (
     {
         attempt,
@@ -119,40 +134,10 @@ export const copyStableCodexRollout = async (
     },
     operations: CodexRolloutSnapshotOperations = defaultOperations,
 ): Promise<CodexRolloutSnapshot> => {
-    let before: CodexRolloutIdentity;
-    try {
-        before = await operations.stat(sourcePath);
-    } catch (error) {
-        throw new CodexRolloutSourceError({
-            cause: error,
-            code: isMissingError(error) ? 'CODEX_ROLLOUT_MISSING' : 'CODEX_ROLLOUT_UNREADABLE',
-            sourcePath,
-            threadId,
-        });
-    }
-
-    try {
-        await operations.copy(sourcePath, snapshotPath);
-    } catch (error) {
-        throw new CodexRolloutSourceError({
-            cause: error,
-            code: isMissingError(error) ? 'CODEX_ROLLOUT_MISSING' : 'CODEX_ROLLOUT_UNREADABLE',
-            sourcePath,
-            threadId,
-        });
-    }
-
-    let after: CodexRolloutIdentity;
-    try {
-        after = await operations.stat(sourcePath);
-    } catch (error) {
-        throw new CodexRolloutSourceError({
-            cause: error,
-            code: isMissingError(error) ? 'CODEX_ROLLOUT_MISSING' : 'CODEX_ROLLOUT_UNREADABLE',
-            sourcePath,
-            threadId,
-        });
-    }
+    const context = { sourcePath, threadId };
+    const before = await runSourceOperation(() => operations.stat(sourcePath), context);
+    await runSourceOperation(() => operations.copy(sourcePath, snapshotPath), context);
+    const after = await runSourceOperation(() => operations.stat(sourcePath), context);
 
     if (!isSameIdentity(before, after)) {
         throw new CodexRolloutMutationError({ after, attempt, before, threadId });

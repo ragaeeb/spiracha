@@ -1,4 +1,5 @@
 import {
+    createClineTranscriptCache,
     deleteClineTask,
     listClineTasksForGroup,
     listClineWorkspaceGroups,
@@ -13,6 +14,7 @@ import { selectConversationMessages } from './message-selector';
 import { getConversationPathMatch } from './path-match';
 import type {
     ConversationAdapter,
+    ConversationDataLocations,
     ConversationDetail,
     ConversationMessage,
     ConversationPathMatch,
@@ -23,7 +25,7 @@ import type {
 
 const CLINE_CONVERSATION_HYDRATION_CONCURRENCY = 4;
 
-const getDataDir = (options: { locations?: { clineDataDir?: string } }) =>
+const getDataDir = (options: { locations?: ConversationDataLocations }) =>
     options.locations?.clineDataDir ?? resolveClineDataDir();
 
 const transcriptToMessages = (transcript: ClineTaskTranscript): ConversationMessage[] =>
@@ -90,20 +92,21 @@ const buildConversation = async (
         title: task.title,
         updatedAtMs: task.lastActiveAtMs,
         workspaceKey: task.workspaceKey,
-        workspacePath: task.worktree,
+        workspacePath: task.workspaceSource === 'session_directory' ? null : task.worktree,
     };
 };
 
 const listClineConversationsForPath = async (options: ListConversationsForPathOptions) => {
     const dataDir = getDataDir(options);
-    const groups = await listClineWorkspaceGroups(dataDir);
+    const transcriptCache = createClineTranscriptCache(dataDir);
+    const groups = await listClineWorkspaceGroups(dataDir, transcriptCache);
     const conversations: ConversationDetail[] = [];
     for (const group of groups) {
         const match = await getConversationPathMatch(options.cwd, group.worktree);
         if (!match) {
             continue;
         }
-        const tasks = (await listClineTasksForGroup(group.key, dataDir)).filter((task) =>
+        const tasks = (await listClineTasksForGroup(group.key, dataDir, transcriptCache)).filter((task) =>
             isWithinUpdatedWindow(task.lastActiveAtMs, options),
         );
         conversations.push(

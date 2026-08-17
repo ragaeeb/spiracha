@@ -1,22 +1,23 @@
+import { CLINE_SESSION_ID_PATTERN } from '@spiracha/lib/cline-exporter-types';
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
 import { requireDeletedItems, runDeleteBatch } from './delete-batch';
 import { renderSourceSessionDownload, renderSourceSessionsDownload } from './source-session-export-server';
 
 const workspaceSchema = z.object({ workspaceKey: z.string().min(1) });
-const taskSchema = z.object({ taskId: z.string().regex(/^[A-Za-z0-9_-]+$/u) });
+const taskSchema = z.object({ taskId: z.string().regex(CLINE_SESSION_ID_PATTERN) });
 const exportTaskSchema = z.object({
     includeCommentary: z.boolean().default(true),
     includeMetadata: z.boolean().default(true),
     includeTools: z.boolean().default(true),
     outputFormat: z.enum(['md', 'txt']).default('md'),
-    taskId: z.string().regex(/^[A-Za-z0-9_-]+$/u),
+    taskId: z.string().regex(CLINE_SESSION_ID_PATTERN),
     zipArchive: z.boolean().default(false),
 });
 const exportTasksSchema = exportTaskSchema.omit({ taskId: true, zipArchive: true }).extend({
-    taskIds: z.array(z.string().regex(/^[A-Za-z0-9_-]+$/u)).min(1),
+    taskIds: z.array(z.string().regex(CLINE_SESSION_ID_PATTERN)).min(1),
 });
-const deleteTasksSchema = z.object({ taskIds: z.array(z.string().regex(/^[A-Za-z0-9_-]+$/u)).min(1) });
+const deleteTasksSchema = z.object({ taskIds: z.array(z.string().regex(CLINE_SESSION_ID_PATTERN)).min(1) });
 
 export const listClineWorkspacesFn = createServerFn({ method: 'GET' }).handler(async () => {
     const { listClineWorkspaceGroups } = await import('@spiracha/lib/cline-db');
@@ -118,5 +119,6 @@ export const deleteClineTasksFn = createServerFn({ method: 'POST' })
         return {
             deletedFiles: [...new Set(results.flatMap((result) => result.deletedFiles))],
             deletedTaskIds,
+            indexCleanup: results.map((result) => result.indexCleanup),
         };
     });

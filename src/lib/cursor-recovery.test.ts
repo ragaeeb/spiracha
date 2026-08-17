@@ -1,9 +1,9 @@
 import { Database } from 'bun:sqlite';
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, utimes } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { listCursorWorkspaceGroups, withCursorWriteTransaction } from './cursor-db';
+import { CURSOR_SQLITE_RETRY_DELAYS_MS, listCursorWorkspaceGroups, withCursorWriteTransaction } from './cursor-db';
 import { getCursorGlobalDbPath } from './cursor-exporter-types';
 import {
     collectCursorThreadsForDeletion,
@@ -118,7 +118,10 @@ describe('recoverCursorWorkspaceGroup', () => {
         const userDir = await makeUserDir('cursor-recover-lock-');
         await createCursorFixture(userDir, recoverySpec());
         const globalDbPath = getCursorGlobalDbPath(userDir);
-        const lockProcess = await holdCursorWriteLock(globalDbPath);
+        const retryBudgetMs = CURSOR_SQLITE_RETRY_DELAYS_MS.reduce((total, delayMs) => total + delayMs, 0);
+        const lockProcess = await holdCursorWriteLock(globalDbPath, {
+            durationMs: Math.floor(retryBudgetMs / 2),
+        });
 
         try {
             const changes = withCursorWriteTransaction(
@@ -141,7 +144,10 @@ describe('recoverCursorWorkspaceGroup', () => {
         const [group] = await listCursorWorkspaceGroups(userDir);
         const targetBucket = group!.buckets[0]!;
         const globalDbPath = getCursorGlobalDbPath(userDir);
-        const lockProcess = await holdCursorWriteLock(globalDbPath, 1_000);
+        const retryBudgetMs = CURSOR_SQLITE_RETRY_DELAYS_MS.reduce((total, delayMs) => total + delayMs, 0);
+        const lockProcess = await holdCursorWriteLock(globalDbPath, {
+            durationMs: retryBudgetMs + Math.max(...CURSOR_SQLITE_RETRY_DELAYS_MS),
+        });
 
         try {
             await expect(recoverCursorWorkspaceGroup(group!, true, userDir)).rejects.toThrow(
@@ -370,8 +376,10 @@ describe('pruneCursorThreads', () => {
             threadsInComposerData: true,
         });
         await createCursorFixture(userDir, spec);
+        await utimes(path.join(userDir, 'workspaceStorage', 'bucket-second', 'state.vscdb'), new Date(1), new Date(1));
         const [group] = await listCursorWorkspaceGroups(userDir);
-        const failingBucket = group!.buckets.at(-1)!;
+        const failingBucket = group!.buckets.find((bucket) => bucket.bucketId === 'bucket-second')!;
+        expect(failingBucket.bucketId).not.toBe(group!.buckets[0]!.bucketId);
         const triggerDb = new Database(failingBucket.dbPath);
         triggerDb.exec(`
             CREATE TRIGGER fail_bucket_update
@@ -421,9 +429,14 @@ describe('pruneCursorThreads', () => {
             threadsInComposerData: true,
         });
         await createCursorFixture(userDir, spec);
+        await utimes(path.join(userDir, 'workspaceStorage', 'bucket-second', 'state.vscdb'), new Date(1), new Date(1));
         const [group] = await listCursorWorkspaceGroups(userDir);
-        const failingBucket = group!.buckets.at(-1)!;
-        const lockProcess = await holdCursorWriteLock(failingBucket.dbPath, 1_000);
+        const failingBucket = group!.buckets.find((bucket) => bucket.bucketId === 'bucket-second')!;
+        expect(failingBucket.bucketId).not.toBe(group!.buckets[0]!.bucketId);
+        const retryBudgetMs = CURSOR_SQLITE_RETRY_DELAYS_MS.reduce((total, delayMs) => total + delayMs, 0);
+        const lockProcess = await holdCursorWriteLock(failingBucket.dbPath, {
+            durationMs: retryBudgetMs + Math.max(...CURSOR_SQLITE_RETRY_DELAYS_MS),
+        });
         const deletable = await collectCursorThreadsForDeletion(['thread-1'], userDir);
 
         try {

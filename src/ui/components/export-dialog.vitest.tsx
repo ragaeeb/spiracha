@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as download from '#/lib/download';
 import { SettingsProvider } from '#/lib/settings-store';
@@ -152,6 +152,7 @@ describe('ExportDialog', () => {
     it('should allow disabling tool-call inclusion and closing the dialog', () => {
         const onExport = vi.fn();
         const onOpenChange = vi.fn();
+        const cancelActiveDownloads = vi.spyOn(download, 'cancelActiveDownloads');
 
         render(<ExportDialog open onExport={onExport} onOpenChange={onOpenChange} />);
 
@@ -167,6 +168,95 @@ describe('ExportDialog', () => {
             zipArchive: false,
         });
         expect(onOpenChange).toHaveBeenCalledWith(false);
+        expect(cancelActiveDownloads).toHaveBeenCalledTimes(1);
+        cancelActiveDownloads.mockRestore();
+    });
+
+    it('should not download focused evidence after the dialog is cancelled', async () => {
+        const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+        HTMLElement.prototype.scrollIntoView = vi.fn();
+        let resolveFetch: ((response: Response) => void) | undefined;
+        const fetchPromise = new Promise<Response>((resolve) => {
+            resolveFetch = resolve;
+        });
+        const fetchMock = vi.fn(() => fetchPromise);
+        const downloadTextFile = vi.spyOn(download, 'downloadTextFile');
+        const onOpenChange = vi.fn();
+        vi.stubGlobal('fetch', fetchMock);
+
+        try {
+            render(
+                <ExportDialog
+                    focusedEvidenceTarget={{ id: 'thread-1', source: 'codex' }}
+                    open
+                    onExport={vi.fn()}
+                    onOpenChange={onOpenChange}
+                />,
+            );
+            fireEvent.click(screen.getByRole('combobox', { name: 'Export mode' }));
+            fireEvent.click(screen.getByText('Focused evidence'));
+            fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
+            fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+            resolveFetch?.(
+                Response.json({
+                    data: {
+                        markdown: '# Focused evidence\n',
+                        meta: {
+                            approximateTokens: 1,
+                            episodeCount: 1,
+                            generatedAt: '2026-07-19T12:00:00.000Z',
+                            omission: {
+                                budgetReached: false,
+                                deduplicatedDiagnostics: 0,
+                                inputCharacters: 1,
+                                inputEvents: 1,
+                                omittedBinaryPayloads: 0,
+                                omittedEvents: 0,
+                                selectedEvents: 1,
+                                truncatedArrays: 0,
+                                truncatedFields: 0,
+                            },
+                            projectedCharacters: 20,
+                            rendererVersion: 'focused-evidence/v2',
+                        },
+                    },
+                }),
+            );
+
+            await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+            expect(onOpenChange).toHaveBeenCalledWith(false);
+            expect(downloadTextFile).not.toHaveBeenCalled();
+        } finally {
+            HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+            downloadTextFile.mockRestore();
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it('should mark focused preparation as failed when no export result is returned', async () => {
+        const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+        HTMLElement.prototype.scrollIntoView = vi.fn();
+        const fetchMock = vi.fn(async () => Response.json({ error: { message: 'No evidence' } }));
+        vi.stubGlobal('fetch', fetchMock);
+
+        try {
+            render(
+                <ExportDialog
+                    focusedEvidenceTarget={{ id: 'thread-1', source: 'codex' }}
+                    open
+                    onExport={vi.fn()}
+                    onOpenChange={vi.fn()}
+                />,
+            );
+            fireEvent.click(screen.getByRole('combobox', { name: 'Export mode' }));
+            fireEvent.click(screen.getByText('Focused evidence'));
+            fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
+
+            await waitFor(() => expect(screen.getByRole('status').textContent).toBe('Export failed.'));
+        } finally {
+            HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+            vi.unstubAllGlobals();
+        }
     });
 
     it('should submit zip archive when selected', () => {

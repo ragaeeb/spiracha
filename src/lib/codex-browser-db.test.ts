@@ -24,6 +24,23 @@ import { createCodexBrowserFixture } from './codex-test-helpers';
 
 const tempPaths: string[] = [];
 
+const waitForOutputMarker = async (stream: ReadableStream<Uint8Array>, marker: string) => {
+    const reader = stream.getReader();
+    const decoder = new TextDecoder();
+    let output = '';
+    try {
+        while (!output.includes(marker)) {
+            const { done, value } = await reader.read();
+            if (done) {
+                throw new Error(`Process exited before emitting ${marker}`);
+            }
+            output += decoder.decode(value, { stream: true });
+        }
+    } finally {
+        reader.releaseLock();
+    }
+};
+
 afterEach(async () => {
     await Promise.all(tempPaths.splice(0).map((targetPath) => rm(targetPath, { force: true, recursive: true })));
 });
@@ -1184,7 +1201,6 @@ describe('codex browser db', () => {
         db.exec('ALTER TABLE threads DROP COLUMN preview');
         db.close();
 
-        expect(() => getThreadBrowseData(fixture.dbPath, fixture.threadId)).toThrow(CodexDbCompatibilityError);
         try {
             getThreadBrowseData(fixture.dbPath, fixture.threadId);
             throw new Error('expected schema compatibility failure');
@@ -1195,6 +1211,106 @@ describe('codex browser db', () => {
                 missingColumns: ['threads.preview'],
             });
             expect((error as Error).message).toContain('threads.preview');
+        }
+    });
+
+    it('should report every invalid dynamic-tool field in one compatibility error', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-invalid-dynamic-tool-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const db = new Database(fixture.dbPath);
+        db.exec(`
+            DROP TABLE thread_dynamic_tools;
+            CREATE TABLE thread_dynamic_tools (
+                thread_id, position, name, description, input_schema, defer_loading, namespace
+            );
+        `);
+        db.query('INSERT INTO thread_dynamic_tools VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+            fixture.threads[0]!.threadId,
+            'invalid',
+            42,
+            42,
+            null,
+            0,
+            null,
+        );
+        db.close();
+
+        expect(() => getThreadBrowseData(fixture.dbPath, fixture.threads[0]!.threadId)).toThrow(
+            CodexDbCompatibilityError,
+        );
+        try {
+            getThreadBrowseData(fixture.dbPath, fixture.threads[0]!.threadId);
+            throw new Error('expected invalid dynamic-tool fields');
+        } catch (error) {
+            expect(error).toMatchObject({
+                invalidFields: expect.arrayContaining([
+                    'thread_dynamic_tools.description',
+                    'thread_dynamic_tools.name',
+                    'thread_dynamic_tools.position',
+                ]),
+            });
+        }
+    });
+
+    it('should report every invalid goal field in one compatibility error', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-invalid-goal-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const db = new Database(fixture.dbPath);
+        db.exec(
+            'DROP TABLE thread_goals; CREATE TABLE thread_goals (thread_id, goal_id, objective, status, token_budget, tokens_used, time_used_seconds, created_at_ms, updated_at_ms);',
+        );
+        db.query('INSERT INTO thread_goals VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+            fixture.threads[0]!.threadId,
+            42,
+            'objective',
+            'status',
+            'invalid',
+            1,
+            1,
+            'invalid',
+            1,
+        );
+        db.close();
+
+        try {
+            getThreadBrowseData(fixture.dbPath, fixture.threads[0]!.threadId);
+            throw new Error('expected invalid goal fields');
+        } catch (error) {
+            expect(error).toMatchObject({
+                invalidFields: expect.arrayContaining([
+                    'thread_goals.created_at_ms',
+                    'thread_goals.goal_id',
+                    'thread_goals.token_budget',
+                ]),
+            });
+        }
+    });
+
+    it('should report every invalid spawn-edge field in one compatibility error', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-invalid-edge-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const db = new Database(fixture.dbPath);
+        db.exec(`
+            DROP TABLE thread_spawn_edges;
+            CREATE TABLE thread_spawn_edges (parent_thread_id, child_thread_id, status);
+        `);
+        db.query('INSERT INTO thread_spawn_edges VALUES (?, ?, ?)').run(42, 42, 42);
+        db.close();
+
+        try {
+            getThreadBrowseDataBatch(fixture.dbPath, [42 as unknown as string]);
+            throw new Error('expected invalid spawn-edge fields');
+        } catch (error) {
+            expect(error).toMatchObject({
+                invalidFields: expect.arrayContaining([
+                    'thread_spawn_edges.child_thread_id',
+                    'thread_spawn_edges.parent_thread_id',
+                    'thread_spawn_edges.status',
+                ]),
+            });
         }
     });
 
@@ -1227,7 +1343,28 @@ describe('codex browser db', () => {
                 relations: { parentThreadId: fixture.threads[0]!.threadId },
             },
         });
-        expect(results.every((result) => result.threadId === ids[results.indexOf(result)])).toBe(true);
+        expect(results.map((result) => result.threadId)).toEqual(ids);
+    });
+
+    it('should preserve one relation across browse chunks without duplicate child edges', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-cross-chunk-relations-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const parentThreadId = fixture.threads[0]!.threadId;
+        const childThreadId = fixture.threads[1]!.threadId;
+        const ids = [
+            parentThreadId,
+            ...Array.from({ length: 399 }, (_, index) => `missing-cross-chunk-${index}`),
+            childThreadId,
+        ];
+
+        const results = getThreadBrowseDataBatch(fixture.dbPath, ids);
+
+        expect(results.map((result) => result.threadId)).toEqual(ids);
+        expect(results[0]?.data?.relations.childEdges).toEqual([
+            { child_thread_id: childThreadId, parent_thread_id: parentThreadId, status: 'completed' },
+        ]);
+        expect(results.at(-1)?.data?.relations.parentThreadId).toBe(parentThreadId);
     });
 
     it('should prefer the Codex session index title over the stored prompt text', async () => {
@@ -1450,18 +1587,18 @@ describe('codex browser db', () => {
 
         expect(first).toMatchObject({
             cleanup: {
-                deletedSessionFiles: [],
                 requested: false,
             },
             deletedThreadIds: [threadId],
         });
         expect(second).toMatchObject({
             cleanup: {
-                deletedSessionFiles: [],
                 requested: false,
             },
             deletedThreadIds: [],
         });
+        expect(first.cleanup).not.toHaveProperty('deletedSessionFiles');
+        expect(second.cleanup).not.toHaveProperty('deletedSessionFiles');
     });
 
     it('should let a competing writer release its lock before the configured busy timeout expires', async () => {
@@ -1473,21 +1610,41 @@ describe('codex browser db', () => {
             import { Database } from 'bun:sqlite';
             const db = new Database(Bun.argv.at(-1));
             db.exec('BEGIN EXCLUSIVE');
-            await Bun.sleep(150);
+            console.log('LOCK_HELD');
+            await new Response(Bun.stdin).text();
             db.exec('COMMIT');
             db.close();
         `;
         const holder = Bun.spawn([process.execPath, '-e', childScript, fixture.dbPath], {
             cwd: process.cwd(),
             stderr: 'pipe',
+            stdin: 'pipe',
             stdout: 'pipe',
         });
-        await Bun.sleep(25);
-        const result = await deleteCodexThread(fixture.dbPath, threadId);
+        await waitForOutputMarker(holder.stdout, 'LOCK_HELD');
+
+        const deleteScript = `
+            import { deleteCodexThread } from './src/lib/codex-browser-db.ts';
+            console.error('DELETE_STARTED');
+            const result = await deleteCodexThread(Bun.argv.at(-2), Bun.argv.at(-1));
+            console.log(JSON.stringify(result.deletedThreadIds));
+        `;
+        const deleter = Bun.spawn([process.execPath, '-e', deleteScript, fixture.dbPath, threadId], {
+            cwd: process.cwd(),
+            stderr: 'pipe',
+            stdout: 'pipe',
+        });
+        await waitForOutputMarker(deleter.stderr, 'DELETE_STARTED');
+        holder.stdin.write('release\n');
+        holder.stdin.end();
+
+        const result = JSON.parse(await new Response(deleter.stdout).text()) as string[];
         const holderExitCode = await holder.exited;
+        const deleterExitCode = await deleter.exited;
 
         expect(holderExitCode).toBe(0);
-        expect(result.deletedThreadIds).toEqual([threadId]);
+        expect(deleterExitCode).toBe(0);
+        expect(result).toEqual([threadId]);
     });
 
     it('should make concurrent child-process deletes of one id idempotent', async () => {
@@ -1519,7 +1676,8 @@ describe('codex browser db', () => {
         if (!outcomes.every((outcome) => outcome.exitCode === 0)) {
             throw new Error(JSON.stringify(outcomes));
         }
-        expect(outcomes.flatMap((outcome) => JSON.parse(outcome.output) as string[]).sort()).toEqual([threadId]);
+        const reportedThreadIds = outcomes.flatMap((outcome) => JSON.parse(outcome.output) as string[]);
+        expect(reportedThreadIds.every((reportedThreadId) => reportedThreadId === threadId)).toBe(true);
         const db = new Database(fixture.dbPath, { readonly: true });
         expect(db.query('SELECT COUNT(*) AS count FROM threads WHERE id = ?').get(threadId)).toEqual({ count: 0 });
         db.close();

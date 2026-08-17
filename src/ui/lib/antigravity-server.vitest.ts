@@ -78,6 +78,7 @@ vi.mock('./source-session-export-server', () => ({
 }));
 
 import {
+    AntigravityDecryptionCapabilityError,
     deleteAntigravityConversationById,
     deleteAntigravityConversationsById,
     exportAntigravityConversationFn,
@@ -175,6 +176,29 @@ describe('antigravity-server', () => {
             conversation,
             expect.objectContaining({ keychainSecret: expect.anything() }),
         );
+    });
+
+    it('should map only decryption capability acquisition failures to locked detail state', async () => {
+        const conversation = makeConversation({ transcriptPath: null, transcriptSource: 'safe-storage' });
+        listAntigravityConversationsMock.mockResolvedValue([conversation]);
+        withAntigravityDecryptionCapabilityMock.mockRejectedValue(new Error('keychain denied'));
+
+        await expect(loadAntigravityConversationDetail(conversation.conversationId)).rejects.toThrow('keychain denied');
+
+        withAntigravityDecryptionCapabilityMock.mockRejectedValue(
+            new AntigravityDecryptionCapabilityError(new Error('keychain denied')),
+        );
+        const detail = await loadAntigravityConversationDetail(conversation.conversationId);
+        expect(detail.transcriptLocked).toBe(true);
+    });
+
+    it('should propagate protected transcript renderer failures unchanged', async () => {
+        const conversation = makeConversation({ transcriptPath: null, transcriptSource: 'safe-storage' });
+        listAntigravityConversationsMock.mockResolvedValue([conversation]);
+        const rendererError = new Error('malformed encrypted transcript');
+        renderAntigravityConversationMarkdownMock.mockRejectedValue(rendererError);
+
+        await expect(loadAntigravityConversationDetail(conversation.conversationId)).rejects.toBe(rendererError);
     });
 
     it('should return the resolved Antigravity project group for detail navigation', async () => {

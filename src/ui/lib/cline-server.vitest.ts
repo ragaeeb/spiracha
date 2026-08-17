@@ -73,6 +73,7 @@ const dbMocks = vi.hoisted(() => ({
     deleteClineTask: vi.fn(async (_root: string, taskId: string) => ({
         deletedFiles: [`/cline/sessions/${taskId}`],
         deletedTaskIds: [taskId],
+        indexCleanup: { status: 'deleted' as const },
     })),
     listClineTasksForGroup: vi.fn(async () => [transcript.task]),
     listClineWorkspaceGroups: vi.fn(async () => [{ key: transcript.task.workspaceKey }]),
@@ -143,5 +144,10 @@ describe('Cline server functions', () => {
         ).resolves.toMatchObject({
             deletedTaskIds: ['1786163719044_tpg1r', '1786164800606_0h9tk'],
         });
+    });
+
+    it('should reject traversal-style task IDs through the validator before the handler', async () => {
+        await expect(getClineTaskDetailFn({ data: { taskId: '../../etc' } })).rejects.toThrow();
+        expect(dbMocks.readClineTaskTranscript).not.toHaveBeenCalled();
     });
 });

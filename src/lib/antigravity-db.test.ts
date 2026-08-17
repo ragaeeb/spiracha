@@ -278,8 +278,25 @@ const runGit = async (cwd: string, args: string[]): Promise<void> => {
 };
 
 describe('antigravity db discovery', () => {
-    it('should include the Antigravity CLI root in default discovery roots', () => {
-        expect(resolveAntigravityRoots()).toContain(path.join(os.homedir(), '.gemini', 'antigravity-cli'));
+    it('should include the Antigravity CLI root in default discovery roots without leaking overrides', () => {
+        const originalDirs = process.env.SPIRACHA_ANTIGRAVITY_DIRS;
+        const originalDir = process.env.SPIRACHA_ANTIGRAVITY_DIR;
+        try {
+            delete process.env.SPIRACHA_ANTIGRAVITY_DIRS;
+            delete process.env.SPIRACHA_ANTIGRAVITY_DIR;
+            expect(resolveAntigravityRoots()).toContain(path.join(os.homedir(), '.gemini', 'antigravity-cli'));
+        } finally {
+            if (originalDirs === undefined) {
+                delete process.env.SPIRACHA_ANTIGRAVITY_DIRS;
+            } else {
+                process.env.SPIRACHA_ANTIGRAVITY_DIRS = originalDirs;
+            }
+            if (originalDir === undefined) {
+                delete process.env.SPIRACHA_ANTIGRAVITY_DIR;
+            } else {
+                process.env.SPIRACHA_ANTIGRAVITY_DIR = originalDir;
+            }
+        }
     });
 
     it('should preserve valid summary records around protobuf corruption with diagnostics', async () => {
@@ -295,6 +312,33 @@ describe('antigravity db discovery', () => {
         expect(result.diagnostics).toEqual([
             expect.objectContaining({ byteOffset: first.byteLength, kind: 'protobuf' }),
         ]);
+    });
+
+    it('should cap protobuf diagnostics while continuing to parse later records', async () => {
+        const root = await makeRoot();
+        const summaryPath = path.join(root, 'agyhub_summaries_proto.pb');
+        const valid = encodeSummaryIndex([{ id: '33333333-3333-4333-8333-333333333333', title: 'After noise' }]);
+        await Bun.write(summaryPath, new Uint8Array([...new Array(150).fill(0x0b), ...valid]));
+
+        const result = await readAntigravitySummaryIndexWithDiagnostics(summaryPath);
+
+        expect(result.entries.map((entry) => entry.title)).toEqual(['After noise']);
+        expect(result.diagnostics).toHaveLength(100);
+    });
+
+    it('should cap summary-record diagnostics without dropping later valid records', async () => {
+        const root = await makeRoot();
+        const summaryPath = path.join(root, 'agyhub_summaries_proto.pb');
+        const invalid = encodeMessage(1, [0x0b]);
+        const valid = encodeSummaryIndex([
+            { id: '44444444-4444-4444-8444-444444444444', title: 'After invalid summaries' },
+        ]);
+        await Bun.write(summaryPath, new Uint8Array([...new Array(150).fill(invalid).flat(), ...valid]));
+
+        const result = await readAntigravitySummaryIndexWithDiagnostics(summaryPath);
+
+        expect(result.entries.map((entry) => entry.title)).toEqual(['After invalid summaries']);
+        expect(result.diagnostics).toHaveLength(100);
     });
 
     it('should resolve one conversation without requiring a collection scan', async () => {

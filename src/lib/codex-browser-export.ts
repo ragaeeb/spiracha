@@ -242,17 +242,18 @@ const writeBatchManifest = async (bundleDirectory: string, manifest: BatchExport
     await Bun.write(path.join(bundleDirectory, BATCH_MANIFEST_FILE_NAME), `${JSON.stringify(manifest, null, 2)}\n`);
 };
 
-const isArchiveWideFailure = (error: unknown) => {
+export const isArchiveWideFailure = (error: unknown) => {
     if (error instanceof CodexDbCompatibilityError) {
         return true;
     }
 
-    if (typeof error !== 'object' || error === null || !('code' in error)) {
+    if (typeof error !== 'object' || error === null || (!('code' in error) && !('cause' in error))) {
         return false;
     }
 
-    const code = (error as { code?: unknown }).code;
-    return typeof code === 'string' && ARCHIVE_WIDE_FILE_ERROR_CODES.has(code);
+    const candidate = error as { cause?: unknown; code?: unknown };
+    const codes = [candidate.code, (candidate.cause as { code?: unknown } | undefined)?.code];
+    return codes.some((code): code is string => typeof code === 'string' && ARCHIVE_WIDE_FILE_ERROR_CODES.has(code));
 };
 
 export const renderCodexThreadDownload = async (
@@ -491,6 +492,8 @@ export const renderCodexThreadsDownload = async (
     const zipPath = buildUniqueArchivePath(exportDir, exportBaseName);
     const usedBatchEntryBaseNames = new Set<string>();
     const manifestEntries: BatchExportManifestEntry[] = [];
+    let exportedCount = 0;
+    let skippedCount = 0;
 
     logExportEvent('info', 'batch_start', {
         exportBaseName,
@@ -504,7 +507,8 @@ export const renderCodexThreadsDownload = async (
             manifestEntries.push(await renderCodexBatchEntry(input, result, bundleDirectory, usedBatchEntryBaseNames));
         }
 
-        const exportedCount = manifestEntries.filter((entry) => entry.status === 'exported').length;
+        exportedCount = manifestEntries.filter((entry) => entry.status === 'exported').length;
+        skippedCount = manifestEntries.length - exportedCount;
         if (exportedCount === 0) {
             throw new Error('No exportable threads');
         }
@@ -515,7 +519,7 @@ export const renderCodexThreadsDownload = async (
             generatedAt: new Date().toISOString(),
             requestedThreadIds: threadIds,
             schemaVersion: BATCH_MANIFEST_SCHEMA_VERSION,
-            skippedCount: manifestEntries.length - exportedCount,
+            skippedCount,
         });
         await zipExportDirectory(bundleDirectory, zipPath);
     } catch (error) {
@@ -547,6 +551,6 @@ export const renderCodexThreadsDownload = async (
         fileName: `${exportBaseName}.zip`,
         mimeType: 'application/zip',
         mode: 'download_url',
-        skippedThreadCount: manifestEntries.filter((entry) => entry.status !== 'exported').length,
+        skippedThreadCount: skippedCount,
     };
 };

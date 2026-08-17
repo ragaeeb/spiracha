@@ -40,6 +40,7 @@ type ComposerHeaderRow = {
 };
 
 export const CURSOR_READONLY_DB_OPEN_FLAGS = constants.SQLITE_OPEN_READONLY | constants.SQLITE_OPEN_URI;
+export const CURSOR_SQLITE_RETRY_DELAYS_MS = [40, 120, 250] as const;
 
 // Cursor databases are WAL-mode. A plain read-only open fails once Cursor cleanly shuts down and
 // removes the -wal/-shm sidecars, and the failure only surfaces at query time (so a try/catch around
@@ -85,6 +86,7 @@ export const withCursorReadonlyDb = <T>(dbPath: string, callback: (db: Database)
                 db.close();
             }
         },
+        delaysMs: CURSOR_SQLITE_RETRY_DELAYS_MS,
     });
 
 export const withCursorWriteTransaction = <T>(dbPath: string, callback: (db: Database) => T): T =>
@@ -108,9 +110,16 @@ export const withCursorWriteTransaction = <T>(dbPath: string, callback: (db: Dat
                 }
                 throw error;
             } finally {
-                db.close();
+                try {
+                    db.close();
+                } catch (closeError) {
+                    console.warn('[spiracha:cursor] SQLite close failed', {
+                        error: closeError instanceof Error ? closeError.message : String(closeError),
+                    });
+                }
             }
         },
+        delaysMs: CURSOR_SQLITE_RETRY_DELAYS_MS,
     });
 
 const isMissingOrUnreadableCursorStoreError = (error: unknown): boolean => {
@@ -1629,6 +1638,18 @@ const readCursorAgentTranscript = async (
     return { bubbles, bytes, createdAtMs, lastUpdatedAtMs };
 };
 
+const getNewestCursorTranscriptMtimeMs = async (transcriptDir: string, composerId: string): Promise<number> => {
+    let newestMtimeMs = 0;
+    for (const file of await listCursorAgentTranscriptFiles(transcriptDir, composerId)) {
+        try {
+            newestMtimeMs = Math.max(newestMtimeMs, (await stat(file)).mtimeMs);
+        } catch {
+            // The transcript may disappear while Cursor is writing it; the normal reader handles that race.
+        }
+    }
+    return newestMtimeMs;
+};
+
 const readCursorProjectWorkspacePath = async (projectDir: string): Promise<string | null> => {
     try {
         const data = (await Bun.file(path.join(projectDir, '.workspace-trusted')).json()) as {
@@ -1673,6 +1694,12 @@ const readCursorCliTranscriptThread = async (
     }
 
     const transcriptDir = path.join(agentTranscriptsDir, transcriptEntry.name);
+    if (
+        options.updatedAfterMs !== undefined &&
+        (await getNewestCursorTranscriptMtimeMs(transcriptDir, transcriptEntry.name)) <= options.updatedAfterMs
+    ) {
+        return null;
+    }
     const transcript = await readCursorAgentTranscript(transcriptEntry.name, userDir, [transcriptDir]);
     if (transcript.bubbles.length === 0 || !isCursorCliTranscriptAfterUpdate(transcript, options.updatedAfterMs)) {
         return null;
@@ -1800,9 +1827,10 @@ export const readCursorThreadTranscriptWithAgentFiles = async (
     globalDbPath: string,
     composerId: string,
     userDir = inferCursorUserDirFromGlobalDbPath(globalDbPath),
+    transcriptDirs?: string[],
 ): Promise<CursorThreadTranscript | null> => {
     const transcript = (await pathExists(globalDbPath)) ? readCursorThreadTranscript(globalDbPath, composerId) : null;
-    const agentTranscript = await readCursorAgentTranscript(composerId, userDir);
+    const agentTranscript = await readCursorAgentTranscript(composerId, userDir, transcriptDirs);
     if (!transcript) {
         if (agentTranscript.bubbles.length === 0) {
             return null;

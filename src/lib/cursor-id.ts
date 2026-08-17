@@ -18,5 +18,6 @@ export const buildCursorBubbleKeyLikePattern = (composerId: string): string => {
 
 export const getCursorBubbleKeyRange = (composerId: string): { end: string; start: string } => {
     const start = `bubbleId:${composerId}:`;
+    // ';' is the next code point after ':'; this half-open range depends on BINARY key collation.
     return { end: `bubbleId:${composerId};`, start };
 };

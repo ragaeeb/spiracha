@@ -20,6 +20,15 @@ export type AntigravityDecryptionCapability = Readonly<{
     decryptSafeStoragePayload: (payload: Buffer | Uint8Array | string) => string | null;
 }>;
 
+export class AntigravityDecryptionCapabilityError extends Error {
+    readonly code = 'ANTIGRAVITY_DECRYPTION_CAPABILITY';
+
+    constructor(cause: unknown) {
+        super('Antigravity decryption capability is unavailable', { cause });
+        this.name = 'AntigravityDecryptionCapabilityError';
+    }
+}
+
 const execFileAsync = promisify(execFile);
 const SAFE_STORAGE_SALT = 'saltysalt';
 const SAFE_STORAGE_ITERATIONS = 1003;
@@ -199,7 +208,12 @@ const getAntigravityKeychainError = (error: unknown): string => {
 export const withAntigravityDecryptionCapability = async <T>(
     action: (capability: AntigravityDecryptionCapability) => T | Promise<T>,
 ): Promise<T> => {
-    const keychainSecret = await readAntigravityKeychainSecret();
+    let keychainSecret: string;
+    try {
+        keychainSecret = await readAntigravityKeychainSecret();
+    } catch (error) {
+        throw new AntigravityDecryptionCapabilityError(error);
+    }
     return action(createAntigravityDecryptionCapability(keychainSecret));
 };
 

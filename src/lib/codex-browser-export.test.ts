@@ -4,7 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { strFromU8, unzipSync } from 'fflate';
-import { renderCodexThreadDownload, renderCodexThreadsDownload } from './codex-browser-export';
+import { isArchiveWideFailure, renderCodexThreadDownload, renderCodexThreadsDownload } from './codex-browser-export';
 import { createCodexBrowserFixture, createCodexFixture } from './codex-test-helpers';
 import { UI_EXPORT_DIR_ENV } from './ui-export-files';
 
@@ -79,6 +79,15 @@ const appendLargeAssistantRecord = async (sessionFile: string) => {
 };
 
 describe('renderCodexThreadDownload', () => {
+    it('should treat wrapped archive file errors as archive-wide failures', () => {
+        const cause = Object.assign(new Error('permission denied'), { code: 'EACCES' });
+
+        expect(isArchiveWideFailure(new Error('wrapped', { cause }))).toBe(true);
+        expect(isArchiveWideFailure({ code: 'EACCES' })).toBe(true);
+        expect(isArchiveWideFailure({ cause: { code: 'OTHER' } })).toBe(false);
+        expect(isArchiveWideFailure({ code: 42 })).toBe(false);
+    });
+
     it('should render a thread export to downloadable markdown content', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-export-test-'));
         tempPaths.push(tempRoot);
@@ -428,6 +437,7 @@ describe('renderCodexThreadDownload', () => {
             schemaVersion: 1,
             skippedCount: 1,
         });
+        expect(download.skippedThreadCount).toBe(1);
         expect(manifest.entries).toEqual([
             {
                 fileName: 'spiracha-2026-05-17-1712-019e36d7.md',

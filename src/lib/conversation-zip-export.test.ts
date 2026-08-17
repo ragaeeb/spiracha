@@ -70,6 +70,6 @@ describe('createConversationMarkdownZip', () => {
             }),
         ).rejects.toThrow('synthetic markdown read failure');
 
-        expect((await readdir(os.tmpdir())).filter((name) => name.startsWith(fallbackProjectName))).toEqual([]);
+        expect((await readdir(os.tmpdir())).filter((name) => name.startsWith('cline_'))).toEqual([]);
     });
 });

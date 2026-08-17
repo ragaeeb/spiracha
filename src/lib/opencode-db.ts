@@ -488,8 +488,18 @@ const globalWorkspaceRowsQuery = `
         ) AS partCount,
         MAX(s.time_updated) AS lastActiveMs
     FROM session s
-    WHERE s.project_id = '${GLOBAL_OPENCODE_PROJECT_ID}' AND ${MAIN_SESSION_FILTER}
+    WHERE s.project_id = '${GLOBAL_OPENCODE_PROJECT_ID}'
+      AND ${MAIN_SESSION_FILTER}
+      AND trim(coalesce(s.directory, '')) <> ''
     GROUP BY s.directory
+`;
+
+const invalidGlobalWorkspaceRowsQuery = `
+    SELECT s.id AS sessionId
+    FROM session s
+    WHERE s.project_id = '${GLOBAL_OPENCODE_PROJECT_ID}'
+      AND ${MAIN_SESSION_FILTER}
+      AND trim(coalesce(s.directory, '')) = ''
 `;
 
 const sessionSelectQuery = `
@@ -565,6 +575,10 @@ export const listOpenCodeWorkspaceGroups = async (
             const projectRows = db
                 .query(`${workspaceRowsQuery} WHERE p.id <> ?`)
                 .all(GLOBAL_OPENCODE_PROJECT_ID) as WorkspaceRow[];
+            const invalidGlobalRows = db.query(invalidGlobalWorkspaceRowsQuery).all() as { sessionId: string }[];
+            for (const row of invalidGlobalRows) {
+                logOpenCodeDb('invalid-global-session-directory', { sessionId: row.sessionId });
+            }
             const globalRows = db.query(globalWorkspaceRowsQuery).all() as WorkspaceRow[];
             return [...projectRows, ...globalRows]
                 .sort(

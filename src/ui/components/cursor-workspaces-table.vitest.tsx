@@ -1,5 +1,5 @@
 import type { CursorWorkspaceGroup } from '@spiracha/lib/cursor-exporter-types';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { MouseEventHandler, ReactNode } from 'react';
 import * as React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -214,5 +214,27 @@ describe('CursorWorkspacesTable', () => {
             workspace,
             { ...workspace, key: 'folder:/Users/user/workspace/other', label: 'other' },
         ]);
+    });
+
+    it('should retain both selections when row clicks are batched in one act', () => {
+        const onDeleteWorkspaces = vi.fn();
+        const otherWorkspace = { ...workspace, key: 'folder:/Users/user/workspace/other', label: 'other' };
+
+        render(
+            <CursorWorkspacesTable
+                onDeleteWorkspace={vi.fn()}
+                onDeleteWorkspaces={onDeleteWorkspaces}
+                onRecoverWorkspace={vi.fn()}
+                workspaces={[workspace, otherWorkspace]}
+            />,
+        );
+
+        act(() => {
+            fireEvent.click(screen.getByRole('checkbox', { name: `Select row ${workspace.key}` }));
+            fireEvent.click(screen.getByRole('checkbox', { name: `Select row ${otherWorkspace.key}` }));
+        });
+        fireEvent.click(screen.getByRole('button', { name: 'Delete selected workspaces' }));
+
+        expect(onDeleteWorkspaces).toHaveBeenCalledWith([workspace, otherWorkspace]);
     });
 });

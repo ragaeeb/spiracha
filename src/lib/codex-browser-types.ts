@@ -243,7 +243,6 @@ export type CodexSessionIndexReconciliation = {
 
 export type DeleteThreadsResult = {
     cleanup: {
-        deletedSessionFiles: string[];
         requested: boolean;
         sessionIndexEntriesRemoved: string[];
     };

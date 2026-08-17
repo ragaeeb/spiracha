@@ -81,6 +81,7 @@ type ConversationFile = {
 const ANTIGRAVITY_ARTIFACT_READ_CONCURRENCY = 16;
 const ANTIGRAVITY_CONVERSATION_FILE_READ_CONCURRENCY = 8;
 const ANTIGRAVITY_MAX_PROTO_RECORD_BYTES = 8 * 1024 * 1024;
+const ANTIGRAVITY_MAX_PARSE_DIAGNOSTICS = 100;
 const SAFE_CONVERSATION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
 const isSafeConversationId = (value: string) => SAFE_CONVERSATION_ID_PATTERN.test(value);
@@ -305,11 +306,13 @@ const tryGetProtoBounds = (buffer: Uint8Array, start: number): ProtoBounds | nul
     }
 };
 
-const appendBytes = (left: Uint8Array, right: Uint8Array): Uint8Array => {
-    const combined = new Uint8Array(left.length + right.length);
-    combined.set(left);
-    combined.set(right, left.length);
-    return combined;
+const appendAntigravityDiagnostic = (
+    diagnostics: AntigravityParseDiagnostic[],
+    diagnostic: AntigravityParseDiagnostic,
+): void => {
+    if (diagnostics.length < ANTIGRAVITY_MAX_PARSE_DIAGNOSTICS) {
+        diagnostics.push(diagnostic);
+    }
 };
 
 const consumeProtoRecord = (
@@ -324,7 +327,7 @@ const consumeProtoRecord = (
     try {
         bounds = tryGetProtoBounds(buffer, index);
     } catch (error) {
-        diagnostics.push({
+        appendAntigravityDiagnostic(diagnostics, {
             byteOffset: bufferOffset + index,
             kind: 'protobuf',
             message: `Invalid Antigravity protobuf field: ${error instanceof Error ? error.message : String(error)}`,
@@ -354,20 +357,48 @@ const readAntigravityProtobufRecords = async (
     const diagnostics: AntigravityParseDiagnostic[] = [];
     const records: IndexedProtoRecord[] = [];
     let buffer: Uint8Array<ArrayBufferLike> = new Uint8Array();
+    let readIndex = 0;
+    let writeIndex = 0;
     let bufferOffset = 0;
 
+    const appendChunk = (chunk: Uint8Array<ArrayBufferLike>) => {
+        const unreadBytes = writeIndex - readIndex;
+        if (buffer.length - writeIndex < chunk.length) {
+            if (readIndex > 0 && (readIndex >= buffer.length / 2 || buffer.length - writeIndex < chunk.length)) {
+                buffer.copyWithin(0, readIndex, writeIndex);
+                readIndex = 0;
+                writeIndex = unreadBytes;
+            }
+            if (buffer.length - writeIndex < chunk.length) {
+                const capacity = Math.max(buffer.length * 2, writeIndex + chunk.length, 64);
+                const expanded = new Uint8Array(capacity);
+                expanded.set(buffer.subarray(readIndex, writeIndex));
+                buffer = expanded;
+                writeIndex = unreadBytes;
+                readIndex = 0;
+            }
+        }
+        buffer.set(chunk, writeIndex);
+        writeIndex += chunk.length;
+    };
+
     const consume = () => {
+        const pending = buffer.subarray(readIndex, writeIndex);
         let index = 0;
-        while (index < buffer.length) {
-            const nextIndex = consumeProtoRecord(buffer, index, bufferOffset, fieldNumber, diagnostics, records);
+        while (index < pending.length) {
+            const nextIndex = consumeProtoRecord(pending, index, bufferOffset, fieldNumber, diagnostics, records);
             if (nextIndex === null) {
                 break;
             }
             index = nextIndex;
         }
         if (index > 0) {
-            buffer = buffer.slice(index);
+            readIndex += index;
             bufferOffset += index;
+            if (readIndex === writeIndex) {
+                readIndex = 0;
+                writeIndex = 0;
+            }
         }
     };
 
@@ -376,12 +407,12 @@ const readAntigravityProtobufRecords = async (
         if (done) {
             break;
         }
-        buffer = appendBytes(buffer, value);
+        appendChunk(value);
         consume();
     }
     consume();
-    if (buffer.length > 0) {
-        diagnostics.push({
+    if (writeIndex > readIndex) {
+        appendAntigravityDiagnostic(diagnostics, {
             byteOffset: bufferOffset,
             kind: 'protobuf',
             message: 'Truncated Antigravity protobuf input',
@@ -622,14 +653,14 @@ export const readAntigravitySummaryIndexWithDiagnostics = async (
                 if (entry) {
                     entries.push(entry);
                 } else {
-                    result.diagnostics.push({
+                    appendAntigravityDiagnostic(result.diagnostics, {
                         byteOffset: record.byteOffset,
                         kind: 'protobuf',
                         message: 'Invalid Antigravity summary record',
                     });
                 }
             } catch (error) {
-                result.diagnostics.push({
+                appendAntigravityDiagnostic(result.diagnostics, {
                     byteOffset: record.byteOffset,
                     kind: 'protobuf',
                     message: `Invalid Antigravity summary record: ${error instanceof Error ? error.message : String(error)}`,

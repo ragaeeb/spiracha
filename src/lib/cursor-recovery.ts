@@ -113,10 +113,11 @@ const readBubblesForComposerIds = (
     db: Database,
     composerIds: string[],
 ): Map<string, Array<{ key: string; value: string }>> => {
+    const uniqueComposerIds = [...new Set(composerIds)];
     const bubblesByComposerId = new Map<string, Array<{ key: string; value: string }>>(
-        composerIds.map((composerId) => [composerId, []]),
+        uniqueComposerIds.map((composerId) => [composerId, []]),
     );
-    for (const chunk of chunkValues(composerIds, CURSOR_SQLITE_BATCH_SIZE)) {
+    for (const chunk of chunkValues(uniqueComposerIds, CURSOR_SQLITE_BATCH_SIZE)) {
         const parameters: string[] = [];
         const query = chunk
             .map((composerId) => {
@@ -280,8 +281,9 @@ const countBubbles = (db: Database, composerId: string): number => {
 };
 
 const countBubblesForComposerIds = (db: Database, composerIds: string[]): Map<string, number> => {
+    const uniqueComposerIds = [...new Set(composerIds)];
     const counts = new Map<string, number>();
-    for (const chunk of chunkValues(composerIds, CURSOR_SQLITE_BATCH_SIZE)) {
+    for (const chunk of chunkValues(uniqueComposerIds, CURSOR_SQLITE_BATCH_SIZE)) {
         const parameters: string[] = [];
         const query = chunk
             .map((composerId) => {

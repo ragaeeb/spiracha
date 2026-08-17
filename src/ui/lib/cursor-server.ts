@@ -189,13 +189,22 @@ const renderCursorDownload = async (input: {
     const { getCursorGlobalDbPath } = await import('@spiracha/lib/cursor-exporter-types');
     const { renderCursorTranscript } = await import('@spiracha/lib/cursor-transcript');
     const globalDbPath = getCursorGlobalDbPath();
-    const { listCursorWorkspaceGroups } = await import('@spiracha/lib/cursor-db');
+    const { findCursorTranscriptDirsForComposerIds, listCursorWorkspaceGroups } = await import(
+        '@spiracha/lib/cursor-db'
+    );
     const workspaceGroups = await listCursorWorkspaceGroups();
     const workspacesByComposerId = await findCursorWorkspacesByComposerId(workspaceGroups, input.composerIds);
+    const transcriptDirsByComposerId = await findCursorTranscriptDirsForComposerIds(input.composerIds);
     const rendered = await Promise.all(
         input.composerIds.map(async (composerId) => {
             const transcript = await runWithTranscriptLoadLimit(
-                () => readCursorThreadTranscriptWithAgentFiles(globalDbPath, composerId),
+                () =>
+                    readCursorThreadTranscriptWithAgentFiles(
+                        globalDbPath,
+                        composerId,
+                        undefined,
+                        transcriptDirsByComposerId.get(composerId) ?? [],
+                    ),
                 {
                     id: composerId,
                     integration: 'cursor',

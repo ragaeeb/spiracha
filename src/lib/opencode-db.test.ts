@@ -248,6 +248,33 @@ describe('opencode db helpers', () => {
         });
     });
 
+    it('should reject blank global session directories and emit one diagnostic per session', async () => {
+        const dbPath = await makeDbPath();
+        await createOpenCodeFixture(dbPath, {
+            projects: [{ id: 'global', worktree: '/' }],
+            sessions: [
+                { directory: '', id: 'ses_blank_one', messages: [], projectId: 'global', title: 'Blank one' },
+                { directory: '   ', id: 'ses_blank_two', messages: [], projectId: 'global', title: 'Blank two' },
+                { directory: '/valid/worktree', id: 'ses_valid', messages: [], projectId: 'global', title: 'Valid' },
+            ],
+        });
+        process.env.SPIRACHA_OPENCODE_DB_LOGS = '1';
+        const infoSpy = spyOn(console, 'info').mockImplementation(() => undefined);
+
+        try {
+            const groups = await listOpenCodeWorkspaceGroups(dbPath);
+            expect(groups.map((group) => group.worktree)).toEqual(['/valid/worktree']);
+            expect(infoSpy).toHaveBeenCalledWith('[spiracha:opencode-db] invalid-global-session-directory', {
+                sessionId: 'ses_blank_one',
+            });
+            expect(infoSpy).toHaveBeenCalledWith('[spiracha:opencode-db] invalid-global-session-directory', {
+                sessionId: 'ses_blank_two',
+            });
+        } finally {
+            infoSpy.mockRestore();
+        }
+    });
+
     it('should read a WAL database when its sidecar files do not exist', async () => {
         const dbPath = await createFixtureDb();
         const db = new Database(dbPath);

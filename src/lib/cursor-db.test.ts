@@ -1,10 +1,11 @@
 import { constants, Database } from 'bun:sqlite';
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, utimes } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
     CURSOR_READONLY_DB_OPEN_FLAGS,
+    CURSOR_SQLITE_RETRY_DELAYS_MS,
     decodeCursorUri,
     findCursorTranscriptDirs,
     findCursorTranscriptDirsForComposerIds,
@@ -591,6 +592,50 @@ describe('cursor-db transcript reads', () => {
         expect(transcript?.renderableBubbleCount).toBe(3);
     });
 
+    it('should use pre-resolved transcript directories without rediscovering them', async () => {
+        const userDir = await makeUserDir();
+        await createCursorFixture(userDir, baseSpec());
+        const transcriptDir = path.join(userDir, 'projects', 'demo-project', 'agent-transcripts', 'thread-1');
+        await mkdir(transcriptDir, { recursive: true });
+        await Bun.write(
+            path.join(transcriptDir, 'thread-1.jsonl'),
+            JSON.stringify({ message: { content: [{ text: 'Agent-only tail', type: 'text' }] }, role: 'assistant' }),
+        );
+
+        const transcript = await readCursorThreadTranscriptWithAgentFiles(
+            getCursorGlobalDbPath(userDir),
+            'thread-1',
+            userDir,
+            [],
+        );
+
+        expect(transcript?.bubbles.map((bubble) => bubble.text)).toEqual(['First user request', 'Assistant reply', '']);
+        expect(transcript?.bubbles.some((bubble) => bubble.text === 'Agent-only tail')).toBe(false);
+    });
+
+    it('should skip stale CLI transcript parsing before reading its contents', async () => {
+        const userDir = await makeUserDir();
+        await createCursorFixture(userDir, baseSpec());
+        const projectDir = path.join(userDir, 'projects', 'stale-project');
+        const transcriptDir = path.join(projectDir, 'agent-transcripts', 'stale-thread');
+        const transcriptPath = path.join(transcriptDir, 'stale-thread.jsonl');
+        await mkdir(transcriptDir, { recursive: true });
+        await Bun.write(path.join(projectDir, '.workspace-trusted'), JSON.stringify({ workspacePath: '/tmp/stale' }));
+        await Bun.write(transcriptPath, '{not-json');
+        await utimes(transcriptPath, new Date(1_000), new Date(1_000));
+
+        const originalWarn = console.warn;
+        const warnings: unknown[][] = [];
+        console.warn = (...args: unknown[]) => warnings.push(args);
+        try {
+            await listCursorWorkspaceGroups(userDir, { updatedAfterMs: Date.now() });
+        } finally {
+            console.warn = originalWarn;
+        }
+
+        expect(warnings.some((args) => String(args[0]).includes('invalid_agent_transcript_jsonl'))).toBe(false);
+    });
+
     it('should append all agent transcript messages when no overlap exists', async () => {
         const userDir = await makeUserDir();
         const spec = baseSpec();
@@ -862,11 +907,15 @@ describe('openCursorReadonlyDb', () => {
         }
     });
 
-    it('should read through a retry-aware callback while a writer holds the WAL database', async () => {
+    it('should retry a blocked readonly query while an exclusive writer holds the database', async () => {
         const userDir = await makeUserDir();
         await createCursorFixture(userDir, baseSpec());
         const globalDbPath = getCursorGlobalDbPath(userDir);
-        const lockProcess = await holdCursorWriteLock(globalDbPath);
+        const retryBudgetMs = CURSOR_SQLITE_RETRY_DELAYS_MS.reduce((total, delayMs) => total + delayMs, 0);
+        const lockProcess = await holdCursorWriteLock(globalDbPath, {
+            durationMs: Math.floor(retryBudgetMs / 2),
+            lockingMode: 'exclusive',
+        });
 
         try {
             const count = withCursorReadonlyDb(globalDbPath, (db) => {

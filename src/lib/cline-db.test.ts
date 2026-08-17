@@ -115,6 +115,48 @@ describe('Cline session storage', () => {
         });
     });
 
+    it('should retain a safe session with missing workspace metadata using an explicit storage fallback', async () => {
+        const root = await makeTempRoot();
+        const dataDir = path.join(root, 'cline-data');
+        const sessionId = '1785560414951_missing_workspace';
+        const sessionDir = path.join(dataDir, 'sessions', sessionId);
+        await mkdir(sessionDir, { recursive: true });
+        await Bun.write(
+            path.join(sessionDir, `${sessionId}.json`),
+            JSON.stringify({ prompt: 'No workspace metadata', session_id: sessionId }),
+        );
+        await Bun.write(path.join(sessionDir, `${sessionId}.messages.json`), JSON.stringify({ messages: [] }));
+
+        const transcript = await readClineTaskTranscript(dataDir, sessionId);
+
+        expect(transcript).toMatchObject({
+            messages: [],
+            task: {
+                taskId: sessionId,
+                workspaceSource: 'session_directory',
+                worktree: sessionDir,
+            },
+        });
+    });
+
+    it('should read a validated task entry directly and preserve empty transcripts', async () => {
+        const root = await makeTempRoot();
+        const dataDir = path.join(root, 'cline-data');
+        const sessionId = '1785560414951_direct';
+        const sessionDir = path.join(dataDir, 'sessions', sessionId);
+        await mkdir(sessionDir, { recursive: true });
+        await Bun.write(
+            path.join(sessionDir, `${sessionId}.json`),
+            JSON.stringify({ cwd: root, session_id: sessionId }),
+        );
+        await Bun.write(path.join(sessionDir, `${sessionId}.messages.json`), JSON.stringify({ messages: [] }));
+
+        const transcript = await readClineTaskTranscript(dataDir, sessionId);
+
+        expect(transcript?.messages).toEqual([]);
+        expect(transcript?.renderablePartCount).toBe(0);
+    });
+
     it('should delete the current Cline session directory', async () => {
         const root = await makeTempRoot();
         const dataDir = path.join(root, 'cline-data');
@@ -129,12 +171,30 @@ describe('Cline session storage', () => {
         const result = await deleteClineTask(dataDir, CLINE_SESSION_ID);
 
         expect(result.deletedTaskIds).toEqual([CLINE_SESSION_ID]);
-        expect(result.deletedFiles).toEqual([fixture.sessionDir, databasePath]);
+        expect(result.deletedFiles).toEqual([fixture.sessionDir]);
+        expect(result.indexCleanup).toEqual({ status: 'deleted' });
         expect(await Bun.file(fixture.messagesPath).exists()).toBe(false);
         const remainingDatabase = new Database(databasePath, { readonly: true });
         expect(remainingDatabase.query('SELECT session_id FROM sessions').all()).toEqual([]);
         remainingDatabase.close();
         await expect(readClineTaskTranscript(dataDir, CLINE_SESSION_ID)).resolves.toBeNull();
+    });
+
+    it('should remove the session directory when index cleanup fails and report the failure', async () => {
+        const root = await makeTempRoot();
+        const dataDir = path.join(root, 'cline-data');
+        const fixture = await writeClineSessionFixture({ dataDir, workspacePath: path.join(root, 'repo') });
+        const databasePath = path.join(dataDir, 'db', 'sessions.db');
+        await mkdir(path.dirname(databasePath), { recursive: true });
+        const database = new Database(databasePath);
+        database.close();
+
+        const result = await deleteClineTask(dataDir, fixture.sessionId);
+
+        expect(result.deletedFiles).toEqual([fixture.sessionDir]);
+        expect(result.deletedTaskIds).toEqual([fixture.sessionId]);
+        expect(result.indexCleanup.status).toBe('failed');
+        expect(await Bun.file(fixture.sessionDir).exists()).toBe(false);
     });
 
     it('should render current-session Markdown and plain-text exports', async () => {
@@ -194,6 +254,7 @@ describe('Cline session storage', () => {
         await expect(deleteClineTask(dataDir, '../unsafe')).resolves.toEqual({
             deletedFiles: [],
             deletedTaskIds: [],
+            indexCleanup: { status: 'not_found' },
         });
     });
 });

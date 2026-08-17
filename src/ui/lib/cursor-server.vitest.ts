@@ -10,6 +10,7 @@ const {
     collectCursorThreadsForDeletionMock,
     deleteCursorWorkspaceBucketsMock,
     deleteCursorWorkspaceHistoryMock,
+    findCursorTranscriptDirsForComposerIdsMock,
     isCursorRunningMock,
     listCursorThreadsForGroupMock,
     listCursorWorkspaceGroupsMock,
@@ -23,6 +24,7 @@ const {
     collectCursorThreadsForDeletionMock: vi.fn(),
     deleteCursorWorkspaceBucketsMock: vi.fn(),
     deleteCursorWorkspaceHistoryMock: vi.fn(),
+    findCursorTranscriptDirsForComposerIdsMock: vi.fn(),
     isCursorRunningMock: vi.fn(),
     listCursorThreadsForGroupMock: vi.fn(),
     listCursorWorkspaceGroupsMock: vi.fn(),
@@ -59,6 +61,7 @@ vi.mock('@tanstack/react-start', () => ({
 }));
 
 vi.mock('@spiracha/lib/cursor-db', () => ({
+    findCursorTranscriptDirsForComposerIds: findCursorTranscriptDirsForComposerIdsMock,
     listCursorThreadsForGroup: listCursorThreadsForGroupMock,
     listCursorWorkspaceGroups: listCursorWorkspaceGroupsMock,
     readCursorThreadTranscript: vi.fn(),
@@ -346,6 +349,25 @@ describe('deleteCursorWorkspacesFn', () => {
         expect(deleteCursorWorkspaceHistoryMock).toHaveBeenNthCalledWith(1, workspaceOne);
         expect(deleteCursorWorkspaceHistoryMock).toHaveBeenNthCalledWith(2, workspaceTwo);
     });
+
+    it('should propagate a later workspace deletion failure after preserving the first result', async () => {
+        listCursorWorkspaceGroupsMock.mockResolvedValue([workspaceOne, workspaceTwo]);
+        listCursorThreadsForGroupMock
+            .mockResolvedValueOnce([makeThread()])
+            .mockResolvedValueOnce([makeThread({ composerId: 'thread-2', workspaceKey: workspaceTwo.key })]);
+        collectCursorThreadsForDeletionMock
+            .mockResolvedValueOnce([{ composerId: 'thread-1' }])
+            .mockResolvedValueOnce([{ composerId: 'thread-2' }]);
+        pruneCursorThreadsMock.mockResolvedValueOnce({}).mockRejectedValueOnce(new Error('second prune failed'));
+
+        await expect(
+            deleteCursorWorkspacesFn({ data: { workspaceKeys: [workspaceOne.key, workspaceTwo.key] } }),
+        ).rejects.toThrow('second prune failed');
+
+        expect(pruneCursorThreadsMock).toHaveBeenNthCalledWith(1, [{ composerId: 'thread-1' }], true);
+        expect(deleteCursorWorkspaceBucketsMock).toHaveBeenNthCalledWith(1, workspaceOne);
+        expect(deleteCursorWorkspaceHistoryMock).toHaveBeenNthCalledWith(1, workspaceOne);
+    });
 });
 
 describe('Cursor export server functions', () => {
@@ -353,6 +375,7 @@ describe('Cursor export server functions', () => {
         vi.clearAllMocks();
         listCursorWorkspaceGroupsMock.mockResolvedValue([workspaceOne]);
         listCursorThreadsForGroupMock.mockResolvedValue([makeThread()]);
+        findCursorTranscriptDirsForComposerIdsMock.mockResolvedValue(new Map([['thread-1', ['/tmp/transcript']]]));
         readCursorThreadTranscriptWithAgentFilesMock.mockResolvedValue(transcript);
         renderCursorTranscriptMock.mockReturnValue('rendered transcript');
         renderSourceSessionDownloadMock.mockResolvedValue({
@@ -405,6 +428,13 @@ describe('Cursor export server functions', () => {
         });
         expect(result).toMatchObject({ content: 'rendered transcript', mode: 'download' });
         expect(result.fileName).toMatch(/\.txt$/u);
+        expect(findCursorTranscriptDirsForComposerIdsMock).toHaveBeenCalledWith(['thread-1']);
+        expect(readCursorThreadTranscriptWithAgentFilesMock).toHaveBeenCalledWith(
+            '/tmp/global.db',
+            'thread-1',
+            undefined,
+            ['/tmp/transcript'],
+        );
         expect(renderSourceSessionDownloadMock).toHaveBeenCalledWith(
             expect.objectContaining({ outputFormat: 'txt', sessionId: 'thread-1', zipArchive: false }),
         );

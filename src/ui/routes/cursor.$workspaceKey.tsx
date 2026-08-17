@@ -85,14 +85,14 @@ const getCursorDeleteDescription = (pendingDelete: PendingCursorDelete | null) =
     }
 
     if (pendingDelete.kind === 'workspace') {
-        return `Permanently delete every thread for "${pendingDelete.workspace.label}" from Cursor's database, remove any on-disk transcript directories, and delete its Cursor workspace storage buckets. Quit Cursor first. This cannot be undone.`;
+        return `Permanently delete every thread for "${pendingDelete.workspace.label}" from Cursor's database, remove any on-disk transcript directories, permanently delete local file history under the workspace folders, and delete its Cursor workspace storage buckets. Quit Cursor first. This cannot be undone.`;
     }
 
     if (pendingDelete.threads.length === 1) {
-        return `Permanently delete "${pendingDelete.threads[0]!.name}" from Cursor's database and remove any on-disk transcript directories. Quit Cursor first. This cannot be undone.`;
+        return `Permanently delete "${pendingDelete.threads[0]!.name}" from Cursor's database, remove any on-disk transcript directories, and permanently delete local file history under the workspace folders. Quit Cursor first. This cannot be undone.`;
     }
 
-    return `Permanently delete ${pendingDelete.threads.length} selected Cursor threads and remove any on-disk transcript directories. Quit Cursor first. This cannot be undone.`;
+    return `Permanently delete ${pendingDelete.threads.length} selected Cursor threads, remove any on-disk transcript directories, and permanently delete local file history under the workspace folders. Quit Cursor first. This cannot be undone.`;
 };
 
 const getCursorDeleteTitle = (pendingDelete: PendingCursorDelete | null) => {

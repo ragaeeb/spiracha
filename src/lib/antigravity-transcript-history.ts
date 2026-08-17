@@ -128,6 +128,7 @@ type JsonlFragmentInput<T> = {
     diagnostics: AntigravityParseDiagnostic[];
     fragment: string;
     hasNewline: boolean;
+    lineTerminatorBytes: number;
     maxLineBytes: number;
     parse: (line: string) => T;
     records: T[];
@@ -138,12 +139,13 @@ const consumeJsonlFragment = <T>({
     diagnostics,
     fragment,
     hasNewline,
+    lineTerminatorBytes,
     maxLineBytes,
     parse,
     records,
     state,
 }: JsonlFragmentInput<T>) => {
-    const fragmentBytes = Buffer.byteLength(fragment);
+    const fragmentBytes = Buffer.byteLength(fragment) + lineTerminatorBytes;
     const fullLineBytes = state.lineBytesSeen + fragmentBytes;
     state.lineBytesSeen = fullLineBytes;
     if (fullLineBytes > maxLineBytes && !state.discardingOverlongLine) {
@@ -189,15 +191,17 @@ const consumeJsonlFragment = <T>({
 const consumeJsonlText = <T>(
     text: string,
     state: JsonlStreamState,
-    input: Omit<JsonlFragmentInput<T>, 'fragment' | 'hasNewline' | 'state'>,
+    input: Omit<JsonlFragmentInput<T>, 'fragment' | 'hasNewline' | 'lineTerminatorBytes' | 'state'>,
 ) => {
     let start = 0;
     while (start < text.length) {
         const newline = text.indexOf('\n', start);
         const hasNewline = newline >= 0;
         const end = hasNewline ? newline : text.length;
-        const fragment = text.slice(start, end).replace(/\r$/u, '');
-        consumeJsonlFragment({ ...input, fragment, hasNewline, state });
+        const rawFragment = text.slice(start, end);
+        const lineTerminatorBytes = rawFragment.endsWith('\r') ? 1 : 0;
+        const fragment = rawFragment.replace(/\r$/u, '');
+        consumeJsonlFragment({ ...input, fragment, hasNewline, lineTerminatorBytes, state });
         start = hasNewline ? end + 1 : text.length;
     }
 };

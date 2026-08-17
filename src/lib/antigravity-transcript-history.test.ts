@@ -69,6 +69,29 @@ describe('Antigravity transcript history', () => {
         ]);
     });
 
+    it('should preserve CRLF byte offsets across large chunked JSONL records', async () => {
+        const directory = await mkdtemp(path.join(tmpdir(), 'antigravity-jsonl-chunked-'));
+        temporaryDirectories.push(directory);
+        const transcriptPath = path.join(directory, 'transcript.jsonl');
+        const prefix = '{"payload":"';
+        const payload = 'x'.repeat(65_535 - Buffer.byteLength(prefix) - 2);
+        const first = `${prefix}${payload}"}`;
+        const second = '{malformed}';
+        const third = JSON.stringify({ step_index: 12 });
+        await Bun.write(transcriptPath, `${first}\r\n${second}\r\n${third}\r\n`);
+
+        const result = await readAntigravityJsonlFile(
+            transcriptPath,
+            (line) => JSON.parse(line) as { payload?: string; step_index?: number },
+            { maxLineBytes: 100_000 },
+        );
+
+        expect(result.records).toEqual([{ payload }, { step_index: 12 }]);
+        expect(result.diagnostics).toEqual([
+            expect.objectContaining({ byteOffset: Buffer.byteLength(`${first}\r\n`), line: 2 }),
+        ]);
+    });
+
     it('should skip history recovery when the current transcript already starts at its first step', async () => {
         expect(await readAntigravityTranscriptHistory('/missing/transcript.jsonl', null)).toEqual([]);
         expect(await readAntigravityTranscriptHistory('/missing/transcript.jsonl', 0)).toEqual([]);

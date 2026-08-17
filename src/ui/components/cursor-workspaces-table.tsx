@@ -22,6 +22,8 @@ type CursorWorkspacesTableProps = {
     workspaces: CursorWorkspaceGroup[];
 };
 
+const getCursorWorkspaceRowId = (row: CursorWorkspaceGroup): string => row.key;
+
 const columnHelper = createDataTableColumnHelper<CursorWorkspaceGroup>();
 
 const getWorkspaceLocation = (workspace: CursorWorkspaceGroup) => workspace.folders[0] ?? workspace.uri;
@@ -145,7 +147,7 @@ export const CursorWorkspacesTable = ({
             data={workspaces}
             emptyMessage="No Cursor workspaces match the current search."
             enableRowSelection
-            getRowId={(row) => row.key}
+            getRowId={getCursorWorkspaceRowId}
             renderToolbar={({ clearSelection, selectedRows }) => (
                 <SelectionActionsToolbar
                     clearSelection={clearSelection}

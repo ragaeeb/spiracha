@@ -197,6 +197,7 @@ export function ExportDialog({
     const [evidencePending, setEvidencePending] = useState(false);
     const [downloadState, setDownloadState] = useState<DownloadLifecycleState | null>(null);
     const submissionInProgress = useRef(false);
+    const submissionToken = useRef(0);
     const previousPending = useRef(pending);
     const effectiveZipArchive = forceZipArchive || options.zipArchive;
     const displayedError = evidenceError ?? errorMessage;
@@ -205,6 +206,7 @@ export function ExportDialog({
         if (nextOpen) {
             resetActiveDownloads();
         } else {
+            submissionToken.current += 1;
             cancelActiveDownloads();
         }
         onOpenChange(nextOpen);
@@ -212,6 +214,7 @@ export function ExportDialog({
 
     useEffect(() => {
         if (!open) {
+            submissionToken.current += 1;
             setOptions(settings.exportDefaults);
             setSubmitted(false);
             submissionInProgress.current = false;
@@ -251,25 +254,41 @@ export function ExportDialog({
         }
     };
 
+    const submitFocusedExport = async (token: number) => {
+        const result = preview ?? (await loadEvidence());
+        if (submissionToken.current !== token) {
+            return;
+        }
+        if (!result || !focusedEvidenceTarget) {
+            setDownloadState('failed');
+            submissionInProgress.current = false;
+            setSubmitted(false);
+            return;
+        }
+        if (submissionToken.current !== token) {
+            return;
+        }
+        downloadTextFile(
+            `${focusedEvidenceTarget.source}-${focusedEvidenceTarget.id}-focused-evidence.md`,
+            result.markdown,
+            'text/markdown; charset=utf-8',
+            { onStateChange: setDownloadState },
+        );
+        submissionInProgress.current = false;
+        setSubmitted(false);
+    };
+
     const submitExport = async () => {
         if (submissionInProgress.current) {
             return;
         }
         submissionInProgress.current = true;
+        const token = submissionToken.current + 1;
+        submissionToken.current = token;
         setSubmitted(true);
         setDownloadState('preparing');
         if (mode === 'focused') {
-            const result = preview ?? (await loadEvidence());
-            if (result && focusedEvidenceTarget) {
-                downloadTextFile(
-                    `${focusedEvidenceTarget.source}-${focusedEvidenceTarget.id}-focused-evidence.md`,
-                    result.markdown,
-                    'text/markdown; charset=utf-8',
-                    { onStateChange: setDownloadState },
-                );
-            }
-            submissionInProgress.current = false;
-            setSubmitted(false);
+            await submitFocusedExport(token);
             return;
         }
         updateSetting('exportDefaults', options);
@@ -340,7 +359,7 @@ export function ExportDialog({
                 {displayedError ? <p className="text-[var(--destructive)] text-sm">{displayedError}</p> : null}
 
                 <DialogFooter>
-                    <Button className="rounded-full" variant="outline" onClick={() => onOpenChange(false)}>
+                    <Button className="rounded-full" variant="outline" onClick={() => handleOpenChange(false)}>
                         Cancel
                     </Button>
                     {mode === 'focused' ? (
