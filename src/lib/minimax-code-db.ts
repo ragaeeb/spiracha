@@ -442,11 +442,35 @@ const getSessionStats = (messages: MiniMaxCodeTranscriptMessage[]): SessionStats
     };
 };
 
+const getLatestPiHistoryModel = (value: JsonValue | undefined): string | null => {
+    if (!Array.isArray(value)) {
+        return null;
+    }
+
+    for (let index = value.length - 1; index >= 0; index -= 1) {
+        const entry = asObject(value[index]);
+        const model = asString(entry?.model ?? null)?.trim();
+        if (!model) {
+            continue;
+        }
+
+        const provider = asString(entry?.provider ?? null)?.trim();
+        return provider && !model.includes('/') ? `${provider}/${model}` : model;
+    }
+
+    return null;
+};
+
+const getSessionModelId = (record: Record<string, JsonValue>, piHistory?: JsonValue): string | null => {
+    return asString(record.effectiveModel ?? null)?.trim() || getLatestPiHistoryModel(piHistory);
+};
+
 const toSessionSummary = (
     snapshotPath: string,
     record: Record<string, JsonValue>,
     sessionId: string,
     messages: MiniMaxCodeTranscriptMessage[],
+    piHistory?: JsonValue,
 ): MiniMaxCodeSessionSummary | null => {
     const worktree = asString(record.workspaceDir ?? null)?.trim();
     if (!worktree) {
@@ -461,7 +485,7 @@ const toSessionSummary = (
         archived: asBoolean(record.archived ?? null),
         ...stats,
         createdAtMs: asNumber(record.createdAtMs ?? null),
-        currentModelId: asString(record.effectiveModel ?? null),
+        currentModelId: getSessionModelId(record, piHistory),
         currentModelVariant: asString(record.effectiveModelVariant ?? null),
         lastActiveAtMs: asNumber(record.updatedAtMs ?? null),
         runtime: asString(record.runtime ?? null),
@@ -496,7 +520,7 @@ const readSnapshot = async (
         const parsedMessage = parseMessage(message, includeRawPayloads);
         return parsedMessage ? [parsedMessage] : [];
     });
-    const session = toSessionSummary(snapshotPath, record, sessionId, messages);
+    const session = toSessionSummary(snapshotPath, record, sessionId, messages, root.piHistory);
     if (!session) {
         return null;
     }

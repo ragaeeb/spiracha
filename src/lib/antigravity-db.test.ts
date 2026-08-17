@@ -1097,6 +1097,21 @@ describe('antigravity db discovery', () => {
         });
     });
 
+    it('should derive a workspace from a trajectory workdir before falling back to the source root', async () => {
+        const root = await makeRoot();
+        const conversationId = '78787878-7878-4787-8787-787878787878';
+        await writeTrajectoryDatabase(root, conversationId);
+
+        const [conversation] = await listAntigravityConversations([root]);
+
+        expect(conversation).toMatchObject({
+            conversationId,
+            workspaceFolder: '/Users/example/workspace/ushman',
+            workspaceKey: 'folder:/Users/example/workspace/ushman',
+            workspaceLabel: 'ushman',
+        });
+    });
+
     it('should not treat artifacts as conversation transcript markdown', async () => {
         const root = await makeRoot();
         const conversationId = '88888888-8888-4888-8888-888888888888';

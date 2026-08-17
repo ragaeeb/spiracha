@@ -174,6 +174,34 @@ describe('MiniMax Code db helpers', () => {
         ]);
     });
 
+    it('should derive the latest model from snapshot Pi history when record metadata is absent', async () => {
+        const tempRoot = await makeTempRoot();
+        const sessionsDir = path.join(tempRoot, 'v2', 'sessions');
+        const workspacePath = path.join(tempRoot, 'project');
+        const fixture = await writeMiniMaxCodeSessionFixture({ sessionsDir, workspacePath });
+        const snapshot = (await Bun.file(fixture.snapshotPath).json()) as {
+            piHistory: unknown[];
+            record: Record<string, unknown>;
+        };
+        delete snapshot.record.effectiveModel;
+        delete snapshot.record.effectiveModelVariant;
+        snapshot.piHistory = [
+            { model: 'MiniMax-M2', provider: 'minimax' },
+            { model: 'MiniMax-M3', provider: 'minimax' },
+        ];
+        await Bun.write(fixture.snapshotPath, `${JSON.stringify(snapshot)}\n`);
+
+        const sessions = await listMiniMaxCodeSessionsForGroup(fixture.workspaceKey, sessionsDir);
+
+        expect(sessions).toEqual([
+            expect.objectContaining({
+                currentModelId: 'minimax/MiniMax-M3',
+                currentModelVariant: null,
+                sessionId: fixture.sessionId,
+            }),
+        ]);
+    });
+
     it('should parse chat, reasoning, tool evidence, and final answers while ignoring todo state', async () => {
         const tempRoot = await makeTempRoot();
         const sessionsDir = path.join(tempRoot, 'v2', 'sessions');

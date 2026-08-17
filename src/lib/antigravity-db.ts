@@ -76,6 +76,7 @@ type ConversationFile = {
     path: string;
     root: string;
     stepIndexes: Set<number>;
+    workspaceFolder: string | null;
 };
 
 const ANTIGRAVITY_ARTIFACT_READ_CONCURRENCY = 16;
@@ -568,6 +569,29 @@ const normalizeWorkspaceFolder = (value: string): string => {
     return decoded.replace(/\/+$/u, '') || decoded;
 };
 
+const isPathWithin = (value: string, parent: string): boolean =>
+    value === parent || value.startsWith(`${parent}${path.sep}`);
+
+const resolveTrajectoryWorkspaceFolder = (root: string, entries: AntigravityTrajectoryEntry[]): string | null => {
+    const sourceRoot = path.resolve(root);
+    const scratchRoot = path.join(sourceRoot, 'scratch');
+    for (const entry of entries) {
+        const workdir = entry.workdir?.trim();
+        if (!workdir || !path.isAbsolute(workdir)) {
+            continue;
+        }
+
+        const normalized = path.normalize(workdir);
+        if (isPathWithin(normalized, sourceRoot) || isPathWithin(normalized, scratchRoot)) {
+            continue;
+        }
+
+        return normalizeWorkspaceFolder(normalized);
+    }
+
+    return null;
+};
+
 const workspaceFromFolder = (folderValue: string | null): WorkspaceInfo | null => {
     if (!folderValue) {
         return null;
@@ -900,6 +924,10 @@ const readConversationFileCandidate = async (
                 path: filePath,
                 root,
                 stepIndexes: format === 'db' ? await readAntigravityTrajectoryStepIndexes(filePath) : new Set(),
+                workspaceFolder:
+                    format === 'db'
+                        ? resolveTrajectoryWorkspaceFolder(root, await readAntigravityTrajectoryEntries(filePath))
+                        : null,
             },
         };
     } catch (error) {
@@ -1319,7 +1347,9 @@ const resolveConversationWorkspace = (
     artifacts: AntigravityArtifact[],
 ): WorkspaceInfo => {
     return (
-        summary ?? workspaceFromFolder(resolveConversationSourceRoot(file, transcript, artifacts)) ?? UNKNOWN_WORKSPACE
+        summary ??
+        workspaceFromFolder(file?.workspaceFolder ?? resolveConversationSourceRoot(file, transcript, artifacts)) ??
+        UNKNOWN_WORKSPACE
     );
 };
 
