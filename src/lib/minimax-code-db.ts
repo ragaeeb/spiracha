@@ -420,6 +420,66 @@ const parseNewMessageLog = async (
     return messages;
 };
 
+const isCompactionSummaryMessage = (message: MiniMaxCodeTranscriptMessage): boolean => {
+    const content = message.content;
+    return (
+        message.role === 'user' &&
+        Boolean(content?.startsWith('<system-reminder>')) &&
+        Boolean(content?.includes('The earlier conversation history')) &&
+        Boolean(content?.includes('was compacted into this structured summary:'))
+    );
+};
+
+const stripLeadingSystemReminderBlocks = (message: MiniMaxCodeTranscriptMessage): MiniMaxCodeTranscriptMessage => {
+    if (message.role !== 'user' || !message.content?.startsWith('<system-reminder>')) {
+        return message;
+    }
+
+    const content = message.content.replace(/^\s*(?:<system-reminder>[\s\S]*?<\/system-reminder>\s*)+/u, '').trim();
+    return { ...message, content: content || null };
+};
+
+const readArchivedContextMessages = async (
+    sessionDir: string,
+    includeRawPayloads: boolean,
+): Promise<MiniMaxCodeTranscriptMessage[]> => {
+    const entries = await readDirectoryEntriesIfExists(path.join(sessionDir, 'snapshots'));
+    const contextPaths = entries
+        .filter((entry) => entry.isFile() && entry.name.startsWith('ctx_') && entry.name.endsWith('.jsonl'))
+        .map((entry) => path.join(sessionDir, 'snapshots', entry.name));
+    const contexts = await mapWithConcurrency(contextPaths, READ_CONCURRENCY, async (contextPath) => ({
+        contextPath,
+        messages: await parseNewMessageLog(contextPath, includeRawPayloads),
+    }));
+    contexts.sort((left, right) => {
+        const timestampDifference =
+            (left.messages[0]?.createdAtMs ?? Number.MAX_SAFE_INTEGER) -
+            (right.messages[0]?.createdAtMs ?? Number.MAX_SAFE_INTEGER);
+        return timestampDifference || left.contextPath.localeCompare(right.contextPath);
+    });
+    return contexts.flatMap((context) => context.messages);
+};
+
+const mergeCompactedMessages = (
+    archivedMessages: MiniMaxCodeTranscriptMessage[],
+    currentMessages: MiniMaxCodeTranscriptMessage[],
+): MiniMaxCodeTranscriptMessage[] => {
+    if (archivedMessages.length === 0) {
+        return currentMessages.map(stripLeadingSystemReminderBlocks);
+    }
+
+    const messageIds = new Set<string>();
+    return [...archivedMessages, ...currentMessages]
+        .filter((message) => {
+            if (messageIds.has(message.messageId) || isCompactionSummaryMessage(message)) {
+                return false;
+            }
+            messageIds.add(message.messageId);
+            return true;
+        })
+        .map(stripLeadingSystemReminderBlocks);
+};
+
 const getSessionStats = (messages: MiniMaxCodeTranscriptMessage[]): SessionStats => {
     const toolCalls = messages.flatMap((message) => message.toolCalls);
     const userMessageCount = messages.filter((message) => message.role === 'user').length;
@@ -655,7 +715,11 @@ const readManifestMessagesSession = async (
         updatedAtMs: runtimeRecord.updatedAtMs ?? manifest.updatedAtMs ?? null,
     };
     const includeRawPayloads = options.includeRawPayloads ?? true;
-    const messages = await parseNewMessageLog(messagesPath, includeRawPayloads);
+    const [archivedMessages, currentMessages] = await Promise.all([
+        readArchivedContextMessages(sessionDir, includeRawPayloads),
+        parseNewMessageLog(messagesPath, includeRawPayloads),
+    ]);
+    const messages = mergeCompactedMessages(archivedMessages, currentMessages);
     const session = toSessionSummary(messagesPath, record, sessionId, messages);
     if (!session) {
         return null;

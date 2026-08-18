@@ -91,11 +91,9 @@ const writeManifestMessagesSession = async (sessionsDir: string, sessionId: stri
             turn_id: 'turn-1',
         },
     ];
-    await Bun.write(
-        path.join(sessionDir, 'messages.jsonl'),
-        `${messages.map((message) => JSON.stringify(message)).join('\n')}\n`,
-    );
-    return { sessionDir, sessionId };
+    const messagesPath = path.join(sessionDir, 'messages.jsonl');
+    await Bun.write(messagesPath, `${messages.map((message) => JSON.stringify(message)).join('\n')}\n`);
+    return { messagesPath, sessionDir, sessionId };
 };
 
 const writeRuntimeSessionMetadata = async (
@@ -294,6 +292,116 @@ describe('MiniMax Code db helpers', () => {
             title: 'Manifest messages review',
             worktree: workspacePath,
         });
+    });
+
+    it('should reconstruct compacted sessions from archived context snapshots', async () => {
+        const tempRoot = await makeTempRoot();
+        const sessionsDir = path.join(tempRoot, 'v2', 'sessions');
+        const workspacePath = path.join(tempRoot, 'project');
+        const fixture = await writeManifestMessagesSession(sessionsDir, 'mvs_compacted123');
+        await writeRuntimeSessionMetadata(sessionsDir, fixture.sessionId, workspacePath);
+        const snapshotsDir = path.join(fixture.sessionDir, 'snapshots');
+        await mkdir(snapshotsDir, { recursive: true });
+        await Bun.write(
+            path.join(snapshotsDir, 'ctx_z_original.jsonl'),
+            [
+                {
+                    message: {
+                        content: [
+                            {
+                                text: '<system-reminder>\nInjected runtime context\n</system-reminder>\n\nImplement and complete migration',
+                                type: 'text',
+                            },
+                        ],
+                        role: 'user',
+                        timestamp: 1_786_000_000_001,
+                    },
+                    message_id: 'original-user',
+                    turn_id: 'turn-original',
+                },
+                {
+                    message: {
+                        content: [{ text: 'I will inspect the migration first.', type: 'text' }],
+                        role: 'assistant',
+                        timestamp: 1_786_000_000_002,
+                    },
+                    message_id: 'original-assistant',
+                    turn_id: 'turn-original',
+                },
+            ]
+                .map((message) => JSON.stringify(message))
+                .join('\n'),
+        );
+        await Bun.write(
+            path.join(snapshotsDir, 'ctx_a_continuation.jsonl'),
+            [
+                {
+                    message: {
+                        content: [
+                            {
+                                text: '<system-reminder>\nThe earlier conversation history was compacted into this structured summary:',
+                                type: 'text',
+                            },
+                        ],
+                        role: 'user',
+                        timestamp: 1_786_000_000_003,
+                    },
+                    message_id: 'archived-compaction-summary',
+                    turn_id: 'turn-archived-continuation',
+                },
+                {
+                    message: {
+                        content: [{ text: 'I am continuing the migration.', type: 'text' }],
+                        role: 'assistant',
+                        timestamp: 1_786_000_000_004,
+                    },
+                    message_id: 'archived-continuation-assistant',
+                    turn_id: 'turn-archived-continuation',
+                },
+            ]
+                .map((message) => JSON.stringify(message))
+                .join('\n'),
+        );
+        await Bun.write(
+            fixture.messagesPath,
+            [
+                {
+                    message: {
+                        content: [
+                            {
+                                text: '<system-reminder>\nThe earlier conversation history was compacted into this structured summary:',
+                                type: 'text',
+                            },
+                        ],
+                        role: 'user',
+                        timestamp: 1_786_000_000_005,
+                    },
+                    message_id: 'compaction-summary',
+                    turn_id: 'turn-continuation',
+                },
+                {
+                    message: {
+                        content: [{ text: 'The migration is complete.', type: 'text' }],
+                        role: 'assistant',
+                        timestamp: 1_786_000_000_006,
+                    },
+                    message_id: 'continuation-assistant',
+                    turn_id: 'turn-continuation',
+                },
+            ]
+                .map((message) => JSON.stringify(message))
+                .join('\n'),
+        );
+
+        const transcript = await readMiniMaxCodeSessionTranscript(sessionsDir, fixture.sessionId);
+
+        expect(transcript?.messages.map((message) => message.messageId)).toEqual([
+            'original-user',
+            'original-assistant',
+            'archived-continuation-assistant',
+            'continuation-assistant',
+        ]);
+        expect(transcript?.messages[0]?.content).toBe('Implement and complete migration');
     });
 
     it('should read the effective model from runtime extra_data_json', async () => {
