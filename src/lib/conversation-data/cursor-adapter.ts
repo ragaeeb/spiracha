@@ -184,6 +184,8 @@ const listCursorConversationsForPath = async (options: ListConversationsForPathO
             continue;
         }
         const threads = await listCursorThreadsForGroup(group, userDir, {
+            includeBubbleStats: true,
+            includeModelAttribution: true,
             includeTranscriptDirs: false,
         });
         for (const thread of threads) {

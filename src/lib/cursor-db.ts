@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
+import { decodeCursorChatModel, resolveCursorChatStorePath } from './cursor-chat-store';
 import {
     COMPOSER_DATA_KEY,
     COMPOSER_HEADERS_KEY,
@@ -628,9 +629,58 @@ export const findCursorTranscriptDirs = async (
 };
 
 export type ListCursorThreadsOptions = {
+    includeBubbleStats?: boolean;
+    includeModelAttribution?: boolean;
     includeTranscriptDirs?: boolean;
     updatedAfterMs?: number;
 };
+
+const readCursorChatStoreModel = async (
+    composerId: string,
+    transcriptDirs: string[],
+): Promise<{ model: string; reasoningEffort: string | null } | null> => {
+    for (const transcriptDir of transcriptDirs) {
+        const projectDir = path.dirname(path.dirname(transcriptDir));
+        const storePath = await resolveCursorChatStorePath(projectDir, composerId);
+        if (!storePath) {
+            continue;
+        }
+
+        try {
+            const model = withCursorReadonlyDb(storePath, (db) => {
+                const rows = db
+                    .query("SELECT data FROM blobs WHERE instr(CAST(data AS TEXT), 'cursor-grok-') > 0")
+                    .all() as Array<{ data: string | Uint8Array }>;
+                return decodeCursorChatModel(rows.map((row) => row.data));
+            });
+            if (model) {
+                return model;
+            }
+        } catch {
+            // Modern chat stores are optional and may be concurrently replaced by Cursor.
+        }
+    }
+
+    return null;
+};
+
+const hydrateCursorChatStoreModels = async (
+    threads: CursorThreadSummary[],
+    transcriptDirsByComposerId: Map<string, string[]>,
+): Promise<CursorThreadSummary[]> =>
+    Promise.all(
+        threads.map(async (thread) => {
+            if (thread.model) {
+                return thread;
+            }
+
+            const model = await readCursorChatStoreModel(
+                thread.composerId,
+                transcriptDirsByComposerId.get(thread.composerId) ?? [],
+            );
+            return model ? { ...thread, ...model } : thread;
+        }),
+    );
 
 export const listCursorThreadsForGroup = async (
     group: CursorWorkspaceGroup,
@@ -638,17 +688,28 @@ export const listCursorThreadsForGroup = async (
     options: ListCursorThreadsOptions = {},
 ): Promise<CursorThreadSummary[]> => {
     const discovery = await discoverCursorWorkspaces(userDir, options);
-    const threads = discovery.threadsByKey.get(group.key) ?? [];
+    const discoveredThreads = discovery.threadsByKey.get(group.key) ?? [];
+    const threads =
+        options.includeBubbleStats === false
+            ? discoveredThreads
+            : await hydrateCursorThreadBubbleStats(discoveredThreads, userDir);
 
+    const shouldHydrateModels = options.includeModelAttribution !== false;
+    const shouldResolveTranscriptDirs = options.includeTranscriptDirs !== false || shouldHydrateModels;
+    const transcriptDirsByComposerId = shouldResolveTranscriptDirs
+        ? await findCursorTranscriptDirsForComposerIds(
+              threads.map((thread) => thread.composerId),
+              userDir,
+          )
+        : new Map<string, string[]>();
+    const hydratedThreads = shouldHydrateModels
+        ? await hydrateCursorChatStoreModels(threads, transcriptDirsByComposerId)
+        : threads;
     if (options.includeTranscriptDirs === false) {
-        return threads;
+        return hydratedThreads;
     }
 
-    const transcriptDirsByComposerId = await findCursorTranscriptDirsForComposerIds(
-        threads.map((thread) => thread.composerId),
-        userDir,
-    );
-    return threads.map((thread) => ({
+    return hydratedThreads.map((thread) => ({
         ...thread,
         transcriptDirs: transcriptDirsByComposerId.get(thread.composerId) ?? [],
     }));
@@ -660,7 +721,7 @@ export const listCursorThreadsForGroup = async (
 // its global header workspace uri, an existing bucket it points at, or — for threads with no such
 // link — the dominant absolute path found in its tool calls.
 
-type GlobalHead = {
+type ParsedGlobalHead = {
     name: string | null;
     createdAtMs: number | null;
     lastUpdatedAtMs: number | null;
@@ -670,6 +731,7 @@ type GlobalHead = {
     reasoningEffort: string | null;
     status: string | null;
 };
+type GlobalHead = ParsedGlobalHead & { hasBubbleData: boolean };
 type HeaderInfo = {
     name: string | null;
     uriPath: string | null;
@@ -898,17 +960,49 @@ const readAllHeads = (db: Database, options: CursorDiscoveryOptions = {}): Map<s
             )
             .all(options.updatedAfterMs) as Array<{ id: string; value: string | null }>;
 
-        return new Map(rows.map((row) => [row.id, parseGlobalHead(row.value)]));
+        return new Map(
+            rows.map((row) => [
+                row.id,
+                { ...parseGlobalHead(row.value), hasBubbleData: hasStoredCursorBubbleData(row.value) },
+            ]),
+        );
     }
 
     const rows = db
         .query(`SELECT substr(key, 14) AS id, value FROM cursorDiskKV WHERE key LIKE 'composerData:%'`)
         .all() as Array<{ id: string; value: string | null }>;
 
-    return new Map(rows.map((row) => [row.id, parseGlobalHead(row.value)]));
+    return new Map(
+        rows.map((row) => [
+            row.id,
+            { ...parseGlobalHead(row.value), hasBubbleData: hasStoredCursorBubbleData(row.value) },
+        ]),
+    );
 };
 
-const parseGlobalHead = (value: string | null): GlobalHead => {
+const hasStoredCursorBubbleData = (value: string | null): boolean => {
+    if (value === null) {
+        return false;
+    }
+
+    try {
+        const parsed = asObject(JSON.parse(value) as JsonValue);
+        if (!parsed) {
+            return false;
+        }
+
+        const totalBubbleHeaderCount = asNumber(parsed.totalBubbleHeaderCount ?? null);
+        if (totalBubbleHeaderCount !== null) {
+            return totalBubbleHeaderCount > 0;
+        }
+
+        return Array.isArray(parsed.fullConversationHeadersOnly) && parsed.fullConversationHeadersOnly.length > 0;
+    } catch {
+        return true;
+    }
+};
+
+const parseGlobalHead = (value: string | null): ParsedGlobalHead => {
     let parsed: Record<string, JsonValue> | null = {};
     if (value === null) {
         return {
@@ -1013,6 +1107,37 @@ const readBubbleStats = (db: Database, composerIds: Iterable<string>): Map<strin
     return stats;
 };
 
+const hydrateCursorThreadBubbleStats = async (
+    threads: CursorThreadSummary[],
+    userDir: string,
+): Promise<CursorThreadSummary[]> => {
+    if (threads.length === 0) {
+        return threads;
+    }
+
+    const globalDbPath = getCursorGlobalDbPath(userDir);
+    if (!(await pathExists(globalDbPath))) {
+        return threads;
+    }
+
+    const stats = withCursorReadonlyDb(globalDbPath, (db) =>
+        readBubbleStats(
+            db,
+            threads.map((thread) => thread.composerId),
+        ),
+    );
+    return threads.map((thread) => {
+        const stat = stats.get(thread.composerId);
+        return stat
+            ? {
+                  ...thread,
+                  bubbleBytes: stat.bytes,
+                  bubbleCount: stat.count,
+              }
+            : thread;
+    });
+};
+
 const readHeaderInfo = (globalDbPath: string, strict = false): Map<string, HeaderInfo> => {
     const info = new Map<string, HeaderInfo>();
     for (const header of (strict ? loadGlobalComposerHeadersStrict : loadGlobalComposerHeaders)(globalDbPath)) {
@@ -1063,6 +1188,7 @@ type ResolvedThread = {
     model: string | null;
     reasoningEffort: string | null;
     parentComposerId: string | null;
+    hasBubbleData?: boolean;
     status: string | null;
 };
 
@@ -1104,7 +1230,7 @@ const resolveThreadFolderHint = (
         return { folder: head.pathHint, groupKey: `folder:${head.pathHint}` };
     }
 
-    if (stat.count > 0) {
+    if (stat.count > 0 || head?.hasBubbleData) {
         const folder = inferFolderFromBubbles(db, composerId);
         return { folder, groupKey: folder ? `folder:${folder}` : UNKNOWN_GROUP_KEY };
     }
@@ -1141,6 +1267,7 @@ const resolveThreadFolder = (
         folder,
         groupKey,
         groupLabel: folder ? path.basename(folder) : 'Unknown project',
+        hasBubbleData: Boolean(head?.hasBubbleData || stat.count > 0),
         lastUpdatedAtMs: head?.lastUpdatedAtMs ?? null,
         mode: head?.mode ?? null,
         model: head?.model ?? null,
@@ -1179,12 +1306,13 @@ const assembleDiscovery = (
 
     const groupLabels = new Map(bucketGroups.map((group) => [group.key, group.label]));
     for (const thread of resolved) {
-        if (thread.stat.count === 0 && thread.status === 'aborted') {
+        const hasBubbleData = thread.hasBubbleData ?? thread.stat.count > 0;
+        if (!hasBubbleData && thread.status === 'aborted') {
             continue;
         }
 
         // Empty threads with no resolvable workspace are pure noise; keep them out of the catch-all.
-        if (thread.groupKey === UNKNOWN_GROUP_KEY && thread.stat.count === 0) {
+        if (thread.groupKey === UNKNOWN_GROUP_KEY && !hasBubbleData) {
             continue;
         }
 
@@ -1296,7 +1424,6 @@ const buildDiscovery = async (userDir: string, options: CursorDiscoveryOptions =
             options.updatedAfterMs === undefined
                 ? new Set<string>([...heads.keys(), ...headerInfo.keys(), ...bucketComposerIds.keys()])
                 : new Set<string>(heads.keys());
-        const stats = readBubbleStats(db, universe);
         const resolved: ResolvedThread[] = [];
 
         for (const composerId of universe) {
@@ -1305,7 +1432,7 @@ const buildDiscovery = async (userDir: string, options: CursorDiscoveryOptions =
                     composerId,
                     heads.get(composerId),
                     headerInfo.get(composerId),
-                    stats.get(composerId) ?? { bytes: 0, count: 0 },
+                    { bytes: 0, count: 0 },
                     bucketIdToGroupKey,
                     bucketIdToFolder,
                     bucketComposerIds,

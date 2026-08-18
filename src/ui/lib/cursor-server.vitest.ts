@@ -182,23 +182,43 @@ describe('findCursorThreadByComposerId', () => {
         deleteCursorWorkspaceHistoryMock.mockResolvedValue({ cleanupFailures: [], removedPaths: [] });
     });
 
-    it('should query workspace threads without transcript directory discovery', async () => {
+    it('should query detail stats without scanning transcript directories for unrelated workspaces', async () => {
         listCursorWorkspaceGroupsMock.mockResolvedValue([workspaceOne, workspaceTwo]);
-        listCursorThreadsForGroupMock.mockResolvedValueOnce([makeThread()]).mockResolvedValueOnce([
-            makeThread({
-                composerId: 'thread-2',
-                workspaceKey: workspaceTwo.key,
-                workspaceLabel: workspaceTwo.label,
-            }),
-        ]);
+        listCursorThreadsForGroupMock
+            .mockResolvedValueOnce([makeThread()])
+            .mockResolvedValueOnce([
+                makeThread({
+                    composerId: 'thread-2',
+                    workspaceKey: workspaceTwo.key,
+                    workspaceLabel: workspaceTwo.label,
+                }),
+            ])
+            .mockResolvedValueOnce([
+                makeThread({
+                    bubbleBytes: 256,
+                    bubbleCount: 7,
+                    composerId: 'thread-2',
+                    workspaceKey: workspaceTwo.key,
+                    workspaceLabel: workspaceTwo.label,
+                }),
+            ]);
 
         const thread = await findCursorThreadByComposerId('thread-2');
 
-        expect(thread?.composerId).toBe('thread-2');
+        expect(thread).toMatchObject({ bubbleBytes: 256, bubbleCount: 7, composerId: 'thread-2' });
         expect(listCursorThreadsForGroupMock).toHaveBeenNthCalledWith(1, workspaceOne, undefined, {
+            includeBubbleStats: false,
+            includeModelAttribution: false,
             includeTranscriptDirs: false,
         });
         expect(listCursorThreadsForGroupMock).toHaveBeenNthCalledWith(2, workspaceTwo, undefined, {
+            includeBubbleStats: false,
+            includeModelAttribution: false,
+            includeTranscriptDirs: false,
+        });
+        expect(listCursorThreadsForGroupMock).toHaveBeenNthCalledWith(3, workspaceTwo, undefined, {
+            includeBubbleStats: true,
+            includeModelAttribution: true,
             includeTranscriptDirs: false,
         });
     });
@@ -283,6 +303,8 @@ describe('deleteCursorWorkspaceFn', () => {
         await expect(deleteCursorWorkspaceFn({ data: { workspaceKey: workspace.key } })).resolves.toBe(result);
 
         expect(listCursorThreadsForGroupMock).toHaveBeenCalledWith(workspace, undefined, {
+            includeBubbleStats: false,
+            includeModelAttribution: false,
             includeTranscriptDirs: false,
         });
         expect(collectCursorThreadsForDeletionMock).toHaveBeenCalledWith(['thread-1', 'thread-2', 'aborted-thread']);

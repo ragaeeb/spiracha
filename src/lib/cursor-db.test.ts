@@ -117,6 +117,43 @@ describe('cursor-db workspace discovery', () => {
         expect(group?.threadCount).toBe(1);
     });
 
+    it('should defer bubble payload scans until exact thread stats are requested', async () => {
+        const userDir = await makeUserDir();
+        await createCursorFixture(userDir, baseSpec());
+
+        const originalQuery = Database.prototype.query;
+        let bubblePayloadQueryCount = 0;
+        Database.prototype.query = function (this: Database, sql: string) {
+            if (sql.includes('SELECT ? AS composerId, key, value FROM cursorDiskKV')) {
+                bubblePayloadQueryCount += 1;
+            }
+
+            return originalQuery.call(this, sql);
+        } as typeof originalQuery;
+
+        try {
+            const [group] = await listCursorWorkspaceGroups(userDir);
+            expect(bubblePayloadQueryCount).toBe(0);
+
+            const threadsWithoutStats = await listCursorThreadsForGroup(group!, userDir, {
+                includeBubbleStats: false,
+                includeTranscriptDirs: false,
+            });
+            expect(threadsWithoutStats).toEqual([expect.objectContaining({ bubbleBytes: 0, bubbleCount: 0 })]);
+            expect(bubblePayloadQueryCount).toBe(0);
+
+            const threads = await listCursorThreadsForGroup(group!, userDir, {
+                includeBubbleStats: true,
+                includeTranscriptDirs: false,
+            });
+
+            expect(bubblePayloadQueryCount).toBe(1);
+            expect(threads).toEqual([expect.objectContaining({ bubbleBytes: expect.any(Number), bubbleCount: 3 })]);
+        } finally {
+            Database.prototype.query = originalQuery;
+        }
+    });
+
     it('should count bubbles for composer ids containing colons', async () => {
         const userDir = await makeUserDir();
         await createCursorFixture(userDir, {
@@ -559,6 +596,41 @@ describe('cursor-db workspace discovery', () => {
             'READ-ONLY review triage. Read root and nearest AGENTS.',
             'Review complete.',
         ]);
+    });
+
+    it('should hydrate a CLI-only thread model from its modern Cursor chat store', async () => {
+        const userDir = await makeUserDir();
+        const composerId = '73d679d2-5311-4e00-8be3-af67fbf0fa87';
+        const projectDir = path.join(userDir, 'projects', 'Users-test-workspace-kalu');
+        const transcriptDir = path.join(projectDir, 'agent-transcripts', composerId);
+        const storePath = path.join(userDir, 'chats', '3e5df7fc57ed37c7864c9a0f7ec0d12d', composerId, 'store.db');
+        await mkdir(transcriptDir, { recursive: true });
+        await mkdir(path.dirname(storePath), { recursive: true });
+        await Bun.write(
+            path.join(projectDir, '.workspace-trusted'),
+            JSON.stringify({ workspacePath: '/Users/test/workspace/kalu' }),
+        );
+        await Bun.write(
+            path.join(transcriptDir, `${composerId}.jsonl`),
+            JSON.stringify({ message: { content: [{ text: 'Review this.', type: 'text' }] }, role: 'user' }),
+        );
+        const store = new Database(storePath);
+        store.exec('CREATE TABLE blobs (id TEXT PRIMARY KEY, data BLOB NOT NULL)');
+        store
+            .query('INSERT INTO blobs (id, data) VALUES (?, ?)')
+            .run('chat', new TextEncoder().encode('\u0000metadata\u0000cursor-grok-4.6-low\u0000'));
+        store.close();
+
+        const group = (await listCursorWorkspaceGroups(userDir)).find(
+            (candidate) => candidate.key === 'folder:/Users/test/workspace/kalu',
+        );
+        const threads = group ? await listCursorThreadsForGroup(group, userDir, { includeTranscriptDirs: false }) : [];
+
+        expect(threads[0]).toMatchObject({
+            composerId,
+            model: 'grok-4.6',
+            reasoningEffort: 'low',
+        });
     });
 
     it('should reject composer ids that escape the agent transcript directory', async () => {
