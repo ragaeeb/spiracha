@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { createCipheriv, pbkdf2Sync } from 'node:crypto';
 import {
+    createAntigravityDecryptionCapability,
     decryptAntigravitySafeStoragePayload,
     deriveAntigravitySafeStorageKey,
     getAntigravityDecryptionState,
@@ -32,8 +33,17 @@ describe('antigravity keychain helpers', () => {
         expect(decrypted).toBe('decrypted transcript text');
     });
 
+    it('should expose only an opaque decryption capability instead of the Keychain secret', () => {
+        const encrypted = encryptSafeStorageFixture('scoped transcript text', 'fixture-secret');
+        const capability = createAntigravityDecryptionCapability('fixture-secret');
+
+        expect(Object.keys(capability)).toEqual(['decryptSafeStoragePayload']);
+        expect(capability.decryptSafeStoragePayload(encrypted)).toBe('scoped transcript text');
+        expect(capability).not.toHaveProperty('secret');
+    });
+
     it('should report locked state without touching Keychain secrets', () => {
-        const state = getAntigravityDecryptionState({ cachedSecret: null, platform: 'darwin' });
+        const state = getAntigravityDecryptionState({ hasAccess: false, platform: 'darwin' });
 
         expect(state).toMatchObject({
             canRequestAccess: true,
@@ -42,6 +52,17 @@ describe('antigravity keychain helpers', () => {
             keychainService: 'Antigravity Safe Storage',
             provider: 'keychain',
             status: 'locked',
+        });
+    });
+
+    it('should report unlocked state from explicit request-scoped access', () => {
+        const state = getAntigravityDecryptionState({ hasAccess: true, platform: 'darwin' });
+
+        expect(state).toMatchObject({
+            canRequestAccess: true,
+            error: null,
+            isUnlocked: true,
+            status: 'unlocked',
         });
     });
 

@@ -172,12 +172,12 @@ const buildConversation = async (
         ),
         id: session.sessionId,
         matches,
+        ...(session.currentModelId ? { model: session.currentModelId } : {}),
         messageCount: options.includeMessages ? allMessages.length : session.messageCount,
         messages,
         metadata: {
             agentName: session.agentName,
             appMode: session.appMode,
-            currentModelId: session.currentModelId,
             currentModelVariant: session.currentModelVariant,
             runtime: session.runtime,
             sessionType: session.sessionType,

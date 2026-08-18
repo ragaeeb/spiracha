@@ -8,7 +8,7 @@ import { LoadingPanel } from '#/components/loading-panel';
 import { PageHeader } from '#/components/page-header';
 import { QoderSessionsTable } from '#/components/qoder-sessions-table';
 import { RouteErrorPanel } from '#/components/route-error-panel';
-import { downloadTextFile, downloadUrlFile } from '#/lib/download';
+import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { qoderSessionsQueryOptions, qoderWorkspacesQueryOptions } from '#/lib/qoder-queries';
 import { exportQoderSessionFn, exportQoderSessionsFn } from '#/lib/qoder-server';
@@ -33,6 +33,7 @@ const QoderWorkspaceErrorComponent = ({ error }: { error: Error }) => {
 };
 
 const QoderWorkspacePage = () => {
+    const downloadCancellation = useDownloadCancellation();
     const params = Route.useParams();
     const workspaces = useSuspenseQuery(qoderWorkspacesQueryOptions()).data;
     const workspace = findWorkspaceOrThrow(workspaces, params.workspaceKey);
@@ -70,7 +71,7 @@ const QoderWorkspacePage = () => {
                 return;
             }
 
-            await downloadUrlFile(download.fileName, download.downloadUrl);
+            await downloadUrlFileWithCancellation(downloadCancellation, download.fileName, download.downloadUrl);
         },
         onSuccess: () => {
             setPendingExport(null);

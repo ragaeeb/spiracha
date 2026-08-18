@@ -164,11 +164,41 @@ export type CursorRecoverResult = {
     threads: Array<{ composerId: string; name: string; bubbleCount: number }>;
 };
 
+export type CursorCleanupFailure = {
+    error: string;
+    path?: string;
+    phase: 'transcript_directory' | 'workspace_buckets' | 'workspace_history';
+};
+
+export type CursorFilesystemCleanupResult = {
+    cleanupFailures: CursorCleanupFailure[];
+    removedPaths: string[];
+};
+
+export type CursorCleanupRetryPlan = {
+    bucketPaths: string[];
+    composerIds: string[];
+    folders: string[];
+    historyPaths: string[];
+    transcriptDirs: string[];
+    workspaceKey: string;
+};
+
+export type CursorCleanupRetryTarget = {
+    token: string;
+};
+
 export type CursorPruneResult = {
     bubblesDeleted: number;
+    cleanupFailures: CursorCleanupFailure[];
     composerDataDeleted: number;
     headersRemoved: number;
     workspaceBucketsUpdated: number;
     transcriptDirsRemoved: number;
+    transcriptDirsRemovedPaths: string[];
     composerIds: string[];
+    retryPlan?: CursorCleanupRetryPlan;
+    retryTarget?: CursorCleanupRetryTarget;
+    workspaceBucketsRemovedPaths?: string[];
+    workspaceHistoryRemovedPaths?: string[];
 };

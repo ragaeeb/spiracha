@@ -1,22 +1,23 @@
+import { CLINE_SESSION_ID_PATTERN } from '@spiracha/lib/cline-exporter-types';
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
 import { requireDeletedItems, runDeleteBatch } from './delete-batch';
 import { renderSourceSessionDownload, renderSourceSessionsDownload } from './source-session-export-server';
 
 const workspaceSchema = z.object({ workspaceKey: z.string().min(1) });
-const taskSchema = z.object({ taskId: z.string().regex(/^\d+$/u) });
+const taskSchema = z.object({ taskId: z.string().regex(CLINE_SESSION_ID_PATTERN) });
 const exportTaskSchema = z.object({
     includeCommentary: z.boolean().default(true),
     includeMetadata: z.boolean().default(true),
     includeTools: z.boolean().default(true),
     outputFormat: z.enum(['md', 'txt']).default('md'),
-    taskId: z.string().regex(/^\d+$/u),
+    taskId: z.string().regex(CLINE_SESSION_ID_PATTERN),
     zipArchive: z.boolean().default(false),
 });
 const exportTasksSchema = exportTaskSchema.omit({ taskId: true, zipArchive: true }).extend({
-    taskIds: z.array(z.string().regex(/^\d+$/u)).min(1),
+    taskIds: z.array(z.string().regex(CLINE_SESSION_ID_PATTERN)).min(1),
 });
-const deleteTasksSchema = z.object({ taskIds: z.array(z.string().regex(/^\d+$/u)).min(1) });
+const deleteTasksSchema = z.object({ taskIds: z.array(z.string().regex(CLINE_SESSION_ID_PATTERN)).min(1) });
 
 export const listClineWorkspacesFn = createServerFn({ method: 'GET' }).handler(async () => {
     const { listClineWorkspaceGroups } = await import('@spiracha/lib/cline-db');
@@ -31,19 +32,19 @@ export const listClineTasksFn = createServerFn({ method: 'GET' })
     });
 
 const createClineTranscriptLoader = async () => {
-    const { readClineTaskTranscript, resolveClineGlobalStorageDir } = await import('@spiracha/lib/cline-db');
+    const { readClineTaskTranscript, resolveClineDataDir } = await import('@spiracha/lib/cline-db');
     const { runWithTranscriptLoadLimit } = await import('@spiracha/lib/transcript-load-limiter');
-    const globalStorageDir = resolveClineGlobalStorageDir();
+    const dataDir = resolveClineDataDir();
     return (taskId: string) =>
         runWithTranscriptLoadLimit(
             async () => {
-                const transcript = await readClineTaskTranscript(globalStorageDir, taskId);
+                const transcript = await readClineTaskTranscript(dataDir, taskId);
                 if (!transcript) {
                     throw new Error(`Cline chat not found: ${taskId}`);
                 }
                 return transcript;
             },
-            { id: taskId, integration: 'cline', operation: 'ui-detail', path: globalStorageDir },
+            { id: taskId, integration: 'cline', operation: 'ui-detail', path: dataDir },
         );
 };
 
@@ -64,6 +65,7 @@ export const exportClineTaskFn = createServerFn({ method: 'POST' })
             cwd: transcript.task.worktree,
             fallbackBaseName: 'cline-chat',
             outputFormat: data.outputFormat,
+            platform: 'cline',
             sessionId: transcript.task.taskId,
             updatedAtMs: transcript.task.lastActiveAtMs,
             zipArchive: data.zipArchive,
@@ -92,6 +94,7 @@ export const exportClineTasksFn = createServerFn({ method: 'POST' })
             entries,
             fallbackBaseName: 'cline-chats',
             outputFormat: data.outputFormat,
+            platform: 'cline',
             zipArchive: true,
         });
     });
@@ -99,8 +102,8 @@ export const exportClineTasksFn = createServerFn({ method: 'POST' })
 export const deleteClineTaskFn = createServerFn({ method: 'POST' })
     .validator(taskSchema)
     .handler(async ({ data }) => {
-        const { deleteClineTask, resolveClineGlobalStorageDir } = await import('@spiracha/lib/cline-db');
-        const result = await deleteClineTask(resolveClineGlobalStorageDir(), data.taskId);
+        const { deleteClineTask, resolveClineDataDir } = await import('@spiracha/lib/cline-db');
+        const result = await deleteClineTask(resolveClineDataDir(), data.taskId);
         requireDeletedItems(result.deletedTaskIds, 'Cline chat', data.taskId);
         return result;
     });
@@ -108,13 +111,14 @@ export const deleteClineTaskFn = createServerFn({ method: 'POST' })
 export const deleteClineTasksFn = createServerFn({ method: 'POST' })
     .validator(deleteTasksSchema)
     .handler(async ({ data }) => {
-        const { deleteClineTask, resolveClineGlobalStorageDir } = await import('@spiracha/lib/cline-db');
-        const globalStorageDir = resolveClineGlobalStorageDir();
-        const results = await runDeleteBatch(data.taskIds, (taskId) => deleteClineTask(globalStorageDir, taskId));
+        const { deleteClineTask, resolveClineDataDir } = await import('@spiracha/lib/cline-db');
+        const dataDir = resolveClineDataDir();
+        const results = await runDeleteBatch(data.taskIds, (taskId) => deleteClineTask(dataDir, taskId));
         const deletedTaskIds = [...new Set(results.flatMap((result) => result.deletedTaskIds))];
         requireDeletedItems(deletedTaskIds, 'Cline chats', 'batch');
         return {
             deletedFiles: [...new Set(results.flatMap((result) => result.deletedFiles))],
             deletedTaskIds,
+            indexCleanup: results.map((result) => result.indexCleanup),
         };
     });

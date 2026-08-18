@@ -25,8 +25,24 @@ export class DeleteBatchError<TId, TResult> extends AggregateError {
 export const runDeleteBatch = async <TId, TResult>(
     ids: TId[],
     deleteOne: (id: TId) => Promise<TResult>,
+    options: { concurrency?: number } = {},
 ): Promise<TResult[]> => {
-    const settled = await Promise.allSettled(ids.map((id) => deleteOne(id)));
+    const requestedConcurrency = options.concurrency ?? ids.length;
+    const concurrency = Math.max(1, Math.min(ids.length, Math.floor(requestedConcurrency)));
+    const settled = new Array<PromiseSettledResult<TResult>>(ids.length);
+    let nextIndex = 0;
+    const worker = async () => {
+        while (nextIndex < ids.length) {
+            const index = nextIndex;
+            nextIndex += 1;
+            try {
+                settled[index] = { status: 'fulfilled', value: await deleteOne(ids[index]!) };
+            } catch (reason) {
+                settled[index] = { reason, status: 'rejected' };
+            }
+        }
+    };
+    await Promise.all(Array.from({ length: concurrency }, () => worker()));
     const failures: Array<{ id: TId; reason: unknown }> = [];
     const successes: Array<{ id: TId; result: TResult }> = [];
     for (const [index, result] of settled.entries()) {

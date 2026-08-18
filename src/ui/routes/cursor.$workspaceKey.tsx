@@ -1,4 +1,8 @@
-import type { CursorThreadSummary, CursorWorkspaceGroup } from '@spiracha/lib/cursor-exporter-types';
+import type {
+    CursorCleanupRetryTarget,
+    CursorThreadSummary,
+    CursorWorkspaceGroup,
+} from '@spiracha/lib/cursor-exporter-types';
 import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { RefreshCcw, Trash2 } from 'lucide-react';
@@ -11,6 +15,7 @@ import { LoadingPanel } from '#/components/loading-panel';
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
 import { Button } from '#/components/ui/button';
+import { getCursorCleanupFailureMessage, hasCursorCleanupFailures } from '#/lib/cursor-delete-result';
 import { cursorThreadsQueryOptions, cursorWorkspacesQueryOptions } from '#/lib/cursor-queries';
 import {
     deleteCursorThreadsFn,
@@ -19,7 +24,7 @@ import {
     exportCursorThreadsFn,
     recoverCursorWorkspaceFn,
 } from '#/lib/cursor-server';
-import { downloadTextFile, downloadUrlFile } from '#/lib/download';
+import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { getMutationErrorMessage } from '#/lib/mutation-error';
 import { matchesTextQuery } from '#/lib/text-filter';
@@ -27,11 +32,15 @@ import { isWorkspaceEmptiedByDelete } from '#/lib/workspace-delete-navigation';
 
 type PendingCursorDelete =
     | { kind: 'threads'; threads: CursorThreadSummary[] }
-    | { kind: 'workspace'; workspace: CursorWorkspaceGroup };
+    | { kind: 'workspace'; retryTarget?: CursorCleanupRetryTarget; workspace: CursorWorkspaceGroup };
 
 type PendingCursorExport = {
     composerIds: string[];
     label: string;
+};
+
+type CursorWorkspaceQueryOptions = ReturnType<typeof cursorWorkspacesQueryOptions> & {
+    refetchOnWindowFocus?: boolean;
 };
 
 const findWorkspaceOrThrow = (workspaces: CursorWorkspaceGroup[], workspaceKey: string) => {
@@ -42,6 +51,11 @@ const findWorkspaceOrThrow = (workspaces: CursorWorkspaceGroup[], workspaceKey: 
 
     return workspace;
 };
+
+export const getCursorWorkspaceQueryOptions = (workspaceDeletePending: boolean): CursorWorkspaceQueryOptions => ({
+    ...cursorWorkspacesQueryOptions(),
+    refetchOnWindowFocus: workspaceDeletePending ? false : undefined,
+});
 
 const getSelectedThreads = (threads: CursorThreadSummary[], composerIds: string[]) => {
     const composerIdSet = new Set(composerIds);
@@ -85,14 +99,14 @@ const getCursorDeleteDescription = (pendingDelete: PendingCursorDelete | null) =
     }
 
     if (pendingDelete.kind === 'workspace') {
-        return `Permanently delete every thread for "${pendingDelete.workspace.label}" from Cursor's database and remove any on-disk transcript directories. Quit Cursor first. This cannot be undone.`;
+        return `Permanently delete every thread for "${pendingDelete.workspace.label}" from Cursor's database, remove any on-disk transcript directories, permanently delete local file history under the workspace folders, and delete its Cursor workspace storage buckets. Quit Cursor first. This cannot be undone.`;
     }
 
     if (pendingDelete.threads.length === 1) {
-        return `Permanently delete "${pendingDelete.threads[0]!.name}" from Cursor's database and remove any on-disk transcript directories. Quit Cursor first. This cannot be undone.`;
+        return `Permanently delete "${pendingDelete.threads[0]!.name}" from Cursor's database, remove any on-disk transcript directories, and permanently delete local file history under the workspace folders. Quit Cursor first. This cannot be undone.`;
     }
 
-    return `Permanently delete ${pendingDelete.threads.length} selected Cursor threads and remove any on-disk transcript directories. Quit Cursor first. This cannot be undone.`;
+    return `Permanently delete ${pendingDelete.threads.length} selected Cursor threads, remove any on-disk transcript directories, and permanently delete local file history under the workspace folders. Quit Cursor first. This cannot be undone.`;
 };
 
 const getCursorDeleteTitle = (pendingDelete: PendingCursorDelete | null) => {
@@ -112,16 +126,18 @@ const CursorWorkspaceErrorComponent = ({ error }: { error: Error }) => {
 };
 
 const CursorWorkspacePage = () => {
+    const downloadCancellation = useDownloadCancellation();
     const navigate = useNavigate();
     const params = Route.useParams();
     const queryClient = useQueryClient();
-    const workspaces = useSuspenseQuery(cursorWorkspacesQueryOptions()).data;
-    const workspace = findWorkspaceOrThrow(workspaces, params.workspaceKey);
-    const threads = useSuspenseQuery(cursorThreadsQueryOptions(workspace.key)).data;
     const [searchInput, setSearchInput] = useState('');
     const [pendingDelete, setPendingDelete] = useState<PendingCursorDelete | null>(null);
+    const [partialDeleteError, setPartialDeleteError] = useState<string | null>(null);
     const [pendingExport, setPendingExport] = useState<PendingCursorExport | null>(null);
     const deferredSearch = useDeferredValue(searchInput);
+    const workspaces = useSuspenseQuery(getCursorWorkspaceQueryOptions(pendingDelete?.kind === 'workspace')).data;
+    const workspace = findWorkspaceOrThrow(workspaces, params.workspaceKey);
+    const threads = useSuspenseQuery(cursorThreadsQueryOptions(workspace.key)).data;
 
     const invalidateWorkspaceQueries = async () => {
         await Promise.all([
@@ -138,9 +154,35 @@ const CursorWorkspacePage = () => {
     const deleteMutation = useMutation({
         mutationFn: (target: PendingCursorDelete) =>
             target.kind === 'workspace'
-                ? deleteCursorWorkspaceFn({ data: { workspaceKey: target.workspace.key } })
+                ? deleteCursorWorkspaceFn({
+                      data: {
+                          ...(target.retryTarget ? { retry: target.retryTarget } : {}),
+                          workspaceKey: target.workspace.key,
+                      },
+                  })
                 : deleteCursorThreadsFn({ data: { composerIds: target.threads.map((thread) => thread.composerId) } }),
-        onSuccess: async (_result, target) => {
+        onSettled: (result, _error, target) => {
+            if (target?.kind === 'workspace') {
+                if (hasCursorCleanupFailures(result)) {
+                    return;
+                }
+
+                return queryClient.invalidateQueries({ queryKey: ['cursor-workspaces'] });
+            }
+
+            return invalidateWorkspaceQueries();
+        },
+        onSuccess: async (result, target) => {
+            const cleanupError = getCursorCleanupFailureMessage(result);
+            if (cleanupError) {
+                setPartialDeleteError(cleanupError);
+                if (target.kind === 'workspace' && !Array.isArray(result) && result.retryTarget) {
+                    setPendingDelete({ ...target, retryTarget: result.retryTarget });
+                }
+                return;
+            }
+
+            setPartialDeleteError(null);
             if (target.kind === 'workspace') {
                 await navigate({ to: '/cursor' });
                 queryClient.removeQueries({ queryKey: ['cursor-thread'] });
@@ -188,7 +230,7 @@ const CursorWorkspacePage = () => {
                 return;
             }
 
-            await downloadUrlFile(download.fileName, download.downloadUrl);
+            await downloadUrlFileWithCancellation(downloadCancellation, download.fileName, download.downloadUrl);
         },
         onSuccess: () => {
             setPendingExport(null);
@@ -201,6 +243,7 @@ const CursorWorkspacePage = () => {
     const openDeleteForSelectedThreads = (composerIds: string[]) => {
         const nextPendingDelete = buildPendingCursorDelete(getSelectedThreads(visibleThreads, composerIds));
         if (nextPendingDelete) {
+            setPartialDeleteError(null);
             setPendingDelete(nextPendingDelete);
         }
     };
@@ -220,7 +263,10 @@ const CursorWorkspacePage = () => {
                         recoverPending={recoverWorkspaceMutation.isPending}
                         searchInput={searchInput}
                         workspace={workspace}
-                        onDeleteWorkspace={() => setPendingDelete({ kind: 'workspace', workspace })}
+                        onDeleteWorkspace={() => {
+                            setPartialDeleteError(null);
+                            setPendingDelete({ kind: 'workspace', workspace });
+                        }}
                         onRecoverWorkspace={() => recoverWorkspaceMutation.mutate()}
                         onSearchInputChange={setSearchInput}
                     />
@@ -233,7 +279,10 @@ const CursorWorkspacePage = () => {
             <CursorWorkspaceRecoveryNotice workspace={workspace} />
 
             <CursorThreadsTable
-                onDeleteThread={(thread) => setPendingDelete({ kind: 'threads', threads: [thread] })}
+                onDeleteThread={(thread) => {
+                    setPartialDeleteError(null);
+                    setPendingDelete({ kind: 'threads', threads: [thread] });
+                }}
                 onDeleteThreads={openDeleteForSelectedThreads}
                 onExportThread={(thread) =>
                     setPendingExport({
@@ -251,7 +300,7 @@ const CursorWorkspacePage = () => {
             />
 
             <CursorWorkspaceDeleteDialog
-                errorMessage={getMutationErrorMessage(deleteMutation.error, 'Delete failed')}
+                errorMessage={partialDeleteError ?? getMutationErrorMessage(deleteMutation.error, 'Delete failed')}
                 pending={deleteMutation.isPending}
                 pendingDelete={pendingDelete}
                 onConfirm={() => {
@@ -259,10 +308,12 @@ const CursorWorkspacePage = () => {
                         return;
                     }
 
+                    setPartialDeleteError(null);
                     deleteMutation.mutate(pendingDelete);
                 }}
                 onOpenChange={(open) => {
                     if (!open) {
+                        setPartialDeleteError(null);
                         setPendingDelete(null);
                         deleteMutation.reset();
                     }

@@ -1,6 +1,6 @@
 import { Database } from 'bun:sqlite';
 import { afterEach, describe, expect, it, spyOn } from 'bun:test';
-import { chmod, mkdir, mkdtemp, readdir, rm, stat } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, rm, stat, symlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -192,6 +192,106 @@ describe('opencode db helpers', () => {
         });
         expect(groups[0]?.messageCount).toBe(2);
         expect(groups[0]?.partCount).toBe(6);
+    });
+
+    it('should expose global OpenCode sessions as directory workspaces', async () => {
+        const dbPath = await makeDbPath();
+        const worktree = '/Users/test/Downloads/import_export_deep_research_prompt_pack';
+        await createOpenCodeFixture(dbPath, {
+            projects: [{ id: 'global', worktree: '/' }],
+            sessions: [
+                {
+                    directory: worktree,
+                    id: 'ses_download_one',
+                    messages: [],
+                    projectId: 'global',
+                    timeUpdated: 1_700_000_100_000,
+                    title: 'Imported prompt one',
+                },
+                {
+                    directory: worktree,
+                    id: 'ses_download_two',
+                    messages: [],
+                    projectId: 'global',
+                    timeUpdated: 1_700_000_200_000,
+                    title: 'Imported prompt two',
+                },
+                {
+                    directory: '/Users/test/Downloads/another-project',
+                    id: 'ses_other',
+                    messages: [],
+                    projectId: 'global',
+                    timeUpdated: 1_700_000_300_000,
+                    title: 'Another project session',
+                },
+            ],
+        });
+
+        const groups = await listOpenCodeWorkspaceGroups(dbPath);
+        const downloadGroup = groups.find((group) => group.worktree === worktree);
+
+        expect(groups).toHaveLength(2);
+        expect(downloadGroup).toMatchObject({
+            label: 'import_export_deep_research_prompt_pack',
+            sessionCount: 2,
+            worktree,
+        });
+        expect(downloadGroup?.key).toMatch(/^directory:/u);
+
+        const sessions = await listOpenCodeSessionsForGroup(downloadGroup?.key ?? '', dbPath);
+
+        expect(sessions.map((session) => session.sessionId)).toEqual(['ses_download_two', 'ses_download_one']);
+        expect(sessions[0]).toMatchObject({
+            workspaceKey: downloadGroup?.key,
+            workspaceLabel: 'import_export_deep_research_prompt_pack',
+            worktree,
+        });
+    });
+
+    it('should reject blank global session directories and emit one diagnostic per session', async () => {
+        const dbPath = await makeDbPath();
+        await createOpenCodeFixture(dbPath, {
+            projects: [{ id: 'global', worktree: '/' }],
+            sessions: [
+                { directory: '', id: 'ses_blank_one', messages: [], projectId: 'global', title: 'Blank one' },
+                { directory: '   ', id: 'ses_blank_two', messages: [], projectId: 'global', title: 'Blank two' },
+                { directory: '/valid/worktree', id: 'ses_valid', messages: [], projectId: 'global', title: 'Valid' },
+            ],
+        });
+        process.env.SPIRACHA_OPENCODE_DB_LOGS = '1';
+        const infoSpy = spyOn(console, 'info').mockImplementation(() => undefined);
+
+        try {
+            const groups = await listOpenCodeWorkspaceGroups(dbPath);
+            expect(groups.map((group) => group.worktree)).toEqual(['/valid/worktree']);
+            expect(infoSpy).toHaveBeenCalledWith('[spiracha:opencode-db] invalid-global-session-directory', {
+                sessionId: 'ses_blank_one',
+            });
+            expect(infoSpy).toHaveBeenCalledWith('[spiracha:opencode-db] invalid-global-session-directory', {
+                sessionId: 'ses_blank_two',
+            });
+        } finally {
+            infoSpy.mockRestore();
+        }
+    });
+
+    it('should reject a blank global session during a direct transcript lookup with a diagnostic', async () => {
+        const dbPath = await makeDbPath();
+        await createOpenCodeFixture(dbPath, {
+            projects: [{ id: 'global', worktree: '/' }],
+            sessions: [{ directory: '   ', id: 'ses_blank_direct', messages: [], projectId: 'global', title: 'Blank' }],
+        });
+        process.env.SPIRACHA_OPENCODE_DB_LOGS = '1';
+        const infoSpy = spyOn(console, 'info').mockImplementation(() => undefined);
+
+        try {
+            await expect(readOpenCodeSessionTranscript(dbPath, 'ses_blank_direct')).resolves.toBeNull();
+            expect(infoSpy).toHaveBeenCalledWith('[spiracha:opencode-db] invalid-global-session-directory', {
+                sessionId: 'ses_blank_direct',
+            });
+        } finally {
+            infoSpy.mockRestore();
+        }
     });
 
     it('should read a WAL database when its sidecar files do not exist', async () => {
@@ -698,5 +798,13 @@ describe('opencode db helpers', () => {
                 process.env.SPIRACHA_OPENCODE_DESKTOP_STATE_DIR = previousStateDir;
             }
         }
+    });
+
+    it('should ignore a desktop state file that disappears before it can be read', async () => {
+        const stateDir = await mkdtemp(path.join(os.tmpdir(), 'opencode-desktop-state-race-'));
+        tempDirs.push(stateDir);
+        await symlink(path.join(stateDir, 'missing-target'), path.join(stateDir, 'removed.dat'));
+
+        await expect(deleteOpenCodeDesktopSessionState(['ses_removed'], stateDir)).resolves.toEqual([]);
     });
 });

@@ -6,6 +6,7 @@ const SLEEP_BUFFER = new Int32Array(new SharedArrayBuffer(4));
 type SyncRetryOptions<T> = {
     action: () => T;
     delaysMs?: readonly number[];
+    onRetry?: (details: { attempt: number; delayMs: number; error: unknown }) => void;
     sleep?: (delayMs: number) => void;
 };
 
@@ -31,6 +32,7 @@ const shouldRetrySqliteError = (error: unknown, attempt: number, delaysMs: reado
 export const runWithSqliteRetry = <T>({
     action,
     delaysMs = DEFAULT_RETRY_DELAYS_MS,
+    onRetry,
     sleep = sleepSync,
 }: SyncRetryOptions<T>): T => {
     let attempt = 0;
@@ -46,7 +48,9 @@ export const runWithSqliteRetry = <T>({
                 throw error;
             }
 
-            sleep(delaysMs[attempt] ?? 0);
+            const delayMs = delaysMs[attempt] ?? 0;
+            onRetry?.({ attempt: attempt + 1, delayMs, error });
+            sleep(delayMs);
             attempt += 1;
         }
     }

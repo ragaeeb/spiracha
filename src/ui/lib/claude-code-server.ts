@@ -186,6 +186,7 @@ export const exportClaudeCodeSessionFn = createServerFn({ method: 'POST' })
             cwd: transcript.session.cwd ?? transcript.session.worktree,
             fallbackBaseName: 'claude-code-session',
             outputFormat: data.outputFormat,
+            platform: 'claude',
             sessionId: transcript.session.sessionId,
             updatedAtMs: transcript.session.lastActiveAtMs,
             zipArchive: data.zipArchive,
@@ -225,6 +226,7 @@ export const exportClaudeCodeSessionsFn = createServerFn({ method: 'POST' })
             entries,
             fallbackBaseName: 'claude-code-sessions',
             outputFormat: data.outputFormat,
+            platform: 'claude',
             zipArchive: data.zipArchive,
         });
     });

@@ -37,13 +37,14 @@ describe('MiniMax Code conversation adapter', () => {
             id: fixture.sessionId,
             metadata: {
                 agentName: 'main',
-                currentModelId: 'minimax/MiniMax-M3',
                 currentModelVariant: 'thinking',
             },
+            model: 'minimax/MiniMax-M3',
             source: 'minimax-code',
             title: 'Refactor evidence extraction module',
             workspacePath,
         });
+        expect(page.data[0]?.metadata).not.toHaveProperty('currentModelId');
         expect(page.data[0]?.messages).toEqual([
             expect.objectContaining({
                 phase: 'final_answer',

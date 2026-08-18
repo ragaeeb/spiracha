@@ -96,6 +96,7 @@ export const exportGrokSessionFn = createServerFn({ method: 'POST' })
             cwd: transcript.session.cwd ?? transcript.session.worktree,
             fallbackBaseName: 'grok-session',
             outputFormat: data.outputFormat,
+            platform: 'grok',
             sessionId: transcript.session.sessionId,
             updatedAtMs: transcript.session.lastActiveAtMs,
             zipArchive: data.zipArchive,
@@ -135,6 +136,7 @@ export const exportGrokSessionsFn = createServerFn({ method: 'POST' })
             entries,
             fallbackBaseName: 'grok-sessions',
             outputFormat: data.outputFormat,
+            platform: 'grok',
             zipArchive: data.zipArchive,
         });
     });

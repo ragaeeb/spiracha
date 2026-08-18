@@ -188,6 +188,26 @@ export type ThreadBrowseData = {
     thread: ThreadRow;
 };
 
+export type CodexDbSchemaProfile = {
+    name: string;
+    requiredColumns: Readonly<Record<string, readonly string[]>>;
+    requiredTables: readonly string[];
+};
+
+export type CodexThreadBrowseBatchResult =
+    | {
+          data: ThreadBrowseData;
+          source: 'database' | 'fallback';
+          status: 'found';
+          threadId: string;
+      }
+    | {
+          data: null;
+          source: 'missing';
+          status: 'missing';
+          threadId: string;
+      };
+
 export type DashboardThreadSummary = Pick<
     ThreadRow,
     'cwd' | 'id' | 'model' | 'preview' | 'title' | 'tokens_used' | 'updated_at' | 'updated_at_ms'
@@ -210,7 +230,22 @@ export type DashboardSummary = {
     totalTokens: number;
 };
 
+export type CodexSessionIndexEntry = {
+    id: string;
+    thread_name?: string;
+    updated_at?: string;
+};
+
+export type CodexSessionIndexReconciliation = {
+    dryRun: true;
+    staleEntries: CodexSessionIndexEntry[];
+};
+
 export type DeleteThreadsResult = {
+    cleanup: {
+        requested: boolean;
+        sessionIndexEntriesRemoved: string[];
+    };
     deletedSessionFiles: string[];
     deletedThreadIds: string[];
 };

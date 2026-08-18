@@ -1,12 +1,15 @@
 import { constants, Database } from 'bun:sqlite';
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, utimes } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
+    CURSOR_MAX_HISTORY_ENTRIES_BYTES,
     CURSOR_READONLY_DB_OPEN_FLAGS,
+    CURSOR_SQLITE_RETRY_DELAYS_MS,
     decodeCursorUri,
     findCursorTranscriptDirs,
+    findCursorTranscriptDirsForComposerIds,
     findCursorWorkspaceGroups,
     getCursorReadonlyDbUri,
     listCursorThreadsForGroup,
@@ -16,9 +19,10 @@ import {
     readCursorThreadHead,
     readCursorThreadTranscript,
     readCursorThreadTranscriptWithAgentFiles,
+    withCursorReadonlyDb,
 } from './cursor-db';
 import { getCursorGlobalDbPath } from './cursor-exporter-types';
-import { type CursorFixtureSpec, createCursorFixture } from './cursor-test-helpers';
+import { type CursorFixtureSpec, createCursorFixture, holdCursorWriteLock } from './cursor-test-helpers';
 
 const tempDirs: string[] = [];
 
@@ -111,6 +115,147 @@ describe('cursor-db workspace discovery', () => {
         const [group] = await listCursorWorkspaceGroups(userDir);
 
         expect(group?.threadCount).toBe(1);
+    });
+
+    it('should defer bubble payload scans until exact thread stats are requested', async () => {
+        const userDir = await makeUserDir();
+        await createCursorFixture(userDir, baseSpec());
+
+        const originalQuery = Database.prototype.query;
+        let bubblePayloadQueryCount = 0;
+        Database.prototype.query = function (this: Database, sql: string) {
+            if (sql.includes('SELECT ? AS composerId, key, value FROM cursorDiskKV')) {
+                bubblePayloadQueryCount += 1;
+            }
+
+            return originalQuery.call(this, sql);
+        } as typeof originalQuery;
+
+        try {
+            const [group] = await listCursorWorkspaceGroups(userDir);
+            expect(bubblePayloadQueryCount).toBe(0);
+
+            const threadsWithoutStats = await listCursorThreadsForGroup(group!, userDir, {
+                includeBubbleStats: false,
+                includeTranscriptDirs: false,
+            });
+            expect(threadsWithoutStats).toEqual([expect.objectContaining({ bubbleBytes: 0, bubbleCount: 0 })]);
+            expect(bubblePayloadQueryCount).toBe(0);
+
+            const threads = await listCursorThreadsForGroup(group!, userDir, {
+                includeBubbleStats: true,
+                includeTranscriptDirs: false,
+            });
+
+            expect(bubblePayloadQueryCount).toBe(1);
+            expect(threads).toEqual([expect.objectContaining({ bubbleBytes: expect.any(Number), bubbleCount: 3 })]);
+        } finally {
+            Database.prototype.query = originalQuery;
+        }
+    });
+
+    it('should count bubbles for composer ids containing colons', async () => {
+        const userDir = await makeUserDir();
+        await createCursorFixture(userDir, {
+            buckets: [
+                {
+                    bucketId: 'colon-bucket',
+                    composerIds: ['thread:colon'],
+                    folder: 'file:///Users/test/workspace/colon',
+                    threadsInComposerData: true,
+                },
+            ],
+            headerLinks: [{ bucketId: 'colon-bucket', composerId: 'thread:colon' }],
+            threads: [{ bubbles: [{ bubbleId: 'b1', text: 'colon-safe', type: 1 }], composerId: 'thread:colon' }],
+        });
+
+        const [group] = await listCursorWorkspaceGroups(userDir);
+        const threads = await listCursorThreadsForGroup(group!, userDir, { includeTranscriptDirs: false });
+
+        expect(threads).toEqual([expect.objectContaining({ bubbleCount: 1, composerId: 'thread:colon' })]);
+    });
+
+    it('should keep a short composer id separate from a colon-bearing child id', async () => {
+        const userDir = await makeUserDir();
+        await createCursorFixture(userDir, {
+            buckets: [
+                {
+                    bucketId: 'prefix-bucket',
+                    composerIds: ['thread', 'thread:child'],
+                    folder: 'file:///Users/test/workspace/prefix',
+                    threadsInComposerData: true,
+                },
+            ],
+            headerLinks: [
+                { bucketId: 'prefix-bucket', composerId: 'thread' },
+                { bucketId: 'prefix-bucket', composerId: 'thread:child' },
+            ],
+            threads: [
+                { bubbles: [{ bubbleId: 'parent-bubble', text: 'parent', type: 1 }], composerId: 'thread' },
+                {
+                    bubbles: [{ bubbleId: 'child-bubble', text: 'child', type: 1 }],
+                    composerId: 'thread:child',
+                },
+            ],
+        });
+
+        const [group] = await listCursorWorkspaceGroups(userDir);
+        const threads = await listCursorThreadsForGroup(group!, userDir, { includeTranscriptDirs: false });
+
+        expect(new Map(threads.map((thread) => [thread.composerId, thread.bubbleCount]))).toEqual(
+            new Map([
+                ['thread', 1],
+                ['thread:child', 1],
+            ]),
+        );
+    });
+
+    it('should diagnose oversized history entries before parsing them', async () => {
+        const userDir = await makeUserDir();
+        await createCursorFixture(userDir, {
+            buckets: [],
+            historyEntries: [{ resource: 'file:///Users/test/workspace/oversized/src/index.ts' }],
+            threads: [],
+        });
+        const entriesPath = path.join(userDir, 'History', 'history-0', 'entries.json');
+        await Bun.write(
+            entriesPath,
+            JSON.stringify({
+                padding: 'x'.repeat(CURSOR_MAX_HISTORY_ENTRIES_BYTES),
+                resource: 'file:///Users/test/workspace/oversized/src/index.ts',
+            }),
+        );
+
+        const warnings: unknown[][] = [];
+        const originalWarn = console.warn;
+        console.warn = (...args: unknown[]) => warnings.push(args);
+        try {
+            await listCursorWorkspaceGroups(userDir);
+        } finally {
+            console.warn = originalWarn;
+        }
+
+        expect(warnings.some((args) => String(args[0]).includes('history_entries_oversized'))).toBe(true);
+    });
+
+    it('should tolerate a valid but malformed history entries shape', async () => {
+        const userDir = await makeUserDir();
+        await createCursorFixture(userDir, {
+            buckets: [],
+            historyEntries: [{ resource: 'file:///Users/test/workspace/malformed-shape/src/index.ts' }],
+            threads: [],
+        });
+        await Bun.write(
+            path.join(userDir, 'History', 'history-0', 'entries.json'),
+            JSON.stringify({
+                entries: { timestamp: 'not-a-number' },
+                resource: 'file:///Users/test/workspace/malformed-shape',
+            }),
+        );
+
+        await expect(listCursorWorkspaceGroups(userDir)).resolves.toEqual([
+            expect.objectContaining({ key: 'folder:/Users/test/workspace/malformed-shape' }),
+        ]);
     });
 
     it('should group modern Cursor orchestrators and subagents under their multi-root workspace', async () => {
@@ -385,6 +530,109 @@ describe('cursor-db workspace discovery', () => {
         expect(threads[0]?.transcriptDirs).toEqual([transcriptDir]);
     });
 
+    it('should resolve transcript directories for a deletion batch in one result map', async () => {
+        const userDir = await makeUserDir();
+        await createCursorFixture(userDir, baseSpec());
+        const firstDir = path.join(userDir, 'projects', 'first', 'agent-transcripts', 'thread-1');
+        const secondDir = path.join(userDir, 'projects', 'second', 'agent-transcripts', 'thread-2');
+        await Promise.all([mkdir(firstDir, { recursive: true }), mkdir(secondDir, { recursive: true })]);
+
+        const matches = await findCursorTranscriptDirsForComposerIds(['thread-1', 'thread-2', '../../unsafe'], userDir);
+
+        expect(matches.get('thread-1')).toEqual([firstDir]);
+        expect(matches.get('thread-2')).toEqual([secondDir]);
+        expect(matches.has('../../unsafe')).toBe(false);
+    });
+
+    it('should discover a Cursor CLI transcript without a SQLite composer record', async () => {
+        const userDir = await makeUserDir();
+        const composerId = '73d679d2-5311-4e00-8be3-af67fbf0fa87';
+        const projectDir = path.join(userDir, 'projects', 'Users-test-workspace-kalu');
+        const transcriptDir = path.join(projectDir, 'agent-transcripts', composerId);
+        await mkdir(transcriptDir, { recursive: true });
+        await Bun.write(
+            path.join(projectDir, '.workspace-trusted'),
+            JSON.stringify({ workspacePath: '/Users/test/workspace/kalu' }),
+        );
+        await Bun.write(
+            path.join(transcriptDir, `${composerId}.jsonl`),
+            [
+                JSON.stringify({
+                    message: {
+                        content: [
+                            {
+                                text: 'READ-ONLY review triage. Read root and nearest AGENTS.',
+                                type: 'text',
+                            },
+                        ],
+                    },
+                    role: 'user',
+                }),
+                JSON.stringify({
+                    message: { content: [{ text: 'Review complete.', type: 'text' }] },
+                    role: 'assistant',
+                }),
+            ].join('\n'),
+        );
+
+        const groups = await listCursorWorkspaceGroups(userDir);
+        const group = groups.find((candidate) => candidate.key === 'folder:/Users/test/workspace/kalu');
+        const threads = group ? await listCursorThreadsForGroup(group, userDir) : [];
+        const transcript = await readCursorThreadTranscriptWithAgentFiles(
+            getCursorGlobalDbPath(userDir),
+            composerId,
+            userDir,
+        );
+
+        expect(group?.folders).toEqual(['/Users/test/workspace/kalu']);
+        expect(threads).toHaveLength(1);
+        expect(threads[0]).toMatchObject({
+            bubbleCount: 2,
+            composerId,
+            name: 'READ-ONLY review triage. Read root and nearest AGENTS.',
+            transcriptDirs: [transcriptDir],
+        });
+        expect(transcript?.bubbles.map((bubble) => bubble.text)).toEqual([
+            'READ-ONLY review triage. Read root and nearest AGENTS.',
+            'Review complete.',
+        ]);
+    });
+
+    it('should hydrate a CLI-only thread model from its modern Cursor chat store', async () => {
+        const userDir = await makeUserDir();
+        const composerId = '73d679d2-5311-4e00-8be3-af67fbf0fa87';
+        const projectDir = path.join(userDir, 'projects', 'Users-test-workspace-kalu');
+        const transcriptDir = path.join(projectDir, 'agent-transcripts', composerId);
+        const storePath = path.join(userDir, 'chats', '3e5df7fc57ed37c7864c9a0f7ec0d12d', composerId, 'store.db');
+        await mkdir(transcriptDir, { recursive: true });
+        await mkdir(path.dirname(storePath), { recursive: true });
+        await Bun.write(
+            path.join(projectDir, '.workspace-trusted'),
+            JSON.stringify({ workspacePath: '/Users/test/workspace/kalu' }),
+        );
+        await Bun.write(
+            path.join(transcriptDir, `${composerId}.jsonl`),
+            JSON.stringify({ message: { content: [{ text: 'Review this.', type: 'text' }] }, role: 'user' }),
+        );
+        const store = new Database(storePath);
+        store.exec('CREATE TABLE blobs (id TEXT PRIMARY KEY, data BLOB NOT NULL)');
+        store
+            .query('INSERT INTO blobs (id, data) VALUES (?, ?)')
+            .run('chat', new TextEncoder().encode('\u0000metadata\u0000cursor-grok-4.6-low\u0000'));
+        store.close();
+
+        const group = (await listCursorWorkspaceGroups(userDir)).find(
+            (candidate) => candidate.key === 'folder:/Users/test/workspace/kalu',
+        );
+        const threads = group ? await listCursorThreadsForGroup(group, userDir, { includeTranscriptDirs: false }) : [];
+
+        expect(threads[0]).toMatchObject({
+            composerId,
+            model: 'grok-4.6',
+            reasoningEffort: 'low',
+        });
+    });
+
     it('should reject composer ids that escape the agent transcript directory', async () => {
         const userDir = await makeUserDir();
         await mkdir(path.join(userDir, 'projects', 'demo-project', 'agent-transcripts'), { recursive: true });
@@ -519,6 +767,50 @@ describe('cursor-db transcript reads', () => {
             'Did I read the transcript? Yes, now.',
         ]);
         expect(transcript?.renderableBubbleCount).toBe(3);
+    });
+
+    it('should use pre-resolved transcript directories without rediscovering them', async () => {
+        const userDir = await makeUserDir();
+        await createCursorFixture(userDir, baseSpec());
+        const transcriptDir = path.join(userDir, 'projects', 'demo-project', 'agent-transcripts', 'thread-1');
+        await mkdir(transcriptDir, { recursive: true });
+        await Bun.write(
+            path.join(transcriptDir, 'thread-1.jsonl'),
+            JSON.stringify({ message: { content: [{ text: 'Agent-only tail', type: 'text' }] }, role: 'assistant' }),
+        );
+
+        const transcript = await readCursorThreadTranscriptWithAgentFiles(
+            getCursorGlobalDbPath(userDir),
+            'thread-1',
+            userDir,
+            [],
+        );
+
+        expect(transcript?.bubbles.map((bubble) => bubble.text)).toEqual(['First user request', 'Assistant reply', '']);
+        expect(transcript?.bubbles.some((bubble) => bubble.text === 'Agent-only tail')).toBe(false);
+    });
+
+    it('should skip stale CLI transcript parsing before reading its contents', async () => {
+        const userDir = await makeUserDir();
+        await createCursorFixture(userDir, baseSpec());
+        const projectDir = path.join(userDir, 'projects', 'stale-project');
+        const transcriptDir = path.join(projectDir, 'agent-transcripts', 'stale-thread');
+        const transcriptPath = path.join(transcriptDir, 'stale-thread.jsonl');
+        await mkdir(transcriptDir, { recursive: true });
+        await Bun.write(path.join(projectDir, '.workspace-trusted'), JSON.stringify({ workspacePath: '/tmp/stale' }));
+        await Bun.write(transcriptPath, '{not-json');
+        await utimes(transcriptPath, new Date(1_000), new Date(1_000));
+
+        const originalWarn = console.warn;
+        const warnings: unknown[][] = [];
+        console.warn = (...args: unknown[]) => warnings.push(args);
+        try {
+            await listCursorWorkspaceGroups(userDir, { updatedAfterMs: Date.now() });
+        } finally {
+            console.warn = originalWarn;
+        }
+
+        expect(warnings.some((args) => String(args[0]).includes('invalid_agent_transcript_jsonl'))).toBe(false);
     });
 
     it('should append all agent transcript messages when no overlap exists', async () => {
@@ -790,6 +1082,40 @@ describe('openCursorReadonlyDb', () => {
             db.close();
             writable.close();
         }
+    });
+
+    it('should retry a blocked readonly query while an exclusive writer holds the database', async () => {
+        const userDir = await makeUserDir();
+        await createCursorFixture(userDir, baseSpec());
+        const globalDbPath = getCursorGlobalDbPath(userDir);
+        const retryBudgetMs = CURSOR_SQLITE_RETRY_DELAYS_MS.reduce((total, delayMs) => total + delayMs, 0);
+        const lockProcess = await holdCursorWriteLock(globalDbPath, {
+            durationMs: Math.floor(retryBudgetMs / 2),
+            lockingMode: 'exclusive',
+        });
+
+        try {
+            const count = withCursorReadonlyDb(globalDbPath, (db) => {
+                return (db.query('SELECT COUNT(*) AS count FROM cursorDiskKV').get() as { count: number }).count;
+            });
+
+            expect(count).toBeGreaterThan(0);
+        } finally {
+            lockProcess.kill();
+            await lockProcess.exited;
+        }
+    });
+
+    it('should reject an asynchronous callback instead of closing its handle early', async () => {
+        const userDir = await makeUserDir();
+        await createCursorFixture(userDir, baseSpec());
+
+        expect(() =>
+            withCursorReadonlyDb(getCursorGlobalDbPath(userDir), async () => {
+                await Promise.resolve();
+                return null;
+            }),
+        ).toThrow('Cursor SQLite callbacks must be synchronous');
     });
 });
 

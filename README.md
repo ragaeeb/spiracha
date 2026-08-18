@@ -134,12 +134,12 @@ Focused evidence is a deterministic, lossy Markdown export for qualitative DX an
 | --- | --- | --- |
 | Codex | shared Codex DB probe list | `SPIRACHA_CODEX_DB` |
 | Claude Code | `~/.claude/projects` | `SPIRACHA_CLAUDE_CODE_PROJECTS_DIR` |
-| Cline | VS Code `User/globalStorage/saoudrizwan.claude-dev` | `SPIRACHA_CLINE_GLOBAL_STORAGE_DIR` |
+| Cline | `~/.cline/data/sessions` | `SPIRACHA_CLINE_DATA_DIR` |
 | Grok | `~/.grok/sessions` | `SPIRACHA_GROK_SESSIONS_DIR` |
 | Kiro | `~/Library/Application Support/Kiro/User/globalStorage/kiro.kiroagent/workspace-sessions` | `SPIRACHA_KIRO_WORKSPACE_SESSIONS_DIR` |
 | Qoder | `~/Library/Application Support/Qoder/User/globalStorage/state.vscdb` and `~/Library/Application Support/Qoder/User/workspaceStorage` | `SPIRACHA_QODER_GLOBAL_STATE_DB`, `SPIRACHA_QODER_WORKSPACE_STORAGE_DIR` |
 | Cursor | `~/Library/Application Support/Cursor/User` on macOS | `SPIRACHA_CURSOR_USER_DIR`, `SPIRACHA_CURSOR_PROJECTS_DIR` |
-| Antigravity | `~/.gemini/antigravity-ide` and `~/.gemini/antigravity` | `SPIRACHA_ANTIGRAVITY_DIRS`, `SPIRACHA_ANTIGRAVITY_DIR` |
+| Antigravity | `~/.gemini/antigravity-ide`, `~/.gemini/antigravity-cli`, and `~/.gemini/antigravity` | `SPIRACHA_ANTIGRAVITY_DIRS`, `SPIRACHA_ANTIGRAVITY_DIR` |
 | MiniMax Code | `~/.minimax/v2/sessions` and `~/.minimax/v2/sqlite/runtime-state.sqlite` | `SPIRACHA_MINIMAX_CODE_SESSIONS_DIR`, `SPIRACHA_MINIMAX_CODE_RUNTIME_DB_PATH` |
 | OpenCode | `${XDG_DATA_HOME:-~/.local/share}/opencode/opencode.db` | `SPIRACHA_OPENCODE_DB` |
 | UI exports | OS temp directory under `spiracha-ui-exports` | `SPIRACHA_UI_EXPORT_DIR` |
@@ -153,6 +153,20 @@ Qoder detail/export reads first use persisted state and CLI transcript files. Wh
 When an Antigravity conversation has a live trajectory database, Spiracha treats it as the authoritative transcript and merges any generated JSONL-only events by step index. This preserves early reasoning plus paired command inputs, call IDs, working directories, exit codes, and complete outputs that may be absent from generated logs. The same merged data powers the detail page, stable API, and Markdown/text exports.
 
 Markdown transcript exports identify this parser contract with `transcript_schema: antigravity-transcript/v2`. The UI parser retains complete tool output in its event data and export, but bounds the rendered preview to 20,000 characters so a single large operation result cannot dominate the detail page.
+
+Encrypted Antigravity transcripts use the macOS Keychain item `Antigravity Safe Storage` / `Antigravity Key` and the Electron-compatible `saltysalt` PBKDF2 derivation. Keychain access is reacquired for each protected server request; the raw secret is not stored in process-global state or returned to the browser. Non-encrypted transcripts do not require Keychain access, and other platforms report decryption as unsupported.
+
+### Codex browser database compatibility
+
+Codex browser reads target the `codex-state-5-thread-browse-v1` compatibility profile. The `threads` table and its browse columns are required; missing tables, missing columns, or invalid decoded row values produce an actionable compatibility error instead of a guessed result. The `thread_dynamic_tools`, `thread_goals`, and `thread_spawn_edges` tables are optional and are read when present, so older databases without those tables remain browseable.
+
+Multi-table thread browse reads run inside one SQLite deferred read transaction. This gives each browse result a consistent database snapshot while allowing Codex's normal writers to continue; it does not claim crash-level atomicity across the main database, attached history databases, rollout files, or the session index. Destructive DB changes commit before optional session-file and session-index cleanup, and cleanup results identify what was removed.
+
+UI batch Codex exports use one batch browse pass and include a versioned `spiracha-manifest.json` in every successful archive. The manifest preserves requested ID order and records exported, missing, unreadable, and unstable entries. A batch succeeds when at least one selected thread is exportable; a single-thread export remains fail-fast. Active rollout files are copied to an attempt-local snapshot, checked by size, inode, and high-resolution timestamps, and retried once when they mutate during the copy.
+
+### Cursor SQLite access
+
+Cursor reads use a retry-aware synchronous callback that opens a fresh read handle for each attempt and closes it before retrying. Cursor mutations use a same-database `BEGIN IMMEDIATE` transaction with the shared bounded SQLite retry policy and no stacked long `busy_timeout`. Missing writable databases fail closed instead of being created. Recovery and deletion keep cross-database compensation and filesystem cleanup outside retry callbacks; destructive discovery uses strict readers so exhausted locks cannot be mistaken for empty data. UI mutation entrypoints still require Cursor to be closed before writing because Cursor can rewrite its history on exit.
 
 ## UI Routes
 

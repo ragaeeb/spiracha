@@ -2,9 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import type { ExportPlatform } from '@spiracha/lib/ui-export-archive';
 import {
     buildBatchExportBaseName,
     buildConversationExportBaseName,
+    buildExportArchiveBaseName,
     getExportMimeType,
     resolveUniqueExportFileBaseName,
     sanitizeExportFileName,
@@ -19,6 +21,7 @@ type RenderSourceSessionDownloadOptions = {
     cwd: string | null;
     fallbackBaseName: string;
     outputFormat: ExportFormat;
+    platform: ExportPlatform;
     sessionId: string;
     updatedAtMs: number | null;
     zipArchive: boolean;
@@ -37,6 +40,7 @@ type RenderSourceSessionsDownloadOptions = {
     entries: RenderedSourceSession[];
     fallbackBaseName: string;
     outputFormat: ExportFormat;
+    platform: ExportPlatform;
     zipArchive: boolean;
 };
 
@@ -49,6 +53,7 @@ export const renderSourceSessionDownload = async ({
     cwd,
     fallbackBaseName,
     outputFormat,
+    platform,
     sessionId,
     updatedAtMs,
     zipArchive,
@@ -70,9 +75,10 @@ export const renderSourceSessionDownload = async ({
         };
     }
 
+    const archiveBaseName = buildExportArchiveBaseName(platform, safeBaseName);
     const exportDir = await ensureUiExportDir();
-    const workspaceDir = await mkdtemp(path.join(os.tmpdir(), `${safeBaseName}-`));
-    const zipPath = path.join(exportDir, `${safeBaseName}-${randomUUID()}.zip`);
+    const workspaceDir = await mkdtemp(path.join(os.tmpdir(), `${archiveBaseName}-`));
+    const zipPath = path.join(exportDir, `${archiveBaseName}-${randomUUID()}.zip`);
 
     try {
         await Bun.write(path.join(workspaceDir, `${safeBaseName}.${outputFormat}`), content);
@@ -83,7 +89,7 @@ export const renderSourceSessionDownload = async ({
 
     return {
         downloadUrl: buildUiExportDownloadUrl(zipPath),
-        fileName: `${safeBaseName}.zip`,
+        fileName: `${archiveBaseName}.zip`,
         mimeType: 'application/zip',
         mode: 'download_url' as const,
     };
@@ -93,6 +99,7 @@ export const renderSourceSessionsDownload = async ({
     entries,
     fallbackBaseName,
     outputFormat,
+    platform,
     zipArchive,
 }: RenderSourceSessionsDownloadOptions) => {
     if (entries.length === 0) {
@@ -106,6 +113,7 @@ export const renderSourceSessionsDownload = async ({
             cwd: entry.cwd,
             fallbackBaseName: entry.fallbackBaseName,
             outputFormat,
+            platform,
             sessionId: entry.sessionId,
             updatedAtMs: entry.updatedAtMs,
             zipArchive,
@@ -113,9 +121,10 @@ export const renderSourceSessionsDownload = async ({
     }
 
     const safeBaseName = buildBatchExportBaseName(entries, fallbackBaseName);
+    const archiveBaseName = buildExportArchiveBaseName(platform, safeBaseName);
     const exportDir = await ensureUiExportDir();
-    const workspaceDir = await mkdtemp(path.join(os.tmpdir(), `${safeBaseName}-`));
-    const zipPath = path.join(exportDir, `${safeBaseName}-${randomUUID()}.zip`);
+    const workspaceDir = await mkdtemp(path.join(os.tmpdir(), `${archiveBaseName}-`));
+    const zipPath = path.join(exportDir, `${archiveBaseName}-${randomUUID()}.zip`);
     const usedBaseNames = new Map<string, number>();
 
     try {
@@ -132,7 +141,7 @@ export const renderSourceSessionsDownload = async ({
 
     return {
         downloadUrl: buildUiExportDownloadUrl(zipPath),
-        fileName: `${safeBaseName}.zip`,
+        fileName: `${archiveBaseName}.zip`,
         mimeType: 'application/zip',
         mode: 'download_url' as const,
     };

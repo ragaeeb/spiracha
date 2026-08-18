@@ -92,6 +92,7 @@ export const exportMiniMaxCodeSessionFn = createServerFn({ method: 'POST' })
             cwd: transcript.session.worktree,
             fallbackBaseName: 'minimax-code-session',
             outputFormat: data.outputFormat,
+            platform: 'minimax',
             sessionId: transcript.session.sessionId,
             updatedAtMs: transcript.session.lastActiveAtMs,
             zipArchive: data.zipArchive,
@@ -130,6 +131,7 @@ export const exportMiniMaxCodeSessionsFn = createServerFn({ method: 'POST' })
             entries,
             fallbackBaseName: 'minimax-code-sessions',
             outputFormat: data.outputFormat,
+            platform: 'minimax',
             zipArchive: true,
         });
     });

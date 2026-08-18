@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import {
     createConversationUiPath,
     createDeepLinks,
+    createTextMessage,
     decodeFileUri,
     getToolNamespace,
     isWithinUpdatedWindow,
@@ -39,5 +40,19 @@ describe('conversation adapter helpers', () => {
     it('should extract a tool namespace without retaining the delimiter', () => {
         expect(getToolNamespace('workspace.read')).toBe('workspace');
         expect(getToolNamespace('read')).toBeNull();
+    });
+
+    it('should omit an unavailable canonical model from normalized messages', () => {
+        const [message] = createTextMessage({
+            createdAtMs: null,
+            id: 'message-1',
+            model: undefined,
+            order: 0,
+            phase: 'unknown',
+            role: 'unknown',
+            text: 'message',
+        });
+
+        expect(message).not.toHaveProperty('model');
     });
 });

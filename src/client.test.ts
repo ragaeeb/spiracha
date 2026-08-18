@@ -134,7 +134,7 @@ describe('conversation client', () => {
                 locations: {
                     antigravityRoots: [path.join(tempRoot, 'antigravity')],
                     claudeCodeProjectsDir: path.join(tempRoot, 'claude'),
-                    clineGlobalStorageDir: path.join(tempRoot, 'cline'),
+                    clineDataDir: path.join(tempRoot, 'cline'),
                     codexDbPath: path.join(tempRoot, 'missing-codex.sqlite'),
                     cursorUserDir: path.join(tempRoot, 'cursor'),
                     kiroWorkspaceSessionsDir: path.join(tempRoot, 'kiro'),
@@ -188,7 +188,7 @@ describe('conversation client', () => {
             const locations = {
                 antigravityRoots: [path.join(tempRoot, 'antigravity')],
                 claudeCodeProjectsDir: path.join(tempRoot, 'claude'),
-                clineGlobalStorageDir: path.join(tempRoot, 'cline'),
+                clineDataDir: path.join(tempRoot, 'cline'),
                 codexDbPath: path.join(tempRoot, 'missing-codex.sqlite'),
                 cursorUserDir: path.join(tempRoot, 'cursor'),
                 kiroWorkspaceSessionsDir: path.join(tempRoot, 'kiro'),
@@ -424,7 +424,7 @@ describe('conversation client', () => {
 
                 return new Response(new Blob(['zip-bytes'], { type: 'application/zip' }), {
                     headers: {
-                        'Content-Disposition': "attachment; filename*=UTF-8''grok-conversations-2.zip",
+                        'Content-Disposition': "attachment; filename*=UTF-8''grok_repo-1970-01-01-0000-threads-2.zip",
                         'Content-Type': 'application/zip',
                     },
                 });
@@ -444,7 +444,7 @@ describe('conversation client', () => {
             });
 
             expect(download).not.toBeNull();
-            expect(download!.fileName).toBe('grok-conversations-2.zip');
+            expect(download!.fileName).toBe('grok_repo-1970-01-01-0000-threads-2.zip');
             expect(download!.mimeType).toBe('application/zip');
             await expect(download!.blob.text()).resolves.toBe('zip-bytes');
             expect(requests).toEqual([

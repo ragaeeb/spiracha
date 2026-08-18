@@ -2,8 +2,13 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import type { CursorPruneResult } from '../cursor-exporter-types';
 import { createCursorFixture } from '../cursor-test-helpers';
-import { cursorConversationAdapter, deleteCursorConversation } from './cursor-adapter';
+import {
+    cursorConversationAdapter,
+    deleteCursorConversation,
+    toCursorDeleteConversationResult,
+} from './cursor-adapter';
 
 const tempDirs: string[] = [];
 
@@ -12,6 +17,25 @@ afterEach(async () => {
 });
 
 describe('cursorConversationAdapter', () => {
+    it('should report only confirmed transcript removals and preserve cleanup failures', () => {
+        const result: CursorPruneResult = {
+            bubblesDeleted: 1,
+            cleanupFailures: [{ error: 'permission denied', path: '/failed', phase: 'transcript_directory' }],
+            composerDataDeleted: 1,
+            composerIds: ['thread-1'],
+            headersRemoved: 1,
+            transcriptDirsRemoved: 1,
+            transcriptDirsRemovedPaths: ['/confirmed'],
+            workspaceBucketsUpdated: 1,
+        };
+
+        expect(toCursorDeleteConversationResult(result)).toEqual({
+            cleanupFailures: result.cleanupFailures,
+            deletedFiles: ['/confirmed'],
+            deletedIds: ['thread-1'],
+        });
+    });
+
     it('should refuse custom-directory deletes while Cursor is running', async () => {
         await expect(
             deleteCursorConversation(
@@ -55,6 +79,7 @@ describe('cursorConversationAdapter', () => {
                         },
                     ],
                     composerId: 'thread-1',
+                    model: 'claude-sonnet-4.5',
                     name: 'Export fix',
                 },
             ],
@@ -67,6 +92,7 @@ describe('cursorConversationAdapter', () => {
             source: 'cursor',
         });
 
+        expect(conversation?.model).toBe('claude-sonnet-4.5');
         expect(
             conversation?.messages
                 .filter((message) => message.role === 'assistant')

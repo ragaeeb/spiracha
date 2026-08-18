@@ -22,6 +22,7 @@ import { validateEvidenceLens } from './conversation-data/evidence-lens';
 import { buildEvidenceExport } from './conversation-data/evidence-markdown';
 import { decodeConversationCursor } from './conversation-data/pagination';
 import { createConversationMarkdownZip } from './conversation-zip-export';
+import { getExportPlatformName } from './ui-export-archive';
 
 type ConversationApiDependencies = {
     buildEvidenceExport?: typeof buildEvidenceExport;
@@ -713,9 +714,11 @@ const handleDeleteConversations = async (request: Request, dependencies: ReturnT
 };
 
 const getConversationZipEntry = (conversation: ConversationDetail, markdown: string) => ({
+    cwd: conversation.workspacePath,
     fallbackBaseName: `${conversation.source}-${conversation.id}`,
     markdown,
     title: conversation.title,
+    updatedAtMs: conversation.updatedAtMs,
 });
 
 const handleExportConversations = async (request: Request, dependencies: ReturnType<typeof getDeps>) => {
@@ -760,7 +763,8 @@ const handleExportConversations = async (request: Request, dependencies: ReturnT
 
     const zip = await createConversationMarkdownZip({
         entries: loaded.flatMap(({ entry }) => (entry ? [entry] : [])),
-        fileBaseName: `${result.value.source}-conversations-${result.value.ids.length}`,
+        fallbackProjectName: `${result.value.source}-conversations`,
+        platform: getExportPlatformName(result.value.source),
     });
 
     return new Response(zip.blob, {

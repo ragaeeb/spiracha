@@ -2,7 +2,12 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { readAntigravityTranscriptHistory } from './antigravity-transcript-history';
+import {
+    parseAntigravityJsonlText,
+    readAntigravityJsonlFile,
+    readAntigravityJsonlStream,
+    readAntigravityTranscriptHistory,
+} from './antigravity-transcript-history';
 
 const temporaryDirectories: string[] = [];
 
@@ -27,6 +32,117 @@ const makeRepository = async (): Promise<string> => {
 };
 
 describe('Antigravity transcript history', () => {
+    it('should preserve valid JSONL records around corruption with bounded diagnostics', () => {
+        const result = parseAntigravityJsonlText(
+            `${JSON.stringify({ step_index: 1 })}\n{malformed}\n${JSON.stringify({ step_index: 3 })}\n`,
+            (line) => JSON.parse(line) as { step_index: number },
+        );
+
+        expect(result.records).toEqual([{ step_index: 1 }, { step_index: 3 }]);
+        expect(result.diagnostics).toEqual([
+            expect.objectContaining({
+                byteOffset: Buffer.byteLength(`${JSON.stringify({ step_index: 1 })}\n`),
+                line: 2,
+                message: 'Invalid Antigravity JSONL record',
+            }),
+        ]);
+    });
+
+    it('should bound overlong JSONL lines and continue reading later records', async () => {
+        const directory = await mkdtemp(path.join(tmpdir(), 'antigravity-jsonl-'));
+        temporaryDirectories.push(directory);
+        const transcriptPath = path.join(directory, 'transcript.jsonl');
+        await Bun.write(transcriptPath, `${'x'.repeat(32)}\n{"step_index":9}\n`);
+
+        const result = await readAntigravityJsonlFile(
+            transcriptPath,
+            (line) => JSON.parse(line) as { step_index: number },
+            { maxLineBytes: 16 },
+        );
+
+        expect(result.records).toEqual([{ step_index: 9 }]);
+        expect(result.diagnostics).toEqual([
+            expect.objectContaining({
+                byteOffset: 0,
+                line: 1,
+                truncated: true,
+            }),
+        ]);
+    });
+
+    it('should preserve CRLF byte offsets across large chunked JSONL records', async () => {
+        const directory = await mkdtemp(path.join(tmpdir(), 'antigravity-jsonl-chunked-'));
+        temporaryDirectories.push(directory);
+        const transcriptPath = path.join(directory, 'transcript.jsonl');
+        const prefix = '{"payload":"';
+        const payload = 'x'.repeat(65_535 - Buffer.byteLength(prefix) - 2);
+        const first = `${prefix}${payload}"}`;
+        const second = '{malformed}';
+        const third = JSON.stringify({ step_index: 12 });
+        await Bun.write(transcriptPath, `${first}\r\n${second}\r\n${third}\r\n`);
+
+        const result = await readAntigravityJsonlFile(
+            transcriptPath,
+            (line) => JSON.parse(line) as { payload?: string; step_index?: number },
+            { maxLineBytes: 100_000 },
+        );
+
+        expect(result.records).toEqual([{ payload }, { step_index: 12 }]);
+        expect(result.diagnostics).toEqual([
+            expect.objectContaining({ byteOffset: Buffer.byteLength(`${first}\r\n`), line: 2 }),
+        ]);
+    });
+
+    it('should cancel an interrupted JSONL stream and release its reader', async () => {
+        const firstRecord = new TextEncoder().encode('{"step_index":1}\n');
+        let cancelled = false;
+        const stream = new ReadableStream<Uint8Array>({
+            cancel() {
+                cancelled = true;
+            },
+            pull(controller) {
+                if (controller.desiredSize && controller.desiredSize > 0) {
+                    controller.enqueue(firstRecord);
+                }
+            },
+        });
+        const abortController = new AbortController();
+        const read = readAntigravityJsonlStream(stream, (line) => JSON.parse(line) as { step_index: number }, {
+            signal: abortController.signal,
+        });
+        await Promise.resolve();
+        abortController.abort();
+
+        await expect(read).rejects.toThrow('aborted');
+        expect(cancelled).toBe(true);
+    });
+
+    it('should reject when abort cancels a blocked reader that reports done', async () => {
+        let resolveRead: ((result: ReadableStreamReadResult<Uint8Array>) => void) | undefined;
+        let cancelled = false;
+        const stream = {
+            getReader: () => ({
+                cancel: async () => {
+                    cancelled = true;
+                    resolveRead?.({ done: true, value: undefined });
+                },
+                read: () =>
+                    new Promise<ReadableStreamReadResult<Uint8Array>>((resolve) => {
+                        resolveRead = resolve;
+                    }),
+                releaseLock: () => undefined,
+            }),
+        } as unknown as ReadableStream<Uint8Array>;
+        const abortController = new AbortController();
+        const read = readAntigravityJsonlStream(stream, JSON.parse, { signal: abortController.signal });
+
+        await Promise.resolve();
+        abortController.abort();
+
+        await expect(read).rejects.toThrow('aborted');
+        expect(cancelled).toBe(true);
+    });
+
     it('should skip history recovery when the current transcript already starts at its first step', async () => {
         expect(await readAntigravityTranscriptHistory('/missing/transcript.jsonl', null)).toEqual([]);
         expect(await readAntigravityTranscriptHistory('/missing/transcript.jsonl', 0)).toEqual([]);

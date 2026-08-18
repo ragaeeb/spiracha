@@ -228,7 +228,8 @@ describe('antigravity conversation adapter', () => {
         });
 
         expect(page.data).toHaveLength(1);
-        expect(page.data[0]?.metadata.model).toBe('Gemini 3.6 Flash');
+        expect(page.data[0]?.model).toBe('Gemini 3.6 Flash');
+        expect(page.data[0]?.metadata).not.toHaveProperty('model');
         expect(page.data[0]?.messages).toEqual([
             expect.objectContaining({
                 phase: 'final_answer',
@@ -249,7 +250,7 @@ describe('antigravity conversation adapter', () => {
         expect(
             detail?.messages
                 .filter((message) => message.role === 'assistant' && message.text)
-                .map((message) => [message.text, message.metadata.model]),
+                .map((message) => [message.text, message.model]),
         ).toEqual([
             ['First draft answer that should not be selected.', 'Gemini 3.1 Pro'],
             ['I will inspect the manifest before answering.', 'Gemini 3.1 Pro'],

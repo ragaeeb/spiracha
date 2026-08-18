@@ -8,7 +8,7 @@ const raw = (message: ClineTranscriptMessage): Record<string, JsonValue> => ({
     messageId: message.messageId,
     phase: message.phase,
     role: message.role,
-    source: 'cline_ui_messages',
+    source: 'cline_session_messages',
     ...message.raw,
 });
 

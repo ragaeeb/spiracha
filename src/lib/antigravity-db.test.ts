@@ -9,9 +9,11 @@ import {
     groupAntigravityConversations,
     listAntigravityConversations,
     readAntigravityConversationMessages,
+    readAntigravitySummaryIndexWithDiagnostics,
     renderAntigravityArtifactsMarkdown,
     renderAntigravityConversationMarkdown,
 } from './antigravity-db';
+import { resolveAntigravityRoots } from './antigravity-exporter-types';
 import { ANTIGRAVITY_TRANSCRIPT_MARKDOWN_VERSION } from './antigravity-transcript-contract';
 import { antigravityMarkdownToThreadEvents } from './antigravity-transcript-events';
 
@@ -276,6 +278,106 @@ const runGit = async (cwd: string, args: string[]): Promise<void> => {
 };
 
 describe('antigravity db discovery', () => {
+    it('should include the Antigravity CLI root in default discovery roots without leaking overrides', () => {
+        const originalDirs = process.env.SPIRACHA_ANTIGRAVITY_DIRS;
+        const originalDir = process.env.SPIRACHA_ANTIGRAVITY_DIR;
+        try {
+            delete process.env.SPIRACHA_ANTIGRAVITY_DIRS;
+            delete process.env.SPIRACHA_ANTIGRAVITY_DIR;
+            expect(resolveAntigravityRoots()).toContain(path.join(os.homedir(), '.gemini', 'antigravity-cli'));
+        } finally {
+            if (originalDirs === undefined) {
+                delete process.env.SPIRACHA_ANTIGRAVITY_DIRS;
+            } else {
+                process.env.SPIRACHA_ANTIGRAVITY_DIRS = originalDirs;
+            }
+            if (originalDir === undefined) {
+                delete process.env.SPIRACHA_ANTIGRAVITY_DIR;
+            } else {
+                process.env.SPIRACHA_ANTIGRAVITY_DIR = originalDir;
+            }
+        }
+    });
+
+    it('should preserve valid summary records around protobuf corruption with diagnostics', async () => {
+        const root = await makeRoot();
+        const summaryPath = path.join(root, 'agyhub_summaries_proto.pb');
+        const first = encodeSummaryIndex([{ id: '11111111-1111-4111-8111-111111111111', title: 'First summary' }]);
+        const second = encodeSummaryIndex([{ id: '22222222-2222-4222-8222-222222222222', title: 'Second summary' }]);
+        await Bun.write(summaryPath, new Uint8Array([...first, 0xff, ...second]));
+
+        const result = await readAntigravitySummaryIndexWithDiagnostics(summaryPath);
+
+        expect(result.entries.map((entry) => entry.title)).toEqual(['First summary', 'Second summary']);
+        expect(result.diagnostics).toEqual([
+            expect.objectContaining({ byteOffset: first.byteLength, kind: 'protobuf' }),
+        ]);
+    });
+
+    it('should cap protobuf diagnostics while continuing to parse later records', async () => {
+        const root = await makeRoot();
+        const summaryPath = path.join(root, 'agyhub_summaries_proto.pb');
+        const valid = encodeSummaryIndex([{ id: '33333333-3333-4333-8333-333333333333', title: 'After noise' }]);
+        await Bun.write(summaryPath, new Uint8Array([...new Array(150).fill(0x0b), ...valid]));
+
+        const result = await readAntigravitySummaryIndexWithDiagnostics(summaryPath);
+
+        expect(result.entries.map((entry) => entry.title)).toEqual(['After noise']);
+        expect(result.diagnostics).toHaveLength(100);
+    });
+
+    it('should cap summary-record diagnostics without dropping later valid records', async () => {
+        const root = await makeRoot();
+        const summaryPath = path.join(root, 'agyhub_summaries_proto.pb');
+        const invalid = encodeMessage(1, [0x0b]);
+        const valid = encodeSummaryIndex([
+            { id: '44444444-4444-4444-8444-444444444444', title: 'After invalid summaries' },
+        ]);
+        await Bun.write(summaryPath, new Uint8Array([...new Array(150).fill(invalid).flat(), ...valid]));
+
+        const result = await readAntigravitySummaryIndexWithDiagnostics(summaryPath);
+
+        expect(result.entries.map((entry) => entry.title)).toEqual(['After invalid summaries']);
+        expect(result.diagnostics).toHaveLength(100);
+    });
+
+    it('should continue after an oversized protobuf record with one bounded diagnostic', async () => {
+        const root = await makeRoot();
+        const summaryPath = path.join(root, 'agyhub_summaries_proto.pb');
+        const oversizedLength = 8 * 1024 * 1024 + 1;
+        const oversized = [0x0a, ...encodeVarint(oversizedLength), ...new Array(oversizedLength).fill(0)];
+        const valid = encodeSummaryIndex([
+            { id: '55555555-5555-4555-8555-555555555555', title: 'After oversized record' },
+        ]);
+        await Bun.write(summaryPath, new Uint8Array([...oversized, ...valid]));
+
+        const result = await readAntigravitySummaryIndexWithDiagnostics(summaryPath);
+
+        expect(result.entries.map((entry) => entry.title)).toEqual(['After oversized record']);
+        expect(result.diagnostics).toEqual([
+            expect.objectContaining({
+                byteOffset: 0,
+                kind: 'protobuf',
+                message: expect.stringContaining('exceeds'),
+            }),
+        ]);
+    });
+
+    it('should diagnose an oversized protobuf record truncated at EOF', async () => {
+        const root = await makeRoot();
+        const summaryPath = path.join(root, 'agyhub_summaries_proto.pb');
+        const oversizedLength = 8 * 1024 * 1024 + 1;
+        await Bun.write(summaryPath, new Uint8Array([0x0a, ...encodeVarint(oversizedLength), 0x01, 0x02, 0x03]));
+
+        const result = await readAntigravitySummaryIndexWithDiagnostics(summaryPath);
+
+        expect(result.entries).toEqual([]);
+        expect(result.diagnostics).toEqual([
+            expect.objectContaining({ byteOffset: 0, message: expect.stringContaining('exceeds') }),
+            expect.objectContaining({ byteOffset: 0, message: 'Truncated Antigravity protobuf input' }),
+        ]);
+    });
+
     it('should resolve one conversation without requiring a collection scan', async () => {
         const root = await makeRoot();
         const conversationId = '12111111-1111-4111-8111-111111111111';
@@ -992,6 +1094,21 @@ describe('antigravity db discovery', () => {
             conversationId,
             workspaceKey: `folder:${root}`,
             workspaceLabel: path.basename(root),
+        });
+    });
+
+    it('should derive a workspace from a trajectory workdir before falling back to the source root', async () => {
+        const root = await makeRoot();
+        const conversationId = '78787878-7878-4787-8787-787878787878';
+        await writeTrajectoryDatabase(root, conversationId);
+
+        const [conversation] = await listAntigravityConversations([root]);
+
+        expect(conversation).toMatchObject({
+            conversationId,
+            workspaceFolder: '/Users/example/workspace/ushman',
+            workspaceKey: 'folder:/Users/example/workspace/ushman',
+            workspaceLabel: 'ushman',
         });
     });
 

@@ -1,4 +1,4 @@
-import { readdir } from 'node:fs/promises';
+import { readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { type Zippable, zipSync } from 'fflate';
 
@@ -32,9 +32,19 @@ const readZipDirectory = async (
 };
 
 export const zipExportFile = async (sourcePath: string, zipPath: string) => {
-    await Bun.write(zipPath, await createZip({ [path.basename(sourcePath)]: await readZipFile(sourcePath) }));
+    try {
+        await Bun.write(zipPath, await createZip({ [path.basename(sourcePath)]: await readZipFile(sourcePath) }));
+    } catch (error) {
+        await rm(zipPath, { force: true }).catch(() => undefined);
+        throw error;
+    }
 };
 
 export const zipExportDirectory = async (sourceDirectory: string, zipPath: string) => {
-    await Bun.write(zipPath, await createZip(await readZipDirectory(sourceDirectory)));
+    try {
+        await Bun.write(zipPath, await createZip(await readZipDirectory(sourceDirectory)));
+    } catch (error) {
+        await rm(zipPath, { force: true }).catch(() => undefined);
+        throw error;
+    }
 };

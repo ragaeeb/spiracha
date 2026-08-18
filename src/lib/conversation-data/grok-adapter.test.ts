@@ -99,16 +99,16 @@ describe('grok conversation adapter', () => {
         expect(page.data).toHaveLength(1);
         expect(page.data[0]).toMatchObject({
             id: fixture.sessionId,
-            metadata: {
-                currentModelId: 'grok-composer-2.5-fast',
-                modelLabel: 'Composer 2.5',
-            },
+            model: 'grok-composer-2.5-fast',
             source: 'grok',
             title: 'Review #109 #209',
             workspacePath,
         });
+        expect(page.data[0]?.metadata).not.toHaveProperty('currentModelId');
+        expect(page.data[0]?.metadata).not.toHaveProperty('modelLabel');
         expect(page.data[0]?.messages).toEqual([
             expect.objectContaining({
+                model: 'grok-composer-2.5-fast',
                 phase: 'final_answer',
                 role: 'assistant',
                 text: 'Failed refresh leaves a mutated candidate tree with stale artifacts.',

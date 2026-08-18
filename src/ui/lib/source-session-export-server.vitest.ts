@@ -68,6 +68,7 @@ describe('source session export server helpers', () => {
             ],
             fallbackBaseName: 'source-sessions',
             outputFormat: 'md',
+            platform: 'cline',
             zipArchive: false,
         });
 
@@ -79,7 +80,7 @@ describe('source session export server helpers', () => {
         });
     });
 
-    it('should use the Codex-style name when zipping one source session', async () => {
+    it('should prefix a single source-session archive with its platform', async () => {
         const result = await renderSourceSessionsDownload({
             entries: [
                 {
@@ -93,6 +94,7 @@ describe('source session export server helpers', () => {
             ],
             fallbackBaseName: 'source-sessions',
             outputFormat: 'md',
+            platform: 'cline',
             zipArchive: true,
         });
 
@@ -100,7 +102,7 @@ describe('source session export server helpers', () => {
         if (result.mode !== 'download_url') {
             throw new Error('expected a zip download URL');
         }
-        expect(result.fileName).toBe('spiracha-2026-05-17-1712-019e36d7.zip');
+        expect(result.fileName).toBe('cline_spiracha-2026-05-17-1712-019e36d7.zip');
     });
 
     it('should zip multiple source session exports', async () => {
@@ -125,6 +127,7 @@ describe('source session export server helpers', () => {
             ],
             fallbackBaseName: 'source-sessions',
             outputFormat: 'md',
+            platform: 'minimax',
             zipArchive: false,
         });
 
@@ -132,7 +135,7 @@ describe('source session export server helpers', () => {
         if (result.mode !== 'download_url') {
             throw new Error('expected a zip download URL');
         }
-        expect(result.fileName).toBe('spiracha-2026-05-17-1712-threads-2.zip');
+        expect(result.fileName).toBe('minimax_spiracha-2026-05-17-1712-threads-2.zip');
         const metadata = await stat(resolveDownloadPath(result.downloadUrl));
         expect(metadata.isFile()).toBe(true);
     });

@@ -4,22 +4,42 @@ import { mkdir, mkdtemp, rm, utimes } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
+    CodexDbCompatibilityError,
     CodexThreadNotFoundError,
     deleteCodexProject,
     deleteCodexThread,
     deleteCodexThreads,
     getCodexDashboardSummary,
     getThreadBrowseData,
+    getThreadBrowseDataBatch,
     listCodexProjects,
     listProjectThreads,
     listScopedThreads,
     mergeSessionIndexLinesForRewrite,
+    reconcileCodexSessionIndex,
     resolveCodexThreadDbPath,
     withReadonlyDb,
 } from './codex-browser-db';
 import { createCodexBrowserFixture } from './codex-test-helpers';
 
 const tempPaths: string[] = [];
+
+const waitForOutputMarker = async (stream: ReadableStream<Uint8Array>, marker: string) => {
+    const reader = stream.getReader();
+    const decoder = new TextDecoder();
+    let output = '';
+    try {
+        while (!output.includes(marker)) {
+            const { done, value } = await reader.read();
+            if (done) {
+                throw new Error(`Process exited before emitting ${marker}`);
+            }
+            output += decoder.decode(value, { stream: true });
+        }
+    } finally {
+        reader.releaseLock();
+    }
+};
 
 afterEach(async () => {
     await Promise.all(tempPaths.splice(0).map((targetPath) => rm(targetPath, { force: true, recursive: true })));
@@ -140,6 +160,148 @@ const createLiveSchemaDeleteFixture = async (tempRoot: string) => {
         sessionFile,
         threadId,
     };
+};
+
+const createPaginatedHistoryDatabase = (tempRoot: string, threadIds: string[]) => {
+    const historyPath = path.join(tempRoot, 'thread_history_1.sqlite');
+    const db = new Database(historyPath);
+    db.exec(`
+        CREATE TABLE thread_items (
+            thread_id TEXT NOT NULL,
+            turn_id TEXT NOT NULL,
+            item_id TEXT NOT NULL,
+            rollout_ordinal INTEGER NOT NULL,
+            created_at_ms INTEGER NOT NULL,
+            item_json TEXT NOT NULL,
+            item_type TEXT NOT NULL DEFAULT '',
+            updated_at_ordinal INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (thread_id, turn_id, item_id)
+        );
+
+        CREATE TABLE thread_turns (
+            thread_id TEXT NOT NULL,
+            turn_id TEXT NOT NULL,
+            rollout_ordinal INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            error_json TEXT,
+            started_at INTEGER,
+            completed_at INTEGER,
+            duration_ms INTEGER,
+            first_user_item_id TEXT,
+            final_agent_item_id TEXT,
+            rollout_byte_offset INTEGER,
+            rollout_end_ordinal INTEGER,
+            rollout_end_byte_offset INTEGER,
+            PRIMARY KEY (thread_id, turn_id)
+        );
+
+        CREATE TABLE thread_history_projection_state (
+            thread_id TEXT PRIMARY KEY,
+            next_rollout_byte_offset INTEGER NOT NULL,
+            next_rollout_ordinal INTEGER NOT NULL
+        );
+    `);
+
+    const insertItem = db.prepare(`
+        INSERT INTO thread_items (
+            thread_id, turn_id, item_id, rollout_ordinal, created_at_ms, item_json
+        ) VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    const insertTurn = db.prepare(`
+        INSERT INTO thread_turns (thread_id, turn_id, rollout_ordinal, status)
+        VALUES (?, ?, ?, ?)
+    `);
+    const insertProjectionState = db.prepare(`
+        INSERT INTO thread_history_projection_state (
+            thread_id, next_rollout_byte_offset, next_rollout_ordinal
+        ) VALUES (?, ?, ?)
+    `);
+
+    for (const [index, threadId] of threadIds.entries()) {
+        const turnId = `turn-${index}`;
+        insertItem.run(threadId, turnId, `item-${index}`, index, index, JSON.stringify({ threadId }));
+        insertTurn.run(threadId, turnId, index, 'completed');
+        insertProjectionState.run(threadId, index, index);
+    }
+
+    db.close();
+    return historyPath;
+};
+
+const readPaginatedHistoryCounts = (historyPath: string, threadIds: string[]) => {
+    const db = new Database(historyPath, { readonly: true });
+    const placeholders = threadIds.map(() => '?').join(', ');
+    try {
+        return {
+            items: Number(
+                (
+                    db
+                        .query(`SELECT COUNT(*) AS count FROM thread_items WHERE thread_id IN (${placeholders})`)
+                        .get(...threadIds) as { count: number }
+                ).count,
+            ),
+            projectionStates: Number(
+                (
+                    db
+                        .query(
+                            `SELECT COUNT(*) AS count FROM thread_history_projection_state WHERE thread_id IN (${placeholders})`,
+                        )
+                        .get(...threadIds) as { count: number }
+                ).count,
+            ),
+            turns: Number(
+                (
+                    db
+                        .query(`SELECT COUNT(*) AS count FROM thread_turns WHERE thread_id IN (${placeholders})`)
+                        .get(...threadIds) as { count: number }
+                ).count,
+            ),
+        };
+    } finally {
+        db.close();
+    }
+};
+
+const addFallbackSessionIndexEntry = async (tempRoot: string, threadId: string, projectName: string) => {
+    const sessionFile = path.join(
+        tempRoot,
+        'sessions',
+        '2026',
+        '06',
+        '14',
+        `rollout-2026-06-14T10-00-00-${threadId}.jsonl`,
+    );
+    await mkdir(path.dirname(sessionFile), { recursive: true });
+    await Bun.write(
+        sessionFile,
+        `${JSON.stringify({
+            payload: {
+                cli_version: '0.140.0-alpha.2',
+                cwd: `/Users/user/workspace/${projectName}`,
+                id: threadId,
+                model_provider: 'openai',
+                originator: 'Codex Desktop',
+                source: 'vscode',
+                thread_source: 'user',
+                timestamp: '2026-06-14T10:00:00.000Z',
+            },
+            timestamp: '2026-06-14T10:00:00.000Z',
+            type: 'session_meta',
+        })}\n`,
+    );
+
+    const sessionIndexPath = path.join(tempRoot, 'session_index.jsonl');
+    const existing = (await Bun.file(sessionIndexPath).exists()) ? await Bun.file(sessionIndexPath).text() : '';
+    await Bun.write(
+        sessionIndexPath,
+        `${existing}${JSON.stringify({
+            id: threadId,
+            thread_name: `Fallback ${threadId}`,
+            updated_at: '2026-06-14T10:00:00.000Z',
+        })}\n`,
+    );
+
+    return sessionFile;
 };
 
 const createMinimalBrowseSchemaFixture = async (tempRoot: string) => {
@@ -1031,6 +1193,180 @@ describe('codex browser db', () => {
         expect(threads[0]?.rolloutSizeBytes).toBeGreaterThan(0);
     });
 
+    it('should reject a browse database with an actionable typed compatibility error', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-schema-compatibility-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createMinimalBrowseSchemaFixture(tempRoot);
+        const db = new Database(fixture.dbPath);
+        db.exec('ALTER TABLE threads DROP COLUMN preview');
+        db.close();
+
+        try {
+            getThreadBrowseData(fixture.dbPath, fixture.threadId);
+            throw new Error('expected schema compatibility failure');
+        } catch (error) {
+            expect(error).toBeInstanceOf(CodexDbCompatibilityError);
+            expect(error).toMatchObject({
+                code: 'CODEX_DB_INCOMPATIBLE',
+                missingColumns: ['threads.preview'],
+            });
+            expect((error as Error).message).toContain('threads.preview');
+        }
+    });
+
+    it('should report every invalid dynamic-tool field in one compatibility error', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-invalid-dynamic-tool-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const db = new Database(fixture.dbPath);
+        db.exec(`
+            DROP TABLE thread_dynamic_tools;
+            CREATE TABLE thread_dynamic_tools (
+                thread_id, position, name, description, input_schema, defer_loading, namespace
+            );
+        `);
+        db.query('INSERT INTO thread_dynamic_tools VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+            fixture.threads[0]!.threadId,
+            'invalid',
+            42,
+            42,
+            null,
+            0,
+            null,
+        );
+        db.close();
+
+        expect(() => getThreadBrowseData(fixture.dbPath, fixture.threads[0]!.threadId)).toThrow(
+            CodexDbCompatibilityError,
+        );
+        try {
+            getThreadBrowseData(fixture.dbPath, fixture.threads[0]!.threadId);
+            throw new Error('expected invalid dynamic-tool fields');
+        } catch (error) {
+            expect(error).toMatchObject({
+                invalidFields: expect.arrayContaining([
+                    'thread_dynamic_tools.description',
+                    'thread_dynamic_tools.name',
+                    'thread_dynamic_tools.position',
+                ]),
+            });
+        }
+    });
+
+    it('should report every invalid goal field in one compatibility error', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-invalid-goal-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const db = new Database(fixture.dbPath);
+        db.exec(
+            'DROP TABLE thread_goals; CREATE TABLE thread_goals (thread_id, goal_id, objective, status, token_budget, tokens_used, time_used_seconds, created_at_ms, updated_at_ms);',
+        );
+        db.query('INSERT INTO thread_goals VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+            fixture.threads[0]!.threadId,
+            42,
+            'objective',
+            'status',
+            'invalid',
+            1,
+            1,
+            'invalid',
+            1,
+        );
+        db.close();
+
+        try {
+            getThreadBrowseData(fixture.dbPath, fixture.threads[0]!.threadId);
+            throw new Error('expected invalid goal fields');
+        } catch (error) {
+            expect(error).toMatchObject({
+                invalidFields: expect.arrayContaining([
+                    'thread_goals.created_at_ms',
+                    'thread_goals.goal_id',
+                    'thread_goals.token_budget',
+                ]),
+            });
+        }
+    });
+
+    it('should report every invalid spawn-edge field in one compatibility error', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-invalid-edge-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const db = new Database(fixture.dbPath);
+        db.exec(`
+            DROP TABLE thread_spawn_edges;
+            CREATE TABLE thread_spawn_edges (parent_thread_id, child_thread_id, status);
+        `);
+        db.query('INSERT INTO thread_spawn_edges VALUES (?, ?, ?)').run(42, 42, 42);
+        db.close();
+
+        try {
+            getThreadBrowseDataBatch(fixture.dbPath, [42 as unknown as string]);
+            throw new Error('expected invalid spawn-edge fields');
+        } catch (error) {
+            expect(error).toMatchObject({
+                invalidFields: expect.arrayContaining([
+                    'thread_spawn_edges.child_thread_id',
+                    'thread_spawn_edges.parent_thread_id',
+                    'thread_spawn_edges.status',
+                ]),
+            });
+        }
+    });
+
+    it('should batch browse in request order with fallback and missing outcomes without unbounded id parameters', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-batch-browse-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const fallbackThreadId = '019ec3d5-859d-77d0-b851-256ae567ff70';
+        await addFallbackSessionIndexEntry(tempRoot, fallbackThreadId, 'spiracha');
+        const missingThreadId = '019ec3d5-859d-77d0-b851-256ae567ff71';
+        const ids = [
+            fixture.threads[1]!.threadId,
+            missingThreadId,
+            fallbackThreadId,
+            fixture.threads[0]!.threadId,
+            ...Array.from({ length: 1_000 }, (_, index) => `missing-${index}`),
+        ];
+
+        const results = getThreadBrowseDataBatch(fixture.dbPath, ids);
+
+        expect(results).toHaveLength(ids.length);
+        expect(results.slice(0, 4).map((result) => [result.threadId, result.status, result.source])).toEqual([
+            [fixture.threads[1]!.threadId, 'found', 'database'],
+            [missingThreadId, 'missing', 'missing'],
+            [fallbackThreadId, 'found', 'fallback'],
+            [fixture.threads[0]!.threadId, 'found', 'database'],
+        ]);
+        expect(results[0]).toMatchObject({
+            data: {
+                relations: { parentThreadId: fixture.threads[0]!.threadId },
+            },
+        });
+        expect(results.map((result) => result.threadId)).toEqual(ids);
+    });
+
+    it('should preserve one relation across browse chunks without duplicate child edges', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-cross-chunk-relations-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const parentThreadId = fixture.threads[0]!.threadId;
+        const childThreadId = fixture.threads[1]!.threadId;
+        const ids = [
+            parentThreadId,
+            ...Array.from({ length: 399 }, (_, index) => `missing-cross-chunk-${index}`),
+            childThreadId,
+        ];
+
+        const results = getThreadBrowseDataBatch(fixture.dbPath, ids);
+
+        expect(results.map((result) => result.threadId)).toEqual(ids);
+        expect(results[0]?.data?.relations.childEdges).toEqual([
+            { child_thread_id: childThreadId, parent_thread_id: parentThreadId, status: 'completed' },
+        ]);
+        expect(results.at(-1)?.data?.relations.parentThreadId).toBe(parentThreadId);
+    });
+
     it('should prefer the Codex session index title over the stored prompt text', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-session-index-title-test-'));
         tempPaths.push(tempRoot);
@@ -1047,6 +1383,29 @@ describe('codex browser db', () => {
 
         expect(listedThread?.thread.title).toBe('Implement thread hierarchy');
         expect(detail.thread.title).toBe('Implement thread hierarchy');
+    });
+
+    it('should invalidate session-index metadata when content changes without size or mtime changes', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-session-index-fingerprint-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const sessionIndexPath = path.join(tempRoot, 'session_index.jsonl');
+        const fixedTime = new Date('2026-01-01T00:00:00.000Z');
+        await Bun.write(
+            sessionIndexPath,
+            `${JSON.stringify({ id: fixture.threads[0]!.threadId, thread_name: 'Alpha title' })}\n`,
+        );
+        await utimes(sessionIndexPath, fixedTime, fixedTime);
+
+        expect(getThreadBrowseData(fixture.dbPath, fixture.threads[0]!.threadId).thread.title).toBe('Alpha title');
+
+        await Bun.write(
+            sessionIndexPath,
+            `${JSON.stringify({ id: fixture.threads[0]!.threadId, thread_name: 'Bravo title' })}\n`,
+        );
+        await utimes(sessionIndexPath, fixedTime, fixedTime);
+
+        expect(getThreadBrowseData(fixture.dbPath, fixture.threads[0]!.threadId).thread.title).toBe('Bravo title');
     });
 
     it('should retain every model used by a project thread instead of only the final database model', async () => {
@@ -1240,6 +1599,260 @@ describe('codex browser db', () => {
         db.close();
     });
 
+    it('should make repeated same-id deletion idempotent and report optional cleanup outcomes', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-delete-idempotence-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const threadId = fixture.threads[0]!.threadId;
+
+        const first = await deleteCodexThreads(fixture.dbPath, [threadId, threadId]);
+        const second = await deleteCodexThreads(fixture.dbPath, [threadId]);
+
+        expect(first).toMatchObject({
+            cleanup: {
+                requested: false,
+            },
+            deletedThreadIds: [threadId],
+        });
+        expect(second).toMatchObject({
+            cleanup: {
+                requested: false,
+            },
+            deletedThreadIds: [],
+        });
+        expect(first.cleanup).not.toHaveProperty('deletedSessionFiles');
+        expect(second.cleanup).not.toHaveProperty('deletedSessionFiles');
+    });
+
+    it('should let a competing writer release its lock before the configured busy timeout expires', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-busy-timeout-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const threadId = fixture.threads[0]!.threadId;
+        const childScript = `
+            import { Database } from 'bun:sqlite';
+            const db = new Database(Bun.argv.at(-1));
+            db.exec('BEGIN EXCLUSIVE');
+            console.log('LOCK_HELD');
+            await new Response(Bun.stdin).text();
+            db.exec('COMMIT');
+            db.close();
+        `;
+        const holder = Bun.spawn([process.execPath, '-e', childScript, fixture.dbPath], {
+            cwd: process.cwd(),
+            stderr: 'pipe',
+            stdin: 'pipe',
+            stdout: 'pipe',
+        });
+        await waitForOutputMarker(holder.stdout, 'LOCK_HELD');
+
+        const deleteScript = `
+            import { deleteCodexThread } from './src/lib/codex-browser-db.ts';
+            console.error('DELETE_STARTED');
+            const result = await deleteCodexThread(Bun.argv.at(-2), Bun.argv.at(-1));
+            console.log(JSON.stringify(result.deletedThreadIds));
+        `;
+        const deleter = Bun.spawn([process.execPath, '-e', deleteScript, fixture.dbPath, threadId], {
+            cwd: process.cwd(),
+            stderr: 'pipe',
+            stdout: 'pipe',
+        });
+        await waitForOutputMarker(deleter.stderr, 'DELETE_STARTED');
+        holder.stdin.write('release\n');
+        holder.stdin.end();
+
+        const result = JSON.parse(await new Response(deleter.stdout).text()) as string[];
+        const holderExitCode = await holder.exited;
+        const deleterExitCode = await deleter.exited;
+
+        expect(holderExitCode).toBe(0);
+        expect(deleterExitCode).toBe(0);
+        expect(result).toEqual([threadId]);
+    });
+
+    it('should make concurrent child-process deletes of one id idempotent', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-competing-delete-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const threadId = fixture.threads[0]!.threadId;
+        const childScript = `
+            import { deleteCodexThread } from './src/lib/codex-browser-db.ts';
+            const result = await deleteCodexThread(Bun.argv.at(-2), Bun.argv.at(-1));
+            console.log(JSON.stringify(result.deletedThreadIds));
+        `;
+        const processes = [0, 1].map(() =>
+            Bun.spawn([process.execPath, '-e', childScript, fixture.dbPath, threadId], {
+                cwd: process.cwd(),
+                stderr: 'pipe',
+                stdout: 'pipe',
+            }),
+        );
+        const outcomes = await Promise.all(
+            processes.map(async (processHandle) => {
+                const output = await new Response(processHandle.stdout).text();
+                const errorOutput = await new Response(processHandle.stderr).text();
+                const exitCode = await processHandle.exited;
+                return { errorOutput: errorOutput.trim(), exitCode, output: output.trim() };
+            }),
+        );
+
+        if (!outcomes.every((outcome) => outcome.exitCode === 0)) {
+            throw new Error(JSON.stringify(outcomes));
+        }
+        const reportedThreadIds = outcomes.flatMap((outcome) => JSON.parse(outcome.output) as string[]);
+        expect(reportedThreadIds.every((reportedThreadId) => reportedThreadId === threadId)).toBe(true);
+        const db = new Database(fixture.dbPath, { readonly: true });
+        expect(db.query('SELECT COUNT(*) AS count FROM threads WHERE id = ?').get(threadId)).toEqual({ count: 0 });
+        db.close();
+    });
+
+    it('should delete paginated history rows for an individual thread', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-delete-history-thread-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const targetThreadId = fixture.threads[0]!.threadId;
+        const retainedThreadId = fixture.threads[1]!.threadId;
+        const historyPath = createPaginatedHistoryDatabase(tempRoot, [targetThreadId, retainedThreadId]);
+
+        const result = await deleteCodexThread(fixture.dbPath, targetThreadId);
+
+        expect(result.deletedThreadIds).toEqual([targetThreadId]);
+        expect(readPaginatedHistoryCounts(historyPath, [targetThreadId])).toEqual({
+            items: 0,
+            projectionStates: 0,
+            turns: 0,
+        });
+        expect(readPaginatedHistoryCounts(historyPath, [retainedThreadId])).toEqual({
+            items: 1,
+            projectionStates: 1,
+            turns: 1,
+        });
+    });
+
+    it('should bulk-delete paginated history rows while retaining unrelated threads', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-delete-history-batch-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const deletedThreadIds = fixture.threads.slice(0, 2).map((thread) => thread.threadId);
+        const retainedThreadId = fixture.threads[2]!.threadId;
+        const historyPath = createPaginatedHistoryDatabase(tempRoot, [...deletedThreadIds, retainedThreadId]);
+
+        const result = await deleteCodexThreads(fixture.dbPath, [...deletedThreadIds, deletedThreadIds[0]!]);
+
+        expect(result.deletedThreadIds.sort()).toEqual([...deletedThreadIds].sort());
+        expect(readPaginatedHistoryCounts(historyPath, deletedThreadIds)).toEqual({
+            items: 0,
+            projectionStates: 0,
+            turns: 0,
+        });
+        expect(readPaginatedHistoryCounts(historyPath, [retainedThreadId])).toEqual({
+            items: 1,
+            projectionStates: 1,
+            turns: 1,
+        });
+    });
+
+    it('should roll back state and paginated history deletion when history mutation fails', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-delete-history-rollback-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const deletedThreadIds = fixture.threads.slice(0, 2).map((thread) => thread.threadId);
+        const historyPath = createPaginatedHistoryDatabase(tempRoot, deletedThreadIds);
+        const historyDb = new Database(historyPath);
+        historyDb.exec(`
+            CREATE TRIGGER fail_history_delete
+            BEFORE DELETE ON thread_turns
+            BEGIN
+                SELECT RAISE(ABORT, 'history deletion blocked');
+            END;
+        `);
+        historyDb.close();
+
+        await expect(deleteCodexThreads(fixture.dbPath, deletedThreadIds)).rejects.toThrow('history deletion blocked');
+
+        const stateDb = new Database(fixture.dbPath, { readonly: true });
+        try {
+            expect(
+                stateDb.query('SELECT COUNT(*) AS count FROM threads WHERE id IN (?, ?)').get(...deletedThreadIds),
+            ).toEqual({ count: deletedThreadIds.length });
+        } finally {
+            stateDb.close();
+        }
+        expect(readPaginatedHistoryCounts(historyPath, deletedThreadIds)).toEqual({
+            items: deletedThreadIds.length,
+            projectionStates: deletedThreadIds.length,
+            turns: deletedThreadIds.length,
+        });
+    });
+
+    it('should delete project paginated history for state and fallback-only threads', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-delete-project-history-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const fallbackThreadId = '019ec3d5-859d-77d0-b851-256ae567ff67';
+        const fallbackSessionFile = await addFallbackSessionIndexEntry(tempRoot, fallbackThreadId, 'spiracha');
+        const retainedThreadId = fixture.threads[2]!.threadId;
+        const sessionIndexPath = path.join(tempRoot, 'session_index.jsonl');
+        const retainedSessionIndexEntry = JSON.stringify({
+            id: retainedThreadId,
+            thread_name: 'Retained thread',
+            updated_at: '2026-06-14T10:01:00.000Z',
+        });
+        await Bun.write(sessionIndexPath, `${await Bun.file(sessionIndexPath).text()}${retainedSessionIndexEntry}\n`);
+        const deletedThreadIds = [fixture.threads[0]!.threadId, fixture.threads[1]!.threadId, fallbackThreadId];
+        const historyPath = createPaginatedHistoryDatabase(tempRoot, [...deletedThreadIds, retainedThreadId]);
+
+        const result = await deleteCodexProject(fixture.dbPath, 'spiracha', { deleteSessionFiles: true });
+
+        expect(result.deletedThreadIds.sort()).toEqual([...deletedThreadIds].sort());
+        expect(await Bun.file(fallbackSessionFile).exists()).toBe(false);
+        expect(await Bun.file(sessionIndexPath).text()).toBe(`${retainedSessionIndexEntry}\n`);
+        expect(readPaginatedHistoryCounts(historyPath, deletedThreadIds)).toEqual({
+            items: 0,
+            projectionStates: 0,
+            turns: 0,
+        });
+        expect(readPaginatedHistoryCounts(historyPath, [retainedThreadId])).toEqual({
+            items: 1,
+            projectionStates: 1,
+            turns: 1,
+        });
+    });
+
+    it('should report stale session-index entries in a dry run without mutating history', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-reconcile-session-index-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const indexedThreadId = fixture.threads[0]!.threadId;
+        const fallbackThreadId = '019ec3d5-859d-77d0-b851-256ae567ff68';
+        const staleThreadId = '019ec3d5-859d-77d0-b851-256ae567ff69';
+        const fallbackSessionFile = await addFallbackSessionIndexEntry(tempRoot, fallbackThreadId, 'spiracha');
+        const sessionIndexPath = path.join(tempRoot, 'session_index.jsonl');
+        await Bun.write(
+            sessionIndexPath,
+            [
+                { id: indexedThreadId, thread_name: 'Indexed state thread' },
+                { id: fallbackThreadId, thread_name: 'Indexed rollout thread' },
+                { id: staleThreadId, thread_name: 'Stale index entry' },
+            ]
+                .map((entry) => JSON.stringify(entry))
+                .join('\n') + '\n',
+        );
+        const historyPath = createPaginatedHistoryDatabase(tempRoot, [indexedThreadId, staleThreadId]);
+        const initialSessionIndex = await Bun.file(sessionIndexPath).text();
+        const initialHistoryCounts = readPaginatedHistoryCounts(historyPath, [indexedThreadId, staleThreadId]);
+
+        const result = reconcileCodexSessionIndex(fixture.dbPath);
+
+        expect(result).toEqual({
+            dryRun: true,
+            staleEntries: [{ id: staleThreadId, thread_name: 'Stale index entry' }],
+        });
+        expect(await Bun.file(sessionIndexPath).text()).toBe(initialSessionIndex);
+        expect(readPaginatedHistoryCounts(historyPath, [indexedThreadId, staleThreadId])).toEqual(initialHistoryCounts);
+        expect(await Bun.file(fallbackSessionFile).exists()).toBe(true);
+    });
+
     it('should resolve the configured Codex thread database path', () => {
         const previous = process.env.SPIRACHA_CODEX_DB;
         const configuredPath = path.join(os.tmpdir(), 'configured-codex-state.sqlite');
@@ -1318,6 +1931,26 @@ describe('codex browser db', () => {
             count: 1,
         });
         verificationDb.close();
+    });
+
+    it('should detach history only after a successful ATTACH', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-attach-cleanup-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        await Bun.write(path.join(tempRoot, 'thread_history_1.sqlite'), 'not a sqlite database');
+        const warnings: unknown[][] = [];
+        const originalWarn = console.warn;
+        console.warn = (...args) => {
+            warnings.push(args);
+        };
+
+        try {
+            await expect(deleteCodexThread(fixture.dbPath, fixture.threads[0]!.threadId)).rejects.toThrow();
+        } finally {
+            console.warn = originalWarn;
+        }
+
+        expect(warnings.some((args) => String(args[0]).includes('SQLite history detach failed'))).toBe(false);
     });
 
     it('should keep a deleted DB thread from reappearing through the fallback session index', async () => {

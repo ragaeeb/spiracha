@@ -1,15 +1,17 @@
+import { Database } from 'bun:sqlite';
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
     deleteClineTask,
-    getDefaultClineGlobalStorageDir,
+    getDefaultClineDataDir,
     listClineTasksForGroup,
     listClineWorkspaceGroups,
     readClineTaskTranscript,
+    resolveClineDataDir,
 } from './cline-db';
-import { CLINE_TASK_ID, writeClineTaskFixture } from './cline-test-helpers';
+import { CLINE_SESSION_ID, writeClineSessionFixture } from './cline-test-helpers';
 import { renderClineTranscript } from './cline-transcript';
 
 const tempRoots: string[] = [];
@@ -20,69 +22,70 @@ const makeTempRoot = async () => {
     return root;
 };
 
-describe('Cline task storage', () => {
+describe('Cline session storage', () => {
     afterEach(async () => {
         await Promise.all(tempRoots.splice(0).map((root) => rm(root, { force: true, recursive: true })));
     });
 
-    it('should resolve platform-specific VS Code global storage defaults', () => {
-        expect(getDefaultClineGlobalStorageDir({}, '/home/tester', 'linux')).toBe(
-            '/home/tester/.config/Code/User/globalStorage/saoudrizwan.claude-dev',
+    it('should resolve the current Cline data directory by default', () => {
+        expect(getDefaultClineDataDir('/Users/tester')).toBe('/Users/tester/.cline/data');
+        expect(resolveClineDataDir({}, '/Users/tester')).toBe('/Users/tester/.cline/data');
+        expect(resolveClineDataDir({ SPIRACHA_CLINE_DATA_DIR: '/tmp/cline-data' }, '/Users/tester')).toBe(
+            '/tmp/cline-data',
         );
-        expect(getDefaultClineGlobalStorageDir({ XDG_CONFIG_HOME: '/config' }, '/home/tester', 'linux')).toBe(
-            '/config/Code/User/globalStorage/saoudrizwan.claude-dev',
-        );
-        expect(getDefaultClineGlobalStorageDir({}, '/Users/tester', 'darwin')).toBe(
-            '/Users/tester/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev',
-        );
-        expect(
-            getDefaultClineGlobalStorageDir(
-                { APPDATA: 'C:\\Users\\test\\AppData\\Roaming' },
-                'C:\\Users\\test',
-                'win32',
-            ),
-        ).toContain('saoudrizwan.claude-dev');
     });
 
-    it('should discover Cline tasks from task history and visible UI messages', async () => {
+    it('should discover current Cline sessions across multiple workspaces', async () => {
         const root = await makeTempRoot();
-        const workspacePath = path.join(root, 'repo');
-        const globalStorageDir = path.join(root, 'saoudrizwan.claude-dev');
-        await writeClineTaskFixture({ globalStorageDir, workspacePath });
+        const dataDir = path.join(root, 'cline-data');
+        const kaluWorkspacePath = path.join(root, 'kalu');
+        const researchWorkspacePath = path.join(root, 'research');
+        await writeClineSessionFixture({
+            dataDir,
+            sessionId: '1786126367448',
+            title: 'TRADE-DR-001',
+            workspacePath: kaluWorkspacePath,
+        });
+        await writeClineSessionFixture({
+            dataDir,
+            sessionId: '1786145275579_tx573',
+            title: 'TRADE-DR-012',
+            workspacePath: researchWorkspacePath,
+        });
+        await writeClineSessionFixture({
+            dataDir,
+            sessionId: '1786163719044_tpg1r',
+            title: 'TRADE-DR-018',
+            workspacePath: researchWorkspacePath,
+        });
 
-        const groups = await listClineWorkspaceGroups(globalStorageDir);
-        expect(groups).toEqual([
-            expect.objectContaining({
-                assistantMessageCount: 2,
-                label: 'repo',
-                messageCount: 3,
-                reasoningCount: 1,
-                taskCount: 1,
-                toolCallCount: 2,
-                toolResultCount: 2,
-                worktree: workspacePath,
-            }),
-        ]);
+        const groups = await listClineWorkspaceGroups(dataDir);
+        expect(groups).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ taskCount: 1, worktree: kaluWorkspacePath }),
+                expect.objectContaining({ taskCount: 2, worktree: researchWorkspacePath }),
+            ]),
+        );
 
-        const tasks = await listClineTasksForGroup(groups[0]!.key, globalStorageDir);
-        expect(tasks).toEqual([
-            expect.objectContaining({
-                isFavorited: true,
-                modelId: 'anthropic/claude-sonnet-4',
-                taskId: CLINE_TASK_ID,
-                title: 'Fix issue 1494 per the implementation plan',
-                worktree: workspacePath,
-            }),
-        ]);
+        const researchGroup = groups.find((group) => group.worktree === researchWorkspacePath);
+        expect(researchGroup).toBeDefined();
+        const tasks = await listClineTasksForGroup(researchGroup!.key, dataDir);
+        expect(tasks.map((task) => task.title).sort()).toEqual(['TRADE-DR-012', 'TRADE-DR-018']);
+        expect(tasks.find((task) => task.taskId === '1786163719044_tpg1r')).toMatchObject({
+            messagesPath: path.join(dataDir, 'sessions', '1786163719044_tpg1r', '1786163719044_tpg1r.messages.json'),
+            sessionDir: path.join(dataDir, 'sessions', '1786163719044_tpg1r'),
+            taskId: '1786163719044_tpg1r',
+            worktree: researchWorkspacePath,
+        });
     });
 
-    it('should parse user, reasoning, commentary, command, tool, and final-answer events', async () => {
+    it('should parse current session messages into normalized transcript phases', async () => {
         const root = await makeTempRoot();
+        const dataDir = path.join(root, 'cline-data');
         const workspacePath = path.join(root, 'repo');
-        const globalStorageDir = path.join(root, 'saoudrizwan.claude-dev');
-        await writeClineTaskFixture({ globalStorageDir, workspacePath });
+        await writeClineSessionFixture({ dataDir, workspacePath });
 
-        const transcript = await readClineTaskTranscript(globalStorageDir, CLINE_TASK_ID);
+        const transcript = await readClineTaskTranscript(dataDir, CLINE_SESSION_ID);
         expect(transcript?.messages.map(({ phase, role, text }) => ({ phase, role, text }))).toEqual([
             { phase: 'unknown', role: 'user', text: 'Fix issue 1494 per the implementation plan' },
             {
@@ -94,48 +97,111 @@ describe('Cline task storage', () => {
             {
                 phase: 'tool_call',
                 role: 'assistant',
-                text: 'bun test src/vendor-proof-lifecycle.test.ts',
+                text: 'run_commands: {"commands":["bun test src/vendor-proof-lifecycle.test.ts"]}',
             },
             { phase: 'tool_output', role: 'tool', text: '57 pass\n0 fail' },
             {
-                phase: 'tool_call',
-                role: 'assistant',
-                text: expect.stringContaining('readFile'),
-            },
-            { phase: 'tool_output', role: 'tool', text: 'const result = true;' },
-            {
                 phase: 'final_answer',
                 role: 'assistant',
-                text: 'Implemented the 1494 fix per 1494-PLAN.md.',
+                text: 'Implemented Fix issue 1494 per the implementation plan.',
             },
         ]);
         expect(transcript?.messages.find((message) => message.phase === 'tool_call')?.tool).toMatchObject({
-            command: 'bun test src/vendor-proof-lifecycle.test.ts',
-            name: 'execute_command',
-            status: 'succeeded',
+            callId: `${CLINE_SESSION_ID}-tool-1`,
+            inputText: '{"commands":["bun test src/vendor-proof-lifecycle.test.ts"]}',
+            name: 'run_commands',
+            status: 'unknown',
             workdir: workspacePath,
         });
     });
 
-    it('should delete the task directory and its task-history record', async () => {
+    it('should retain a safe session with missing workspace metadata using an explicit storage fallback', async () => {
         const root = await makeTempRoot();
-        const workspacePath = path.join(root, 'repo');
-        const globalStorageDir = path.join(root, 'saoudrizwan.claude-dev');
-        const fixture = await writeClineTaskFixture({ globalStorageDir, workspacePath });
+        const dataDir = path.join(root, 'cline-data');
+        const sessionId = '1785560414951_missing_workspace';
+        const sessionDir = path.join(dataDir, 'sessions', sessionId);
+        await mkdir(sessionDir, { recursive: true });
+        await Bun.write(
+            path.join(sessionDir, `${sessionId}.json`),
+            JSON.stringify({ prompt: 'No workspace metadata', session_id: sessionId }),
+        );
+        await Bun.write(path.join(sessionDir, `${sessionId}.messages.json`), JSON.stringify({ messages: [] }));
 
-        const result = await deleteClineTask(globalStorageDir, CLINE_TASK_ID);
+        const transcript = await readClineTaskTranscript(dataDir, sessionId);
 
-        expect(result.deletedTaskIds).toEqual([CLINE_TASK_ID]);
-        expect(result.deletedFiles).toContain(fixture.taskDir);
-        expect(await Bun.file(fixture.uiMessagesPath).exists()).toBe(false);
-        expect(await Bun.file(fixture.taskHistoryPath).json()).toEqual([]);
+        expect(transcript).toMatchObject({
+            messages: [],
+            task: {
+                taskId: sessionId,
+                workspaceSource: 'session_directory',
+                worktree: sessionDir,
+            },
+        });
     });
 
-    it('should render Markdown and plain-text exports with configurable sections', async () => {
+    it('should read a validated task entry directly and preserve empty transcripts', async () => {
         const root = await makeTempRoot();
-        const globalStorageDir = path.join(root, 'saoudrizwan.claude-dev');
-        await writeClineTaskFixture({ globalStorageDir, workspacePath: path.join(root, 'repo') });
-        const transcript = await readClineTaskTranscript(globalStorageDir, CLINE_TASK_ID);
+        const dataDir = path.join(root, 'cline-data');
+        const sessionId = '1785560414951_direct';
+        const sessionDir = path.join(dataDir, 'sessions', sessionId);
+        await mkdir(sessionDir, { recursive: true });
+        await Bun.write(
+            path.join(sessionDir, `${sessionId}.json`),
+            JSON.stringify({ cwd: root, session_id: sessionId }),
+        );
+        await Bun.write(path.join(sessionDir, `${sessionId}.messages.json`), JSON.stringify({ messages: [] }));
+
+        const transcript = await readClineTaskTranscript(dataDir, sessionId);
+
+        expect(transcript?.messages).toEqual([]);
+        expect(transcript?.renderablePartCount).toBe(0);
+    });
+
+    it('should delete the current Cline session directory', async () => {
+        const root = await makeTempRoot();
+        const dataDir = path.join(root, 'cline-data');
+        const fixture = await writeClineSessionFixture({ dataDir, workspacePath: path.join(root, 'repo') });
+        const databasePath = path.join(dataDir, 'db', 'sessions.db');
+        await mkdir(path.dirname(databasePath), { recursive: true });
+        const database = new Database(databasePath);
+        database.run('CREATE TABLE sessions (session_id TEXT PRIMARY KEY)');
+        database.prepare('INSERT INTO sessions (session_id) VALUES (?)').run(CLINE_SESSION_ID);
+        database.close();
+
+        const result = await deleteClineTask(dataDir, CLINE_SESSION_ID);
+
+        expect(result.deletedTaskIds).toEqual([CLINE_SESSION_ID]);
+        expect(result.deletedFiles).toEqual([fixture.sessionDir]);
+        expect(result.indexCleanup).toEqual({ status: 'deleted' });
+        expect(await Bun.file(fixture.messagesPath).exists()).toBe(false);
+        const remainingDatabase = new Database(databasePath, { readonly: true });
+        expect(remainingDatabase.query('SELECT session_id FROM sessions').all()).toEqual([]);
+        remainingDatabase.close();
+        await expect(readClineTaskTranscript(dataDir, CLINE_SESSION_ID)).resolves.toBeNull();
+    });
+
+    it('should remove the session directory when index cleanup fails and report the failure', async () => {
+        const root = await makeTempRoot();
+        const dataDir = path.join(root, 'cline-data');
+        const fixture = await writeClineSessionFixture({ dataDir, workspacePath: path.join(root, 'repo') });
+        const databasePath = path.join(dataDir, 'db', 'sessions.db');
+        await mkdir(path.dirname(databasePath), { recursive: true });
+        const database = new Database(databasePath);
+        database.close();
+
+        const result = await deleteClineTask(dataDir, fixture.sessionId);
+
+        expect(result.deletedFiles).toEqual([fixture.sessionDir]);
+        expect(result.deletedTaskIds).toEqual([fixture.sessionId]);
+        expect(result.indexCleanup.status).toBe('failed');
+        expect(await Bun.file(fixture.sessionDir).exists()).toBe(false);
+    });
+
+    it('should render current-session Markdown and plain-text exports', async () => {
+        const root = await makeTempRoot();
+        const dataDir = path.join(root, 'cline-data');
+        await writeClineSessionFixture({ dataDir, workspacePath: path.join(root, 'repo') });
+        const transcript = await readClineTaskTranscript(dataDir, CLINE_SESSION_ID);
         expect(transcript).not.toBeNull();
 
         const markdown = renderClineTranscript(transcript!, {
@@ -145,7 +211,7 @@ describe('Cline task storage', () => {
             outputFormat: 'md',
         });
         expect(markdown).toContain('# Fix issue 1494 per the implementation plan');
-        expect(markdown).toContain('exported_from: "cline_ui_messages"');
+        expect(markdown).toContain('exported_from: "cline_session_messages"');
         expect(markdown).toContain('## Assistant (Final)');
         expect(markdown).not.toContain('protected surface policy');
         expect(markdown).not.toContain('Tool Call');
@@ -161,15 +227,34 @@ describe('Cline task storage', () => {
         expect(text).not.toContain('exported_from:');
     });
 
-    it('should return empty results for malformed task keys and missing storage', async () => {
+    it('should ignore the removed VS Code task-history format', async () => {
         const root = await makeTempRoot();
-        const globalStorageDir = path.join(root, 'missing');
-        await expect(listClineWorkspaceGroups(globalStorageDir)).resolves.toEqual([]);
-        await expect(listClineTasksForGroup('invalid', globalStorageDir)).resolves.toEqual([]);
-        await expect(readClineTaskTranscript(globalStorageDir, '../unsafe')).resolves.toBeNull();
-        await expect(deleteClineTask(globalStorageDir, '../unsafe')).resolves.toEqual({
+        const dataDir = path.join(root, 'cline-data');
+        await mkdir(path.join(dataDir, 'state'), { recursive: true });
+        await Bun.write(
+            path.join(dataDir, 'state', 'taskHistory.json'),
+            JSON.stringify([
+                {
+                    cwdOnTaskInitialization: path.join(root, 'legacy-repo'),
+                    id: '1785560414951',
+                    task: 'Legacy task that must not be loaded',
+                },
+            ]),
+        );
+
+        await expect(listClineWorkspaceGroups(dataDir)).resolves.toEqual([]);
+    });
+
+    it('should return empty results for malformed session keys and missing data', async () => {
+        const root = await makeTempRoot();
+        const dataDir = path.join(root, 'missing');
+        await expect(listClineWorkspaceGroups(dataDir)).resolves.toEqual([]);
+        await expect(listClineTasksForGroup('invalid', dataDir)).resolves.toEqual([]);
+        await expect(readClineTaskTranscript(dataDir, '../unsafe')).resolves.toBeNull();
+        await expect(deleteClineTask(dataDir, '../unsafe')).resolves.toEqual({
             deletedFiles: [],
             deletedTaskIds: [],
+            indexCleanup: { status: 'not_found' },
         });
     });
 });

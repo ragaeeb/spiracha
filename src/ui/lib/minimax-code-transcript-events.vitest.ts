@@ -126,4 +126,34 @@ describe('MiniMax Code transcript events', () => {
             userMessageCount: 1,
         });
     });
+
+    it('should preserve long commentary findings so the commentary control can reveal them', () => {
+        const events = miniMaxCodeTranscriptToThreadEvents({
+            ...transcript,
+            messages: [
+                ...transcript.messages,
+                {
+                    content:
+                        '### 25. validate.ts — not enough view; need to read to identify if it gates requestedPhase',
+                    createdAtMs: 1_700_000_003_000,
+                    finishReason: 'toolUse',
+                    messageId: 'assistant-review-finding',
+                    messageType: 2,
+                    raw: {},
+                    reasoning: null,
+                    role: 'assistant',
+                    thinkingDurationMs: null,
+                    toolCalls: [],
+                },
+            ],
+        });
+
+        expect(events).toContainEqual(
+            expect.objectContaining({
+                kind: 'message',
+                phase: 'commentary',
+                text: expect.stringContaining('not enough view; need to read'),
+            }),
+        );
+    });
 });

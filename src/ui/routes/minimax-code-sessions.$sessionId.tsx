@@ -17,7 +17,7 @@ import { TranscriptControls } from '#/components/transcript-controls';
 import { DEFAULT_SHOW_USER_MESSAGES, TranscriptView } from '#/components/transcript-view';
 import { Button } from '#/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
-import { downloadTextFile, downloadUrlFile } from '#/lib/download';
+import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import type { ExportDialogOptions } from '#/lib/export-options';
 import { formatDateTime, formatList, formatNumber } from '#/lib/formatters';
 import { miniMaxCodeSessionDetailQueryOptions, miniMaxCodeWorkspacesQueryOptions } from '#/lib/minimax-code-queries';
@@ -75,6 +75,7 @@ const buildTranscriptStatsItems = (
 ];
 
 const MiniMaxCodeSessionDetailPage = () => {
+    const downloadCancellation = useDownloadCancellation();
     const navigate = useNavigate({ from: Route.fullPath });
     const queryClient = useQueryClient();
     const detail = useSuspenseQuery(miniMaxCodeSessionDetailQueryOptions(Route.useParams().sessionId)).data;
@@ -103,7 +104,7 @@ const MiniMaxCodeSessionDetailPage = () => {
                 downloadTextFile(download.fileName, download.content, download.mimeType);
                 return;
             }
-            await downloadUrlFile(download.fileName, download.downloadUrl);
+            await downloadUrlFileWithCancellation(downloadCancellation, download.fileName, download.downloadUrl);
         },
         onSuccess: () => setPendingExport(false),
     });

@@ -3,9 +3,22 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@tanstack/react-start', () => ({
     createServerFn: () => {
+        let inputValidator: { parse: (value: unknown) => unknown } | undefined;
         const serverFn = {
-            handler: (callback: unknown) => callback,
-            validator: () => serverFn,
+            handler: (callback: unknown) => {
+                const handler = callback as (args?: { data?: unknown }) => unknown;
+                return async (args?: { data?: unknown }) => {
+                    if (!inputValidator) {
+                        return await handler(args);
+                    }
+
+                    return await handler({ ...args, data: inputValidator.parse(args?.data) });
+                };
+            },
+            validator: (validator: unknown) => {
+                inputValidator = validator as { parse: (value: unknown) => unknown };
+                return serverFn;
+            },
         };
         return serverFn;
     },
@@ -36,10 +49,11 @@ const transcript = {
         isFavorited: false,
         lastActiveAtMs: 200,
         messageCount: 2,
+        messagesPath: '/cline/sessions/1/1.messages.json',
         modelId: 'cline-model',
         reasoningCount: 0,
         renderablePartCount: 1,
-        taskDir: '/cline/tasks/1',
+        sessionDir: '/cline/sessions/1',
         taskId: '1',
         title: 'Cline task',
         tokensIn: null,
@@ -47,7 +61,6 @@ const transcript = {
         toolCallCount: 0,
         toolResultCount: 0,
         totalCost: null,
-        uiMessagesPath: '/cline/tasks/1/ui_messages.json',
         ulid: null,
         userMessageCount: 1,
         workspaceKey: 'workspace:%2Frepo',
@@ -58,13 +71,14 @@ const transcript = {
 
 const dbMocks = vi.hoisted(() => ({
     deleteClineTask: vi.fn(async (_root: string, taskId: string) => ({
-        deletedFiles: [`/cline/tasks/${taskId}`],
+        deletedFiles: [`/cline/sessions/${taskId}`],
         deletedTaskIds: [taskId],
+        indexCleanup: { status: 'deleted' as const },
     })),
     listClineTasksForGroup: vi.fn(async () => [transcript.task]),
     listClineWorkspaceGroups: vi.fn(async () => [{ key: transcript.task.workspaceKey }]),
     readClineTaskTranscript: vi.fn(async () => transcript),
-    resolveClineGlobalStorageDir: vi.fn(() => '/cline'),
+    resolveClineDataDir: vi.fn(() => '/cline'),
 }));
 
 vi.mock('@spiracha/lib/cline-db', () => dbMocks);
@@ -87,7 +101,7 @@ describe('Cline server functions', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         dbMocks.readClineTaskTranscript.mockResolvedValue(transcript);
-        dbMocks.resolveClineGlobalStorageDir.mockReturnValue('/cline');
+        dbMocks.resolveClineDataDir.mockReturnValue('/cline');
     });
 
     it('should list workspaces, tasks, and task detail', async () => {
@@ -125,8 +139,15 @@ describe('Cline server functions', () => {
 
     it('should delete one or multiple Cline chats', async () => {
         await expect(deleteClineTaskFn({ data: { taskId: '1' } })).resolves.toMatchObject({ deletedTaskIds: ['1'] });
-        await expect(deleteClineTasksFn({ data: { taskIds: ['1', '2'] } })).resolves.toMatchObject({
-            deletedTaskIds: ['1', '2'],
+        await expect(
+            deleteClineTasksFn({ data: { taskIds: ['1786163719044_tpg1r', '1786164800606_0h9tk'] } }),
+        ).resolves.toMatchObject({
+            deletedTaskIds: ['1786163719044_tpg1r', '1786164800606_0h9tk'],
         });
+    });
+
+    it('should reject traversal-style task IDs through the validator before the handler', async () => {
+        await expect(getClineTaskDetailFn({ data: { taskId: '../../etc' } })).rejects.toThrow();
+        expect(dbMocks.readClineTaskTranscript).not.toHaveBeenCalled();
     });
 });

@@ -27,6 +27,7 @@ import {
     cleanInlineTitle,
     type JsonValue,
     readDirectoryEntriesIfExists,
+    readJsonlObjects,
 } from './shared';
 import { runWithSqliteRetry } from './sqlite-retry';
 
@@ -103,6 +104,20 @@ const listSnapshotPaths = async (root: string): Promise<string[]> => {
     );
     const paths = entries
         .filter((entry) => entry.isFile() && entry.name === 'snapshot.json')
+        .map((entry) => path.join(root, entry.name));
+    paths.push(...nestedPaths.flat());
+    return paths.sort();
+};
+
+const listManifestPaths = async (root: string): Promise<string[]> => {
+    const entries = await readDirectoryEntriesIfExists(root);
+    const nestedPaths = await mapWithConcurrency(
+        entries.filter((entry) => entry.isDirectory()),
+        READ_CONCURRENCY,
+        (entry) => listManifestPaths(path.join(root, entry.name)),
+    );
+    const paths = entries
+        .filter((entry) => entry.isFile() && entry.name === 'manifest.json')
         .map((entry) => path.join(root, entry.name));
     paths.push(...nestedPaths.flat());
     return paths.sort();
@@ -237,6 +252,174 @@ const parseMessage = (value: JsonValue, includeRawPayloads: boolean): MiniMaxCod
     };
 };
 
+const textFromMessageContent = (value: JsonValue | undefined): string | null => {
+    if (typeof value === 'string') {
+        return value.trim() || null;
+    }
+    if (!Array.isArray(value)) {
+        return null;
+    }
+
+    const text = value
+        .flatMap((part) => {
+            const partObject = asObject(part);
+            const partText = asString(partObject?.text ?? null)?.trim();
+            return partText ? [partText] : [];
+        })
+        .join('\n\n')
+        .trim();
+    return text || null;
+};
+
+const serializeJsonValue = (value: JsonValue | undefined): string | null => {
+    if (value === undefined) {
+        return null;
+    }
+    return JSON.stringify(value);
+};
+
+type ParsedMiniMaxCodeToolResult = {
+    outputText: string | null;
+    status: MiniMaxCodeToolStatus;
+};
+
+type NewMessageParsingContext = {
+    includeRawPayloads: boolean;
+    pendingToolResults: Map<string, ParsedMiniMaxCodeToolResult>;
+    toolCallsById: Map<string, MiniMaxCodeToolCall>;
+};
+
+const getNewMessageContentParts = (message: Record<string, JsonValue>): Record<string, JsonValue>[] => {
+    return Array.isArray(message.content)
+        ? message.content.flatMap((part) => {
+              const partObject = asObject(part);
+              return partObject ? [partObject] : [];
+          })
+        : [];
+};
+
+const consumeNewToolResult = (
+    message: Record<string, JsonValue>,
+    context: Pick<NewMessageParsingContext, 'pendingToolResults' | 'toolCallsById'>,
+) => {
+    const toolCallId = asString(message.toolCallId ?? null)?.trim();
+    if (!toolCallId) {
+        return;
+    }
+
+    const result = {
+        outputText: textFromMessageContent(message.content),
+        status: asBoolean(message.isError ?? null) ? 'failed' : 'succeeded',
+    } satisfies ParsedMiniMaxCodeToolResult;
+    const toolCall = context.toolCallsById.get(toolCallId);
+    if (toolCall) {
+        toolCall.outputText = result.outputText;
+        toolCall.status = result.status;
+        return;
+    }
+    context.pendingToolResults.set(toolCallId, result);
+};
+
+const parseNewToolCall = (
+    part: Record<string, JsonValue>,
+    context: NewMessageParsingContext,
+): MiniMaxCodeToolCall | null => {
+    if (part.type !== 'toolCall') {
+        return null;
+    }
+
+    const callId = asString(part.id ?? null)?.trim() || null;
+    const argumentsText = serializeJsonValue(part.arguments);
+    const pendingResult = callId ? context.pendingToolResults.get(callId) : undefined;
+    const toolCall: MiniMaxCodeToolCall = {
+        argumentsText,
+        callId,
+        command: commandFromToolArguments(argumentsText),
+        outputText: pendingResult?.outputText ?? null,
+        raw: context.includeRawPayloads ? part : {},
+        status: pendingResult?.status ?? 'unknown',
+        toolName: asString(part.name ?? null)?.trim() || 'unknown',
+    };
+    if (callId) {
+        context.toolCallsById.set(callId, toolCall);
+        context.pendingToolResults.delete(callId);
+    }
+    return toolCall;
+};
+
+const parseNewTranscriptMessage = (
+    row: Record<string, JsonValue>,
+    message: Record<string, JsonValue>,
+    context: NewMessageParsingContext,
+): MiniMaxCodeTranscriptMessage | null => {
+    const role = asString(message.role ?? null);
+    if (role !== 'assistant' && role !== 'user') {
+        return null;
+    }
+
+    const messageId = asString(row.message_id ?? null)?.trim() || asString(message.id ?? null)?.trim();
+    if (!messageId) {
+        return null;
+    }
+
+    const contentParts = getNewMessageContentParts(message);
+    const reasoning = contentParts
+        .flatMap((part) => {
+            const thinking = asString(part.thinking ?? null)?.trim();
+            return part.type === 'thinking' && thinking ? [thinking] : [];
+        })
+        .join('\n\n')
+        .trim();
+    const toolCalls = contentParts.flatMap((part) => {
+        const toolCall = parseNewToolCall(part, context);
+        return toolCall ? [toolCall] : [];
+    });
+
+    return {
+        content: textFromMessageContent(message.content),
+        createdAtMs: asNumber(message.timestamp ?? null),
+        finishReason: asString(message.stopReason ?? null),
+        messageId,
+        messageType: role === 'user' ? 1 : 2,
+        raw: context.includeRawPayloads ? message : {},
+        reasoning: reasoning || null,
+        role,
+        thinkingDurationMs: asNumber(message.thinkingDurationMs ?? null),
+        toolCalls,
+    };
+};
+
+const parseNewMessageLog = async (
+    messagesPath: string,
+    includeRawPayloads: boolean,
+): Promise<MiniMaxCodeTranscriptMessage[]> => {
+    const messages: MiniMaxCodeTranscriptMessage[] = [];
+    const context: NewMessageParsingContext = {
+        includeRawPayloads,
+        pendingToolResults: new Map(),
+        toolCallsById: new Map(),
+    };
+
+    for await (const row of readJsonlObjects(messagesPath)) {
+        const message = asObject(row.message ?? null);
+        if (!message) {
+            continue;
+        }
+
+        if (message.role === 'toolResult') {
+            consumeNewToolResult(message, context);
+            continue;
+        }
+
+        const parsedMessage = parseNewTranscriptMessage(row, message, context);
+        if (parsedMessage) {
+            messages.push(parsedMessage);
+        }
+    }
+
+    return messages;
+};
+
 const getSessionStats = (messages: MiniMaxCodeTranscriptMessage[]): SessionStats => {
     const toolCalls = messages.flatMap((message) => message.toolCalls);
     const userMessageCount = messages.filter((message) => message.role === 'user').length;
@@ -259,11 +442,35 @@ const getSessionStats = (messages: MiniMaxCodeTranscriptMessage[]): SessionStats
     };
 };
 
+const getLatestPiHistoryModel = (value: JsonValue | undefined): string | null => {
+    if (!Array.isArray(value)) {
+        return null;
+    }
+
+    for (let index = value.length - 1; index >= 0; index -= 1) {
+        const entry = asObject(value[index]);
+        const model = asString(entry?.model ?? null)?.trim();
+        if (!model) {
+            continue;
+        }
+
+        const provider = asString(entry?.provider ?? null)?.trim();
+        return provider && !model.includes('/') ? `${provider}/${model}` : model;
+    }
+
+    return null;
+};
+
+const getSessionModelId = (record: Record<string, JsonValue>, piHistory?: JsonValue): string | null => {
+    return asString(record.effectiveModel ?? null)?.trim() || getLatestPiHistoryModel(piHistory);
+};
+
 const toSessionSummary = (
     snapshotPath: string,
     record: Record<string, JsonValue>,
     sessionId: string,
     messages: MiniMaxCodeTranscriptMessage[],
+    piHistory?: JsonValue,
 ): MiniMaxCodeSessionSummary | null => {
     const worktree = asString(record.workspaceDir ?? null)?.trim();
     if (!worktree) {
@@ -278,7 +485,7 @@ const toSessionSummary = (
         archived: asBoolean(record.archived ?? null),
         ...stats,
         createdAtMs: asNumber(record.createdAtMs ?? null),
-        currentModelId: asString(record.effectiveModel ?? null),
+        currentModelId: getSessionModelId(record, piHistory),
         currentModelVariant: asString(record.effectiveModelVariant ?? null),
         lastActiveAtMs: asNumber(record.updatedAtMs ?? null),
         runtime: asString(record.runtime ?? null),
@@ -313,7 +520,143 @@ const readSnapshot = async (
         const parsedMessage = parseMessage(message, includeRawPayloads);
         return parsedMessage ? [parsedMessage] : [];
     });
-    const session = toSessionSummary(snapshotPath, record, sessionId, messages);
+    const session = toSessionSummary(snapshotPath, record, sessionId, messages, root.piHistory);
+    if (!session) {
+        return null;
+    }
+
+    return {
+        messages,
+        rawPayloadsOmitted: includeRawPayloads ? undefined : true,
+        renderablePartCount: session.renderablePartCount,
+        session,
+    };
+};
+
+const isPathInsideDirectory = (directory: string, candidate: string): boolean => {
+    const relative = path.relative(path.resolve(directory), path.resolve(candidate));
+    return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+};
+
+const resolveManifestFilePath = (sessionDir: string, manifestValue: string): string | null => {
+    const resolved = path.resolve(sessionDir, manifestValue);
+    return isPathInsideDirectory(sessionDir, resolved) ? resolved : null;
+};
+
+const toRuntimeJsonValue = (value: unknown): JsonValue | null => {
+    if (value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+        return value;
+    }
+    return null;
+};
+
+const readRuntimeSessionRecord = (row: Record<string, unknown>): Record<string, JsonValue> | null => {
+    const recordJson = asObject(typeof row.record_json === 'string' ? parseJsonValue(row.record_json) : null) ?? {};
+    const extraData =
+        asObject(typeof row.extra_data_json === 'string' ? parseJsonValue(row.extra_data_json) : null) ?? {};
+    const record = { ...extraData, ...recordJson };
+    const columnMappings = [
+        ['agent_name', 'agentName'],
+        ['app_mode', 'appMode'],
+        ['archived', 'archived'],
+        ['created_at_ms', 'createdAtMs'],
+        ['effective_model', 'effectiveModel'],
+        ['effective_model_variant', 'effectiveModelVariant'],
+        ['project_workspace_dir', 'projectWorkspaceDir'],
+        ['runtime', 'runtime'],
+        ['session_type', 'sessionType'],
+        ['status', 'status'],
+        ['title', 'title'],
+        ['updated_at_ms', 'updatedAtMs'],
+        ['workspace_dir', 'workspaceDir'],
+    ] as const;
+    for (const [columnName, recordName] of columnMappings) {
+        if (record[recordName] !== undefined) {
+            continue;
+        }
+        const value = toRuntimeJsonValue(row[columnName]);
+        if (value !== null) {
+            record[recordName] = value;
+        }
+    }
+
+    const sessionId =
+        asString(record.sessionId ?? null)?.trim() || (typeof row.session_id === 'string' ? row.session_id.trim() : '');
+    if (!sessionId) {
+        return null;
+    }
+    record.sessionId = sessionId;
+    if (record.workspaceDir === undefined && record.projectWorkspaceDir !== undefined) {
+        record.workspaceDir = record.projectWorkspaceDir;
+    }
+    return record;
+};
+
+const hasRuntimeTable = (db: Database, tableName: string): boolean => {
+    return Boolean(db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(tableName));
+};
+
+const readRuntimeSessionRecords = async (sessionsDir: string): Promise<Map<string, Record<string, JsonValue>>> => {
+    const records = new Map<string, Record<string, JsonValue>>();
+    const runtimeDbPath = resolveMiniMaxCodeRuntimeDbPath(sessionsDir);
+    if (!(await Bun.file(runtimeDbPath).exists())) {
+        return records;
+    }
+
+    let db: Database | null = null;
+    try {
+        db = new Database(runtimeDbPath, { create: false, readonly: true, strict: true });
+        if (!hasRuntimeTable(db, 'local_runtime_sessions')) {
+            return records;
+        }
+        const rows = db.query('SELECT * FROM local_runtime_sessions').all() as Array<Record<string, unknown>>;
+        for (const row of rows) {
+            const record = readRuntimeSessionRecord(row);
+            const sessionId = record ? asString(record.sessionId ?? null) : null;
+            if (record && sessionId) {
+                records.set(sessionId, record);
+            }
+        }
+    } catch {
+        return records;
+    } finally {
+        db?.close();
+    }
+    return records;
+};
+
+const readManifestMessagesSession = async (
+    manifestPath: string,
+    runtimeRecords: Map<string, Record<string, JsonValue>>,
+    options: ReadSnapshotOptions = {},
+): Promise<MiniMaxCodeSessionTranscript | null> => {
+    const parsed = (await Bun.file(manifestPath)
+        .json()
+        .catch(() => null)) as JsonValue | null;
+    const manifest = asObject(parsed);
+    const paths = asObject(manifest?.paths ?? null);
+    const sessionId = asString(manifest?.sessionId ?? null)?.trim();
+    const manifestMessagesPath = asString(paths?.messages ?? null)?.trim();
+    if (!manifest || !paths || !sessionId || !manifestMessagesPath) {
+        return null;
+    }
+
+    const sessionDir = path.dirname(manifestPath);
+    const messagesPath = resolveManifestFilePath(sessionDir, manifestMessagesPath);
+    if (!messagesPath || !(await Bun.file(messagesPath).exists())) {
+        return null;
+    }
+
+    const runtimeRecord = runtimeRecords.get(sessionId) ?? {};
+    const record: Record<string, JsonValue> = {
+        ...runtimeRecord,
+        createdAtMs: runtimeRecord.createdAtMs ?? manifest.createdAtMs ?? null,
+        sessionId,
+        updatedAtMs: runtimeRecord.updatedAtMs ?? manifest.updatedAtMs ?? null,
+    };
+    const includeRawPayloads = options.includeRawPayloads ?? true;
+    const messages = await parseNewMessageLog(messagesPath, includeRawPayloads);
+    const session = toSessionSummary(messagesPath, record, sessionId, messages);
     if (!session) {
         return null;
     }
@@ -330,11 +673,24 @@ const listSessionTranscripts = async (
     sessionsDir: string,
     options: ReadSnapshotOptions = {},
 ): Promise<MiniMaxCodeSessionTranscript[]> => {
-    const snapshotPaths = await listSnapshotPaths(sessionsDir);
-    const transcripts = await mapWithConcurrency(snapshotPaths, READ_CONCURRENCY, (snapshotPath) =>
+    const [snapshotPaths, manifestPaths, runtimeRecords] = await Promise.all([
+        listSnapshotPaths(sessionsDir),
+        listManifestPaths(sessionsDir),
+        readRuntimeSessionRecords(sessionsDir),
+    ]);
+    const snapshotTranscripts = await mapWithConcurrency(snapshotPaths, READ_CONCURRENCY, (snapshotPath) =>
         readSnapshot(snapshotPath, options),
     );
-    return transcripts.flatMap((transcript) => (transcript?.session.messageCount ? [transcript] : []));
+    const manifestTranscripts = await mapWithConcurrency(manifestPaths, READ_CONCURRENCY, (manifestPath) =>
+        readManifestMessagesSession(manifestPath, runtimeRecords, options),
+    );
+    const transcriptsBySessionId = new Map<string, MiniMaxCodeSessionTranscript>();
+    for (const transcript of [...snapshotTranscripts, ...manifestTranscripts]) {
+        if (transcript?.session.messageCount && !transcriptsBySessionId.has(transcript.session.sessionId)) {
+            transcriptsBySessionId.set(transcript.session.sessionId, transcript);
+        }
+    }
+    return [...transcriptsBySessionId.values()];
 };
 
 const compareNullableMsDesc = (left: number | null, right: number | null): number => (right ?? 0) - (left ?? 0);
@@ -421,11 +777,18 @@ export const readMiniMaxCodeSessionTranscript = async (
             return transcript;
         }
     }
-    return null;
-};
 
-const hasRuntimeTable = (db: Database, tableName: string): boolean => {
-    return Boolean(db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(tableName));
+    const [manifestPaths, runtimeRecords] = await Promise.all([
+        listManifestPaths(sessionsDir),
+        readRuntimeSessionRecords(sessionsDir),
+    ]);
+    for (const manifestPath of manifestPaths) {
+        const transcript = await readManifestMessagesSession(manifestPath, runtimeRecords, options);
+        if (transcript?.session.sessionId === sessionId) {
+            return transcript;
+        }
+    }
+    return null;
 };
 
 const deleteRuntimeRows = (db: Database, tableName: string, where: string, values: string[]): number => {

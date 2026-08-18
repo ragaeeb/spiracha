@@ -1,5 +1,5 @@
 import type { CursorWorkspaceGroup } from '@spiracha/lib/cursor-exporter-types';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { MouseEventHandler, ReactNode } from 'react';
 import * as React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -147,7 +147,12 @@ afterEach(() => {
 describe('CursorWorkspacesTable', () => {
     it('should render workspace links with the detail route href', () => {
         render(
-            <CursorWorkspacesTable onDeleteWorkspace={vi.fn()} onRecoverWorkspace={vi.fn()} workspaces={[workspace]} />,
+            <CursorWorkspacesTable
+                onDeleteWorkspace={vi.fn()}
+                onDeleteWorkspaces={vi.fn()}
+                onRecoverWorkspace={vi.fn()}
+                workspaces={[workspace]}
+            />,
         );
 
         const link = screen.getByRole('link', { name: /demo/i });
@@ -161,6 +166,7 @@ describe('CursorWorkspacesTable', () => {
         render(
             <CursorWorkspacesTable
                 onDeleteWorkspace={onDeleteWorkspace}
+                onDeleteWorkspaces={vi.fn()}
                 onRecoverWorkspace={onRecoverWorkspace}
                 workspaces={[workspace]}
             />,
@@ -182,5 +188,53 @@ describe('CursorWorkspacesTable', () => {
 
         expect(onRecoverWorkspace).toHaveBeenCalledWith(workspace);
         expect(onDeleteWorkspace).toHaveBeenCalledWith(workspace);
+    });
+
+    it('should select multiple workspaces and request batch deletion', () => {
+        const onDeleteWorkspaces = vi.fn();
+
+        render(
+            <CursorWorkspacesTable
+                onDeleteWorkspace={vi.fn()}
+                onDeleteWorkspaces={onDeleteWorkspaces}
+                onRecoverWorkspace={vi.fn()}
+                workspaces={[workspace, { ...workspace, key: 'folder:/Users/user/workspace/other', label: 'other' }]}
+            />,
+        );
+
+        fireEvent.click(screen.getByRole('checkbox', { name: `Select row ${workspace.key}` }));
+        fireEvent.click(
+            screen.getByRole('checkbox', {
+                name: 'Select row folder:/Users/user/workspace/other',
+            }),
+        );
+        fireEvent.click(screen.getByRole('button', { name: 'Delete selected workspaces' }));
+
+        expect(onDeleteWorkspaces).toHaveBeenCalledWith([
+            workspace,
+            { ...workspace, key: 'folder:/Users/user/workspace/other', label: 'other' },
+        ]);
+    });
+
+    it('should retain both selections when row clicks are batched in one act', () => {
+        const onDeleteWorkspaces = vi.fn();
+        const otherWorkspace = { ...workspace, key: 'folder:/Users/user/workspace/other', label: 'other' };
+
+        render(
+            <CursorWorkspacesTable
+                onDeleteWorkspace={vi.fn()}
+                onDeleteWorkspaces={onDeleteWorkspaces}
+                onRecoverWorkspace={vi.fn()}
+                workspaces={[workspace, otherWorkspace]}
+            />,
+        );
+
+        act(() => {
+            fireEvent.click(screen.getByRole('checkbox', { name: `Select row ${workspace.key}` }));
+            fireEvent.click(screen.getByRole('checkbox', { name: `Select row ${otherWorkspace.key}` }));
+        });
+        fireEvent.click(screen.getByRole('button', { name: 'Delete selected workspaces' }));
+
+        expect(onDeleteWorkspaces).toHaveBeenCalledWith([workspace, otherWorkspace]);
     });
 });

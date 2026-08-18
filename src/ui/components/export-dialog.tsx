@@ -16,9 +16,14 @@ import {
     DialogTitle,
 } from '#/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '#/components/ui/select';
-import { downloadTextFile } from '#/lib/download';
+import {
+    cancelActiveDownloads,
+    type DownloadLifecycleState,
+    downloadTextFile,
+    resetActiveDownloads,
+} from '#/lib/download';
 import { requestEvidenceExport } from '#/lib/evidence-export';
-import type { ExportDialogOptions } from '#/lib/export-options';
+import type { ExportDialogOptions, ExportLifecycleCallbacks } from '#/lib/export-options';
 import { useSettings } from '#/lib/settings-store';
 import { EvidenceLensEditor } from './evidence-lens-editor';
 
@@ -29,10 +34,11 @@ type ExportDialogProps = {
     focusedEvidenceTarget?: { id: string; source: ConversationSource };
     open: boolean;
     pending?: boolean;
+    skippedThreadCount?: number;
     showCommentaryOption?: boolean;
     showToolsOption?: boolean;
     title?: string;
-    onExport: (options: ExportDialogOptions) => void;
+    onExport: (options: ExportDialogOptions, callbacks: ExportLifecycleCallbacks) => void;
     onOpenChange: (open: boolean) => void;
 };
 
@@ -147,6 +153,159 @@ const EvidencePreview = ({ preview }: { preview: ConversationEvidenceExport }) =
     </div>
 );
 
+const getDownloadStateMessage = (state: DownloadLifecycleState) => {
+    switch (state) {
+        case 'preparing':
+            return 'Preparing export...';
+        case 'ready':
+            return 'Export ready.';
+        case 'downloading':
+            return 'Starting download...';
+        case 'cancelled':
+            return 'Export cancelled.';
+        case 'failed':
+            return 'Export failed.';
+    }
+};
+
+const DownloadStateMessage = ({ state }: { state: DownloadLifecycleState | null }) =>
+    state ? (
+        <p aria-live="polite" className="text-[var(--muted-foreground)] text-sm" role="status">
+            {getDownloadStateMessage(state)}
+        </p>
+    ) : null;
+
+type ExportModeContentProps = {
+    effectiveZipArchive: boolean;
+    focusedEvidenceTarget?: { id: string; source: ConversationSource };
+    forceZipArchive: boolean;
+    lens: EvidenceLens;
+    mode: 'focused' | 'full';
+    options: ExportDialogOptions;
+    preview: ConversationEvidenceExport | null;
+    showCommentaryOption: boolean;
+    showToolsOption: boolean;
+    zipDescriptionId: string;
+    onLensChange: (lens: EvidenceLens) => void;
+    onModeChange: (mode: 'focused' | 'full') => void;
+    onOptionsChange: (options: Partial<ExportDialogOptions>) => void;
+};
+
+const ExportModeContent = ({
+    effectiveZipArchive,
+    focusedEvidenceTarget,
+    forceZipArchive,
+    lens,
+    mode,
+    options,
+    preview,
+    showCommentaryOption,
+    showToolsOption,
+    zipDescriptionId,
+    onLensChange,
+    onModeChange,
+    onOptionsChange,
+}: ExportModeContentProps) => (
+    <>
+        {focusedEvidenceTarget ? (
+            <div className="space-y-2">
+                <label className="font-medium text-sm" htmlFor="export-mode">
+                    Export mode
+                </label>
+                <Select value={mode} onValueChange={(value) => onModeChange(value as 'focused' | 'full')}>
+                    <SelectTrigger
+                        id="export-mode"
+                        className="border-[var(--border)] bg-[var(--panel-secondary)] text-[var(--foreground)]"
+                    >
+                        <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="full">Full transcript</SelectItem>
+                        <SelectItem value="focused">Focused evidence</SelectItem>
+                    </SelectContent>
+                </Select>
+            </div>
+        ) : null}
+        {mode === 'focused' && focusedEvidenceTarget ? (
+            <EvidenceLensEditor lens={lens} onChange={onLensChange} />
+        ) : (
+            <FullExportControls
+                effectiveZipArchive={effectiveZipArchive}
+                forceZipArchive={forceZipArchive}
+                options={options}
+                showCommentaryOption={showCommentaryOption}
+                showToolsOption={showToolsOption}
+                zipDescriptionId={zipDescriptionId}
+                onChange={onOptionsChange}
+            />
+        )}
+        {preview && mode === 'focused' ? <EvidencePreview preview={preview} /> : null}
+    </>
+);
+
+type ExportDialogStatusProps = {
+    displayedError: string | null;
+    downloadState: DownloadLifecycleState | null;
+    skippedThreadCount: number;
+};
+
+const ExportDialogStatus = ({ displayedError, downloadState, skippedThreadCount }: ExportDialogStatusProps) => (
+    <>
+        <DownloadStateMessage state={downloadState} />
+        {skippedThreadCount > 0 ? (
+            <p aria-live="polite" className="text-[var(--muted-foreground)] text-sm" role="status">
+                Export completed with {skippedThreadCount} skipped {skippedThreadCount === 1 ? 'thread' : 'threads'}.
+            </p>
+        ) : null}
+        {displayedError ? <p className="text-[var(--destructive)] text-sm">{displayedError}</p> : null}
+    </>
+);
+
+type ExportDialogFooterProps = {
+    disabled: boolean;
+    evidencePending: boolean;
+    mode: 'focused' | 'full';
+    pending: boolean;
+    submitted: boolean;
+    onCancel: () => void;
+    onPreview: () => void;
+    onSubmit: () => void;
+};
+
+const ExportDialogFooter = ({
+    disabled,
+    evidencePending,
+    mode,
+    pending,
+    submitted,
+    onCancel,
+    onPreview,
+    onSubmit,
+}: ExportDialogFooterProps) => (
+    <DialogFooter>
+        <Button className="rounded-full" variant="outline" onClick={onCancel}>
+            Cancel
+        </Button>
+        {mode === 'focused' ? (
+            <Button
+                className="rounded-full"
+                variant="outline"
+                disabled={evidencePending || disabled}
+                onClick={onPreview}
+            >
+                {evidencePending ? 'Previewing...' : 'Preview evidence'}
+            </Button>
+        ) : null}
+        <Button
+            className="rounded-full"
+            disabled={pending || evidencePending || disabled || submitted}
+            onClick={onSubmit}
+        >
+            {pending || evidencePending ? 'Exporting...' : 'Download export'}
+        </Button>
+    </DialogFooter>
+);
+
 export function ExportDialog({
     disabled = false,
     errorMessage = null,
@@ -154,6 +313,7 @@ export function ExportDialog({
     focusedEvidenceTarget,
     open,
     pending = false,
+    skippedThreadCount = 0,
     showCommentaryOption = true,
     showToolsOption = true,
     title = 'Export thread',
@@ -168,14 +328,30 @@ export function ExportDialog({
     const [preview, setPreview] = useState<ConversationEvidenceExport | null>(null);
     const [evidenceError, setEvidenceError] = useState<string | null>(null);
     const [evidencePending, setEvidencePending] = useState(false);
+    const [downloadState, setDownloadState] = useState<DownloadLifecycleState | null>(null);
     const submissionInProgress = useRef(false);
+    const submissionToken = useRef(0);
     const previousPending = useRef(pending);
     const effectiveZipArchive = forceZipArchive || options.zipArchive;
     const displayedError = evidenceError ?? errorMessage;
     const zipDescriptionId = useId();
+    const handleOpenChange = (nextOpen: boolean) => {
+        if (!nextOpen) {
+            submissionToken.current += 1;
+            cancelActiveDownloads();
+        }
+        onOpenChange(nextOpen);
+    };
+
+    useEffect(() => {
+        if (open) {
+            resetActiveDownloads();
+        }
+    }, [open]);
 
     useEffect(() => {
         if (!open) {
+            submissionToken.current += 1;
             setOptions(settings.exportDefaults);
             setSubmitted(false);
             submissionInProgress.current = false;
@@ -184,6 +360,7 @@ export function ExportDialog({
             setPreview(null);
             setEvidenceError(null);
             setEvidencePending(false);
+            setDownloadState(null);
         }
     }, [open, settings.exportDefaults]);
 
@@ -191,6 +368,7 @@ export function ExportDialog({
         if ((previousPending.current && !pending) || errorMessage) {
             setSubmitted(false);
             submissionInProgress.current = false;
+            setDownloadState(errorMessage ? 'failed' : null);
         }
         previousPending.current = pending;
     }, [errorMessage, pending]);
@@ -213,31 +391,49 @@ export function ExportDialog({
         }
     };
 
+    const submitFocusedExport = async (token: number) => {
+        const result = preview ?? (await loadEvidence());
+        if (submissionToken.current !== token) {
+            return;
+        }
+        if (!result || !focusedEvidenceTarget) {
+            setDownloadState('failed');
+            submissionInProgress.current = false;
+            setSubmitted(false);
+            return;
+        }
+        if (submissionToken.current !== token) {
+            return;
+        }
+        downloadTextFile(
+            `${focusedEvidenceTarget.source}-${focusedEvidenceTarget.id}-focused-evidence.md`,
+            result.markdown,
+            'text/markdown; charset=utf-8',
+            { onStateChange: setDownloadState },
+        );
+        submissionInProgress.current = false;
+        setSubmitted(false);
+    };
+
     const submitExport = async () => {
         if (submissionInProgress.current) {
             return;
         }
         submissionInProgress.current = true;
+        const token = submissionToken.current + 1;
+        submissionToken.current = token;
         setSubmitted(true);
+        setDownloadState('preparing');
         if (mode === 'focused') {
-            const result = preview ?? (await loadEvidence());
-            if (result && focusedEvidenceTarget) {
-                downloadTextFile(
-                    `${focusedEvidenceTarget.source}-${focusedEvidenceTarget.id}-focused-evidence.md`,
-                    result.markdown,
-                    'text/markdown; charset=utf-8',
-                );
-            }
-            submissionInProgress.current = false;
-            setSubmitted(false);
+            await submitFocusedExport(token);
             return;
         }
         updateSetting('exportDefaults', options);
-        onExport({ ...options, zipArchive: effectiveZipArchive });
+        onExport({ ...options, zipArchive: effectiveZipArchive }, { onDownloadStateChange: setDownloadState });
     };
 
     return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
+        <Dialog open={open} onOpenChange={handleOpenChange}>
             <DialogContent className="max-h-[90vh] overflow-y-auto border-[var(--border)] bg-[var(--panel)] text-[var(--foreground)] sm:max-w-3xl">
                 <DialogHeader>
                     <DialogTitle>{title}</DialogTitle>
@@ -247,79 +443,46 @@ export function ExportDialog({
                 </DialogHeader>
 
                 <div className="space-y-5 py-2">
-                    {focusedEvidenceTarget ? (
-                        <div className="space-y-2">
-                            <label className="font-medium text-sm" htmlFor="export-mode">
-                                Export mode
-                            </label>
-                            <Select
-                                value={mode}
-                                onValueChange={(value) => {
-                                    setMode(value as 'focused' | 'full');
-                                    setPreview(null);
-                                    setEvidenceError(null);
-                                }}
-                            >
-                                <SelectTrigger
-                                    id="export-mode"
-                                    className="border-[var(--border)] bg-[var(--panel-secondary)] text-[var(--foreground)]"
-                                >
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="full">Full transcript</SelectItem>
-                                    <SelectItem value="focused">Focused evidence</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
-                    ) : null}
-                    {mode === 'focused' && focusedEvidenceTarget ? (
-                        <EvidenceLensEditor
-                            lens={lens}
-                            onChange={(nextLens) => {
-                                setLens(nextLens);
-                                setPreview(null);
-                                setEvidenceError(null);
-                            }}
-                        />
-                    ) : (
-                        <FullExportControls
-                            effectiveZipArchive={effectiveZipArchive}
-                            forceZipArchive={forceZipArchive}
-                            options={options}
-                            showCommentaryOption={showCommentaryOption}
-                            showToolsOption={showToolsOption}
-                            zipDescriptionId={zipDescriptionId}
-                            onChange={(nextOptions) => setOptions((current) => ({ ...current, ...nextOptions }))}
-                        />
-                    )}
+                    <ExportModeContent
+                        effectiveZipArchive={effectiveZipArchive}
+                        focusedEvidenceTarget={focusedEvidenceTarget}
+                        forceZipArchive={forceZipArchive}
+                        lens={lens}
+                        mode={mode}
+                        options={options}
+                        preview={preview}
+                        showCommentaryOption={showCommentaryOption}
+                        showToolsOption={showToolsOption}
+                        zipDescriptionId={zipDescriptionId}
+                        onLensChange={(nextLens) => {
+                            setLens(nextLens);
+                            setPreview(null);
+                            setEvidenceError(null);
+                        }}
+                        onModeChange={(nextMode) => {
+                            setMode(nextMode);
+                            setPreview(null);
+                            setEvidenceError(null);
+                        }}
+                        onOptionsChange={(nextOptions) => setOptions((current) => ({ ...current, ...nextOptions }))}
+                    />
                 </div>
 
-                {preview && mode === 'focused' ? <EvidencePreview preview={preview} /> : null}
-                {displayedError ? <p className="text-[var(--destructive)] text-sm">{displayedError}</p> : null}
-
-                <DialogFooter>
-                    <Button className="rounded-full" variant="outline" onClick={() => onOpenChange(false)}>
-                        Cancel
-                    </Button>
-                    {mode === 'focused' ? (
-                        <Button
-                            className="rounded-full"
-                            variant="outline"
-                            disabled={evidencePending || disabled}
-                            onClick={loadEvidence}
-                        >
-                            {evidencePending ? 'Previewing...' : 'Preview evidence'}
-                        </Button>
-                    ) : null}
-                    <Button
-                        className="rounded-full"
-                        disabled={pending || evidencePending || disabled || submitted}
-                        onClick={submitExport}
-                    >
-                        {pending || evidencePending ? 'Exporting...' : 'Download export'}
-                    </Button>
-                </DialogFooter>
+                <ExportDialogStatus
+                    displayedError={displayedError}
+                    downloadState={downloadState}
+                    skippedThreadCount={skippedThreadCount}
+                />
+                <ExportDialogFooter
+                    disabled={disabled}
+                    evidencePending={evidencePending}
+                    mode={mode}
+                    pending={pending}
+                    submitted={submitted}
+                    onCancel={() => handleOpenChange(false)}
+                    onPreview={loadEvidence}
+                    onSubmit={submitExport}
+                />
             </DialogContent>
         </Dialog>
     );

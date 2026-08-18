@@ -163,6 +163,7 @@ const buildConversation = async (
     const messages = options.includeMessages
         ? selectConversationMessages(allMessages, options.messageSelector ?? 'last_final_answer')
         : [];
+    const model = session.selectedModel ?? session.defaultModelTitle ?? undefined;
 
     return {
         createdAtMs: session.createdAtMs,
@@ -173,14 +174,12 @@ const buildConversation = async (
         ),
         id: session.sessionId,
         matches,
+        ...(model ? { model } : {}),
         messageCount: options.includeMessages ? allMessages.length : session.messageCount,
         messages,
         metadata: {
             continuationSessionIds: session.continuationSessionIds,
-            defaultModelTitle: session.defaultModelTitle,
             filePath: session.filePath,
-            model: session.selectedModel ?? session.defaultModelTitle,
-            selectedModel: session.selectedModel,
             sessionType: session.sessionType,
         },
         source: 'kiro',

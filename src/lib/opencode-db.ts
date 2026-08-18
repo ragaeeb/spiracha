@@ -35,6 +35,7 @@ export const OPENCODE_READ_DB_OPEN_FLAGS = constants.SQLITE_OPEN_READWRITE | con
 const OPENCODE_READONLY_DB_OPEN_FLAGS = constants.SQLITE_OPEN_READONLY | constants.SQLITE_OPEN_URI;
 const DEFAULT_OPENCODE_DB_CONCURRENCY = 2;
 const DESKTOP_STATE_FILE_CONCURRENCY = 4;
+const GLOBAL_OPENCODE_PROJECT_ID = 'global';
 const OPENCODE_OPTIONAL_SESSION_TABLES = [
     'session_context_epoch',
     'session_input',
@@ -51,6 +52,7 @@ export type DeleteOpenCodeSessionResult = {
 
 type WorkspaceRow = {
     archivedSessionCount: number;
+    directory: string | null;
     lastActiveMs: number;
     messageCount: number;
     name: string | null;
@@ -124,6 +126,11 @@ const logOpenCodeDb = (event: string, details: Record<string, unknown>) => {
     if (process.env.SPIRACHA_OPENCODE_DB_LOGS === '1') {
         console.info(`[spiracha:opencode-db] ${event}`, details);
     }
+};
+
+const isMissingFileError = (error: unknown): boolean => {
+    const code = (error as { code?: unknown }).code;
+    return code === 'ENOENT' || code === 'ENOTDIR';
 };
 
 const runWithOpenCodeDbLimit = async <T>(operation: string, dbPath: string, action: () => T): Promise<T> => {
@@ -299,10 +306,24 @@ const getWorkspaceLabel = (name: string | null, worktree: string): string => {
     return path.basename(worktree.replace(/\/+$/u, '')) || worktree;
 };
 
-const getWorkspaceKey = (projectId: string): string => `project:${projectId}`;
+const getProjectWorkspaceKey = (projectId: string): string => `project:${projectId}`;
 
-const getProjectIdFromWorkspaceKey = (workspaceKey: string): string | null => {
-    return workspaceKey.startsWith('project:') ? workspaceKey.slice('project:'.length) : null;
+const getDirectoryWorkspaceKey = (directory: string): string =>
+    `directory:${Buffer.from(directory).toString('base64url')}`;
+
+const getWorkspaceSelector = (workspaceKey: string): { directory: string | null; projectId: string } | null => {
+    if (workspaceKey.startsWith('project:')) {
+        const projectId = workspaceKey.slice('project:'.length);
+        return projectId ? { directory: null, projectId } : null;
+    }
+
+    if (!workspaceKey.startsWith('directory:')) {
+        return null;
+    }
+
+    const encodedDirectory = workspaceKey.slice('directory:'.length);
+    const directory = Buffer.from(encodedDirectory, 'base64url').toString('utf8');
+    return directory ? { directory, projectId: GLOBAL_OPENCODE_PROJECT_ID } : null;
 };
 
 const parseModelInfo = (value: string | null): OpenCodeModelInfo => {
@@ -340,23 +361,35 @@ const formatModelLabel = (model: OpenCodeModelInfo): string | null => {
 };
 
 const toWorkspaceGroup = (row: WorkspaceRow): OpenCodeWorkspaceGroup => {
-    const label = getWorkspaceLabel(row.name, row.worktree);
+    const worktree = row.directory ?? row.worktree;
+    const label = getWorkspaceLabel(row.directory ? null : row.name, worktree);
     return {
         archivedSessionCount: row.archivedSessionCount,
-        key: getWorkspaceKey(row.projectId),
+        key: row.directory ? getDirectoryWorkspaceKey(row.directory) : getProjectWorkspaceKey(row.projectId),
         label,
         lastActiveMs: row.lastActiveMs,
         messageCount: row.messageCount,
         partCount: row.partCount,
         projectId: row.projectId,
         sessionCount: row.sessionCount,
-        uri: pathToFileURL(row.worktree).href,
-        worktree: row.worktree,
+        uri: pathToFileURL(worktree).href,
+        worktree,
     };
 };
 
 const toSessionSummary = (row: SessionRow): OpenCodeSessionSummary => {
-    const label = getWorkspaceLabel(row.projectName, row.worktree);
+    const workspace =
+        row.projectId === GLOBAL_OPENCODE_PROJECT_ID
+            ? {
+                  key: getDirectoryWorkspaceKey(row.directory),
+                  label: getWorkspaceLabel(null, row.directory),
+                  worktree: row.directory,
+              }
+            : {
+                  key: getProjectWorkspaceKey(row.projectId),
+                  label: getWorkspaceLabel(row.projectName, row.worktree),
+                  worktree: row.worktree,
+              };
     const model = parseModelInfo(row.model);
     const tokensCacheRead = row.tokensCacheRead ?? 0;
     const tokensCacheWrite = row.tokensCacheWrite ?? 0;
@@ -392,9 +425,9 @@ const toSessionSummary = (row: SessionRow): OpenCodeSessionSummary => {
         tokensReasoning,
         toolPartCount: row.toolPartCount,
         totalTokens: tokensInput + tokensOutput + tokensReasoning + tokensCacheRead + tokensCacheWrite,
-        workspaceKey: getWorkspaceKey(row.projectId),
-        workspaceLabel: label,
-        worktree: row.worktree,
+        workspaceKey: workspace.key,
+        workspaceLabel: workspace.label,
+        worktree: workspace.worktree,
     };
 };
 
@@ -402,6 +435,7 @@ const workspaceRowsQuery = `
     SELECT
         p.id AS projectId,
         p.name AS name,
+        NULL AS directory,
         p.worktree AS worktree,
         (
             SELECT COUNT(*)
@@ -431,6 +465,46 @@ const workspaceRowsQuery = `
             WHERE s.project_id = p.id AND ${MAIN_SESSION_FILTER}
         ), p.time_updated) AS lastActiveMs
     FROM project p
+`;
+
+const globalWorkspaceRowsQuery = `
+    SELECT
+        '${GLOBAL_OPENCODE_PROJECT_ID}' AS projectId,
+        NULL AS name,
+        s.directory AS directory,
+        s.directory AS worktree,
+        COUNT(*) AS sessionCount,
+        SUM(CASE WHEN s.time_archived IS NOT NULL THEN 1 ELSE 0 END) AS archivedSessionCount,
+        (
+            SELECT COUNT(*)
+            FROM message m
+            JOIN session ms ON ms.id = m.session_id
+            WHERE ms.project_id = '${GLOBAL_OPENCODE_PROJECT_ID}'
+              AND ms.parent_id IS NULL
+              AND ms.directory = s.directory
+        ) AS messageCount,
+        (
+            SELECT COUNT(*)
+            FROM part prt
+            JOIN session ps ON ps.id = prt.session_id
+            WHERE ps.project_id = '${GLOBAL_OPENCODE_PROJECT_ID}'
+              AND ps.parent_id IS NULL
+              AND ps.directory = s.directory
+        ) AS partCount,
+        MAX(s.time_updated) AS lastActiveMs
+    FROM session s
+    WHERE s.project_id = '${GLOBAL_OPENCODE_PROJECT_ID}'
+      AND ${MAIN_SESSION_FILTER}
+      AND trim(coalesce(s.directory, '')) <> ''
+    GROUP BY s.directory
+`;
+
+const invalidGlobalWorkspaceRowsQuery = `
+    SELECT s.id AS sessionId
+    FROM session s
+    WHERE s.project_id = '${GLOBAL_OPENCODE_PROJECT_ID}'
+      AND ${MAIN_SESSION_FILTER}
+      AND trim(coalesce(s.directory, '')) = ''
 `;
 
 const sessionSelectQuery = `
@@ -503,10 +577,20 @@ export const listOpenCodeWorkspaceGroups = async (
 
     return runWithOpenCodeDbLimit('list-workspaces', dbPath, () =>
         withOpenCodeReadonlyDb(dbPath, (db) => {
-            const rows = db
-                .query(`${workspaceRowsQuery} ORDER BY lastActiveMs DESC, p.worktree ASC`)
-                .all() as WorkspaceRow[];
-            return rows.map(toWorkspaceGroup);
+            const projectRows = db
+                .query(`${workspaceRowsQuery} WHERE p.id <> ?`)
+                .all(GLOBAL_OPENCODE_PROJECT_ID) as WorkspaceRow[];
+            const invalidGlobalRows = db.query(invalidGlobalWorkspaceRowsQuery).all() as { sessionId: string }[];
+            for (const row of invalidGlobalRows) {
+                logOpenCodeDb('invalid-global-session-directory', { sessionId: row.sessionId });
+            }
+            const globalRows = db.query(globalWorkspaceRowsQuery).all() as WorkspaceRow[];
+            return [...projectRows, ...globalRows]
+                .sort(
+                    (left, right) =>
+                        right.lastActiveMs - left.lastActiveMs || left.worktree.localeCompare(right.worktree),
+                )
+                .map(toWorkspaceGroup);
         }),
     );
 };
@@ -551,20 +635,29 @@ export const listOpenCodeSessionsForGroup = async (
     workspaceKey: string,
     dbPath = resolveOpenCodeDbPath(),
 ): Promise<OpenCodeSessionSummary[]> => {
-    const projectId = getProjectIdFromWorkspaceKey(workspaceKey);
-    if (!projectId || !(await pathExists(dbPath))) {
+    const selector = getWorkspaceSelector(workspaceKey);
+    if (!selector || !(await pathExists(dbPath))) {
         return [];
     }
 
     return runWithOpenCodeDbLimit('list-sessions', dbPath, () =>
         withOpenCodeReadonlyDb(dbPath, (db) => {
-            return readSessionSummaries(db, `s.project_id = ? AND ${MAIN_SESSION_FILTER}`, [projectId]);
+            const whereSql = selector.directory
+                ? `s.project_id = ? AND s.directory = ? AND ${MAIN_SESSION_FILTER}`
+                : `s.project_id = ? AND ${MAIN_SESSION_FILTER}`;
+            const params = selector.directory ? [selector.projectId, selector.directory] : [selector.projectId];
+            return readSessionSummaries(db, whereSql, params);
         }),
     );
 };
 
 const readOpenCodeSessionSummary = (db: Database, sessionId: string): OpenCodeSessionSummary | null => {
-    return readSessionSummaries(db, `s.id = ? AND ${MAIN_SESSION_FILTER}`, [sessionId])[0] ?? null;
+    const session = readSessionSummaries(db, `s.id = ? AND ${MAIN_SESSION_FILTER}`, [sessionId])[0] ?? null;
+    if (session?.projectId === GLOBAL_OPENCODE_PROJECT_ID && !session.directory.trim()) {
+        logOpenCodeDb('invalid-global-session-directory', { sessionId });
+        return null;
+    }
+    return session;
 };
 
 const readOpenCodeSessionTreeIds = (db: Database, sessionId: string): string[] => {
@@ -883,19 +976,34 @@ export const deleteOpenCodeDesktopSessionState = async (
 
         const sessionIdSet = new Set(sessionIds);
         const worktreeSet = new Set(worktrees);
-        const fileNames = (await readdir(stateDir)).filter((fileName) => fileName.endsWith('.dat'));
+        let fileNames: string[];
+        try {
+            fileNames = (await readdir(stateDir)).filter((fileName) => fileName.endsWith('.dat'));
+        } catch (error) {
+            if (isMissingFileError(error)) {
+                return [];
+            }
+            throw error;
+        }
         const changedFiles = await mapWithConcurrency(
             fileNames,
             DESKTOP_STATE_FILE_CONCURRENCY,
             async (fileName): Promise<string | null> => {
                 const filePath = path.join(stateDir, fileName);
-                const state = parseMutableJsonObject(await Bun.file(filePath).text());
-                if (!state || !cleanOpenCodeDesktopStateObject(state, sessionIdSet, worktreeSet)) {
-                    return null;
-                }
+                try {
+                    const state = parseMutableJsonObject(await Bun.file(filePath).text());
+                    if (!state || !cleanOpenCodeDesktopStateObject(state, sessionIdSet, worktreeSet)) {
+                        return null;
+                    }
 
-                await writeOpenCodeDesktopState(filePath, state);
-                return filePath;
+                    await writeOpenCodeDesktopState(filePath, state);
+                    return filePath;
+                } catch (error) {
+                    if (isMissingFileError(error)) {
+                        return null;
+                    }
+                    throw error;
+                }
             },
         );
 

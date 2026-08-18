@@ -132,6 +132,7 @@ export type ConversationDeepLinks = {
 export type ConversationMessage = {
     createdAtMs: number | null;
     id: string;
+    model?: string;
     metadata: Record<string, unknown>;
     order: number;
     phase: ConversationMessagePhase;
@@ -145,6 +146,7 @@ export type ConversationDetail = {
     deepLinks: ConversationDeepLinks;
     id: string;
     matches: ConversationPathMatch[];
+    model?: string;
     messageCount: number | null;
     messages: ConversationMessage[];
     metadata: Record<string, unknown>;
@@ -166,7 +168,7 @@ export type ConversationPage = {
 export type ConversationDataLocations = {
     antigravityRoots?: string[];
     claudeCodeProjectsDir?: string;
-    clineGlobalStorageDir?: string;
+    clineDataDir?: string;
     codexDbPath?: string;
     cursorUserDir?: string;
     grokSessionsDir?: string;
@@ -206,8 +208,15 @@ export type DeleteConversationOptions = {
 };
 
 export type DeleteConversationResult = {
+    cleanupFailures?: ConversationCleanupFailure[];
     deletedFiles: string[];
     deletedIds: string[];
+};
+
+export type ConversationCleanupFailure = {
+    error: string;
+    path?: string;
+    phase: string;
 };
 
 export type ConversationIdSetOptions = {

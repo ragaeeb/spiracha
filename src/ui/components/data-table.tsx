@@ -112,13 +112,13 @@ export function DataTable<TData extends RowData>({
         if (shiftKey && lastSelectedRowIdRef.current) {
             const rangeRowIds = getRangeRowIds(visibleRowIds, lastSelectedRowIdRef.current, rowId);
             if (rangeRowIds) {
-                setRowSelection(applySelectionState(rowSelection, rangeRowIds, checked));
+                setRowSelection((selection) => applySelectionState(selection, rangeRowIds, checked));
                 lastSelectedRowIdRef.current = rowId;
                 return;
             }
         }
 
-        setRowSelection(applySelectionState(rowSelection, [rowId], checked));
+        setRowSelection((selection) => applySelectionState(selection, [rowId], checked));
         lastSelectedRowIdRef.current = rowId;
     };
 

@@ -194,6 +194,7 @@ const buildConversation = async (
         ),
         id: session.sessionId,
         matches,
+        ...(session.model ? { model: session.model } : {}),
         messageCount: options.includeMessages ? allMessages.length : session.messageCount,
         messages,
         metadata: {
@@ -202,7 +203,6 @@ const buildConversation = async (
             executionMode: session.executionMode,
             fileOperationCount: session.fileOperationCount,
             historyIds: session.historyIds,
-            model: session.model,
             query: session.query,
             renderablePartCount,
             requestId: session.requestId,

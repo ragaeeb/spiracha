@@ -37,11 +37,14 @@ describe('codex conversation adapter', () => {
         expect(page.meta).toEqual({ hasNext: false, nextCursor: null });
         expect(page.data[0]).toMatchObject({
             id: fixture.threads[0]!.threadId,
+            model: 'gpt-5.4',
             source: 'codex',
             workspacePath: fixture.threads[0]!.cwd,
         });
+        expect(page.data[0]?.metadata).not.toHaveProperty('model');
         expect(page.data[0]!.messages).toHaveLength(1);
         expect(page.data[0]!.messages[0]).toMatchObject({
+            model: 'gpt-5.4',
             phase: 'final_answer',
             role: 'assistant',
         });

@@ -1,12 +1,31 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, mkdtemp, rm, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
-import { getThreadBrowseData } from './codex-browser-db';
+import {
+    CodexDbCompatibilityError,
+    CodexThreadNotFoundError,
+    getThreadBrowseData,
+    getThreadBrowseDataBatch,
+} from './codex-browser-db';
+import type { ThreadBrowseData } from './codex-browser-types';
+import {
+    CodexRolloutContentError,
+    CodexRolloutMutationError,
+    type CodexRolloutSnapshot,
+    CodexRolloutSourceError,
+    copyStableCodexRollout,
+} from './codex-rollout-snapshot';
 import type { CodexTranscriptRenderOptions } from './codex-thread-types';
 import { renderCodexSessionFile, writeCodexSessionFileExport } from './codex-transcript-renderer';
 import { applyPathTransforms, type PathDisplaySettings } from './path-transforms';
 import type { ExportFormat } from './shared';
-import { buildBatchExportBaseName, buildConversationExportBaseName, getExportMimeType } from './ui-export-archive';
+import {
+    buildBatchExportBaseName,
+    buildConversationExportBaseName,
+    buildExportArchiveBaseName,
+    getExportMimeType,
+} from './ui-export-archive';
 import { buildUiExportDownloadUrl, ensureUiExportDir } from './ui-export-files';
 import { zipExportDirectory, zipExportFile } from './ui-export-zip';
 
@@ -39,9 +58,37 @@ export type CodexThreadDownload =
           fileName: string;
           mimeType: string;
           mode: 'download_url';
+          skippedThreadCount?: number;
       };
 
 const LARGE_BROWSER_EXPORT_THRESHOLD_BYTES = 128 * 1024 * 1024;
+const MAX_ROLLOUT_EXPORT_ATTEMPTS = 2;
+const ROLLOUT_RETRY_BACKOFF_MS = 40;
+const BATCH_MANIFEST_FILE_NAME = 'spiracha-manifest.json';
+const BATCH_MANIFEST_SCHEMA_VERSION = 1;
+const ARCHIVE_WIDE_FILE_ERROR_CODES = new Set(['EACCES', 'EIO', 'ENOSPC', 'ENOTDIR', 'EPERM', 'EROFS']);
+
+type BatchExportManifestEntry =
+    | {
+          fileName: string;
+          status: 'exported';
+          threadId: string;
+      }
+    | {
+          code: string;
+          message: string;
+          status: 'missing' | 'unreadable' | 'unstable';
+          threadId: string;
+      };
+
+type BatchExportManifest = {
+    entries: BatchExportManifestEntry[];
+    exportedCount: number;
+    generatedAt: string;
+    requestedThreadIds: string[];
+    schemaVersion: number;
+    skippedCount: number;
+};
 
 const buildExportBaseName = (thread: ReturnType<typeof getThreadBrowseData>['thread']) => {
     return buildConversationExportBaseName(
@@ -53,6 +100,8 @@ const buildExportBaseName = (thread: ReturnType<typeof getThreadBrowseData>['thr
         'thread',
     );
 };
+
+const buildArchiveBaseName = (baseName: string) => buildExportArchiveBaseName('codex', baseName);
 
 const buildUniqueArchivePath = (exportDir: string, exportBaseName: string) => {
     return path.join(exportDir, `${exportBaseName}-${randomUUID()}.zip`);
@@ -67,11 +116,6 @@ const buildUniqueBatchEntryBaseName = (baseName: string, threadId: string, usedB
     const collisionSafeBaseName = `${baseName}-${threadId}`;
     usedBaseNames.add(collisionSafeBaseName);
     return collisionSafeBaseName;
-};
-
-type RolloutSnapshot = {
-    mtimeMs: number;
-    sizeBytes: number;
 };
 
 const toDownloadOptions = (input: RenderCodexThreadDownloadInput): CodexTranscriptRenderOptions => {
@@ -100,50 +144,8 @@ const createExportWorkspace = async (exportDir: string, exportBaseName: string) 
     return mkdtemp(path.join(exportDir, `${exportBaseName}-`));
 };
 
-const getRolloutSnapshot = async (rolloutPath: string): Promise<RolloutSnapshot> => {
-    const metadata = await stat(rolloutPath);
-    return {
-        mtimeMs: metadata.mtimeMs,
-        sizeBytes: metadata.size,
-    };
-};
-
-const isMissingFileError = (error: unknown) => {
-    return error instanceof Error && 'code' in error && error.code === 'ENOENT';
-};
-
-const getExistingRolloutSnapshot = async (threadId: string, rolloutPath: string): Promise<RolloutSnapshot> => {
-    try {
-        return await getRolloutSnapshot(rolloutPath);
-    } catch (error) {
-        if (isMissingFileError(error)) {
-            throw new Error(`Thread ${threadId} rollout file is missing: ${rolloutPath}`, { cause: error });
-        }
-
-        throw error;
-    }
-};
-
 const logExportEvent = (level: 'error' | 'info' | 'warn', event: string, details: Record<string, unknown>) => {
     console[level](`[spiracha:export] ${event}`, details);
-};
-
-const logRolloutChangeIfDetected = (
-    threadId: string,
-    beforeSnapshot: RolloutSnapshot,
-    afterSnapshot: RolloutSnapshot,
-) => {
-    if (beforeSnapshot.mtimeMs === afterSnapshot.mtimeMs && beforeSnapshot.sizeBytes === afterSnapshot.sizeBytes) {
-        return;
-    }
-
-    logExportEvent('warn', 'rollout_changed_during_export', {
-        afterMtimeMs: afterSnapshot.mtimeMs,
-        afterSizeBytes: afterSnapshot.sizeBytes,
-        beforeMtimeMs: beforeSnapshot.mtimeMs,
-        beforeSizeBytes: beforeSnapshot.sizeBytes,
-        threadId,
-    });
 };
 
 const cleanupExportWorkspace = async (workspacePath: string) => {
@@ -157,114 +159,229 @@ const cleanupExportWorkspace = async (workspacePath: string) => {
     }
 };
 
+type StableRolloutContext = {
+    browseData: ThreadBrowseData;
+    rollout: CodexRolloutSnapshot;
+    snapshotPath: string;
+};
+
+const withStableRolloutSnapshot = async <T>({
+    dbPath,
+    initialBrowseData,
+    render,
+    threadId,
+}: {
+    dbPath: string;
+    initialBrowseData?: ThreadBrowseData;
+    render: (context: StableRolloutContext) => Promise<T>;
+    threadId: string;
+}): Promise<T> => {
+    for (let attempt = 1; attempt <= MAX_ROLLOUT_EXPORT_ATTEMPTS; attempt += 1) {
+        const browseData =
+            attempt === 1 && initialBrowseData ? initialBrowseData : getThreadBrowseData(dbPath, threadId);
+        const attemptWorkspace = await mkdtemp(path.join(os.tmpdir(), 'spiracha-codex-rollout-attempt-'));
+        const snapshotPath = path.join(attemptWorkspace, 'rollout.jsonl');
+
+        try {
+            const rollout = await copyStableCodexRollout({
+                attempt,
+                snapshotPath,
+                sourcePath: browseData.thread.rollout_path,
+                threadId,
+            });
+
+            return await render({ browseData, rollout, snapshotPath });
+        } catch (error) {
+            if (
+                (error instanceof CodexRolloutContentError || error instanceof CodexRolloutMutationError) &&
+                attempt < MAX_ROLLOUT_EXPORT_ATTEMPTS
+            ) {
+                const delayMs = ROLLOUT_RETRY_BACKOFF_MS * 2 ** (attempt - 1);
+                logExportEvent('warn', 'rollout_retry', {
+                    attempt,
+                    delayMs,
+                    errorCode: error.code,
+                    nextAttempt: attempt + 1,
+                    threadId,
+                });
+                await Bun.sleep(delayMs);
+                continue;
+            }
+
+            throw error;
+        } finally {
+            await cleanupExportWorkspace(attemptWorkspace);
+        }
+    }
+
+    throw new Error(`Unable to create a stable rollout snapshot for thread ${threadId}`);
+};
+
+const getBatchFailure = (threadId: string, error: unknown): BatchExportManifestEntry => {
+    if (error instanceof CodexThreadNotFoundError || error instanceof CodexRolloutSourceError) {
+        return {
+            code: error instanceof CodexRolloutSourceError ? error.code : 'CODEX_THREAD_NOT_FOUND',
+            message: error.message,
+            status:
+                error instanceof CodexRolloutSourceError && error.code === 'CODEX_ROLLOUT_UNREADABLE'
+                    ? 'unreadable'
+                    : 'missing',
+            threadId,
+        };
+    }
+
+    if (error instanceof CodexRolloutMutationError) {
+        return {
+            code: error.code,
+            message: error.message,
+            status: 'unstable',
+            threadId,
+        };
+    }
+
+    return {
+        code: 'CODEX_EXPORT_UNREADABLE',
+        message: error instanceof Error ? error.message : String(error),
+        status: 'unreadable',
+        threadId,
+    };
+};
+
+const writeBatchManifest = async (bundleDirectory: string, manifest: BatchExportManifest) => {
+    await Bun.write(path.join(bundleDirectory, BATCH_MANIFEST_FILE_NAME), `${JSON.stringify(manifest, null, 2)}\n`);
+};
+
+export const isArchiveWideFailure = (error: unknown) => {
+    if (error instanceof CodexDbCompatibilityError) {
+        return true;
+    }
+
+    if (typeof error !== 'object' || error === null || (!('code' in error) && !('cause' in error))) {
+        return false;
+    }
+
+    const candidate = error as { cause?: unknown; code?: unknown };
+    const codes = [candidate.code, (candidate.cause as { code?: unknown } | undefined)?.code];
+    return codes.some((code): code is string => typeof code === 'string' && ARCHIVE_WIDE_FILE_ERROR_CODES.has(code));
+};
+
+export const isPerEntryExportFailure = (error: unknown) => {
+    return (
+        error instanceof CodexThreadNotFoundError ||
+        error instanceof CodexRolloutContentError ||
+        error instanceof CodexRolloutMutationError ||
+        error instanceof CodexRolloutSourceError
+    );
+};
+
 export const renderCodexThreadDownload = async (
     input: RenderCodexThreadDownloadInput,
 ): Promise<CodexThreadDownload> => {
     const startedAt = Date.now();
-    const browseData = getThreadBrowseData(input.dbPath, input.threadId);
-    const extension = input.outputFormat === 'md' ? 'md' : 'txt';
-    const fileBaseName = buildExportBaseName(browseData.thread);
-    const fileName = `${fileBaseName}.${extension}`;
-    const mimeType = getExportMimeType(input.outputFormat);
-    const transform = (text: string) =>
-        input.pathDisplaySettings
-            ? applyPathTransforms(text, {
-                  ...input.pathDisplaySettings,
-                  projectPath: browseData.thread.cwd,
-              })
-            : text;
-    const rolloutSnapshotBefore = await getExistingRolloutSnapshot(input.threadId, browseData.thread.rollout_path);
-
-    logExportEvent('info', 'single_start', {
-        fileName,
-        sizeBytes: rolloutSnapshotBefore.sizeBytes,
-        threadId: input.threadId,
-    });
-
+    let fileName = input.threadId;
     try {
-        if (
-            input.zipArchive ||
-            rolloutSnapshotBefore.sizeBytes > (input.largeExportThresholdBytes ?? LARGE_BROWSER_EXPORT_THRESHOLD_BYTES)
-        ) {
-            const exportBaseName = fileBaseName;
-            const exportDir = await resolvePublicExportDir(input.publicExportDir);
-            const workspaceDir = await createExportWorkspace(exportDir, exportBaseName);
-            const savedPath = path.join(workspaceDir, `${exportBaseName}.${extension}`);
-            const zipPath = buildUniqueArchivePath(exportDir, exportBaseName);
-            try {
-                const saved = await writeCodexSessionFileExport(
+        return await withStableRolloutSnapshot({
+            dbPath: input.dbPath,
+            render: async ({ browseData, rollout, snapshotPath }) => {
+                const extension = input.outputFormat === 'md' ? 'md' : 'txt';
+                const fileBaseName = buildExportBaseName(browseData.thread);
+                fileName = `${fileBaseName}.${extension}`;
+                const mimeType = getExportMimeType(input.outputFormat);
+                const transform = (text: string) =>
+                    input.pathDisplaySettings
+                        ? applyPathTransforms(text, {
+                              ...input.pathDisplaySettings,
+                              projectPath: browseData.thread.cwd,
+                          })
+                        : text;
+
+                logExportEvent('info', 'single_start', {
+                    fileName,
+                    sizeBytes: rollout.before.sizeBytes,
+                    threadId: input.threadId,
+                });
+
+                if (
+                    input.zipArchive ||
+                    rollout.before.sizeBytes > (input.largeExportThresholdBytes ?? LARGE_BROWSER_EXPORT_THRESHOLD_BYTES)
+                ) {
+                    const exportBaseName = buildArchiveBaseName(fileBaseName);
+                    const exportDir = await resolvePublicExportDir(input.publicExportDir);
+                    const workspaceDir = await createExportWorkspace(exportDir, exportBaseName);
+                    const savedPath = path.join(workspaceDir, fileName);
+                    const zipPath = buildUniqueArchivePath(exportDir, exportBaseName);
+                    try {
+                        const saved = await writeCodexSessionFileExport(
+                            {
+                                fallbackReason: null,
+                                outputRelativePath: fileName,
+                                relations: browseData.relations,
+                                sessionFile: snapshotPath,
+                                thread: browseData.thread,
+                            },
+                            toDownloadOptions(input),
+                            savedPath,
+                            transform,
+                        );
+
+                        if (!saved) {
+                            throw new Error(`Thread ${input.threadId} produced no exportable content`);
+                        }
+
+                        await zipExportFile(savedPath, zipPath);
+                    } finally {
+                        await cleanupExportWorkspace(workspaceDir);
+                    }
+
+                    const zipStat = await Bun.file(zipPath).stat();
+                    logExportEvent('info', 'single_zip_ready', {
+                        downloadUrl: buildUiExportDownloadUrl(zipPath),
+                        durationMs: Date.now() - startedAt,
+                        fileName: `${exportBaseName}.zip`,
+                        sizeBytes: zipStat.size,
+                        threadId: input.threadId,
+                        zipPath,
+                    });
+
+                    return {
+                        downloadUrl: buildUiExportDownloadUrl(zipPath),
+                        fileName: `${exportBaseName}.zip`,
+                        mimeType: 'application/zip',
+                        mode: 'download_url' as const,
+                    };
+                }
+
+                const content = await renderCodexSessionFile(
                     {
                         fallbackReason: null,
                         outputRelativePath: fileName,
                         relations: browseData.relations,
-                        sessionFile: browseData.thread.rollout_path,
+                        sessionFile: snapshotPath,
                         thread: browseData.thread,
                     },
                     toDownloadOptions(input),
-                    savedPath,
-                    transform,
                 );
 
-                if (!saved) {
+                if (!content) {
                     throw new Error(`Thread ${input.threadId} produced no exportable content`);
                 }
 
-                await zipExportFile(savedPath, zipPath);
-            } finally {
-                await cleanupExportWorkspace(workspaceDir);
-            }
+                logExportEvent('info', 'single_inline_ready', {
+                    durationMs: Date.now() - startedAt,
+                    fileName,
+                    sizeBytes: content.length,
+                    threadId: input.threadId,
+                });
 
-            const rolloutSnapshotAfter = await getRolloutSnapshot(browseData.thread.rollout_path);
-            logRolloutChangeIfDetected(input.threadId, rolloutSnapshotBefore, rolloutSnapshotAfter);
-
-            const zipStat = await Bun.file(zipPath).stat();
-            logExportEvent('info', 'single_zip_ready', {
-                downloadUrl: buildUiExportDownloadUrl(zipPath),
-                durationMs: Date.now() - startedAt,
-                fileName: `${exportBaseName}.zip`,
-                sizeBytes: zipStat.size,
-                threadId: input.threadId,
-                zipPath,
-            });
-
-            return {
-                downloadUrl: buildUiExportDownloadUrl(zipPath),
-                fileName: `${exportBaseName}.zip`,
-                mimeType: 'application/zip',
-                mode: 'download_url',
-            };
-        }
-
-        const content = await renderCodexSessionFile(
-            {
-                fallbackReason: null,
-                outputRelativePath: fileName,
-                relations: browseData.relations,
-                sessionFile: browseData.thread.rollout_path,
-                thread: browseData.thread,
+                return {
+                    content: transform(content),
+                    fileName,
+                    mimeType,
+                    mode: 'download' as const,
+                };
             },
-            toDownloadOptions(input),
-        );
-
-        if (!content) {
-            throw new Error(`Thread ${input.threadId} produced no exportable content`);
-        }
-
-        const rolloutSnapshotAfter = await getRolloutSnapshot(browseData.thread.rollout_path);
-        logRolloutChangeIfDetected(input.threadId, rolloutSnapshotBefore, rolloutSnapshotAfter);
-        logExportEvent('info', 'single_inline_ready', {
-            durationMs: Date.now() - startedAt,
-            fileName,
-            sizeBytes: content.length,
             threadId: input.threadId,
         });
-
-        return {
-            content: transform(content),
-            fileName,
-            mimeType,
-            mode: 'download',
-        };
     } catch (error) {
         logExportEvent('error', 'single_error', {
             error: error instanceof Error ? error.message : String(error),
@@ -272,6 +389,98 @@ export const renderCodexThreadDownload = async (
             threadId: input.threadId,
         });
         throw error;
+    }
+};
+
+const renderCodexBatchEntry = async (
+    input: RenderCodexThreadsDownloadInput,
+    result: ReturnType<typeof getThreadBrowseDataBatch>[number],
+    bundleDirectory: string,
+    usedBatchEntryBaseNames: Set<string>,
+): Promise<BatchExportManifestEntry> => {
+    if (result.status !== 'found' || !result.data) {
+        return {
+            code: 'CODEX_THREAD_NOT_FOUND',
+            message: `Thread ${result.threadId} was not found.`,
+            status: 'missing',
+            threadId: result.threadId,
+        };
+    }
+
+    try {
+        const relativeFileName = await withStableRolloutSnapshot({
+            dbPath: input.dbPath,
+            initialBrowseData: result.data,
+            render: async ({ browseData, snapshotPath }) => {
+                const singleBaseName = buildExportBaseName(browseData.thread);
+                const uniqueBaseName = buildUniqueBatchEntryBaseName(
+                    singleBaseName,
+                    browseData.thread.id,
+                    usedBatchEntryBaseNames,
+                );
+                const extension = input.outputFormat === 'md' ? 'md' : 'txt';
+                const resolvedFileName = `${uniqueBaseName}.${extension}`;
+                const savedPath = path.join(bundleDirectory, resolvedFileName);
+                const transform = (text: string) =>
+                    input.pathDisplaySettings
+                        ? applyPathTransforms(text, {
+                              ...input.pathDisplaySettings,
+                              projectPath: browseData.thread.cwd,
+                          })
+                        : text;
+
+                if (uniqueBaseName !== singleBaseName) {
+                    logExportEvent('warn', 'batch_entry_name_collision', {
+                        resolvedFileName,
+                        singleBaseName,
+                        threadId: browseData.thread.id,
+                    });
+                }
+
+                const saved = await writeCodexSessionFileExport(
+                    {
+                        fallbackReason: null,
+                        outputRelativePath: resolvedFileName,
+                        relations: browseData.relations,
+                        sessionFile: snapshotPath,
+                        thread: browseData.thread,
+                    },
+                    {
+                        ...toDownloadOptions({
+                            ...input,
+                            threadId: browseData.thread.id,
+                        }),
+                    },
+                    savedPath,
+                    transform,
+                );
+
+                if (!saved) {
+                    throw new Error(`Thread ${browseData.thread.id} produced no exportable content`);
+                }
+
+                return resolvedFileName;
+            },
+            threadId: result.threadId,
+        });
+
+        return { fileName: relativeFileName, status: 'exported', threadId: result.threadId };
+    } catch (error) {
+        if (isArchiveWideFailure(error)) {
+            throw error;
+        }
+
+        if (!isPerEntryExportFailure(error)) {
+            throw error;
+        }
+
+        const failure = getBatchFailure(result.threadId, error);
+        logExportEvent('warn', 'batch_entry_skipped', {
+            error: error instanceof Error ? error.message : String(error),
+            status: failure.status,
+            threadId: result.threadId,
+        });
+        return failure;
     }
 };
 
@@ -284,19 +493,29 @@ export const renderCodexThreadsDownload = async (
         throw new Error('No threads selected for export');
     }
 
-    const browseEntries = threadIds.map((threadId) => getThreadBrowseData(input.dbPath, threadId));
-    const threads = browseEntries.map((entry) => entry.thread);
+    const browseResults = getThreadBrowseDataBatch(input.dbPath, threadIds);
+    const browseEntries = browseResults.flatMap((result) => (result.status === 'found' && result.data ? [result] : []));
+    if (browseEntries.length === 0) {
+        throw new Error('No exportable threads');
+    }
+
+    const threads = browseEntries.map((result) => result.data.thread);
     const exportDir = await resolvePublicExportDir(input.publicExportDir);
-    const exportBaseName = buildBatchExportBaseName(
-        threads.map((thread) => ({
-            cwd: thread.cwd,
-            updatedAtMs: thread.updated_at_ms ?? thread.updated_at * 1000,
-        })),
-        'threads',
+    const exportBaseName = buildArchiveBaseName(
+        buildBatchExportBaseName(
+            threads.map((thread) => ({
+                cwd: thread.cwd,
+                updatedAtMs: thread.updated_at_ms ?? thread.updated_at * 1000,
+            })),
+            'threads',
+        ),
     );
     const bundleDirectory = await createExportWorkspace(exportDir, exportBaseName);
     const zipPath = buildUniqueArchivePath(exportDir, exportBaseName);
     const usedBatchEntryBaseNames = new Set<string>();
+    const manifestEntries: BatchExportManifestEntry[] = [];
+    let exportedCount = 0;
+    let skippedCount = 0;
 
     logExportEvent('info', 'batch_start', {
         exportBaseName,
@@ -306,59 +525,24 @@ export const renderCodexThreadsDownload = async (
     });
 
     try {
-        for (const entry of browseEntries) {
-            const rolloutSnapshotBefore = await getExistingRolloutSnapshot(entry.thread.id, entry.thread.rollout_path);
-            const singleBaseName = buildExportBaseName(entry.thread);
-            const uniqueBaseName = buildUniqueBatchEntryBaseName(
-                singleBaseName,
-                entry.thread.id,
-                usedBatchEntryBaseNames,
-            );
-            const extension = input.outputFormat === 'md' ? 'md' : 'txt';
-            const relativeFileName = `${uniqueBaseName}.${extension}`;
-            const savedPath = path.join(bundleDirectory, relativeFileName);
-            const transform = (text: string) =>
-                input.pathDisplaySettings
-                    ? applyPathTransforms(text, {
-                          ...input.pathDisplaySettings,
-                          projectPath: entry.thread.cwd,
-                      })
-                    : text;
-
-            if (uniqueBaseName !== singleBaseName) {
-                logExportEvent('warn', 'batch_entry_name_collision', {
-                    resolvedFileName: relativeFileName,
-                    singleBaseName,
-                    threadId: entry.thread.id,
-                });
-            }
-
-            const saved = await writeCodexSessionFileExport(
-                {
-                    fallbackReason: null,
-                    outputRelativePath: relativeFileName,
-                    relations: entry.relations,
-                    sessionFile: entry.thread.rollout_path,
-                    thread: entry.thread,
-                },
-                {
-                    ...toDownloadOptions({
-                        ...input,
-                        threadId: entry.thread.id,
-                    }),
-                },
-                savedPath,
-                transform,
-            );
-
-            if (!saved) {
-                throw new Error(`Thread ${entry.thread.id} produced no exportable content`);
-            }
-
-            const rolloutSnapshotAfter = await getRolloutSnapshot(entry.thread.rollout_path);
-            logRolloutChangeIfDetected(entry.thread.id, rolloutSnapshotBefore, rolloutSnapshotAfter);
+        for (const result of browseResults) {
+            manifestEntries.push(await renderCodexBatchEntry(input, result, bundleDirectory, usedBatchEntryBaseNames));
         }
 
+        exportedCount = manifestEntries.filter((entry) => entry.status === 'exported').length;
+        skippedCount = manifestEntries.length - exportedCount;
+        if (exportedCount === 0) {
+            throw new Error('No exportable threads');
+        }
+
+        await writeBatchManifest(bundleDirectory, {
+            entries: manifestEntries,
+            exportedCount,
+            generatedAt: new Date().toISOString(),
+            requestedThreadIds: threadIds,
+            schemaVersion: BATCH_MANIFEST_SCHEMA_VERSION,
+            skippedCount,
+        });
         await zipExportDirectory(bundleDirectory, zipPath);
     } catch (error) {
         logExportEvent('error', 'batch_error', {
@@ -389,5 +573,6 @@ export const renderCodexThreadsDownload = async (
         fileName: `${exportBaseName}.zip`,
         mimeType: 'application/zip',
         mode: 'download_url',
+        skippedThreadCount: skippedCount,
     };
 };

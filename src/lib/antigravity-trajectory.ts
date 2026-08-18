@@ -1,5 +1,6 @@
 import { constants, Database } from 'bun:sqlite';
 import { pathToFileURL } from 'node:url';
+import type { AntigravityParseDiagnostic } from './antigravity-transcript-history';
 
 type ProtoField = {
     bytes?: Uint8Array;
@@ -38,9 +39,15 @@ export type AntigravityTrajectoryEntry = {
     workdir?: string;
 };
 
+export type AntigravityTrajectoryReadResult = {
+    diagnostics: AntigravityParseDiagnostic[];
+    entries: AntigravityTrajectoryEntry[];
+};
+
 const decoder = new TextDecoder();
 const ANTIGRAVITY_READONLY_DB_FLAGS = constants.SQLITE_OPEN_READONLY | constants.SQLITE_OPEN_URI;
 const ANTIGRAVITY_SQLITE_BUSY_TIMEOUT_MS = 50;
+const ANTIGRAVITY_MAX_TRAJECTORY_DIAGNOSTICS = 100;
 
 const advanceFixedWidth = (buffer: Uint8Array, index: number, width: number): number => {
     const next = index + width;
@@ -283,11 +290,40 @@ export const readAntigravityTrajectoryStepIndexes = (dbPath: string): Promise<Se
     );
 
 export const readAntigravityTrajectoryEntries = (dbPath: string): Promise<AntigravityTrajectoryEntry[]> =>
-    withTrajectoryDb(dbPath, (db) => {
-        const rows = db
-            .query('SELECT idx, step_type, status, metadata, step_payload FROM steps ORDER BY idx')
-            .all() as TrajectoryStepRow[];
-        return rows
-            .map((row) => parseTrajectoryStep(row))
-            .filter((entry): entry is AntigravityTrajectoryEntry => entry !== null);
-    });
+    readAntigravityTrajectoryEntriesWithDiagnostics(dbPath).then((result) => result.entries);
+
+const readTrajectoryEntriesFromRows = (rows: TrajectoryStepRow[]): AntigravityTrajectoryReadResult => {
+    const diagnostics: AntigravityParseDiagnostic[] = [];
+    const entries: AntigravityTrajectoryEntry[] = [];
+    for (const row of rows) {
+        try {
+            const entry = parseTrajectoryStep(row);
+            if (entry) {
+                entries.push(entry);
+            }
+        } catch (error) {
+            if (diagnostics.length < ANTIGRAVITY_MAX_TRAJECTORY_DIAGNOSTICS) {
+                diagnostics.push({
+                    byteOffset: null,
+                    kind: 'protobuf',
+                    message: `Invalid Antigravity trajectory protobuf at step ${row.idx}: ${
+                        error instanceof Error ? error.message : String(error)
+                    }`,
+                    stepIndex: row.idx,
+                });
+            }
+        }
+    }
+    return { diagnostics, entries };
+};
+
+export const readAntigravityTrajectoryEntriesWithDiagnostics = (
+    dbPath: string,
+): Promise<AntigravityTrajectoryReadResult> =>
+    withTrajectoryDb(dbPath, (db) =>
+        readTrajectoryEntriesFromRows(
+            db
+                .query('SELECT idx, step_type, status, metadata, step_payload FROM steps ORDER BY idx')
+                .all() as TrajectoryStepRow[],
+        ),
+    );

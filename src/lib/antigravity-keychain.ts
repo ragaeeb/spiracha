@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { createDecipheriv, pbkdf2Sync } from 'node:crypto';
 import { promisify } from 'node:util';
+import { AntigravityDecryptionCapabilityError } from './antigravity-decryption-error';
 
 export const ANTIGRAVITY_KEYCHAIN_SERVICE = 'Antigravity Safe Storage';
 export const ANTIGRAVITY_KEYCHAIN_ACCOUNT = 'Antigravity Key';
@@ -15,6 +16,10 @@ export type AntigravityDecryptionState = {
     provider: 'keychain' | 'unsupported';
     status: 'error' | 'locked' | 'unlocked' | 'unsupported';
 };
+
+export type AntigravityDecryptionCapability = Readonly<{
+    decryptSafeStoragePayload: (payload: Buffer | Uint8Array | string) => string | null;
+}>;
 
 const execFileAsync = promisify(execFile);
 const SAFE_STORAGE_SALT = 'saltysalt';
@@ -120,12 +125,20 @@ export const decryptAntigravitySafeStoragePayload = (
     return null;
 };
 
+export const createAntigravityDecryptionCapability = (keychainSecret: string): AntigravityDecryptionCapability => ({
+    decryptSafeStoragePayload: (payload) => decryptAntigravitySafeStoragePayload(payload, keychainSecret),
+});
+
 export const getAntigravityDecryptionState = ({
     cachedSecret = cachedKeychainSecret,
+    error = null,
+    hasAccess,
     lastError = lastKeychainError,
     platform = process.platform,
 }: {
     cachedSecret?: string | null;
+    error?: string | null;
+    hasAccess?: boolean;
     lastError?: string | null;
     platform?: NodeJS.Platform;
 } = {}): AntigravityDecryptionState => {
@@ -142,7 +155,10 @@ export const getAntigravityDecryptionState = ({
         };
     }
 
-    if (cachedSecret) {
+    const accessAvailable = hasAccess ?? Boolean(cachedSecret);
+    const stateError = error ?? lastError;
+
+    if (accessAvailable) {
         return {
             canRequestAccess: true,
             error: null,
@@ -157,17 +173,15 @@ export const getAntigravityDecryptionState = ({
 
     return {
         canRequestAccess: true,
-        error: lastError,
+        error: stateError,
         isUnlocked: false,
         keychainAccount: ANTIGRAVITY_KEYCHAIN_ACCOUNT,
         keychainService: ANTIGRAVITY_KEYCHAIN_SERVICE,
         platform,
         provider: 'keychain',
-        status: lastError ? 'error' : 'locked',
+        status: stateError ? 'error' : 'locked',
     };
 };
-
-export const getCachedAntigravityKeychainSecret = (): string | null => cachedKeychainSecret;
 
 export const getAntigravityKeychainExecOptions = () => ({ timeout: 10_000 });
 
@@ -189,13 +203,33 @@ export const readAntigravityKeychainSecret = async (): Promise<string> => {
     return secret;
 };
 
+const getAntigravityKeychainError = (error: unknown): string => {
+    return error instanceof Error ? error.message : String(error);
+};
+
+export const withAntigravityDecryptionCapability = async <T>(
+    action: (capability: AntigravityDecryptionCapability) => T | Promise<T>,
+): Promise<T> => {
+    if (!cachedKeychainSecret) {
+        throw new AntigravityDecryptionCapabilityError(
+            new Error('Antigravity Keychain access has not been enabled for this server process.'),
+        );
+    }
+
+    return action(createAntigravityDecryptionCapability(cachedKeychainSecret));
+};
+
+export const probeAntigravityDecryptionState = async (): Promise<AntigravityDecryptionState> => {
+    return getAntigravityDecryptionState();
+};
+
 export const unlockAntigravityDecryption = async (): Promise<AntigravityDecryptionState> => {
     try {
         cachedKeychainSecret = await readAntigravityKeychainSecret();
         lastKeychainError = null;
     } catch (error) {
         cachedKeychainSecret = null;
-        lastKeychainError = error instanceof Error ? error.message : String(error);
+        lastKeychainError = getAntigravityKeychainError(error);
     }
 
     return getAntigravityDecryptionState();

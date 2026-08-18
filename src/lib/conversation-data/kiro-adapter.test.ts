@@ -156,12 +156,15 @@ describe('Kiro conversation adapter', () => {
             id: sessionId,
             metadata: {
                 continuationSessionIds: [sessionId],
-                model: 'claude-sonnet-4.5',
                 sessionType: 'spec',
             },
+            model: 'claude-sonnet-4.5',
             source: 'kiro',
             workspacePath,
         });
+        expect(conversation?.metadata).not.toHaveProperty('model');
+        expect(conversation?.metadata).not.toHaveProperty('selectedModel');
+        expect(conversation?.metadata).not.toHaveProperty('defaultModelTitle');
         expect(conversation?.messages).toEqual(
             expect.arrayContaining([
                 expect.objectContaining({

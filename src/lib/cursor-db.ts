@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
+import { decodeCursorChatModel, resolveCursorChatStorePath } from './cursor-chat-store';
 import {
     COMPOSER_DATA_KEY,
     COMPOSER_HEADERS_KEY,
@@ -20,8 +21,9 @@ import {
     getCursorWorkspaceStorageDir,
     resolveCursorUserDir,
 } from './cursor-exporter-types';
-import { buildCursorBubbleKeyLikePattern, isSafeCursorComposerId } from './cursor-id';
+import { getCursorBubbleKeyRange, isCursorBubbleKeyForComposer, isSafeCursorComposerId } from './cursor-id';
 import { asNumber, asObject, asString, type JsonValue, pathExists, toFileUri } from './shared';
+import { runWithSqliteRetry } from './sqlite-retry';
 
 type ComposerEntry = Record<string, JsonValue> & {
     composerId?: string;
@@ -39,6 +41,8 @@ type ComposerHeaderRow = {
 };
 
 export const CURSOR_READONLY_DB_OPEN_FLAGS = constants.SQLITE_OPEN_READONLY | constants.SQLITE_OPEN_URI;
+export const CURSOR_SQLITE_RETRY_DELAYS_MS = [40, 120, 250] as const;
+export const CURSOR_MAX_HISTORY_ENTRIES_BYTES = 8 * 1024 * 1024;
 
 // Cursor databases are WAL-mode. A plain read-only open fails once Cursor cleanly shuts down and
 // removes the -wal/-shm sidecars, and the failure only surfaces at query time (so a try/catch around
@@ -60,6 +64,65 @@ export const openCursorReadonlyDb = (dbPath: string): Database => {
     const hasWalSidecars = existsSync(`${dbPath}-wal`) || existsSync(`${dbPath}-shm`);
     return new Database(getCursorReadonlyDbUri(dbPath, !hasWalSidecars), CURSOR_READONLY_DB_OPEN_FLAGS);
 };
+
+const assertSynchronousCursorCallback = <T>(result: T): T => {
+    if (
+        result !== null &&
+        (typeof result === 'object' || typeof result === 'function') &&
+        'then' in result &&
+        typeof result.then === 'function'
+    ) {
+        throw new TypeError('Cursor SQLite callbacks must be synchronous');
+    }
+
+    return result;
+};
+
+export const withCursorReadonlyDb = <T>(dbPath: string, callback: (db: Database) => T): T =>
+    runWithSqliteRetry({
+        action: () => {
+            const db = openCursorReadonlyDb(dbPath);
+            try {
+                return assertSynchronousCursorCallback(callback(db));
+            } finally {
+                db.close();
+            }
+        },
+        delaysMs: CURSOR_SQLITE_RETRY_DELAYS_MS,
+    });
+
+export const withCursorWriteTransaction = <T>(dbPath: string, callback: (db: Database) => T): T =>
+    runWithSqliteRetry({
+        action: () => {
+            const db = new Database(dbPath, { create: false, readwrite: true });
+            let transactionStarted = false;
+            try {
+                db.exec('PRAGMA busy_timeout = 0');
+                db.exec('BEGIN IMMEDIATE');
+                transactionStarted = true;
+                const result = assertSynchronousCursorCallback(callback(db));
+                db.exec('COMMIT');
+                transactionStarted = false;
+                return result;
+            } catch (error) {
+                if (transactionStarted) {
+                    try {
+                        db.exec('ROLLBACK');
+                    } catch {}
+                }
+                throw error;
+            } finally {
+                try {
+                    db.close();
+                } catch (closeError) {
+                    console.warn('[spiracha:cursor] SQLite close failed', {
+                        error: closeError instanceof Error ? closeError.message : String(closeError),
+                    });
+                }
+            }
+        },
+        delaysMs: CURSOR_SQLITE_RETRY_DELAYS_MS,
+    });
 
 const isMissingOrUnreadableCursorStoreError = (error: unknown): boolean => {
     const code = (error as { code?: unknown }).code;
@@ -204,21 +267,21 @@ const readModernComposerHeaders = (db: Database): ComposerEntry[] => {
     return rows.map(parseComposerHeaderRow);
 };
 
+export const loadGlobalComposerHeadersStrict = (globalDbPath: string): ComposerEntry[] =>
+    withCursorReadonlyDb(globalDbPath, (db) => {
+        const legacy = readItemValue<{ allComposers?: ComposerEntry[] }>(db, COMPOSER_HEADERS_KEY);
+        const headersById = new Map<string, ComposerEntry>();
+        for (const header of [...(legacy?.allComposers ?? []), ...readModernComposerHeaders(db)]) {
+            if (header.composerId) {
+                headersById.set(header.composerId, header);
+            }
+        }
+        return [...headersById.values()];
+    });
+
 export const loadGlobalComposerHeaders = (globalDbPath: string): ComposerEntry[] => {
     try {
-        const db = openCursorReadonlyDb(globalDbPath);
-        try {
-            const legacy = readItemValue<{ allComposers?: ComposerEntry[] }>(db, COMPOSER_HEADERS_KEY);
-            const headersById = new Map<string, ComposerEntry>();
-            for (const header of [...(legacy?.allComposers ?? []), ...readModernComposerHeaders(db)]) {
-                if (header.composerId) {
-                    headersById.set(header.composerId, header);
-                }
-            }
-            return [...headersById.values()];
-        } finally {
-            db.close();
-        }
+        return loadGlobalComposerHeadersStrict(globalDbPath);
     } catch (error) {
         warnCursorDataIssue('global_composer_headers_unavailable', {
             error: error instanceof Error ? error.message : String(error),
@@ -265,23 +328,29 @@ const resolveBucketIdentity = async (
     return { folders: [], kind: 'unknown', label: bucketId, uri: '' };
 };
 
+const readBucketComposerIdsStrict = (dbPath: string): string[] =>
+    withCursorReadonlyDb(dbPath, (db) => {
+        const data = readItemValue<{ allComposers?: ComposerEntry[] }>(db, COMPOSER_DATA_KEY);
+        return (data?.allComposers ?? [])
+            .map((entry) => entry.composerId)
+            .filter((value): value is string => Boolean(value));
+    });
+
 const readBucketComposerIds = (dbPath: string): string[] => {
     try {
-        const db = openCursorReadonlyDb(dbPath);
-        try {
-            const data = readItemValue<{ allComposers?: ComposerEntry[] }>(db, COMPOSER_DATA_KEY);
-            return (data?.allComposers ?? [])
-                .map((entry) => entry.composerId)
-                .filter((value): value is string => Boolean(value));
-        } finally {
-            db.close();
-        }
+        return readBucketComposerIdsStrict(dbPath);
     } catch {
         return [];
     }
 };
 
-export const loadCursorBuckets = async (userDir = resolveCursorUserDir()): Promise<CursorWorkspaceBucket[]> => {
+type CursorBucketComposerIdReader = (dbPath: string) => string[];
+
+const loadCursorBucketsInternal = async (
+    userDir: string,
+    readHeaders: (globalDbPath: string) => ComposerEntry[],
+    readComposerIds: CursorBucketComposerIdReader,
+): Promise<CursorWorkspaceBucket[]> => {
     const workspaceStorageDir = getCursorWorkspaceStorageDir(userDir);
     let bucketIds: string[] = [];
     try {
@@ -293,7 +362,7 @@ export const loadCursorBuckets = async (userDir = resolveCursorUserDir()): Promi
     const globalDbPath = getCursorGlobalDbPath(userDir);
     const headerIdsByBucket = new Map<string, Set<string>>();
     if (await pathExists(globalDbPath)) {
-        for (const header of loadGlobalComposerHeaders(globalDbPath)) {
+        for (const header of readHeaders(globalDbPath)) {
             const id = header.workspaceIdentifier?.id;
             if (id && header.composerId) {
                 const set = headerIdsByBucket.get(id) ?? new Set<string>();
@@ -305,7 +374,7 @@ export const loadCursorBuckets = async (userDir = resolveCursorUserDir()): Promi
 
     const buckets: CursorWorkspaceBucket[] = [];
     for (const bucketId of bucketIds) {
-        const bucket = await buildBucket(workspaceStorageDir, bucketId, headerIdsByBucket);
+        const bucket = await buildBucket(workspaceStorageDir, bucketId, headerIdsByBucket, readComposerIds);
         if (bucket) {
             buckets.push(bucket);
         }
@@ -314,10 +383,17 @@ export const loadCursorBuckets = async (userDir = resolveCursorUserDir()): Promi
     return buckets;
 };
 
+export const loadCursorBuckets = async (userDir = resolveCursorUserDir()): Promise<CursorWorkspaceBucket[]> =>
+    loadCursorBucketsInternal(userDir, loadGlobalComposerHeaders, readBucketComposerIds);
+
+const loadCursorBucketsStrict = async (userDir: string): Promise<CursorWorkspaceBucket[]> =>
+    loadCursorBucketsInternal(userDir, loadGlobalComposerHeadersStrict, readBucketComposerIdsStrict);
+
 const buildBucket = async (
     workspaceStorageDir: string,
     bucketId: string,
     headerIdsByBucket: Map<string, Set<string>>,
+    readComposerIds: CursorBucketComposerIdReader,
 ): Promise<CursorWorkspaceBucket | null> => {
     const root = path.join(workspaceStorageDir, bucketId);
     const workspaceJsonPath = path.join(root, 'workspace.json');
@@ -337,7 +413,7 @@ const buildBucket = async (
     try {
         identity = await resolveBucketIdentity(wsData, bucketId);
         dbStat = await stat(dbPath);
-        composerIds = readBucketComposerIds(dbPath);
+        composerIds = readComposerIds(dbPath);
     } catch (error) {
         if (isMissingOrUnreadableCursorStoreError(error)) {
             return null;
@@ -483,55 +559,128 @@ export const findCursorWorkspaceGroups = (groups: CursorWorkspaceGroup[], query:
 };
 
 const countBubbles = (db: Database, composerId: string): { count: number; bytes: number } => {
-    const row = db
-        .query(
-            `SELECT COUNT(*) AS count, COALESCE(SUM(length(value)), 0) AS bytes FROM cursorDiskKV WHERE key LIKE ? ESCAPE '\\'`,
-        )
-        .get(buildCursorBubbleKeyLikePattern(composerId)) as { count: number; bytes: number };
-    return { bytes: row.bytes, count: row.count };
+    const range = getCursorBubbleKeyRange(composerId);
+    const rows = db
+        .query('SELECT key, value FROM cursorDiskKV WHERE key >= ? AND key < ?')
+        .all(range.start, range.end) as Array<{ key: string; value: string }>;
+    const exactRows = rows.filter((row) => isCursorBubbleKeyForComposer(row.key, row.value, composerId));
+    return {
+        bytes: exactRows.reduce((sum, row) => sum + row.value.length, 0),
+        count: exactRows.length,
+    };
+};
+
+export const findCursorTranscriptDirsForComposerIds = async (
+    composerIds: Iterable<string>,
+    userDir = resolveCursorUserDir(),
+): Promise<Map<string, string[]>> => {
+    const safeComposerIds = new Set([...composerIds].filter(isSafeCursorComposerId));
+    const matches = new Map([...safeComposerIds].map((composerId) => [composerId, [] as string[]]));
+    if (safeComposerIds.size === 0) {
+        return matches;
+    }
+
+    const projectsDir = getCursorProjectsDir(userDir);
+    if (!(await pathExists(projectsDir))) {
+        return matches;
+    }
+
+    let projectDirs: string[] = [];
+    try {
+        projectDirs = await readdir(projectsDir);
+    } catch {
+        return matches;
+    }
+
+    await Promise.all(
+        projectDirs.map(async (projectDir) => {
+            const agentTranscriptsDir = path.resolve(projectsDir, projectDir, 'agent-transcripts');
+            let entries: string[];
+            try {
+                entries = await readdir(agentTranscriptsDir);
+            } catch {
+                return;
+            }
+
+            for (const composerId of entries) {
+                if (!safeComposerIds.has(composerId)) {
+                    continue;
+                }
+
+                const transcriptDir = path.resolve(agentTranscriptsDir, composerId);
+                const relativePath = path.relative(agentTranscriptsDir, transcriptDir);
+                if (!relativePath || relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath)) {
+                    continue;
+                }
+
+                matches.get(composerId)!.push(transcriptDir);
+            }
+        }),
+    );
+
+    return matches;
 };
 
 export const findCursorTranscriptDirs = async (
     composerId: string,
     userDir = resolveCursorUserDir(),
 ): Promise<string[]> => {
-    if (!isSafeCursorComposerId(composerId)) {
-        return [];
-    }
-
-    const projectsDir = getCursorProjectsDir(userDir);
-    if (!(await pathExists(projectsDir))) {
-        return [];
-    }
-
-    const matches: string[] = [];
-    let projectDirs: string[] = [];
-    try {
-        projectDirs = await readdir(projectsDir);
-    } catch {
-        return [];
-    }
-
-    for (const projectDir of projectDirs) {
-        const agentTranscriptsDir = path.resolve(projectsDir, projectDir, 'agent-transcripts');
-        const transcriptDir = path.resolve(agentTranscriptsDir, composerId);
-        const relativePath = path.relative(agentTranscriptsDir, transcriptDir);
-        if (!relativePath || relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath)) {
-            continue;
-        }
-
-        if (await pathExists(transcriptDir)) {
-            matches.push(transcriptDir);
-        }
-    }
-
-    return matches;
+    return (await findCursorTranscriptDirsForComposerIds([composerId], userDir)).get(composerId) ?? [];
 };
 
 export type ListCursorThreadsOptions = {
+    includeBubbleStats?: boolean;
+    includeModelAttribution?: boolean;
     includeTranscriptDirs?: boolean;
     updatedAfterMs?: number;
 };
+
+const readCursorChatStoreModel = async (
+    composerId: string,
+    transcriptDirs: string[],
+): Promise<{ model: string; reasoningEffort: string | null } | null> => {
+    for (const transcriptDir of transcriptDirs) {
+        const projectDir = path.dirname(path.dirname(transcriptDir));
+        const storePath = await resolveCursorChatStorePath(projectDir, composerId);
+        if (!storePath) {
+            continue;
+        }
+
+        try {
+            const model = withCursorReadonlyDb(storePath, (db) => {
+                const rows = db
+                    .query("SELECT data FROM blobs WHERE instr(CAST(data AS TEXT), 'cursor-grok-') > 0")
+                    .all() as Array<{ data: string | Uint8Array }>;
+                return decodeCursorChatModel(rows.map((row) => row.data));
+            });
+            if (model) {
+                return model;
+            }
+        } catch {
+            // Modern chat stores are optional and may be concurrently replaced by Cursor.
+        }
+    }
+
+    return null;
+};
+
+const hydrateCursorChatStoreModels = async (
+    threads: CursorThreadSummary[],
+    transcriptDirsByComposerId: Map<string, string[]>,
+): Promise<CursorThreadSummary[]> =>
+    Promise.all(
+        threads.map(async (thread) => {
+            if (thread.model) {
+                return thread;
+            }
+
+            const model = await readCursorChatStoreModel(
+                thread.composerId,
+                transcriptDirsByComposerId.get(thread.composerId) ?? [],
+            );
+            return model ? { ...thread, ...model } : thread;
+        }),
+    );
 
 export const listCursorThreadsForGroup = async (
     group: CursorWorkspaceGroup,
@@ -539,18 +688,31 @@ export const listCursorThreadsForGroup = async (
     options: ListCursorThreadsOptions = {},
 ): Promise<CursorThreadSummary[]> => {
     const discovery = await discoverCursorWorkspaces(userDir, options);
-    const threads = discovery.threadsByKey.get(group.key) ?? [];
+    const discoveredThreads = discovery.threadsByKey.get(group.key) ?? [];
+    const threads =
+        options.includeBubbleStats === false
+            ? discoveredThreads
+            : await hydrateCursorThreadBubbleStats(discoveredThreads, userDir);
 
+    const shouldHydrateModels = options.includeModelAttribution !== false;
+    const shouldResolveTranscriptDirs = options.includeTranscriptDirs !== false || shouldHydrateModels;
+    const transcriptDirsByComposerId = shouldResolveTranscriptDirs
+        ? await findCursorTranscriptDirsForComposerIds(
+              threads.map((thread) => thread.composerId),
+              userDir,
+          )
+        : new Map<string, string[]>();
+    const hydratedThreads = shouldHydrateModels
+        ? await hydrateCursorChatStoreModels(threads, transcriptDirsByComposerId)
+        : threads;
     if (options.includeTranscriptDirs === false) {
-        return threads;
+        return hydratedThreads;
     }
 
-    return Promise.all(
-        threads.map(async (thread) => ({
-            ...thread,
-            transcriptDirs: await findCursorTranscriptDirs(thread.composerId, userDir),
-        })),
-    );
+    return hydratedThreads.map((thread) => ({
+        ...thread,
+        transcriptDirs: transcriptDirsByComposerId.get(thread.composerId) ?? [],
+    }));
 };
 
 // Older threads' workspace buckets get pruned by Cursor over time, and many threads predate the
@@ -559,7 +721,7 @@ export const listCursorThreadsForGroup = async (
 // its global header workspace uri, an existing bucket it points at, or — for threads with no such
 // link — the dominant absolute path found in its tool calls.
 
-type GlobalHead = {
+type ParsedGlobalHead = {
     name: string | null;
     createdAtMs: number | null;
     lastUpdatedAtMs: number | null;
@@ -569,6 +731,7 @@ type GlobalHead = {
     reasoningEffort: string | null;
     status: string | null;
 };
+type GlobalHead = ParsedGlobalHead & { hasBubbleData: boolean };
 type HeaderInfo = {
     name: string | null;
     uriPath: string | null;
@@ -583,6 +746,7 @@ type CursorDiscovery = {
 };
 
 type CursorDiscoveryOptions = {
+    strict?: boolean;
     updatedAfterMs?: number;
 };
 
@@ -671,6 +835,58 @@ const inferFolderFromBlob = (blob: string): string | null => {
     return matches ? inferFolderFromPaths(matches) : null;
 };
 
+const readCursorHistoryActivityEntry = async (
+    entriesPath: string,
+): Promise<{ folder: string; lastActiveMs: number } | null> => {
+    let entriesStat: Awaited<ReturnType<typeof stat>>;
+    try {
+        entriesStat = await stat(entriesPath);
+    } catch (error) {
+        if ((error as { code?: unknown }).code !== 'ENOENT' && (error as { code?: unknown }).code !== 'ENOTDIR') {
+            warnCursorDataIssue('history_entries_stat_failed', {
+                entriesPath,
+                error: error instanceof Error ? error.message : String(error),
+            });
+        }
+        return null;
+    }
+    if (entriesStat.size > CURSOR_MAX_HISTORY_ENTRIES_BYTES) {
+        warnCursorDataIssue('history_entries_oversized', {
+            entriesPath,
+            maxBytes: CURSOR_MAX_HISTORY_ENTRIES_BYTES,
+            sizeBytes: entriesStat.size,
+        });
+        return null;
+    }
+
+    let data: { resource?: unknown; entries?: unknown };
+    try {
+        data = (await Bun.file(entriesPath).json()) as { resource?: unknown; entries?: unknown };
+    } catch (error) {
+        warnCursorDataIssue('invalid_history_entries_json', {
+            entriesPath,
+            error: error instanceof Error ? error.message : String(error),
+        });
+        return null;
+    }
+
+    const resource = typeof data.resource === 'string' ? data.resource : '';
+    const folder = containerRootFromPath(resource);
+    if (!folder || isNoisePath(folder)) {
+        return null;
+    }
+
+    const entries = Array.isArray(data.entries) ? data.entries : [];
+    const timestamps = entries.map((item) => {
+        if (!item || typeof item !== 'object') {
+            return 0;
+        }
+        const timestamp = (item as { timestamp?: unknown }).timestamp;
+        return typeof timestamp === 'number' && Number.isFinite(timestamp) ? timestamp : 0;
+    });
+    return { folder, lastActiveMs: Math.max(0, ...timestamps) };
+};
+
 const readCursorFileHistoryProjectActivity = async (userDir: string): Promise<Map<string, number>> => {
     const historyDir = path.join(userDir, 'History');
     let entries: Array<{ isDirectory: () => boolean; name: string }> = [];
@@ -686,54 +902,44 @@ const readCursorFileHistoryProjectActivity = async (userDir: string): Promise<Ma
             continue;
         }
 
-        const entriesPath = path.join(historyDir, entry.name, 'entries.json');
-        let data: { resource?: string; entries?: Array<{ timestamp?: number }> };
-        try {
-            data = (await Bun.file(entriesPath).json()) as {
-                resource?: string;
-                entries?: Array<{ timestamp?: number }>;
-            };
-        } catch {
-            continue;
+        const record = await readCursorHistoryActivityEntry(path.join(historyDir, entry.name, 'entries.json'));
+        if (record) {
+            activity.set(record.folder, Math.max(activity.get(record.folder) ?? 0, record.lastActiveMs));
         }
-
-        const resource = typeof data.resource === 'string' ? data.resource : '';
-        const folder = containerRootFromPath(resource);
-        if (!folder || isNoisePath(folder)) {
-            continue;
-        }
-
-        const lastActiveMs = Math.max(0, ...(data.entries ?? []).map((item) => item.timestamp ?? 0));
-        activity.set(folder, Math.max(activity.get(folder) ?? 0, lastActiveMs));
     }
 
     return activity;
 };
 
+const extractCursorBubblePaths = (value: string): string[] => {
+    let bubble: Record<string, JsonValue>;
+    try {
+        bubble = JSON.parse(value) as Record<string, JsonValue>;
+    } catch {
+        return [];
+    }
+
+    const tool = asObject(bubble.toolFormerData ?? null);
+    if (!tool) {
+        return [];
+    }
+
+    const blob = `${asString(tool.rawArgs ?? null) ?? ''} ${asString(tool.params ?? null) ?? ''}`;
+    return blob.match(ABS_PATH_RE) ?? [];
+};
+
 const inferFolderFromBubbles = (db: Database, composerId: string): string | null => {
+    const range = getCursorBubbleKeyRange(composerId);
     const rows = db
-        .query(`SELECT value FROM cursorDiskKV WHERE key LIKE ? ESCAPE '\\' LIMIT 80`)
-        .all(buildCursorBubbleKeyLikePattern(composerId)) as Array<{ value: string }>;
+        .query('SELECT key, value FROM cursorDiskKV WHERE key >= ? AND key < ? LIMIT 80')
+        .all(range.start, range.end) as Array<{ key: string; value: string }>;
     const paths: string[] = [];
 
-    for (const { value } of rows) {
-        let bubble: Record<string, JsonValue>;
-        try {
-            bubble = JSON.parse(value) as Record<string, JsonValue>;
-        } catch {
+    for (const { key, value } of rows) {
+        if (!isCursorBubbleKeyForComposer(key, value, composerId)) {
             continue;
         }
-
-        const tool = asObject(bubble.toolFormerData ?? null);
-        if (!tool) {
-            continue;
-        }
-
-        const blob = `${asString(tool.rawArgs ?? null) ?? ''} ${asString(tool.params ?? null) ?? ''}`;
-        const matches = blob.match(ABS_PATH_RE);
-        if (matches) {
-            paths.push(...matches);
-        }
+        paths.push(...extractCursorBubblePaths(value));
 
         if (paths.length > 200) {
             break;
@@ -754,17 +960,49 @@ const readAllHeads = (db: Database, options: CursorDiscoveryOptions = {}): Map<s
             )
             .all(options.updatedAfterMs) as Array<{ id: string; value: string | null }>;
 
-        return new Map(rows.map((row) => [row.id, parseGlobalHead(row.value)]));
+        return new Map(
+            rows.map((row) => [
+                row.id,
+                { ...parseGlobalHead(row.value), hasBubbleData: hasStoredCursorBubbleData(row.value) },
+            ]),
+        );
     }
 
     const rows = db
         .query(`SELECT substr(key, 14) AS id, value FROM cursorDiskKV WHERE key LIKE 'composerData:%'`)
         .all() as Array<{ id: string; value: string | null }>;
 
-    return new Map(rows.map((row) => [row.id, parseGlobalHead(row.value)]));
+    return new Map(
+        rows.map((row) => [
+            row.id,
+            { ...parseGlobalHead(row.value), hasBubbleData: hasStoredCursorBubbleData(row.value) },
+        ]),
+    );
 };
 
-const parseGlobalHead = (value: string | null): GlobalHead => {
+const hasStoredCursorBubbleData = (value: string | null): boolean => {
+    if (value === null) {
+        return false;
+    }
+
+    try {
+        const parsed = asObject(JSON.parse(value) as JsonValue);
+        if (!parsed) {
+            return false;
+        }
+
+        const totalBubbleHeaderCount = asNumber(parsed.totalBubbleHeaderCount ?? null);
+        if (totalBubbleHeaderCount !== null) {
+            return totalBubbleHeaderCount > 0;
+        }
+
+        return Array.isArray(parsed.fullConversationHeadersOnly) && parsed.fullConversationHeadersOnly.length > 0;
+    } catch {
+        return true;
+    }
+};
+
+const parseGlobalHead = (value: string | null): ParsedGlobalHead => {
     let parsed: Record<string, JsonValue> | null = {};
     if (value === null) {
         return {
@@ -831,35 +1069,78 @@ const parseGlobalHead = (value: string | null): GlobalHead => {
     };
 };
 
-const readBubbleStats = (db: Database, composerIds?: Iterable<string>): Map<string, BubbleStat> => {
-    const ids = composerIds ? [...composerIds] : null;
-    if (ids?.length === 0) {
+const readBubbleStats = (db: Database, composerIds: Iterable<string>): Map<string, BubbleStat> => {
+    const ids = [...new Set(composerIds)];
+    if (ids.length === 0) {
         return new Map();
     }
 
-    // Keys are `bubbleId:<composerId>:<bubbleId>`; composer ids contain no colon, so slice up to the
-    // next ':' rather than assuming a fixed UUID length (keeps tests and any id format working).
-    const query =
-        ids === null
-            ? `SELECT substr(key, 10, instr(substr(key, 10), ':') - 1) AS id,
-                    COUNT(*) AS count,
-                    COALESCE(SUM(length(value)), 0) AS bytes
-             FROM cursorDiskKV WHERE key GLOB 'bubbleId:*:*' GROUP BY id`
-            : `SELECT substr(key, 10, instr(substr(key, 10), ':') - 1) AS id,
-                    COUNT(*) AS count,
-                    COALESCE(SUM(length(value)), 0) AS bytes
-             FROM cursorDiskKV
-             WHERE key GLOB 'bubbleId:*:*'
-                AND substr(key, 10, instr(substr(key, 10), ':') - 1) IN (${ids.map(() => '?').join(',')})
-             GROUP BY id`;
-    const rows = db.query(query).all(...(ids ?? [])) as Array<{ id: string; count: number; bytes: number }>;
+    const stats = new Map<string, BubbleStat>();
+    for (let index = 0; index < ids.length; index += 200) {
+        const chunk = ids.slice(index, index + 200);
+        const query = chunk
+            .map(() => 'SELECT ? AS composerId, key, value FROM cursorDiskKV WHERE key >= ? AND key < ?')
+            .join(' UNION ALL ');
+        const parameters = chunk.flatMap((composerId) => {
+            const range = getCursorBubbleKeyRange(composerId);
+            return [composerId, range.start, range.end];
+        });
+        const rows = db.query(query).all(...parameters) as Array<{
+            composerId: string;
+            key: string;
+            value: string;
+        }>;
+        for (const row of rows) {
+            if (!isCursorBubbleKeyForComposer(row.key, row.value, row.composerId)) {
+                continue;
+            }
 
-    return new Map(rows.map((row) => [row.id, { bytes: row.bytes, count: row.count }]));
+            const composerId = row.composerId;
+            const current = stats.get(composerId) ?? { bytes: 0, count: 0 };
+            stats.set(composerId, {
+                bytes: current.bytes + row.value.length,
+                count: current.count + 1,
+            });
+        }
+    }
+
+    return stats;
 };
 
-const readHeaderInfo = (globalDbPath: string): Map<string, HeaderInfo> => {
+const hydrateCursorThreadBubbleStats = async (
+    threads: CursorThreadSummary[],
+    userDir: string,
+): Promise<CursorThreadSummary[]> => {
+    if (threads.length === 0) {
+        return threads;
+    }
+
+    const globalDbPath = getCursorGlobalDbPath(userDir);
+    if (!(await pathExists(globalDbPath))) {
+        return threads;
+    }
+
+    const stats = withCursorReadonlyDb(globalDbPath, (db) =>
+        readBubbleStats(
+            db,
+            threads.map((thread) => thread.composerId),
+        ),
+    );
+    return threads.map((thread) => {
+        const stat = stats.get(thread.composerId);
+        return stat
+            ? {
+                  ...thread,
+                  bubbleBytes: stat.bytes,
+                  bubbleCount: stat.count,
+              }
+            : thread;
+    });
+};
+
+const readHeaderInfo = (globalDbPath: string, strict = false): Map<string, HeaderInfo> => {
     const info = new Map<string, HeaderInfo>();
-    for (const header of loadGlobalComposerHeaders(globalDbPath)) {
+    for (const header of (strict ? loadGlobalComposerHeadersStrict : loadGlobalComposerHeaders)(globalDbPath)) {
         if (!header.composerId) {
             continue;
         }
@@ -880,10 +1161,10 @@ const readHeaderInfo = (globalDbPath: string): Map<string, HeaderInfo> => {
     return info;
 };
 
-const collectBucketComposerIds = (buckets: CursorWorkspaceBucket[]): Map<string, string> => {
+const collectBucketComposerIds = (buckets: CursorWorkspaceBucket[], strict = false): Map<string, string> => {
     const map = new Map<string, string>();
     for (const bucket of buckets) {
-        for (const composerId of readBucketComposerIds(bucket.dbPath)) {
+        for (const composerId of (strict ? readBucketComposerIdsStrict : readBucketComposerIds)(bucket.dbPath)) {
             if (!map.has(composerId)) {
                 map.set(composerId, bucket.bucketId);
             }
@@ -907,6 +1188,7 @@ type ResolvedThread = {
     model: string | null;
     reasoningEffort: string | null;
     parentComposerId: string | null;
+    hasBubbleData?: boolean;
     status: string | null;
 };
 
@@ -948,7 +1230,7 @@ const resolveThreadFolderHint = (
         return { folder: head.pathHint, groupKey: `folder:${head.pathHint}` };
     }
 
-    if (stat.count > 0) {
+    if (stat.count > 0 || head?.hasBubbleData) {
         const folder = inferFolderFromBubbles(db, composerId);
         return { folder, groupKey: folder ? `folder:${folder}` : UNKNOWN_GROUP_KEY };
     }
@@ -985,6 +1267,7 @@ const resolveThreadFolder = (
         folder,
         groupKey,
         groupLabel: folder ? path.basename(folder) : 'Unknown project',
+        hasBubbleData: Boolean(head?.hasBubbleData || stat.count > 0),
         lastUpdatedAtMs: head?.lastUpdatedAtMs ?? null,
         mode: head?.mode ?? null,
         model: head?.model ?? null,
@@ -1023,12 +1306,13 @@ const assembleDiscovery = (
 
     const groupLabels = new Map(bucketGroups.map((group) => [group.key, group.label]));
     for (const thread of resolved) {
-        if (thread.stat.count === 0 && thread.status === 'aborted') {
+        const hasBubbleData = thread.hasBubbleData ?? thread.stat.count > 0;
+        if (!hasBubbleData && thread.status === 'aborted') {
             continue;
         }
 
         // Empty threads with no resolvable workspace are pure noise; keep them out of the catch-all.
-        if (thread.groupKey === UNKNOWN_GROUP_KEY && thread.stat.count === 0) {
+        if (thread.groupKey === UNKNOWN_GROUP_KEY && !hasBubbleData) {
             continue;
         }
 
@@ -1109,12 +1393,13 @@ const buildDiscoveryGroups = (
 };
 
 const buildDiscovery = async (userDir: string, options: CursorDiscoveryOptions = {}): Promise<CursorDiscovery> => {
-    const buckets = await loadCursorBuckets(userDir);
+    const buckets = await (options.strict ? loadCursorBucketsStrict(userDir) : loadCursorBuckets(userDir));
     const bucketGroups = groupCursorBuckets(buckets);
     const globalDbPath = getCursorGlobalDbPath(userDir);
+    const cliThreads = await readCursorCliTranscriptThreads(userDir, options);
 
     if (!(await pathExists(globalDbPath))) {
-        return assembleDiscovery([], bucketGroups, new Map());
+        return assembleDiscovery(cliThreads, bucketGroups, new Map());
     }
 
     const bucketIdToGroupKey = new Map<string, string>();
@@ -1126,16 +1411,15 @@ const buildDiscovery = async (userDir: string, options: CursorDiscoveryOptions =
         }
     }
 
-    const db = openCursorReadonlyDb(globalDbPath);
-    try {
+    const databaseResult = withCursorReadonlyDb(globalDbPath, (db) => {
         const heads = readAllHeads(db, options);
         if (options.updatedAfterMs !== undefined && heads.size === 0) {
-            return assembleDiscovery([], bucketGroups, new Map());
+            return { kind: 'empty' as const };
         }
 
-        const headerInfo = readHeaderInfo(globalDbPath);
-        const bucketComposerIds = options.updatedAfterMs === undefined ? collectBucketComposerIds(buckets) : new Map();
-        const stats = readBubbleStats(db, options.updatedAfterMs === undefined ? undefined : heads.keys());
+        const headerInfo = readHeaderInfo(globalDbPath, options.strict);
+        const bucketComposerIds =
+            options.updatedAfterMs === undefined ? collectBucketComposerIds(buckets, options.strict) : new Map();
         const universe =
             options.updatedAfterMs === undefined
                 ? new Set<string>([...heads.keys(), ...headerInfo.keys(), ...bucketComposerIds.keys()])
@@ -1148,7 +1432,7 @@ const buildDiscovery = async (userDir: string, options: CursorDiscoveryOptions =
                     composerId,
                     heads.get(composerId),
                     headerInfo.get(composerId),
-                    stats.get(composerId) ?? { bytes: 0, count: 0 },
+                    { bytes: 0, count: 0 },
                     bucketIdToGroupKey,
                     bucketIdToFolder,
                     bucketComposerIds,
@@ -1157,19 +1441,31 @@ const buildDiscovery = async (userDir: string, options: CursorDiscoveryOptions =
             );
         }
 
-        const fileHistoryActivity =
-            options.updatedAfterMs === undefined ? await readCursorFileHistoryProjectActivity(userDir) : new Map();
-        return assembleDiscovery(resolved, bucketGroups, fileHistoryActivity);
-    } finally {
-        db.close();
+        const knownComposerIds = new Set(universe);
+        return { kind: 'resolved' as const, knownComposerIds, resolved };
+    });
+
+    if (databaseResult.kind === 'empty') {
+        return assembleDiscovery(cliThreads, bucketGroups, new Map());
     }
+
+    const fileHistoryActivity =
+        options.updatedAfterMs === undefined ? await readCursorFileHistoryProjectActivity(userDir) : new Map();
+    return assembleDiscovery(
+        [
+            ...databaseResult.resolved,
+            ...cliThreads.filter((thread) => !databaseResult.knownComposerIds.has(thread.composerId)),
+        ],
+        bucketGroups,
+        fileHistoryActivity,
+    );
 };
 
 const discoverCursorWorkspaces = async (
     userDir: string,
     options: CursorDiscoveryOptions = {},
 ): Promise<CursorDiscovery> => {
-    if (options.updatedAfterMs !== undefined) {
+    if (options.updatedAfterMs !== undefined || options.strict) {
         return await buildDiscovery(userDir, options);
     }
 
@@ -1183,34 +1479,32 @@ const discoverCursorWorkspaces = async (
     return value;
 };
 
-export const readCursorThreadHead = (globalDbPath: string, composerId: string): CursorThreadHead | null => {
-    const db = openCursorReadonlyDb(globalDbPath);
-    try {
-        const head = readKvValue<Record<string, JsonValue>>(db, `composerData:${composerId}`);
-        if (!head) {
-            return null;
-        }
-
-        const headerList = Array.isArray(head.fullConversationHeadersOnly)
-            ? (head.fullConversationHeadersOnly as JsonValue[])
-            : [];
-        const orderedBubbleIds = headerList
-            .map((item) => asString(asObject(item)?.bubbleId ?? null))
-            .filter((value): value is string => Boolean(value));
-
-        return {
-            composerId,
-            createdAtMs: asNumber(head.createdAt ?? null),
-            lastUpdatedAtMs: asNumber(head.lastUpdatedAt ?? null),
-            mode: asString(head.unifiedMode ?? null),
-            name: asString(head.name ?? null),
-            orderedBubbleIds,
-            totalBubbleHeaders: headerList.length,
-        };
-    } finally {
-        db.close();
+const readCursorThreadHeadFromDb = (db: Database, composerId: string): CursorThreadHead | null => {
+    const head = readKvValue<Record<string, JsonValue>>(db, `composerData:${composerId}`);
+    if (!head) {
+        return null;
     }
+
+    const headerList = Array.isArray(head.fullConversationHeadersOnly)
+        ? (head.fullConversationHeadersOnly as JsonValue[])
+        : [];
+    const orderedBubbleIds = headerList
+        .map((item) => asString(asObject(item)?.bubbleId ?? null))
+        .filter((value): value is string => Boolean(value));
+
+    return {
+        composerId,
+        createdAtMs: asNumber(head.createdAt ?? null),
+        lastUpdatedAtMs: asNumber(head.lastUpdatedAt ?? null),
+        mode: asString(head.unifiedMode ?? null),
+        name: asString(head.name ?? null),
+        orderedBubbleIds,
+        totalBubbleHeaders: headerList.length,
+    };
 };
+
+export const readCursorThreadHead = (globalDbPath: string, composerId: string): CursorThreadHead | null =>
+    withCursorReadonlyDb(globalDbPath, (db) => readCursorThreadHeadFromDb(db, composerId));
 
 const toBubbleKind = (rawType: JsonValue): CursorBubbleKind => {
     if (rawType === 1) {
@@ -1490,17 +1784,164 @@ const listCursorAgentTranscriptFiles = async (transcriptDir: string, composerId:
     return [...files].sort();
 };
 
-const readCursorAgentTranscriptBubbles = async (composerId: string, userDir: string): Promise<CursorBubble[]> => {
-    const transcriptDirs = await findCursorTranscriptDirs(composerId, userDir);
+type CursorAgentTranscript = {
+    bubbles: CursorBubble[];
+    bytes: number;
+    createdAtMs: number | null;
+    lastUpdatedAtMs: number | null;
+};
+
+const readCursorAgentTranscript = async (
+    composerId: string,
+    userDir: string,
+    transcriptDirs?: string[],
+): Promise<CursorAgentTranscript> => {
+    const resolvedTranscriptDirs = transcriptDirs ?? (await findCursorTranscriptDirs(composerId, userDir));
     const bubbles: CursorBubble[] = [];
-    for (const transcriptDir of transcriptDirs.sort()) {
+    let bytes = 0;
+    let createdAtMs: number | null = null;
+    let lastUpdatedAtMs: number | null = null;
+    for (const transcriptDir of [...resolvedTranscriptDirs].sort()) {
         const files = await listCursorAgentTranscriptFiles(transcriptDir, composerId);
         for (const file of files) {
+            let fileStat: Awaited<ReturnType<typeof stat>>;
+            try {
+                fileStat = await stat(file);
+            } catch {
+                continue;
+            }
+
+            bytes += fileStat.size;
+            if (fileStat.birthtimeMs > 0 && (createdAtMs === null || fileStat.birthtimeMs < createdAtMs)) {
+                createdAtMs = fileStat.birthtimeMs;
+            }
+            lastUpdatedAtMs = Math.max(lastUpdatedAtMs ?? 0, fileStat.mtimeMs);
             bubbles.push(...(await readCursorAgentTranscriptFile(file)));
         }
     }
 
-    return bubbles;
+    return { bubbles, bytes, createdAtMs, lastUpdatedAtMs };
+};
+
+const getNewestCursorTranscriptMtimeMs = async (transcriptDir: string, composerId: string): Promise<number> => {
+    let newestMtimeMs = 0;
+    for (const file of await listCursorAgentTranscriptFiles(transcriptDir, composerId)) {
+        try {
+            newestMtimeMs = Math.max(newestMtimeMs, (await stat(file)).mtimeMs);
+        } catch {
+            // The transcript may disappear while Cursor is writing it; the normal reader handles that race.
+        }
+    }
+    return newestMtimeMs;
+};
+
+const readCursorProjectWorkspacePath = async (projectDir: string): Promise<string | null> => {
+    try {
+        const data = (await Bun.file(path.join(projectDir, '.workspace-trusted')).json()) as {
+            workspacePath?: unknown;
+        };
+        return typeof data.workspacePath === 'string' ? normalizeCursorPath(data.workspacePath) || null : null;
+    } catch {
+        return null;
+    }
+};
+
+const getCursorAgentThreadName = (bubbles: CursorBubble[]): string => {
+    const firstUserBubble = bubbles.find((bubble) => bubble.kind === 'user' && bubble.text.trim());
+    const raw = firstUserBubble?.text ?? '';
+    const query = raw.match(/<user_query>\s*([\s\S]*?)\s*<\/user_query>/u)?.[1] ?? raw;
+    return normalizeBubbleText(query).slice(0, 200) || '(untitled)';
+};
+
+type CursorDirectoryEntry = { isDirectory: () => boolean; name: string };
+
+const readCursorDirectoryEntries = async (directory: string): Promise<CursorDirectoryEntry[]> => {
+    try {
+        return await readdir(directory, { withFileTypes: true });
+    } catch {
+        return [];
+    }
+};
+
+const isCursorCliTranscriptAfterUpdate = (transcript: CursorAgentTranscript, updatedAfterMs?: number): boolean => {
+    return updatedAfterMs === undefined || (transcript.lastUpdatedAtMs ?? 0) > updatedAfterMs;
+};
+
+const readCursorCliTranscriptThread = async (
+    userDir: string,
+    agentTranscriptsDir: string,
+    workspacePath: string | null,
+    transcriptEntry: CursorDirectoryEntry,
+    options: CursorDiscoveryOptions,
+): Promise<ResolvedThread | null> => {
+    if (!transcriptEntry.isDirectory() || !isSafeCursorComposerId(transcriptEntry.name)) {
+        return null;
+    }
+
+    const transcriptDir = path.join(agentTranscriptsDir, transcriptEntry.name);
+    if (
+        options.updatedAfterMs !== undefined &&
+        (await getNewestCursorTranscriptMtimeMs(transcriptDir, transcriptEntry.name)) <= options.updatedAfterMs
+    ) {
+        return null;
+    }
+    const transcript = await readCursorAgentTranscript(transcriptEntry.name, userDir, [transcriptDir]);
+    if (transcript.bubbles.length === 0 || !isCursorCliTranscriptAfterUpdate(transcript, options.updatedAfterMs)) {
+        return null;
+    }
+
+    const folder = workspacePath;
+    return {
+        bucketId: null,
+        composerId: transcriptEntry.name,
+        createdAtMs: transcript.createdAtMs,
+        folder,
+        groupKey: folder ? `folder:${folder}` : UNKNOWN_GROUP_KEY,
+        groupLabel: folder ? path.basename(folder) : 'Unknown project',
+        lastUpdatedAtMs: transcript.lastUpdatedAtMs,
+        mode: null,
+        model: null,
+        name: getCursorAgentThreadName(transcript.bubbles),
+        parentComposerId: null,
+        reasoningEffort: null,
+        stat: { bytes: transcript.bytes, count: transcript.bubbles.length },
+        status: null,
+    };
+};
+
+const keepNewestCursorCliThread = (threadsById: Map<string, ResolvedThread>, candidate: ResolvedThread): void => {
+    const existing = threadsById.get(candidate.composerId);
+    if (!existing || (candidate.lastUpdatedAtMs ?? 0) > (existing.lastUpdatedAtMs ?? 0)) {
+        threadsById.set(candidate.composerId, candidate);
+    }
+};
+
+const readCursorCliTranscriptThreads = async (
+    userDir: string,
+    options: CursorDiscoveryOptions,
+): Promise<ResolvedThread[]> => {
+    const projectsDir = getCursorProjectsDir(userDir);
+    const projectEntries = (await readCursorDirectoryEntries(projectsDir)).filter((entry) => entry.isDirectory());
+    const threadsById = new Map<string, ResolvedThread>();
+    for (const projectEntry of projectEntries) {
+        const projectDir = path.join(projectsDir, projectEntry.name);
+        const agentTranscriptsDir = path.join(projectDir, 'agent-transcripts');
+        const workspacePath = await readCursorProjectWorkspacePath(projectDir);
+        for (const transcriptEntry of await readCursorDirectoryEntries(agentTranscriptsDir)) {
+            const candidate = await readCursorCliTranscriptThread(
+                userDir,
+                agentTranscriptsDir,
+                workspacePath,
+                transcriptEntry,
+                options,
+            );
+            if (candidate) {
+                keepNewestCursorCliThread(threadsById, candidate);
+            }
+        }
+    }
+
+    return [...threadsById.values()];
 };
 
 const mergeAgentTranscriptTail = (
@@ -1539,13 +1980,12 @@ const inferCursorUserDirFromGlobalDbPath = (globalDbPath: string): string => {
 };
 
 export const readCursorThreadTranscript = (globalDbPath: string, composerId: string): CursorThreadTranscript | null => {
-    const head = readCursorThreadHead(globalDbPath, composerId);
-    if (!head) {
-        return null;
-    }
+    return withCursorReadonlyDb(globalDbPath, (db) => {
+        const head = readCursorThreadHeadFromDb(db, composerId);
+        if (!head) {
+            return null;
+        }
 
-    const db = openCursorReadonlyDb(globalDbPath);
-    try {
         const orderedIds = head.orderedBubbleIds.length > 0 ? head.orderedBubbleIds : readAllBubbleIds(db, composerId);
         const bubbles: CursorBubble[] = [];
         for (const bubbleId of orderedIds) {
@@ -1565,29 +2005,48 @@ export const readCursorThreadTranscript = (globalDbPath: string, composerId: str
             omittedBubbleCount,
             renderableBubbleCount: bubbles.length,
         };
-    } finally {
-        db.close();
-    }
+    });
 };
 
 export const readCursorThreadTranscriptWithAgentFiles = async (
     globalDbPath: string,
     composerId: string,
     userDir = inferCursorUserDirFromGlobalDbPath(globalDbPath),
+    transcriptDirs?: string[],
 ): Promise<CursorThreadTranscript | null> => {
-    const transcript = readCursorThreadTranscript(globalDbPath, composerId);
+    const transcript = (await pathExists(globalDbPath)) ? readCursorThreadTranscript(globalDbPath, composerId) : null;
+    const agentTranscript = await readCursorAgentTranscript(composerId, userDir, transcriptDirs);
     if (!transcript) {
-        return null;
+        if (agentTranscript.bubbles.length === 0) {
+            return null;
+        }
+
+        return {
+            bubbles: agentTranscript.bubbles,
+            head: {
+                composerId,
+                createdAtMs: agentTranscript.createdAtMs,
+                lastUpdatedAtMs: agentTranscript.lastUpdatedAtMs,
+                mode: null,
+                name: getCursorAgentThreadName(agentTranscript.bubbles),
+                orderedBubbleIds: agentTranscript.bubbles.map((bubble) => bubble.bubbleId),
+                totalBubbleHeaders: agentTranscript.bubbles.length,
+            },
+            omittedBubbleCount: 0,
+            renderableBubbleCount: agentTranscript.bubbles.length,
+        };
     }
 
-    const agentBubbles = await readCursorAgentTranscriptBubbles(composerId, userDir);
-    return mergeAgentTranscriptTail(transcript, agentBubbles);
+    return mergeAgentTranscriptTail(transcript, agentTranscript.bubbles);
 };
 
 const readAllBubbleIds = (db: Database, composerId: string): string[] => {
     const prefix = `bubbleId:${composerId}:`;
+    const range = getCursorBubbleKeyRange(composerId);
     const rows = db
-        .query(`SELECT key FROM cursorDiskKV WHERE key LIKE ? ESCAPE '\\' ORDER BY key ASC`)
-        .all(buildCursorBubbleKeyLikePattern(composerId)) as Array<{ key: string }>;
-    return rows.map((row) => row.key.slice(prefix.length));
+        .query('SELECT key, value FROM cursorDiskKV WHERE key >= ? AND key < ? ORDER BY key ASC')
+        .all(range.start, range.end) as Array<{ key: string; value: string }>;
+    return rows
+        .filter((row) => isCursorBubbleKeyForComposer(row.key, row.value, composerId))
+        .map((row) => row.key.slice(prefix.length));
 };

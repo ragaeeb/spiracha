@@ -101,6 +101,7 @@ export const normalizeAssistantPhase = (
 export const createTextMessage = (input: {
     createdAtMs: number | null;
     id: string;
+    model?: string;
     metadata?: Record<string, unknown>;
     order: number;
     phase: ConversationMessagePhase;
@@ -117,6 +118,7 @@ export const createTextMessage = (input: {
         {
             createdAtMs: input.createdAtMs,
             id: input.id,
+            ...(input.model ? { model: input.model } : {}),
             metadata: input.metadata ?? {},
             order: input.order,
             phase: input.phase,

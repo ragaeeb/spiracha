@@ -96,12 +96,13 @@ describe('Claude Code conversation adapter', () => {
             id: sessionId,
             metadata: {
                 continuationSessionIds: [sessionId],
-                model: 'claude-sonnet-4-5',
                 version: '2.1.148',
             },
+            model: 'claude-sonnet-4-5',
             source: 'claude-code',
             workspacePath: cwd,
         });
+        expect(conversation?.metadata).not.toHaveProperty('model');
         expect(conversation?.messages.map((message) => message.order)).toEqual(
             conversation?.messages.map((_, index) => index),
         );
@@ -125,6 +126,7 @@ describe('Claude Code conversation adapter', () => {
                 }),
                 expect.objectContaining({ metadata: { attachmentType: 'image' }, text: '[Attachment: image]' }),
                 expect.objectContaining({
+                    model: 'claude-sonnet-4-5',
                     phase: 'final_answer',
                     role: 'assistant',
                     text: 'The implementation is correct.',

@@ -280,3 +280,119 @@ export const createCursorFixture = async (userDir: string, spec: CursorFixtureSp
     await writeGlobalDb(userDir, spec);
     await writeHistoryEntries(userDir, spec);
 };
+
+type CursorWriteLockOptions = {
+    durationMs?: number;
+    lockingMode?: 'normal' | 'exclusive';
+};
+
+export const holdCursorWriteLock = async (dbPath: string, options: CursorWriteLockOptions = {}) => {
+    const durationMs = options.durationMs ?? 180;
+    const lockingMode = options.lockingMode ?? 'normal';
+    if (!Number.isFinite(durationMs) || durationMs < 0) {
+        throw new Error(`Invalid Cursor lock duration: ${durationMs}`);
+    }
+
+    const script = `
+import { Database } from 'bun:sqlite';
+
+const dbPath = Bun.env.CURSOR_LOCK_DB_PATH;
+const durationMs = Number(Bun.env.CURSOR_LOCK_DURATION_MS);
+const lockingMode = Bun.env.CURSOR_LOCKING_MODE;
+if (!dbPath || !Number.isFinite(durationMs) || durationMs < 0 || !['normal', 'exclusive'].includes(lockingMode ?? '')) {
+    throw new Error('Invalid Cursor SQLite lock helper environment');
+}
+
+const db = new Database(dbPath, { create: false, readwrite: true });
+if (lockingMode === 'exclusive') {
+    db.exec('PRAGMA locking_mode = EXCLUSIVE');
+}
+db.exec('PRAGMA journal_mode = WAL');
+db.exec('PRAGMA busy_timeout = 0');
+db.exec('BEGIN IMMEDIATE');
+console.log('CURSOR_LOCK_READY');
+await Bun.sleep(durationMs);
+db.exec('COMMIT');
+db.close();
+`;
+    const childProcess = Bun.spawn([process.execPath, '-e', script], {
+        env: {
+            ...process.env,
+            CURSOR_LOCK_DB_PATH: dbPath,
+            CURSOR_LOCK_DURATION_MS: String(durationMs),
+            CURSOR_LOCKING_MODE: lockingMode,
+        },
+        stderr: 'pipe',
+        stdout: 'pipe',
+    });
+    const stdoutReader = childProcess.stdout?.getReader();
+    const stderrReader = childProcess.stderr?.getReader();
+    if (!stdoutReader || !stderrReader) {
+        childProcess.kill();
+        await childProcess.exited;
+        throw new Error('Cursor SQLite lock helper did not expose stdout and stderr');
+    }
+
+    const decoder = new TextDecoder();
+    let stdout = '';
+    let stderr = '';
+    let ready = false;
+    let resolveReady: (() => void) | undefined;
+    const readyPromise = new Promise<void>((resolve) => {
+        resolveReady = resolve;
+    });
+    const capture = async (reader: ReadableStreamDefaultReader<Uint8Array>, stream: 'stdout' | 'stderr') => {
+        while (true) {
+            const next = await reader.read();
+            const text = decoder.decode(next.value ?? new Uint8Array(), { stream: !next.done });
+            if (stream === 'stdout') {
+                stdout += text;
+                if (stdout.includes('CURSOR_LOCK_READY')) {
+                    ready = true;
+                    resolveReady?.();
+                }
+            } else {
+                stderr += text;
+            }
+            if (next.done) {
+                return;
+            }
+        }
+    };
+
+    const stdoutTask = capture(stdoutReader, 'stdout');
+    const stderrTask = capture(stderrReader, 'stderr');
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+            childProcess.kill();
+            reject(new Error(`Timed out waiting for Cursor SQLite lock helper. stdout: ${stdout} stderr: ${stderr}`));
+        }, 5_000);
+    });
+    try {
+        await Promise.race([
+            readyPromise,
+            childProcess.exited.then(() => {
+                if (!ready) {
+                    throw new Error(
+                        `Cursor SQLite lock helper exited before locking. stdout: ${stdout} stderr: ${stderr}`,
+                    );
+                }
+            }),
+            timeoutPromise,
+        ]);
+        return childProcess;
+    } catch (error) {
+        childProcess.kill();
+        await childProcess.exited;
+        throw error;
+    } finally {
+        if (timeoutId) {
+            clearTimeout(timeoutId);
+        }
+        stdoutReader.releaseLock();
+        stderrReader.releaseLock();
+        void stdoutTask.catch(() => undefined);
+        void stderrTask.catch(() => undefined);
+    }
+};

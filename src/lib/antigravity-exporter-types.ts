@@ -2,6 +2,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 export const DEFAULT_ANTIGRAVITY_IDE_DIR = path.join(os.homedir(), '.gemini', 'antigravity-ide');
+export const DEFAULT_ANTIGRAVITY_CLI_DIR = path.join(os.homedir(), '.gemini', 'antigravity-cli');
 export const DEFAULT_ANTIGRAVITY_DIR = path.join(os.homedir(), '.gemini', 'antigravity');
 
 export const resolveAntigravityRoots = (): string[] => {
@@ -13,7 +14,7 @@ export const resolveAntigravityRoots = (): string[] => {
             .filter(Boolean);
     }
 
-    return [DEFAULT_ANTIGRAVITY_IDE_DIR, DEFAULT_ANTIGRAVITY_DIR];
+    return [DEFAULT_ANTIGRAVITY_IDE_DIR, DEFAULT_ANTIGRAVITY_CLI_DIR, DEFAULT_ANTIGRAVITY_DIR];
 };
 
 export const getAntigravityConversationDir = (root: string): string => path.join(root, 'conversations');

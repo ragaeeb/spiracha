@@ -1,5 +1,31 @@
+import type { ConversationSource } from './conversation-data/types';
 import { getPortablePathBasename } from './portable-path';
 import type { ExportFormat } from './shared';
+
+export type ExportPlatform =
+    | 'antigravity'
+    | 'claude'
+    | 'cline'
+    | 'codex'
+    | 'cursor'
+    | 'grok'
+    | 'kiro'
+    | 'minimax'
+    | 'opencode'
+    | 'qoder';
+
+const EXPORT_PLATFORM_BY_SOURCE: Record<ConversationSource, ExportPlatform> = {
+    antigravity: 'antigravity',
+    'claude-code': 'claude',
+    cline: 'cline',
+    codex: 'codex',
+    cursor: 'cursor',
+    grok: 'grok',
+    kiro: 'kiro',
+    'minimax-code': 'minimax',
+    opencode: 'opencode',
+    qoder: 'qoder',
+};
 
 type BatchExportNameEntry = {
     cwd: string | null;
@@ -17,6 +43,11 @@ export const sanitizeExportFileName = (value: string) => {
         .replace(/\s+/gu, ' ')
         .trim();
 };
+
+export const getExportPlatformName = (source: ConversationSource): ExportPlatform => EXPORT_PLATFORM_BY_SOURCE[source];
+
+export const buildExportArchiveBaseName = (platform: ExportPlatform, baseName: string) =>
+    `${platform}_${sanitizeExportFileName(baseName) || 'export'}`;
 
 export const getExportMimeType = (outputFormat: ExportFormat) => {
     return outputFormat === 'md' ? 'text/markdown; charset=utf-8' : 'text/plain; charset=utf-8';

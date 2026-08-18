@@ -2,38 +2,27 @@ import os from 'node:os';
 import path from 'node:path';
 import type { ExportFormat, JsonValue } from './shared';
 
-const getVsCodeGlobalStorageRoot = (homeDir: string, platform: NodeJS.Platform, env: NodeJS.ProcessEnv) => {
-    if (platform === 'darwin') {
-        return path.join(homeDir, 'Library', 'Application Support', 'Code', 'User', 'globalStorage');
-    }
-    if (platform === 'win32') {
-        return path.join(
-            env.APPDATA?.trim() || path.join(homeDir, 'AppData', 'Roaming'),
-            'Code',
-            'User',
-            'globalStorage',
-        );
-    }
-    return path.join(env.XDG_CONFIG_HOME?.trim() || path.join(homeDir, '.config'), 'Code', 'User', 'globalStorage');
+export const getDefaultClineDataDir = (homeDir = os.homedir()): string => path.join(homeDir, '.cline', 'data');
+
+export const DEFAULT_CLINE_DATA_DIR = getDefaultClineDataDir();
+
+export const resolveClineDataDir = (env: NodeJS.ProcessEnv = process.env, homeDir = os.homedir()): string => {
+    return env.SPIRACHA_CLINE_DATA_DIR?.trim() || getDefaultClineDataDir(homeDir);
 };
 
-export const getDefaultClineGlobalStorageDir = (
-    env: NodeJS.ProcessEnv = process.env,
-    homeDir = os.homedir(),
-    platform = process.platform,
-): string => {
-    return path.join(getVsCodeGlobalStorageRoot(homeDir, platform, env), 'saoudrizwan.claude-dev');
-};
+export const CLINE_SESSION_ID_PATTERN = /^[\p{L}\p{N}_-]+$/u;
 
-export const DEFAULT_CLINE_GLOBAL_STORAGE_DIR = getDefaultClineGlobalStorageDir();
+export const isSafeClineSessionId = (sessionId: string): boolean => CLINE_SESSION_ID_PATTERN.test(sessionId);
 
-export const resolveClineGlobalStorageDir = (): string => {
-    return process.env.SPIRACHA_CLINE_GLOBAL_STORAGE_DIR?.trim() || DEFAULT_CLINE_GLOBAL_STORAGE_DIR;
-};
+export type ClineIndexCleanupResult =
+    | { status: 'deleted' }
+    | { status: 'not_found' }
+    | { message: string; status: 'failed' };
 
 export type DeleteClineTaskResult = {
     deletedFiles: string[];
     deletedTaskIds: string[];
+    indexCleanup: ClineIndexCleanupResult;
 };
 
 export type ClineWorkspaceGroup = {
@@ -79,11 +68,12 @@ export type ClineTaskSummary = {
     createdAtMs: number | null;
     isFavorited: boolean;
     lastActiveAtMs: number | null;
+    messagesPath: string;
     messageCount: number;
     modelId: string | null;
     reasoningCount: number;
     renderablePartCount: number;
-    taskDir: string;
+    sessionDir: string;
     taskId: string;
     title: string;
     tokensIn: number | null;
@@ -91,11 +81,11 @@ export type ClineTaskSummary = {
     toolCallCount: number;
     toolResultCount: number;
     totalCost: number | null;
-    uiMessagesPath: string;
     ulid: string | null;
     userMessageCount: number;
     workspaceKey: string;
     workspaceLabel: string;
+    workspaceSource?: 'metadata' | 'session_directory';
     worktree: string;
 };
 

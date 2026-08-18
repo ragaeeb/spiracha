@@ -178,6 +178,7 @@ const buildConversation = async (
     const messages = options.includeMessages
         ? selectConversationMessages(allMessages, options.messageSelector ?? 'last_final_answer')
         : [];
+    const model = session.model.id ?? session.modelLabel ?? undefined;
 
     return {
         createdAtMs: session.createdAtMs,
@@ -188,13 +189,12 @@ const buildConversation = async (
         ),
         id: session.sessionId,
         matches,
+        ...(model ? { model } : {}),
         messageCount: options.includeMessages ? allMessages.length : session.messageCount,
         messages,
         metadata: {
             agent: session.agent,
             cost: session.cost,
-            model: session.model,
-            modelLabel: session.modelLabel,
             totalTokens: session.totalTokens,
         },
         source: 'opencode',

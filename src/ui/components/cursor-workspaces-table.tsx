@@ -1,7 +1,9 @@
 import type { CursorWorkspaceGroup } from '@spiracha/lib/cursor-exporter-types';
 import { Link } from '@tanstack/react-router';
 import { MoreHorizontal, RefreshCcw, Trash2 } from 'lucide-react';
+import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
+import { SelectionActionsToolbar } from '#/components/selection-actions-toolbar';
 import { Badge } from '#/components/ui/badge';
 import { Button } from '#/components/ui/button';
 import {
@@ -15,9 +17,12 @@ import { formatDateTime, formatNumber } from '#/lib/formatters';
 
 type CursorWorkspacesTableProps = {
     onDeleteWorkspace: (workspace: CursorWorkspaceGroup) => void;
+    onDeleteWorkspaces: (workspaces: CursorWorkspaceGroup[]) => void;
     onRecoverWorkspace: (workspace: CursorWorkspaceGroup) => void;
     workspaces: CursorWorkspaceGroup[];
 };
+
+const getCursorWorkspaceRowId = (row: CursorWorkspaceGroup): string => row.key;
 
 const columnHelper = createDataTableColumnHelper<CursorWorkspaceGroup>();
 
@@ -127,14 +132,30 @@ const columns = (
 
 export const CursorWorkspacesTable = ({
     onDeleteWorkspace,
+    onDeleteWorkspaces,
     onRecoverWorkspace,
     workspaces,
 }: CursorWorkspacesTableProps) => {
+    const tableColumns = useMemo(
+        () => columns(onDeleteWorkspace, onRecoverWorkspace),
+        [onDeleteWorkspace, onRecoverWorkspace],
+    );
+
     return (
         <DataTable
-            columns={columns(onDeleteWorkspace, onRecoverWorkspace)}
+            columns={tableColumns}
             data={workspaces}
             emptyMessage="No Cursor workspaces match the current search."
+            enableRowSelection
+            getRowId={getCursorWorkspaceRowId}
+            renderToolbar={({ clearSelection, selectedRows }) => (
+                <SelectionActionsToolbar
+                    clearSelection={clearSelection}
+                    itemLabel="workspace"
+                    selectedCount={selectedRows.length}
+                    onDeleteSelected={() => onDeleteWorkspaces(selectedRows)}
+                />
+            )}
         />
     );
 };
