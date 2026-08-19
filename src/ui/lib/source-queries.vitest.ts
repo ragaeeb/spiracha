@@ -7,6 +7,7 @@ const serverFns = vi.hoisted(() => ({
     getClaudeCodeSessionTranscriptFn: vi.fn(async () => 'claude-transcript'),
     getClineTaskDetailFn: vi.fn(async () => 'cline-detail'),
     getCursorThreadDetailFn: vi.fn(async () => 'cursor-detail'),
+    getFxSessionDetailFn: vi.fn(async () => 'fx-detail'),
     getGrokSessionDetailFn: vi.fn(async () => 'grok-detail'),
     getKiroSessionDetailFn: vi.fn(async () => 'kiro-detail'),
     getMiniMaxCodeSessionDetailFn: vi.fn(async () => 'minimax-code-detail'),
@@ -20,6 +21,8 @@ const serverFns = vi.hoisted(() => ({
     listClineWorkspacesFn: vi.fn(async () => 'cline-workspaces'),
     listCursorThreadsFn: vi.fn(async () => 'cursor-threads'),
     listCursorWorkspacesFn: vi.fn(async () => 'cursor-workspaces'),
+    listFxSessionsFn: vi.fn(async () => 'fx-sessions'),
+    listFxWorkspacesFn: vi.fn(async () => 'fx-workspaces'),
     listGrokSessionsFn: vi.fn(async () => 'grok-sessions'),
     listGrokWorkspacesFn: vi.fn(async () => 'grok-workspaces'),
     listKiroSessionsFn: vi.fn(async () => 'kiro-sessions'),
@@ -62,6 +65,11 @@ vi.mock('./grok-server', () => ({
     listGrokSessionsFn: serverFns.listGrokSessionsFn,
     listGrokWorkspacesFn: serverFns.listGrokWorkspacesFn,
 }));
+vi.mock('./fx-server', () => ({
+    getFxSessionDetailFn: serverFns.getFxSessionDetailFn,
+    listFxSessionsFn: serverFns.listFxSessionsFn,
+    listFxWorkspacesFn: serverFns.listFxWorkspacesFn,
+}));
 vi.mock('./kiro-server', () => ({
     getKiroSessionDetailFn: serverFns.getKiroSessionDetailFn,
     listKiroSessionsFn: serverFns.listKiroSessionsFn,
@@ -101,6 +109,7 @@ import {
     cursorThreadsQueryOptions,
     cursorWorkspacesQueryOptions,
 } from './cursor-queries';
+import { fxSessionDetailQueryOptions, fxSessionsQueryOptions, fxWorkspacesQueryOptions } from './fx-queries';
 import { grokSessionDetailQueryOptions, grokSessionsQueryOptions, grokWorkspacesQueryOptions } from './grok-queries';
 import { kiroSessionDetailQueryOptions, kiroSessionsQueryOptions, kiroWorkspacesQueryOptions } from './kiro-queries';
 import {
@@ -251,6 +260,17 @@ describe('source query options', () => {
 
         expect(serverFns.listOpenCodeSessionsFn).toHaveBeenLastCalledWith({ data: { workspaceKey: '' } });
         expect(serverFns.getOpenCodeSessionDetailFn).toHaveBeenLastCalledWith({ data: { sessionId: '' } });
+    });
+
+    it('should configure FX workspace, session, and detail queries', async () => {
+        expect(await runQuery(fxWorkspacesQueryOptions())).toBe('fx-workspaces');
+        expect(await runQuery(fxSessionsQueryOptions('workspace-a'))).toBe('fx-sessions');
+        expect(await runQuery(fxSessionDetailQueryOptions('session-a'))).toBe('fx-detail');
+        await expectDisabledQuery(fxSessionsQueryOptions(null));
+        await expectDisabledQuery(fxSessionDetailQueryOptions(null));
+
+        expect(serverFns.listFxSessionsFn).toHaveBeenLastCalledWith({ data: { workspaceKey: '' } });
+        expect(serverFns.getFxSessionDetailFn).toHaveBeenLastCalledWith({ data: { sessionId: '' } });
     });
 
     it('should configure MiniMax Code workspace, session, and detail queries', async () => {

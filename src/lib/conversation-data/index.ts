@@ -4,6 +4,7 @@ import { claudeCodeConversationAdapter } from './claude-code-adapter';
 import { clineConversationAdapter } from './cline-adapter';
 import { codexConversationAdapter } from './codex-adapter';
 import { cursorConversationAdapter } from './cursor-adapter';
+import { fxConversationAdapter } from './fx-adapter';
 import { grokConversationAdapter } from './grok-adapter';
 import { kiroConversationAdapter } from './kiro-adapter';
 import { selectConversationMessages } from './message-selector';
@@ -72,6 +73,7 @@ const SOURCE_LABELS: Record<ConversationSource, string> = {
     cline: 'Cline',
     codex: 'Codex',
     cursor: 'Cursor',
+    fx: 'FX',
     grok: 'Grok',
     kiro: 'Kiro',
     'minimax-code': 'MiniMax Code',
@@ -94,6 +96,7 @@ const ADAPTERS: Partial<Record<ConversationSource, ConversationAdapter>> = {
     cline: clineConversationAdapter,
     codex: codexConversationAdapter,
     cursor: cursorConversationAdapter,
+    fx: fxConversationAdapter,
     grok: grokConversationAdapter,
     kiro: kiroConversationAdapter,
     'minimax-code': minimaxCodeConversationAdapter,
@@ -109,6 +112,7 @@ const DELETE_CONCURRENCY_BY_SOURCE: Record<ConversationSource, number> = {
     cline: 1,
     codex: 1,
     cursor: 1,
+    fx: 1,
     grok: 1,
     kiro: 1,
     'minimax-code': 1,
@@ -277,6 +281,9 @@ const sourceFromSessionRoute = (segment: string): ConversationSource | null => {
     }
     if (segment === 'cursor-threads') {
         return 'cursor';
+    }
+    if (segment === 'fx-sessions') {
+        return 'fx';
     }
     if (segment === 'antigravity-conversations') {
         return 'antigravity';

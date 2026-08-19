@@ -6,6 +6,7 @@ export const CONVERSATION_SOURCES = [
     'kiro',
     'qoder',
     'cursor',
+    'fx',
     'antigravity',
     'minimax-code',
     'opencode',
@@ -171,6 +172,7 @@ export type ConversationDataLocations = {
     clineDataDir?: string;
     codexDbPath?: string;
     cursorUserDir?: string;
+    fxDataDir?: string;
     grokSessionsDir?: string;
     kiroWorkspaceSessionsDir?: string;
     minimaxCodeRuntimeDbPath?: string;

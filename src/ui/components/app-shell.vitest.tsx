@@ -80,6 +80,7 @@ describe('AppShell', () => {
             'Cline',
             'Codex',
             'Cursor',
+            'FX',
             'Grok',
             'Kiro',
             'MiniMax Code',
@@ -107,6 +108,7 @@ describe('AppShell', () => {
             'Cline',
             'Codex',
             'Cursor',
+            'FX',
             'Grok',
             'Kiro',
             'MiniMax Code',
@@ -246,6 +248,18 @@ describe('AppShell', () => {
         );
 
         expect(screen.getByRole('link', { name: 'MiniMax Code' }).className).toContain('bg-[var(--accent-muted)]');
+    });
+
+    it('should keep FX active on standalone session detail routes', () => {
+        useRouterStateMock.mockReturnValue('/fx-sessions/session-1');
+
+        render(
+            <AppShell>
+                <div>Content area</div>
+            </AppShell>,
+        );
+
+        expect(screen.getByRole('link', { name: 'FX' }).className).toContain('bg-[var(--accent-muted)]');
     });
 
     it('should keep Cline active on standalone task detail routes', () => {

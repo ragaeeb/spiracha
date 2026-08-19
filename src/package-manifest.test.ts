@@ -122,6 +122,7 @@ describe('package manifest', () => {
             'Qoder',
             'Cursor',
             'Antigravity',
+            'FX',
             'MiniMax Code',
             'OpenCode',
         ];

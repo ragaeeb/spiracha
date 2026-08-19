@@ -47,6 +47,7 @@ const integrationNavItems: readonly NavItem[] = [
     { activePrefixes: ['/cline', '/cline-tasks'], icon: Bot, label: 'Cline', to: '/cline' },
     { activePrefixes: ['/codex', '/threads'], icon: FolderOpen, label: 'Codex', to: '/codex' },
     { activePrefixes: ['/cursor', '/cursor-threads'], icon: SquareTerminal, label: 'Cursor', to: '/cursor' },
+    { activePrefixes: ['/fx', '/fx-sessions'], icon: Workflow, label: 'FX', to: '/fx' },
     { activePrefixes: ['/grok', '/grok-sessions'], icon: Bot, label: 'Grok', to: '/grok' },
     {
         activePrefixes: ['/kiro', '/kiro-sessions'],

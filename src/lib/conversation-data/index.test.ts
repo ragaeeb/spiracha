@@ -35,6 +35,7 @@ describe('conversation data facade', () => {
                     clineDataDir: path.join(tempRoot, 'cline'),
                     codexDbPath: path.join(tempRoot, 'missing-codex.sqlite'),
                     cursorUserDir: path.join(tempRoot, 'cursor'),
+                    fxDataDir: path.join(tempRoot, 'fx'),
                     grokSessionsDir: path.join(tempRoot, 'grok', 'sessions'),
                     kiroWorkspaceSessionsDir: path.join(tempRoot, 'kiro'),
                     minimaxCodeSessionsDir: path.join(tempRoot, 'minimax-code'),
@@ -70,6 +71,7 @@ describe('conversation data facade', () => {
                     clineDataDir: path.join(tempRoot, 'cline'),
                     codexDbPath: path.join(tempRoot, 'missing-codex.sqlite'),
                     cursorUserDir: path.join(tempRoot, 'cursor'),
+                    fxDataDir: path.join(tempRoot, 'fx'),
                     grokSessionsDir: path.join(tempRoot, 'grok', 'sessions'),
                     kiroWorkspaceSessionsDir: path.join(tempRoot, 'kiro'),
                     minimaxCodeSessionsDir: path.join(tempRoot, 'minimax-code'),
@@ -146,6 +148,7 @@ describe('conversation data facade', () => {
         const first = await listConversationSources();
         expect(first).toContainEqual({ label: 'Cline', source: 'cline' });
         expect(first).toContainEqual({ label: 'MiniMax Code', source: 'minimax-code' });
+        expect(first).toContainEqual({ label: 'FX', source: 'fx' });
         first.splice(0, first.length);
 
         expect(await listConversationSources()).not.toEqual([]);

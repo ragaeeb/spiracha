@@ -10,6 +10,7 @@ export type TranscriptLoadIntegration =
     | 'cline'
     | 'codex'
     | 'cursor'
+    | 'fx'
     | 'grok'
     | 'kiro'
     | 'minimax-code'

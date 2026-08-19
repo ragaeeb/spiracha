@@ -27,6 +27,9 @@ import { Route as CodexProjectRouteImport } from './routes/codex.$project'
 import { Route as CursorThreadsComposerIdRouteImport } from './routes/cursor-threads.$composerId'
 import { Route as CursorIndexRouteImport } from './routes/cursor.index'
 import { Route as CursorWorkspaceKeyRouteImport } from './routes/cursor.$workspaceKey'
+import { Route as FxSessionsSessionIdRouteImport } from './routes/fx-sessions.$sessionId'
+import { Route as FxIndexRouteImport } from './routes/fx.index'
+import { Route as FxWorkspaceKeyRouteImport } from './routes/fx.$workspaceKey'
 import { Route as GrokSessionsSessionIdRouteImport } from './routes/grok-sessions.$sessionId'
 import { Route as GrokIndexRouteImport } from './routes/grok.index'
 import { Route as GrokWorkspaceKeyRouteImport } from './routes/grok.$workspaceKey'
@@ -144,6 +147,21 @@ const CursorIndexRoute = CursorIndexRouteImport.update({
 const CursorWorkspaceKeyRoute = CursorWorkspaceKeyRouteImport.update({
   id: '/cursor/$workspaceKey',
   path: '/cursor/$workspaceKey',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FxSessionsSessionIdRoute = FxSessionsSessionIdRouteImport.update({
+  id: '/fx-sessions/$sessionId',
+  path: '/fx-sessions/$sessionId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FxIndexRoute = FxIndexRouteImport.update({
+  id: '/fx/',
+  path: '/fx/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FxWorkspaceKeyRoute = FxWorkspaceKeyRouteImport.update({
+  id: '/fx/$workspaceKey',
+  path: '/fx/$workspaceKey',
   getParentRoute: () => rootRouteImport,
 } as any)
 const GrokSessionsSessionIdRoute = GrokSessionsSessionIdRouteImport.update({
@@ -298,6 +316,8 @@ export interface FileRoutesByFullPath {
   '/codex/$project': typeof CodexProjectRoute
   '/cursor-threads/$composerId': typeof CursorThreadsComposerIdRoute
   '/cursor/$workspaceKey': typeof CursorWorkspaceKeyRoute
+  '/fx-sessions/$sessionId': typeof FxSessionsSessionIdRoute
+  '/fx/$workspaceKey': typeof FxWorkspaceKeyRoute
   '/grok-sessions/$sessionId': typeof GrokSessionsSessionIdRoute
   '/grok/$workspaceKey': typeof GrokWorkspaceKeyRoute
   '/kiro-sessions/$sessionId': typeof KiroSessionsSessionIdRoute
@@ -314,6 +334,7 @@ export interface FileRoutesByFullPath {
   '/cline/': typeof ClineIndexRoute
   '/codex/': typeof CodexIndexRoute
   '/cursor/': typeof CursorIndexRoute
+  '/fx/': typeof FxIndexRoute
   '/grok/': typeof GrokIndexRoute
   '/kiro/': typeof KiroIndexRoute
   '/minimax-code/': typeof MinimaxCodeIndexRoute
@@ -344,6 +365,8 @@ export interface FileRoutesByTo {
   '/codex/$project': typeof CodexProjectRoute
   '/cursor-threads/$composerId': typeof CursorThreadsComposerIdRoute
   '/cursor/$workspaceKey': typeof CursorWorkspaceKeyRoute
+  '/fx-sessions/$sessionId': typeof FxSessionsSessionIdRoute
+  '/fx/$workspaceKey': typeof FxWorkspaceKeyRoute
   '/grok-sessions/$sessionId': typeof GrokSessionsSessionIdRoute
   '/grok/$workspaceKey': typeof GrokWorkspaceKeyRoute
   '/kiro-sessions/$sessionId': typeof KiroSessionsSessionIdRoute
@@ -360,6 +383,7 @@ export interface FileRoutesByTo {
   '/cline': typeof ClineIndexRoute
   '/codex': typeof CodexIndexRoute
   '/cursor': typeof CursorIndexRoute
+  '/fx': typeof FxIndexRoute
   '/grok': typeof GrokIndexRoute
   '/kiro': typeof KiroIndexRoute
   '/minimax-code': typeof MinimaxCodeIndexRoute
@@ -391,6 +415,8 @@ export interface FileRoutesById {
   '/codex/$project': typeof CodexProjectRoute
   '/cursor-threads/$composerId': typeof CursorThreadsComposerIdRoute
   '/cursor/$workspaceKey': typeof CursorWorkspaceKeyRoute
+  '/fx-sessions/$sessionId': typeof FxSessionsSessionIdRoute
+  '/fx/$workspaceKey': typeof FxWorkspaceKeyRoute
   '/grok-sessions/$sessionId': typeof GrokSessionsSessionIdRoute
   '/grok/$workspaceKey': typeof GrokWorkspaceKeyRoute
   '/kiro-sessions/$sessionId': typeof KiroSessionsSessionIdRoute
@@ -407,6 +433,7 @@ export interface FileRoutesById {
   '/cline/': typeof ClineIndexRoute
   '/codex/': typeof CodexIndexRoute
   '/cursor/': typeof CursorIndexRoute
+  '/fx/': typeof FxIndexRoute
   '/grok/': typeof GrokIndexRoute
   '/kiro/': typeof KiroIndexRoute
   '/minimax-code/': typeof MinimaxCodeIndexRoute
@@ -439,6 +466,8 @@ export interface FileRouteTypes {
     | '/codex/$project'
     | '/cursor-threads/$composerId'
     | '/cursor/$workspaceKey'
+    | '/fx-sessions/$sessionId'
+    | '/fx/$workspaceKey'
     | '/grok-sessions/$sessionId'
     | '/grok/$workspaceKey'
     | '/kiro-sessions/$sessionId'
@@ -455,6 +484,7 @@ export interface FileRouteTypes {
     | '/cline/'
     | '/codex/'
     | '/cursor/'
+    | '/fx/'
     | '/grok/'
     | '/kiro/'
     | '/minimax-code/'
@@ -485,6 +515,8 @@ export interface FileRouteTypes {
     | '/codex/$project'
     | '/cursor-threads/$composerId'
     | '/cursor/$workspaceKey'
+    | '/fx-sessions/$sessionId'
+    | '/fx/$workspaceKey'
     | '/grok-sessions/$sessionId'
     | '/grok/$workspaceKey'
     | '/kiro-sessions/$sessionId'
@@ -501,6 +533,7 @@ export interface FileRouteTypes {
     | '/cline'
     | '/codex'
     | '/cursor'
+    | '/fx'
     | '/grok'
     | '/kiro'
     | '/minimax-code'
@@ -531,6 +564,8 @@ export interface FileRouteTypes {
     | '/codex/$project'
     | '/cursor-threads/$composerId'
     | '/cursor/$workspaceKey'
+    | '/fx-sessions/$sessionId'
+    | '/fx/$workspaceKey'
     | '/grok-sessions/$sessionId'
     | '/grok/$workspaceKey'
     | '/kiro-sessions/$sessionId'
@@ -547,6 +582,7 @@ export interface FileRouteTypes {
     | '/cline/'
     | '/codex/'
     | '/cursor/'
+    | '/fx/'
     | '/grok/'
     | '/kiro/'
     | '/minimax-code/'
@@ -578,6 +614,8 @@ export interface RootRouteChildren {
   CodexProjectRoute: typeof CodexProjectRoute
   CursorThreadsComposerIdRoute: typeof CursorThreadsComposerIdRoute
   CursorWorkspaceKeyRoute: typeof CursorWorkspaceKeyRoute
+  FxSessionsSessionIdRoute: typeof FxSessionsSessionIdRoute
+  FxWorkspaceKeyRoute: typeof FxWorkspaceKeyRoute
   GrokSessionsSessionIdRoute: typeof GrokSessionsSessionIdRoute
   GrokWorkspaceKeyRoute: typeof GrokWorkspaceKeyRoute
   KiroSessionsSessionIdRoute: typeof KiroSessionsSessionIdRoute
@@ -594,6 +632,7 @@ export interface RootRouteChildren {
   ClineIndexRoute: typeof ClineIndexRoute
   CodexIndexRoute: typeof CodexIndexRoute
   CursorIndexRoute: typeof CursorIndexRoute
+  FxIndexRoute: typeof FxIndexRoute
   GrokIndexRoute: typeof GrokIndexRoute
   KiroIndexRoute: typeof KiroIndexRoute
   MinimaxCodeIndexRoute: typeof MinimaxCodeIndexRoute
@@ -732,6 +771,27 @@ declare module '@tanstack/react-router' {
       path: '/cursor/$workspaceKey'
       fullPath: '/cursor/$workspaceKey'
       preLoaderRoute: typeof CursorWorkspaceKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/fx-sessions/$sessionId': {
+      id: '/fx-sessions/$sessionId'
+      path: '/fx-sessions/$sessionId'
+      fullPath: '/fx-sessions/$sessionId'
+      preLoaderRoute: typeof FxSessionsSessionIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/fx/': {
+      id: '/fx/'
+      path: '/fx'
+      fullPath: '/fx/'
+      preLoaderRoute: typeof FxIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/fx/$workspaceKey': {
+      id: '/fx/$workspaceKey'
+      path: '/fx/$workspaceKey'
+      fullPath: '/fx/$workspaceKey'
+      preLoaderRoute: typeof FxWorkspaceKeyRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/grok-sessions/$sessionId': {
@@ -967,6 +1027,8 @@ const rootRouteChildren: RootRouteChildren = {
   CodexProjectRoute: CodexProjectRoute,
   CursorThreadsComposerIdRoute: CursorThreadsComposerIdRoute,
   CursorWorkspaceKeyRoute: CursorWorkspaceKeyRoute,
+  FxSessionsSessionIdRoute: FxSessionsSessionIdRoute,
+  FxWorkspaceKeyRoute: FxWorkspaceKeyRoute,
   GrokSessionsSessionIdRoute: GrokSessionsSessionIdRoute,
   GrokWorkspaceKeyRoute: GrokWorkspaceKeyRoute,
   KiroSessionsSessionIdRoute: KiroSessionsSessionIdRoute,
@@ -983,6 +1045,7 @@ const rootRouteChildren: RootRouteChildren = {
   ClineIndexRoute: ClineIndexRoute,
   CodexIndexRoute: CodexIndexRoute,
   CursorIndexRoute: CursorIndexRoute,
+  FxIndexRoute: FxIndexRoute,
   GrokIndexRoute: GrokIndexRoute,
   KiroIndexRoute: KiroIndexRoute,
   MinimaxCodeIndexRoute: MinimaxCodeIndexRoute,

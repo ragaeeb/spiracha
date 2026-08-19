@@ -7,7 +7,7 @@
 [![license](https://img.shields.io/npm/l/spiracha)](LICENSE.md)
 [![runtime](https://img.shields.io/badge/runtime-Bun-000000?logo=bun)](https://bun.sh)
 
-Spiracha is a Bun package with a local TanStack Start UI and a direct data client for browsing and exporting agent conversation history from Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, MiniMax Code, and OpenCode.
+Spiracha is a Bun package with a local TanStack Start UI and a direct data client for browsing and exporting agent conversation history from Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode.
 
 The legacy CLI, MCP server, and Codex plugin surfaces have been removed in the 2.0 hard cut. Spiracha now exposes the UI and a stable local data API; client-specific workflows such as review collection belong in the client that calls the API.
 
@@ -34,7 +34,7 @@ Spiracha requires Bun 1.3.14 or newer. Set `PORT` to request a different startin
 
 ## What It Does
 
-- Browse local conversations across Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, MiniMax Code, and OpenCode.
+- Browse local conversations across Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode.
 - Search Codex projects from the app shell, with results delegated to the shareable `/codex?q=...` inventory filter.
 - Inspect source-specific detail pages with transcript, tool, reasoning, metadata, raw event, export, and delete flows where supported by the source. Codex thread detail includes optional live updates isolated from page-loading connections, a tool-focused activity view, recorded goals, and sandbox policy.
 - Export transcripts from the UI as Markdown, text, or zip bundles with source-specific commentary/final-answer filtering. The last submitted export choices persist across dialog openings; canceled drafts do not.
@@ -140,6 +140,7 @@ Focused evidence is a deterministic, lossy Markdown export for qualitative DX an
 | Qoder | `~/Library/Application Support/Qoder/User/globalStorage/state.vscdb` and `~/Library/Application Support/Qoder/User/workspaceStorage` | `SPIRACHA_QODER_GLOBAL_STATE_DB`, `SPIRACHA_QODER_WORKSPACE_STORAGE_DIR` |
 | Cursor | `~/Library/Application Support/Cursor/User` on macOS | `SPIRACHA_CURSOR_USER_DIR`, `SPIRACHA_CURSOR_PROJECTS_DIR` |
 | Antigravity | `~/.gemini/antigravity-ide`, `~/.gemini/antigravity-cli`, and `~/.gemini/antigravity` | `SPIRACHA_ANTIGRAVITY_DIRS`, `SPIRACHA_ANTIGRAVITY_DIR` |
+| FX | `~/.fx` | `SPIRACHA_FX_DATA_DIR` |
 | MiniMax Code | `~/.minimax/v2/sessions` and `~/.minimax/v2/sqlite/runtime-state.sqlite` | `SPIRACHA_MINIMAX_CODE_SESSIONS_DIR`, `SPIRACHA_MINIMAX_CODE_RUNTIME_DB_PATH` |
 | OpenCode | `${XDG_DATA_HOME:-~/.local/share}/opencode/opencode.db` | `SPIRACHA_OPENCODE_DB` |
 | UI exports | OS temp directory under `spiracha-ui-exports` | `SPIRACHA_UI_EXPORT_DIR` |
@@ -172,8 +173,9 @@ Cursor reads use a retry-aware synchronous callback that opens a fresh read hand
 
 - `/codex` and `/codex/$project` for Codex inventory and project threads.
 - `/threads/$threadId` for Codex thread detail.
-- `/claude-code`, `/cline`, `/grok`, `/kiro`, `/qoder`, `/cursor`, `/antigravity`, `/minimax-code`, and `/opencode` for source inventories.
-- Source detail routes include `/claude-code-sessions/$sessionId`, `/cline-tasks/$taskId`, `/grok-sessions/$sessionId`, `/kiro-sessions/$sessionId`, `/qoder-sessions/$sessionId`, `/cursor-threads/$composerId`, `/antigravity-conversations/$conversationId`, `/minimax-code-sessions/$sessionId`, and `/opencode-sessions/$sessionId`.
+- `/claude-code`, `/cline`, `/grok`, `/kiro`, `/qoder`, `/cursor`, `/antigravity`, `/fx`, `/minimax-code`, and `/opencode` for source inventories.
+- Source detail routes include `/claude-code-sessions/$sessionId`, `/cline-tasks/$taskId`, `/grok-sessions/$sessionId`, `/kiro-sessions/$sessionId`, `/qoder-sessions/$sessionId`, `/cursor-threads/$composerId`, `/antigravity-conversations/$conversationId`, `/fx-sessions/$sessionId`, `/minimax-code-sessions/$sessionId`, and `/opencode-sessions/$sessionId`.
+- FX workspace and detail pages support single, selected, and workspace-wide deletion. Deletion removes the session directory plus its session-index and latest-pointer entries while preserving workspace files and global FX command history.
 - MiniMax Code workspace and detail pages support single, selected, and workspace-wide deletion. Deletion removes finalized session directories and authoritative runtime database rows while preserving generated workspace files and append-only observability logs.
 - `/analytics` for project-scoped Codex token totals, average and median thread size, archive counts, tool usage, model tokens, client sources, and reasoning-effort breakdowns.
 - `/settings` for transcript path conversion and username redaction. Export dialogs remember their own last submitted options.
