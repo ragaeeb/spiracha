@@ -8,6 +8,7 @@ import {
     getCodexAnalytics,
     resolveAnalyticsTranscriptConcurrency,
 } from './codex-analytics';
+import type { ThreadOptimizationSummary } from './codex-optimization-analysis';
 import { createCodexBrowserFixture } from './codex-test-helpers';
 import type { ThreadRow } from './codex-thread-types';
 
@@ -66,6 +67,77 @@ describe('getCodexAnalytics', () => {
             { count: 1, label: 'medium' },
             { count: 1, label: 'unspecified' },
         ]);
+    });
+
+    it('should rank deterministic optimization findings and repeated generic delegation themes', async () => {
+        const threads = [createThreadRow({ id: 'thread-1' }), createThreadRow({ id: 'thread-2' })];
+        const summaries = new Map<string, ThreadOptimizationSummary>([
+            [
+                'thread-1',
+                createOptimizationSummary({
+                    externalAgentStreamBlocks: 2,
+                    externalAgentStreamBytes: 40_000,
+                    fullContextSpawns: 1,
+                    genericSubagentSpawns: 2,
+                    parentVisibleReasoningEvents: 80,
+                    parentVisibleSubagentToolEvents: 12,
+                    personaTaskLabels: ['audit capture', 'audit capture'],
+                    toolOutputBytes: 60_000,
+                }),
+            ],
+            [
+                'thread-2',
+                createOptimizationSummary({
+                    genericSubagentSpawns: 1,
+                    personaTaskLabels: ['review receipts'],
+                    repeatedCheckCalls: 3,
+                    repeatedCommandCalls: 4,
+                    timedOutWaits: 2,
+                    toolOutputBytes: 30_000,
+                    truncatedOutputBytes: 25_000,
+                    truncationBlocks: 3,
+                }),
+            ],
+        ]);
+
+        const analytics = await computeCodexAnalyticsFromThreads(threads, {
+            loadThreadAnalytics: async (thread) => ({
+                hasWebSearch: false,
+                optimization: summaries.get(thread.id),
+                toolNames: [],
+            }),
+        });
+
+        expect(analytics.optimization.summary).toMatchObject({
+            externalAgentStreamBlocks: 2,
+            externalAgentStreamBytes: 40_000,
+            fullContextSpawns: 1,
+            genericSubagentSpawns: 3,
+            repeatedCheckCalls: 3,
+            timedOutWaits: 2,
+            toolOutputBytes: 90_000,
+            truncatedOutputBytes: 25_000,
+            truncationBlocks: 3,
+        });
+        expect(analytics.optimization.personaCandidates).toEqual([
+            { count: 2, label: 'audit capture' },
+            { count: 1, label: 'review receipts' },
+        ]);
+        expect(analytics.optimization.findings.map((finding) => finding.id)).toEqual([
+            'external-agent-streams',
+            'truncated-tool-output',
+            'full-context-forks',
+            'wait-timeouts',
+            'repeated-checks',
+            'generic-subagents',
+            'repeated-commands',
+        ]);
+        expect(analytics.optimization.findings[0]).toMatchObject({
+            affectedThreads: 1,
+            impactBytes: 40_000,
+            observedCount: 2,
+            severity: 'high',
+        });
     });
 
     it('should include custom tool calls in tool usage analytics', async () => {
@@ -236,5 +308,25 @@ const createThreadRow = (overrides: Partial<ThreadRow>): ThreadRow => ({
     tokens_used: 10,
     updated_at: 1779037924,
     updated_at_ms: 1779037924000,
+    ...overrides,
+});
+
+const createOptimizationSummary = (overrides: Partial<ThreadOptimizationSummary> = {}): ThreadOptimizationSummary => ({
+    broadReadCalls: 0,
+    commandCalls: 0,
+    externalAgentStreamBlocks: 0,
+    externalAgentStreamBytes: 0,
+    fullContextSpawns: 0,
+    genericSubagentSpawns: 0,
+    parentVisibleReasoningEvents: 0,
+    parentVisibleSubagentToolEvents: 0,
+    personaTaskLabels: [],
+    repeatedCheckCalls: 0,
+    repeatedCommandCalls: 0,
+    repeatedReadCalls: 0,
+    timedOutWaits: 0,
+    toolOutputBytes: 0,
+    truncatedOutputBytes: 0,
+    truncationBlocks: 0,
     ...overrides,
 });

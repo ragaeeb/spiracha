@@ -297,8 +297,44 @@ export type CodexAnalyticsSummary = {
     totalTokens: number;
 };
 
+export type CodexOptimizationSeverity = 'high' | 'medium' | 'low';
+
+export type CodexOptimizationFinding = {
+    affectedThreads: number;
+    id: string;
+    impactBytes: number | null;
+    observedCount: number;
+    recommendation: string;
+    severity: CodexOptimizationSeverity;
+    title: string;
+};
+
+export type CodexOptimizationSummary = {
+    broadReadCalls: number;
+    externalAgentStreamBlocks: number;
+    externalAgentStreamBytes: number;
+    fullContextSpawns: number;
+    genericSubagentSpawns: number;
+    parentVisibleReasoningEvents: number;
+    parentVisibleSubagentToolEvents: number;
+    repeatedCheckCalls: number;
+    repeatedCommandCalls: number;
+    repeatedReadCalls: number;
+    timedOutWaits: number;
+    toolOutputBytes: number;
+    truncationBlocks: number;
+    truncatedOutputBytes: number;
+};
+
+export type CodexOptimizationAnalytics = {
+    findings: CodexOptimizationFinding[];
+    personaCandidates: DistributionItem[];
+    summary: CodexOptimizationSummary;
+};
+
 export type CodexAnalytics = {
     modelsByTokens: ModelTokenSummary[];
+    optimization: CodexOptimizationAnalytics;
     reasoningEfforts: DistributionItem[];
     sources: DistributionItem[];
     summary: CodexAnalyticsSummary;

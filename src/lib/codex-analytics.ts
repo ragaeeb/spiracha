@@ -1,5 +1,12 @@
 import { listScopedThreads } from './codex-browser-db';
 import type { CodexAnalytics, DistributionItem, ModelTokenSummary } from './codex-browser-types';
+import {
+    captureCodexOptimizationRecord,
+    createCodexOptimizationAccumulator,
+    finishCodexOptimizationAnalysis,
+    type ThreadOptimizationSummary,
+} from './codex-optimization-analysis';
+import { buildCodexOptimizationAnalytics } from './codex-optimization-findings';
 import type { ThreadRow } from './codex-thread-types';
 import { mapWithConcurrency } from './concurrency';
 import { getPortablePathBasename } from './portable-path';
@@ -14,6 +21,7 @@ export type CodexAnalyticsInput = {
 
 export type ThreadAnalyticsSummary = {
     hasWebSearch: boolean;
+    optimization?: ThreadOptimizationSummary;
     toolNames: string[];
 };
 
@@ -115,7 +123,7 @@ const threadMetadataCacheKeyParts = (thread: ThreadRow) => [
 
 export const buildCodexAnalyticsCacheKey = (dbPath: string, threads: ThreadRow[], project: string | null) => {
     const parts = (function* () {
-        yield 'v3';
+        yield 'v5';
         yield dbPath;
         yield project ?? 'all';
         yield String(threads.length);
@@ -128,14 +136,16 @@ export const buildCodexAnalyticsCacheKey = (dbPath: string, threads: ThreadRow[]
 };
 
 const buildThreadAnalyticsCacheKey = (thread: ThreadRow) => {
-    return `thread-analytics-${hashCacheKeyPartsIterable(['v1', ...threadMetadataCacheKeyParts(thread)])}`;
+    return `thread-analytics-${hashCacheKeyPartsIterable(['v3', ...threadMetadataCacheKeyParts(thread)])}`;
 };
 
 const parseThreadAnalyticsFile = async (sessionFile: string): Promise<ThreadAnalyticsSummary> => {
     const toolNames: string[] = [];
+    const optimization = createCodexOptimizationAccumulator();
     let hasWebSearch = false;
 
     for await (const parsed of readJsonlObjects(sessionFile)) {
+        captureCodexOptimizationRecord(parsed, optimization);
         if (parsed.type !== 'response_item') {
             continue;
         }
@@ -158,6 +168,7 @@ const parseThreadAnalyticsFile = async (sessionFile: string): Promise<ThreadAnal
 
     return {
         hasWebSearch,
+        optimization: finishCodexOptimizationAnalysis(optimization),
         toolNames,
     };
 };
@@ -199,6 +210,9 @@ export const computeCodexAnalyticsFromThreads = async (
 
     return {
         modelsByTokens: buildModelsByTokens(threads),
+        optimization: buildCodexOptimizationAnalytics(
+            threadAnalytics.flatMap((analytics) => (analytics.optimization ? [analytics.optimization] : [])),
+        ),
         reasoningEfforts: toDistribution(reasoningEfforts),
         sources: toDistribution(sources),
         summary: {
