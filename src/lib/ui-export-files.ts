@@ -1,13 +1,12 @@
 import { chmod, mkdir, readdir, rm, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { resolveUiRuntimeConfig } from './runtime-config.ts';
 
 export const UI_EXPORT_DIR_ENV = 'SPIRACHA_UI_EXPORT_DIR';
 export const UI_EXPORT_URL_PREFIX = '/__exports/';
 
 const DEFAULT_UI_EXPORT_DIR = path.join(os.tmpdir(), 'spiracha-ui-exports');
-const DEFAULT_EXPORT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
-const DEFAULT_EXPORT_MAX_BYTES = 1024 * 1024 * 1024;
 const MAX_EXPORT_FILE_NAME_BYTES = 200;
 
 const decodeExportFileName = (value: string) => {
@@ -68,8 +67,8 @@ export const purgeStaleUiExportFile = async (filePath: string, cutoff: number) =
 
 export const purgeStaleUiExports = async (
     exportDir: string = getUiExportDir(),
-    maxAgeMs: number = DEFAULT_EXPORT_MAX_AGE_MS,
-    maxBytes: number = DEFAULT_EXPORT_MAX_BYTES,
+    maxAgeMs: number = resolveUiRuntimeConfig().exportMaxAgeMs,
+    maxBytes: number = resolveUiRuntimeConfig().exportMaxBytes,
 ) => {
     const entries = await readdir(exportDir, { withFileTypes: true });
     const cutoff = Date.now() - maxAgeMs;

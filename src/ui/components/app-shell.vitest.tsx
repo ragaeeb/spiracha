@@ -1,13 +1,12 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import packageJsonRaw from '../../../package.json?raw';
+import { packageMetadata } from '#/lib/package-metadata';
 
 const useRouterStateMock = vi.fn();
 const searchQueryMock = vi.fn();
 const navigateMock = vi.fn();
 const linkActiveOptionsMock = vi.fn();
-const packageJson = JSON.parse(packageJsonRaw) as { homepage: string; version: string };
 
 vi.mock('@tanstack/react-router', () => ({
     Link: ({
@@ -65,9 +64,9 @@ describe('AppShell', () => {
         );
 
         expect(screen.getByText('Spiracha Console')).toBeTruthy();
-        expect(screen.getByText(`v${packageJson.version}`)).toBeTruthy();
+        expect(screen.getByText(`v${packageMetadata.version}`)).toBeTruthy();
         expect(screen.getByLabelText('Open Spiracha GitHub repository').getAttribute('href')).toBe(
-            packageJson.homepage,
+            packageMetadata.homepage,
         );
         expect(screen.getByText('Theme switcher')).toBeTruthy();
         expect(screen.getByText('Content area')).toBeTruthy();

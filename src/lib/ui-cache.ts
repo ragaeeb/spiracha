@@ -2,11 +2,10 @@ import { createHash, randomUUID } from 'node:crypto';
 import { chmod, lstat, mkdir, readdir, rename, rm, stat, utimes } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { resolveUiRuntimeConfig } from './runtime-config';
 
 const CACHE_DIR = path.join(os.tmpdir(), 'spiracha-ui-cache');
 const CACHE_ENVELOPE_VERSION = 1;
-const DEFAULT_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
-const DEFAULT_CACHE_MAX_BYTES = 256 * 1024 * 1024;
 const CACHE_PURGE_INTERVAL_MS = 60 * 1000;
 const CACHE_KEY_PREFIX_MAX_LENGTH = 80;
 
@@ -50,8 +49,8 @@ const finishActiveCachePath = async (filePath: string): Promise<void> => {
 
 export const pruneUiCacheEntries = async (
     cacheDir: string = CACHE_DIR,
-    maxAgeMs: number = DEFAULT_CACHE_MAX_AGE_MS,
-    maxBytes: number = DEFAULT_CACHE_MAX_BYTES,
+    maxAgeMs: number = resolveUiRuntimeConfig().cacheMaxAgeMs,
+    maxBytes: number = resolveUiRuntimeConfig().cacheMaxBytes,
 ) => {
     const cutoff = Date.now() - maxAgeMs;
     const entries = await readdir(cacheDir, { withFileTypes: true }).catch((error: unknown) => {
@@ -202,11 +201,17 @@ const readCachedJson = async <T>(key: string): Promise<CacheReadResult<T>> => {
 };
 
 export const getCachedJson = async <T>(key: string): Promise<T | null> => {
+    if (resolveUiRuntimeConfig().cacheBypass) {
+        return null;
+    }
     const cached = await readCachedJson<T>(key);
     return cached.hit ? cached.value : null;
 };
 
 export const setCachedJson = async <T>(key: string, value: T) => {
+    if (resolveUiRuntimeConfig().cacheBypass) {
+        return;
+    }
     await ensureCacheDir();
     const filePath = toCachePath(key);
     const tempPath = `${filePath}.${randomUUID()}.tmp`;
@@ -228,6 +233,9 @@ export const setCachedJson = async <T>(key: string, value: T) => {
 };
 
 export const withCachedJson = async <T>(key: string, loader: () => Promise<T>): Promise<T> => {
+    if (resolveUiRuntimeConfig().cacheBypass) {
+        return loader();
+    }
     const inFlight = inFlightCacheLoads.get(key);
     if (inFlight) {
         return (await inFlight) as T;
@@ -267,4 +275,12 @@ export const invalidateCacheByPrefix = async (...prefixes: string[]) => {
             .filter((entry) => prefixes.some((prefix) => entry.startsWith(prefix)))
             .map((entry) => removeInactiveCachePath(path.join(CACHE_DIR, entry))),
     );
+};
+
+export const clearUiCache = async (): Promise<void> => {
+    cacheInvalidationGeneration += 1;
+    await ensureCacheDir();
+    const entries = await readdir(CACHE_DIR);
+    await Promise.all(entries.map((entry) => removeInactiveCachePath(path.join(CACHE_DIR, entry))));
+    lastCachePurgeAtMs = 0;
 };

@@ -204,6 +204,7 @@ export type GetConversationOptions = {
 };
 
 export type DeleteConversationOptions = {
+    deleteSessionFiles?: boolean;
     id: string;
     locations?: ConversationDataLocations;
     source: ConversationSource;
@@ -227,7 +228,9 @@ export type ConversationIdSetOptions = {
     source: ConversationSource;
 };
 
-export type DeleteConversationsOptions = ConversationIdSetOptions;
+export type DeleteConversationsOptions = ConversationIdSetOptions & {
+    deleteSessionFiles?: boolean;
+};
 
 export type DeleteConversationItemResult = DeleteConversationResult & {
     deleted: boolean;

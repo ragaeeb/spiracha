@@ -11,6 +11,7 @@ const {
     deleteCursorWorkspaceBucketsMock,
     deleteCursorWorkspaceHistoryMock,
     findCursorTranscriptDirsForComposerIdsMock,
+    getCursorThreadSummaryByComposerIdMock,
     isCursorRunningMock,
     listCursorThreadsForGroupMock,
     listCursorWorkspaceGroupsMock,
@@ -26,6 +27,7 @@ const {
     deleteCursorWorkspaceBucketsMock: vi.fn(),
     deleteCursorWorkspaceHistoryMock: vi.fn(),
     findCursorTranscriptDirsForComposerIdsMock: vi.fn(),
+    getCursorThreadSummaryByComposerIdMock: vi.fn(),
     isCursorRunningMock: vi.fn(),
     listCursorThreadsForGroupMock: vi.fn(),
     listCursorWorkspaceGroupsMock: vi.fn(),
@@ -64,6 +66,7 @@ vi.mock('@tanstack/react-start', () => ({
 
 vi.mock('@spiracha/lib/cursor-db', () => ({
     findCursorTranscriptDirsForComposerIds: findCursorTranscriptDirsForComposerIdsMock,
+    getCursorThreadSummaryByComposerId: getCursorThreadSummaryByComposerIdMock,
     listCursorThreadsForGroup: listCursorThreadsForGroupMock,
     listCursorWorkspaceGroups: listCursorWorkspaceGroupsMock,
     readCursorThreadTranscript: vi.fn(),
@@ -100,6 +103,8 @@ import {
     exportCursorThreadFn,
     exportCursorThreadsFn,
     findCursorThreadByComposerId,
+    getCursorThreadDetailFn,
+    getCursorThreadTranscriptFn,
 } from './cursor-server';
 
 const workspaceOne: CursorWorkspaceGroup = {
@@ -182,45 +187,48 @@ describe('findCursorThreadByComposerId', () => {
         deleteCursorWorkspaceHistoryMock.mockResolvedValue({ cleanupFailures: [], removedPaths: [] });
     });
 
-    it('should query detail stats without scanning transcript directories for unrelated workspaces', async () => {
-        listCursorWorkspaceGroupsMock.mockResolvedValue([workspaceOne, workspaceTwo]);
-        listCursorThreadsForGroupMock
-            .mockResolvedValueOnce([makeThread()])
-            .mockResolvedValueOnce([
-                makeThread({
-                    composerId: 'thread-2',
-                    workspaceKey: workspaceTwo.key,
-                    workspaceLabel: workspaceTwo.label,
-                }),
-            ])
-            .mockResolvedValueOnce([
-                makeThread({
-                    bubbleBytes: 256,
-                    bubbleCount: 7,
-                    composerId: 'thread-2',
-                    workspaceKey: workspaceTwo.key,
-                    workspaceLabel: workspaceTwo.label,
-                }),
-            ]);
-
-        const thread = await findCursorThreadByComposerId('thread-2');
-
-        expect(thread).toMatchObject({ bubbleBytes: 256, bubbleCount: 7, composerId: 'thread-2' });
-        expect(listCursorThreadsForGroupMock).toHaveBeenNthCalledWith(1, workspaceOne, undefined, {
-            includeBubbleStats: false,
-            includeModelAttribution: false,
-            includeTranscriptDirs: false,
+    it('should use the direct composer index instead of scanning workspace groups', async () => {
+        const thread = makeThread({
+            bubbleBytes: 256,
+            bubbleCount: 7,
+            composerId: 'thread-2',
+            workspaceKey: workspaceTwo.key,
+            workspaceLabel: workspaceTwo.label,
         });
-        expect(listCursorThreadsForGroupMock).toHaveBeenNthCalledWith(2, workspaceTwo, undefined, {
-            includeBubbleStats: false,
-            includeModelAttribution: false,
-            includeTranscriptDirs: false,
-        });
-        expect(listCursorThreadsForGroupMock).toHaveBeenNthCalledWith(3, workspaceTwo, undefined, {
+        getCursorThreadSummaryByComposerIdMock.mockResolvedValue({ group: workspaceTwo, thread });
+
+        const result = await findCursorThreadByComposerId('thread-2');
+
+        expect(result).toBe(thread);
+        expect(getCursorThreadSummaryByComposerIdMock).toHaveBeenCalledWith('thread-2', undefined, {
             includeBubbleStats: true,
             includeModelAttribution: true,
-            includeTranscriptDirs: false,
+            includeTranscriptDirs: true,
         });
+        expect(listCursorWorkspaceGroupsMock).not.toHaveBeenCalled();
+        expect(listCursorThreadsForGroupMock).not.toHaveBeenCalled();
+    });
+});
+
+describe('Cursor detail server functions', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        getCursorThreadSummaryByComposerIdMock.mockResolvedValue({ group: workspaceOne, thread: makeThread() });
+        readCursorThreadTranscriptWithAgentFilesMock.mockResolvedValue(transcript);
+    });
+
+    it('should keep the route detail payload metadata-only', async () => {
+        await expect(getCursorThreadDetailFn({ data: { composerId: 'thread-1' } })).resolves.toEqual({
+            thread: makeThread(),
+        });
+
+        expect(readCursorThreadTranscriptWithAgentFilesMock).not.toHaveBeenCalled();
+    });
+
+    it('should load transcript bodies only through the deferred endpoint', async () => {
+        await expect(getCursorThreadTranscriptFn({ data: { composerId: 'thread-1' } })).resolves.toBe(transcript);
+
+        expect(readCursorThreadTranscriptWithAgentFilesMock).toHaveBeenCalledWith('/tmp/global.db', 'thread-1');
     });
 });
 
@@ -244,11 +252,29 @@ describe('deleteCursorThreadsFn', () => {
         pruneCursorThreadsMock.mockResolvedValue(result);
         deleteCursorWorkspaceBucketsMock.mockResolvedValue({ cleanupFailures: [], removedPaths: [] });
 
-        await expect(deleteCursorThreadsFn({ data: { composerIds: ['thread-1', 'thread-2'] } })).resolves.toBe(result);
+        await expect(
+            deleteCursorThreadsFn({ data: { composerIds: ['thread-1', 'thread-2'], deleteSessionFiles: true } }),
+        ).resolves.toBe(result);
 
         expect(isCursorRunningMock).toHaveBeenCalledTimes(1);
         expect(collectCursorThreadsForDeletionMock).toHaveBeenCalledWith(['thread-1', 'thread-2']);
-        expect(pruneCursorThreadsMock).toHaveBeenCalledWith(deletableThreads, true);
+        expect(pruneCursorThreadsMock).toHaveBeenCalledWith(deletableThreads, {
+            apply: true,
+            deleteSessionFiles: true,
+        });
+    });
+
+    it('should preserve transcript directories when session-file deletion is disabled', async () => {
+        const deletableThreads = [makeThread()];
+        collectCursorThreadsForDeletionMock.mockResolvedValue(deletableThreads);
+        pruneCursorThreadsMock.mockResolvedValue({ composerIds: ['thread-1'], transcriptDirsRemovedPaths: [] });
+
+        await deleteCursorThreadsFn({ data: { composerIds: ['thread-1'], deleteSessionFiles: false } });
+
+        expect(pruneCursorThreadsMock).toHaveBeenCalledWith(deletableThreads, {
+            apply: true,
+            deleteSessionFiles: false,
+        });
     });
 
     it('should refuse to delete Cursor threads while Cursor is running', async () => {
@@ -308,7 +334,10 @@ describe('deleteCursorWorkspaceFn', () => {
             includeTranscriptDirs: false,
         });
         expect(collectCursorThreadsForDeletionMock).toHaveBeenCalledWith(['thread-1', 'thread-2', 'aborted-thread']);
-        expect(pruneCursorThreadsMock).toHaveBeenCalledWith(deletableThreads, true);
+        expect(pruneCursorThreadsMock).toHaveBeenCalledWith(deletableThreads, {
+            apply: true,
+            deleteSessionFiles: true,
+        });
         expect(deleteCursorWorkspaceBucketsMock).toHaveBeenCalledWith(workspace);
         expect(deleteCursorWorkspaceHistoryMock).toHaveBeenCalledWith(workspace);
     });
@@ -569,7 +598,10 @@ describe('deleteCursorWorkspacesFn', () => {
             deleteCursorWorkspacesFn({ data: { workspaceKeys: [workspaceOne.key, workspaceTwo.key] } }),
         ).rejects.toThrow('second prune failed');
 
-        expect(pruneCursorThreadsMock).toHaveBeenNthCalledWith(1, [{ composerId: 'thread-1' }], true);
+        expect(pruneCursorThreadsMock).toHaveBeenNthCalledWith(1, [{ composerId: 'thread-1' }], {
+            apply: true,
+            deleteSessionFiles: true,
+        });
         expect(deleteCursorWorkspaceBucketsMock).toHaveBeenNthCalledWith(1, workspaceOne);
         expect(deleteCursorWorkspaceHistoryMock).toHaveBeenNthCalledWith(1, workspaceOne);
     });

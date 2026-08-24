@@ -573,24 +573,35 @@ const validateCursorTranscriptDirs = async (
     return validatedTranscriptDirs;
 };
 
+export type PruneCursorThreadsOptions = {
+    apply: boolean;
+    deleteSessionFiles: boolean;
+};
+
 export const pruneCursorThreads = async (
     threads: CursorThreadSummary[],
-    apply: boolean,
+    options: PruneCursorThreadsOptions,
     userDir = resolveCursorUserDir(),
 ): Promise<CursorPruneResult> => {
-    const discoveredTranscriptDirs = await findCursorTranscriptDirsForComposerIds(
-        threads.map((thread) => thread.composerId),
-        userDir,
-    );
-    const effectiveThreads = threads.map((thread) =>
-        thread.transcriptDirs.length > 0
-            ? thread
-            : {
-                  ...thread,
-                  transcriptDirs: discoveredTranscriptDirs.get(thread.composerId) ?? [],
-              },
-    );
-    const validatedTranscriptDirs = await validateCursorTranscriptDirs(effectiveThreads, userDir);
+    const discoveredTranscriptDirs = options.deleteSessionFiles
+        ? await findCursorTranscriptDirsForComposerIds(
+              threads.map((thread) => thread.composerId),
+              userDir,
+          )
+        : new Map<string, string[]>();
+    const effectiveThreads = options.deleteSessionFiles
+        ? threads.map((thread) =>
+              thread.transcriptDirs.length > 0
+                  ? thread
+                  : {
+                        ...thread,
+                        transcriptDirs: discoveredTranscriptDirs.get(thread.composerId) ?? [],
+                    },
+          )
+        : threads;
+    const validatedTranscriptDirs = options.deleteSessionFiles
+        ? await validateCursorTranscriptDirs(effectiveThreads, userDir)
+        : new Map<string, string>();
 
     const composerIds = new Set(effectiveThreads.map((thread) => thread.composerId));
     const globalDbPath = getCursorGlobalDbPath(userDir);
@@ -600,11 +611,13 @@ export const pruneCursorThreads = async (
         return result;
     }
 
-    if (!apply) {
+    if (!options.apply) {
         result.bubblesDeleted = effectiveThreads.reduce((sum, thread) => sum + thread.bubbleCount, 0);
         result.composerDataDeleted = effectiveThreads.length;
         result.headersRemoved = effectiveThreads.length;
-        result.transcriptDirsRemoved = effectiveThreads.reduce((sum, thread) => sum + thread.transcriptDirs.length, 0);
+        result.transcriptDirsRemoved = options.deleteSessionFiles
+            ? effectiveThreads.reduce((sum, thread) => sum + thread.transcriptDirs.length, 0)
+            : 0;
         return result;
     }
 
@@ -621,7 +634,9 @@ export const pruneCursorThreads = async (
         throw error;
     }
     result.workspaceBucketsUpdated = bucketMutation.updatedCount;
-    await pruneTranscriptDirs(effectiveThreads, result, validatedTranscriptDirs);
+    if (options.deleteSessionFiles) {
+        await pruneTranscriptDirs(effectiveThreads, result, validatedTranscriptDirs);
+    }
     invalidateCursorDiscoveryCache();
 
     return result;

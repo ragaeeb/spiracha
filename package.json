@@ -87,7 +87,8 @@
     ],
     "homepage": "https://github.com/ragaeeb/spiracha",
     "imports": {
-        "#/*": "./src/ui/*"
+        "#/*": "./src/ui/*",
+        "#package-metadata": "./package.json"
     },
     "keywords": [
         "codex",

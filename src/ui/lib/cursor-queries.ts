@@ -1,6 +1,11 @@
 import { isRetryableSqliteError } from '@spiracha/lib/sqlite-error';
 import { queryOptions } from '@tanstack/react-query';
-import { getCursorThreadDetailFn, listCursorThreadsFn, listCursorWorkspacesFn } from './cursor-server';
+import {
+    getCursorThreadDetailFn,
+    getCursorThreadTranscriptFn,
+    listCursorThreadsFn,
+    listCursorWorkspacesFn,
+} from './cursor-server';
 
 const retrySqliteQuery = (failureCount: number, error: unknown) => {
     return failureCount < 3 && isRetryableSqliteError(error);
@@ -32,6 +37,15 @@ export const cursorThreadDetailQueryOptions = (composerId: string | null) =>
         enabled: composerId !== null,
         queryFn: () => getCursorThreadDetailFn({ data: { composerId: composerId ?? '' } }),
         queryKey: ['cursor-thread', composerId ?? 'none'],
+        retry: retrySqliteQuery,
+        retryDelay,
+    });
+
+export const cursorThreadTranscriptQueryOptions = (composerId: string | null) =>
+    queryOptions({
+        enabled: composerId !== null,
+        queryFn: () => getCursorThreadTranscriptFn({ data: { composerId: composerId ?? '' } }),
+        queryKey: ['cursor-thread-transcript', composerId ?? 'none'],
         retry: retrySqliteQuery,
         retryDelay,
     });

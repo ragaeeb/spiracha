@@ -1,14 +1,16 @@
 import path from 'node:path';
 import { defineConfig } from 'vitest/config';
 
+const appRoot = import.meta.dirname;
+
 export default defineConfig({
     resolve: {
         alias: {
-            '@spiracha': path.resolve(__dirname, 'src'),
-            '#': path.resolve(__dirname, 'src/ui'),
+            '@spiracha': path.resolve(appRoot, 'src'),
+            '#': path.resolve(appRoot, 'src/ui'),
         },
     },
-    root: __dirname,
+    root: appRoot,
     test: {
         coverage: {
             exclude: ['src/ui/routeTree.gen.ts', 'src/ui/integrations/**', 'src/ui/router.tsx', 'src/ui/routes/**'],

@@ -320,11 +320,11 @@ describe('conversation client', () => {
     });
 
     it('should delete conversations through the HTTP API with a DELETE request', async () => {
-        const requests: Array<{ method: string; pathname: string }> = [];
+        const requests: Array<{ method: string; pathname: string; search: string }> = [];
         const server = Bun.serve({
             fetch(request) {
                 const url = new URL(request.url);
-                requests.push({ method: request.method, pathname: url.pathname });
+                requests.push({ method: request.method, pathname: url.pathname, search: url.search });
                 expect(request.method).toBe('DELETE');
                 expect(url.pathname).toBe('/api/v1/conversations/claude-code/session-delete');
 
@@ -344,12 +344,22 @@ describe('conversation client', () => {
                 mode: 'http',
             });
 
-            await expect(client.deleteConversation({ id: 'session-delete', source: 'claude-code' })).resolves.toEqual({
+            await expect(
+                client.deleteConversation({
+                    deleteSessionFiles: false,
+                    id: 'session-delete',
+                    source: 'claude-code',
+                }),
+            ).resolves.toEqual({
                 deletedFiles: ['/tmp/claude/session-delete.jsonl'],
                 deletedIds: ['session-delete'],
             });
             expect(requests).toEqual([
-                { method: 'DELETE', pathname: '/api/v1/conversations/claude-code/session-delete' },
+                {
+                    method: 'DELETE',
+                    pathname: '/api/v1/conversations/claude-code/session-delete',
+                    search: '?delete_session_files=false',
+                },
             ]);
         } finally {
             server.stop(true);
@@ -387,6 +397,7 @@ describe('conversation client', () => {
 
             await expect(
                 client.deleteConversations({
+                    deleteSessionFiles: false,
                     ids: ['session-1', 'session-2'],
                     source: 'opencode',
                 }),
@@ -399,6 +410,7 @@ describe('conversation client', () => {
             expect(requests).toEqual([
                 {
                     body: {
+                        delete_session_files: false,
                         ids: ['session-1', 'session-2'],
                         source: 'opencode',
                     },

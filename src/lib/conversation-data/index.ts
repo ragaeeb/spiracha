@@ -238,6 +238,7 @@ export const deleteConversations = async (
         async (id) => ({
             id,
             result: await deleteAdapterConversation({
+                deleteSessionFiles: options.deleteSessionFiles,
                 id,
                 locations: options.locations,
                 source: options.source,

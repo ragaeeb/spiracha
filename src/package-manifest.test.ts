@@ -86,6 +86,7 @@ describe('package manifest', () => {
         expect(manifest.workspaces).toBeUndefined();
         expect(manifest.imports).toEqual({
             '#/*': './src/ui/*',
+            '#package-metadata': './package.json',
         });
 
         for (const command of Object.values(manifest.scripts ?? {})) {

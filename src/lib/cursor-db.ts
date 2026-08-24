@@ -51,13 +51,21 @@ export const CURSOR_MAX_HISTORY_ENTRIES_BYTES = 8 * 1024 * 1024;
 // flag keeps this portable across SQLite builds where URI filename parsing is not enabled globally.
 export const getCursorReadonlyDbUri = (dbPath: string, immutable = true): string => {
     const normalizedPath = dbPath.replace(/\\/gu, '/');
+    const query = immutable ? 'immutable=1' : 'mode=ro';
+    if (normalizedPath.startsWith('//')) {
+        const [host, ...segments] = normalizedPath.slice(2).split('/');
+        if (!host) {
+            throw new Error(`Invalid Cursor UNC database path: ${dbPath}`);
+        }
+        return `file://${host}/${segments.map(encodeURIComponent).join('/')}?${query}`;
+    }
     const absolutePath = normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`;
     const encodedPath = absolutePath
         .split('/')
         .map((segment) => (/^[A-Za-z]:$/u.test(segment) ? segment : encodeURIComponent(segment)))
         .join('/');
 
-    return `file://${encodedPath}?${immutable ? 'immutable=1' : 'mode=ro'}`;
+    return `file://${encodedPath}?${query}`;
 };
 
 export const openCursorReadonlyDb = (dbPath: string): Database => {
@@ -682,29 +690,24 @@ const hydrateCursorChatStoreModels = async (
         }),
     );
 
-export const listCursorThreadsForGroup = async (
-    group: CursorWorkspaceGroup,
-    userDir = resolveCursorUserDir(),
-    options: ListCursorThreadsOptions = {},
+const hydrateCursorThreadSummaries = async (
+    threads: CursorThreadSummary[],
+    userDir: string,
+    options: ListCursorThreadsOptions,
 ): Promise<CursorThreadSummary[]> => {
-    const discovery = await discoverCursorWorkspaces(userDir, options);
-    const discoveredThreads = discovery.threadsByKey.get(group.key) ?? [];
-    const threads =
-        options.includeBubbleStats === false
-            ? discoveredThreads
-            : await hydrateCursorThreadBubbleStats(discoveredThreads, userDir);
-
+    const threadsWithStats =
+        options.includeBubbleStats === false ? threads : await hydrateCursorThreadBubbleStats(threads, userDir);
     const shouldHydrateModels = options.includeModelAttribution !== false;
     const shouldResolveTranscriptDirs = options.includeTranscriptDirs !== false || shouldHydrateModels;
     const transcriptDirsByComposerId = shouldResolveTranscriptDirs
         ? await findCursorTranscriptDirsForComposerIds(
-              threads.map((thread) => thread.composerId),
+              threadsWithStats.map((thread) => thread.composerId),
               userDir,
           )
         : new Map<string, string[]>();
     const hydratedThreads = shouldHydrateModels
-        ? await hydrateCursorChatStoreModels(threads, transcriptDirsByComposerId)
-        : threads;
+        ? await hydrateCursorChatStoreModels(threadsWithStats, transcriptDirsByComposerId)
+        : threadsWithStats;
     if (options.includeTranscriptDirs === false) {
         return hydratedThreads;
     }
@@ -713,6 +716,34 @@ export const listCursorThreadsForGroup = async (
         ...thread,
         transcriptDirs: transcriptDirsByComposerId.get(thread.composerId) ?? [],
     }));
+};
+
+export const listCursorThreadsForGroup = async (
+    group: CursorWorkspaceGroup,
+    userDir = resolveCursorUserDir(),
+    options: ListCursorThreadsOptions = {},
+): Promise<CursorThreadSummary[]> => {
+    const discovery = await discoverCursorWorkspaces(userDir, options);
+    const discoveredThreads = discovery.threadsByKey.get(group.key) ?? [];
+    return hydrateCursorThreadSummaries(discoveredThreads, userDir, options);
+};
+
+export const getCursorThreadSummaryByComposerId = async (
+    composerId: string,
+    userDir = resolveCursorUserDir(),
+    options: ListCursorThreadsOptions = {},
+): Promise<{ group: CursorWorkspaceGroup; thread: CursorThreadSummary } | null> => {
+    if (!isSafeCursorComposerId(composerId)) {
+        return null;
+    }
+
+    const discovered = (await discoverCursorWorkspaces(userDir, options)).threadsByComposerId.get(composerId);
+    if (!discovered) {
+        return null;
+    }
+
+    const [thread] = await hydrateCursorThreadSummaries([discovered.thread], userDir, options);
+    return thread ? { group: discovered.group, thread } : null;
 };
 
 // Older threads' workspace buckets get pruned by Cursor over time, and many threads predate the
@@ -742,6 +773,7 @@ type BubbleStat = { count: number; bytes: number };
 
 type CursorDiscovery = {
     groups: CursorWorkspaceGroup[];
+    threadsByComposerId: Map<string, { group: CursorWorkspaceGroup; thread: CursorThreadSummary }>;
     threadsByKey: Map<string, CursorThreadSummary[]>;
 };
 
@@ -753,11 +785,16 @@ type CursorDiscoveryOptions = {
 // Discovery does a full scan of the (potentially multi-GB) global DB, so cache it briefly. Writes
 // (recover/prune/delete) call invalidateCursorDiscoveryCache() so the UI never shows stale results.
 const DISCOVERY_TTL_MS = 60_000;
+const DISCOVERY_CACHE_MAX_ENTRIES = 8;
 const UNKNOWN_GROUP_KEY = 'unknown';
-let discoveryCache: { userDir: string; at: number; value: CursorDiscovery } | null = null;
+const discoveryCache = new Map<string, { at: number; value: CursorDiscovery }>();
+const discoveryInFlight = new Map<string, Promise<CursorDiscovery>>();
+let discoveryGeneration = 0;
 
 export const invalidateCursorDiscoveryCache = (): void => {
-    discoveryCache = null;
+    discoveryGeneration += 1;
+    discoveryCache.clear();
+    discoveryInFlight.clear();
 };
 
 const DEV_CONTAINER_DIRS = [
@@ -1296,6 +1333,31 @@ const toThreadSummary = (resolved: ResolvedThread): CursorThreadSummary => ({
     workspaceLabel: resolved.groupLabel,
 });
 
+const shouldIncludeResolvedThread = (thread: ResolvedThread): boolean => {
+    const hasBubbleData = thread.hasBubbleData ?? thread.stat.count > 0;
+    return !(
+        (!hasBubbleData && thread.status === 'aborted') ||
+        (thread.groupKey === UNKNOWN_GROUP_KEY && !hasBubbleData)
+    );
+};
+
+const indexThreadsByComposerId = (
+    groups: CursorWorkspaceGroup[],
+    threadsByKey: Map<string, CursorThreadSummary[]>,
+): Map<string, { group: CursorWorkspaceGroup; thread: CursorThreadSummary }> => {
+    const groupsByKey = new Map(groups.map((group) => [group.key, group]));
+    const result = new Map<string, { group: CursorWorkspaceGroup; thread: CursorThreadSummary }>();
+    for (const [groupKey, threads] of threadsByKey) {
+        const group = groupsByKey.get(groupKey);
+        if (group) {
+            for (const thread of threads) {
+                result.set(thread.composerId, { group, thread });
+            }
+        }
+    }
+    return result;
+};
+
 const assembleDiscovery = (
     resolved: ResolvedThread[],
     bucketGroups: CursorWorkspaceGroup[],
@@ -1305,17 +1367,7 @@ const assembleDiscovery = (
     const lastActiveByKey = new Map<string, number>();
 
     const groupLabels = new Map(bucketGroups.map((group) => [group.key, group.label]));
-    for (const thread of resolved) {
-        const hasBubbleData = thread.hasBubbleData ?? thread.stat.count > 0;
-        if (!hasBubbleData && thread.status === 'aborted') {
-            continue;
-        }
-
-        // Empty threads with no resolvable workspace are pure noise; keep them out of the catch-all.
-        if (thread.groupKey === UNKNOWN_GROUP_KEY && !hasBubbleData) {
-            continue;
-        }
-
+    for (const thread of resolved.filter(shouldIncludeResolvedThread)) {
         const list = threadsByKey.get(thread.groupKey) ?? [];
         list.push(
             toThreadSummary({
@@ -1340,7 +1392,8 @@ const assembleDiscovery = (
     }
 
     const groups = buildDiscoveryGroups(threadsByKey, bucketGroups, lastActiveByKey);
-    return { groups, threadsByKey };
+    const threadsByComposerId = indexThreadsByComposerId(groups, threadsByKey);
+    return { groups, threadsByComposerId, threadsByKey };
 };
 
 const mergeBucketGroup = (
@@ -1470,13 +1523,44 @@ const discoverCursorWorkspaces = async (
     }
 
     const now = Date.now();
-    if (discoveryCache && discoveryCache.userDir === userDir && now - discoveryCache.at < DISCOVERY_TTL_MS) {
-        return discoveryCache.value;
+    for (const [key, entry] of discoveryCache) {
+        if (now - entry.at >= DISCOVERY_TTL_MS) {
+            discoveryCache.delete(key);
+        }
+    }
+    const cached = discoveryCache.get(userDir);
+    if (cached) {
+        discoveryCache.delete(userDir);
+        discoveryCache.set(userDir, cached);
+        return cached.value;
     }
 
-    const value = await buildDiscovery(userDir);
-    discoveryCache = { at: now, userDir, value };
-    return value;
+    const pending = discoveryInFlight.get(userDir);
+    if (pending) {
+        return pending;
+    }
+
+    const generation = discoveryGeneration;
+    const load = buildDiscovery(userDir);
+    discoveryInFlight.set(userDir, load);
+    try {
+        const value = await load;
+        if (generation === discoveryGeneration) {
+            while (discoveryCache.size >= DISCOVERY_CACHE_MAX_ENTRIES) {
+                const oldestKey = discoveryCache.keys().next().value;
+                if (typeof oldestKey !== 'string') {
+                    break;
+                }
+                discoveryCache.delete(oldestKey);
+            }
+            discoveryCache.set(userDir, { at: Date.now(), value });
+        }
+        return value;
+    } finally {
+        if (discoveryInFlight.get(userDir) === load) {
+            discoveryInFlight.delete(userDir);
+        }
+    }
 };
 
 const readCursorThreadHeadFromDb = (db: Database, composerId: string): CursorThreadHead | null => {
@@ -2044,7 +2128,7 @@ const readAllBubbleIds = (db: Database, composerId: string): string[] => {
     const prefix = `bubbleId:${composerId}:`;
     const range = getCursorBubbleKeyRange(composerId);
     const rows = db
-        .query('SELECT key, value FROM cursorDiskKV WHERE key >= ? AND key < ? ORDER BY key ASC')
+        .query('SELECT key, value FROM cursorDiskKV WHERE key >= ? AND key < ? ORDER BY rowid ASC')
         .all(range.start, range.end) as Array<{ key: string; value: string }>;
     return rows
         .filter((row) => isCursorBubbleKeyForComposer(row.key, row.value, composerId))

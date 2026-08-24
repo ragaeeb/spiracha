@@ -71,7 +71,7 @@ Conversation lists use opaque keyset cursors ordered by update time, source, and
 
 Workspace matching is lexical and performs no filesystem reads, so missing and network-mounted transcript paths cannot delay collection. Symlink aliases are intentionally not resolved; callers that require alias equivalence should pass the canonical workspace path recorded by the source.
 
-Batch delete requires an explicit source and ID list. It returns `deletedIds`, `missingIds`, and a result for each requested ID, so partial success is represented in a `200` response body. Batch export also requires an explicit source and ID list, but is atomic: any missing ID returns an error instead of a partial archive.
+Batch delete requires an explicit source and ID list. It returns `deletedIds`, `missingIds`, and a result for each requested ID, so partial success is represented in a `200` response body. Batch export also requires an explicit source and ID list, but is atomic: any missing ID returns an error instead of a partial archive. Cursor deletes accept `delete_session_files=false` on the single-delete query string or batch-delete JSON body. This removes Cursor database records while preserving its transcript directories; preserved source files can make the conversation discoverable again. The Cursor UI exposes the same choice and keeps transcript deletion selected by default.
 
 Example:
 
@@ -145,6 +145,21 @@ Focused evidence is a deterministic, lossy Markdown export for qualitative DX an
 | OpenCode | `${XDG_DATA_HOME:-~/.local/share}/opencode/opencode.db` | `SPIRACHA_OPENCODE_DB` |
 | UI exports | OS temp directory under `spiracha-ui-exports` | `SPIRACHA_UI_EXPORT_DIR` |
 
+### Cache and export lifecycle
+
+Spiracha bounds temporary disk use by age and total retained bytes. Values are non-negative integer byte or millisecond counts; invalid values fail startup/request handling instead of silently falling back.
+
+| Variable | Default | Purpose |
+| --- | ---: | --- |
+| `SPIRACHA_UI_CACHE_BYPASS` | `0` | Set to `1` to bypass UI JSON cache reads and writes during development. |
+| `SPIRACHA_UI_CACHE_MAX_AGE_MS` | `86400000` | Maximum age of UI JSON cache entries. |
+| `SPIRACHA_UI_CACHE_MAX_BYTES` | `268435456` | Total UI JSON cache ceiling; oldest entries are pruned first. |
+| `SPIRACHA_UI_EXPORT_MAX_AGE_MS` | `86400000` | Maximum age of temporary downloadable exports. |
+| `SPIRACHA_UI_EXPORT_MAX_BYTES` | `1073741824` | Total temporary export ceiling; oldest exports are pruned first. |
+| `SPIRACHA_UI_LARGE_EXPORT_THRESHOLD_BYTES` | `134217728` | Size above which Codex export rendering switches to a temporary download. |
+
+Claude Code and Kiro discovery also use short-lived, bounded in-memory indexes and parsed-file caches. File identity metadata invalidates changed transcripts, mutations invalidate affected entries immediately, and no raw source payload is persisted by these caches.
+
 ### Qoder live ACP hydration
 
 Qoder detail/export reads first use persisted state and CLI transcript files. When those do not contain assistant messages and Qoder is running, Spiracha can connect to Qoder's local JSON-RPC ACP Unix socket, issue `initialize` and `session/load`, and collect the streamed session updates. The default socket is the Qoder `SharedClientCache/qoder.sock`; override it with `SPIRACHA_QODER_SOCKET_PATH` (or the legacy environment spelling `SPIRACHA_QODER_SOCKET`). Connection failures and timeouts fall back to the persisted transcript rather than preventing the session from loading.
@@ -199,6 +214,10 @@ bun run test:ui
 Run one root test file with `bun test src/lib/shared.test.ts`. Run one UI test file with `bun run test:ui --run src/ui/components/export-dialog.vitest.tsx`.
 
 Spiracha has one application boundary: the stable API, server functions, browser route tree, and UI all live under the root package and resolve through one manifest and one dependency graph. Vite runs from the repository root with Bun because TanStack server functions import Bun-only modules such as `bun:sqlite`; Vitest uses its normal Node runtime.
+
+Package metadata is imported through the root `#package-metadata` package import alias and validated at module load. Server functions retain focused dynamic imports at the Bun-only boundary so database modules cannot leak into browser bundles; broad dynamic-import conversion is intentionally avoided.
+
+Shared DTO, path, configuration, and error rules are documented in [Data and runtime conventions](docs/data-conventions.md).
 
 TanStack Router generates `src/ui/routeTree.gen.ts` during development/build. Do not edit it manually; after adding or renaming route files, run `bun run build` (or start the dev server) and include the generated update.
 

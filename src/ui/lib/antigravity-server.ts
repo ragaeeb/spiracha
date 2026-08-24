@@ -113,54 +113,66 @@ const resolveAntigravityConversationGroup = async (
     return group ? { key: group.key, label: group.label } : fallback;
 };
 
-export const loadAntigravityConversationDetail = async (conversationId: string) => {
+export const loadAntigravityConversationMetadata = async (conversationId: string) => {
+    const conversation = await findAntigravityConversationById(conversationId);
+    const conversationGroup = await resolveAntigravityConversationGroup(conversation);
+    return { conversation, conversationGroup };
+};
+
+export const loadAntigravityConversationDocuments = async (conversationId: string) => {
     const { runWithTranscriptLoadLimit } = await import('@spiracha/lib/transcript-load-limiter');
     const { renderAntigravityArtifactsMarkdown, renderAntigravityConversationMarkdown } = await import(
         '@spiracha/lib/antigravity-db'
     );
     const conversation = await findAntigravityConversationById(conversationId);
     const isEncrypted = hasEncryptedAntigravityConversation(conversation);
-    const renderConversation = async () => {
-        if (!isEncrypted) {
-            return renderAntigravityConversationMarkdown(conversation);
-        }
+    const { artifactsMarkdown, renderedConversationMarkdown, transcriptLocked } = await runWithTranscriptLoadLimit(
+        async () => {
+            const renderConversation = async (): Promise<{ content: string | null; locked: boolean }> => {
+                try {
+                    if (isEncrypted) {
+                        const decryptionCapability = await acquireAntigravityDecryptionCapability();
+                        return {
+                            content: await renderAntigravityConversationMarkdown(conversation, {
+                                decryptionCapability,
+                            }),
+                            locked: false,
+                        };
+                    }
+                    return {
+                        content: await renderAntigravityConversationMarkdown(conversation),
+                        locked: false,
+                    };
+                } catch (error) {
+                    if (!isEncrypted || !isAntigravityDecryptionCapabilityError(error)) {
+                        throw error;
+                    }
+                    return { content: null, locked: true };
+                }
+            };
+            const [renderedConversation, renderedArtifacts] = await Promise.all([
+                renderConversation(),
+                conversation.artifactCount > 0 ? renderAntigravityArtifactsMarkdown(conversation) : null,
+            ]);
 
-        const decryptionCapability = await acquireAntigravityDecryptionCapability();
-        return renderAntigravityConversationMarkdown(conversation, { decryptionCapability });
-    };
-    let renderedConversationMarkdown: string | null = null;
-    let transcriptLocked = false;
-    try {
-        renderedConversationMarkdown = await renderConversation();
-    } catch (error) {
-        if (!isEncrypted || !isAntigravityDecryptionCapabilityError(error)) {
-            throw error;
-        }
-        transcriptLocked = true;
-    }
-    const [[conversationMarkdown, artifactsMarkdown], conversationGroup] = await Promise.all([
-        runWithTranscriptLoadLimit(
-            async () =>
-                Promise.all([
-                    transcriptLocked ? null : renderedConversationMarkdown,
-                    conversation.artifactCount > 0 ? renderAntigravityArtifactsMarkdown(conversation) : null,
-                ]),
-            {
-                id: conversation.conversationId,
-                integration: 'antigravity',
-                operation: 'ui-detail',
-                path: conversation.transcriptPath ?? conversation.conversationPath ?? undefined,
-            },
-        ),
-        resolveAntigravityConversationGroup(conversation),
-    ]);
+            return {
+                artifactsMarkdown: renderedArtifacts,
+                renderedConversationMarkdown: renderedConversation.content,
+                transcriptLocked: renderedConversation.locked,
+            };
+        },
+        {
+            id: conversation.conversationId,
+            integration: 'antigravity',
+            operation: 'ui-detail',
+            path: conversation.transcriptPath ?? conversation.conversationPath ?? undefined,
+        },
+    );
 
     return {
         artifactsMarkdown,
-        conversation,
-        conversationGroup,
         // Suppress the duplicate panel when artifactsMarkdown and conversationMarkdown are identical.
-        conversationMarkdown: conversationMarkdown === artifactsMarkdown ? null : conversationMarkdown,
+        conversationMarkdown: renderedConversationMarkdown === artifactsMarkdown ? null : renderedConversationMarkdown,
         transcriptLocked,
     };
 };
@@ -274,7 +286,13 @@ export const deleteAntigravityConversationsById = async (conversationIds: string
 export const getAntigravityConversationDetailFn = createServerFn({ method: 'GET' })
     .validator(conversationSchema)
     .handler(async ({ data }) => {
-        return loadAntigravityConversationDetail(data.conversationId);
+        return loadAntigravityConversationMetadata(data.conversationId);
+    });
+
+export const getAntigravityConversationDocumentsFn = createServerFn({ method: 'GET' })
+    .validator(conversationSchema)
+    .handler(async ({ data }) => {
+        return loadAntigravityConversationDocuments(data.conversationId);
     });
 
 export const exportAntigravityArtifactsFn = createServerFn({ method: 'POST' })

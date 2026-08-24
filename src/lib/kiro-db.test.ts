@@ -7,6 +7,7 @@ import {
     deleteKiroSession,
     findKiroWorkspaceGroups,
     getDefaultKiroDataDir,
+    invalidateKiroDiscoveryCache,
     listKiroSessionsForGroup,
     listKiroWorkspaceGroups,
     readKiroSessionTranscript,
@@ -158,6 +159,7 @@ describe('kiro workspace discovery', () => {
     });
 
     afterEach(async () => {
+        invalidateKiroDiscoveryCache();
         await Promise.all(tempRoots.splice(0).map((root) => rm(root, { force: true, recursive: true })));
     });
 

@@ -2,11 +2,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const serverFns = vi.hoisted(() => ({
     getAntigravityConversationDetailFn: vi.fn(async () => 'antigravity-detail'),
+    getAntigravityConversationDocumentsFn: vi.fn(async () => 'antigravity-documents'),
     getAntigravityDecryptionStateFn: vi.fn(async () => 'antigravity-decryption'),
     getClaudeCodeSessionDetailFn: vi.fn(async () => 'claude-detail'),
     getClaudeCodeSessionTranscriptFn: vi.fn(async () => 'claude-transcript'),
     getClineTaskDetailFn: vi.fn(async () => 'cline-detail'),
     getCursorThreadDetailFn: vi.fn(async () => 'cursor-detail'),
+    getCursorThreadTranscriptFn: vi.fn(async () => 'cursor-transcript'),
     getFxSessionDetailFn: vi.fn(async () => 'fx-detail'),
     getGrokSessionDetailFn: vi.fn(async () => 'grok-detail'),
     getKiroSessionDetailFn: vi.fn(async () => 'kiro-detail'),
@@ -40,6 +42,7 @@ vi.mock('@spiracha/lib/sqlite-error', () => ({
 }));
 vi.mock('./antigravity-server', () => ({
     getAntigravityConversationDetailFn: serverFns.getAntigravityConversationDetailFn,
+    getAntigravityConversationDocumentsFn: serverFns.getAntigravityConversationDocumentsFn,
     getAntigravityDecryptionStateFn: serverFns.getAntigravityDecryptionStateFn,
     listAntigravityConversationsFn: serverFns.listAntigravityConversationsFn,
     listAntigravityWorkspacesFn: serverFns.listAntigravityWorkspacesFn,
@@ -52,6 +55,7 @@ vi.mock('./claude-code-server', () => ({
 }));
 vi.mock('./cursor-server', () => ({
     getCursorThreadDetailFn: serverFns.getCursorThreadDetailFn,
+    getCursorThreadTranscriptFn: serverFns.getCursorThreadTranscriptFn,
     listCursorThreadsFn: serverFns.listCursorThreadsFn,
     listCursorWorkspacesFn: serverFns.listCursorWorkspacesFn,
 }));
@@ -93,6 +97,7 @@ vi.mock('./qoder-server', () => ({
 
 import {
     antigravityConversationDetailQueryOptions,
+    antigravityConversationDocumentsQueryOptions,
     antigravityConversationsQueryOptions,
     antigravityDecryptionQueryOptions,
     antigravityWorkspacesQueryOptions,
@@ -107,6 +112,7 @@ import { clineTaskDetailQueryOptions, clineTasksQueryOptions, clineWorkspacesQue
 import {
     cursorThreadDetailQueryOptions,
     cursorThreadsQueryOptions,
+    cursorThreadTranscriptQueryOptions,
     cursorWorkspacesQueryOptions,
 } from './cursor-queries';
 import { fxSessionDetailQueryOptions, fxSessionsQueryOptions, fxWorkspacesQueryOptions } from './fx-queries';
@@ -152,11 +158,18 @@ describe('source query options', () => {
         expect(await runQuery(antigravityWorkspacesQueryOptions())).toBe('antigravity-workspaces');
         expect(await runQuery(antigravityConversationsQueryOptions('workspace-a'))).toBe('antigravity-conversations');
         expect(await runQuery(antigravityConversationDetailQueryOptions('conversation-a'))).toBe('antigravity-detail');
+        expect(await runQuery(antigravityConversationDocumentsQueryOptions('conversation-a'))).toBe(
+            'antigravity-documents',
+        );
         await expectDisabledQuery(antigravityConversationsQueryOptions(null));
         await expectDisabledQuery(antigravityConversationDetailQueryOptions(null));
+        await expectDisabledQuery(antigravityConversationDocumentsQueryOptions(null));
 
         expect(serverFns.listAntigravityConversationsFn).toHaveBeenLastCalledWith({ data: { workspaceKey: '' } });
         expect(serverFns.getAntigravityConversationDetailFn).toHaveBeenLastCalledWith({
+            data: { conversationId: '' },
+        });
+        expect(serverFns.getAntigravityConversationDocumentsFn).toHaveBeenLastCalledWith({
             data: { conversationId: '' },
         });
     });
@@ -191,11 +204,14 @@ describe('source query options', () => {
         expect((options.retryDelay as (attempt: number) => number)(2)).toBe(800);
         expect(await runQuery(cursorThreadsQueryOptions('workspace-a'))).toBe('cursor-threads');
         expect(await runQuery(cursorThreadDetailQueryOptions('thread-a'))).toBe('cursor-detail');
+        expect(await runQuery(cursorThreadTranscriptQueryOptions('thread-a'))).toBe('cursor-transcript');
         await expectDisabledQuery(cursorThreadsQueryOptions(null));
         await expectDisabledQuery(cursorThreadDetailQueryOptions(null));
+        await expectDisabledQuery(cursorThreadTranscriptQueryOptions(null));
 
         expect(serverFns.listCursorThreadsFn).toHaveBeenLastCalledWith({ data: { workspaceKey: '' } });
         expect(serverFns.getCursorThreadDetailFn).toHaveBeenLastCalledWith({ data: { composerId: '' } });
+        expect(serverFns.getCursorThreadTranscriptFn).toHaveBeenLastCalledWith({ data: { composerId: '' } });
     });
 
     it('should configure Cline workspace, chat, and detail queries', async () => {

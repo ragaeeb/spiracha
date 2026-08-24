@@ -518,6 +518,22 @@ describe('conversation API handler', () => {
         });
     });
 
+    it('should forward Cursor session-file preservation through delete requests', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/cursor/thread-1?delete_session_files=false', {
+                method: 'DELETE',
+            }),
+            {
+                deleteConversation: async (options) => {
+                    expect(options).toEqual({ deleteSessionFiles: false, id: 'thread-1', source: 'cursor' });
+                    return { deletedFiles: ['/tmp/global.db'], deletedIds: ['thread-1'] };
+                },
+            },
+        );
+
+        expect(response.status).toBe(200);
+    });
+
     it('should delete an explicit set of conversations through the public API', async () => {
         const response = await handleConversationApiRequest(
             createRequest('/api/v1/conversations/delete', {
@@ -563,6 +579,23 @@ describe('conversation API handler', () => {
                 missingIds: [],
             },
         });
+    });
+
+    it('should forward Cursor session-file preservation through batch delete requests', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/delete', {
+                body: JSON.stringify({ delete_session_files: false, ids: ['thread-1'], source: 'cursor' }),
+                method: 'POST',
+            }),
+            {
+                deleteConversations: async (options) => {
+                    expect(options).toEqual({ deleteSessionFiles: false, ids: ['thread-1'], source: 'cursor' });
+                    return { deletedFiles: [], deletedIds: [], missingIds: ['thread-1'], results: [] };
+                },
+            },
+        );
+
+        expect(response.status).toBe(404);
     });
 
     it('should reject unsafe destructive ids before reaching delete handlers', async () => {

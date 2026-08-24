@@ -525,6 +525,21 @@ const getSessionModelId = (record: Record<string, JsonValue>, piHistory?: JsonVa
     return asString(record.effectiveModel ?? null)?.trim() || getLatestPiHistoryModel(piHistory);
 };
 
+const getLatestActivityAtMs = (
+    record: Record<string, JsonValue>,
+    messages: MiniMaxCodeTranscriptMessage[],
+): number | null => {
+    return messages.reduce<number | null>(
+        (latest, message) => {
+            if (message.createdAtMs === null) {
+                return latest;
+            }
+            return latest === null ? message.createdAtMs : Math.max(latest, message.createdAtMs);
+        },
+        asNumber(record.updatedAtMs ?? null),
+    );
+};
+
 const toSessionSummary = (
     snapshotPath: string,
     record: Record<string, JsonValue>,
@@ -547,7 +562,7 @@ const toSessionSummary = (
         createdAtMs: asNumber(record.createdAtMs ?? null),
         currentModelId: getSessionModelId(record, piHistory),
         currentModelVariant: asString(record.effectiveModelVariant ?? null),
-        lastActiveAtMs: asNumber(record.updatedAtMs ?? null),
+        lastActiveAtMs: getLatestActivityAtMs(record, messages),
         runtime: asString(record.runtime ?? null),
         sessionDir: path.dirname(snapshotPath),
         sessionId,

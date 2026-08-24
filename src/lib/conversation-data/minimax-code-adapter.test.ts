@@ -54,6 +54,31 @@ describe('MiniMax Code conversation adapter', () => {
         ]);
     });
 
+    it('should use the newest transcript message when runtime session activity is stale', async () => {
+        const tempRoot = await makeTempRoot();
+        const workspacePath = path.join(tempRoot, 'repo');
+        const sessionsDir = path.join(tempRoot, 'v2', 'sessions');
+        const fixture = await writeMiniMaxCodeSessionFixture({ sessionsDir, workspacePath });
+        const snapshot = (await Bun.file(fixture.snapshotPath).json()) as {
+            displayMessages: Array<{ timestamp?: number }>;
+            record: { updatedAtMs: number };
+        };
+        snapshot.record.updatedAtMs = 1_784_770_000_000;
+        await Bun.write(fixture.snapshotPath, `${JSON.stringify(snapshot)}\n`);
+
+        const page = await listConversationsForPath({
+            cwd: workspacePath,
+            includeMessages: true,
+            locations: { minimaxCodeSessionsDir: sessionsDir },
+            messageSelector: 'last_final_answer',
+            sources: ['minimax-code'],
+            updatedAfterMs: 1_784_771_171_000,
+        });
+
+        expect(page.data).toHaveLength(1);
+        expect(page.data[0]?.updatedAtMs).toBe(1_784_771_171_421);
+    });
+
     it('should preserve reasoning and paired tool evidence with monotonic message order', async () => {
         const tempRoot = await makeTempRoot();
         const workspacePath = path.join(tempRoot, 'repo');

@@ -427,6 +427,9 @@ const makeHttpClient = (options: HttpConversationClientOptions): ConversationCli
             rejectHttpLocations(deleteOptions.locations);
             const { id, source } = deleteOptions;
             const url = makeHttpUrl(baseUrl, `/api/v1/conversations/${source}/${encodeURIComponent(id)}`);
+            if (deleteOptions.deleteSessionFiles !== undefined) {
+                url.searchParams.set('delete_session_files', String(deleteOptions.deleteSessionFiles));
+            }
             const envelope = await fetchDeleteJsonOrNull<DeleteConversationResult>(url, { method: 'DELETE' });
             if (!envelope) {
                 return null;
@@ -439,6 +442,9 @@ const makeHttpClient = (options: HttpConversationClientOptions): ConversationCli
                 makeHttpUrl(baseUrl, '/api/v1/conversations/delete'),
                 {
                     body: JSON.stringify({
+                        ...(deleteOptions.deleteSessionFiles === undefined
+                            ? {}
+                            : { delete_session_files: deleteOptions.deleteSessionFiles }),
                         ids: deleteOptions.ids,
                         source: deleteOptions.source,
                     }),

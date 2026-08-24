@@ -32,10 +32,10 @@ const getWorkspaceDeleteDescription = (workspaces: CursorWorkspaceGroup[] | null
     }
 
     if (workspaces.length === 1) {
-        return `Permanently delete every thread for "${workspaces[0]!.label}" from Cursor's database, remove any on-disk transcript directories, and permanently delete local file history under the workspace folders. Quit Cursor first. This cannot be undone.`;
+        return `Permanently delete every thread for "${workspaces[0]!.label}" from Cursor's database and permanently delete local file history under the workspace folders. Quit Cursor first. This cannot be undone.`;
     }
 
-    return `Permanently delete every thread from ${workspaces.length} selected Cursor workspaces, remove any on-disk transcript directories, and permanently delete local file history under the workspace folders. Quit Cursor first. This cannot be undone.`;
+    return `Permanently delete every thread from ${workspaces.length} selected Cursor workspaces and permanently delete local file history under the workspace folders. Quit Cursor first. This cannot be undone.`;
 };
 
 const CursorPage = () => {
@@ -57,7 +57,13 @@ const CursorPage = () => {
     });
 
     const deleteWorkspaceMutation = useMutation({
-        mutationFn: async (selectedWorkspaces: PendingCursorWorkspace[]) => {
+        mutationFn: async ({
+            deleteSessionFiles,
+            selectedWorkspaces,
+        }: {
+            deleteSessionFiles: boolean;
+            selectedWorkspaces: PendingCursorWorkspace[];
+        }) => {
             const retryTargets = selectedWorkspaces.map((workspace) => workspace.retryTarget ?? null);
             if (selectedWorkspaces.length === 1) {
                 const workspace = selectedWorkspaces[0]!;
@@ -65,6 +71,7 @@ const CursorPage = () => {
                     await deleteCursorWorkspaceFn({
                         data: {
                             ...(workspace.retryTarget ? { retry: workspace.retryTarget } : {}),
+                            deleteSessionFiles,
                             workspaceKey: workspace.key,
                         },
                     }),
@@ -72,11 +79,15 @@ const CursorPage = () => {
             }
 
             return deleteCursorWorkspacesFn({
-                data: { retryTargets, workspaceKeys: selectedWorkspaces.map((workspace) => workspace.key) },
+                data: {
+                    deleteSessionFiles,
+                    retryTargets,
+                    workspaceKeys: selectedWorkspaces.map((workspace) => workspace.key),
+                },
             });
         },
         onSettled: invalidateCursorQueries,
-        onSuccess: (result, selectedWorkspaces) => {
+        onSuccess: (result, { selectedWorkspaces }) => {
             const cleanupError = getCursorCleanupFailureMessage(result);
             if (cleanupError) {
                 setPartialDeleteError(cleanupError);
@@ -162,20 +173,24 @@ const CursorPage = () => {
                           ? 'Delete workspace'
                           : 'Delete workspaces'
                 }
+                defaultDeleteSessionFiles
+                deleteSessionFilesDescription="Also remove Cursor's on-disk agent transcript directories. Clear this option to preserve those source files; preserved files can make conversations discoverable again."
+                deleteSessionFilesLabel="Delete Cursor transcript files"
                 description={getWorkspaceDeleteDescription(pendingDelete)}
                 errorMessage={
                     partialDeleteError ??
                     getMutationErrorMessage(deleteWorkspaceMutation.error, 'Workspace deletion failed')
                 }
                 open={pendingDelete !== null && pendingDelete.length > 0}
+                showDeleteSessionFilesOption
                 title={pendingDelete?.length === 1 ? 'Delete Cursor workspace?' : 'Delete Cursor workspaces?'}
-                onConfirm={() => {
+                onConfirm={({ deleteSessionFiles }) => {
                     if (!pendingDelete) {
                         return;
                     }
 
                     setPartialDeleteError(null);
-                    deleteWorkspaceMutation.mutate(pendingDelete);
+                    deleteWorkspaceMutation.mutate({ deleteSessionFiles, selectedWorkspaces: pendingDelete });
                 }}
                 onOpenChange={(open) => {
                     if (!open) {

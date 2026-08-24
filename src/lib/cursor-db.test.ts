@@ -12,6 +12,8 @@ import {
     findCursorTranscriptDirsForComposerIds,
     findCursorWorkspaceGroups,
     getCursorReadonlyDbUri,
+    getCursorThreadSummaryByComposerId,
+    invalidateCursorDiscoveryCache,
     listCursorThreadsForGroup,
     listCursorWorkspaceGroups,
     openCursorReadonlyDb,
@@ -21,12 +23,13 @@ import {
     readCursorThreadTranscriptWithAgentFiles,
     withCursorReadonlyDb,
 } from './cursor-db';
-import { getCursorGlobalDbPath } from './cursor-exporter-types';
+import { getCursorGlobalDbPath, getCursorProjectsDir, getCursorWorkspaceStorageDir } from './cursor-exporter-types';
 import { type CursorFixtureSpec, createCursorFixture, holdCursorWriteLock } from './cursor-test-helpers';
 
 const tempDirs: string[] = [];
 
 afterEach(async () => {
+    invalidateCursorDiscoveryCache();
     await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { force: true, recursive: true })));
 });
 
@@ -149,6 +152,86 @@ describe('cursor-db workspace discovery', () => {
 
             expect(bubblePayloadQueryCount).toBe(1);
             expect(threads).toEqual([expect.objectContaining({ bubbleBytes: expect.any(Number), bubbleCount: 3 })]);
+        } finally {
+            Database.prototype.query = originalQuery;
+        }
+    });
+
+    it('should coalesce concurrent workspace discovery for the same Cursor user directory', async () => {
+        const userDir = await makeUserDir();
+        await createCursorFixture(userDir, baseSpec());
+        const originalQuery = Database.prototype.query;
+        let headScanCount = 0;
+        Database.prototype.query = function (this: Database, sql: string) {
+            if (sql.includes('SELECT substr(key, 14) AS id')) {
+                headScanCount += 1;
+            }
+            return originalQuery.call(this, sql);
+        } as typeof originalQuery;
+
+        try {
+            const [first, second, third] = await Promise.all([
+                listCursorWorkspaceGroups(userDir),
+                listCursorWorkspaceGroups(userDir),
+                listCursorWorkspaceGroups(userDir),
+            ]);
+
+            expect(first).toEqual(second);
+            expect(second).toEqual(third);
+            expect(headScanCount).toBe(1);
+        } finally {
+            Database.prototype.query = originalQuery;
+        }
+    });
+
+    it('should hydrate only the directly requested composer summary', async () => {
+        const userDir = await makeUserDir();
+        await createCursorFixture(userDir, {
+            buckets: [
+                {
+                    bucketId: 'bucket-one',
+                    composerIds: ['thread-1'],
+                    folder: 'file:///Users/test/workspace/one',
+                    threadsInComposerData: true,
+                },
+                {
+                    bucketId: 'bucket-two',
+                    composerIds: ['thread-2'],
+                    folder: 'file:///Users/test/workspace/two',
+                    threadsInComposerData: true,
+                },
+            ],
+            headerLinks: [
+                { bucketId: 'bucket-one', composerId: 'thread-1' },
+                { bucketId: 'bucket-two', composerId: 'thread-2' },
+            ],
+            threads: [
+                { bubbles: [{ bubbleId: 'one', text: 'one', type: 1 }], composerId: 'thread-1' },
+                {
+                    bubbles: [
+                        { bubbleId: 'two-a', text: 'two', type: 1 },
+                        { bubbleId: 'two-b', text: 'reply', type: 2 },
+                    ],
+                    composerId: 'thread-2',
+                },
+            ],
+        });
+        const originalQuery = Database.prototype.query;
+        const hydratedComposerIds: string[] = [];
+        Database.prototype.query = function (this: Database, sql: string) {
+            if (sql.includes('SELECT ? AS composerId, key, value FROM cursorDiskKV')) {
+                hydratedComposerIds.push(sql);
+            }
+            return originalQuery.call(this, sql);
+        } as typeof originalQuery;
+
+        try {
+            const result = await getCursorThreadSummaryByComposerId('thread-2', userDir);
+
+            expect(result?.thread).toMatchObject({ bubbleCount: 2, composerId: 'thread-2' });
+            expect(result?.group.folders).toEqual(['/Users/test/workspace/two']);
+            expect(hydratedComposerIds).toHaveLength(1);
+            expect(hydratedComposerIds[0]?.match(/SELECT \? AS composerId/gu)).toHaveLength(1);
         } finally {
             Database.prototype.query = originalQuery;
         }
@@ -719,6 +802,39 @@ describe('cursor-db transcript reads', () => {
         expect(transcript?.bubbles[2]?.toolCall?.name).toBe('read_file');
     });
 
+    it('should use SQLite insertion order when a legacy head has no bubble ordering index', async () => {
+        const userDir = await makeUserDir();
+        await createCursorFixture(userDir, {
+            buckets: [],
+            threads: [
+                {
+                    bubbles: [
+                        { bubbleId: 'z-first', createdAt: 100, text: 'first', type: 1 },
+                        { bubbleId: 'a-second', createdAt: 200, text: 'second', type: 2 },
+                    ],
+                    composerId: 'thread-legacy',
+                },
+            ],
+        });
+        const db = new Database(getCursorGlobalDbPath(userDir), { create: false, readwrite: true });
+        try {
+            const row = db.query("SELECT value FROM cursorDiskKV WHERE key = 'composerData:thread-legacy'").get() as {
+                value: string;
+            };
+            const head = JSON.parse(row.value) as Record<string, unknown>;
+            head.fullConversationHeadersOnly = [];
+            db.run("UPDATE cursorDiskKV SET value = ? WHERE key = 'composerData:thread-legacy'", [
+                JSON.stringify(head),
+            ]);
+        } finally {
+            db.close();
+        }
+
+        const transcript = readCursorThreadTranscript(getCursorGlobalDbPath(userDir), 'thread-legacy');
+
+        expect(transcript?.bubbles.map((bubble) => bubble.bubbleId)).toEqual(['z-first', 'a-second']);
+    });
+
     it('should report omitted bubbles when Cursor truncated the header index', async () => {
         const userDir = await makeUserDir();
         const spec = baseSpec();
@@ -1040,6 +1156,27 @@ describe('openCursorReadonlyDb', () => {
         const uri = getCursorReadonlyDbUri('/home/runner/work/spiracha/with space/state.vscdb');
 
         expect(uri).toBe('file:///home/runner/work/spiracha/with%20space/state.vscdb?immutable=1');
+    });
+
+    it('should build Windows drive and UNC readonly database URIs', () => {
+        expect(getCursorReadonlyDbUri('C:\\Users\\Jane Doe\\Cursor\\state.vscdb')).toBe(
+            'file:///C:/Users/Jane%20Doe/Cursor/state.vscdb?immutable=1',
+        );
+        expect(getCursorReadonlyDbUri('\\\\server\\share name\\Cursor\\state.vscdb', false)).toBe(
+            'file://server/share%20name/Cursor/state.vscdb?mode=ro',
+        );
+    });
+
+    it('should preserve Windows path semantics in related Cursor directory helpers', () => {
+        const userDir = 'C:\\Users\\Jane Doe\\AppData\\Roaming\\Cursor\\User';
+
+        expect(getCursorGlobalDbPath(userDir)).toBe(
+            'C:\\Users\\Jane Doe\\AppData\\Roaming\\Cursor\\User\\globalStorage\\state.vscdb',
+        );
+        expect(getCursorWorkspaceStorageDir(userDir)).toBe(
+            'C:\\Users\\Jane Doe\\AppData\\Roaming\\Cursor\\User\\workspaceStorage',
+        );
+        expect(getCursorProjectsDir(userDir)).toBe('C:\\Users\\Jane Doe\\.cursor\\projects');
     });
 
     it('should read a WAL database after a clean shutdown removed the -wal/-shm sidecars', async () => {

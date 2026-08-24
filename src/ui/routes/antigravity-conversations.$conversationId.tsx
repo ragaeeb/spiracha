@@ -1,8 +1,8 @@
 import { antigravityMarkdownToThreadEvents } from '@spiracha/lib/antigravity-transcript-events';
-import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { Download, ScrollText, Trash2 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { type ReactNode, useMemo, useState } from 'react';
 import { AntigravityKeychainPanel } from '#/components/antigravity-keychain-panel';
 import { Breadcrumbs } from '#/components/breadcrumbs';
 import { DeleteConfirmDialog } from '#/components/delete-confirm-dialog';
@@ -24,6 +24,7 @@ import {
 } from '#/lib/antigravity-conversation-state';
 import {
     antigravityConversationDetailQueryOptions,
+    antigravityConversationDocumentsQueryOptions,
     antigravityDecryptionQueryOptions,
     antigravityWorkspacesQueryOptions,
 } from '#/lib/antigravity-queries';
@@ -32,10 +33,12 @@ import {
     exportAntigravityArtifactsFn,
     exportAntigravityConversationFn,
     type getAntigravityConversationDetailFn,
+    type getAntigravityConversationDocumentsFn,
 } from '#/lib/antigravity-server';
 import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import type { ExportDialogOptions } from '#/lib/export-options';
 import { formatBytes, formatDateTime, formatList, formatNumber } from '#/lib/formatters';
+import { getMutationErrorMessage } from '#/lib/mutation-error';
 import {
     getTranscriptDisplayState,
     parseThreadTranscriptSearch,
@@ -44,9 +47,12 @@ import {
 } from '#/lib/route-search';
 import { RouteStateResetBoundary } from '#/lib/route-state-reset';
 import { getThreadTranscriptStats } from '#/lib/thread-transcript-stats';
+import { useClientReady } from '#/lib/use-client-ready';
 import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
-type AntigravityConversationDetail = Awaited<ReturnType<typeof getAntigravityConversationDetailFn>>;
+type AntigravityConversationMetadata = Awaited<ReturnType<typeof getAntigravityConversationDetailFn>>;
+type AntigravityConversationDocuments = Awaited<ReturnType<typeof getAntigravityConversationDocumentsFn>>;
+type AntigravityConversationDetail = AntigravityConversationMetadata & AntigravityConversationDocuments;
 
 const buildConversationMetadata = (detail: AntigravityConversationDetail) => {
     return [
@@ -133,7 +139,7 @@ export const Route = createFileRoute('/antigravity-conversations/$conversationId
     },
     pendingComponent: () => (
         <LoadingPanel
-            description="Loading the Antigravity conversation transcript, artifact data, and workspace context."
+            description="Loading Antigravity conversation metadata and workspace context."
             title="Loading conversation"
         />
     ),
@@ -219,6 +225,82 @@ function EmptyAntigravityTranscript({ detail }: { detail: AntigravityConversatio
     );
 }
 
+const AntigravityTranscriptContent = ({
+    clientReady,
+    detail,
+    documentsError,
+    events,
+    isError,
+    isPending,
+    transcriptDisplay,
+    updateTranscriptDisplay,
+}: {
+    clientReady: boolean;
+    detail: AntigravityConversationDetail;
+    documentsError: unknown;
+    events: ReturnType<typeof antigravityMarkdownToThreadEvents>;
+    isError: boolean;
+    isPending: boolean;
+    transcriptDisplay: ReturnType<typeof getTranscriptDisplayState>;
+    updateTranscriptDisplay: (patch: Partial<ThreadTranscriptSearch>) => void;
+}) => {
+    const { showCommentary, showExtraEvents, showRawJson, showToolCalls, showUserMessages } = transcriptDisplay;
+    let content: ReactNode;
+    if (!clientReady || isPending) {
+        content = (
+            <LoadingPanel
+                description="Loading the Antigravity transcript and artifact bodies."
+                title="Loading transcript"
+            />
+        );
+    } else if (isError) {
+        content = (
+            <RouteErrorPanel
+                error={
+                    documentsError instanceof Error
+                        ? documentsError
+                        : new Error('Failed to load Antigravity transcript')
+                }
+                title="Failed to load Antigravity transcript"
+            />
+        );
+    } else if (events.length > 0) {
+        content = (
+            <TranscriptView
+                assistantModel={detail.conversation.model}
+                events={events}
+                projectPath={detail.conversation.workspaceFolder}
+                showCommentary={showCommentary}
+                showExtraEvents={showExtraEvents}
+                showRawJson={showRawJson}
+                showToolCalls={showToolCalls}
+                showUserMessages={showUserMessages}
+            />
+        );
+    } else {
+        content = <EmptyAntigravityTranscript detail={detail} />;
+    }
+
+    return (
+        <TabsContent className="space-y-3" value="transcript">
+            <TranscriptControls
+                rawJsonDisabled={events.length === 0}
+                showCommentary={showCommentary}
+                showExtraEvents={showExtraEvents}
+                showRawJson={showRawJson}
+                showToolCalls={showToolCalls}
+                showUserMessages={showUserMessages}
+                onShowCommentaryChange={(value) => updateTranscriptDisplay({ commentary: value })}
+                onShowExtraEventsChange={(value) => updateTranscriptDisplay({ extra: value })}
+                onShowRawJsonChange={(value) => updateTranscriptDisplay({ raw: value })}
+                onShowToolCallsChange={(value) => updateTranscriptDisplay({ tools: value })}
+                onShowUserMessagesChange={(value) => updateTranscriptDisplay({ user: value })}
+            />
+            {content}
+        </TabsContent>
+    );
+};
+
 function AntigravityRawPanels({
     detail,
     events,
@@ -255,10 +337,21 @@ function AntigravityConversationDetailPage() {
     const transcriptSearch = Route.useSearch();
     const transcriptDisplay = getTranscriptDisplayState(transcriptSearch);
     const decryptionState = useSuspenseQuery(antigravityDecryptionQueryOptions()).data;
-    const detail = useSuspenseQuery(antigravityConversationDetailQueryOptions(Route.useParams().conversationId)).data;
+    const conversationId = Route.useParams().conversationId;
+    const metadata = useSuspenseQuery(antigravityConversationDetailQueryOptions(conversationId)).data;
+    const clientReady = useClientReady();
+    const documentsQuery = useQuery({
+        ...antigravityConversationDocumentsQueryOptions(conversationId),
+        enabled: clientReady,
+    });
+    const detail: AntigravityConversationDetail = {
+        ...metadata,
+        artifactsMarkdown: documentsQuery.data?.artifactsMarkdown ?? null,
+        conversationMarkdown: documentsQuery.data?.conversationMarkdown ?? null,
+        transcriptLocked: documentsQuery.data?.transcriptLocked ?? false,
+    };
     const [deleteOpen, setDeleteOpen] = useState(false);
     const [exportOpen, setExportOpen] = useState(false);
-    const { showCommentary, showExtraEvents, showRawJson, showToolCalls, showUserMessages } = transcriptDisplay;
     const updateTranscriptDisplay = (patch: Partial<ThreadTranscriptSearch>) => {
         void navigate({
             replace: true,
@@ -273,8 +366,8 @@ function AntigravityConversationDetailPage() {
         detail.conversation,
         Boolean(decryptionState?.isUnlocked),
     );
-    const canExportArtifacts = detail.artifactsMarkdown !== null;
-    const showConversationExport = canExportConversation || detail.transcriptLocked;
+    const canExportArtifacts = detail.conversation.artifactCount > 0;
+    const showConversationExport = canExportConversation || hasEncryptedAntigravityConversation(detail.conversation);
 
     const exportConversationMutation = useMutation({
         mutationFn: async (options: ExportDialogOptions) => {
@@ -319,6 +412,9 @@ function AntigravityConversationDetailPage() {
                 }),
                 queryClient.invalidateQueries({
                     queryKey: ['antigravity-conversation', detail.conversation.conversationId],
+                }),
+                queryClient.invalidateQueries({
+                    queryKey: ['antigravity-conversation-documents', detail.conversation.conversationId],
                 }),
             ]);
             const workspaces = await queryClient.fetchQuery(antigravityWorkspacesQueryOptions());
@@ -398,35 +494,16 @@ function AntigravityConversationDetailPage() {
                     </TabsTrigger>
                 </TabsList>
 
-                <TabsContent className="space-y-3" value="transcript">
-                    <TranscriptControls
-                        rawJsonDisabled={transcriptEvents.length === 0}
-                        showCommentary={showCommentary}
-                        showExtraEvents={showExtraEvents}
-                        showRawJson={showRawJson}
-                        showToolCalls={showToolCalls}
-                        showUserMessages={showUserMessages}
-                        onShowCommentaryChange={(value) => updateTranscriptDisplay({ commentary: value })}
-                        onShowExtraEventsChange={(value) => updateTranscriptDisplay({ extra: value })}
-                        onShowRawJsonChange={(value) => updateTranscriptDisplay({ raw: value })}
-                        onShowToolCallsChange={(value) => updateTranscriptDisplay({ tools: value })}
-                        onShowUserMessagesChange={(value) => updateTranscriptDisplay({ user: value })}
-                    />
-                    {transcriptEvents.length > 0 ? (
-                        <TranscriptView
-                            assistantModel={detail.conversation.model}
-                            events={transcriptEvents}
-                            projectPath={detail.conversation.workspaceFolder}
-                            showCommentary={showCommentary}
-                            showExtraEvents={showExtraEvents}
-                            showRawJson={showRawJson}
-                            showToolCalls={showToolCalls}
-                            showUserMessages={showUserMessages}
-                        />
-                    ) : (
-                        <EmptyAntigravityTranscript detail={detail} />
-                    )}
-                </TabsContent>
+                <AntigravityTranscriptContent
+                    clientReady={clientReady}
+                    detail={detail}
+                    documentsError={documentsQuery.error}
+                    events={transcriptEvents}
+                    isError={documentsQuery.isError}
+                    isPending={documentsQuery.isPending}
+                    transcriptDisplay={transcriptDisplay}
+                    updateTranscriptDisplay={updateTranscriptDisplay}
+                />
 
                 <TabsContent value="metadata">
                     <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
@@ -443,23 +520,15 @@ function AntigravityConversationDetailPage() {
                 </TabsContent>
             </Tabs>
 
-            {exportArtifactsMutation.isError ? (
+            {exportArtifactsMutation.error ? (
                 <p className="text-[var(--destructive)] text-sm">
-                    {exportArtifactsMutation.error instanceof Error
-                        ? exportArtifactsMutation.error.message
-                        : 'Artifact export failed'}
+                    {getMutationErrorMessage(exportArtifactsMutation.error, 'Artifact export failed')}
                 </p>
             ) : null}
 
             <ExportDialog
                 focusedEvidenceTarget={{ id: detail.conversation.conversationId, source: 'antigravity' }}
-                errorMessage={
-                    exportConversationMutation.isError
-                        ? exportConversationMutation.error instanceof Error
-                            ? exportConversationMutation.error.message
-                            : 'Conversation export failed'
-                        : null
-                }
+                errorMessage={getMutationErrorMessage(exportConversationMutation.error, 'Conversation export failed')}
                 open={exportOpen}
                 pending={exportConversationMutation.isPending}
                 showCommentaryOption={detail.conversation.transcriptSource !== 'safe-storage'}
@@ -477,13 +546,7 @@ function AntigravityConversationDetailPage() {
             <DeleteConfirmDialog
                 confirmLabel={deleteConversationMutation.isPending ? 'Deleting...' : 'Delete conversation'}
                 description="Permanently delete this Antigravity conversation from disk. This removes its summary entry, conversation file, transcript logs, and generated artifacts."
-                errorMessage={
-                    deleteConversationMutation.isError
-                        ? deleteConversationMutation.error instanceof Error
-                            ? deleteConversationMutation.error.message
-                            : 'Conversation delete failed'
-                        : null
-                }
+                errorMessage={getMutationErrorMessage(deleteConversationMutation.error, 'Conversation delete failed')}
                 open={deleteOpen}
                 title="Delete this Antigravity conversation?"
                 onConfirm={() => deleteConversationMutation.mutate()}

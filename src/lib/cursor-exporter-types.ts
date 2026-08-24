@@ -30,11 +30,14 @@ export const resolveCursorUserDir = (): string => {
     return configured ? configured : DEFAULT_CURSOR_USER_DIR;
 };
 
+const getCursorPathApi = (value: string): typeof path.posix | typeof path.win32 =>
+    /^(?:[A-Za-z]:[\\/]|\\\\)/u.test(value) ? path.win32 : path.posix;
+
 export const getCursorWorkspaceStorageDir = (userDir = resolveCursorUserDir()): string =>
-    path.join(userDir, 'workspaceStorage');
+    getCursorPathApi(userDir).join(userDir, 'workspaceStorage');
 
 export const getCursorGlobalDbPath = (userDir = resolveCursorUserDir()): string =>
-    path.join(userDir, 'globalStorage', 'state.vscdb');
+    getCursorPathApi(userDir).join(userDir, 'globalStorage', 'state.vscdb');
 
 const inferHomeDirFromCursorUserDir = (userDir: string): string | null => {
     const normalized = userDir.replace(/\\/gu, '/');
@@ -58,7 +61,8 @@ export const getCursorProjectsDir = (userDir = resolveCursorUserDir()): string =
     }
 
     const inferredHomeDir = inferHomeDirFromCursorUserDir(userDir);
-    return inferredHomeDir ? path.join(inferredHomeDir, '.cursor', 'projects') : path.join(userDir, 'projects');
+    const pathApi = getCursorPathApi(userDir);
+    return inferredHomeDir ? pathApi.join(inferredHomeDir, '.cursor', 'projects') : pathApi.join(userDir, 'projects');
 };
 
 export const COMPOSER_DATA_KEY = 'composer.composerData';
