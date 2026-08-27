@@ -1409,6 +1409,10 @@ const locateSessionFile = async (sessionsDir: string, sessionId: string): Promis
     return bodyMatches.find((file): file is KiroSessionFile => file !== null) ?? null;
 };
 
+export const findKiroTranscriptPath = async (sessionsDir: string, sessionId: string): Promise<string | null> => {
+    return (await locateSessionFile(sessionsDir, sessionId))?.filePath ?? null;
+};
+
 const removeKiroSessionIndexEntry = async (workspaceDir: string, sessionId: string): Promise<void> => {
     const indexPath = path.join(workspaceDir, 'sessions.json');
     const value = (await Bun.file(indexPath)

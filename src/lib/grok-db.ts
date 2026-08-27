@@ -885,6 +885,11 @@ const locateSessionDirectory = async (sessionsDir: string, sessionId: string): P
     return located.find((file) => file !== null) ?? null;
 };
 
+export const findGrokTranscriptPath = async (sessionsDir: string, sessionId: string): Promise<string | null> => {
+    const session = await locateSessionDirectory(sessionsDir, sessionId);
+    return session ? path.join(session.sessionDir, 'chat_history.jsonl') : null;
+};
+
 const listFilesRecursively = async (root: string): Promise<string[]> => {
     const entries = await readDirectoryEntriesIfExists(root);
     const files: string[] = [];

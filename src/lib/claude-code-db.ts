@@ -1287,6 +1287,10 @@ const locateSessionFile = async (projectsDir: string, sessionId: string): Promis
     return bodyMatches.find((file): file is TranscriptFile => file !== null) ?? null;
 };
 
+export const findClaudeCodeTranscriptPath = async (projectsDir: string, sessionId: string): Promise<string | null> => {
+    return (await locateSessionFile(projectsDir, sessionId))?.filePath ?? null;
+};
+
 const applyTranscriptPayloadPolicy = async (
     transcript: ClaudeCodeSessionTranscript,
     filePaths: string[],

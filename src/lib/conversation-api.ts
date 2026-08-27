@@ -12,6 +12,7 @@ import {
     type ExportConversationsZipOptions,
     type GetConversationOptions,
     getConversation,
+    getConversationRaw,
     isConversationSource,
     type ListConversationsForPathOptions,
     listConversationSources,
@@ -30,6 +31,7 @@ type ConversationApiDependencies = {
     deleteConversation?: typeof deleteConversation;
     deleteConversations?: typeof deleteConversations;
     getConversation?: typeof getConversation;
+    getConversationRaw?: typeof getConversationRaw;
     listConversationSources?: typeof listConversationSources;
     listConversationsForPath?: typeof listConversationsForPath;
     renderConversationMarkdown?: typeof renderConversationMarkdown;
@@ -292,6 +294,7 @@ const getDeps = (dependencies: ConversationApiDependencies) => ({
     deleteConversation: dependencies.deleteConversation ?? deleteConversation,
     deleteConversations: dependencies.deleteConversations ?? deleteConversations,
     getConversation: dependencies.getConversation ?? getConversation,
+    getConversationRaw: dependencies.getConversationRaw ?? getConversationRaw,
     listConversationSources: dependencies.listConversationSources ?? listConversationSources,
     listConversationsForPath: dependencies.listConversationsForPath ?? listConversationsForPath,
     renderConversationMarkdown: dependencies.renderConversationMarkdown ?? renderConversationMarkdown,
@@ -462,6 +465,39 @@ const handleExportConversation = async (
             },
         },
     );
+};
+
+const handleRawConversation = async (
+    source: string | undefined,
+    id: string | undefined,
+    url: URL,
+    dependencies: ReturnType<typeof getDeps>,
+    includeBody = true,
+) => {
+    const result = buildGetConversationOptions(source, id, url);
+    if ('error' in result) {
+        return result.error;
+    }
+
+    if (url.search) {
+        return errorResponse('validation_error', 'Raw transcript exports do not accept query parameters.', 400);
+    }
+    const download = await dependencies.getConversationRaw({ id: result.value.id, source: result.value.source });
+    if (!download) {
+        return errorResponse('conversation_not_found', 'No raw transcript exists for that source and id.', 404, {
+            id: result.value.id,
+            source: result.value.source,
+        });
+    }
+
+    return new Response(includeBody ? download.blob : null, {
+        headers: {
+            'Cache-Control': 'no-store',
+            'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(download.fileName)}`,
+            'Content-Type': download.mimeType,
+            'X-Content-Type-Options': 'nosniff',
+        },
+    });
 };
 
 const handleExportEvidence = async (
@@ -1127,6 +1163,18 @@ const API_ROUTES: ApiRoute[] = [
         resource: 'conversations',
     },
     {
+        handle: ({ dependencies, id, source, url }) => handleRawConversation(source, id, url, dependencies),
+        matches: ({ action, id, source }) => Boolean(source && id && action === 'raw'),
+        method: 'GET',
+        resource: 'conversations',
+    },
+    {
+        handle: ({ dependencies, id, source, url }) => handleRawConversation(source, id, url, dependencies, false),
+        matches: ({ action, id, source }) => Boolean(source && id && action === 'raw'),
+        method: 'HEAD',
+        resource: 'conversations',
+    },
+    {
         handle: ({ dependencies, id, request, source }) => handleExportEvidence(source, id, request, dependencies),
         matches: ({ action, id, source }) => Boolean(source && id && action === 'evidence'),
         method: 'POST',
@@ -1191,7 +1239,7 @@ const parseConversationApiSegments = (segments: string[], resource: string) => {
     if (segments.length === 5) {
         return { action: undefined, id: segments[4], resource, source: segments[3] };
     }
-    if (segments.length === 6 && (segments[5] === 'export' || segments[5] === 'evidence')) {
+    if (segments.length === 6 && (segments[5] === 'export' || segments[5] === 'evidence' || segments[5] === 'raw')) {
         return { action: segments[5], id: segments[4], resource, source: segments[3] };
     }
     return { action: '__invalid__', id: undefined, resource, source: undefined };

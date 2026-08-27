@@ -50,6 +50,19 @@ export const buildUiExportContentDisposition = (filePath: string) => {
     return `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`;
 };
 
+export const getUiExportContentType = (filePath: string) => {
+    if (filePath.endsWith('.zip')) {
+        return 'application/zip';
+    }
+    if (filePath.endsWith('.md')) {
+        return 'text/markdown; charset=utf-8';
+    }
+    if (filePath.endsWith('.txt')) {
+        return 'text/plain; charset=utf-8';
+    }
+    return 'application/octet-stream';
+};
+
 export const purgeStaleUiExportFile = async (filePath: string, cutoff: number) => {
     let metadata: Awaited<ReturnType<typeof stat>>;
     try {

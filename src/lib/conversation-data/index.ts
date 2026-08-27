@@ -19,6 +19,7 @@ import {
     type ConversationMessage,
     type ConversationMessageSelector,
     type ConversationPage,
+    type ConversationRawDownload,
     type ConversationSource,
     type ConversationSourceInfo,
     type DeleteConversationItemResult,
@@ -27,6 +28,7 @@ import {
     type DeleteConversationsOptions,
     type DeleteConversationsResult,
     type GetConversationOptions,
+    type GetConversationRawOptions,
     type ListConversationsForPathOptions,
     type ResolvedConversationRef,
 } from './types';
@@ -49,6 +51,7 @@ export {
     type ConversationMessageSelector,
     type ConversationPage,
     type ConversationPathMatch,
+    type ConversationRawDownload,
     type ConversationSource,
     type ConversationSourceInfo,
     type ConversationToolEvidence,
@@ -64,6 +67,7 @@ export {
     type ExportConversationEvidenceOptions,
     type ExportConversationsZipOptions,
     type GetConversationOptions,
+    type GetConversationRawOptions,
     type ListConversationsForPathOptions,
     type ResolvedConversationRef,
 } from './types';
@@ -216,6 +220,12 @@ export const listConversationsForPath = async (options: ListConversationsForPath
 
 export const getConversation = async (options: GetConversationOptions) => {
     return getAdapter(options.source)?.getConversation(options) ?? null;
+};
+
+export const getConversationRaw = async (
+    options: GetConversationRawOptions,
+): Promise<ConversationRawDownload | null> => {
+    return (await getAdapter(options.source)?.getConversationRaw?.(options)) ?? null;
 };
 
 export const deleteConversation = async (

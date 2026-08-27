@@ -203,6 +203,8 @@ export type GetConversationOptions = {
     source: ConversationSource;
 };
 
+export type GetConversationRawOptions = Pick<GetConversationOptions, 'id' | 'locations' | 'source'>;
+
 export type DeleteConversationOptions = {
     deleteSessionFiles?: boolean;
     id: string;
@@ -253,6 +255,12 @@ export type ConversationZipDownload = {
     mimeType: 'application/zip';
 };
 
+export type ConversationRawDownload = {
+    blob: Blob;
+    fileName: string;
+    mimeType: 'application/json' | 'application/x-ndjson';
+};
+
 export type ResolvedConversationRef = {
     id: string;
     source: ConversationSource;
@@ -261,6 +269,7 @@ export type ResolvedConversationRef = {
 export type ConversationAdapter = {
     deleteConversation?: (options: DeleteConversationOptions) => Promise<DeleteConversationResult>;
     getConversation: (options: GetConversationOptions) => Promise<ConversationDetail | null>;
+    getConversationRaw?: (options: GetConversationRawOptions) => Promise<ConversationRawDownload | null>;
     listConversationsForPath: (options: ListConversationsForPathOptions) => Promise<ConversationDetail[]>;
     source: ConversationSource;
 };

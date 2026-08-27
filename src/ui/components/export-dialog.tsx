@@ -20,7 +20,9 @@ import {
     cancelActiveDownloads,
     type DownloadLifecycleState,
     downloadTextFile,
+    downloadUrlFileWithCancellation,
     resetActiveDownloads,
+    useDownloadCancellation,
 } from '#/lib/download';
 import { requestEvidenceExport } from '#/lib/evidence-export';
 import type { ExportDialogOptions, ExportLifecycleCallbacks } from '#/lib/export-options';
@@ -180,14 +182,14 @@ type ExportModeContentProps = {
     focusedEvidenceTarget?: { id: string; source: ConversationSource };
     forceZipArchive: boolean;
     lens: EvidenceLens;
-    mode: 'focused' | 'full';
+    mode: ExportMode;
     options: ExportDialogOptions;
     preview: ConversationEvidenceExport | null;
     showCommentaryOption: boolean;
     showToolsOption: boolean;
     zipDescriptionId: string;
     onLensChange: (lens: EvidenceLens) => void;
-    onModeChange: (mode: 'focused' | 'full') => void;
+    onModeChange: (mode: ExportMode) => void;
     onOptionsChange: (options: Partial<ExportDialogOptions>) => void;
 };
 
@@ -212,7 +214,7 @@ const ExportModeContent = ({
                 <label className="font-medium text-sm" htmlFor="export-mode">
                     Export mode
                 </label>
-                <Select value={mode} onValueChange={(value) => onModeChange(value as 'focused' | 'full')}>
+                <Select value={mode} onValueChange={(value) => onModeChange(value as ExportMode)}>
                     <SelectTrigger
                         id="export-mode"
                         className="border-[var(--border)] bg-[var(--panel-secondary)] text-[var(--foreground)]"
@@ -222,12 +224,19 @@ const ExportModeContent = ({
                     <SelectContent>
                         <SelectItem value="full">Full transcript</SelectItem>
                         <SelectItem value="focused">Focused evidence</SelectItem>
+                        {RAW_EXPORT_SOURCES.has(focusedEvidenceTarget.source) ? (
+                            <SelectItem value="raw">Raw source JSON</SelectItem>
+                        ) : null}
                     </SelectContent>
                 </Select>
             </div>
         ) : null}
         {mode === 'focused' && focusedEvidenceTarget ? (
             <EvidenceLensEditor lens={lens} onChange={onLensChange} />
+        ) : mode === 'raw' ? (
+            <p className="rounded-xl border border-[var(--border)] bg-[var(--panel-secondary)] p-3 text-sm">
+                Downloads the source transcript unchanged, without filtering or Markdown rendering.
+            </p>
         ) : (
             <FullExportControls
                 effectiveZipArchive={effectiveZipArchive}
@@ -264,13 +273,26 @@ const ExportDialogStatus = ({ displayedError, downloadState, skippedThreadCount 
 type ExportDialogFooterProps = {
     disabled: boolean;
     evidencePending: boolean;
-    mode: 'focused' | 'full';
+    mode: ExportMode;
     pending: boolean;
     submitted: boolean;
     onCancel: () => void;
     onPreview: () => void;
     onSubmit: () => void;
 };
+
+type ExportMode = 'focused' | 'full' | 'raw';
+
+const RAW_EXPORT_SOURCES = new Set<ConversationSource>([
+    'antigravity',
+    'claude-code',
+    'cline',
+    'codex',
+    'grok',
+    'kiro',
+    'minimax-code',
+    'qoder',
+]);
 
 const ExportDialogFooter = ({
     disabled,
@@ -323,17 +345,18 @@ export function ExportDialog({
     const { settings, updateSetting } = useSettings();
     const [options, setOptions] = useState<ExportDialogOptions>(settings.exportDefaults);
     const [submitted, setSubmitted] = useState(false);
-    const [mode, setMode] = useState<'focused' | 'full'>('full');
+    const [mode, setMode] = useState<ExportMode>('full');
     const [lens, setLens] = useState<EvidenceLens>(DEFAULT_EVIDENCE_LENS);
     const [preview, setPreview] = useState<ConversationEvidenceExport | null>(null);
-    const [evidenceError, setEvidenceError] = useState<string | null>(null);
+    const [exportError, setExportError] = useState<string | null>(null);
     const [evidencePending, setEvidencePending] = useState(false);
     const [downloadState, setDownloadState] = useState<DownloadLifecycleState | null>(null);
     const submissionInProgress = useRef(false);
     const submissionToken = useRef(0);
     const previousPending = useRef(pending);
     const effectiveZipArchive = forceZipArchive || options.zipArchive;
-    const displayedError = evidenceError ?? errorMessage;
+    const displayedError = exportError ?? errorMessage;
+    const downloadCancellation = useDownloadCancellation();
     const zipDescriptionId = useId();
     const handleOpenChange = (nextOpen: boolean) => {
         if (!nextOpen) {
@@ -358,7 +381,7 @@ export function ExportDialog({
             setMode('full');
             setLens(DEFAULT_EVIDENCE_LENS);
             setPreview(null);
-            setEvidenceError(null);
+            setExportError(null);
             setEvidencePending(false);
             setDownloadState(null);
         }
@@ -378,13 +401,13 @@ export function ExportDialog({
             return null;
         }
         setEvidencePending(true);
-        setEvidenceError(null);
+        setExportError(null);
         try {
             const result = await requestEvidenceExport(focusedEvidenceTarget, lens);
             setPreview(result);
             return result;
         } catch (error) {
-            setEvidenceError(error instanceof Error ? error.message : 'Focused evidence export failed.');
+            setExportError(error instanceof Error ? error.message : 'Focused evidence export failed.');
             return null;
         } finally {
             setEvidencePending(false);
@@ -428,6 +451,23 @@ export function ExportDialog({
             await submitFocusedExport(token);
             return;
         }
+        if (mode === 'raw' && focusedEvidenceTarget) {
+            const { id, source } = focusedEvidenceTarget;
+            try {
+                await downloadUrlFileWithCancellation(
+                    downloadCancellation,
+                    `${source}-${id}.jsonl`,
+                    `/api/v1/conversations/${source}/${encodeURIComponent(id)}/raw`,
+                    { onStateChange: setDownloadState },
+                );
+            } catch (error) {
+                setExportError(error instanceof Error ? error.message : 'Raw transcript export failed.');
+            } finally {
+                submissionInProgress.current = false;
+                setSubmitted(false);
+            }
+            return;
+        }
         updateSetting('exportDefaults', options);
         onExport({ ...options, zipArchive: effectiveZipArchive }, { onDownloadStateChange: setDownloadState });
     };
@@ -457,12 +497,12 @@ export function ExportDialog({
                         onLensChange={(nextLens) => {
                             setLens(nextLens);
                             setPreview(null);
-                            setEvidenceError(null);
+                            setExportError(null);
                         }}
                         onModeChange={(nextMode) => {
                             setMode(nextMode);
                             setPreview(null);
-                            setEvidenceError(null);
+                            setExportError(null);
                         }}
                         onOptionsChange={(nextOptions) => setOptions((current) => ({ ...current, ...nextOptions }))}
                     />

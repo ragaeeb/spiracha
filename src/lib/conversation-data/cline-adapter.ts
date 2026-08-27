@@ -1,3 +1,4 @@
+import path from 'node:path';
 import {
     createClineTranscriptCache,
     deleteClineTask,
@@ -6,12 +7,13 @@ import {
     readClineTaskTranscript,
 } from '../cline-db';
 import type { ClineTaskSummary, ClineTaskTranscript } from '../cline-exporter-types';
-import { resolveClineDataDir } from '../cline-exporter-types';
+import { isSafeClineSessionId, resolveClineDataDir } from '../cline-exporter-types';
 import { mapWithConcurrency } from '../concurrency';
 import { runWithTranscriptLoadLimit } from '../transcript-load-limiter';
 import { createConversationUiPath, createDeepLinks, isWithinUpdatedWindow } from './adapter-helpers';
 import { selectConversationMessages } from './message-selector';
 import { getConversationPathMatch } from './path-match';
+import { createRawConversationDownload } from './raw-download';
 import type {
     ConversationAdapter,
     ConversationDataLocations,
@@ -135,6 +137,14 @@ const getClineConversation = async (options: GetConversationOptions): Promise<Co
         : null;
 };
 
+const getClineConversationRaw = async (options: GetConversationOptions) => {
+    return isSafeClineSessionId(options.id)
+        ? createRawConversationDownload(
+              path.join(getDataDir(options), 'sessions', options.id, `${options.id}.messages.json`),
+          )
+        : null;
+};
+
 const deleteClineConversation = async (options: DeleteConversationOptions) => {
     const result = await deleteClineTask(getDataDir(options), options.id);
     return { deletedFiles: result.deletedFiles, deletedIds: result.deletedTaskIds };
@@ -143,6 +153,7 @@ const deleteClineConversation = async (options: DeleteConversationOptions) => {
 export const clineConversationAdapter: ConversationAdapter = {
     deleteConversation: deleteClineConversation,
     getConversation: getClineConversation,
+    getConversationRaw: getClineConversationRaw,
     listConversationsForPath: listClineConversationsForPath,
     source: 'cline',
 };

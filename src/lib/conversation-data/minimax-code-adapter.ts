@@ -24,6 +24,7 @@ import {
 } from './adapter-helpers';
 import { selectConversationMessages } from './message-selector';
 import { getConversationPathMatch } from './path-match';
+import { createRawConversationDownload } from './raw-download';
 import type {
     ConversationAdapter,
     ConversationDetail,
@@ -237,6 +238,13 @@ const getMiniMaxCodeConversation = async (options: GetConversationOptions): Prom
         : null;
 };
 
+const getMiniMaxCodeConversationRaw = async (options: GetConversationOptions) => {
+    const transcript = await readMiniMaxCodeSessionTranscript(getSessionsDir(options), options.id, {
+        includeRawPayloads: false,
+    });
+    return transcript ? createRawConversationDownload(transcript.session.snapshotPath) : null;
+};
+
 const deleteMiniMaxCodeConversation = async (options: DeleteConversationOptions) => {
     const sessionsDir = getSessionsDir(options);
     const result = await deleteMiniMaxCodeSession(sessionsDir, getRuntimeDbPath(options, sessionsDir), options.id);
@@ -249,6 +257,7 @@ const deleteMiniMaxCodeConversation = async (options: DeleteConversationOptions)
 export const minimaxCodeConversationAdapter: ConversationAdapter = {
     deleteConversation: deleteMiniMaxCodeConversation,
     getConversation: getMiniMaxCodeConversation,
+    getConversationRaw: getMiniMaxCodeConversationRaw,
     listConversationsForPath: listMiniMaxCodeConversationsForPath,
     source: 'minimax-code',
 };

@@ -7,19 +7,19 @@
 [![license](https://img.shields.io/npm/l/spiracha)](LICENSE.md)
 [![runtime](https://img.shields.io/badge/runtime-Bun-000000?logo=bun)](https://bun.sh)
 
-Spiracha is a Bun package with a local TanStack Start UI and a direct data client for browsing and exporting agent conversation history from Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode.
+Spiracha is a Bun package with a local TanStack Start UI, a small CLI, and a direct data client for browsing and exporting agent conversation history from Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode.
 
-The legacy CLI, MCP server, and Codex plugin surfaces have been removed in the 2.0 hard cut. Spiracha now exposes the UI and a stable local data API; client-specific workflows such as review collection belong in the client that calls the API.
+The legacy exporter, MCP server, and Codex plugin surfaces were removed in the 2.0 hard cut. Spiracha now exposes the UI, a stable local data API, and the API-driven CLI below; client-specific workflows such as review collection belong in the client that calls the API.
 
 ## Quick Start
 
 To run the packaged app:
 
 ```bash
-bunx spiracha
+bunx spiracha serve
 ```
 
-Spiracha asks Vite for port 3000 and automatically uses the next available port when 3000 is occupied.
+The production command serves the bundled UI and API on `127.0.0.1:3000` (or the `PORT` you set).
 
 For repository development:
 
@@ -30,7 +30,29 @@ bun start
 
 Open the local URL printed by Vite.
 
-Spiracha requires Bun 1.3.14 or newer. Set `PORT` to request a different starting port, for example `PORT=4100 bunx spiracha`; the launcher uses the next available port if that one is occupied.
+Spiracha requires Bun 1.4.0 or newer. Set `PORT` to choose a different port, for example `PORT=4100 bunx spiracha serve`.
+
+## CLI
+
+The packaged CLI is a thin client over Spiracha's normalized conversation API. With no arguments, it prints help:
+
+```bash
+spiracha
+```
+
+Use these commands:
+
+```bash
+spiracha serve
+spiracha list --cwd <path>
+spiracha get <ref>
+spiracha export <ref> [--raw] [--output <path>]
+spiracha evidence <ref> --lens <file> [--output <path>]
+```
+
+`<ref>` may be a Spiracha or native source link. `spiracha/client` is the public Bun SDK for scripts and applications; import it instead of shelling out to the CLI when integrating Spiracha.
+
+Install the SDK in another Bun application with `bun add spiracha`. `list` and `get` write JSON; `export` and `evidence` write Markdown to stdout unless `--output` is provided. `export --raw` writes the original source JSON/JSONL bytes and does not accept message selection. Run `spiracha --help` for filtering and pagination options.
 
 ## What It Does
 
@@ -49,10 +71,10 @@ Large bodies are loaded behind the lightweight metadata path where needed. Curso
 
 ## Stable Data API
 
-The API is served by the local UI server under `/api/v1`.
+The API is served by the local UI server under `/api/v1`. Start the packaged server with `spiracha serve`.
 
 ```bash
-bunx spiracha
+spiracha serve
 ```
 
 Common read endpoints:
@@ -63,6 +85,7 @@ GET  /api/v1/conversations?cwd=/absolute/project&include_messages=true
 POST /api/v1/conversation-query
 GET  /api/v1/conversations/:source/:id
 GET  /api/v1/conversations/:source/:id/export
+GET  /api/v1/conversations/:source/:id/raw
 POST /api/v1/conversations/:source/:id/evidence
 DELETE /api/v1/conversations/:source/:id
 POST /api/v1/conversations/delete
@@ -117,7 +140,7 @@ Response envelope:
 }
 ```
 
-For direct access from Bun scripts and CLIs, use the public client export. Local mode reads the source data without starting the TanStack server:
+For direct access from Bun scripts and CLIs, use the public `spiracha/client` Bun SDK rather than shelling out. Local mode reads the source data without starting the UI server:
 
 ```ts
 import { createConversationClient } from "spiracha/client";
@@ -133,7 +156,9 @@ const page = await client.listConversations({
 Library and CLI use is quiet by default. Set `SPIRACHA_TRANSCRIPT_LOAD_LOGS=1` or
 `SPIRACHA_OPENCODE_DB_LOGS=1` only when diagnosing loader or OpenCode database timing.
 
-The public client exposes the same normalized operations in local and HTTP modes: source listing, path-scoped listing, detail reads, Markdown/evidence/zip exports, source-owned deletes, and reference resolution.
+The public client exposes the same operations in local and HTTP modes: source listing, path-scoped listing, detail reads, raw/Markdown/evidence/zip exports, source-owned deletes, and reference resolution.
+
+`client.exportConversationRaw({ source, id })` returns the original source JSON/JSONL file as a `Blob`, with its native filename and MIME type. The `/raw` endpoint serves the same bytes directly with download headers. Raw exports never parse, filter, normalize, or reserialize the source file. Sources whose conversation exists only inside a shared database, or which have no standalone JSON transcript, return `null` from the client and `404` from HTTP rather than synthesizing a replacement.
 
 Focused evidence is a deterministic, lossy Markdown export for qualitative DX analysis. It does not change full-transcript exports. See [Focused evidence lenses](docs/focused-evidence.md) for the complete lens schema, bounds, local and HTTP examples, UI workflow, privacy behavior, omission accounting, and performance limits.
 
@@ -231,7 +256,9 @@ Run one root test file with `bun test src/lib/shared.test.ts`. Run one UI test f
 
 `bun run test:package` launches the packaged `bin/spiracha.ts` entrypoint against an isolated fixture and checks the published UI boundary. `bun run format` applies the repository's Biome formatting and lint fixes when intentionally reformatting source.
 
-Spiracha has one application boundary: the stable API, server functions, browser route tree, and UI all live under the root package and resolve through one manifest and one dependency graph. Vite runs from the repository root with Bun because TanStack server functions import Bun-only modules such as `bun:sqlite`; Vitest uses its normal Node runtime.
+`bun start` runs the UI development server. `bun run build` emits bundled client assets and a bundled server entrypoint; `spiracha serve` runs that built output. The published package ships the built client/server output and the Bun SDK sources, not the UI source tree or Vite toolchain. Only `fflate` is a runtime dependency; the UI and build/test toolchain stays in `devDependencies`.
+
+Spiracha has one application boundary: the stable API, server functions, browser route tree, and UI all resolve through one manifest and one dependency graph. Vite is a development/build tool; Vitest uses its normal Node runtime.
 
 Package metadata is imported through the root `#package-metadata` package import alias and validated at module load. Server functions retain focused dynamic imports at the Bun-only boundary so database modules cannot leak into browser bundles; broad dynamic-import conversion is intentionally avoided.
 
@@ -239,12 +266,17 @@ Shared DTO, path, configuration, and error rules are documented in [Data and run
 
 TanStack Router generates `src/ui/routeTree.gen.ts` during development/build. Do not edit it manually; after adding or renaming route files, run `bun run build` (or start the dev server) and include the generated update.
 
+## Markdown and packaging
+
+Spiracha's Markdown is deterministic generation and domain parsing. Bun 1.4's `Bun.markdown` was evaluated, but it is currently unstable for this contract, so Spiracha does not depend on it.
+
+The hard-cut package keeps one `spiracha` bin, the stable `spiracha/client` and `spiracha/types` exports, and the bundled UI/server runtime. It does not restore legacy CLI aliases, an MCP server, a Codex plugin, or a separate exporter package.
+
 ## Breaking Consequences
 
-- The only published `bin` entry is `spiracha`, and it only launches the local UI server.
+- The only published `bin` entry is `spiracha`; no arguments show help, `serve` launches the bundled local UI server, and the remaining commands call the stable local data client.
 - No `codex-chats`, `codex-chats-claude`, or legacy export command remains.
-- No repo-local CLI export flow remains.
-- No standalone Claude or Cursor export CLI remains.
+- CLI export/evidence flows use the stable normalized client and do not reintroduce source-specific exporter entrypoints.
 - No MCP server or local Codex plugin remains.
-- Programmatic consumers should call the stable local HTTP API or import `spiracha/client` from Bun.
+- Programmatic consumers should call the stable local HTTP API or import `spiracha/client` from Bun rather than shelling out.
 - Normalized conversation messages now always include `toolEvidence` (`null` for non-tool messages); consumers that construct these DTOs must provide that explicit field.

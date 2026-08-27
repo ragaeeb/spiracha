@@ -4,14 +4,21 @@
 
 This repo is a Bun-first local app for browsing, exporting, and exposing agent conversation history from Codex, Claude Code, Cline, Grok, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode.
 
-The command-line exporter, MCP server, and Codex plugin were removed in the 2.0 hard cut. Do not add bridge commands, compatibility aliases, or deprecated entrypoints back. New client workflows should use the stable HTTP API exposed by the UI server or the stable `spiracha/client` package export.
+The legacy exporter, MCP server, and Codex plugin were removed in the 2.0 hard cut. Do not add bridge commands, compatibility aliases, or deprecated entrypoints back. The current CLI is an API-driven thin client; new application workflows should import the stable `spiracha/client` Bun SDK instead of shelling out.
 
 Main entrypoints:
-- `bunx spiracha` for running the packaged UI app
+- `spiracha` (or `bunx spiracha`) prints help when called without arguments
+- `spiracha serve` for running the packaged bundled UI/API server
+- `spiracha list --cwd <path>` for normalized conversation JSON
+- `spiracha get <ref>` for one normalized conversation
+- `spiracha export <ref> [--raw] [--output <path>]` for Markdown or original JSON/JSONL export
+- `spiracha evidence <ref> --lens <file> [--output <path>]` for focused evidence Markdown
 - `rtk bun start` for local development
 - `rtk bun run ui:preview` after a UI build
 - `rtk bun test`, `rtk bun run lint`, `rtk bun run typecheck`, `rtk bun run build`, and `rtk bun run coverage` for verification
 - `rtk bun run test:package` for the packaged-entrypoint smoke test
+
+Bun 1.4.0 or newer is required.
 
 ## Conventions and Rules
 
@@ -128,6 +135,7 @@ The local UI server exposes:
 - `POST /api/v1/conversation-query`
 - `GET /api/v1/conversations/:source/:id`
 - `GET /api/v1/conversations/:source/:id/export`
+- `GET /api/v1/conversations/:source/:id/raw`
 - `POST /api/v1/conversations/:source/:id/evidence`
 - `DELETE /api/v1/conversations/:source/:id`
 - `POST /api/v1/conversations/delete`
@@ -190,8 +198,10 @@ rtk bun run test:ui
 ## Notes
 
 - Keep root-package source modules imported by the UI available through `@spiracha/lib/*`.
-- The repository has one package manifest. Keep UI runtime dependencies needed by packaged `bunx spiracha` in root `dependencies` and build/test-only tooling in root `devDependencies`.
-- UI Vite commands run from the repository root with `bun --bun`, so TanStack, server functions, the stable API, and the browser route tree all resolve from one manifest and one dependency graph. UI Vitest commands use the normal Node runtime.
+- The repository has one package manifest. `fflate` is the only runtime dependency; UI, Vite, and build/test tooling stays in root `devDependencies`.
+- `bun start` runs UI development. `bun run build` emits bundled client assets and a bundled server entrypoint consumed by `spiracha serve`; the published package does not ship the UI source tree or Vite toolchain.
+- UI Vite commands run from the repository root with `bun --bun`, so TanStack, server functions, the stable API, and the browser route tree all resolve through one development dependency graph. UI Vitest commands use the normal Node runtime.
+- Markdown output remains deterministic generation/domain parsing. Bun 1.4's `Bun.markdown` was evaluated but is unstable for this contract and is not used.
 - TanStack Start server functions should use `.validator(...)`, not deprecated `.inputValidator(...)`.
 - API routes should use route-level `server.handlers`.
 - Keep `*-transcript-phase.ts` modules browser-safe; UI client adapters import them directly.

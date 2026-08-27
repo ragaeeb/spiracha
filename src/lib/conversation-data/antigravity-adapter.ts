@@ -1,5 +1,6 @@
 import {
     deleteAntigravityConversation,
+    getAntigravityConversationById,
     listAntigravityConversations,
     readAntigravityConversationMessages,
 } from '../antigravity-db';
@@ -19,6 +20,7 @@ import {
 } from './adapter-helpers';
 import { selectConversationMessages } from './message-selector';
 import { getConversationPathMatch, getFirstConversationPathMatch } from './path-match';
+import { createRawConversationDownload } from './raw-download';
 import type {
     ConversationAdapter,
     ConversationDetail,
@@ -277,6 +279,11 @@ const getAntigravityConversation = async (options: GetConversationOptions): Prom
         : null;
 };
 
+const getAntigravityConversationRaw = async (options: GetConversationOptions) => {
+    const conversation = await getAntigravityConversationById(options.id, getRoots(options));
+    return conversation?.transcriptPath ? createRawConversationDownload(conversation.transcriptPath) : null;
+};
+
 const deleteAntigravityConversationById = async (options: DeleteConversationOptions) => {
     const result = await deleteAntigravityConversation(getRoots(options), options.id);
     return {
@@ -288,6 +295,7 @@ const deleteAntigravityConversationById = async (options: DeleteConversationOpti
 export const antigravityConversationAdapter: ConversationAdapter = {
     deleteConversation: deleteAntigravityConversationById,
     getConversation: getAntigravityConversation,
+    getConversationRaw: getAntigravityConversationRaw,
     listConversationsForPath: listAntigravityConversationsForPath,
     source: 'antigravity',
 };

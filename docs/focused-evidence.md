@@ -39,7 +39,7 @@ An anchor has AND semantics across its populated fields. For example, a tool anc
 
 Shell anchors tokenize normalized command data and compare the executable and immediate subcommand. They do not search comments or tool output for command substrings. Text anchors use bounded case-sensitive literal matching; arbitrary regular expressions and executable matching code are not accepted.
 
-## Generic CLI example
+## CLI and client examples
 
 Save a project lens as `config/spiracha-evidence-lens.json` and review changes to it like any other project configuration:
 
@@ -67,6 +67,14 @@ Save a project lens as `config/spiracha-evidence-lens.json` and review changes t
   }
 }
 ```
+
+Packaged CLI:
+
+```bash
+spiracha evidence <ref> --lens config/spiracha-evidence-lens.json [--output focused-evidence.md]
+```
+
+The CLI delegates to the same normalized client and evidence renderer as the UI and HTTP API.
 
 Local Bun client:
 

@@ -29,6 +29,7 @@ These rules define the boundary between source-specific discovery and Spiracha's
 - Optional fields use `undefined` only when the field itself is an optional capability or response extension.
 - Collections are empty arrays rather than `null` when the collection is known and empty.
 - Source adapters retain source-specific raw payloads only on contracts that explicitly expose them. Shared list DTOs stay bounded and do not gain source-native transport shapes.
+- Raw transcript export passes through a standalone source `.json` or `.jsonl` file byte-for-byte. It does not apply message selection, continuation merging, filtering, normalization, formatting, or redaction. Database-only sources return no raw export because constructing one would violate this contract.
 - Normalized messages always carry `toolEvidence`; use `null` for messages without structured tool data. Evidence pairing must report `exact`, `ordered_fallback`, or `unpaired` rather than inventing call IDs.
 
 ## Errors and redaction
@@ -49,6 +50,9 @@ These rules define the boundary between source-specific discovery and Spiracha's
 
 - The root `#package-metadata` import is the validated package metadata boundary for the UI. Missing or malformed homepage/version metadata fails loudly.
 - TanStack server functions keep Bun-only database imports on the server boundary. Browser-safe transcript phase/filter modules may be imported by client adapters; database readers must not cross into browser bundles.
+- The `spiracha` CLI is an API-driven thin client. Use `spiracha serve`, `spiracha list --cwd <path>`, `spiracha get <ref>`, `spiracha export <ref> [--raw] [--output <path>]`, and `spiracha evidence <ref> --lens <file> [--output <path>]`; no arguments print help. Applications should import the Bun SDK from `spiracha/client` instead of shelling out.
+- Bun 1.4.0 or newer is required. `bun start` is the UI development server; `bun run build` emits bundled client/server output consumed by `spiracha serve`. The package has one runtime dependency (`fflate`); UI/build/test tooling is development-only.
+- Markdown remains deterministic generation and domain parsing. Bun 1.4's `Bun.markdown` was evaluated but is unstable for this contract and is not used.
 
 ## Delete behavior
 

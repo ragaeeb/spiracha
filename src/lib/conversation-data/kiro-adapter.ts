@@ -1,6 +1,7 @@
 import { mapWithConcurrency } from '../concurrency';
 import {
     deleteKiroSession,
+    findKiroTranscriptPath,
     listKiroSessionsForGroup,
     listKiroWorkspaceGroups,
     readKiroSessionTranscript,
@@ -28,6 +29,7 @@ import {
 } from './adapter-helpers';
 import { selectConversationMessages } from './message-selector';
 import { getConversationPathMatch } from './path-match';
+import { createRawConversationDownload } from './raw-download';
 import type {
     ConversationAdapter,
     ConversationDetail,
@@ -235,6 +237,11 @@ const getKiroConversation = async (options: GetConversationOptions): Promise<Con
         : null;
 };
 
+const getKiroConversationRaw = async (options: GetConversationOptions) => {
+    const filePath = await findKiroTranscriptPath(getSessionsDir(options), options.id);
+    return filePath ? createRawConversationDownload(filePath) : null;
+};
+
 const deleteKiroConversation = async (options: DeleteConversationOptions) => {
     const result = await deleteKiroSession(getSessionsDir(options), options.id);
     return {
@@ -246,6 +253,7 @@ const deleteKiroConversation = async (options: DeleteConversationOptions) => {
 export const kiroConversationAdapter: ConversationAdapter = {
     deleteConversation: deleteKiroConversation,
     getConversation: getKiroConversation,
+    getConversationRaw: getKiroConversationRaw,
     listConversationsForPath: listKiroConversationsForPath,
     source: 'kiro',
 };

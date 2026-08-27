@@ -1,6 +1,7 @@
 import { mapWithConcurrency } from '../concurrency';
 import {
     deleteGrokSession,
+    findGrokTranscriptPath,
     listGrokSessionTranscriptsForGroup,
     listGrokWorkspaceGroups,
     readGrokSessionTranscript,
@@ -28,6 +29,7 @@ import {
 } from './adapter-helpers';
 import { selectConversationMessages } from './message-selector';
 import { getConversationPathMatch } from './path-match';
+import { createRawConversationDownload } from './raw-download';
 import type {
     ConversationAdapter,
     ConversationDetail,
@@ -235,6 +237,11 @@ const getGrokConversation = async (options: GetConversationOptions): Promise<Con
         : null;
 };
 
+const getGrokConversationRaw = async (options: GetConversationOptions) => {
+    const filePath = await findGrokTranscriptPath(getSessionsDir(options), options.id);
+    return filePath ? createRawConversationDownload(filePath) : null;
+};
+
 const deleteGrokConversation = async (options: DeleteConversationOptions) => {
     const result = await deleteGrokSession(getSessionsDir(options), options.id);
     return {
@@ -246,6 +253,7 @@ const deleteGrokConversation = async (options: DeleteConversationOptions) => {
 export const grokConversationAdapter: ConversationAdapter = {
     deleteConversation: deleteGrokConversation,
     getConversation: getGrokConversation,
+    getConversationRaw: getGrokConversationRaw,
     listConversationsForPath: listGrokConversationsForPath,
     source: 'grok',
 };

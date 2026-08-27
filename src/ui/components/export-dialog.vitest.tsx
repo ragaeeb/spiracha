@@ -10,6 +10,58 @@ afterEach(() => {
 });
 
 describe('ExportDialog', () => {
+    it('should download raw source JSON directly from the stable API', async () => {
+        const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+        HTMLElement.prototype.scrollIntoView = vi.fn();
+        const downloadUrlFile = vi.spyOn(download, 'downloadUrlFileWithCancellation').mockResolvedValue(undefined);
+
+        try {
+            render(
+                <ExportDialog
+                    focusedEvidenceTarget={{ id: 'thread-1', source: 'codex' }}
+                    open
+                    onExport={vi.fn()}
+                    onOpenChange={vi.fn()}
+                />,
+            );
+            fireEvent.click(screen.getByRole('combobox', { name: 'Export mode' }));
+            fireEvent.click(screen.getByText('Raw source JSON'));
+            fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
+
+            await waitFor(() =>
+                expect(downloadUrlFile).toHaveBeenCalledWith(
+                    expect.any(Object),
+                    'codex-thread-1.jsonl',
+                    '/api/v1/conversations/codex/thread-1/raw',
+                    { onStateChange: expect.any(Function) },
+                ),
+            );
+        } finally {
+            HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+            downloadUrlFile.mockRestore();
+        }
+    });
+
+    it('should hide raw export when a source has no standalone JSON transcript', () => {
+        const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+        HTMLElement.prototype.scrollIntoView = vi.fn();
+
+        try {
+            render(
+                <ExportDialog
+                    focusedEvidenceTarget={{ id: 'session-1', source: 'opencode' }}
+                    open
+                    onExport={vi.fn()}
+                    onOpenChange={vi.fn()}
+                />,
+            );
+            fireEvent.click(screen.getByRole('combobox', { name: 'Export mode' }));
+            expect(screen.queryByText('Raw source JSON')).toBeNull();
+        } finally {
+            HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+        }
+    });
+
     it('should build, validate, preview, and download focused evidence through the shared flow', async () => {
         const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
         HTMLElement.prototype.scrollIntoView = vi.fn();
