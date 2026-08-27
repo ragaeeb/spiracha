@@ -212,7 +212,8 @@ describe('Cline session storage', () => {
         });
         expect(markdown).toContain('# Fix issue 1494 per the implementation plan');
         expect(markdown).toContain('exported_from: "cline_session_messages"');
-        expect(markdown).toContain('## Assistant (Final)');
+        expect(markdown).toContain('## Deepseek V4 Flash (Final)');
+        expect(markdown).not.toContain('## Assistant');
         expect(markdown).not.toContain('protected surface policy');
         expect(markdown).not.toContain('Tool Call');
 

@@ -243,6 +243,9 @@ export type CodexSessionIndexReconciliation = {
 
 export type DeleteThreadsResult = {
     cleanup: {
+        globalStateReferencesRemoved: string[];
+        globalStateWritingBlocksSet: string[];
+        localThreadCatalogEntriesRemoved: string[];
         requested: boolean;
         sessionIndexEntriesRemoved: string[];
     };

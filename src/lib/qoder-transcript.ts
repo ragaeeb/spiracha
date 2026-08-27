@@ -1,3 +1,4 @@
+import { formatModelLabel } from './model-label';
 import type {
     QoderExportOptions,
     QoderSessionSummary,
@@ -41,9 +42,9 @@ const buildMetadataEntries = (session: QoderSessionSummary): MetadataEntry[] => 
     { key: 'snapshot_file_count', value: session.snapshotFileCount },
 ];
 
-const roleTitle = (role: string): string => {
+const roleTitle = (role: string, assistantModel: string | null): string => {
     if (role === 'assistant') {
-        return 'Assistant';
+        return formatModelLabel(assistantModel);
     }
 
     if (role === 'user') {
@@ -94,6 +95,7 @@ const renderPart = (
     part: QoderTranscriptPart,
     options: QoderExportOptions,
     finalAssistantMessageEntryIds: Set<string>,
+    assistantModel: string | null,
 ): string => {
     if (entry.entryType === 'tool_call') {
         return options.includeTools && part.type === 'text' ? renderToolPart(part, 'Tool call', options) : '';
@@ -109,7 +111,7 @@ const renderPart = (
 
     switch (part.type) {
         case 'text':
-            return renderTextPart(part, roleTitle(entry.role), options);
+            return renderTextPart(part, roleTitle(entry.role, assistantModel), options);
         case 'unknown':
             return '';
     }
@@ -121,7 +123,9 @@ export const renderQoderTranscript = (
 ): string | null => {
     const finalAssistantMessageEntryIds = getFinalQoderAssistantMessageEntryIds(transcript.entries);
     const sections = transcript.entries.flatMap((entry) =>
-        entry.parts.map((part) => renderPart(entry, part, options, finalAssistantMessageEntryIds)).filter(Boolean),
+        entry.parts
+            .map((part) => renderPart(entry, part, options, finalAssistantMessageEntryIds, transcript.session.model))
+            .filter(Boolean),
     );
     if (sections.length === 0) {
         return null;

@@ -31,6 +31,8 @@ describe('FX transcript rendering', () => {
         expect(markdown).toContain('I will inspect the workspace.');
         expect(markdown).toContain('Tool: `bash`');
         expect(markdown).toContain('full externalized output');
+        expect(markdown).toContain('## Claude Sonnet 4.5');
+        expect(markdown).not.toContain('## Assistant');
         expect(markdown).toContain('The committed turn is complete.');
     });
 

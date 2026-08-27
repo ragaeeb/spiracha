@@ -783,12 +783,15 @@ describe('cursor-db workspace discovery', () => {
 describe('cursor-db transcript reads', () => {
     it('should read an ordered thread head from the global store', async () => {
         const userDir = await makeUserDir();
-        await createCursorFixture(userDir, baseSpec());
+        const spec = baseSpec();
+        spec.threads[0]!.model = 'cursor-grok-4.6-high';
+        await createCursorFixture(userDir, spec);
 
         const head = readCursorThreadHead(getCursorGlobalDbPath(userDir), 'thread-1');
 
         expect(head?.orderedBubbleIds).toEqual(['b1', 'b2', 'b3']);
         expect(head?.name).toBe('Demo thread');
+        expect(head?.model).toBe('grok-4.6');
     });
 
     it('should resolve renderable bubbles in order', async () => {

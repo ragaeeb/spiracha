@@ -1,4 +1,5 @@
 import { mapWithConcurrency } from '../concurrency';
+import { formatModelLabel } from '../model-label';
 import { antigravityConversationAdapter } from './antigravity-adapter';
 import { claudeCodeConversationAdapter } from './claude-code-adapter';
 import { clineConversationAdapter } from './cline-adapter';
@@ -387,6 +388,7 @@ export const resolveConversationRef = async (ref: string): Promise<ResolvedConve
 export const renderConversationMarkdown = (
     conversation: {
         messages: ConversationMessage[];
+        model?: string;
         title: string | null;
     },
     options: {
@@ -397,8 +399,7 @@ export const renderConversationMarkdown = (
         ? selectConversationMessages(conversation.messages, options.messageSelector)
         : conversation.messages;
     const title = conversation.title?.trim() || 'Conversation';
-    const roleLabels: Record<ConversationMessage['role'], string> = {
-        assistant: 'Assistant',
+    const roleLabels: Record<Exclude<ConversationMessage['role'], 'assistant'>, string> = {
         system: 'System',
         tool: 'Tool',
         unknown: 'Unknown',
@@ -406,7 +407,11 @@ export const renderConversationMarkdown = (
     };
     const sections = selectedMessages.map((message) => {
         const text = message.text.trim() || '_No message content._';
-        return `## ${roleLabels[message.role]}\n\n${text}`;
+        const roleLabel =
+            message.role === 'assistant'
+                ? formatModelLabel(message.model ?? conversation.model)
+                : roleLabels[message.role];
+        return `## ${roleLabel}\n\n${text}`;
     });
     if (sections.length === 0) {
         sections.push('_No messages selected._');

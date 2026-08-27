@@ -107,12 +107,13 @@ describe('conversation data facade', () => {
                         text: 'The final review result.',
                     }),
                 ],
+                model: 'anthropic/claude-sonnet-4.5',
                 title: 'Review thread',
             },
             { messageSelector: 'last_final_answer' },
         );
 
-        expect(markdown).toBe('# Review thread\n\n## Assistant\n\nThe final review result.\n');
+        expect(markdown).toBe('# Review thread\n\n## Claude Sonnet 4.5\n\nThe final review result.\n');
     });
 
     it('should render stable markdown for empty and unknown-role messages', () => {

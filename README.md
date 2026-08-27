@@ -35,12 +35,17 @@ Spiracha requires Bun 1.3.14 or newer. Set `PORT` to request a different startin
 ## What It Does
 
 - Browse local conversations across Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode.
+- Group each integration into workspace inventories with local search and source-specific export/delete actions where supported.
 - Search Codex projects from the app shell, with results delegated to the shareable `/codex?q=...` inventory filter.
-- Inspect source-specific detail pages with transcript, tool, reasoning, metadata, raw event, export, and delete flows where supported by the source. Codex thread detail includes optional live updates isolated from page-loading connections, a tool-focused activity view, recorded goals, and sandbox policy.
+- Inspect source-specific detail pages with transcript, tool, reasoning, metadata, raw event, export, and delete flows where supported by the source. Transcript controls can filter user messages, commentary, tools, extra events, raw JSON, and text matches. Codex thread detail includes optional live updates isolated from page-loading connections, a tool-focused activity view, recorded goals, and sandbox policy.
 - Export transcripts from the UI as Markdown, text, or zip bundles with source-specific commentary/final-answer filtering. The last submitted export choices persist across dialog openings; canceled drafts do not.
 - Export source-independent focused evidence: bounded failure/retry/tool episodes selected by a reusable JSON lens, with trace IDs and an omission ledger.
+- Review project-scoped Codex analytics, including token and tool distributions plus deterministic optimization findings for context leakage, repeated work, broad reads, timed-out waits, and delegation patterns.
+- Adjust transcript path conversion and username redaction from Settings; the app shell also provides light/dark theme controls.
 - Expose a stable API for local clients that need normalized conversation metadata and message payloads.
 - Resolve Spiracha UI links and native source links into normalized `{ source, id }` references for cross-thread context lookup.
+
+Large bodies are loaded behind the lightweight metadata path where needed. Cursor and Antigravity detail routes fetch transcript/artifact documents after browser hydration, and oversized Codex rollouts expose a deferred preview/full-load choice instead of inflating the initial route payload.
 
 ## Stable Data API
 
@@ -69,9 +74,11 @@ The default list selector is `last_final_answer`, which keeps `fgh --collect` st
 
 Conversation lists use opaque keyset cursors ordered by update time, source, and conversation ID. Pass `meta.next_cursor` unchanged with the same filters to request the next page. The 2.0 offset cursor format is intentionally unsupported; clients must begin a fresh traversal after upgrading.
 
+List requests accept a positive `limit` up to 200, optional `updated_after_ms` and `updated_before_ms` windows, `source` filters, and `include_messages`. Message bodies are omitted unless `include_messages=true`; the list default remains `last_final_answer` when bodies are requested.
+
 Workspace matching is lexical and performs no filesystem reads, so missing and network-mounted transcript paths cannot delay collection. Symlink aliases are intentionally not resolved; callers that require alias equivalence should pass the canonical workspace path recorded by the source.
 
-Batch delete requires an explicit source and ID list. It returns `deletedIds`, `missingIds`, and a result for each requested ID, so partial success is represented in a `200` response body. Batch export also requires an explicit source and ID list, but is atomic: any missing ID returns an error instead of a partial archive. Cursor deletes accept `delete_session_files=false` on the single-delete query string or batch-delete JSON body. This removes Cursor database records while preserving its transcript directories; preserved source files can make the conversation discoverable again. The Cursor UI exposes the same choice and keeps transcript deletion selected by default.
+Batch delete requires an explicit source and ID list. It returns `deletedIds`, `missingIds`, and a result for each requested ID, so partial success is represented in a `200` response body. Batch export also requires an explicit source and ID list, but is atomic: any missing ID returns an error instead of a partial archive. Cursor deletes accept `delete_session_files=false` on the single-delete query string or batch-delete JSON body. This removes Cursor database records while preserving its transcript directories; preserved source files can make the conversation discoverable again. The Cursor UI exposes the same choice and keeps transcript deletion selected by default. Cursor must be closed before a write; workspace cleanup failures can return a bounded, single-use retry token while filesystem paths remain server-side.
 
 Example:
 
@@ -126,23 +133,29 @@ const page = await client.listConversations({
 Library and CLI use is quiet by default. Set `SPIRACHA_TRANSCRIPT_LOAD_LOGS=1` or
 `SPIRACHA_OPENCODE_DB_LOGS=1` only when diagnosing loader or OpenCode database timing.
 
+The public client exposes the same normalized operations in local and HTTP modes: source listing, path-scoped listing, detail reads, Markdown/evidence/zip exports, source-owned deletes, and reference resolution.
+
 Focused evidence is a deterministic, lossy Markdown export for qualitative DX analysis. It does not change full-transcript exports. See [Focused evidence lenses](docs/focused-evidence.md) for the complete lens schema, bounds, local and HTTP examples, UI workflow, privacy behavior, omission accounting, and performance limits.
+
+### Codex analytics
+
+The `/analytics` view can scope results to one project or all projects. It reports thread and token totals, average and median thread size, archive and web-search counts, model/client/reasoning distributions, tool usage, retained tool-output bytes, full-context forks, and timed-out waits. Optimization findings are deterministic signals from local rollout records; they describe retained context and workflow patterns, not provider billing or automatic recommendations to apply.
 
 ## Source Locations
 
 | Source | Default location | Primary override |
 | --- | --- | --- |
 | Codex | shared Codex DB probe list | `SPIRACHA_CODEX_DB` |
-| Claude Code | `~/.claude/projects` | `SPIRACHA_CLAUDE_CODE_PROJECTS_DIR` |
-| Cline | `~/.cline/data/sessions` | `SPIRACHA_CLINE_DATA_DIR` |
-| Grok | `~/.grok/sessions` | `SPIRACHA_GROK_SESSIONS_DIR` |
-| Kiro | `~/Library/Application Support/Kiro/User/globalStorage/kiro.kiroagent/workspace-sessions` | `SPIRACHA_KIRO_WORKSPACE_SESSIONS_DIR` |
-| Qoder | `~/Library/Application Support/Qoder/User/globalStorage/state.vscdb` and `~/Library/Application Support/Qoder/User/workspaceStorage` | `SPIRACHA_QODER_GLOBAL_STATE_DB`, `SPIRACHA_QODER_WORKSPACE_STORAGE_DIR` |
+| Claude Code | `~/.claude/projects` | `SPIRACHA_CLAUDE_CODE_DATA_DIR`, `SPIRACHA_CLAUDE_CODE_PROJECTS_DIR` |
+| Cline | `~/.cline/data` (sessions below this directory) | `SPIRACHA_CLINE_DATA_DIR` |
+| Grok | `~/.grok/sessions` | `SPIRACHA_GROK_HOME`, `SPIRACHA_GROK_SESSIONS_DIR` |
+| Kiro | `~/Library/Application Support/Kiro/User/globalStorage/kiro.kiroagent/workspace-sessions` | `SPIRACHA_KIRO_DATA_DIR`, `SPIRACHA_KIRO_WORKSPACE_SESSIONS_DIR` |
+| Qoder | `~/Library/Application Support/Qoder/User/globalStorage/state.vscdb`, `~/Library/Application Support/Qoder/User/workspaceStorage`, and `~/Library/Application Support/Qoder/SharedClientCache/cli/projects` | `SPIRACHA_QODER_USER_DIR`, `SPIRACHA_QODER_GLOBAL_STATE_DB`, `SPIRACHA_QODER_WORKSPACE_STORAGE_DIR`, `SPIRACHA_QODER_CLI_PROJECTS_DIR` |
 | Cursor | `~/Library/Application Support/Cursor/User` on macOS | `SPIRACHA_CURSOR_USER_DIR`, `SPIRACHA_CURSOR_PROJECTS_DIR` |
 | Antigravity | `~/.gemini/antigravity-ide`, `~/.gemini/antigravity-cli`, and `~/.gemini/antigravity` | `SPIRACHA_ANTIGRAVITY_DIRS`, `SPIRACHA_ANTIGRAVITY_DIR` |
 | FX | `~/.fx` | `SPIRACHA_FX_DATA_DIR` |
-| MiniMax Code | `~/.minimax/v2/sessions` and `~/.minimax/v2/sqlite/runtime-state.sqlite` | `SPIRACHA_MINIMAX_CODE_SESSIONS_DIR`, `SPIRACHA_MINIMAX_CODE_RUNTIME_DB_PATH` |
-| OpenCode | `${XDG_DATA_HOME:-~/.local/share}/opencode/opencode.db` | `SPIRACHA_OPENCODE_DB` |
+| MiniMax Code | `~/.minimax/v2/sessions` and `~/.minimax/v2/sqlite/runtime-state.sqlite` | `SPIRACHA_MINIMAX_CODE_DATA_DIR`, `SPIRACHA_MINIMAX_CODE_SESSIONS_DIR`, `SPIRACHA_MINIMAX_CODE_RUNTIME_DB_PATH` |
+| OpenCode | `${XDG_DATA_HOME:-~/.local/share}/opencode/opencode.db` | `SPIRACHA_OPENCODE_DATA_DIR`, `SPIRACHA_OPENCODE_DB` |
 | UI exports | OS temp directory under `spiracha-ui-exports` | `SPIRACHA_UI_EXPORT_DIR` |
 
 ### Cache and export lifecycle
@@ -158,7 +171,9 @@ Spiracha bounds temporary disk use by age and total retained bytes. Values are n
 | `SPIRACHA_UI_EXPORT_MAX_BYTES` | `1073741824` | Total temporary export ceiling; oldest exports are pruned first. |
 | `SPIRACHA_UI_LARGE_EXPORT_THRESHOLD_BYTES` | `134217728` | Size above which Codex export rendering switches to a temporary download. |
 
-Claude Code and Kiro discovery also use short-lived, bounded in-memory indexes and parsed-file caches. File identity metadata invalidates changed transcripts, mutations invalidate affected entries immediately, and no raw source payload is persisted by these caches.
+Claude Code, Kiro, and Cursor discovery use short-lived, bounded indexes with in-flight request coalescing and mutation invalidation. Cursor also indexes direct composer-id lookups instead of rescanning every workspace group. File identity metadata invalidates changed transcripts, source mutations invalidate affected entries immediately, and no raw source payload is persisted by these caches.
+
+Cursor and Antigravity detail pages split metadata from large transcript/artifact documents. Codex thread metadata records whether a rollout is available, missing, or deferred; the UI can load a bounded preview, request the full transcript, or export directly. Temporary JSON cache and download files are created with private permissions and pruned by age and total bytes.
 
 ### Qoder live ACP hydration
 
@@ -176,24 +191,24 @@ Encrypted Antigravity transcripts use the macOS Keychain item `Antigravity Safe 
 
 Codex browser reads target the `codex-state-5-thread-browse-v1` compatibility profile. The `threads` table and its browse columns are required; missing tables, missing columns, or invalid decoded row values produce an actionable compatibility error instead of a guessed result. The `thread_dynamic_tools`, `thread_goals`, and `thread_spawn_edges` tables are optional and are read when present, so older databases without those tables remain browseable.
 
-Multi-table thread browse reads run inside one SQLite deferred read transaction. This gives each browse result a consistent database snapshot while allowing Codex's normal writers to continue; it does not claim crash-level atomicity across the main database, attached history databases, rollout files, or the session index. Destructive DB changes commit before optional session-file and session-index cleanup, and cleanup results identify what was removed.
+Multi-table thread browse reads run inside one SQLite deferred read transaction. This gives each browse result a consistent database snapshot while allowing Codex's normal writers to continue; it does not claim crash-level atomicity across the main database, attached history databases, rollout files, or the session index. Destructive DB changes commit before optional session-file cleanup and synchronized session-index/Codex Desktop global-state cleanup. Global-state cleanup removes structural Recent/sidebar references, preserves unrelated prompt text, sets Codex's deleted-thread write-block flags, and reports what changed.
 
 UI batch Codex exports use one batch browse pass and include a versioned `spiracha-manifest.json` in every successful archive. The manifest preserves requested ID order and records exported, missing, unreadable, and unstable entries. A batch succeeds when at least one selected thread is exportable; a single-thread export remains fail-fast. Active rollout files are copied to an attempt-local snapshot, checked by size, inode, and high-resolution timestamps, and retried once when they mutate during the copy.
 
 ### Cursor SQLite access
 
-Cursor reads use a retry-aware synchronous callback that opens a fresh read handle for each attempt and closes it before retrying. Cursor mutations use a same-database `BEGIN IMMEDIATE` transaction with the shared bounded SQLite retry policy and no stacked long `busy_timeout`. Missing writable databases fail closed instead of being created. Recovery and deletion keep cross-database compensation and filesystem cleanup outside retry callbacks; destructive discovery uses strict readers so exhausted locks cannot be mistaken for empty data. UI mutation entrypoints still require Cursor to be closed before writing because Cursor can rewrite its history on exit.
+Cursor reads use a retry-aware synchronous callback that opens a fresh read handle for each attempt and closes it before retrying. Cursor mutations use a same-database `BEGIN IMMEDIATE` transaction with the shared bounded SQLite retry policy and no stacked long `busy_timeout`. Missing writable databases fail closed instead of being created. Discovery is cached per user directory, coalesces concurrent scans, and maintains a composer-id index for direct detail lookup. Recovery and deletion keep cross-database compensation and filesystem cleanup outside retry callbacks; destructive discovery uses strict readers so exhausted locks cannot be mistaken for empty data. UI mutation entrypoints still require Cursor to be closed before writing because Cursor can rewrite its history on exit. Workspace cleanup can be retried with a short-lived opaque token after the database mutation has committed.
 
 ## UI Routes
 
-- `/codex` and `/codex/$project` for Codex inventory and project threads.
+- `/` for the Codex dashboard, `/codex` and `/codex/$project` for Codex inventory and project threads.
 - `/threads/$threadId` for Codex thread detail.
 - `/claude-code`, `/cline`, `/grok`, `/kiro`, `/qoder`, `/cursor`, `/antigravity`, `/fx`, `/minimax-code`, and `/opencode` for source inventories.
 - Source detail routes include `/claude-code-sessions/$sessionId`, `/cline-tasks/$taskId`, `/grok-sessions/$sessionId`, `/kiro-sessions/$sessionId`, `/qoder-sessions/$sessionId`, `/cursor-threads/$composerId`, `/antigravity-conversations/$conversationId`, `/fx-sessions/$sessionId`, `/minimax-code-sessions/$sessionId`, and `/opencode-sessions/$sessionId`.
 - FX workspace and detail pages support single, selected, and workspace-wide deletion. Deletion removes the session directory plus its session-index and latest-pointer entries while preserving workspace files and global FX command history.
 - MiniMax Code workspace and detail pages support single, selected, and workspace-wide deletion. Deletion removes finalized session directories and authoritative runtime database rows while preserving generated workspace files and append-only observability logs.
-- `/analytics` for project-scoped Codex token totals, average and median thread size, archive counts, tool usage, model tokens, client sources, and reasoning-effort breakdowns.
-- `/settings` for transcript path conversion and username redaction. Export dialogs remember their own last submitted options.
+- `/analytics` for project-scoped Codex token totals, average and median thread size, archive counts, tool usage, model tokens, client sources, reasoning-effort breakdowns, and deterministic optimization findings.
+- `/settings` for transcript path conversion and username redaction. Export dialogs remember their own last submitted options, and focused-evidence lenses stay in the dialog rather than cookies.
 
 Codex Live mode opens an SSE connection from the thread page. While connected, the server shares one bounded rollout-file monitor across every tab viewing that thread and releases it after the final client disconnects. The browser does not poll.
 
@@ -205,6 +220,7 @@ bun run lint
 bun run typecheck
 bun run build
 bun run coverage
+bun run test:package
 bun start
 bun run test:ui
 ```
@@ -212,6 +228,8 @@ bun run test:ui
 `bun run coverage` enforces at least 90% line coverage independently for the root Bun suite and the UI Vitest suite, and reports function coverage and per-file hotspots for follow-up.
 
 Run one root test file with `bun test src/lib/shared.test.ts`. Run one UI test file with `bun run test:ui --run src/ui/components/export-dialog.vitest.tsx`.
+
+`bun run test:package` launches the packaged `bin/spiracha.ts` entrypoint against an isolated fixture and checks the published UI boundary. `bun run format` applies the repository's Biome formatting and lint fixes when intentionally reformatting source.
 
 Spiracha has one application boundary: the stable API, server functions, browser route tree, and UI all live under the root package and resolve through one manifest and one dependency graph. Vite runs from the repository root with Bun because TanStack server functions import Bun-only modules such as `bun:sqlite`; Vitest uses its normal Node runtime.
 

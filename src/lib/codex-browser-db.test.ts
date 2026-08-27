@@ -1978,6 +1978,139 @@ describe('codex browser db', () => {
         expect(() => getThreadBrowseData(fixture.dbPath, threadId)).toThrow(CodexThreadNotFoundError);
     });
 
+    it('should remove stale Codex Desktop references when the database row is already gone', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-delete-global-state-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const deletedThreadIds = ['019ec3d5-859d-77d0-b851-256ae567ff70', '019ec3d5-859d-77d0-b851-256ae567ff71'];
+        const retainedThreadId = fixture.threads[2]!.threadId;
+        const globalStatePath = path.join(tempRoot, '.codex-global-state.json');
+        const globalStateBackupPath = `${globalStatePath}.bak`;
+
+        const globalState = {
+            'electron-persisted-atom-state': {
+                [`thread-reference-capability:${deletedThreadIds[0]}`]: true,
+                [`thread-client-id-v1:local%3A${deletedThreadIds[1]}`]: 'local-client-id',
+                'client-thread-bindings-v1': {
+                    'client-new-thread:deleted': deletedThreadIds[0],
+                    'client-new-thread:retained': retainedThreadId,
+                },
+                'heartbeat-thread-permissions-by-id': {
+                    [deletedThreadIds[0]!]: { approvalPolicy: 'never' },
+                    [retainedThreadId]: { approvalPolicy: 'never' },
+                },
+                'prompt-history': {
+                    [deletedThreadIds[0]!]: ['deleted prompt'],
+                    [retainedThreadId]: [`text mentioning ${deletedThreadIds[0]}`],
+                },
+                'thread-descriptions-v1': {
+                    [deletedThreadIds[1]!]: 'Deleted thread',
+                    [retainedThreadId]: 'Retained thread',
+                },
+            },
+            'projectless-thread-ids': [deletedThreadIds[0], retainedThreadId, deletedThreadIds[1]],
+            'sidebar-project-thread-orders': {
+                deletedProject: { threadIds: [deletedThreadIds[0]] },
+                retainedProject: { threadIds: [deletedThreadIds[1], retainedThreadId] },
+            },
+            'thread-workspace-root-hints': {
+                [deletedThreadIds[1]!]: '/Users/user/workspace/deleted',
+                [retainedThreadId]: '/Users/user/workspace/retained',
+            },
+            unrelatedNote: `Keep this text mentioning ${deletedThreadIds[0]}`,
+        };
+        await Bun.write(globalStatePath, JSON.stringify(globalState));
+        await Bun.write(globalStateBackupPath, JSON.stringify(globalState));
+
+        const result = await deleteCodexThreads(fixture.dbPath, deletedThreadIds);
+        const state = (await Bun.file(globalStatePath).json()) as Record<string, unknown>;
+        const atomState = state['electron-persisted-atom-state'] as Record<string, unknown>;
+        const sidebarOrder = state['sidebar-project-thread-orders'] as Record<string, { threadIds: string[] }>;
+
+        expect(result.deletedThreadIds).toEqual(deletedThreadIds);
+        expect(result.cleanup.globalStateReferencesRemoved).toEqual(deletedThreadIds);
+        expect(result.cleanup.globalStateWritingBlocksSet).toEqual(deletedThreadIds);
+        expect(state['projectless-thread-ids']).toEqual([retainedThreadId]);
+        expect(sidebarOrder).toEqual({
+            deletedProject: { threadIds: [] },
+            retainedProject: { threadIds: [retainedThreadId] },
+        });
+        expect(state['thread-workspace-root-hints']).toEqual({
+            [retainedThreadId]: '/Users/user/workspace/retained',
+        });
+        expect(atomState[`thread-reference-capability:${deletedThreadIds[0]}`]).toBeUndefined();
+        expect(atomState[`thread-client-id-v1:local%3A${deletedThreadIds[1]}`]).toBeUndefined();
+        expect(atomState[`codex-writing-block-deleted-thread-v1:${deletedThreadIds[0]}`]).toBe(true);
+        expect(atomState[`codex-writing-block-deleted-thread-v1:${deletedThreadIds[1]}`]).toBe(true);
+        expect(atomState['heartbeat-thread-permissions-by-id']).toEqual({
+            [retainedThreadId]: { approvalPolicy: 'never' },
+        });
+        expect(atomState['client-thread-bindings-v1']).toEqual({
+            'client-new-thread:retained': retainedThreadId,
+        });
+        expect(atomState['prompt-history']).toEqual({
+            [retainedThreadId]: [`text mentioning ${deletedThreadIds[0]}`],
+        });
+        expect(atomState['thread-descriptions-v1']).toEqual({
+            [retainedThreadId]: 'Retained thread',
+        });
+        expect(state.unrelatedNote).toBe(`Keep this text mentioning ${deletedThreadIds[0]}`);
+
+        const backupState = (await Bun.file(globalStateBackupPath).json()) as Record<string, unknown>;
+        expect(backupState['projectless-thread-ids']).toEqual([retainedThreadId]);
+        expect(
+            (backupState['electron-persisted-atom-state'] as Record<string, unknown>)[
+                `codex-writing-block-deleted-thread-v1:${deletedThreadIds[0]}`
+            ],
+        ).toBe(true);
+        expect(
+            (backupState['electron-persisted-atom-state'] as Record<string, unknown>)[
+                `codex-writing-block-deleted-thread-v1:${deletedThreadIds[1]}`
+            ],
+        ).toBe(true);
+    });
+
+    it('should remove stale Codex Desktop catalog rows when the database row is already gone', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-delete-catalog-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const staleThreadId = '019ec3d5-859d-77d0-b851-256ae567ff72';
+        const retainedThreadId = fixture.threads[0]!.threadId;
+        const catalogDir = path.join(tempRoot, 'sqlite');
+        const catalogPath = path.join(catalogDir, 'codex-dev.db');
+        await mkdir(catalogDir, { recursive: true });
+
+        const catalogDb = new Database(catalogPath);
+        catalogDb.exec(`
+            CREATE TABLE local_thread_catalog (
+                host_id TEXT NOT NULL,
+                thread_id TEXT NOT NULL PRIMARY KEY,
+                display_title TEXT NOT NULL
+            )
+        `);
+        catalogDb
+            .query('INSERT INTO local_thread_catalog (host_id, thread_id, display_title) VALUES (?, ?, ?)')
+            .run('local', staleThreadId, 'Stale thread');
+        catalogDb
+            .query('INSERT INTO local_thread_catalog (host_id, thread_id, display_title) VALUES (?, ?, ?)')
+            .run('local', retainedThreadId, 'Retained thread');
+        catalogDb.close();
+
+        const result = await deleteCodexThread(fixture.dbPath, staleThreadId);
+
+        expect(result.deletedThreadIds).toEqual([staleThreadId]);
+        expect(result.cleanup.localThreadCatalogEntriesRemoved).toEqual([staleThreadId]);
+
+        const verificationDb = new Database(catalogPath, { readonly: true });
+        try {
+            expect(verificationDb.query('SELECT thread_id FROM local_thread_catalog ORDER BY thread_id').all()).toEqual(
+                [{ thread_id: retainedThreadId }],
+            );
+        } finally {
+            verificationDb.close();
+        }
+    });
+
     it('should delete fallback-only threads from the session index and disk', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-delete-fallback-thread-test-'));
         tempPaths.push(tempRoot);

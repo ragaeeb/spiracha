@@ -31,6 +31,7 @@ import {
 } from './antigravity-transcript-history';
 import { getAntigravityAssistantPhase, getFinalAntigravityAssistantSequences } from './antigravity-transcript-phase';
 import { mapWithConcurrency } from './concurrency';
+import { formatModelLabel } from './model-label';
 import {
     type ExportFormat,
     formatInlineLiteral,
@@ -1838,7 +1839,7 @@ const logEntryHeading = (entry: AntigravityLogEntry): string => {
             return `${ANTIGRAVITY_TRANSCRIPT_HEADINGS.toolPrefix}${type}`;
         }
 
-        return ANTIGRAVITY_TRANSCRIPT_HEADINGS.assistant;
+        return formatModelLabel(getString(entry.model));
     }
 
     if (source === 'SYSTEM') {
@@ -2022,7 +2023,7 @@ const annotateLogEntryModels = (entries: AntigravityLogEntry[]): AntigravityLogE
     let selectedModel = firstSelection?.from ?? null;
     return entries.map((entry) => {
         const selection = extractModelSelectionChange(getString(entry.content) ?? '');
-        selectedModel = selection?.to ?? selectedModel;
+        selectedModel = getString(entry.model) ?? selection?.to ?? selectedModel;
         return { ...entry, model: selectedModel };
     });
 };

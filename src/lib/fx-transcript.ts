@@ -6,6 +6,7 @@ import type {
     FxTranscriptMessage,
 } from './fx-exporter-types';
 import { getFxMessagePhase } from './fx-transcript-phase';
+import { formatModelLabel } from './model-label';
 import {
     cleanExtractedText,
     cleanInlineTitle,
@@ -41,9 +42,9 @@ const buildMetadataEntries = (session: FxSessionSummary): MetadataEntry[] => [
 const truncateOutput = (text: string): string =>
     text.length <= TOOL_OUTPUT_PREVIEW_LIMIT ? text : `${text.slice(0, TOOL_OUTPUT_PREVIEW_LIMIT)}\n... (truncated)`;
 
-const roleTitle = (role: string): string => {
+const roleTitle = (role: string, assistantModel: string | null): string => {
     if (role === 'assistant') {
-        return 'Assistant';
+        return formatModelLabel(assistantModel);
     }
     if (role === 'user') {
         return 'User';
@@ -76,19 +77,25 @@ const renderToolCall = (toolCall: FxToolCall, options: FxExportOptions): string[
     return sections;
 };
 
-const renderMessage = (message: FxTranscriptMessage, options: FxExportOptions): string[] => {
+const renderMessage = (
+    message: FxTranscriptMessage,
+    options: FxExportOptions,
+    assistantModel: string | null,
+): string[] => {
     const sections: string[] = [];
     const content = cleanExtractedText(message.content ?? '').trim();
     const isCommentary = getFxMessagePhase(message) === 'commentary';
     if (content && (!isCommentary || options.includeCommentary || message.role !== 'assistant')) {
-        sections.push(renderSection(roleTitle(message.role), content, options.outputFormat));
+        sections.push(renderSection(roleTitle(message.role, assistantModel), content, options.outputFormat));
     }
     sections.push(...message.toolCalls.flatMap((toolCall) => renderToolCall(toolCall, options)));
     return sections;
 };
 
 export const renderFxTranscript = (transcript: FxSessionTranscript, options: FxExportOptions): string | null => {
-    const sections = transcript.messages.flatMap((message) => renderMessage(message, options)).filter(Boolean);
+    const sections = transcript.messages
+        .flatMap((message) => renderMessage(message, options, transcript.session.currentModelId))
+        .filter(Boolean);
     if (sections.length === 0) {
         return null;
     }

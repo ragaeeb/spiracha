@@ -40,7 +40,8 @@ describe('MiniMax Code transcript renderer', () => {
         expect(markdown).toContain('## Tool Call');
         expect(markdown).toContain('grep -rn \\"evidence-extraction\\"');
         expect(markdown).toContain('## Tool Output');
-        expect(markdown).toContain('## Assistant');
+        expect(markdown).toContain('## MiniMax M3');
+        expect(markdown).not.toContain('## Assistant');
         expect(markdown).toContain('The detailed decomposition plan is ready.');
     });
 

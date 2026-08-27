@@ -114,6 +114,20 @@ describe('renderCursorTranscript', () => {
         expect(content).toContain('Tool Call');
     });
 
+    it('should use the thread model for assistant section headings', () => {
+        const transcript = buildTranscript({
+            head: {
+                ...buildTranscript().head,
+                model: 'grok-4.6',
+            },
+        });
+
+        const content = renderCursorTranscript(transcript, options());
+
+        expect(content).toContain('## Grok 4.6');
+        expect(content).not.toContain('## Assistant');
+    });
+
     it('should include a truncation note when messages were omitted', () => {
         const content = renderCursorTranscript(buildTranscript({ omittedBubbleCount: 2579 }), options());
         expect(content).toContain('## Note');

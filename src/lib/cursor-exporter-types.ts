@@ -138,6 +138,7 @@ export type CursorBubble = {
 export type CursorThreadHead = {
     composerId: string;
     name: string | null;
+    model?: string | null;
     createdAtMs: number | null;
     lastUpdatedAtMs: number | null;
     mode: string | null;

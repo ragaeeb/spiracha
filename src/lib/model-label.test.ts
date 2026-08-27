@@ -11,5 +11,6 @@ describe('model label formatting', () => {
 
     it('should normalize mixed separators without changing numeric versions', () => {
         expect(formatModelLabel('gemini_2.5 pro')).toBe('Gemini 2.5 Pro');
+        expect(formatModelLabel('anthropic/claude-sonnet-4.5')).toBe('Claude Sonnet 4.5');
     });
 });

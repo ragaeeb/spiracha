@@ -16,12 +16,20 @@ These rules define the boundary between source-specific discovery and Spiracha's
 - Boolean environment flags use exact `0` and `1` values. Numeric lifecycle controls are non-negative safe integers. Invalid configured values fail loudly.
 - Development cache bypass disables both reads and writes. It does not delete existing entries; `clearUiCache()` is the explicit programmatic reset.
 
+## Collection and pagination
+
+- `include_messages` is opt-in for list requests. When message bodies are requested, `message_selector` defaults to `last_final_answer`; detail requests default to `all`.
+- List limits are positive integers capped at 200. Pagination uses opaque keyset cursors ordered by update time, source, and conversation ID; clients must pass `next_cursor` back with the same filters.
+- `updated_after_ms` and `updated_before_ms` are applied before the final page is returned. `cwd` matching is lexical and does not inspect the filesystem.
+- All-source collection may skip unavailable optional integrations. An explicit `source` request preserves that source's failure so callers can distinguish absence from a broken requested integration.
+
 ## Normalized data
 
 - Required DTO fields are always present. Use `null` when the source has no value for a required nullable field.
 - Optional fields use `undefined` only when the field itself is an optional capability or response extension.
 - Collections are empty arrays rather than `null` when the collection is known and empty.
 - Source adapters retain source-specific raw payloads only on contracts that explicitly expose them. Shared list DTOs stay bounded and do not gain source-native transport shapes.
+- Normalized messages always carry `toolEvidence`; use `null` for messages without structured tool data. Evidence pairing must report `exact`, `ordered_fallback`, or `unpaired` rather than inventing call IDs.
 
 ## Errors and redaction
 
@@ -30,8 +38,22 @@ These rules define the boundary between source-specific discovery and Spiracha's
 - Explicit source requests surface source failures. All-source collection tolerates missing optional integrations but does not turn malformed installed-source data into success.
 - UI errors may name a path needed for local diagnosis, but must not include credentials, cookies, session headers, API keys, prompts, or raw provider result streams.
 
+## Caching and loading
+
+- UI JSON caches are private, versioned, age/byte bounded, and safe to invalidate by key prefix. `SPIRACHA_UI_CACHE_BYPASS=1` bypasses both reads and writes; it does not remove existing entries.
+- Claude Code, Kiro, and Cursor discovery use bounded indexes with in-flight request coalescing. Transcript caches are keyed by source-file identity and invalidated after source mutations or changed-file detection. Raw provider payloads are not persisted in these caches.
+- Large UI documents are not part of the initial metadata path for Cursor and Antigravity detail routes. Codex rollout metadata reports `available`, `deferred`, or `missing` so the UI can choose a bounded preview, full load, or export path.
+- Temporary UI export files are private downloads subject to age and total-byte pruning. Export and cache lifecycle settings are operational controls; parsing and safety limits remain code constants.
+
+## Package and server boundaries
+
+- The root `#package-metadata` import is the validated package metadata boundary for the UI. Missing or malformed homepage/version metadata fails loudly.
+- TanStack server functions keep Bun-only database imports on the server boundary. Browser-safe transcript phase/filter modules may be imported by client adapters; database readers must not cross into browser bundles.
+
 ## Delete behavior
 
 - Deletes are source-owned and fail closed when a required writable store cannot be opened.
+- Codex deletion removes database rows, session-index entries, and structural Codex Desktop Recent/sidebar references together. It preserves unrelated text that merely mentions a deleted ID and sets a deleted-thread write-block flag so the desktop client does not recreate the reference.
 - Cursor database deletion and transcript-directory deletion are separately controllable. The UI defaults to both; the stable API accepts `delete_session_files`. Preserving transcript directories can cause the conversation to be discovered again.
+- Cursor writes require Cursor to be closed. Workspace cleanup can return a bounded opaque retry target after the database mutation commits; filesystem paths stay server-side and retry targets expire after a short TTL.
 - Partial filesystem cleanup is reported through `cleanupFailures`; it is not silently treated as complete success.

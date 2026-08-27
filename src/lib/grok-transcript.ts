@@ -6,6 +6,7 @@ import type {
     GrokTranscriptPart,
 } from './grok-exporter-types';
 import { getFinalGrokAssistantTextPartIds, getGrokTextPartPhase } from './grok-transcript-phase';
+import { formatModelLabel } from './model-label';
 import {
     cleanExtractedText,
     cleanInlineTitle,
@@ -42,9 +43,9 @@ const buildMetadataEntries = (session: GrokSessionSummary): MetadataEntry[] => [
     { key: 'tool_result_count', value: session.toolResultCount },
 ];
 
-const roleTitle = (role: string): string => {
+const roleTitle = (role: string, model: string | null): string => {
     if (role === 'assistant') {
-        return 'Assistant';
+        return formatModelLabel(model);
     }
 
     if (role === 'user') {
@@ -70,9 +71,16 @@ const truncateOutput = (text: string): string => {
     return `${text.slice(0, TOOL_OUTPUT_PREVIEW_LIMIT)}\n... (truncated)`;
 };
 
-const renderTextPart = (entry: GrokTranscriptEntry, part: GrokTranscriptPart, options: GrokExportOptions): string => {
+const renderTextPart = (
+    entry: GrokTranscriptEntry,
+    part: GrokTranscriptPart,
+    options: GrokExportOptions,
+    assistantModel: string | null,
+): string => {
     const text = cleanExtractedText(part.text ?? '').trim();
-    return text ? renderSection(roleTitle(entry.role), text, options.outputFormat) : '';
+    return text
+        ? renderSection(roleTitle(entry.role, entry.modelId ?? assistantModel), text, options.outputFormat)
+        : '';
 };
 
 const renderReasoningPart = (part: GrokTranscriptPart, options: GrokExportOptions): string => {
@@ -124,6 +132,7 @@ const renderPart = (
     part: GrokTranscriptPart,
     options: GrokExportOptions,
     finalAssistantTextPartIds: Set<string>,
+    assistantModel: string | null,
 ): string => {
     switch (part.type) {
         case 'text':
@@ -133,7 +142,7 @@ const renderPart = (
             ) {
                 return '';
             }
-            return renderTextPart(entry, part, options);
+            return renderTextPart(entry, part, options, assistantModel);
         case 'reasoning':
             return renderReasoningPart(part, options);
         case 'tool_call':
@@ -147,8 +156,11 @@ const renderPart = (
 
 export const renderGrokTranscript = (transcript: GrokSessionTranscript, options: GrokExportOptions): string | null => {
     const finalAssistantTextPartIds = getFinalGrokAssistantTextPartIds(transcript.entries);
+    const assistantModel = transcript.session.modelLabel ?? transcript.session.currentModelId;
     const sections = transcript.entries.flatMap((entry) =>
-        entry.parts.map((part) => renderPart(entry, part, options, finalAssistantTextPartIds)).filter(Boolean),
+        entry.parts
+            .map((part) => renderPart(entry, part, options, finalAssistantTextPartIds, assistantModel))
+            .filter(Boolean),
     );
     if (sections.length === 0) {
         return null;

@@ -1581,6 +1581,7 @@ const readCursorThreadHeadFromDb = (db: Database, composerId: string): CursorThr
         createdAtMs: asNumber(head.createdAt ?? null),
         lastUpdatedAtMs: asNumber(head.lastUpdatedAt ?? null),
         mode: asString(head.unifiedMode ?? null),
+        model: parseGlobalHead(JSON.stringify(head)).model,
         name: asString(head.name ?? null),
         orderedBubbleIds,
         totalBubbleHeaders: headerList.length,
@@ -2099,13 +2100,18 @@ export const readCursorThreadTranscriptWithAgentFiles = async (
     transcriptDirs?: string[],
 ): Promise<CursorThreadTranscript | null> => {
     const transcript = (await pathExists(globalDbPath)) ? readCursorThreadTranscript(globalDbPath, composerId) : null;
-    const agentTranscript = await readCursorAgentTranscript(composerId, userDir, transcriptDirs);
+    const resolvedTranscriptDirs = transcriptDirs ?? (await findCursorTranscriptDirs(composerId, userDir));
+    const [agentTranscript, model] = await Promise.all([
+        readCursorAgentTranscript(composerId, userDir, resolvedTranscriptDirs),
+        readCursorChatStoreModel(composerId, resolvedTranscriptDirs),
+    ]);
+    let mergedTranscript: CursorThreadTranscript;
     if (!transcript) {
         if (agentTranscript.bubbles.length === 0) {
             return null;
         }
 
-        return {
+        mergedTranscript = {
             bubbles: agentTranscript.bubbles,
             head: {
                 composerId,
@@ -2119,9 +2125,11 @@ export const readCursorThreadTranscriptWithAgentFiles = async (
             omittedBubbleCount: 0,
             renderableBubbleCount: agentTranscript.bubbles.length,
         };
+    } else {
+        mergedTranscript = mergeAgentTranscriptTail(transcript, agentTranscript.bubbles);
     }
 
-    return mergeAgentTranscriptTail(transcript, agentTranscript.bubbles);
+    return model ? { ...mergedTranscript, head: { ...mergedTranscript.head, model: model.model } } : mergedTranscript;
 };
 
 const readAllBubbleIds = (db: Database, composerId: string): string[] => {

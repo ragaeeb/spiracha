@@ -119,6 +119,8 @@ describe('renderClaudeCodeTranscript', () => {
         expect(rendered).toContain('"command": "rg vendor"');
         expect(rendered).toContain('## Tool Output');
         expect(rendered).toContain('src/vendor.ts: match');
+        expect(rendered).toContain('## Claude Sonnet 4.5');
+        expect(rendered).not.toContain('## Assistant');
         expect(rendered).toContain('Vendor detection is present.');
     });
 

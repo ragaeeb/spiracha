@@ -49,6 +49,15 @@ const transcript: QoderSessionTranscript = {
             role: 'tool',
             timestamp: null,
         },
+        {
+            entryId: 'assistant-final',
+            entryType: 'message',
+            parts: [{ raw: {}, text: 'The wizard split is complete.', type: 'text' }],
+            raw: {},
+            requestId: 'request-a',
+            role: 'assistant',
+            timestamp: '2026-06-01T10:00:02.000Z',
+        },
     ],
     rawSession: { sourceStatePath: '/tmp/state.json' },
     renderablePartCount: 2,
@@ -104,6 +113,8 @@ describe('renderQoderTranscript', () => {
         expect(rendered?.match(/Call ID: call-1/gu)).toHaveLength(2);
         expect(rendered).toContain('Tool: `edit_file`');
         expect(rendered).toContain('Tool: `Read`');
+        expect(rendered).toContain('## Qwen 3.7 Max');
+        expect(rendered).not.toContain('## Assistant');
     });
 
     it('should omit optional metadata and tool calls', () => {
