@@ -8,6 +8,7 @@ export type ExportPlatform =
     | 'cline'
     | 'codex'
     | 'cursor'
+    | 'fx'
     | 'grok'
     | 'kiro'
     | 'minimax'
@@ -20,6 +21,7 @@ const EXPORT_PLATFORM_BY_SOURCE: Record<ConversationSource, ExportPlatform> = {
     cline: 'cline',
     codex: 'codex',
     cursor: 'cursor',
+    fx: 'fx',
     grok: 'grok',
     kiro: 'kiro',
     'minimax-code': 'minimax',

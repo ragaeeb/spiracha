@@ -1,6 +1,7 @@
 import { queryOptions } from '@tanstack/react-query';
 import {
     getAntigravityConversationDetailFn,
+    getAntigravityConversationDocumentsFn,
     getAntigravityDecryptionStateFn,
     listAntigravityConversationsFn,
     listAntigravityWorkspacesFn,
@@ -30,4 +31,11 @@ export const antigravityConversationDetailQueryOptions = (conversationId: string
         enabled: conversationId !== null,
         queryFn: () => getAntigravityConversationDetailFn({ data: { conversationId: conversationId ?? '' } }),
         queryKey: ['antigravity-conversation', conversationId ?? 'none'],
+    });
+
+export const antigravityConversationDocumentsQueryOptions = (conversationId: string | null) =>
+    queryOptions({
+        enabled: conversationId !== null,
+        queryFn: () => getAntigravityConversationDocumentsFn({ data: { conversationId: conversationId ?? '' } }),
+        queryKey: ['antigravity-conversation-documents', conversationId ?? 'none'],
     });

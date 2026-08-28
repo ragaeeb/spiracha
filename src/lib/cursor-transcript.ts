@@ -6,6 +6,7 @@ import type {
     CursorToolCall,
 } from './cursor-exporter-types';
 import { getCursorTextBubblePhase, getFinalCursorAssistantTextBubbleIds } from './cursor-transcript-phase';
+import { formatModelLabel } from './model-label';
 import {
     cleanExtractedText,
     cleanInlineTitle,
@@ -87,6 +88,7 @@ const renderAssistantBubble = (
     bubble: CursorBubble,
     options: CursorExportOptions,
     finalAssistantTextBubbleIds: Set<string>,
+    assistantLabel: string,
 ): string[] => {
     const blocks: string[] = [];
 
@@ -102,7 +104,7 @@ const renderAssistantBubble = (
         text &&
         (getCursorTextBubblePhase(bubble, finalAssistantTextBubbleIds) !== 'commentary' || options.includeCommentary)
     ) {
-        blocks.push(renderSection('Assistant', text, options.outputFormat));
+        blocks.push(renderSection(assistantLabel, text, options.outputFormat));
     }
 
     if (options.includeTools && bubble.toolCall) {
@@ -116,6 +118,7 @@ export const renderCursorBubble = (
     bubble: CursorBubble,
     options: CursorExportOptions,
     finalAssistantTextBubbleIds = getFinalCursorAssistantTextBubbleIds([bubble]),
+    assistantLabel = 'Assistant',
 ): string[] => {
     if (bubble.kind === 'user') {
         const block = renderUserBubble(bubble, options.outputFormat);
@@ -123,7 +126,7 @@ export const renderCursorBubble = (
     }
 
     if (bubble.kind === 'assistant') {
-        return renderAssistantBubble(bubble, options, finalAssistantTextBubbleIds);
+        return renderAssistantBubble(bubble, options, finalAssistantTextBubbleIds, assistantLabel);
     }
 
     return [];
@@ -177,9 +180,10 @@ export const renderCursorTranscript = (
     options: CursorExportOptions,
 ): string | null => {
     const finalAssistantTextBubbleIds = getFinalCursorAssistantTextBubbleIds(transcript.bubbles);
+    const assistantLabel = formatModelLabel(transcript.head.model);
     const sections: string[] = [];
     for (const bubble of transcript.bubbles) {
-        sections.push(...renderCursorBubble(bubble, options, finalAssistantTextBubbleIds));
+        sections.push(...renderCursorBubble(bubble, options, finalAssistantTextBubbleIds, assistantLabel));
     }
 
     if (sections.length === 0) {

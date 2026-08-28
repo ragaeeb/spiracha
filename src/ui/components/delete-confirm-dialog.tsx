@@ -14,6 +14,8 @@ import { Checkbox } from '#/components/ui/checkbox';
 type DeleteConfirmDialogProps = {
     confirmLabel?: string;
     defaultDeleteSessionFiles?: boolean;
+    deleteSessionFilesDescription?: string;
+    deleteSessionFilesLabel?: string;
     description: string;
     errorMessage?: string | null;
     open: boolean;
@@ -26,6 +28,8 @@ type DeleteConfirmDialogProps = {
 export function DeleteConfirmDialog({
     confirmLabel = 'Delete',
     defaultDeleteSessionFiles = false,
+    deleteSessionFilesDescription = 'Remove the rollout JSONL from disk as well, so Codex cannot backfill this thread later.',
+    deleteSessionFilesLabel = 'Delete Session files',
     description,
     errorMessage = null,
     open,
@@ -56,7 +60,7 @@ export function DeleteConfirmDialog({
                 {showDeleteSessionFilesOption ? (
                     <div className="flex items-start gap-3 rounded-xl border border-[var(--border)] bg-[var(--background)]/70 px-4 py-3 text-sm">
                         <Checkbox
-                            aria-label="Delete Session files"
+                            aria-label={deleteSessionFilesLabel}
                             aria-describedby={checkboxDescriptionId}
                             checked={deleteSessionFiles}
                             id={checkboxId}
@@ -64,10 +68,10 @@ export function DeleteConfirmDialog({
                         />
                         <span className="space-y-1">
                             <label className="block font-medium" htmlFor={checkboxId}>
-                                Delete Session files
+                                {deleteSessionFilesLabel}
                             </label>
                             <span className="block text-[var(--muted-foreground)] text-xs" id={checkboxDescriptionId}>
-                                Remove the rollout JSONL from disk as well, so Codex cannot backfill this thread later.
+                                {deleteSessionFilesDescription}
                             </span>
                         </span>
                     </div>

@@ -1,3 +1,4 @@
+import { formatModelLabel } from './model-label';
 import type {
     OpenCodeExportOptions,
     OpenCodeSessionSummary,
@@ -59,9 +60,9 @@ const buildMetadataEntries = (session: OpenCodeSessionSummary): MetadataEntry[] 
     { key: 'cost', value: session.cost },
 ];
 
-const roleTitle = (role: string): string => {
+const roleTitle = (role: string, assistantModel: string | null): string => {
     if (role === 'assistant') {
-        return 'Assistant';
+        return formatModelLabel(assistantModel);
     }
 
     if (role === 'user') {
@@ -87,6 +88,7 @@ const renderTextPart = (
     part: OpenCodeTranscriptPart,
     options: OpenCodeExportOptions,
     finalAssistantTextPartIds: Set<string>,
+    assistantModel: string | null,
 ): string => {
     const rawText = part.text ?? '';
     const { reasoningBlocks, visibleText } =
@@ -109,7 +111,7 @@ const renderTextPart = (
         text &&
         (getOpenCodeTextPartPhase(part, finalAssistantTextPartIds) !== 'commentary' || options.includeCommentary)
     ) {
-        sections.push(renderSection(roleTitle(part.role), text, options.outputFormat));
+        sections.push(renderSection(roleTitle(part.role, assistantModel), text, options.outputFormat));
     }
 
     return sections.join('\n\n');
@@ -157,9 +159,10 @@ const renderPart = (
     part: OpenCodeTranscriptPart,
     options: OpenCodeExportOptions,
     finalAssistantTextPartIds: Set<string>,
+    assistantModel: string | null,
 ): string => {
     if (part.type === 'text') {
-        return renderTextPart(part, options, finalAssistantTextPartIds);
+        return renderTextPart(part, options, finalAssistantTextPartIds, assistantModel);
     }
 
     if (part.type === 'reasoning') {
@@ -179,7 +182,9 @@ export const renderOpenCodeTranscript = (
 ): string | null => {
     const partsList = transcript.messages.flatMap((message) => message.parts);
     const finalAssistantTextPartIds = getFinalOpenCodeAssistantTextPartIds(partsList);
-    const sections = partsList.map((part) => renderPart(part, options, finalAssistantTextPartIds)).filter(Boolean);
+    const sections = partsList
+        .map((part) => renderPart(part, options, finalAssistantTextPartIds, transcript.session.modelLabel))
+        .filter(Boolean);
     if (sections.length === 0) {
         return null;
     }

@@ -48,6 +48,8 @@ describe('DeleteConfirmDialog', () => {
         render(
             <DeleteConfirmDialog
                 defaultDeleteSessionFiles
+                deleteSessionFilesDescription="Remove Cursor transcript directories."
+                deleteSessionFilesLabel="Delete Cursor transcript files"
                 description="Delete this thread."
                 open
                 showDeleteSessionFilesOption
@@ -57,6 +59,8 @@ describe('DeleteConfirmDialog', () => {
             />,
         );
 
+        expect(screen.getByRole('checkbox', { name: 'Delete Cursor transcript files' })).toBeTruthy();
+        expect(screen.getByText('Remove Cursor transcript directories.')).toBeTruthy();
         fireEvent.click(screen.getAllByRole('button', { name: 'Delete' })[0]!);
 
         expect(onConfirm).toHaveBeenCalledWith({

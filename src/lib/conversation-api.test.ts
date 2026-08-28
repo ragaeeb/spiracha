@@ -492,6 +492,58 @@ describe('conversation API handler', () => {
         await expect(response.text()).resolves.toBe('# Thread 1\n');
     });
 
+    it('should pass through a raw transcript without parsing or rewriting it', async () => {
+        const original = '{"z":1, "spacing":  true}\n';
+        const response = await handleConversationApiRequest(createRequest('/api/v1/conversations/codex/thread-1/raw'), {
+            getConversationRaw: async (options) => {
+                expect(options).toEqual({ id: 'thread-1', source: 'codex' });
+                return {
+                    blob: new Blob([original]),
+                    fileName: 'rollout-thread-1.jsonl',
+                    mimeType: 'application/x-ndjson',
+                };
+            },
+        });
+
+        expect(response.status).toBe(200);
+        expect(response.headers.get('Content-Disposition')).toBe("attachment; filename*=UTF-8''rollout-thread-1.jsonl");
+        expect(response.headers.get('Content-Type')).toBe('application/x-ndjson');
+        await expect(response.text()).resolves.toBe(original);
+    });
+
+    it('should expose raw transcript headers without sending a body to HEAD probes', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/codex/thread-1/raw', { method: 'HEAD' }),
+            {
+                getConversationRaw: async () => ({
+                    blob: new Blob(['must not be sent']),
+                    fileName: 'thread 1.jsonl',
+                    mimeType: 'application/x-ndjson',
+                }),
+            },
+        );
+
+        expect(response.status).toBe(200);
+        expect(response.headers.get('Content-Disposition')).toBe("attachment; filename*=UTF-8''thread%201.jsonl");
+        await expect(response.text()).resolves.toBe('');
+    });
+
+    it('should reject message selectors for raw transcript passthroughs', async () => {
+        let loaded = false;
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/codex/thread-1/raw?message_selector=last_final_answer'),
+            {
+                getConversationRaw: async () => {
+                    loaded = true;
+                    return null;
+                },
+            },
+        );
+
+        expect(response.status).toBe(400);
+        expect(loaded).toBe(false);
+    });
+
     it('should delete supported conversations through the public API', async () => {
         const response = await handleConversationApiRequest(
             createRequest('/api/v1/conversations/grok/019f2e0a-a16c-7120-97da-8fae66e36731', { method: 'DELETE' }),
@@ -516,6 +568,22 @@ describe('conversation API handler', () => {
                 deletedIds: ['session/encoded'],
             },
         });
+    });
+
+    it('should forward Cursor session-file preservation through delete requests', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/cursor/thread-1?delete_session_files=false', {
+                method: 'DELETE',
+            }),
+            {
+                deleteConversation: async (options) => {
+                    expect(options).toEqual({ deleteSessionFiles: false, id: 'thread-1', source: 'cursor' });
+                    return { deletedFiles: ['/tmp/global.db'], deletedIds: ['thread-1'] };
+                },
+            },
+        );
+
+        expect(response.status).toBe(200);
     });
 
     it('should delete an explicit set of conversations through the public API', async () => {
@@ -563,6 +631,23 @@ describe('conversation API handler', () => {
                 missingIds: [],
             },
         });
+    });
+
+    it('should forward Cursor session-file preservation through batch delete requests', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/delete', {
+                body: JSON.stringify({ delete_session_files: false, ids: ['thread-1'], source: 'cursor' }),
+                method: 'POST',
+            }),
+            {
+                deleteConversations: async (options) => {
+                    expect(options).toEqual({ deleteSessionFiles: false, ids: ['thread-1'], source: 'cursor' });
+                    return { deletedFiles: [], deletedIds: [], missingIds: ['thread-1'], results: [] };
+                },
+            },
+        );
+
+        expect(response.status).toBe(404);
     });
 
     it('should reject unsafe destructive ids before reaching delete handlers', async () => {

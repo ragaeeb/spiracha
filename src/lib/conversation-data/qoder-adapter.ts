@@ -28,6 +28,7 @@ import {
 } from './adapter-helpers';
 import { selectConversationMessages } from './message-selector';
 import { getConversationPathMatch } from './path-match';
+import { createRawConversationDownload } from './raw-download';
 import type {
     ConversationAdapter,
     ConversationDetail,
@@ -285,8 +286,23 @@ const getQoderConversation = async (options: GetConversationOptions): Promise<Co
         : null;
 };
 
+const getQoderConversationRaw = async (options: GetConversationOptions) => {
+    const locations = getQoderLocations(options);
+    const transcript = await readQoderSessionTranscript(
+        locations.globalStateDb,
+        locations.workspaceStorageDir,
+        options.id,
+        locations.cliProjectsDir,
+        { enableAcp: false },
+    );
+    const cliTranscriptPath = transcript?.rawSession.sourceCliTranscriptPath;
+    const filePath = typeof cliTranscriptPath === 'string' ? cliTranscriptPath : transcript?.session.sourceStatePath;
+    return filePath ? createRawConversationDownload(filePath) : null;
+};
+
 export const qoderConversationAdapter: ConversationAdapter = {
     getConversation: getQoderConversation,
+    getConversationRaw: getQoderConversationRaw,
     listConversationsForPath: listQoderConversationsForPath,
     source: 'qoder',
 };

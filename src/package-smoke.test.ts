@@ -1,8 +1,23 @@
 import { describe, expect, it } from 'bun:test';
 import path from 'node:path';
-import { buildPackagedUiProcessEnv, getPackedTarballPath, isPackagedUiHealthyResponse } from './package-smoke';
+import {
+    buildPackagedUiProcessArgs,
+    buildPackagedUiProcessEnv,
+    getFirstPackagedAssetPath,
+    getPackedTarballPath,
+    isPackagedUiHealthyResponse,
+} from './package-smoke';
 
 describe('packaged UI smoke helpers', () => {
+    it('should start the packaged production server explicitly', () => {
+        expect(buildPackagedUiProcessArgs('/tmp/spiracha.tgz')).toEqual([
+            '--package',
+            '/tmp/spiracha.tgz',
+            'spiracha',
+            'serve',
+        ]);
+    });
+
     it('should bind the packaged UI to its isolated Codex fixture', () => {
         expect(
             buildPackagedUiProcessEnv(
@@ -44,5 +59,14 @@ describe('packaged UI smoke helpers', () => {
                 ok: true,
             }),
         ).toBe(true);
+    });
+
+    it('should find a built asset referenced by the app shell', () => {
+        expect(
+            getFirstPackagedAssetPath(
+                '<html><head><link rel="stylesheet" href="/assets/styles-123.css"></head></html>',
+            ),
+        ).toBe('/assets/styles-123.css');
+        expect(getFirstPackagedAssetPath('<html></html>')).toBeNull();
     });
 });

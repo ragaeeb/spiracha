@@ -33,12 +33,39 @@ export const buildPackagedUiProcessEnv = (
 export const getPackedTarballPath = (directory: string, packageName: string, version: string) =>
     path.join(directory, `${packageName}-${version}.tgz`);
 
+export const buildPackagedUiProcessArgs = (packageTgz: string) => ['--package', packageTgz, 'spiracha', 'serve'];
+
 export const isPackagedUiHealthyResponse = (probe: PackagedUiProbe) =>
     probe.ok &&
     probe.contentType?.toLowerCase().includes('text/html') === true &&
     /<html[\s>]/iu.test(probe.bodyText) &&
     probe.bodyText.includes('Spiracha') &&
     !probe.bodyText.includes('Welcome to Bun!');
+
+export const getFirstPackagedAssetPath = (bodyText: string): string | null => {
+    return bodyText.match(/(?:href|src)=["']([^"']*\/assets\/[^"']+)["']/iu)?.[1] ?? null;
+};
+
+const verifyPackagedUi = async (url: string, probe: PackagedUiProbe) => {
+    if (!isPackagedUiHealthyResponse(probe)) {
+        throw new Error(`Packaged Spiracha returned an unhealthy response at ${url}.`);
+    }
+    const assetPath = getFirstPackagedAssetPath(probe.bodyText);
+    if (!assetPath) {
+        throw new Error('Packaged Spiracha app shell did not reference a built asset.');
+    }
+    const assetResponse = await fetch(new URL(assetPath, url), { signal: AbortSignal.timeout(10_000) });
+    if (!assetResponse.ok || (await assetResponse.arrayBuffer()).byteLength === 0) {
+        throw new Error(`Packaged Spiracha asset was unavailable at ${assetPath}.`);
+    }
+    const sourcesResponse = await fetch(new URL('/api/v1/sources', url), {
+        signal: AbortSignal.timeout(10_000),
+    });
+    const sourcesEnvelope = (await sourcesResponse.json()) as { data?: unknown };
+    if (!sourcesResponse.ok || !Array.isArray(sourcesEnvelope.data)) {
+        throw new Error('Packaged Spiracha sources API returned an invalid response.');
+    }
+};
 
 const getAvailablePort = async () => {
     const server = createServer();
@@ -100,15 +127,10 @@ const waitForServer = async (url: string): Promise<PackagedUiProbe> => {
 
     while (Date.now() < deadline) {
         const remainingMs = Math.max(1, deadline - Date.now());
-        const startupSignal = AbortSignal.timeout(remainingMs);
-        const abortController = new AbortController();
-        const timeoutId = setTimeout(() => abortController.abort(), remainingMs);
-        const signal = AbortSignal.any([startupSignal, abortController.signal]);
 
         try {
-            const response = await fetch(url, { signal });
+            const response = await fetch(url, { signal: AbortSignal.timeout(remainingMs) });
             if (response.ok) {
-                clearTimeout(timeoutId);
                 return {
                     bodyText: await response.text(),
                     contentType: response.headers.get('content-type'),
@@ -117,11 +139,9 @@ const waitForServer = async (url: string): Promise<PackagedUiProbe> => {
             }
 
             lastError = `HTTP ${response.status}`;
+            await response.body?.cancel();
         } catch (error) {
             lastError = error instanceof Error ? error.message : String(error);
-        } finally {
-            clearTimeout(timeoutId);
-            abortController.abort();
         }
 
         await Bun.sleep(250);
@@ -144,9 +164,20 @@ export const runPackagedUiSmokeTest = async (cwd = process.cwd()) => {
         const codexFixture = await createCodexBrowserFixture(codexFixtureRoot);
         await runCommand([process.execPath, 'pm', 'pack', '--destination', tempDirectory], cwd);
         await Bun.write(path.join(tempDirectory, 'package.json'), '{"name":"spiracha-smoke","private":true}\n');
+        await runCommand([process.execPath, 'add', '--silent', packageTgz], tempDirectory);
+        await runCommand(
+            [
+                process.execPath,
+                '--eval',
+                `import { createConversationClient } from 'spiracha/client';
+const sources = await createConversationClient({ mode: 'local' }).listSources();
+if (!Array.isArray(sources) || sources.length === 0) throw new Error('Packaged Spiracha SDK returned no sources.');`,
+            ],
+            tempDirectory,
+        );
 
         const bunx = Bun.which('bunx') ?? 'bunx';
-        const proc = Bun.spawn([bunx, '--package', packageTgz, 'spiracha'], {
+        const proc = Bun.spawn([bunx, ...buildPackagedUiProcessArgs(packageTgz)], {
             cwd: tempDirectory,
             env: buildPackagedUiProcessEnv(process.env, port, codexFixture.dbPath),
             stderr: 'pipe',
@@ -158,9 +189,7 @@ export const runPackagedUiSmokeTest = async (cwd = process.cwd()) => {
 
         try {
             const probe = await waitForServer(url);
-            if (!isPackagedUiHealthyResponse(probe)) {
-                throw new Error(`Packaged Spiracha returned an unhealthy response at ${url}.`);
-            }
+            await verifyPackagedUi(url, probe);
         } catch (error) {
             proc.kill('SIGTERM');
             const [stdoutText, stderrText] = await Promise.all([stdoutPromise, stderrPromise]);

@@ -167,7 +167,8 @@ describe('renderGrokTranscript', () => {
         });
 
         expect(text).toContain('Export audit\n============');
-        expect(text).toContain('Assistant\n---------\nThe export path is fixed.');
+        expect(text).toContain('Grok Code Fast\n--------------\nThe export path is fixed.');
+        expect(text).not.toContain('Assistant\n---------');
         expect(text).not.toContain('#');
         expect(text).not.toContain('`');
     });

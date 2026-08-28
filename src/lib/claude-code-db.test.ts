@@ -7,6 +7,7 @@ import {
     deleteClaudeCodeSession,
     findClaudeCodeWorkspaceGroups,
     getDefaultClaudeCodeDataDir,
+    invalidateClaudeCodeDiscoveryCache,
     listClaudeCodeSessionsForGroup,
     listClaudeCodeWorkspaceGroups,
     readClaudeCodeSessionTranscript,
@@ -191,6 +192,7 @@ const buildCompactionRecords = (sessionId: string) => [
 
 describe('claude code workspace discovery', () => {
     afterEach(async () => {
+        invalidateClaudeCodeDiscoveryCache();
         await Promise.all(tempRoots.splice(0).map((root) => rm(root, { force: true, recursive: true })));
     });
 

@@ -1,5 +1,6 @@
 import { readdir, stat, unlink } from 'node:fs/promises';
 import path from 'node:path';
+import { createBoundedFileCache } from './bounded-file-cache';
 import {
     type ClaudeCodeSessionSummary,
     type ClaudeCodeSessionTranscript,
@@ -33,6 +34,10 @@ import {
 export { getDefaultClaudeCodeDataDir, resolveClaudeCodeProjectsDir };
 
 const READ_CONCURRENCY = 8;
+const DISCOVERY_INDEX_TTL_MS = 1_000;
+const DISCOVERY_INDEX_MAX_ENTRIES = 256;
+const TRANSCRIPT_CACHE_MAX_BYTES = 32 * 1024 * 1024;
+const TRANSCRIPT_CACHE_MAX_ENTRIES = 256;
 const GENERATED_WORKTREE_DIRECTORY_MARKER = '--claude-worktrees-';
 const WORKSPACE_KEY_PREFIX = 'project:';
 
@@ -47,6 +52,31 @@ type TranscriptFile = {
 
 type ParsedTranscriptFile = {
     transcript: ClaudeCodeSessionTranscript;
+};
+
+const transcriptFileCache = createBoundedFileCache<ClaudeCodeSessionTranscript>({
+    maxBytes: TRANSCRIPT_CACHE_MAX_BYTES,
+    maxEntries: TRANSCRIPT_CACHE_MAX_ENTRIES,
+});
+const transcriptIndexCache = new Map<string, { expiresAtMs: number; files: TranscriptFile[] }>();
+const transcriptIndexInFlight = new Map<string, Promise<TranscriptFile[]>>();
+let transcriptIndexGeneration = 0;
+
+const pruneTranscriptIndexCache = (nowMs: number): void => {
+    for (const [key, entry] of transcriptIndexCache) {
+        if (entry.expiresAtMs <= nowMs) {
+            transcriptIndexCache.delete(key);
+        }
+    }
+};
+
+export const invalidateClaudeCodeDiscoveryCache = (filePaths: string[] = []): void => {
+    transcriptIndexGeneration += 1;
+    transcriptIndexCache.clear();
+    transcriptIndexInFlight.clear();
+    for (const filePath of filePaths) {
+        transcriptFileCache.invalidate(filePath);
+    }
 };
 
 type ReadTranscriptFileOptions = {
@@ -669,11 +699,7 @@ const buildTranscriptFromRawEvents = (
     };
 };
 
-const readTranscriptFile = async (
-    file: TranscriptFile,
-    options: ReadTranscriptFileOptions = {},
-): Promise<ParsedTranscriptFile | null> => {
-    const includeRawPayloads = options.includeRawPayloads ?? true;
+const parseTranscriptFile = async (file: TranscriptFile): Promise<ClaudeCodeSessionTranscript | null> => {
     const fallbackMtimeMs = await stat(file.filePath)
         .then((stats) => stats.mtimeMs)
         .catch(() => null);
@@ -690,8 +716,26 @@ const readTranscriptFile = async (
         throw error;
     }
 
+    return buildTranscriptFromRawEvents(file, rawEvents, fallbackMtimeMs, true);
+};
+
+const readTranscriptFile = async (
+    file: TranscriptFile,
+    options: ReadTranscriptFileOptions = {},
+): Promise<ParsedTranscriptFile | null> => {
+    const includeRawPayloads = options.includeRawPayloads ?? true;
+    const identityFingerprint = JSON.stringify([file.model, file.parentSessionId, file.sessionId, file.title]);
+    const transcript = await transcriptFileCache.read(
+        file.filePath,
+        () => parseTranscriptFile(file),
+        identityFingerprint,
+    );
+    if (!transcript) {
+        return null;
+    }
+
     return {
-        transcript: buildTranscriptFromRawEvents(file, rawEvents, fallbackMtimeMs, includeRawPayloads),
+        transcript: includeRawPayloads ? transcript : omitTranscriptRawPayloads(transcript),
     };
 };
 
@@ -759,27 +803,73 @@ const listProjectDirectoryNames = async (projectsDir: string): Promise<string[]>
         .sort();
 };
 
+const getCachedTranscriptFiles = async (
+    cacheKey: string,
+    loader: () => Promise<TranscriptFile[]>,
+): Promise<TranscriptFile[]> => {
+    const nowMs = Date.now();
+    pruneTranscriptIndexCache(nowMs);
+    const cached = transcriptIndexCache.get(cacheKey);
+    if (cached) {
+        transcriptIndexCache.delete(cacheKey);
+        transcriptIndexCache.set(cacheKey, cached);
+        return cached.files;
+    }
+
+    const pending = transcriptIndexInFlight.get(cacheKey);
+    if (pending) {
+        return pending;
+    }
+
+    const generation = transcriptIndexGeneration;
+    const load = loader();
+    transcriptIndexInFlight.set(cacheKey, load);
+    try {
+        const files = await load;
+        if (generation === transcriptIndexGeneration) {
+            while (transcriptIndexCache.size >= DISCOVERY_INDEX_MAX_ENTRIES) {
+                const oldestKey = transcriptIndexCache.keys().next().value;
+                if (typeof oldestKey !== 'string') {
+                    break;
+                }
+                transcriptIndexCache.delete(oldestKey);
+            }
+            transcriptIndexCache.set(cacheKey, { expiresAtMs: Date.now() + DISCOVERY_INDEX_TTL_MS, files });
+        }
+        return files;
+    } finally {
+        if (transcriptIndexInFlight.get(cacheKey) === load) {
+            transcriptIndexInFlight.delete(cacheKey);
+        }
+    }
+};
+
 const listTranscriptFilesForWorkspace = async (
     projectsDir: string,
     directoryName: string,
 ): Promise<TranscriptFile[]> => {
     const projectDirectoryName = getProjectDirectoryName(directoryName);
-    const directoryNames = (await listProjectDirectoryNames(projectsDir)).filter(
-        (candidate) => getProjectDirectoryName(candidate) === projectDirectoryName,
-    );
-    const groupedFiles = await mapWithConcurrency(directoryNames, READ_CONCURRENCY, (candidate) =>
-        listTranscriptFilesForProject(projectsDir, candidate),
-    );
-    return groupedFiles.flat();
+    return getCachedTranscriptFiles(`${projectsDir}\0workspace:${projectDirectoryName}`, async () => {
+        const directoryNames = (await listProjectDirectoryNames(projectsDir)).filter(
+            (candidate) => getProjectDirectoryName(candidate) === projectDirectoryName,
+        );
+        const groupedFiles = await mapWithConcurrency(directoryNames, READ_CONCURRENCY, (candidate) =>
+            listTranscriptFilesForProject(projectsDir, candidate),
+        );
+        return groupedFiles.flat();
+    });
 };
 
-const listTranscriptFiles = async (projectsDir: string): Promise<TranscriptFile[]> => {
+const scanTranscriptFiles = async (projectsDir: string): Promise<TranscriptFile[]> => {
     const projectDirs = await listProjectDirectoryNames(projectsDir);
     const groupedFiles = await mapWithConcurrency(projectDirs, READ_CONCURRENCY, (directoryName) =>
         listTranscriptFilesForProject(projectsDir, directoryName),
     );
     return groupedFiles.flat();
 };
+
+const listTranscriptFiles = async (projectsDir: string): Promise<TranscriptFile[]> =>
+    getCachedTranscriptFiles(`all:${projectsDir}`, () => scanTranscriptFiles(projectsDir));
 
 const readTranscriptFiles = async (files: TranscriptFile[]): Promise<ClaudeCodeSessionTranscript[]> => {
     const parsed = await mapWithConcurrency(files, READ_CONCURRENCY, (file) => readTranscriptFile(file));
@@ -1177,6 +1267,13 @@ export const listClaudeCodeSessionsForGroup = async (
 };
 
 const locateSessionFile = async (projectsDir: string, sessionId: string): Promise<TranscriptFile | null> => {
+    for (const directoryName of await listProjectDirectoryNames(projectsDir)) {
+        const filePath = path.join(projectsDir, directoryName, `${sessionId}.jsonl`);
+        if (await pathExists(filePath)) {
+            return { directoryName, filePath, model: null, parentSessionId: null, sessionId, title: null };
+        }
+    }
+
     const files = await listTranscriptFiles(projectsDir);
     const filenameMatch = files.find((file) => path.basename(file.filePath, '.jsonl') === sessionId);
     if (filenameMatch) {
@@ -1188,6 +1285,10 @@ const locateSessionFile = async (projectsDir: string, sessionId: string): Promis
         return parsed?.transcript.session.sessionId === sessionId ? file : null;
     });
     return bodyMatches.find((file): file is TranscriptFile => file !== null) ?? null;
+};
+
+export const findClaudeCodeTranscriptPath = async (projectsDir: string, sessionId: string): Promise<string | null> => {
+    return (await locateSessionFile(projectsDir, sessionId))?.filePath ?? null;
 };
 
 const applyTranscriptPayloadPolicy = async (
@@ -1287,6 +1388,7 @@ export const deleteClaudeCodeSession = async (
     }
 
     const removed = await Promise.all(targets.map((target) => unlinkIfPresent(target.filePath)));
+    invalidateClaudeCodeDiscoveryCache(targets.map((target) => target.filePath));
     return {
         deletedFiles: targets.flatMap((target, index) => (removed[index] ? [target.filePath] : [])),
         deletedSessionIds: targets.flatMap((target, index) => (removed[index] ? [target.sessionId] : [])),

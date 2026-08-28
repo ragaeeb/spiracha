@@ -50,6 +50,36 @@ const runBunCommand = async (args: string[], cwd: string) => {
 };
 
 describe('conversation client', () => {
+    it('should download raw transcript bytes through the HTTP client contract', async () => {
+        const original = '{"z":1, "spacing":  true}\n';
+        const requests: string[] = [];
+        const server = Bun.serve({
+            fetch(request) {
+                requests.push(new URL(request.url).pathname);
+                return new Response(original, {
+                    headers: {
+                        'Content-Disposition': "attachment; filename*=UTF-8''rollout-thread-1.jsonl",
+                        'Content-Type': 'application/x-ndjson',
+                    },
+                });
+            },
+            port: 0,
+        });
+
+        try {
+            const client = createConversationClient({ baseUrl: `http://127.0.0.1:${server.port}`, mode: 'http' });
+            const download = await client.exportConversationRaw({ id: 'thread-1', source: 'codex' });
+
+            expect(download).not.toBeNull();
+            expect(download!.fileName).toBe('rollout-thread-1.jsonl');
+            expect(download!.mimeType).toBe('application/x-ndjson');
+            await expect(download!.blob.text()).resolves.toBe(original);
+            expect(requests).toEqual(['/api/v1/conversations/codex/thread-1/raw']);
+        } finally {
+            server.stop(true);
+        }
+    });
+
     it('should export focused evidence through the HTTP client contract', async () => {
         const requests: Array<{ body: unknown; method: string; pathname: string; search: string }> = [];
         const server = Bun.serve({
@@ -199,8 +229,11 @@ describe('conversation client', () => {
             const script = `
                 import { createConversationClient } from 'spiracha/client';
                 const client = createConversationClient({ locations: ${JSON.stringify(locations)}, mode: 'local' });
-                if (typeof client.exportConversationEvidenceMarkdown !== 'function') {
-                    throw new Error('The installed client is missing focused evidence export.');
+                if (
+                    typeof client.exportConversationEvidenceMarkdown !== 'function' ||
+                    typeof client.exportConversationRaw !== 'function'
+                ) {
+                    throw new Error('The installed client is missing an export method.');
                 }
                 const page = await client.listConversations({ cwd: ${JSON.stringify(path.join(tempRoot, 'repo'))} });
                 console.log(JSON.stringify(page));
@@ -320,11 +353,11 @@ describe('conversation client', () => {
     });
 
     it('should delete conversations through the HTTP API with a DELETE request', async () => {
-        const requests: Array<{ method: string; pathname: string }> = [];
+        const requests: Array<{ method: string; pathname: string; search: string }> = [];
         const server = Bun.serve({
             fetch(request) {
                 const url = new URL(request.url);
-                requests.push({ method: request.method, pathname: url.pathname });
+                requests.push({ method: request.method, pathname: url.pathname, search: url.search });
                 expect(request.method).toBe('DELETE');
                 expect(url.pathname).toBe('/api/v1/conversations/claude-code/session-delete');
 
@@ -344,12 +377,22 @@ describe('conversation client', () => {
                 mode: 'http',
             });
 
-            await expect(client.deleteConversation({ id: 'session-delete', source: 'claude-code' })).resolves.toEqual({
+            await expect(
+                client.deleteConversation({
+                    deleteSessionFiles: false,
+                    id: 'session-delete',
+                    source: 'claude-code',
+                }),
+            ).resolves.toEqual({
                 deletedFiles: ['/tmp/claude/session-delete.jsonl'],
                 deletedIds: ['session-delete'],
             });
             expect(requests).toEqual([
-                { method: 'DELETE', pathname: '/api/v1/conversations/claude-code/session-delete' },
+                {
+                    method: 'DELETE',
+                    pathname: '/api/v1/conversations/claude-code/session-delete',
+                    search: '?delete_session_files=false',
+                },
             ]);
         } finally {
             server.stop(true);
@@ -387,6 +430,7 @@ describe('conversation client', () => {
 
             await expect(
                 client.deleteConversations({
+                    deleteSessionFiles: false,
                     ids: ['session-1', 'session-2'],
                     source: 'opencode',
                 }),
@@ -399,6 +443,7 @@ describe('conversation client', () => {
             expect(requests).toEqual([
                 {
                     body: {
+                        delete_session_files: false,
                         ids: ['session-1', 'session-2'],
                         source: 'opencode',
                     },

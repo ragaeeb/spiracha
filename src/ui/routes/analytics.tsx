@@ -3,10 +3,11 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { startTransition } from 'react';
 import { AnalyticsBreakdowns } from '#/components/analytics-breakdowns';
 import { MetricCard } from '#/components/metric-card';
+import { OptimizationFindings } from '#/components/optimization-findings';
 import { PageHeader } from '#/components/page-header';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '#/components/ui/select';
 import { analyticsQueryOptions, projectsQueryOptions } from '#/lib/codex-queries';
-import { formatNumber, formatTokens } from '#/lib/formatters';
+import { formatBytes, formatNumber, formatTokens } from '#/lib/formatters';
 import {
     decodeAnalyticsProjectSelectValue,
     encodeAnalyticsProjectSelectValue,
@@ -64,7 +65,7 @@ function AnalyticsPage() {
                     </Select>
                 }
                 eyebrow="Analytics"
-                subtitle="Inspect token load, tool-call distribution, and project-scoped usage patterns to understand where Codex is spending effort."
+                subtitle="Inspect token load, context leakage, repeated work, and project-scoped workflow opportunities."
                 title="Analytics"
             />
 
@@ -79,7 +80,21 @@ function AnalyticsPage() {
                 <MetricCard label="Median per thread" value={formatTokens(analytics.summary.medianTokensPerThread)} />
                 <MetricCard label="Web search threads" value={formatNumber(analytics.summary.threadsWithWebSearch)} />
                 <MetricCard label="Archived threads" value={formatNumber(analytics.summary.archivedThreads)} />
+                <MetricCard
+                    label="Tool output retained"
+                    value={formatBytes(analytics.optimization.summary.toolOutputBytes)}
+                />
+                <MetricCard
+                    label="Full-context forks"
+                    value={formatNumber(analytics.optimization.summary.fullContextSpawns)}
+                />
+                <MetricCard
+                    label="Timed-out waits"
+                    value={formatNumber(analytics.optimization.summary.timedOutWaits)}
+                />
             </div>
+
+            <OptimizationFindings optimization={analytics.optimization} />
 
             <AnalyticsBreakdowns
                 modelsByTokens={analytics.modelsByTokens}

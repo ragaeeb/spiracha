@@ -393,6 +393,34 @@ describe('antigravityMarkdownToThreadEvents', () => {
         );
     });
 
+    it('should recover a timestamped assistant response after an unclosed tool-output fence', () => {
+        const events = antigravityMarkdownToThreadEvents(
+            [
+                '## Tool: RUN_COMMAND',
+                '',
+                '```text',
+                'partial command output',
+                '',
+                '## Assistant',
+                '',
+                '_Timestamp: 2026-08-27T01:14:07Z_',
+                '',
+                '<!-- kodeverdict-review-schema: review-findings/v1 -->',
+                '# Review Findings',
+                'No actionable findings.',
+            ].join('\n'),
+        );
+
+        expect(events).toContainEqual(
+            expect.objectContaining({
+                kind: 'message',
+                phase: 'final_answer',
+                role: 'assistant',
+                text: expect.stringContaining('No actionable findings.'),
+            }),
+        );
+    });
+
     it('should not promote pre-tool assistant text to final answer when the transcript ends after tool use', () => {
         const events = antigravityMarkdownToThreadEvents(
             [

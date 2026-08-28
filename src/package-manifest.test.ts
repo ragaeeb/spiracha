@@ -19,12 +19,26 @@ const readPackageManifest = async (): Promise<PackageManifest> => {
     return Bun.file(packageJsonPath).json();
 };
 
-const removedRuntimeDependencies = ['@inquirer/prompts', '@modelcontextprotocol/sdk', 'iconv-lite'] as const;
-const requiredUiRuntimeDependencies = [
+const removedDependencies = [
+    '@inquirer/prompts',
+    '@modelcontextprotocol/sdk',
+    '@tanstack/match-sorter-utils',
+    '@tanstack/react-devtools',
+    '@tanstack/react-router-devtools',
+    '@tanstack/router-plugin',
+    'iconv-lite',
+] as const;
+const requiredUiDevelopmentDependencies = [
+    '@tailwindcss/typography',
+    '@tailwindcss/vite',
+    '@tanstack/devtools-vite',
+    '@tanstack/react-query',
+    '@tanstack/react-router',
     '@tanstack/react-start',
     '@vitejs/plugin-react',
     'react',
     'react-dom',
+    'tailwindcss',
     'vite',
 ] as const;
 const requiredDevelopmentDependencies = [
@@ -55,7 +69,7 @@ const removedPackagedFiles = [
 ] as const;
 
 describe('package manifest', () => {
-    it('should expose only the UI launcher executable after the CLI hard cut', async () => {
+    it('should expose one API-driven executable', async () => {
         const manifest = await readPackageManifest();
 
         expect(manifest.bin).toEqual({
@@ -66,16 +80,19 @@ describe('package manifest', () => {
     it('should not keep CLI or MCP runtime dependencies', async () => {
         const manifest = await readPackageManifest();
 
-        for (const dependencyName of removedRuntimeDependencies) {
+        for (const dependencyName of removedDependencies) {
             expect(manifest.dependencies?.[dependencyName]).toBeUndefined();
+            expect(manifest.devDependencies?.[dependencyName]).toBeUndefined();
         }
     });
 
-    it('should keep UI runtime dependencies available for bunx execution', async () => {
+    it('should keep only direct client dependencies at runtime', async () => {
         const manifest = await readPackageManifest();
 
-        for (const dependencyName of requiredUiRuntimeDependencies) {
-            expect(manifest.dependencies?.[dependencyName]).toBeDefined();
+        expect(manifest.dependencies).toEqual({ fflate: '0.8.3' });
+
+        for (const dependencyName of requiredUiDevelopmentDependencies) {
+            expect(manifest.devDependencies?.[dependencyName], dependencyName).toBeDefined();
         }
     });
 
@@ -86,6 +103,7 @@ describe('package manifest', () => {
         expect(manifest.workspaces).toBeUndefined();
         expect(manifest.imports).toEqual({
             '#/*': './src/ui/*',
+            '#package-metadata': './package.json',
         });
 
         for (const command of Object.values(manifest.scripts ?? {})) {
@@ -110,6 +128,9 @@ describe('package manifest', () => {
         const manifest = await readPackageManifest();
 
         expect(manifest.scripts?.['test:package']).toBe('bun run ./src/package-smoke.ts');
+        expect(manifest.scripts?.build).toContain('build:ui');
+        expect(manifest.scripts?.build).toContain('build:server');
+        expect(manifest.scripts?.['build:server']).toBe('bun run ./src/build-server.ts');
         expect(manifest.scripts?.prepublishOnly).toBe('bun run build && bun run test:package');
     });
 
@@ -122,6 +143,7 @@ describe('package manifest', () => {
             'Qoder',
             'Cursor',
             'Antigravity',
+            'FX',
             'MiniMax Code',
             'OpenCode',
         ];
@@ -154,7 +176,7 @@ describe('package manifest', () => {
         });
     });
 
-    it('should pack the UI launcher and direct client behind one manifest', async () => {
+    it('should pack the CLI and direct client behind one manifest', async () => {
         const proc = Bun.spawn([process.execPath, 'pm', 'pack', '--dry-run'], {
             cwd: process.cwd(),
             stderr: 'pipe',
@@ -171,8 +193,8 @@ describe('package manifest', () => {
         expect(output).toMatch(/packed .*package\.json/u);
         expect(output).toContain('bin/spiracha.ts');
         expect(output).toContain('src/client.ts');
-        expect(output).toContain('vite.config.ts');
-        expect(output).toContain('src/ui/routes/__root.tsx');
+        expect(output).not.toContain('vite.config.ts');
+        expect(output).not.toContain('src/ui/routes/__root.tsx');
         expect(output).not.toContain('apps/ui');
     });
 
@@ -182,12 +204,12 @@ describe('package manifest', () => {
         expect(manifest.files).toContain('src/lib/**/*.ts');
         expect(manifest.files).toContain('src/client.ts');
         expect(manifest.files).toContain('bin/spiracha.ts');
-        expect(manifest.files).toContain('src/ui/**/*');
-        expect(manifest.files).toContain('public/**/*');
-        expect(manifest.files).toContain('vite.config.ts');
-        expect(manifest.files).toContain('tsconfig.json');
-        expect(manifest.files).toContain('!src/ui/**/*.vitest.ts');
-        expect(manifest.files).toContain('!src/ui/**/*.vitest.tsx');
+        expect(manifest.files).toContain('dist/**/*');
+        expect(manifest.files).toContain('!dist/server/**/*');
+        expect(manifest.files).not.toContain('src/ui/**/*');
+        expect(manifest.files).not.toContain('public/**/*');
+        expect(manifest.files).not.toContain('vite.config.ts');
+        expect(manifest.files).not.toContain('tsconfig.json');
         expect(manifest.files).toContain('!src/lib/**/*.test.ts');
         expect(manifest.files).toContain('!src/lib/*-test-helpers.ts');
         expect(manifest.files).not.toContain('STABLE_DATA_API.md');

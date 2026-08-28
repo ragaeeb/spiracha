@@ -24,6 +24,7 @@ import {
 } from './adapter-helpers';
 import { selectConversationMessages } from './message-selector';
 import { getConversationPathMatch } from './path-match';
+import { createRawConversationDownload } from './raw-download';
 import type {
     ConversationAdapter,
     ConversationDetail,
@@ -293,6 +294,18 @@ const getCodexConversation = async (options: GetConversationOptions): Promise<Co
     });
 };
 
+const getCodexConversationRaw = async (options: GetConversationOptions) => {
+    const dbPath = getCodexDbPath(options);
+    try {
+        return createRawConversationDownload(getThreadBrowseData(dbPath, options.id).thread.rollout_path);
+    } catch (error) {
+        if (error instanceof CodexThreadNotFoundError) {
+            return null;
+        }
+        throw error;
+    }
+};
+
 const deleteCodexConversation = async (options: DeleteConversationOptions) => {
     const result = await deleteCodexThread(getCodexDbPath(options), options.id, { deleteSessionFiles: true });
     return {
@@ -304,6 +317,7 @@ const deleteCodexConversation = async (options: DeleteConversationOptions) => {
 export const codexConversationAdapter: ConversationAdapter = {
     deleteConversation: deleteCodexConversation,
     getConversation: getCodexConversation,
+    getConversationRaw: getCodexConversationRaw,
     listConversationsForPath: listCodexConversationsForPath,
     source: 'codex',
 };

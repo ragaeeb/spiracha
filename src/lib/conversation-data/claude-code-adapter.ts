@@ -1,5 +1,6 @@
 import {
     deleteClaudeCodeSession,
+    findClaudeCodeTranscriptPath,
     listClaudeCodeSessionTranscriptsForGroup,
     listClaudeCodeWorkspaceGroups,
     readClaudeCodeSessionTranscript,
@@ -28,6 +29,7 @@ import {
 } from './adapter-helpers';
 import { selectConversationMessages } from './message-selector';
 import { getConversationPathMatch } from './path-match';
+import { createRawConversationDownload } from './raw-download';
 import type {
     ConversationAdapter,
     ConversationDetail,
@@ -252,6 +254,11 @@ const getClaudeConversation = async (options: GetConversationOptions): Promise<C
     );
 };
 
+const getClaudeConversationRaw = async (options: GetConversationOptions) => {
+    const filePath = await findClaudeCodeTranscriptPath(getProjectsDir(options), options.id);
+    return filePath ? createRawConversationDownload(filePath) : null;
+};
+
 const deleteClaudeConversation = async (options: DeleteConversationOptions) => {
     const result = await deleteClaudeCodeSession(getProjectsDir(options), options.id);
     return {
@@ -263,6 +270,7 @@ const deleteClaudeConversation = async (options: DeleteConversationOptions) => {
 export const claudeCodeConversationAdapter: ConversationAdapter = {
     deleteConversation: deleteClaudeConversation,
     getConversation: getClaudeConversation,
+    getConversationRaw: getClaudeConversationRaw,
     listConversationsForPath: listClaudeConversationsForPath,
     source: 'claude-code',
 };

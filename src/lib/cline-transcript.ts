@@ -1,4 +1,5 @@
 import type { ClineExportOptions, ClineTaskTranscript } from './cline-exporter-types';
+import { formatModelLabel } from './model-label';
 import {
     cleanInlineTitle,
     type MetadataEntry,
@@ -7,10 +8,10 @@ import {
     renderSection,
 } from './shared';
 
-const phaseLabel = (phase: ClineTaskTranscript['messages'][number]['phase']) => {
+const phaseLabel = (phase: ClineTaskTranscript['messages'][number]['phase'], assistantLabel: string) => {
     const labels = {
-        commentary: 'Assistant',
-        final_answer: 'Assistant (Final)',
+        commentary: assistantLabel,
+        final_answer: `${assistantLabel} (Final)`,
         reasoning: 'Reasoning',
         tool_call: 'Tool Call',
         tool_output: 'Tool Output',
@@ -21,6 +22,7 @@ const phaseLabel = (phase: ClineTaskTranscript['messages'][number]['phase']) => 
 
 export const renderClineTranscript = (transcript: ClineTaskTranscript, options: ClineExportOptions): string => {
     const { task } = transcript;
+    const assistantLabel = formatModelLabel(task.modelId);
     const lines = [renderDocumentTitle(cleanInlineTitle(task.title), options.outputFormat), ''];
     if (options.includeMetadata) {
         const metadata: MetadataEntry[] = [
@@ -40,7 +42,7 @@ export const renderClineTranscript = (transcript: ClineTaskTranscript, options: 
         if (!options.includeTools && ['tool_call', 'tool_output'].includes(message.phase)) {
             continue;
         }
-        lines.push(renderSection(phaseLabel(message.phase), message.text, options.outputFormat), '');
+        lines.push(renderSection(phaseLabel(message.phase, assistantLabel), message.text, options.outputFormat), '');
     }
     return `${lines.join('\n').trimEnd()}\n`;
 };

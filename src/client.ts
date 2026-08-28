@@ -3,6 +3,7 @@ import {
     deleteConversation as deleteLocalConversation,
     deleteConversations as deleteLocalConversations,
     getConversation as getLocalConversation,
+    getConversationRaw as getLocalConversationRaw,
     listConversationSources as listLocalConversationSources,
     listConversationsForPath as listLocalConversationsForPath,
     renderConversationMarkdown as renderLocalConversationMarkdown,
@@ -16,6 +17,7 @@ import type {
     ConversationEvidenceExport,
     ConversationMessageSelector,
     ConversationPage,
+    ConversationRawDownload,
     ConversationSourceInfo,
     ConversationZipDownload,
     DeleteConversationOptions,
@@ -25,6 +27,7 @@ import type {
     ExportConversationEvidenceOptions,
     ExportConversationsZipOptions,
     GetConversationOptions,
+    GetConversationRawOptions,
     ListConversationsForPathOptions,
     ResolvedConversationRef,
 } from './lib/conversation-data/types';
@@ -44,6 +47,7 @@ export type {
     ConversationMessageSelector,
     ConversationPage,
     ConversationPathMatch,
+    ConversationRawDownload,
     ConversationSource,
     ConversationSourceInfo,
     ConversationToolEvidence,
@@ -58,6 +62,7 @@ export type {
     ExportConversationEvidenceOptions,
     ExportConversationsZipOptions,
     GetConversationOptions,
+    GetConversationRawOptions,
     ListConversationsForPathOptions,
     ResolvedConversationRef,
 } from './lib/conversation-data/types';
@@ -104,6 +109,7 @@ export type ConversationClient = {
     deleteConversation: (options: DeleteConversationOptions) => Promise<DeleteConversationResult | null>;
     deleteConversations: (options: DeleteConversationsOptions) => Promise<DeleteConversationsResult | null>;
     exportConversationMarkdown: (options: ExportConversationMarkdownOptions) => Promise<string | null>;
+    exportConversationRaw: (options: GetConversationRawOptions) => Promise<ConversationRawDownload | null>;
     exportConversationEvidenceMarkdown: (
         options: ExportConversationEvidenceOptions,
     ) => Promise<ConversationEvidenceExport | null>;
@@ -301,6 +307,26 @@ const fetchZipOrNull = async (url: URL, init?: RequestInit): Promise<Conversatio
     };
 };
 
+const fetchRawOrNull = async (url: URL): Promise<ConversationRawDownload | null> => {
+    const response = await fetchResponse(url);
+    if (await isMissingConversationResponse(response)) {
+        return null;
+    }
+
+    await assertOkResponse(response);
+    const mimeType = response.headers.get('Content-Type')?.split(';')[0];
+    if (mimeType !== 'application/json' && mimeType !== 'application/x-ndjson') {
+        throw new SpirachaClientError(
+            `Spiracha API returned an unsupported raw transcript type: ${mimeType ?? 'none'}.`,
+        );
+    }
+    return {
+        blob: await response.blob(),
+        fileName: fileNameFromContentDisposition(response.headers.get('Content-Disposition'), 'conversation.json'),
+        mimeType,
+    };
+};
+
 const requireData = <T>(envelope: HttpEnvelope<T>, label: string): T => {
     if (envelope.data === undefined) {
         throw new SpirachaClientError(`Spiracha API response did not include ${label}.`);
@@ -411,6 +437,7 @@ const makeLocalClient = (options: LocalConversationClientOptions): ConversationC
               })
             : null;
     },
+    exportConversationRaw: (getOptions) => getLocalConversationRaw(withDefaultLocations(getOptions, options.locations)),
     exportConversationsZip: (exportOptions) => exportLocalConversationsZip(exportOptions, options.locations),
     getConversation: (getOptions) => getLocalConversation(withDefaultLocations(getOptions, options.locations)),
     listConversations: (listOptions) =>
@@ -427,6 +454,9 @@ const makeHttpClient = (options: HttpConversationClientOptions): ConversationCli
             rejectHttpLocations(deleteOptions.locations);
             const { id, source } = deleteOptions;
             const url = makeHttpUrl(baseUrl, `/api/v1/conversations/${source}/${encodeURIComponent(id)}`);
+            if (deleteOptions.deleteSessionFiles !== undefined) {
+                url.searchParams.set('delete_session_files', String(deleteOptions.deleteSessionFiles));
+            }
             const envelope = await fetchDeleteJsonOrNull<DeleteConversationResult>(url, { method: 'DELETE' });
             if (!envelope) {
                 return null;
@@ -439,6 +469,9 @@ const makeHttpClient = (options: HttpConversationClientOptions): ConversationCli
                 makeHttpUrl(baseUrl, '/api/v1/conversations/delete'),
                 {
                     body: JSON.stringify({
+                        ...(deleteOptions.deleteSessionFiles === undefined
+                            ? {}
+                            : { delete_session_files: deleteOptions.deleteSessionFiles }),
                         ids: deleteOptions.ids,
                         source: deleteOptions.source,
                     }),
@@ -468,6 +501,13 @@ const makeHttpClient = (options: HttpConversationClientOptions): ConversationCli
             const url = makeHttpUrl(baseUrl, `/api/v1/conversations/${source}/${encodeURIComponent(id)}/export`);
             appendGetOptions(url, getOptions);
             return fetchTextOrNull(url);
+        },
+        exportConversationRaw: async (getOptions) => {
+            rejectHttpLocations(getOptions.locations);
+            const { id, source } = getOptions;
+            return fetchRawOrNull(
+                makeHttpUrl(baseUrl, `/api/v1/conversations/${source}/${encodeURIComponent(id)}/raw`),
+            );
         },
         exportConversationsZip: async (exportOptions) => {
             rejectHttpLocations(exportOptions.locations);

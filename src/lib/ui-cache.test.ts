@@ -4,6 +4,7 @@ import { mkdir, readdir, rm, stat, utimes } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
+    clearUiCache,
     getCachedJson,
     hashCacheKeyPartsIterable,
     invalidateCacheByPrefix,
@@ -13,6 +14,7 @@ import {
 } from './ui-cache';
 
 const CACHE_DIR = path.join(os.tmpdir(), 'spiracha-ui-cache');
+const originalCacheBypass = process.env.SPIRACHA_UI_CACHE_BYPASS;
 const CACHE_KEY_PREFIX_MAX_LENGTH = 80;
 const getCacheFilePath = (key: string) => {
     const safeKey = key.replace(/[^a-zA-Z0-9._-]/gu, '_').slice(0, CACHE_KEY_PREFIX_MAX_LENGTH);
@@ -21,10 +23,16 @@ const getCacheFilePath = (key: string) => {
 };
 
 beforeEach(async () => {
+    delete process.env.SPIRACHA_UI_CACHE_BYPASS;
     await rm(CACHE_DIR, { force: true, recursive: true });
 });
 
 afterEach(async () => {
+    if (originalCacheBypass === undefined) {
+        delete process.env.SPIRACHA_UI_CACHE_BYPASS;
+    } else {
+        process.env.SPIRACHA_UI_CACHE_BYPASS = originalCacheBypass;
+    }
     await rm(CACHE_DIR, { force: true, recursive: true });
 });
 
@@ -50,6 +58,29 @@ describe('ui cache', () => {
         await setCachedJson('private-cache', { ok: true });
 
         expect((await stat(CACHE_DIR)).mode & 0o777).toBe(0o700);
+    });
+
+    it('should support an explicit development bypass without writing cache files', async () => {
+        process.env.SPIRACHA_UI_CACHE_BYPASS = '1';
+        let loadCount = 0;
+        const load = async () => {
+            loadCount += 1;
+            return { value: loadCount };
+        };
+
+        expect(await withCachedJson('bypassed-entry', load)).toEqual({ value: 1 });
+        expect(await withCachedJson('bypassed-entry', load)).toEqual({ value: 2 });
+        expect(await Bun.file(CACHE_DIR).exists()).toBe(false);
+    });
+
+    it('should clear every persisted UI cache entry through the supported cache API', async () => {
+        await setCachedJson('clear-one', { value: 1 });
+        await setCachedJson('clear-two', { value: 2 });
+
+        await clearUiCache();
+
+        expect(await readdir(CACHE_DIR)).toEqual([]);
+        expect(await getCachedJson('clear-one')).toBeNull();
     });
 
     it('should purge cache entries older than the retention window', async () => {

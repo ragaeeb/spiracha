@@ -1,16 +1,27 @@
-import packageJsonRaw from '../../../package.json?raw';
+import packageJson from '#package-metadata';
 
 type PackageMetadata = {
     homepage: string;
     version: string;
 };
 
-const parsePackageMetadata = (): PackageMetadata => {
-    const packageJson = JSON.parse(packageJsonRaw) as Partial<PackageMetadata>;
+export const parsePackageMetadata = (value: unknown): PackageMetadata => {
+    if (!value || typeof value !== 'object') {
+        throw new Error('Spiracha package metadata must be an object.');
+    }
+
+    const metadata = value as Partial<PackageMetadata>;
+    if (typeof metadata.homepage !== 'string' || !metadata.homepage.trim()) {
+        throw new Error('Spiracha package metadata is missing a homepage.');
+    }
+    if (typeof metadata.version !== 'string' || !metadata.version.trim()) {
+        throw new Error('Spiracha package metadata is missing a version.');
+    }
+
     return {
-        homepage: typeof packageJson.homepage === 'string' ? packageJson.homepage : '',
-        version: typeof packageJson.version === 'string' ? packageJson.version : '0.0.0',
+        homepage: metadata.homepage,
+        version: metadata.version,
     };
 };
 
-export const packageMetadata = parsePackageMetadata();
+export const packageMetadata = parsePackageMetadata(packageJson);

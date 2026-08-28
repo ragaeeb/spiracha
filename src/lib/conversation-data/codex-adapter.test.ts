@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createCodexBrowserFixture } from '../codex-test-helpers';
-import { getConversation, listConversationsForPath, resolveConversationRef } from './index';
+import { getConversation, getConversationRaw, listConversationsForPath, resolveConversationRef } from './index';
 
 const tempRoots: string[] = [];
 
@@ -78,6 +78,23 @@ describe('codex conversation adapter', () => {
             callId: expect.any(String),
             name: expect.any(String),
         });
+    });
+
+    it('should pass through the original Codex JSONL transcript bytes', async () => {
+        const fixture = await createCodexBrowserFixture(await makeTempRoot());
+        const thread = fixture.threads[0]!;
+        const original = await Bun.file(thread.sessionFile).text();
+
+        const download = await getConversationRaw({
+            id: thread.threadId,
+            locations: { codexDbPath: fixture.dbPath },
+            source: 'codex',
+        });
+
+        expect(download).not.toBeNull();
+        expect(download!.fileName).toBe(path.basename(thread.sessionFile));
+        expect(download!.mimeType).toBe('application/x-ndjson');
+        await expect(download!.blob.text()).resolves.toBe(original);
     });
 
     it('should keep Codex conversations available when one rollout file disappears', async () => {

@@ -9,6 +9,7 @@ import {
     getClaudeCodeAssistantMessagePhase,
     isClaudeCodeSyntheticTranscriptEntry,
 } from './claude-code-transcript-phase';
+import { formatModelLabel } from './model-label';
 import {
     cleanExtractedText,
     cleanInlineTitle,
@@ -45,9 +46,9 @@ const buildMetadataEntries = (session: ClaudeCodeSessionSummary): MetadataEntry[
     { key: 'total_tokens', value: session.totalTokens },
 ];
 
-const roleTitle = (role: string): string => {
+const roleTitle = (role: string, model: string | null): string => {
     if (role === 'assistant') {
-        return 'Assistant';
+        return formatModelLabel(model);
     }
 
     if (role === 'user') {
@@ -69,9 +70,14 @@ const truncateOutput = (text: string): string => {
     return `${text.slice(0, TOOL_OUTPUT_PREVIEW_LIMIT)}\n... (truncated)`;
 };
 
-const renderTextPart = (part: ClaudeCodeTranscriptPart, role: string, options: ClaudeCodeExportOptions): string => {
+const renderTextPart = (
+    part: ClaudeCodeTranscriptPart,
+    role: string,
+    model: string | null,
+    options: ClaudeCodeExportOptions,
+): string => {
     const text = cleanExtractedText(part.text ?? '').trim();
-    return text ? renderSection(roleTitle(role), text, options.outputFormat) : '';
+    return text ? renderSection(roleTitle(role, model), text, options.outputFormat) : '';
 };
 
 const renderThinkingPart = (part: ClaudeCodeTranscriptPart, options: ClaudeCodeExportOptions): string => {
@@ -139,13 +145,14 @@ const renderPart = (
     entry: ClaudeCodeTranscriptEntry,
     part: ClaudeCodeTranscriptPart,
     options: ClaudeCodeExportOptions,
+    assistantModel: string | null,
 ): string => {
     switch (part.type) {
         case 'text':
             if (getClaudeCodeAssistantMessagePhase(entry) === 'commentary' && !options.includeCommentary) {
                 return '';
             }
-            return renderTextPart(part, entry.role, options);
+            return renderTextPart(part, entry.role, entry.model ?? assistantModel, options);
         case 'thinking':
             return renderThinkingPart(part, options);
         case 'tool_use':
@@ -165,7 +172,9 @@ export const renderClaudeCodeTranscript = (
 ): string | null => {
     const sections = transcript.entries
         .filter((entry) => !isClaudeCodeSyntheticTranscriptEntry(entry))
-        .flatMap((entry) => entry.parts.map((part) => renderPart(entry, part, options)).filter(Boolean));
+        .flatMap((entry) =>
+            entry.parts.map((part) => renderPart(entry, part, options, transcript.session.model)).filter(Boolean),
+        );
     if (sections.length === 0) {
         return null;
     }

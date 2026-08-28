@@ -6,6 +6,7 @@ import type {
     MiniMaxCodeTranscriptMessage,
 } from './minimax-code-exporter-types';
 import { getMiniMaxCodeMessagePhase } from './minimax-code-transcript-phase';
+import { formatModelLabel } from './model-label';
 import {
     cleanExtractedText,
     cleanInlineTitle,
@@ -43,9 +44,9 @@ const truncateOutput = (text: string): string => {
         : `${text.slice(0, TOOL_OUTPUT_PREVIEW_LIMIT)}\n... (truncated)`;
 };
 
-const roleTitle = (role: string): string => {
+const roleTitle = (role: string, assistantModel: string | null): string => {
     if (role === 'assistant') {
-        return 'Assistant';
+        return formatModelLabel(assistantModel);
     }
     if (role === 'user') {
         return 'User';
@@ -80,7 +81,11 @@ const renderToolCall = (toolCall: MiniMaxCodeToolCall, options: MiniMaxCodeExpor
     return sections;
 };
 
-const renderMessage = (message: MiniMaxCodeTranscriptMessage, options: MiniMaxCodeExportOptions): string[] => {
+const renderMessage = (
+    message: MiniMaxCodeTranscriptMessage,
+    options: MiniMaxCodeExportOptions,
+    assistantModel: string | null,
+): string[] => {
     const sections: string[] = [];
     if (options.includeCommentary && message.reasoning) {
         const reasoning = cleanExtractedText(message.reasoning).trim();
@@ -92,7 +97,7 @@ const renderMessage = (message: MiniMaxCodeTranscriptMessage, options: MiniMaxCo
     const content = cleanExtractedText(message.content ?? '').trim();
     const isCommentary = getMiniMaxCodeMessagePhase(message) === 'commentary';
     if (content && (!isCommentary || options.includeCommentary || message.role !== 'assistant')) {
-        sections.push(renderSection(roleTitle(message.role), content, options.outputFormat));
+        sections.push(renderSection(roleTitle(message.role, assistantModel), content, options.outputFormat));
     }
 
     sections.push(...message.toolCalls.flatMap((toolCall) => renderToolCall(toolCall, options)));
@@ -103,7 +108,9 @@ export const renderMiniMaxCodeTranscript = (
     transcript: MiniMaxCodeSessionTranscript,
     options: MiniMaxCodeExportOptions,
 ): string | null => {
-    const sections = transcript.messages.flatMap((message) => renderMessage(message, options)).filter(Boolean);
+    const sections = transcript.messages
+        .flatMap((message) => renderMessage(message, options, transcript.session.currentModelId))
+        .filter(Boolean);
     if (sections.length === 0) {
         return null;
     }

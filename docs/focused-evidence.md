@@ -2,7 +2,7 @@
 
 Focused evidence selects compact causal episodes from a normalized conversation. Use it when a full transcript contains large tool payloads but an investigation needs only matched invocations, nearby interpretation, failures, retries, workarounds, and outcomes. Use the unchanged full-transcript export for archival fidelity.
 
-The feature uses one source-independent engine for Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, MiniMax Code, and OpenCode. Source adapters only normalize events. Matching, call/result pairing, episode construction, projection, budgeting, Markdown rendering, and omission accounting are shared. The core does not assign domain meanings such as “review.”
+The feature uses one source-independent engine for Codex, Claude Code, Cline, Grok, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode. Source adapters only normalize events. Matching, call/result pairing, episode construction, projection, budgeting, Markdown rendering, and omission accounting are shared. The core does not assign domain meanings such as “review.”
 
 ## Lens schema and bounds
 
@@ -39,7 +39,7 @@ An anchor has AND semantics across its populated fields. For example, a tool anc
 
 Shell anchors tokenize normalized command data and compare the executable and immediate subcommand. They do not search comments or tool output for command substrings. Text anchors use bounded case-sensitive literal matching; arbitrary regular expressions and executable matching code are not accepted.
 
-## Generic CLI example
+## CLI and client examples
 
 Save a project lens as `config/spiracha-evidence-lens.json` and review changes to it like any other project configuration:
 
@@ -67,6 +67,14 @@ Save a project lens as `config/spiracha-evidence-lens.json` and review changes t
   }
 }
 ```
+
+Packaged CLI:
+
+```bash
+spiracha evidence <ref> --lens config/spiracha-evidence-lens.json [--output focused-evidence.md]
+```
+
+The CLI delegates to the same normalized client and evidence renderer as the UI and HTTP API.
 
 Local Bun client:
 
@@ -160,4 +168,4 @@ The total character budget includes Markdown and omission metadata. Selection an
 
 Focused evidence applies the existing project-root conversion and username redaction transforms to retained text. Lenses match only normalized transcript metadata and never cause filesystem reads for path or glob anchors. Transcript and lens data are untrusted: anchor counts, string lengths, glob complexity, context windows, budgets, unmatched pairing state, episode counts, array samples, diagnostic sets, and rendered output are bounded. Omitted raw payloads are not embedded in HTML or hidden metadata.
 
-Some sources do not expose every structured field. Kiro and MiniMax Code emit structured `tool_call` and `tool_output` events, including call IDs when their persisted records provide them. Antigravity does not expose stable call/result IDs, so its normalized metadata reports that limitation instead of fabricating exact fields.
+Some sources do not expose every structured field. Cline, FX, Kiro, and MiniMax Code emit normalized `tool_call` and `tool_output` events from their persisted records, including call IDs when available. Cursor, Qoder, and OpenCode also contribute structured tool evidence when their source records expose it. Antigravity does not expose stable call/result IDs for every transcript record, so its normalized metadata reports that limitation instead of fabricating exact fields.

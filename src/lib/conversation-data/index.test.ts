@@ -35,6 +35,7 @@ describe('conversation data facade', () => {
                     clineDataDir: path.join(tempRoot, 'cline'),
                     codexDbPath: path.join(tempRoot, 'missing-codex.sqlite'),
                     cursorUserDir: path.join(tempRoot, 'cursor'),
+                    fxDataDir: path.join(tempRoot, 'fx'),
                     grokSessionsDir: path.join(tempRoot, 'grok', 'sessions'),
                     kiroWorkspaceSessionsDir: path.join(tempRoot, 'kiro'),
                     minimaxCodeSessionsDir: path.join(tempRoot, 'minimax-code'),
@@ -70,6 +71,7 @@ describe('conversation data facade', () => {
                     clineDataDir: path.join(tempRoot, 'cline'),
                     codexDbPath: path.join(tempRoot, 'missing-codex.sqlite'),
                     cursorUserDir: path.join(tempRoot, 'cursor'),
+                    fxDataDir: path.join(tempRoot, 'fx'),
                     grokSessionsDir: path.join(tempRoot, 'grok', 'sessions'),
                     kiroWorkspaceSessionsDir: path.join(tempRoot, 'kiro'),
                     minimaxCodeSessionsDir: path.join(tempRoot, 'minimax-code'),
@@ -105,12 +107,13 @@ describe('conversation data facade', () => {
                         text: 'The final review result.',
                     }),
                 ],
+                model: 'anthropic/claude-sonnet-4.5',
                 title: 'Review thread',
             },
             { messageSelector: 'last_final_answer' },
         );
 
-        expect(markdown).toBe('# Review thread\n\n## Assistant\n\nThe final review result.\n');
+        expect(markdown).toBe('# Review thread\n\n## Claude Sonnet 4.5\n\nThe final review result.\n');
     });
 
     it('should render stable markdown for empty and unknown-role messages', () => {
@@ -146,6 +149,7 @@ describe('conversation data facade', () => {
         const first = await listConversationSources();
         expect(first).toContainEqual({ label: 'Cline', source: 'cline' });
         expect(first).toContainEqual({ label: 'MiniMax Code', source: 'minimax-code' });
+        expect(first).toContainEqual({ label: 'FX', source: 'fx' });
         first.splice(0, first.length);
 
         expect(await listConversationSources()).not.toEqual([]);

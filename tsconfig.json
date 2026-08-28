@@ -24,9 +24,11 @@
         "paths": {
             "@/*": ["./src/*"],
             "@spiracha/*": ["./src/*"],
-            "#/*": ["./src/ui/*"]
+            "#/*": ["./src/ui/*"],
+            "#package-metadata": ["./package.json"]
         },
         "removeComments": false,
+        "resolveJsonModule": true,
         "rootDir": ".",
         "skipDefaultLibCheck": true,
         "skipLibCheck": true,

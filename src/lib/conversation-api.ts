@@ -2,6 +2,7 @@ import path from 'node:path';
 import { mapWithConcurrency } from './concurrency';
 import {
     type ConversationDetail,
+    type ConversationIdSetOptions,
     type ConversationMessageSelector,
     type ConversationSource,
     type DeleteConversationOptions,
@@ -11,6 +12,7 @@ import {
     type ExportConversationsZipOptions,
     type GetConversationOptions,
     getConversation,
+    getConversationRaw,
     isConversationSource,
     type ListConversationsForPathOptions,
     listConversationSources,
@@ -29,6 +31,7 @@ type ConversationApiDependencies = {
     deleteConversation?: typeof deleteConversation;
     deleteConversations?: typeof deleteConversations;
     getConversation?: typeof getConversation;
+    getConversationRaw?: typeof getConversationRaw;
     listConversationSources?: typeof listConversationSources;
     listConversationsForPath?: typeof listConversationsForPath;
     renderConversationMarkdown?: typeof renderConversationMarkdown;
@@ -291,6 +294,7 @@ const getDeps = (dependencies: ConversationApiDependencies) => ({
     deleteConversation: dependencies.deleteConversation ?? deleteConversation,
     deleteConversations: dependencies.deleteConversations ?? deleteConversations,
     getConversation: dependencies.getConversation ?? getConversation,
+    getConversationRaw: dependencies.getConversationRaw ?? getConversationRaw,
     listConversationSources: dependencies.listConversationSources ?? listConversationSources,
     listConversationsForPath: dependencies.listConversationsForPath ?? listConversationsForPath,
     renderConversationMarkdown: dependencies.renderConversationMarkdown ?? renderConversationMarkdown,
@@ -356,6 +360,7 @@ const buildGetConversationOptions = (
 const buildDeleteConversationOptions = (
     source: string | undefined,
     id: string | undefined,
+    url: URL,
 ): ParseResult<DeleteConversationOptions> => {
     if (!source || !id) {
         return { error: errorResponse('validation_error', 'Conversation source and id are required.', 400) };
@@ -379,8 +384,28 @@ const buildDeleteConversationOptions = (
         return { error: idError };
     }
 
+    const rawDeleteSessionFiles = url.searchParams.get('delete_session_files');
+    if (
+        rawDeleteSessionFiles !== null &&
+        rawDeleteSessionFiles !== 'true' &&
+        rawDeleteSessionFiles !== 'false' &&
+        rawDeleteSessionFiles !== '1' &&
+        rawDeleteSessionFiles !== '0'
+    ) {
+        return {
+            error: invalidFieldResponse(
+                'delete_session_files',
+                rawDeleteSessionFiles,
+                '`delete_session_files` must be a boolean.',
+            ),
+        };
+    }
+
     return {
         value: {
+            ...(rawDeleteSessionFiles === null
+                ? {}
+                : { deleteSessionFiles: rawDeleteSessionFiles === 'true' || rawDeleteSessionFiles === '1' }),
             id: decodedId,
             source,
         },
@@ -440,6 +465,39 @@ const handleExportConversation = async (
             },
         },
     );
+};
+
+const handleRawConversation = async (
+    source: string | undefined,
+    id: string | undefined,
+    url: URL,
+    dependencies: ReturnType<typeof getDeps>,
+    includeBody = true,
+) => {
+    const result = buildGetConversationOptions(source, id, url);
+    if ('error' in result) {
+        return result.error;
+    }
+
+    if (url.search) {
+        return errorResponse('validation_error', 'Raw transcript exports do not accept query parameters.', 400);
+    }
+    const download = await dependencies.getConversationRaw({ id: result.value.id, source: result.value.source });
+    if (!download) {
+        return errorResponse('conversation_not_found', 'No raw transcript exists for that source and id.', 404, {
+            id: result.value.id,
+            source: result.value.source,
+        });
+    }
+
+    return new Response(includeBody ? download.blob : null, {
+        headers: {
+            'Cache-Control': 'no-store',
+            'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(download.fileName)}`,
+            'Content-Type': download.mimeType,
+            'X-Content-Type-Options': 'nosniff',
+        },
+    });
 };
 
 const handleExportEvidence = async (
@@ -504,9 +562,10 @@ const handleExportEvidence = async (
 const handleDeleteConversation = async (
     source: string | undefined,
     id: string | undefined,
+    url: URL,
     dependencies: ReturnType<typeof getDeps>,
 ) => {
-    const result = buildDeleteConversationOptions(source, id);
+    const result = buildDeleteConversationOptions(source, id, url);
     if ('error' in result) {
         return result.error;
     }
@@ -630,7 +689,7 @@ const parseJsonExportMessageSelector = (body: Record<string, unknown>): ParseRes
     return parseMessageSelector(messageSelectorValue.value ?? null, 'all');
 };
 
-const parseConversationIdSetRecord = (body: Record<string, unknown>): ParseResult<DeleteConversationsOptions> => {
+const parseConversationIdSetRecord = (body: Record<string, unknown>): ParseResult<ConversationIdSetOptions> => {
     const source = parseJsonSourceOption(body);
     if ('error' in source) {
         return source;
@@ -691,7 +750,16 @@ const handleDeleteConversations = async (request: Request, dependencies: ReturnT
         return result.error;
     }
 
-    const deleteResult = await dependencies.deleteConversations(result.value);
+    const deleteSessionFiles = getBooleanOption(body.value, 'deleteSessionFiles', 'delete_session_files');
+    if ('error' in deleteSessionFiles) {
+        return deleteSessionFiles.error;
+    }
+    const deleteOptions: DeleteConversationsOptions = {
+        ...result.value,
+        ...(deleteSessionFiles.value === undefined ? {} : { deleteSessionFiles: deleteSessionFiles.value }),
+    };
+
+    const deleteResult = await dependencies.deleteConversations(deleteOptions);
     if (!deleteResult) {
         return errorResponse(
             'unsupported_operation',
@@ -1095,13 +1163,25 @@ const API_ROUTES: ApiRoute[] = [
         resource: 'conversations',
     },
     {
+        handle: ({ dependencies, id, source, url }) => handleRawConversation(source, id, url, dependencies),
+        matches: ({ action, id, source }) => Boolean(source && id && action === 'raw'),
+        method: 'GET',
+        resource: 'conversations',
+    },
+    {
+        handle: ({ dependencies, id, source, url }) => handleRawConversation(source, id, url, dependencies, false),
+        matches: ({ action, id, source }) => Boolean(source && id && action === 'raw'),
+        method: 'HEAD',
+        resource: 'conversations',
+    },
+    {
         handle: ({ dependencies, id, request, source }) => handleExportEvidence(source, id, request, dependencies),
         matches: ({ action, id, source }) => Boolean(source && id && action === 'evidence'),
         method: 'POST',
         resource: 'conversations',
     },
     {
-        handle: ({ dependencies, id, source }) => handleDeleteConversation(source, id, dependencies),
+        handle: ({ dependencies, id, source, url }) => handleDeleteConversation(source, id, url, dependencies),
         matches: ({ action, id, source }) => Boolean(source && id && !action),
         method: 'DELETE',
         resource: 'conversations',
@@ -1159,7 +1239,7 @@ const parseConversationApiSegments = (segments: string[], resource: string) => {
     if (segments.length === 5) {
         return { action: undefined, id: segments[4], resource, source: segments[3] };
     }
-    if (segments.length === 6 && (segments[5] === 'export' || segments[5] === 'evidence')) {
+    if (segments.length === 6 && (segments[5] === 'export' || segments[5] === 'evidence' || segments[5] === 'raw')) {
         return { action: segments[5], id: segments[4], resource, source: segments[3] };
     }
     return { action: '__invalid__', id: undefined, resource, source: undefined };

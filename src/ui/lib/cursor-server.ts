@@ -27,10 +27,12 @@ const workspaceSchema = z.object({
 });
 
 const deleteWorkspaceSchema = workspaceSchema.extend({
+    deleteSessionFiles: z.boolean().default(true),
     retry: cleanupRetryTargetSchema.optional(),
 });
 
 const workspacesSchema = z.object({
+    deleteSessionFiles: z.boolean().default(true),
     retryTargets: z.array(cleanupRetryTargetSchema.nullable()).max(CURSOR_CLEANUP_RETRY_MAX).optional(),
     workspaceKeys: z.array(z.string().min(1)).min(1).max(CURSOR_CLEANUP_RETRY_MAX),
 });
@@ -155,6 +157,7 @@ const exportThreadsSchema = z.object({
 
 const deleteThreadsSchema = z.object({
     composerIds: z.array(composerIdSchema).min(1),
+    deleteSessionFiles: z.boolean().default(true),
 });
 
 const ensureCursorClosedForWrite = async () => {
@@ -196,7 +199,7 @@ const toCleanupFailureMessage = (error: unknown): string => (error instanceof Er
 const isCursorSafetyError = (error: unknown): boolean =>
     error instanceof Error && error.message.startsWith('Unsafe Cursor');
 
-const deleteCursorWorkspaceGroup = async (group: CursorWorkspaceGroup) => {
+const deleteCursorWorkspaceGroup = async (group: CursorWorkspaceGroup, deleteSessionFiles: boolean) => {
     const { listCursorThreadsForGroup } = await import('@spiracha/lib/cursor-db');
     const {
         collectCursorThreadsForDeletion,
@@ -228,7 +231,7 @@ const deleteCursorWorkspaceGroup = async (group: CursorWorkspaceGroup) => {
                   transcriptDirsRemovedPaths: [],
                   workspaceBucketsUpdated: 0,
               }
-            : await pruneCursorThreads(deletableThreads, true);
+            : await pruneCursorThreads(deletableThreads, { apply: true, deleteSessionFiles });
 
     result.cleanupFailures ??= [];
     try {
@@ -347,25 +350,13 @@ const renderCursorZipDownload = async (
 };
 
 export const findCursorThreadByComposerId = async (composerId: string) => {
-    const { listCursorThreadsForGroup, listCursorWorkspaceGroups } = await import('@spiracha/lib/cursor-db');
-    for (const group of await listCursorWorkspaceGroups()) {
-        const threads = await listCursorThreadsForGroup(group, undefined, {
-            includeBubbleStats: false,
-            includeModelAttribution: false,
-            includeTranscriptDirs: false,
-        });
-        const thread = threads.find((candidate) => candidate.composerId === composerId);
-        if (thread) {
-            const hydratedThreads = await listCursorThreadsForGroup(group, undefined, {
-                includeBubbleStats: true,
-                includeModelAttribution: true,
-                includeTranscriptDirs: false,
-            });
-            return hydratedThreads.find((candidate) => candidate.composerId === composerId) ?? thread;
-        }
-    }
-
-    return null;
+    const { getCursorThreadSummaryByComposerId } = await import('@spiracha/lib/cursor-db');
+    const result = await getCursorThreadSummaryByComposerId(composerId, undefined, {
+        includeBubbleStats: true,
+        includeModelAttribution: true,
+        includeTranscriptDirs: true,
+    });
+    return result?.thread ?? null;
 };
 
 const renderCursorDownload = async (input: {
@@ -472,27 +463,30 @@ export const listCursorThreadsFn = createServerFn({ method: 'GET' })
 export const getCursorThreadDetailFn = createServerFn({ method: 'GET' })
     .validator(threadSchema)
     .handler(async ({ data }) => {
-        const { runWithTranscriptLoadLimit } = await import('@spiracha/lib/transcript-load-limiter');
-        const { readCursorThreadTranscriptWithAgentFiles } = await import('@spiracha/lib/cursor-db');
-        const { getCursorGlobalDbPath } = await import('@spiracha/lib/cursor-exporter-types');
         const thread = await findCursorThreadByComposerId(data.composerId);
         if (!thread) {
             throw new Error(`Cursor thread not found: ${data.composerId}`);
         }
 
-        const transcript = await runWithTranscriptLoadLimit(
-            () => readCursorThreadTranscriptWithAgentFiles(getCursorGlobalDbPath(), data.composerId),
+        return { thread };
+    });
+
+export const getCursorThreadTranscriptFn = createServerFn({ method: 'GET' })
+    .validator(threadSchema)
+    .handler(async ({ data }) => {
+        const { runWithTranscriptLoadLimit } = await import('@spiracha/lib/transcript-load-limiter');
+        const { readCursorThreadTranscriptWithAgentFiles } = await import('@spiracha/lib/cursor-db');
+        const { getCursorGlobalDbPath } = await import('@spiracha/lib/cursor-exporter-types');
+        const globalDbPath = getCursorGlobalDbPath();
+        return runWithTranscriptLoadLimit(
+            () => readCursorThreadTranscriptWithAgentFiles(globalDbPath, data.composerId),
             {
                 id: data.composerId,
                 integration: 'cursor',
                 operation: 'ui-detail',
-                path: getCursorGlobalDbPath(),
+                path: globalDbPath,
             },
         );
-        return {
-            thread,
-            transcript,
-        };
     });
 
 export const exportCursorThreadFn = createServerFn({ method: 'POST' })
@@ -541,7 +535,10 @@ export const deleteCursorThreadsFn = createServerFn({ method: 'POST' })
         const { collectCursorThreadsForDeletion, pruneCursorThreads } = await import('@spiracha/lib/cursor-recovery');
         await ensureCursorClosedForWrite();
         const threads = await collectCursorThreadsForDeletion(data.composerIds);
-        return pruneCursorThreads(threads, true);
+        return pruneCursorThreads(threads, {
+            apply: true,
+            deleteSessionFiles: data.deleteSessionFiles,
+        });
     });
 
 export const deleteCursorWorkspaceFn = createServerFn({ method: 'POST' })
@@ -554,7 +551,7 @@ export const deleteCursorWorkspaceFn = createServerFn({ method: 'POST' })
             return finalizeCursorPruneResult(await retryCursorWorkspaceCleanup(retryPlan));
         }
         const group = await findGroupByKey(data.workspaceKey);
-        return deleteCursorWorkspaceGroup(group);
+        return deleteCursorWorkspaceGroup(group, data.deleteSessionFiles);
     });
 
 export const deleteCursorWorkspacesFn = createServerFn({ method: 'POST' })
@@ -577,7 +574,7 @@ export const deleteCursorWorkspacesFn = createServerFn({ method: 'POST' })
                 results.push(finalizeCursorPruneResult(await retryCursorWorkspaceCleanup(retryPlan)));
                 continue;
             }
-            results.push(await deleteCursorWorkspaceGroup(groupsByKey.get(workspaceKey)!));
+            results.push(await deleteCursorWorkspaceGroup(groupsByKey.get(workspaceKey)!, data.deleteSessionFiles));
         }
 
         return results;

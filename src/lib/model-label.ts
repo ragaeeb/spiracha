@@ -3,7 +3,7 @@ export const formatModelLabel = (value: string | null | undefined): string => {
         return 'Assistant';
     }
 
-    const parts = value.split(/[-_\s]+/u).filter(Boolean);
+    const parts = (value.split('/').at(-1) ?? value).split(/[-_\s]+/u).filter(Boolean);
     if (parts[0]?.toLowerCase() === 'claude') {
         const majorIndex = parts.findIndex(
             (part, index) => /^\d{1,2}$/u.test(part) && /^\d{1,2}$/u.test(parts[index + 1] ?? ''),

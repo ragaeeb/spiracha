@@ -6,6 +6,7 @@ export const CONVERSATION_SOURCES = [
     'kiro',
     'qoder',
     'cursor',
+    'fx',
     'antigravity',
     'minimax-code',
     'opencode',
@@ -171,6 +172,7 @@ export type ConversationDataLocations = {
     clineDataDir?: string;
     codexDbPath?: string;
     cursorUserDir?: string;
+    fxDataDir?: string;
     grokSessionsDir?: string;
     kiroWorkspaceSessionsDir?: string;
     minimaxCodeRuntimeDbPath?: string;
@@ -201,7 +203,10 @@ export type GetConversationOptions = {
     source: ConversationSource;
 };
 
+export type GetConversationRawOptions = Pick<GetConversationOptions, 'id' | 'locations' | 'source'>;
+
 export type DeleteConversationOptions = {
+    deleteSessionFiles?: boolean;
     id: string;
     locations?: ConversationDataLocations;
     source: ConversationSource;
@@ -225,7 +230,9 @@ export type ConversationIdSetOptions = {
     source: ConversationSource;
 };
 
-export type DeleteConversationsOptions = ConversationIdSetOptions;
+export type DeleteConversationsOptions = ConversationIdSetOptions & {
+    deleteSessionFiles?: boolean;
+};
 
 export type DeleteConversationItemResult = DeleteConversationResult & {
     deleted: boolean;
@@ -248,6 +255,12 @@ export type ConversationZipDownload = {
     mimeType: 'application/zip';
 };
 
+export type ConversationRawDownload = {
+    blob: Blob;
+    fileName: string;
+    mimeType: 'application/json' | 'application/x-ndjson';
+};
+
 export type ResolvedConversationRef = {
     id: string;
     source: ConversationSource;
@@ -256,6 +269,7 @@ export type ResolvedConversationRef = {
 export type ConversationAdapter = {
     deleteConversation?: (options: DeleteConversationOptions) => Promise<DeleteConversationResult>;
     getConversation: (options: GetConversationOptions) => Promise<ConversationDetail | null>;
+    getConversationRaw?: (options: GetConversationRawOptions) => Promise<ConversationRawDownload | null>;
     listConversationsForPath: (options: ListConversationsForPathOptions) => Promise<ConversationDetail[]>;
     source: ConversationSource;
 };

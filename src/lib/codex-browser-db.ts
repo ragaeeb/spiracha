@@ -18,6 +18,7 @@ import type {
     ThreadBrowseData,
     ThreadListEntry,
 } from './codex-browser-types';
+import { removeCodexGlobalStateThreadReferencesFromFile } from './codex-global-state';
 import {
     getCachedCodexTranscriptModelNames,
     getCachedCodexTranscriptStats,
@@ -672,6 +673,9 @@ const resolveCodexDirFromDbPath = (dbPath: string) => {
     const dbDir = path.dirname(dbPath);
     return path.basename(dbDir) === 'sqlite' ? path.dirname(dbDir) : dbDir;
 };
+
+const resolveCodexLocalThreadCatalogDbPath = (dbPath: string) =>
+    path.join(resolveCodexDirFromDbPath(dbPath), 'sqlite', 'codex-dev.db');
 
 const resolveCodexHistoryDbPath = (dbPath: string) =>
     path.join(resolveCodexDirFromDbPath(dbPath), 'thread_history_1.sqlite');
@@ -1882,6 +1886,43 @@ const removeSessionIndexEntries = async (codexDir: string, threadIds: string[]) 
     return mutation;
 };
 
+const removeLocalThreadCatalogEntries = (dbPath: string, threadIds: string[]) => {
+    const uniqueThreadIds = uniqueValues(threadIds);
+    if (uniqueThreadIds.length === 0) {
+        return [];
+    }
+
+    const catalogDbPath = resolveCodexLocalThreadCatalogDbPath(dbPath);
+    if (!hasRegularFile(catalogDbPath)) {
+        return [];
+    }
+
+    return withWritableDb(catalogDbPath, (db) => {
+        const catalogTable = db
+            .query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'local_thread_catalog'")
+            .get() as { name?: string } | null;
+        if (catalogTable?.name !== 'local_thread_catalog') {
+            return [];
+        }
+
+        const removedThreadIds: string[] = [];
+        withSqliteTransaction(db, (transactionDb) => {
+            for (const threadIdChunk of chunkValues(uniqueThreadIds, SQLITE_DELETE_BATCH_SIZE)) {
+                const placeholders = threadIdChunk.map(() => '?').join(', ');
+                const existingRows = transactionDb
+                    .query(`SELECT thread_id FROM local_thread_catalog WHERE thread_id IN (${placeholders})`)
+                    .all(...threadIdChunk) as Array<{ thread_id: string }>;
+                removedThreadIds.push(...existingRows.map((row) => row.thread_id));
+                transactionDb
+                    .query(`DELETE FROM local_thread_catalog WHERE thread_id IN (${placeholders})`)
+                    .run(...threadIdChunk);
+            }
+        });
+
+        return uniqueValues(removedThreadIds);
+    });
+};
+
 const listFallbackThreadIdsForProject = (dbPath: string, existingThreadIds: Set<string>, projectName: string) => {
     const codexDir = resolveCodexDirFromDbPath(dbPath);
     const sessionFilesByThreadId = getSessionFilesByThreadId(path.join(codexDir, 'sessions'));
@@ -1921,10 +1962,21 @@ const deleteSessionIndexEntriesForThreads = async (
           ])
         : [];
     const removedThreadIds = await removeSessionIndexEntries(codexDir, threadIds);
+    const localThreadCatalogThreadIds = removeLocalThreadCatalogEntries(dbPath, threadIds);
+    const globalStateResults = await Promise.all(
+        ['.codex-global-state.json', '.codex-global-state.json.bak'].map((fileName) =>
+            removeCodexGlobalStateThreadReferencesFromFile(path.join(codexDir, fileName), threadIds),
+        ),
+    );
 
     return {
         deletedSessionFiles,
         deletedThreadIds: removedThreadIds,
+        globalStateThreadIds: uniqueValues(globalStateResults.flatMap((result) => result.removedThreadIds)),
+        globalStateWritingBlockThreadIds: uniqueValues(
+            globalStateResults.flatMap((result) => result.writingBlockFlagsSet),
+        ),
+        localThreadCatalogThreadIds,
     };
 };
 
@@ -1934,11 +1986,19 @@ const buildDeleteThreadsResult = (
     deletedThreadIds: string[],
 ): DeleteThreadsResult => ({
     cleanup: {
+        globalStateReferencesRemoved: sessionIndexResult.globalStateThreadIds,
+        globalStateWritingBlocksSet: sessionIndexResult.globalStateWritingBlockThreadIds,
+        localThreadCatalogEntriesRemoved: sessionIndexResult.localThreadCatalogThreadIds,
         requested: Boolean(deleteSessionFiles),
         sessionIndexEntriesRemoved: sessionIndexResult.deletedThreadIds,
     },
     deletedSessionFiles: sessionIndexResult.deletedSessionFiles,
-    deletedThreadIds: uniqueValues([...deletedThreadIds, ...sessionIndexResult.deletedThreadIds]),
+    deletedThreadIds: uniqueValues([
+        ...deletedThreadIds,
+        ...sessionIndexResult.deletedThreadIds,
+        ...sessionIndexResult.localThreadCatalogThreadIds,
+        ...sessionIndexResult.globalStateThreadIds,
+    ]),
 });
 
 const readProjectAggregateRows = (db: Database) => {

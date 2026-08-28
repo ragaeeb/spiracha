@@ -8,27 +8,12 @@ import viteReact from '@vitejs/plugin-react';
 import { defineConfig, type Plugin } from 'vite';
 import {
     buildUiExportContentDisposition,
+    getUiExportContentType,
     resolveReadableUiExportFileFromRequestPath,
     UI_EXPORT_URL_PREFIX,
 } from './src/lib/ui-export-files.ts';
 
 const appRoot = path.dirname(fileURLToPath(import.meta.url));
-
-const getExportContentType = (filePath: string) => {
-    if (filePath.endsWith('.zip')) {
-        return 'application/zip';
-    }
-
-    if (filePath.endsWith('.md')) {
-        return 'text/markdown; charset=utf-8';
-    }
-
-    if (filePath.endsWith('.txt')) {
-        return 'text/plain; charset=utf-8';
-    }
-
-    return 'application/octet-stream';
-};
 
 const spirachaExportFiles = (): Plugin => {
     return {
@@ -54,7 +39,7 @@ const spirachaExportFiles = (): Plugin => {
 
                 res.setHeader('Cache-Control', 'no-store');
                 res.setHeader('Content-Disposition', buildUiExportContentDisposition(exportFilePath));
-                res.setHeader('Content-Type', getExportContentType(exportFilePath));
+                res.setHeader('Content-Type', getUiExportContentType(exportFilePath));
                 res.statusCode = 200;
 
                 if (req.method === 'HEAD') {

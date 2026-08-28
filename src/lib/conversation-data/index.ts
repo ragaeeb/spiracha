@@ -1,9 +1,11 @@
 import { mapWithConcurrency } from '../concurrency';
+import { formatModelLabel } from '../model-label';
 import { antigravityConversationAdapter } from './antigravity-adapter';
 import { claudeCodeConversationAdapter } from './claude-code-adapter';
 import { clineConversationAdapter } from './cline-adapter';
 import { codexConversationAdapter } from './codex-adapter';
 import { cursorConversationAdapter } from './cursor-adapter';
+import { fxConversationAdapter } from './fx-adapter';
 import { grokConversationAdapter } from './grok-adapter';
 import { kiroConversationAdapter } from './kiro-adapter';
 import { selectConversationMessages } from './message-selector';
@@ -17,6 +19,7 @@ import {
     type ConversationMessage,
     type ConversationMessageSelector,
     type ConversationPage,
+    type ConversationRawDownload,
     type ConversationSource,
     type ConversationSourceInfo,
     type DeleteConversationItemResult,
@@ -25,6 +28,7 @@ import {
     type DeleteConversationsOptions,
     type DeleteConversationsResult,
     type GetConversationOptions,
+    type GetConversationRawOptions,
     type ListConversationsForPathOptions,
     type ResolvedConversationRef,
 } from './types';
@@ -47,6 +51,7 @@ export {
     type ConversationMessageSelector,
     type ConversationPage,
     type ConversationPathMatch,
+    type ConversationRawDownload,
     type ConversationSource,
     type ConversationSourceInfo,
     type ConversationToolEvidence,
@@ -62,6 +67,7 @@ export {
     type ExportConversationEvidenceOptions,
     type ExportConversationsZipOptions,
     type GetConversationOptions,
+    type GetConversationRawOptions,
     type ListConversationsForPathOptions,
     type ResolvedConversationRef,
 } from './types';
@@ -72,6 +78,7 @@ const SOURCE_LABELS: Record<ConversationSource, string> = {
     cline: 'Cline',
     codex: 'Codex',
     cursor: 'Cursor',
+    fx: 'FX',
     grok: 'Grok',
     kiro: 'Kiro',
     'minimax-code': 'MiniMax Code',
@@ -94,6 +101,7 @@ const ADAPTERS: Partial<Record<ConversationSource, ConversationAdapter>> = {
     cline: clineConversationAdapter,
     codex: codexConversationAdapter,
     cursor: cursorConversationAdapter,
+    fx: fxConversationAdapter,
     grok: grokConversationAdapter,
     kiro: kiroConversationAdapter,
     'minimax-code': minimaxCodeConversationAdapter,
@@ -109,6 +117,7 @@ const DELETE_CONCURRENCY_BY_SOURCE: Record<ConversationSource, number> = {
     cline: 1,
     codex: 1,
     cursor: 1,
+    fx: 1,
     grok: 1,
     kiro: 1,
     'minimax-code': 1,
@@ -213,6 +222,12 @@ export const getConversation = async (options: GetConversationOptions) => {
     return getAdapter(options.source)?.getConversation(options) ?? null;
 };
 
+export const getConversationRaw = async (
+    options: GetConversationRawOptions,
+): Promise<ConversationRawDownload | null> => {
+    return (await getAdapter(options.source)?.getConversationRaw?.(options)) ?? null;
+};
+
 export const deleteConversation = async (
     options: DeleteConversationOptions,
 ): Promise<DeleteConversationResult | null> => {
@@ -234,6 +249,7 @@ export const deleteConversations = async (
         async (id) => ({
             id,
             result: await deleteAdapterConversation({
+                deleteSessionFiles: options.deleteSessionFiles,
                 id,
                 locations: options.locations,
                 source: options.source,
@@ -277,6 +293,9 @@ const sourceFromSessionRoute = (segment: string): ConversationSource | null => {
     }
     if (segment === 'cursor-threads') {
         return 'cursor';
+    }
+    if (segment === 'fx-sessions') {
+        return 'fx';
     }
     if (segment === 'antigravity-conversations') {
         return 'antigravity';
@@ -379,6 +398,7 @@ export const resolveConversationRef = async (ref: string): Promise<ResolvedConve
 export const renderConversationMarkdown = (
     conversation: {
         messages: ConversationMessage[];
+        model?: string;
         title: string | null;
     },
     options: {
@@ -389,8 +409,7 @@ export const renderConversationMarkdown = (
         ? selectConversationMessages(conversation.messages, options.messageSelector)
         : conversation.messages;
     const title = conversation.title?.trim() || 'Conversation';
-    const roleLabels: Record<ConversationMessage['role'], string> = {
-        assistant: 'Assistant',
+    const roleLabels: Record<Exclude<ConversationMessage['role'], 'assistant'>, string> = {
         system: 'System',
         tool: 'Tool',
         unknown: 'Unknown',
@@ -398,7 +417,11 @@ export const renderConversationMarkdown = (
     };
     const sections = selectedMessages.map((message) => {
         const text = message.text.trim() || '_No message content._';
-        return `## ${roleLabels[message.role]}\n\n${text}`;
+        const roleLabel =
+            message.role === 'assistant'
+                ? formatModelLabel(message.model ?? conversation.model)
+                : roleLabels[message.role];
+        return `## ${roleLabel}\n\n${text}`;
     });
     if (sections.length === 0) {
         sections.push('_No messages selected._');

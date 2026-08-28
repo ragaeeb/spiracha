@@ -99,14 +99,14 @@ const getCursorDeleteDescription = (pendingDelete: PendingCursorDelete | null) =
     }
 
     if (pendingDelete.kind === 'workspace') {
-        return `Permanently delete every thread for "${pendingDelete.workspace.label}" from Cursor's database, remove any on-disk transcript directories, permanently delete local file history under the workspace folders, and delete its Cursor workspace storage buckets. Quit Cursor first. This cannot be undone.`;
+        return `Permanently delete every thread for "${pendingDelete.workspace.label}" from Cursor's database, permanently delete local file history under the workspace folders, and delete its Cursor workspace storage buckets. Quit Cursor first. This cannot be undone.`;
     }
 
     if (pendingDelete.threads.length === 1) {
-        return `Permanently delete "${pendingDelete.threads[0]!.name}" from Cursor's database, remove any on-disk transcript directories, and permanently delete local file history under the workspace folders. Quit Cursor first. This cannot be undone.`;
+        return `Permanently delete "${pendingDelete.threads[0]!.name}" from Cursor's database and permanently delete local file history under the workspace folders. Quit Cursor first. This cannot be undone.`;
     }
 
-    return `Permanently delete ${pendingDelete.threads.length} selected Cursor threads, remove any on-disk transcript directories, and permanently delete local file history under the workspace folders. Quit Cursor first. This cannot be undone.`;
+    return `Permanently delete ${pendingDelete.threads.length} selected Cursor threads and permanently delete local file history under the workspace folders. Quit Cursor first. This cannot be undone.`;
 };
 
 const getCursorDeleteTitle = (pendingDelete: PendingCursorDelete | null) => {
@@ -152,16 +152,20 @@ const CursorWorkspacePage = () => {
     });
 
     const deleteMutation = useMutation({
-        mutationFn: (target: PendingCursorDelete) =>
+        mutationFn: ({ deleteSessionFiles, target }: { deleteSessionFiles: boolean; target: PendingCursorDelete }) =>
             target.kind === 'workspace'
                 ? deleteCursorWorkspaceFn({
                       data: {
                           ...(target.retryTarget ? { retry: target.retryTarget } : {}),
+                          deleteSessionFiles,
                           workspaceKey: target.workspace.key,
                       },
                   })
-                : deleteCursorThreadsFn({ data: { composerIds: target.threads.map((thread) => thread.composerId) } }),
-        onSettled: (result, _error, target) => {
+                : deleteCursorThreadsFn({
+                      data: { composerIds: target.threads.map((thread) => thread.composerId), deleteSessionFiles },
+                  }),
+        onSettled: (result, _error, request) => {
+            const target = request?.target;
             if (target?.kind === 'workspace') {
                 if (hasCursorCleanupFailures(result)) {
                     return;
@@ -172,7 +176,7 @@ const CursorWorkspacePage = () => {
 
             return invalidateWorkspaceQueries();
         },
-        onSuccess: async (result, target) => {
+        onSuccess: async (result, { target }) => {
             const cleanupError = getCursorCleanupFailureMessage(result);
             if (cleanupError) {
                 setPartialDeleteError(cleanupError);
@@ -303,13 +307,13 @@ const CursorWorkspacePage = () => {
                 errorMessage={partialDeleteError ?? getMutationErrorMessage(deleteMutation.error, 'Delete failed')}
                 pending={deleteMutation.isPending}
                 pendingDelete={pendingDelete}
-                onConfirm={() => {
+                onConfirm={(options) => {
                     if (!pendingDelete) {
                         return;
                     }
 
                     setPartialDeleteError(null);
-                    deleteMutation.mutate(pendingDelete);
+                    deleteMutation.mutate({ deleteSessionFiles: options.deleteSessionFiles, target: pendingDelete });
                 }}
                 onOpenChange={(open) => {
                     if (!open) {
@@ -450,15 +454,19 @@ const CursorWorkspaceDeleteDialog = ({
     errorMessage: string | null;
     pending: boolean;
     pendingDelete: PendingCursorDelete | null;
-    onConfirm: () => void;
+    onConfirm: (options: { deleteSessionFiles: boolean }) => void;
     onOpenChange: (open: boolean) => void;
 }) => {
     return (
         <DeleteConfirmDialog
             confirmLabel={getCursorDeleteConfirmLabel(pendingDelete, pending)}
+            defaultDeleteSessionFiles
+            deleteSessionFilesDescription="Also remove Cursor's on-disk agent transcript directories. Clear this option to preserve those source files; preserved files can make conversations discoverable again."
+            deleteSessionFilesLabel="Delete Cursor transcript files"
             description={getCursorDeleteDescription(pendingDelete)}
             errorMessage={errorMessage}
             open={pendingDelete !== null}
+            showDeleteSessionFilesOption
             title={getCursorDeleteTitle(pendingDelete)}
             onConfirm={onConfirm}
             onOpenChange={onOpenChange}

@@ -27,6 +27,9 @@ import { Route as CodexProjectRouteImport } from './routes/codex.$project'
 import { Route as CursorThreadsComposerIdRouteImport } from './routes/cursor-threads.$composerId'
 import { Route as CursorIndexRouteImport } from './routes/cursor.index'
 import { Route as CursorWorkspaceKeyRouteImport } from './routes/cursor.$workspaceKey'
+import { Route as FxSessionsSessionIdRouteImport } from './routes/fx-sessions.$sessionId'
+import { Route as FxIndexRouteImport } from './routes/fx.index'
+import { Route as FxWorkspaceKeyRouteImport } from './routes/fx.$workspaceKey'
 import { Route as GrokSessionsSessionIdRouteImport } from './routes/grok-sessions.$sessionId'
 import { Route as GrokIndexRouteImport } from './routes/grok.index'
 import { Route as GrokWorkspaceKeyRouteImport } from './routes/grok.$workspaceKey'
@@ -53,6 +56,7 @@ import { Route as ApiV1CodexThreadsEventsRouteImport } from './routes/api.v1.cod
 import { Route as ApiV1ConversationsSourceIdRouteImport } from './routes/api.v1.conversations.$source.$id'
 import { Route as ApiV1ConversationsSourceIdEvidenceRouteImport } from './routes/api.v1.conversations.$source.$id.evidence'
 import { Route as ApiV1ConversationsSourceIdExportRouteImport } from './routes/api.v1.conversations.$source.$id.export'
+import { Route as ApiV1ConversationsSourceIdRawRouteImport } from './routes/api.v1.conversations.$source.$id.raw'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -144,6 +148,21 @@ const CursorIndexRoute = CursorIndexRouteImport.update({
 const CursorWorkspaceKeyRoute = CursorWorkspaceKeyRouteImport.update({
   id: '/cursor/$workspaceKey',
   path: '/cursor/$workspaceKey',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FxSessionsSessionIdRoute = FxSessionsSessionIdRouteImport.update({
+  id: '/fx-sessions/$sessionId',
+  path: '/fx-sessions/$sessionId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FxIndexRoute = FxIndexRouteImport.update({
+  id: '/fx/',
+  path: '/fx/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FxWorkspaceKeyRoute = FxWorkspaceKeyRouteImport.update({
+  id: '/fx/$workspaceKey',
+  path: '/fx/$workspaceKey',
   getParentRoute: () => rootRouteImport,
 } as any)
 const GrokSessionsSessionIdRoute = GrokSessionsSessionIdRouteImport.update({
@@ -283,6 +302,12 @@ const ApiV1ConversationsSourceIdExportRoute =
     path: '/export',
     getParentRoute: () => ApiV1ConversationsSourceIdRoute,
   } as any)
+const ApiV1ConversationsSourceIdRawRoute =
+  ApiV1ConversationsSourceIdRawRouteImport.update({
+    id: '/raw',
+    path: '/raw',
+    getParentRoute: () => ApiV1ConversationsSourceIdRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -298,6 +323,8 @@ export interface FileRoutesByFullPath {
   '/codex/$project': typeof CodexProjectRoute
   '/cursor-threads/$composerId': typeof CursorThreadsComposerIdRoute
   '/cursor/$workspaceKey': typeof CursorWorkspaceKeyRoute
+  '/fx-sessions/$sessionId': typeof FxSessionsSessionIdRoute
+  '/fx/$workspaceKey': typeof FxWorkspaceKeyRoute
   '/grok-sessions/$sessionId': typeof GrokSessionsSessionIdRoute
   '/grok/$workspaceKey': typeof GrokWorkspaceKeyRoute
   '/kiro-sessions/$sessionId': typeof KiroSessionsSessionIdRoute
@@ -314,6 +341,7 @@ export interface FileRoutesByFullPath {
   '/cline/': typeof ClineIndexRoute
   '/codex/': typeof CodexIndexRoute
   '/cursor/': typeof CursorIndexRoute
+  '/fx/': typeof FxIndexRoute
   '/grok/': typeof GrokIndexRoute
   '/kiro/': typeof KiroIndexRoute
   '/minimax-code/': typeof MinimaxCodeIndexRoute
@@ -329,6 +357,7 @@ export interface FileRoutesByFullPath {
   '/api/v1/conversations/$source/$id': typeof ApiV1ConversationsSourceIdRouteWithChildren
   '/api/v1/conversations/$source/$id/evidence': typeof ApiV1ConversationsSourceIdEvidenceRoute
   '/api/v1/conversations/$source/$id/export': typeof ApiV1ConversationsSourceIdExportRoute
+  '/api/v1/conversations/$source/$id/raw': typeof ApiV1ConversationsSourceIdRawRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -344,6 +373,8 @@ export interface FileRoutesByTo {
   '/codex/$project': typeof CodexProjectRoute
   '/cursor-threads/$composerId': typeof CursorThreadsComposerIdRoute
   '/cursor/$workspaceKey': typeof CursorWorkspaceKeyRoute
+  '/fx-sessions/$sessionId': typeof FxSessionsSessionIdRoute
+  '/fx/$workspaceKey': typeof FxWorkspaceKeyRoute
   '/grok-sessions/$sessionId': typeof GrokSessionsSessionIdRoute
   '/grok/$workspaceKey': typeof GrokWorkspaceKeyRoute
   '/kiro-sessions/$sessionId': typeof KiroSessionsSessionIdRoute
@@ -360,6 +391,7 @@ export interface FileRoutesByTo {
   '/cline': typeof ClineIndexRoute
   '/codex': typeof CodexIndexRoute
   '/cursor': typeof CursorIndexRoute
+  '/fx': typeof FxIndexRoute
   '/grok': typeof GrokIndexRoute
   '/kiro': typeof KiroIndexRoute
   '/minimax-code': typeof MinimaxCodeIndexRoute
@@ -375,6 +407,7 @@ export interface FileRoutesByTo {
   '/api/v1/conversations/$source/$id': typeof ApiV1ConversationsSourceIdRouteWithChildren
   '/api/v1/conversations/$source/$id/evidence': typeof ApiV1ConversationsSourceIdEvidenceRoute
   '/api/v1/conversations/$source/$id/export': typeof ApiV1ConversationsSourceIdExportRoute
+  '/api/v1/conversations/$source/$id/raw': typeof ApiV1ConversationsSourceIdRawRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -391,6 +424,8 @@ export interface FileRoutesById {
   '/codex/$project': typeof CodexProjectRoute
   '/cursor-threads/$composerId': typeof CursorThreadsComposerIdRoute
   '/cursor/$workspaceKey': typeof CursorWorkspaceKeyRoute
+  '/fx-sessions/$sessionId': typeof FxSessionsSessionIdRoute
+  '/fx/$workspaceKey': typeof FxWorkspaceKeyRoute
   '/grok-sessions/$sessionId': typeof GrokSessionsSessionIdRoute
   '/grok/$workspaceKey': typeof GrokWorkspaceKeyRoute
   '/kiro-sessions/$sessionId': typeof KiroSessionsSessionIdRoute
@@ -407,6 +442,7 @@ export interface FileRoutesById {
   '/cline/': typeof ClineIndexRoute
   '/codex/': typeof CodexIndexRoute
   '/cursor/': typeof CursorIndexRoute
+  '/fx/': typeof FxIndexRoute
   '/grok/': typeof GrokIndexRoute
   '/kiro/': typeof KiroIndexRoute
   '/minimax-code/': typeof MinimaxCodeIndexRoute
@@ -422,6 +458,7 @@ export interface FileRoutesById {
   '/api/v1/conversations/$source/$id': typeof ApiV1ConversationsSourceIdRouteWithChildren
   '/api/v1/conversations/$source/$id/evidence': typeof ApiV1ConversationsSourceIdEvidenceRoute
   '/api/v1/conversations/$source/$id/export': typeof ApiV1ConversationsSourceIdExportRoute
+  '/api/v1/conversations/$source/$id/raw': typeof ApiV1ConversationsSourceIdRawRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -439,6 +476,8 @@ export interface FileRouteTypes {
     | '/codex/$project'
     | '/cursor-threads/$composerId'
     | '/cursor/$workspaceKey'
+    | '/fx-sessions/$sessionId'
+    | '/fx/$workspaceKey'
     | '/grok-sessions/$sessionId'
     | '/grok/$workspaceKey'
     | '/kiro-sessions/$sessionId'
@@ -455,6 +494,7 @@ export interface FileRouteTypes {
     | '/cline/'
     | '/codex/'
     | '/cursor/'
+    | '/fx/'
     | '/grok/'
     | '/kiro/'
     | '/minimax-code/'
@@ -470,6 +510,7 @@ export interface FileRouteTypes {
     | '/api/v1/conversations/$source/$id'
     | '/api/v1/conversations/$source/$id/evidence'
     | '/api/v1/conversations/$source/$id/export'
+    | '/api/v1/conversations/$source/$id/raw'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -485,6 +526,8 @@ export interface FileRouteTypes {
     | '/codex/$project'
     | '/cursor-threads/$composerId'
     | '/cursor/$workspaceKey'
+    | '/fx-sessions/$sessionId'
+    | '/fx/$workspaceKey'
     | '/grok-sessions/$sessionId'
     | '/grok/$workspaceKey'
     | '/kiro-sessions/$sessionId'
@@ -501,6 +544,7 @@ export interface FileRouteTypes {
     | '/cline'
     | '/codex'
     | '/cursor'
+    | '/fx'
     | '/grok'
     | '/kiro'
     | '/minimax-code'
@@ -516,6 +560,7 @@ export interface FileRouteTypes {
     | '/api/v1/conversations/$source/$id'
     | '/api/v1/conversations/$source/$id/evidence'
     | '/api/v1/conversations/$source/$id/export'
+    | '/api/v1/conversations/$source/$id/raw'
   id:
     | '__root__'
     | '/'
@@ -531,6 +576,8 @@ export interface FileRouteTypes {
     | '/codex/$project'
     | '/cursor-threads/$composerId'
     | '/cursor/$workspaceKey'
+    | '/fx-sessions/$sessionId'
+    | '/fx/$workspaceKey'
     | '/grok-sessions/$sessionId'
     | '/grok/$workspaceKey'
     | '/kiro-sessions/$sessionId'
@@ -547,6 +594,7 @@ export interface FileRouteTypes {
     | '/cline/'
     | '/codex/'
     | '/cursor/'
+    | '/fx/'
     | '/grok/'
     | '/kiro/'
     | '/minimax-code/'
@@ -562,6 +610,7 @@ export interface FileRouteTypes {
     | '/api/v1/conversations/$source/$id'
     | '/api/v1/conversations/$source/$id/evidence'
     | '/api/v1/conversations/$source/$id/export'
+    | '/api/v1/conversations/$source/$id/raw'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -578,6 +627,8 @@ export interface RootRouteChildren {
   CodexProjectRoute: typeof CodexProjectRoute
   CursorThreadsComposerIdRoute: typeof CursorThreadsComposerIdRoute
   CursorWorkspaceKeyRoute: typeof CursorWorkspaceKeyRoute
+  FxSessionsSessionIdRoute: typeof FxSessionsSessionIdRoute
+  FxWorkspaceKeyRoute: typeof FxWorkspaceKeyRoute
   GrokSessionsSessionIdRoute: typeof GrokSessionsSessionIdRoute
   GrokWorkspaceKeyRoute: typeof GrokWorkspaceKeyRoute
   KiroSessionsSessionIdRoute: typeof KiroSessionsSessionIdRoute
@@ -594,6 +645,7 @@ export interface RootRouteChildren {
   ClineIndexRoute: typeof ClineIndexRoute
   CodexIndexRoute: typeof CodexIndexRoute
   CursorIndexRoute: typeof CursorIndexRoute
+  FxIndexRoute: typeof FxIndexRoute
   GrokIndexRoute: typeof GrokIndexRoute
   KiroIndexRoute: typeof KiroIndexRoute
   MinimaxCodeIndexRoute: typeof MinimaxCodeIndexRoute
@@ -732,6 +784,27 @@ declare module '@tanstack/react-router' {
       path: '/cursor/$workspaceKey'
       fullPath: '/cursor/$workspaceKey'
       preLoaderRoute: typeof CursorWorkspaceKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/fx-sessions/$sessionId': {
+      id: '/fx-sessions/$sessionId'
+      path: '/fx-sessions/$sessionId'
+      fullPath: '/fx-sessions/$sessionId'
+      preLoaderRoute: typeof FxSessionsSessionIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/fx/': {
+      id: '/fx/'
+      path: '/fx'
+      fullPath: '/fx/'
+      preLoaderRoute: typeof FxIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/fx/$workspaceKey': {
+      id: '/fx/$workspaceKey'
+      path: '/fx/$workspaceKey'
+      fullPath: '/fx/$workspaceKey'
+      preLoaderRoute: typeof FxWorkspaceKeyRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/grok-sessions/$sessionId': {
@@ -916,12 +989,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiV1ConversationsSourceIdExportRouteImport
       parentRoute: typeof ApiV1ConversationsSourceIdRoute
     }
+    '/api/v1/conversations/$source/$id/raw': {
+      id: '/api/v1/conversations/$source/$id/raw'
+      path: '/raw'
+      fullPath: '/api/v1/conversations/$source/$id/raw'
+      preLoaderRoute: typeof ApiV1ConversationsSourceIdRawRouteImport
+      parentRoute: typeof ApiV1ConversationsSourceIdRoute
+    }
   }
 }
 
 interface ApiV1ConversationsSourceIdRouteChildren {
   ApiV1ConversationsSourceIdEvidenceRoute: typeof ApiV1ConversationsSourceIdEvidenceRoute
   ApiV1ConversationsSourceIdExportRoute: typeof ApiV1ConversationsSourceIdExportRoute
+  ApiV1ConversationsSourceIdRawRoute: typeof ApiV1ConversationsSourceIdRawRoute
 }
 
 const ApiV1ConversationsSourceIdRouteChildren: ApiV1ConversationsSourceIdRouteChildren =
@@ -930,6 +1011,7 @@ const ApiV1ConversationsSourceIdRouteChildren: ApiV1ConversationsSourceIdRouteCh
       ApiV1ConversationsSourceIdEvidenceRoute,
     ApiV1ConversationsSourceIdExportRoute:
       ApiV1ConversationsSourceIdExportRoute,
+    ApiV1ConversationsSourceIdRawRoute: ApiV1ConversationsSourceIdRawRoute,
   }
 
 const ApiV1ConversationsSourceIdRouteWithChildren =
@@ -967,6 +1049,8 @@ const rootRouteChildren: RootRouteChildren = {
   CodexProjectRoute: CodexProjectRoute,
   CursorThreadsComposerIdRoute: CursorThreadsComposerIdRoute,
   CursorWorkspaceKeyRoute: CursorWorkspaceKeyRoute,
+  FxSessionsSessionIdRoute: FxSessionsSessionIdRoute,
+  FxWorkspaceKeyRoute: FxWorkspaceKeyRoute,
   GrokSessionsSessionIdRoute: GrokSessionsSessionIdRoute,
   GrokWorkspaceKeyRoute: GrokWorkspaceKeyRoute,
   KiroSessionsSessionIdRoute: KiroSessionsSessionIdRoute,
@@ -983,6 +1067,7 @@ const rootRouteChildren: RootRouteChildren = {
   ClineIndexRoute: ClineIndexRoute,
   CodexIndexRoute: CodexIndexRoute,
   CursorIndexRoute: CursorIndexRoute,
+  FxIndexRoute: FxIndexRoute,
   GrokIndexRoute: GrokIndexRoute,
   KiroIndexRoute: KiroIndexRoute,
   MinimaxCodeIndexRoute: MinimaxCodeIndexRoute,

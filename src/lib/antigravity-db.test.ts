@@ -14,6 +14,7 @@ import {
     renderAntigravityConversationMarkdown,
 } from './antigravity-db';
 import { resolveAntigravityRoots } from './antigravity-exporter-types';
+import { encodeMessage, encodeString, encodeVarint } from './antigravity-protobuf-test-helpers';
 import { ANTIGRAVITY_TRANSCRIPT_MARKDOWN_VERSION } from './antigravity-transcript-contract';
 import { antigravityMarkdownToThreadEvents } from './antigravity-transcript-events';
 
@@ -27,26 +28,6 @@ type SummaryFixture = {
     parentAgentId?: string;
     updatedAtSeconds?: number;
     workspaceUri?: string;
-};
-
-const encodeVarint = (value: number): number[] => {
-    const bytes: number[] = [];
-    let remaining = value;
-    while (remaining >= 0x80) {
-        bytes.push((remaining & 0x7f) | 0x80);
-        remaining = Math.floor(remaining / 0x80);
-    }
-    bytes.push(remaining);
-    return bytes;
-};
-
-const encodeString = (fieldNumber: number, value: string): number[] => {
-    const bytes = [...Buffer.from(value, 'utf8')];
-    return [...encodeVarint((fieldNumber << 3) | 2), ...encodeVarint(bytes.length), ...bytes];
-};
-
-const encodeMessage = (fieldNumber: number, value: number[]): number[] => {
-    return [...encodeVarint((fieldNumber << 3) | 2), ...encodeVarint(value.length), ...value];
 };
 
 const encodeNumber = (fieldNumber: number, value: number): number[] => {
@@ -661,6 +642,7 @@ describe('antigravity db discovery', () => {
                 JSON.stringify({
                     content: 'I will inspect the local Antigravity data directory.',
                     created_at: '2026-05-30T22:10:47Z',
+                    model: 'gemini-3.7-flash',
                     source: 'MODEL',
                     status: 'DONE',
                     step_index: 1,
@@ -688,7 +670,8 @@ describe('antigravity db discovery', () => {
         expect(markdown).toContain('## User');
         expect(markdown).toContain('Can I recover deleted chats?');
         expect(markdown).not.toContain('ADDITIONAL_METADATA');
-        expect(markdown).toContain('## Assistant');
+        expect(markdown).toContain('## Gemini 3.7 Flash');
+        expect(markdown).not.toContain('## Assistant');
         expect(markdown).toContain('I will inspect the local Antigravity data directory.');
         expect(markdown).toContain('### Tool Calls');
         expect(markdown).toContain('`list_dir`');

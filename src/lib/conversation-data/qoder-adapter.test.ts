@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { listConversationsForPath } from '.';
+import { getConversationRaw, listConversationsForPath } from '.';
 
 const tempRoots: string[] = [];
 
@@ -69,47 +69,45 @@ describe('qoder conversation adapter', () => {
                 },
             ],
         });
-        await Bun.write(
-            path.join(qoderCliProjectsDir, 'task-a.session.execution.jsonl'),
-            [
-                {
-                    id: 'assistant-1',
-                    parts: [{ data: { thinking: 'Inspecting shared mutable state.' }, type: 'reasoning' }],
-                    role: 'assistant',
-                    timestamp: '2026-06-01T10:00:01.000Z',
-                },
-                {
-                    id: 'assistant-2',
-                    parts: [
-                        {
-                            data: { id: 'call-1', input: '{"file_path":"src/index.ts"}', name: 'Read' },
-                            type: 'tool_call',
-                        },
-                    ],
-                    role: 'assistant',
-                    timestamp: '2026-06-01T10:00:02.000Z',
-                },
-                {
-                    id: 'tool-1',
-                    parts: [
-                        {
-                            data: { content: 'const shared = {};', name: 'Read' },
-                            type: 'tool_result',
-                        },
-                    ],
-                    role: 'tool',
-                    timestamp: '2026-06-01T10:00:03.000Z',
-                },
-                {
-                    id: 'assistant-3',
-                    parts: [{ data: { text: 'Final answer: race on shared mutable state.' }, type: 'text' }],
-                    role: 'assistant',
-                    timestamp: '2026-06-01T10:00:04.000Z',
-                },
-            ]
-                .map((line) => JSON.stringify(line))
-                .join('\n'),
-        );
+        const rawTranscript = [
+            {
+                id: 'assistant-1',
+                parts: [{ data: { thinking: 'Inspecting shared mutable state.' }, type: 'reasoning' }],
+                role: 'assistant',
+                timestamp: '2026-06-01T10:00:01.000Z',
+            },
+            {
+                id: 'assistant-2',
+                parts: [
+                    {
+                        data: { id: 'call-1', input: '{"file_path":"src/index.ts"}', name: 'Read' },
+                        type: 'tool_call',
+                    },
+                ],
+                role: 'assistant',
+                timestamp: '2026-06-01T10:00:02.000Z',
+            },
+            {
+                id: 'tool-1',
+                parts: [
+                    {
+                        data: { content: 'const shared = {};', name: 'Read' },
+                        type: 'tool_result',
+                    },
+                ],
+                role: 'tool',
+                timestamp: '2026-06-01T10:00:03.000Z',
+            },
+            {
+                id: 'assistant-3',
+                parts: [{ data: { text: 'Final answer: race on shared mutable state.' }, type: 'text' }],
+                role: 'assistant',
+                timestamp: '2026-06-01T10:00:04.000Z',
+            },
+        ]
+            .map((line) => JSON.stringify(line))
+            .join('\n');
+        await Bun.write(path.join(qoderCliProjectsDir, 'task-a.session.execution.jsonl'), rawTranscript);
 
         const page = await listConversationsForPath({
             cwd: project,
@@ -193,5 +191,16 @@ describe('qoder conversation adapter', () => {
                 text: 'Final answer: race on shared mutable state.',
             }),
         ]);
+
+        const rawDownload = await getConversationRaw({
+            id: 'task-a.session.execution',
+            locations: {
+                qoderCliProjectsDir,
+                qoderGlobalStateDb: globalStateDb,
+                qoderWorkspaceStorageDir: workspaceStorageDir,
+            },
+            source: 'qoder',
+        });
+        await expect(rawDownload?.blob.text()).resolves.toBe(rawTranscript);
     });
 });

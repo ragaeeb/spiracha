@@ -49,4 +49,5 @@ export const Route = createFileRoute('/opencode/')({
     pendingComponent: () => (
         <LoadingPanel description="Loading OpenCode workspaces and database metadata." title="Loading OpenCode" />
     ),
+    pendingMs: 0,
 });

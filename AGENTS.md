@@ -2,15 +2,23 @@
 
 ## Purpose
 
-This repo is a Bun-first local app for browsing, exporting, and exposing agent conversation history from Codex, Claude Code, Cline, Grok, Kiro, Qoder, Cursor, Antigravity, MiniMax Code, and OpenCode.
+This repo is a Bun-first local app for browsing, exporting, and exposing agent conversation history from Codex, Claude Code, Cline, Grok, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode.
 
-The command-line exporter, MCP server, and Codex plugin were removed in the 2.0 hard cut. Do not add bridge commands, compatibility aliases, or deprecated entrypoints back. New client workflows should use the stable HTTP API exposed by the UI server or the stable `spiracha/client` package export.
+The legacy exporter, MCP server, and Codex plugin were removed in the 2.0 hard cut. Do not add bridge commands, compatibility aliases, or deprecated entrypoints back. The current CLI is an API-driven thin client; new application workflows should import the stable `spiracha/client` Bun SDK instead of shelling out.
 
 Main entrypoints:
-- `bunx spiracha` for running the packaged UI app
+- `spiracha` (or `bunx spiracha`) prints help when called without arguments
+- `spiracha serve` for running the packaged bundled UI/API server
+- `spiracha list --cwd <path>` for normalized conversation JSON
+- `spiracha get <ref>` for one normalized conversation
+- `spiracha export <ref> [--raw] [--output <path>]` for Markdown or original JSON/JSONL export
+- `spiracha evidence <ref> --lens <file> [--output <path>]` for focused evidence Markdown
 - `rtk bun start` for local development
 - `rtk bun run ui:preview` after a UI build
-- `rtk bun test`, `rtk bun run lint`, and `rtk bun run typecheck` for verification
+- `rtk bun test`, `rtk bun run lint`, `rtk bun run typecheck`, `rtk bun run build`, and `rtk bun run coverage` for verification
+- `rtk bun run test:package` for the packaged-entrypoint smoke test
+
+Bun 1.4.0 or newer is required.
 
 ## Conventions and Rules
 
@@ -46,6 +54,8 @@ Stable conversation API:
   - `all`, `last_assistant`, and `last_final_answer` message selection
 - `src/lib/conversation-data/*-adapter.ts`
   - source-specific mapping into normalized conversation shapes
+- `src/lib/conversation-data/evidence-*.ts`
+  - source-independent lens validation, event pairing, bounded episode selection, projection, and Markdown evidence rendering
 
 Codex browser/export modules:
 - `src/lib/codex-browser-db.ts`
@@ -64,8 +74,12 @@ Codex browser/export modules:
   - structured Codex event parsing used by analytics and the UI
 - `src/lib/codex-analytics.ts`
   - token/tool analytics derived from thread rows plus bounded transcript parsing and cache keys
+- `src/lib/codex-optimization-analysis.ts`, `src/lib/codex-optimization-findings.ts`
+  - deterministic workflow-risk signals and ranked optimization findings for the Analytics route
 - `src/lib/codex-thread-cache.ts`
-  - thread-detail cache helpers
+  - thread-detail cache helpers and deferred rollout/transcript loading state
+- `src/lib/codex-global-state.ts`
+  - structural cleanup of Codex Desktop recent/sidebar references and deleted-thread write-block flags
 - `src/lib/codex-thread-recovery.ts`
   - Codex project recovery helpers
 
@@ -76,12 +90,14 @@ Source-specific browser/export modules:
 - `src/lib/kiro-db.ts`, `src/lib/kiro-exporter-types.ts`, `src/lib/kiro-transcript-phase.ts`, `src/lib/kiro-transcript.ts` (detail data exposes history and execution sources separately plus the integrated transcript)
 - `src/lib/qoder-db.ts`, `src/lib/qoder-acp-client.ts`, `src/lib/qoder-exporter-types.ts`, `src/lib/qoder-transcript-phase.ts`, `src/lib/qoder-transcript.ts`
 - `src/lib/cursor-db.ts`, `src/lib/cursor-exporter-types.ts`, `src/lib/cursor-recovery.ts`, `src/lib/cursor-transcript-phase.ts`, `src/lib/cursor-transcript.ts`
-- `src/lib/antigravity-db.ts`, `src/lib/antigravity-exporter-types.ts`, `src/lib/antigravity-keychain.ts`, `src/lib/antigravity-projects.ts`, `src/lib/antigravity-transcript-contract.ts`, `src/lib/antigravity-transcript-events.ts`, `src/lib/antigravity-transcript-phase.ts`
+- `src/lib/antigravity-db.ts`, `src/lib/antigravity-exporter-types.ts`, `src/lib/antigravity-keychain.ts`, `src/lib/antigravity-projects.ts`, `src/lib/antigravity-trajectory.ts`, `src/lib/antigravity-transcript-contract.ts`, `src/lib/antigravity-transcript-events.ts`, `src/lib/antigravity-transcript-history.ts`, `src/lib/antigravity-transcript-phase.ts`
 - `src/lib/minimax-code-db.ts`, `src/lib/minimax-code-exporter-types.ts`, `src/lib/minimax-code-transcript-phase.ts`, `src/lib/minimax-code-transcript.ts`
+- `src/lib/fx-db.ts`, `src/lib/fx-exporter-types.ts`, `src/lib/fx-transcript-phase.ts`, `src/lib/fx-transcript.ts`
 - `src/lib/opencode-db.ts`, `src/lib/opencode-exporter-types.ts`, `src/lib/opencode-transcript-phase.ts`, `src/lib/opencode-think-tags.ts`, `src/lib/opencode-transcript.ts`
 
 Shared utilities:
 - `src/lib/concurrency.ts`
+- `src/lib/bounded-file-cache.ts`
 - `src/lib/model-label.ts`
 - `src/lib/path-transforms.ts`
 - `src/lib/portable-path.ts`
@@ -94,13 +110,15 @@ Shared utilities:
 - `src/lib/ui-export-zip.ts`
 - `src/lib/conversation-zip-export.ts`
 - `src/lib/transcript-load-limiter.ts`
+- `src/lib/runtime-config.ts`
 - `src/coverage-check.ts`
 
 UI source tree:
 - `src/ui/`
   - TanStack Start browser UI
   - API routes live under `src/ui/routes/api.v1.*.ts`
-  - source routes include `/threads/$threadId`, `/claude-code-sessions/$sessionId`, `/cline-tasks/$taskId`, `/grok-sessions/$sessionId`, `/kiro-sessions/$sessionId`, `/qoder-sessions/$sessionId`, `/cursor-threads/$composerId`, `/antigravity-conversations/$conversationId`, `/minimax-code-sessions/$sessionId`, and `/opencode-sessions/$sessionId`
+  - source routes include `/threads/$threadId`, `/claude-code-sessions/$sessionId`, `/cline-tasks/$taskId`, `/grok-sessions/$sessionId`, `/kiro-sessions/$sessionId`, `/qoder-sessions/$sessionId`, `/cursor-threads/$composerId`, `/antigravity-conversations/$conversationId`, `/fx-sessions/$sessionId`, `/minimax-code-sessions/$sessionId`, and `/opencode-sessions/$sessionId`
+  - Cursor and Antigravity detail routes load large transcript/artifact bodies through post-hydration server queries; Codex exposes deferred loading for oversized rollouts
 
 ## Stable API Contract
 
@@ -117,6 +135,8 @@ The local UI server exposes:
 - `POST /api/v1/conversation-query`
 - `GET /api/v1/conversations/:source/:id`
 - `GET /api/v1/conversations/:source/:id/export`
+- `GET /api/v1/conversations/:source/:id/raw`
+- `POST /api/v1/conversations/:source/:id/evidence`
 - `DELETE /api/v1/conversations/:source/:id`
 - `POST /api/v1/conversations/delete`
 - `POST /api/v1/conversations/export`
@@ -125,10 +145,14 @@ The local UI server exposes:
 Defaults:
 - list endpoints default to `message_selector=last_final_answer`
 - detail endpoints default to `message_selector=all`
+- list endpoints omit message bodies unless `include_messages=true`; positive `limit` values are bounded at 200
+- list pagination uses opaque keyset cursors ordered by update time, source, and conversation ID
+- `updated_after_ms` and `updated_before_ms` constrain collection before pagination
 - `source=codex,claude-code,...` may scope collection
 - omitted source means all installed/available integrations
 - all-source collection should tolerate missing optional integrations
 - explicit source requests should surface source-specific failures
+- `delete_session_files` is accepted for single-delete query strings and batch-delete JSON; Cursor uses it to keep or remove transcript directories
 
 Do not bake review semantics into Spiracha. A client such as `fgh --collect` decides that a selected assistant message is a review and chooses where to save it.
 
@@ -137,13 +161,17 @@ Do not bake review semantics into Spiracha. A client such as `fgh --collect` dec
 Current tests cover:
 - stable conversation API envelopes, validation, source listing, path-scoped collection, message selectors, reference resolution, and Codex adapter mapping
 - source-specific discovery, transcript parsing, phase classification, and export rendering
-- Codex project/thread browsing, delete semantics, analytics, cache keys, and recovery helpers
-- Cursor recovery/prune behavior
+- Codex project/thread browsing, delete semantics, desktop global-state cleanup, analytics, cache keys, and recovery helpers
+- Codex optimization findings, deferred transcript loading, and large-export lifecycle behavior
+- Cursor recovery/prune behavior, direct composer lookup, bounded discovery caching, optional transcript-file deletion, and cleanup retries
+- Claude Code and Kiro bounded discovery/transcript caches with mutation invalidation
 - Antigravity discovery, transcript parsing, Keychain state, and artifact export rendering
 - MiniMax Code v2 snapshot discovery, reasoning/tool parsing, export rendering, and synchronized session/runtime deletion
+- FX checkpoint/event-log transcript reconstruction, externalized tool results, export rendering, and synchronized session/index/latest-pointer deletion
 - OpenCode MiniMax `<think>` tag extraction, including code-literal preservation
 - UI component and adapter behavior through the Vitest suite wrapped by `src/ui-suite.test.ts`
 - package manifest hard-cut guarantees through `src/package-manifest.test.ts`
+- package metadata validation, cache lifecycle controls, and deferred detail-body server queries
 - a 90% line-coverage gate for both the root Bun suite and UI Vitest suite, with function and hotspot reporting
 
 When changing risky areas:
@@ -170,8 +198,10 @@ rtk bun run test:ui
 ## Notes
 
 - Keep root-package source modules imported by the UI available through `@spiracha/lib/*`.
-- The repository has one package manifest. Keep UI runtime dependencies needed by packaged `bunx spiracha` in root `dependencies` and build/test-only tooling in root `devDependencies`.
-- UI Vite commands run from the repository root with `bun --bun`, so TanStack, server functions, the stable API, and the browser route tree all resolve from one manifest and one dependency graph. UI Vitest commands use the normal Node runtime.
+- The repository has one package manifest. `fflate` is the only runtime dependency; UI, Vite, and build/test tooling stays in root `devDependencies`.
+- `bun start` runs UI development. `bun run build` emits bundled client assets and a bundled server entrypoint consumed by `spiracha serve`; the published package does not ship the UI source tree or Vite toolchain.
+- UI Vite commands run from the repository root with `bun --bun`, so TanStack, server functions, the stable API, and the browser route tree all resolve through one development dependency graph. UI Vitest commands use the normal Node runtime.
+- Markdown output remains deterministic generation/domain parsing. Bun 1.4's `Bun.markdown` was evaluated but is unstable for this contract and is not used.
 - TanStack Start server functions should use `.validator(...)`, not deprecated `.inputValidator(...)`.
 - API routes should use route-level `server.handlers`.
 - Keep `*-transcript-phase.ts` modules browser-safe; UI client adapters import them directly.

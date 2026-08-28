@@ -92,7 +92,8 @@ describe('renderKiroTranscript', () => {
         expect(rendered).toContain('Review Descope-Class Vendor-Detection');
         expect(rendered).toContain('## Attachment');
         expect(rendered).toContain('Image attachment');
-        expect(rendered).toContain('## Assistant');
+        expect(rendered).toContain('## Claude Sonnet 4.5');
+        expect(rendered).not.toContain('## Assistant');
         expect(rendered).toContain('Vendor detection is present.');
     });
 

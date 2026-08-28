@@ -19,6 +19,7 @@ import {
 import type { CodexTranscriptRenderOptions } from './codex-thread-types';
 import { renderCodexSessionFile, writeCodexSessionFileExport } from './codex-transcript-renderer';
 import { applyPathTransforms, type PathDisplaySettings } from './path-transforms';
+import { resolveUiRuntimeConfig } from './runtime-config';
 import type { ExportFormat } from './shared';
 import {
     buildBatchExportBaseName,
@@ -61,7 +62,6 @@ export type CodexThreadDownload =
           skippedThreadCount?: number;
       };
 
-const LARGE_BROWSER_EXPORT_THRESHOLD_BYTES = 128 * 1024 * 1024;
 const MAX_ROLLOUT_EXPORT_ATTEMPTS = 2;
 const ROLLOUT_RETRY_BACKOFF_MS = 40;
 const BATCH_MANIFEST_FILE_NAME = 'spiracha-manifest.json';
@@ -303,7 +303,8 @@ export const renderCodexThreadDownload = async (
 
                 if (
                     input.zipArchive ||
-                    rollout.before.sizeBytes > (input.largeExportThresholdBytes ?? LARGE_BROWSER_EXPORT_THRESHOLD_BYTES)
+                    rollout.before.sizeBytes >
+                        (input.largeExportThresholdBytes ?? resolveUiRuntimeConfig().largeExportThresholdBytes)
                 ) {
                     const exportBaseName = buildArchiveBaseName(fileBaseName);
                     const exportDir = await resolvePublicExportDir(input.publicExportDir);

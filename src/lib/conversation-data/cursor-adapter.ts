@@ -234,7 +234,11 @@ export const deleteCursorConversation = async (
     if (threads.length === 0) {
         return { deletedFiles: [], deletedIds: [] };
     }
-    const result = await pruneCursorThreads(threads, true, userDir);
+    const result = await pruneCursorThreads(
+        threads,
+        { apply: true, deleteSessionFiles: options.deleteSessionFiles ?? true },
+        userDir,
+    );
     return toCursorDeleteConversationResult(result);
 };
 

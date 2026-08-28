@@ -39,6 +39,7 @@ const TOOL_HEADING_PATTERN = /^tool:\s*(.+)$/iu;
 const TOOL_CALL_ID_PATTERN = /Call ID:\s*`([^`]+)`/iu;
 const TOOL_OUTPUT_CALL_ID_PATTERN = /^Call ID:\s*`([^`]+)`$/iu;
 const TOOL_OUTPUT_EXIT_CODE_PATTERN = /^Exit code:\s*(-?\d+)$/iu;
+const SECTION_HEADING_PATTERN = /^##\s+(.+?)\s*$/u;
 
 type MarkdownFence = { character: string; length: number };
 
@@ -50,6 +51,29 @@ const updateMarkdownFence = (fence: MarkdownFence | null, token: string | null):
         return { character: token[0]!, length: token.length };
     }
     return token[0] === fence.character && token.length >= fence.length ? null : fence;
+};
+
+const hasFollowingSectionMetadata = (lines: string[], index: number): boolean => {
+    const nextContent =
+        lines
+            .slice(index + 1)
+            .find((entry) => entry.trim())
+            ?.trim() ?? '';
+    return TIMESTAMP_PATTERN.test(nextContent) || MODEL_PATTERN.test(nextContent);
+};
+
+const matchTranscriptSectionHeading = (
+    lines: string[],
+    index: number,
+    line: string,
+    fenceToken: string | null,
+): string | null => {
+    if (fenceToken) {
+        return null;
+    }
+    const knownHeading = matchAntigravityTranscriptSectionHeading(line);
+    const genericHeading = SECTION_HEADING_PATTERN.exec(line)?.[1]?.trim() ?? null;
+    return knownHeading ?? (hasFollowingSectionMetadata(lines, index) ? genericHeading : null);
 };
 
 const splitMarkdownSections = (markdown: string | null): MarkdownSection[] => {
@@ -75,13 +99,14 @@ const splitMarkdownSections = (markdown: string | null): MarkdownSection[] => {
         });
     };
 
-    for (const line of lines) {
+    for (const [index, line] of lines.entries()) {
         const fenceToken = /^\s*(`{3,}|~{3,})/u.exec(line)?.[1] ?? null;
-        const heading = fence === null && fenceToken === null ? matchAntigravityTranscriptSectionHeading(line) : null;
-        if (heading) {
+        const heading = matchTranscriptSectionHeading(lines, index, line, fenceToken);
+        if (heading && (fence === null || hasFollowingSectionMetadata(lines, index))) {
             flush();
             currentHeading = heading;
             currentLines = [];
+            fence = null;
             continue;
         }
 
@@ -310,6 +335,7 @@ const parseToolOutput = (body: string): ParsedToolOutput => {
 const getFinalAssistantSectionSequences = (sections: MarkdownSection[]): Set<number> => {
     const items = sections.map((section) => {
         const heading = section.heading.toLowerCase();
+        const metadata = extractSectionMetadata(section.body);
         if (heading === 'user') {
             return {
                 hasContent: Boolean(section.body),
@@ -319,9 +345,8 @@ const getFinalAssistantSectionSequences = (sections: MarkdownSection[]): Set<num
             };
         }
 
-        if (heading === 'assistant') {
-            const { body } = extractSectionMetadata(section.body);
-            const parsed = parseAssistantSection(body);
+        if (heading === 'assistant' || metadata.model) {
+            const parsed = parseAssistantSection(metadata.body);
             return {
                 hasContent: Boolean(parsed.content),
                 hasToolCalls: parsed.toolCalls.length > 0,
@@ -397,7 +422,7 @@ const sectionToEvents = (section: MarkdownSection, finalAssistantSectionSequence
         return toolOutputSectionToEvents(section, toolHeading[1]?.trim() || 'unknown', body, timestamp);
     }
 
-    if (heading === 'assistant') {
+    if (heading === 'assistant' || model) {
         return assistantSectionToEvents(section, body, timestamp, model, finalAssistantSectionSequences);
     }
 

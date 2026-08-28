@@ -183,6 +183,23 @@ describe('recoverCursorWorkspaceGroup', () => {
 });
 
 describe('pruneCursorThreads', () => {
+    it('should preserve on-disk transcript directories when session-file deletion is disabled', async () => {
+        const userDir = await makeUserDir('cursor-prune-keep-files-');
+        await createCursorFixture(userDir, recoverySpec());
+        const transcriptDir = path.join(userDir, 'projects', 'demo', 'agent-transcripts', 'thread-1');
+        const transcriptPath = path.join(transcriptDir, 'messages.jsonl');
+        await mkdir(transcriptDir, { recursive: true });
+        await Bun.write(transcriptPath, '{}\n');
+        const threads = await collectCursorThreadsForDeletion(['thread-1'], userDir);
+
+        const result = await pruneCursorThreads(threads, { apply: true, deleteSessionFiles: false }, userDir);
+
+        expect(result.composerIds).toEqual(['thread-1']);
+        expect(result.transcriptDirsRemoved).toBe(0);
+        expect(result.transcriptDirsRemovedPaths).toEqual([]);
+        expect(await Bun.file(transcriptPath).exists()).toBe(true);
+    });
+
     it('should reject transcript directories that escape through a symbolic link', async () => {
         const userDir = await makeUserDir('cursor-prune-symlink-');
         const externalDir = await makeUserDir('cursor-prune-external-');
@@ -212,7 +229,7 @@ describe('pruneCursorThreads', () => {
             workspaceLabel: '',
         };
 
-        await expect(pruneCursorThreads([thread], true, userDir)).rejects.toThrow(
+        await expect(pruneCursorThreads([thread], { apply: true, deleteSessionFiles: true }, userDir)).rejects.toThrow(
             `Unsafe Cursor transcript directory: ${transcriptDir}`,
         );
         expect(await Bun.file(path.join(externalTranscriptDir, 'sentinel.txt')).exists()).toBe(true);
@@ -244,7 +261,7 @@ describe('pruneCursorThreads', () => {
             workspaceLabel: '',
         };
 
-        await expect(pruneCursorThreads([thread], true, userDir)).rejects.toThrow(
+        await expect(pruneCursorThreads([thread], { apply: true, deleteSessionFiles: true }, userDir)).rejects.toThrow(
             `Unsafe Cursor transcript directory: ${linkedDir}`,
         );
         expect(await Bun.file(path.join(targetDir, 'sentinel.txt')).exists()).toBe(true);
@@ -257,7 +274,7 @@ describe('pruneCursorThreads', () => {
         const { listCursorThreadsForGroup } = await import('./cursor-db');
         const threads = await listCursorThreadsForGroup(group!, userDir);
 
-        const result = await pruneCursorThreads(threads, false, userDir);
+        const result = await pruneCursorThreads(threads, { apply: false, deleteSessionFiles: true }, userDir);
 
         expect(result.bubblesDeleted).toBe(2);
         expect(result.composerIds).toEqual(['thread-1']);
@@ -270,7 +287,7 @@ describe('pruneCursorThreads', () => {
         const { listCursorThreadsForGroup } = await import('./cursor-db');
         const threads = await listCursorThreadsForGroup(group!, userDir);
 
-        const result = await pruneCursorThreads(threads, true, userDir);
+        const result = await pruneCursorThreads(threads, { apply: true, deleteSessionFiles: true }, userDir);
 
         expect(result.bubblesDeleted).toBe(2);
         expect(result.headersRemoved).toBe(1);
@@ -319,7 +336,7 @@ describe('pruneCursorThreads', () => {
         const deletable = await collectCursorThreadsForDeletion(['thread-1'], userDir);
         expect(deletable[0]?.bubbleCount).toBe(2);
 
-        const result = await pruneCursorThreads(deletable, true, userDir);
+        const result = await pruneCursorThreads(deletable, { apply: true, deleteSessionFiles: true }, userDir);
 
         expect(result.bubblesDeleted).toBe(2);
         // Removed from both bucket-a and bucket-b composer.composerData.
@@ -348,7 +365,7 @@ describe('pruneCursorThreads', () => {
         });
 
         const deletable = await collectCursorThreadsForDeletion(['thread-1'], userDir);
-        const result = await pruneCursorThreads(deletable, true, userDir);
+        const result = await pruneCursorThreads(deletable, { apply: true, deleteSessionFiles: true }, userDir);
         const db = new Database(getCursorGlobalDbPath(userDir), { readonly: true });
         try {
             expect(db.query('SELECT COUNT(*) AS count FROM composerHeaders').get()).toEqual({ count: 0 });
@@ -509,7 +526,7 @@ describe('pruneCursorThreads', () => {
         const [group] = await listCursorWorkspaceGroups(userDir);
         const threads = await collectCursorThreadsForDeletion(['thread-1'], userDir);
 
-        await pruneCursorThreads(threads, true, userDir);
+        await pruneCursorThreads(threads, { apply: true, deleteSessionFiles: true }, userDir);
 
         const backupFiles = (await readdir(path.join(userDir, 'globalStorage'))).filter(
             (entry) => entry.includes('.prunedThreads.') && entry.endsWith('.json'),
@@ -533,7 +550,7 @@ describe('pruneCursorThreads', () => {
         const thread = (await collectCursorThreadsForDeletion(['thread-1'], userDir))[0]!;
         const result = await pruneCursorThreads(
             [{ ...thread, transcriptDirs: [transcriptDir, transcriptDir] }],
-            true,
+            { apply: true, deleteSessionFiles: true },
             userDir,
         );
 
@@ -549,7 +566,11 @@ describe('pruneCursorThreads', () => {
         await Bun.write(path.join(transcriptDir, 'messages.jsonl'), '{}\n');
         const thread = (await collectCursorThreadsForDeletion(['thread-1'], userDir))[0]!;
 
-        const result = await pruneCursorThreads([{ ...thread, transcriptDirs: [] }], true, userDir);
+        const result = await pruneCursorThreads(
+            [{ ...thread, transcriptDirs: [] }],
+            { apply: true, deleteSessionFiles: true },
+            userDir,
+        );
 
         expect(result.transcriptDirsRemoved).toBe(1);
         expect(result.transcriptDirsRemovedPaths).toEqual([transcriptDir]);
@@ -619,7 +640,9 @@ describe('pruneCursorThreads', () => {
         triggerDb.close();
         const deletable = await collectCursorThreadsForDeletion(['thread-1'], userDir);
 
-        await expect(pruneCursorThreads(deletable, true, userDir)).rejects.toThrow('forced bucket update failure');
+        await expect(pruneCursorThreads(deletable, { apply: true, deleteSessionFiles: true }, userDir)).rejects.toThrow(
+            'forced bucket update failure',
+        );
 
         let bucketsContainingThread = 0;
         for (const bucket of group!.buckets) {
@@ -667,9 +690,9 @@ describe('pruneCursorThreads', () => {
         const deletable = await collectCursorThreadsForDeletion(['thread-1'], userDir);
 
         try {
-            await expect(pruneCursorThreads(deletable, true, userDir)).rejects.toThrow(
-                'SQLite operation failed after 4 attempts',
-            );
+            await expect(
+                pruneCursorThreads(deletable, { apply: true, deleteSessionFiles: true }, userDir),
+            ).rejects.toThrow('SQLite operation failed after 4 attempts');
         } finally {
             lockProcess.kill();
             await lockProcess.exited;
@@ -724,7 +747,7 @@ describe('pruneCursorThreads', () => {
         });
 
         const deletable = await collectCursorThreadsForDeletion(['thread_1'], userDir);
-        const result = await pruneCursorThreads(deletable, true, userDir);
+        const result = await pruneCursorThreads(deletable, { apply: true, deleteSessionFiles: true }, userDir);
         const db = new Database(getCursorGlobalDbPath(userDir), { readonly: true });
         try {
             const remaining = db
@@ -765,7 +788,7 @@ describe('pruneCursorThreads', () => {
         const deletable = await collectCursorThreadsForDeletion(['thread'], userDir);
         expect(deletable[0]?.bubbleCount).toBe(1);
 
-        const result = await pruneCursorThreads(deletable, true, userDir);
+        const result = await pruneCursorThreads(deletable, { apply: true, deleteSessionFiles: true }, userDir);
         expect(result.bubblesDeleted).toBe(1);
 
         const backupFiles = (await readdir(path.join(userDir, 'globalStorage'))).filter(
@@ -807,7 +830,9 @@ describe('pruneCursorThreads', () => {
         setupDb.close();
         const deletable = await collectCursorThreadsForDeletion(['thread-1'], userDir);
 
-        expect(pruneCursorThreads(deletable, true, userDir)).rejects.toThrow('forced composer delete failure');
+        expect(pruneCursorThreads(deletable, { apply: true, deleteSessionFiles: true }, userDir)).rejects.toThrow(
+            'forced composer delete failure',
+        );
 
         const db = new Database(globalDbPath, { readonly: true });
         try {

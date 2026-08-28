@@ -86,9 +86,12 @@ import {
     deleteAntigravityConversationsById,
     exportAntigravityConversationFn,
     exportAntigravityConversations,
+    getAntigravityConversationDetailFn,
+    getAntigravityConversationDocumentsFn,
     getAntigravityDecryptionStateFn,
-    loadAntigravityConversationDetail,
+    loadAntigravityConversationDocuments,
     loadAntigravityConversationExport,
+    loadAntigravityConversationMetadata,
 } from './antigravity-server';
 
 const makeConversation = (overrides: Partial<AntigravityConversation> = {}): AntigravityConversation => ({
@@ -183,7 +186,7 @@ describe('antigravity-server', () => {
             renderAntigravityConversationMarkdownMock.mockResolvedValue('transcript markdown');
             renderAntigravityArtifactsMarkdownMock.mockResolvedValue(null);
 
-            const detail = await loadAntigravityConversationDetail(conversation.conversationId);
+            const detail = await loadAntigravityConversationDocuments(conversation.conversationId);
 
             expect(detail.transcriptLocked).toBe(false);
             expect(detail.conversationMarkdown).toBe('transcript markdown');
@@ -199,7 +202,7 @@ describe('antigravity-server', () => {
         renderAntigravityConversationMarkdownMock.mockResolvedValue('decrypted transcript');
         renderAntigravityArtifactsMarkdownMock.mockResolvedValue(null);
 
-        await loadAntigravityConversationDetail(conversation.conversationId);
+        await loadAntigravityConversationDocuments(conversation.conversationId);
         await loadAntigravityConversationExport(conversation.conversationId);
 
         expect(withAntigravityDecryptionCapabilityMock).toHaveBeenCalledTimes(2);
@@ -243,12 +246,14 @@ describe('antigravity-server', () => {
         listAntigravityConversationsMock.mockResolvedValue([conversation]);
         withAntigravityDecryptionCapabilityMock.mockRejectedValue(new Error('keychain denied'));
 
-        await expect(loadAntigravityConversationDetail(conversation.conversationId)).rejects.toThrow('keychain denied');
+        await expect(loadAntigravityConversationDocuments(conversation.conversationId)).rejects.toThrow(
+            'keychain denied',
+        );
 
         withAntigravityDecryptionCapabilityMock.mockRejectedValue(
             new AntigravityDecryptionCapabilityError(new Error('keychain denied')),
         );
-        const detail = await loadAntigravityConversationDetail(conversation.conversationId);
+        const detail = await loadAntigravityConversationDocuments(conversation.conversationId);
         expect(detail.transcriptLocked).toBe(true);
     });
 
@@ -258,7 +263,7 @@ describe('antigravity-server', () => {
         const error = { code: 'ANTIGRAVITY_DECRYPTION_CAPABILITY', message: 'not a typed error' };
         withAntigravityDecryptionCapabilityMock.mockRejectedValue(error);
 
-        await expect(loadAntigravityConversationDetail(conversation.conversationId)).rejects.toBe(error);
+        await expect(loadAntigravityConversationDocuments(conversation.conversationId)).rejects.toBe(error);
     });
 
     it('should propagate protected transcript renderer failures unchanged', async () => {
@@ -267,7 +272,7 @@ describe('antigravity-server', () => {
         const rendererError = new Error('malformed encrypted transcript');
         renderAntigravityConversationMarkdownMock.mockRejectedValue(rendererError);
 
-        await expect(loadAntigravityConversationDetail(conversation.conversationId)).rejects.toBe(rendererError);
+        await expect(loadAntigravityConversationDocuments(conversation.conversationId)).rejects.toBe(rendererError);
     });
 
     it('should return the resolved Antigravity project group for detail navigation', async () => {
@@ -290,12 +295,30 @@ describe('antigravity-server', () => {
         renderAntigravityConversationMarkdownMock.mockResolvedValue('transcript markdown');
         renderAntigravityArtifactsMarkdownMock.mockResolvedValue(null);
 
-        const detail = await loadAntigravityConversationDetail(conversation.conversationId);
+        const detail = await loadAntigravityConversationMetadata(conversation.conversationId);
 
         expect(detail.conversationGroup).toEqual({
             key: `project:${projectId}`,
             label: 'spiracha',
         });
+        expect(renderAntigravityConversationMarkdownMock).not.toHaveBeenCalled();
+        expect(renderAntigravityArtifactsMarkdownMock).not.toHaveBeenCalled();
+    });
+
+    it('should expose metadata and document bodies through separate server functions', async () => {
+        const conversation = makeConversation();
+        listAntigravityConversationsMock.mockResolvedValue([conversation]);
+        renderAntigravityConversationMarkdownMock.mockResolvedValue('transcript markdown');
+        renderAntigravityArtifactsMarkdownMock.mockResolvedValue(null);
+
+        await expect(
+            getAntigravityConversationDetailFn({ data: { conversationId: conversation.conversationId } }),
+        ).resolves.toMatchObject({ conversation });
+        expect(renderAntigravityConversationMarkdownMock).not.toHaveBeenCalled();
+
+        await expect(
+            getAntigravityConversationDocumentsFn({ data: { conversationId: conversation.conversationId } }),
+        ).resolves.toMatchObject({ conversationMarkdown: 'transcript markdown', transcriptLocked: false });
     });
 
     it('should name multi-conversation exports after the resolved Antigravity project', async () => {
@@ -426,7 +449,7 @@ describe('antigravity-server', () => {
         renderAntigravityConversationMarkdownMock.mockResolvedValue('# Duplicate\n\nsame body');
         renderAntigravityArtifactsMarkdownMock.mockResolvedValue('# Duplicate\n\nsame body');
 
-        const detail = await loadAntigravityConversationDetail(conversation.conversationId);
+        const detail = await loadAntigravityConversationDocuments(conversation.conversationId);
 
         expect(detail.artifactsMarkdown).toBe('# Duplicate\n\nsame body');
         expect(detail.conversationMarkdown).toBeNull();

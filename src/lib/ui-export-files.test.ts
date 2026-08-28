@@ -6,6 +6,7 @@ import {
     buildUiExportContentDisposition,
     buildUiExportDownloadUrl,
     ensureUiExportDir,
+    getUiExportContentType,
     getUiExportDir,
     purgeStaleUiExportFile,
     purgeStaleUiExports,
@@ -84,6 +85,13 @@ describe('ui export file helpers', () => {
         expect(buildUiExportContentDisposition('/tmp/report bundle.zip')).toBe(
             "attachment; filename*=UTF-8''report%20bundle.zip",
         );
+    });
+
+    it('should report export content types', () => {
+        expect(getUiExportContentType('report.zip')).toBe('application/zip');
+        expect(getUiExportContentType('report.md')).toBe('text/markdown; charset=utf-8');
+        expect(getUiExportContentType('report.txt')).toBe('text/plain; charset=utf-8');
+        expect(getUiExportContentType('report.bin')).toBe('application/octet-stream');
     });
 
     it('should purge stale export files while keeping recent ones', async () => {

@@ -6,6 +6,7 @@ import type {
     KiroTranscriptPart,
 } from './kiro-exporter-types';
 import { getFinalKiroAssistantMessageEntryIds, getKiroMessagePhase } from './kiro-transcript-phase';
+import { formatModelLabel } from './model-label';
 import {
     cleanExtractedText,
     cleanInlineTitle,
@@ -39,9 +40,9 @@ const buildMetadataEntries = (session: KiroSessionSummary): MetadataEntry[] => [
     { key: 'prompt_log_count', value: session.promptLogCount },
 ];
 
-const roleTitle = (role: string): string => {
+const roleTitle = (role: string, assistantModel: string | null): string => {
     if (role === 'assistant') {
-        return 'Assistant';
+        return formatModelLabel(assistantModel);
     }
 
     if (role === 'user') {
@@ -94,6 +95,7 @@ const renderPart = (
     part: KiroTranscriptPart,
     options: KiroExportOptions,
     finalAssistantMessageEntryIds: Set<string>,
+    assistantModel: string | null,
 ): string => {
     if (entry.entryType === 'tool_call') {
         return options.includeTools && part.type === 'text' ? renderToolCallPart(part, options) : '';
@@ -109,7 +111,7 @@ const renderPart = (
 
     switch (part.type) {
         case 'text':
-            return renderTextPart(part, roleTitle(entry.role), options);
+            return renderTextPart(part, roleTitle(entry.role, assistantModel), options);
         case 'image':
             return renderImagePart(part, options);
         case 'unknown':
@@ -119,8 +121,11 @@ const renderPart = (
 
 export const renderKiroTranscript = (transcript: KiroSessionTranscript, options: KiroExportOptions): string | null => {
     const finalAssistantMessageEntryIds = getFinalKiroAssistantMessageEntryIds(transcript.entries);
+    const assistantModel = transcript.session.selectedModel ?? transcript.session.defaultModelTitle;
     const sections = transcript.entries.flatMap((entry) =>
-        entry.parts.map((part) => renderPart(entry, part, options, finalAssistantMessageEntryIds)).filter(Boolean),
+        entry.parts
+            .map((part) => renderPart(entry, part, options, finalAssistantMessageEntryIds, assistantModel))
+            .filter(Boolean),
     );
     if (sections.length === 0) {
         return null;
