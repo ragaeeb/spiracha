@@ -57,6 +57,7 @@ Install the SDK in another Bun application with `bun add spiracha`. `list` and `
 ## What It Does
 
 - Browse local conversations across Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode.
+- Import exported ChatGPT, Claude, Gemini, Grok, Qwen, GLM, and compatible web conversations by dropping JSON files onto the Web page.
 - Group each integration into workspace inventories with local search and source-specific export/delete actions where supported.
 - Search Codex projects from the app shell, with results delegated to the shareable `/codex?q=...` inventory filter.
 - Inspect source-specific detail pages with transcript, tool, reasoning, metadata, raw event, export, and delete flows where supported by the source. Transcript controls can filter user messages, commentary, tools, extra events, raw JSON, and text matches. Codex thread detail includes optional live updates isolated from page-loading connections, a tool-focused activity view, recorded goals, and sandbox policy.
@@ -67,7 +68,13 @@ Install the SDK in another Bun application with `bun add spiracha`. `list` and `
 - Expose a stable API for local clients that need normalized conversation metadata and message payloads.
 - Resolve Spiracha UI links and native source links into normalized `{ source, id }` references for cross-thread context lookup.
 
-Large bodies are loaded behind the lightweight metadata path where needed. Cursor and Antigravity detail routes fetch transcript/artifact documents after browser hydration, and oversized Codex rollouts expose a deferred preview/full-load choice instead of inflating the initial route payload.
+Large bodies are loaded behind the lightweight metadata path where needed. Cursor, Antigravity, and imported Web detail routes fetch transcript/artifact bodies after browser hydration, and oversized Codex rollouts expose a deferred preview/full-load choice instead of inflating the initial route payload.
+
+### Web chat imports
+
+Open `/web` and drop one or more JSON exports. Spiracha infers mapping-based ChatGPT-style envelopes plus native Claude, Grok, and ordinary role/content message arrays at runtime. A single parsed conversation opens directly; multiple conversations remain in a searchable, paginated list and link to `/web-chats/:conversationId`.
+
+Each file is limited to 25 MB, with at most 20 files and 100 MB per import. Spiracha retains up to 128 MB of the most recent normalized conversations in server memory; imports disappear when evicted or when the Spiracha server stops. Web imports are a UI workflow and are not added to the stable data API or CLI source registry.
 
 ## Stable Data API
 

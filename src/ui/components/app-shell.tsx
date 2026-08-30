@@ -5,6 +5,7 @@ import {
     BrainCircuit,
     Code2,
     FolderOpen,
+    Globe2,
     LayoutDashboard,
     Search,
     Settings2,
@@ -68,6 +69,7 @@ const integrationNavItems: readonly NavItem[] = [
         to: '/opencode',
     },
     { activePrefixes: ['/qoder', '/qoder-sessions'], icon: Workflow, label: 'Qoder', to: '/qoder' },
+    { activePrefixes: ['/web', '/web-chats'], icon: Globe2, label: 'Web', to: '/web' },
 ] as const;
 
 const isNavItemActive = (pathname: string, item: NavItem) => {
