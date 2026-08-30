@@ -10,8 +10,10 @@ export const kiroWorkspacesQueryOptions = () =>
 export const kiroSessionsQueryOptions = (workspaceKey: string | null) =>
     queryOptions({
         enabled: workspaceKey !== null,
+        gcTime: 15 * 60_000,
         queryFn: () => listKiroSessionsFn({ data: { workspaceKey: workspaceKey ?? '' } }),
         queryKey: ['kiro-sessions', workspaceKey ?? 'none'],
+        staleTime: 5_000,
     });
 
 export const kiroSessionDetailQueryOptions = (sessionId: string | null) =>

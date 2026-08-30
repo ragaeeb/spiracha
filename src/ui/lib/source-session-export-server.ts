@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { resolveUiRuntimeConfig } from '@spiracha/lib/runtime-config';
 import type { ExportPlatform } from '@spiracha/lib/ui-export-archive';
 import {
     buildBatchExportBaseName,
@@ -20,6 +21,7 @@ type RenderSourceSessionDownloadOptions = {
     content: string;
     cwd: string | null;
     fallbackBaseName: string;
+    largeExportThresholdBytes?: number;
     outputFormat: ExportFormat;
     platform: ExportPlatform;
     sessionId: string;
@@ -52,6 +54,7 @@ export const renderSourceSessionDownload = async ({
     content,
     cwd,
     fallbackBaseName,
+    largeExportThresholdBytes,
     outputFormat,
     platform,
     sessionId,
@@ -66,7 +69,10 @@ export const renderSourceSessionDownload = async ({
         },
         fallbackBaseName,
     );
-    if (!zipArchive) {
+    const shouldArchive =
+        zipArchive ||
+        Buffer.byteLength(content) > (largeExportThresholdBytes ?? resolveUiRuntimeConfig().largeExportThresholdBytes);
+    if (!shouldArchive) {
         return {
             content,
             fileName: `${safeBaseName}.${outputFormat}`,

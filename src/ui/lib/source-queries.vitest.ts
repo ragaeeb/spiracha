@@ -175,6 +175,10 @@ describe('source query options', () => {
     });
 
     it('should configure Claude Code workspace, session, detail, and transcript queries', async () => {
+        expect(claudeCodeSessionsQueryOptions('workspace-a')).toMatchObject({
+            gcTime: 15 * 60_000,
+            staleTime: 5_000,
+        });
         expect(await runQuery(claudeCodeWorkspacesQueryOptions())).toBe('claude-workspaces');
         expect(await runQuery(claudeCodeSessionsQueryOptions('workspace-a'))).toBe('claude-sessions');
         expect(await runQuery(claudeCodeSessionDetailQueryOptions('session-a'))).toBe('claude-detail');
@@ -225,6 +229,10 @@ describe('source query options', () => {
     });
 
     it('should configure Grok, Kiro, and Qoder workspace, session, and detail queries', async () => {
+        expect(kiroSessionsQueryOptions('workspace-a')).toMatchObject({
+            gcTime: 15 * 60_000,
+            staleTime: 5_000,
+        });
         const sources = [
             {
                 detail: grokSessionDetailQueryOptions,
@@ -263,6 +271,10 @@ describe('source query options', () => {
 
     it('should configure OpenCode queries with bounded SQLite retries', async () => {
         const options = openCodeWorkspacesQueryOptions();
+        expect(openCodeSessionsQueryOptions('workspace-a')).toMatchObject({
+            gcTime: 15 * 60_000,
+            staleTime: 5_000,
+        });
         expect(await runQuery(options)).toBe('opencode-workspaces');
         expect((options.retry as (failures: number, error: unknown) => boolean)(2, 'retryable')).toBe(true);
         expect((options.retry as (failures: number, error: unknown) => boolean)(3, 'retryable')).toBe(false);

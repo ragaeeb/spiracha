@@ -25,6 +25,7 @@ import {
     isWorkspacePathQuery,
     type JsonValue,
     pathExists,
+    warnParserDiagnosticOnce,
     workspacePathMatchesQuery,
 } from './shared';
 import { runWithSqliteRetry } from './sqlite-retry';
@@ -43,12 +44,58 @@ const OPENCODE_OPTIONAL_SESSION_TABLES = [
     'session_share',
     'todo',
 ] as const;
+const OPENCODE_REQUIRED_COLUMNS = {
+    message: ['id', 'session_id', 'time_created', 'time_updated', 'data'],
+    part: ['id', 'message_id', 'session_id', 'time_created', 'time_updated', 'data'],
+    project: ['id', 'name', 'worktree', 'time_updated'],
+    session: [
+        'id',
+        'project_id',
+        'parent_id',
+        'slug',
+        'directory',
+        'title',
+        'permission',
+        'time_created',
+        'time_updated',
+        'time_archived',
+        'path',
+        'agent',
+        'model',
+        'cost',
+        'tokens_input',
+        'tokens_output',
+        'tokens_reasoning',
+        'tokens_cache_read',
+        'tokens_cache_write',
+        'summary_files',
+        'summary_additions',
+        'summary_deletions',
+    ],
+} as const;
 
 type OpenCodeOptionalSessionTable = (typeof OPENCODE_OPTIONAL_SESSION_TABLES)[number];
 
 export type DeleteOpenCodeSessionResult = {
     deletedSessionIds: string[];
 };
+
+export class OpenCodeDbCompatibilityError extends Error {
+    readonly code = 'OPENCODE_DB_INCOMPATIBLE';
+    readonly missingColumns: string[];
+    readonly missingTables: string[];
+
+    constructor(missingTables: string[], missingColumns: string[]) {
+        const details = [
+            missingTables.length > 0 ? `missing tables: ${missingTables.join(', ')}` : '',
+            missingColumns.length > 0 ? `missing columns: ${missingColumns.join(', ')}` : '',
+        ].filter(Boolean);
+        super(`Unsupported OpenCode database schema; ${details.join('; ')}`);
+        this.name = 'OpenCodeDbCompatibilityError';
+        this.missingColumns = missingColumns;
+        this.missingTables = missingTables;
+    }
+}
 
 type WorkspaceRow = {
     archivedSessionCount: number;
@@ -199,11 +246,40 @@ export const getOpenCodeReadDbUri = (dbPath: string, mode: 'ro' | 'rw' = 'rw'): 
     return url.href;
 };
 
+const assertOpenCodeSchemaCompatibility = (db: Database): void => {
+    const tableNames = new Set(
+        (db.query("SELECT name FROM sqlite_schema WHERE type = 'table'").all() as Array<{ name: string }>).map(
+            (row) => row.name,
+        ),
+    );
+    const missingTables = Object.keys(OPENCODE_REQUIRED_COLUMNS).filter((tableName) => !tableNames.has(tableName));
+    const missingColumns: string[] = [];
+
+    for (const [tableName, requiredColumns] of Object.entries(OPENCODE_REQUIRED_COLUMNS)) {
+        if (!tableNames.has(tableName)) {
+            continue;
+        }
+        const actualColumns = new Set(
+            (db.query(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>).map((row) => row.name),
+        );
+        for (const columnName of requiredColumns) {
+            if (!actualColumns.has(columnName)) {
+                missingColumns.push(`${tableName}.${columnName}`);
+            }
+        }
+    }
+
+    if (missingTables.length > 0 || missingColumns.length > 0) {
+        throw new OpenCodeDbCompatibilityError(missingTables, missingColumns);
+    }
+};
+
 const configureOpenCodeReadDb = (db: Database): Database => {
     try {
         db.exec('PRAGMA busy_timeout = 1000');
         db.exec('PRAGMA query_only = ON');
         db.query('SELECT 1 FROM sqlite_schema LIMIT 1').get();
+        assertOpenCodeSchemaCompatibility(db);
         return db;
     } catch (error) {
         db.close();
@@ -216,7 +292,10 @@ export const openOpenCodeReadDb = (dbPath: string): Database => {
         return configureOpenCodeReadDb(
             new Database(getOpenCodeReadDbUri(dbPath, 'ro'), OPENCODE_READONLY_DB_OPEN_FLAGS),
         );
-    } catch {
+    } catch (error) {
+        if (error instanceof OpenCodeDbCompatibilityError) {
+            throw error;
+        }
         return configureOpenCodeReadDb(new Database(getOpenCodeReadDbUri(dbPath), OPENCODE_READ_DB_OPEN_FLAGS));
     }
 };
@@ -259,9 +338,16 @@ const parseJsonValue = (value: string | null): JsonValue | string | null => {
     }
 };
 
-const parseJsonObject = (value: string): Record<string, JsonValue> => {
+const parseJsonObject = (
+    value: string,
+    details?: { id: string; recordType: 'message' | 'part' },
+): Record<string, JsonValue> => {
     const parsed = parseJsonValue(value);
-    return asObject(parsed) ?? {};
+    const object = asObject(parsed);
+    if (!object && details) {
+        warnParserDiagnosticOnce('opencode', 'malformed-json', details);
+    }
+    return object ?? {};
 };
 
 const parseMutableJsonObject = (value: string): Record<string, unknown> | null => {
@@ -432,42 +518,68 @@ const toSessionSummary = (row: SessionRow): OpenCodeSessionSummary => {
 };
 
 const workspaceRowsQuery = `
+    WITH top_sessions AS (
+        SELECT id, project_id, time_archived, time_updated
+        FROM session
+        WHERE parent_id IS NULL AND project_id <> '${GLOBAL_OPENCODE_PROJECT_ID}'
+    ),
+    session_stats AS (
+        SELECT
+            project_id,
+            COUNT(*) AS sessionCount,
+            SUM(CASE WHEN time_archived IS NOT NULL THEN 1 ELSE 0 END) AS archivedSessionCount,
+            MAX(time_updated) AS lastActiveMs
+        FROM top_sessions
+        GROUP BY project_id
+    ),
+    message_stats AS (
+        SELECT s.project_id, COUNT(*) AS messageCount
+        FROM message m
+        JOIN top_sessions s ON s.id = m.session_id
+        GROUP BY s.project_id
+    ),
+    part_stats AS (
+        SELECT s.project_id, COUNT(*) AS partCount
+        FROM part prt
+        JOIN top_sessions s ON s.id = prt.session_id
+        GROUP BY s.project_id
+    )
     SELECT
         p.id AS projectId,
         p.name AS name,
         NULL AS directory,
         p.worktree AS worktree,
-        (
-            SELECT COUNT(*)
-            FROM session s
-            WHERE s.project_id = p.id AND ${MAIN_SESSION_FILTER}
-        ) AS sessionCount,
-        (
-            SELECT COUNT(*)
-            FROM session s
-            WHERE s.project_id = p.id AND ${MAIN_SESSION_FILTER} AND s.time_archived IS NOT NULL
-        ) AS archivedSessionCount,
-        (
-            SELECT COUNT(*)
-            FROM message m
-            JOIN session s ON s.id = m.session_id
-            WHERE s.project_id = p.id AND ${MAIN_SESSION_FILTER}
-        ) AS messageCount,
-        (
-            SELECT COUNT(*)
-            FROM part prt
-            JOIN session s ON s.id = prt.session_id
-            WHERE s.project_id = p.id AND ${MAIN_SESSION_FILTER}
-        ) AS partCount,
-        COALESCE((
-            SELECT MAX(s.time_updated)
-            FROM session s
-            WHERE s.project_id = p.id AND ${MAIN_SESSION_FILTER}
-        ), p.time_updated) AS lastActiveMs
+        COALESCE(ss.sessionCount, 0) AS sessionCount,
+        COALESCE(ss.archivedSessionCount, 0) AS archivedSessionCount,
+        COALESCE(ms.messageCount, 0) AS messageCount,
+        COALESCE(ps.partCount, 0) AS partCount,
+        COALESCE(ss.lastActiveMs, p.time_updated) AS lastActiveMs
     FROM project p
+    LEFT JOIN session_stats ss ON ss.project_id = p.id
+    LEFT JOIN message_stats ms ON ms.project_id = p.id
+    LEFT JOIN part_stats ps ON ps.project_id = p.id
 `;
 
 const globalWorkspaceRowsQuery = `
+    WITH top_sessions AS (
+        SELECT id, directory, time_archived, time_updated
+        FROM session
+        WHERE project_id = '${GLOBAL_OPENCODE_PROJECT_ID}'
+          AND parent_id IS NULL
+          AND trim(coalesce(directory, '')) <> ''
+    ),
+    message_stats AS (
+        SELECT s.directory, COUNT(*) AS messageCount
+        FROM message m
+        JOIN top_sessions s ON s.id = m.session_id
+        GROUP BY s.directory
+    ),
+    part_stats AS (
+        SELECT s.directory, COUNT(*) AS partCount
+        FROM part prt
+        JOIN top_sessions s ON s.id = prt.session_id
+        GROUP BY s.directory
+    )
     SELECT
         '${GLOBAL_OPENCODE_PROJECT_ID}' AS projectId,
         NULL AS name,
@@ -475,27 +587,12 @@ const globalWorkspaceRowsQuery = `
         s.directory AS worktree,
         COUNT(*) AS sessionCount,
         SUM(CASE WHEN s.time_archived IS NOT NULL THEN 1 ELSE 0 END) AS archivedSessionCount,
-        (
-            SELECT COUNT(*)
-            FROM message m
-            JOIN session ms ON ms.id = m.session_id
-            WHERE ms.project_id = '${GLOBAL_OPENCODE_PROJECT_ID}'
-              AND ms.parent_id IS NULL
-              AND ms.directory = s.directory
-        ) AS messageCount,
-        (
-            SELECT COUNT(*)
-            FROM part prt
-            JOIN session ps ON ps.id = prt.session_id
-            WHERE ps.project_id = '${GLOBAL_OPENCODE_PROJECT_ID}'
-              AND ps.parent_id IS NULL
-              AND ps.directory = s.directory
-        ) AS partCount,
+        COALESCE(MAX(ms.messageCount), 0) AS messageCount,
+        COALESCE(MAX(ps.partCount), 0) AS partCount,
         MAX(s.time_updated) AS lastActiveMs
-    FROM session s
-    WHERE s.project_id = '${GLOBAL_OPENCODE_PROJECT_ID}'
-      AND ${MAIN_SESSION_FILTER}
-      AND trim(coalesce(s.directory, '')) <> ''
+    FROM top_sessions s
+    LEFT JOIN message_stats ms ON ms.directory = s.directory
+    LEFT JOIN part_stats ps ON ps.directory = s.directory
     GROUP BY s.directory
 `;
 
@@ -507,12 +604,40 @@ const invalidGlobalWorkspaceRowsQuery = `
       AND trim(coalesce(s.directory, '')) = ''
 `;
 
-const sessionSelectQuery = `
+const getSessionSelectQuery = (whereSql: string) => `
+    WITH selected_sessions AS (
+        SELECT s.*, p.name AS projectName, p.worktree AS worktree
+        FROM session s
+        JOIN project p ON p.id = s.project_id
+        WHERE ${whereSql}
+    ),
+    message_stats AS (
+        SELECT m.session_id, COUNT(*) AS messageCount
+        FROM message m
+        JOIN selected_sessions s ON s.id = m.session_id
+        GROUP BY m.session_id
+    ),
+    part_stats AS (
+        SELECT
+            prt.session_id,
+            COUNT(*) AS partCount,
+            SUM(CASE WHEN json_extract(prt.data, '$.type') = 'text' THEN 1 ELSE 0 END) AS textPartCount,
+            SUM(CASE WHEN json_extract(prt.data, '$.type') = 'tool' THEN 1 ELSE 0 END) AS toolPartCount,
+            SUM(CASE
+                WHEN json_extract(prt.data, '$.type') IN ('text', 'reasoning')
+                  AND trim(COALESCE(json_extract(prt.data, '$.text'), '')) <> '' THEN 1
+                WHEN json_extract(prt.data, '$.type') = 'tool' THEN 1
+                ELSE 0
+            END) AS renderablePartCount
+        FROM part prt
+        JOIN selected_sessions s ON s.id = prt.session_id
+        GROUP BY prt.session_id
+    )
     SELECT
         s.id AS sessionId,
         s.project_id AS projectId,
-        p.name AS projectName,
-        p.worktree AS worktree,
+        s.projectName AS projectName,
+        s.worktree AS worktree,
         s.slug AS slug,
         s.directory AS directory,
         s.title AS title,
@@ -532,40 +657,14 @@ const sessionSelectQuery = `
         s.summary_files AS summaryFiles,
         s.summary_additions AS summaryAdditions,
         s.summary_deletions AS summaryDeletions,
-        (
-            SELECT COUNT(*)
-            FROM message m
-            WHERE m.session_id = s.id
-        ) AS messageCount,
-        (
-            SELECT COUNT(*)
-            FROM part prt
-            WHERE prt.session_id = s.id
-        ) AS partCount,
-        (
-            SELECT COUNT(*)
-            FROM part prt
-            WHERE prt.session_id = s.id AND json_extract(prt.data, '$.type') = 'text'
-        ) AS textPartCount,
-        (
-            SELECT COUNT(*)
-            FROM part prt
-            WHERE prt.session_id = s.id AND json_extract(prt.data, '$.type') = 'tool'
-        ) AS toolPartCount,
-        (
-            SELECT COUNT(*)
-            FROM part prt
-            WHERE prt.session_id = s.id
-              AND (
-                (
-                    json_extract(prt.data, '$.type') IN ('text', 'reasoning')
-                    AND trim(COALESCE(json_extract(prt.data, '$.text'), '')) <> ''
-                )
-                OR json_extract(prt.data, '$.type') = 'tool'
-              )
-        ) AS renderablePartCount
-    FROM session s
-    JOIN project p ON p.id = s.project_id
+        COALESCE(ms.messageCount, 0) AS messageCount,
+        COALESCE(ps.partCount, 0) AS partCount,
+        COALESCE(ps.textPartCount, 0) AS textPartCount,
+        COALESCE(ps.toolPartCount, 0) AS toolPartCount,
+        COALESCE(ps.renderablePartCount, 0) AS renderablePartCount
+    FROM selected_sessions s
+    LEFT JOIN message_stats ms ON ms.session_id = s.id
+    LEFT JOIN part_stats ps ON ps.session_id = s.id
 `;
 
 export const listOpenCodeWorkspaceGroups = async (
@@ -583,6 +682,10 @@ export const listOpenCodeWorkspaceGroups = async (
             const invalidGlobalRows = db.query(invalidGlobalWorkspaceRowsQuery).all() as { sessionId: string }[];
             for (const row of invalidGlobalRows) {
                 logOpenCodeDb('invalid-global-session-directory', { sessionId: row.sessionId });
+                warnParserDiagnosticOnce('opencode', 'skipped-session', {
+                    reason: 'blank global session directory',
+                    sessionId: row.sessionId,
+                });
             }
             const globalRows = db.query(globalWorkspaceRowsQuery).all() as WorkspaceRow[];
             return [...projectRows, ...globalRows]
@@ -626,7 +729,7 @@ export const findOpenCodeWorkspaceGroups = (
 
 const readSessionSummaries = (db: Database, whereSql: string, params: string[]): OpenCodeSessionSummary[] => {
     const rows = db
-        .query(`${sessionSelectQuery} WHERE ${whereSql} ORDER BY s.time_updated DESC, s.title ASC`)
+        .query(`${getSessionSelectQuery(whereSql)} ORDER BY s.time_updated DESC, s.title ASC`)
         .all(...params) as SessionRow[];
     return rows.map(toSessionSummary);
 };
@@ -655,6 +758,10 @@ const readOpenCodeSessionSummary = (db: Database, sessionId: string): OpenCodeSe
     const session = readSessionSummaries(db, `s.id = ? AND ${MAIN_SESSION_FILTER}`, [sessionId])[0] ?? null;
     if (session?.projectId === GLOBAL_OPENCODE_PROJECT_ID && !session.directory.trim()) {
         logOpenCodeDb('invalid-global-session-directory', { sessionId });
+        warnParserDiagnosticOnce('opencode', 'skipped-session', {
+            reason: 'blank global session directory',
+            sessionId,
+        });
         return null;
     }
     return session;
@@ -1160,7 +1267,7 @@ const parseOpenCodePartByType = (base: BaseOpenCodePart): OpenCodeTranscriptPart
 };
 
 const parseOpenCodePart = (row: PartRow, role: string): OpenCodeTranscriptPart => {
-    const raw = parseJsonObject(row.data);
+    const raw = parseJsonObject(row.data, { id: row.partId, recordType: 'part' });
     return parseOpenCodePartByType({
         createdAtMs: row.timeCreated,
         messageId: row.messageId,
@@ -1210,7 +1317,7 @@ const readMessages = (db: Database, sessionId: string): OpenCodeTranscriptMessag
     }
 
     return messageRows.map((message): OpenCodeTranscriptMessage => {
-        const raw = parseJsonObject(message.data);
+        const raw = parseJsonObject(message.data, { id: message.messageId, recordType: 'message' });
         const role = getMessageRole(raw);
         const parts = (partsByMessageId.get(message.messageId) ?? []).map((part) => parseOpenCodePart(part, role));
         return {

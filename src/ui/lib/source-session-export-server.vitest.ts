@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { UI_EXPORT_DIR_ENV, UI_EXPORT_URL_PREFIX } from '@spiracha/lib/ui-export-files';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { renderSourceSessionsDownload } from './source-session-export-server';
+import { renderSourceSessionDownload, renderSourceSessionsDownload } from './source-session-export-server';
 
 vi.mock('@spiracha/lib/ui-export-archive', async () => {
     const actual = await vi.importActual<typeof import('@spiracha/lib/ui-export-archive')>(
@@ -54,6 +54,26 @@ const resolveDownloadPath = (downloadUrl: string) => {
 };
 
 describe('source session export server helpers', () => {
+    it('should move oversized single-session exports to a download URL', async () => {
+        const result = await renderSourceSessionDownload({
+            content: '# Session',
+            cwd: '/Users/example/workspace/spiracha',
+            fallbackBaseName: 'source-session',
+            largeExportThresholdBytes: 1,
+            outputFormat: 'md',
+            platform: 'claude',
+            sessionId: '019e36d7-ba2d-7fa1-b662-3f70fbbda248',
+            updatedAtMs: Date.UTC(2026, 4, 17, 17, 12),
+            zipArchive: false,
+        });
+
+        expect(result.mode).toBe('download_url');
+        if (result.mode !== 'download_url') {
+            throw new Error('expected a zip download URL');
+        }
+        expect(result.fileName).toBe('claude_spiracha-2026-05-17-1712-019e36d7.zip');
+    });
+
     it('should keep a single unzipped source session export inline', async () => {
         const result = await renderSourceSessionsDownload({
             entries: [

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, rm, utimes } from 'node:fs/promises';
 import os from 'node:os';
@@ -716,6 +716,86 @@ describe('kiro workspace discovery', () => {
             messageCount: 4,
             userMessageCount: 1,
         });
+    });
+
+    it('should index execution files in deeper changed storage layouts', async () => {
+        const sessionsDir = await makeTempRoot();
+        const sessionId = 'session-deep-execution';
+        await writeSession({
+            createdAtMs: 1_781_212_901_555,
+            sessionId,
+            sessionsDir,
+            title: 'Deep execution layout',
+            updatedAtMs: 1_781_212_904_000,
+            workspacePath: corpusCwd,
+        });
+        const executionPath = path.join(sessionsDir, 'executions', 'v2', 'nested', 'deeper', 'run.json');
+        await mkdir(path.dirname(executionPath), { recursive: true });
+        await Bun.write(
+            executionPath,
+            JSON.stringify({
+                actions: [
+                    {
+                        actionId: 'deep-message',
+                        actionType: 'assistantMessage',
+                        output: { message: 'Loaded from a changed execution layout.' },
+                    },
+                ],
+                chatSessionId: sessionId,
+                executionId: `${sessionId}-execution`,
+            }),
+        );
+        await Bun.write(path.join(sessionsDir, 'executions', 'artifact.bin'), 'not json');
+        const warnSpy = spyOn(console, 'warn').mockImplementation(() => undefined);
+
+        try {
+            const transcript = await readKiroSessionTranscript(sessionsDir, sessionId);
+
+            expect(
+                transcript?.entries.some((entry) => entry.parts[0]?.text?.includes('changed execution layout')),
+            ).toBe(true);
+            expect(warnSpy).not.toHaveBeenCalled();
+        } finally {
+            warnSpy.mockRestore();
+        }
+    });
+
+    it('should emit one low-noise diagnostic for malformed session JSON', async () => {
+        const sessionsDir = await makeTempRoot();
+        const workspaceDir = path.join(sessionsDir, encodeKiroWorkspaceDirectoryName(corpusCwd));
+        await mkdir(workspaceDir, { recursive: true });
+        await Bun.write(path.join(workspaceDir, 'broken.json'), '{broken');
+        const warnSpy = spyOn(console, 'warn').mockImplementation(() => undefined);
+
+        try {
+            await listKiroWorkspaceGroups(sessionsDir);
+            await listKiroWorkspaceGroups(sessionsDir);
+            expect(warnSpy).toHaveBeenCalledTimes(1);
+            expect(warnSpy).toHaveBeenCalledWith('[spiracha:kiro] malformed-json', {
+                filePath: path.join(workspaceDir, 'broken.json'),
+            });
+        } finally {
+            warnSpy.mockRestore();
+        }
+    });
+
+    it('should diagnose a session schema mismatch without treating it as history', async () => {
+        const sessionsDir = await makeTempRoot();
+        const workspaceDir = path.join(sessionsDir, encodeKiroWorkspaceDirectoryName(corpusCwd));
+        await mkdir(workspaceDir, { recursive: true });
+        const filePath = path.join(workspaceDir, 'wrong-shape.json');
+        await Bun.write(filePath, '[]');
+        const warnSpy = spyOn(console, 'warn').mockImplementation(() => undefined);
+
+        try {
+            await listKiroWorkspaceGroups(sessionsDir);
+            expect(warnSpy).toHaveBeenCalledWith('[spiracha:kiro] schema-mismatch', {
+                expected: 'object',
+                filePath,
+            });
+        } finally {
+            warnSpy.mockRestore();
+        }
     });
 
     it('should interleave Kiro execution entries at their matching assistant placeholders', async () => {

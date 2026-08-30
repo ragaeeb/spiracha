@@ -142,8 +142,7 @@ describe('shared helpers', () => {
 
         expect(entries).toEqual([{ type: 'message' }, { type: 'tool' }]);
         expect(warnings).toEqual([
-            ['[spiracha:jsonl] invalid_json_line', { filePath: jsonlPath, lineNumber: 2 }],
-            ['[spiracha:jsonl] invalid_json_line', { filePath: jsonlPath, lineNumber: 3 }],
+            ['[spiracha:jsonl] skipped invalid records', { count: 2, filePath: jsonlPath, firstLineNumber: 2 }],
         ]);
 
         const outputPath = path.join(tempRoot, 'exports', 'thread.txt');

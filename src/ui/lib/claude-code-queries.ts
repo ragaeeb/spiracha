@@ -15,8 +15,10 @@ export const claudeCodeWorkspacesQueryOptions = () =>
 export const claudeCodeSessionsQueryOptions = (workspaceKey: string | null) =>
     queryOptions({
         enabled: workspaceKey !== null,
+        gcTime: 15 * 60_000,
         queryFn: () => listClaudeCodeSessionsFn({ data: { workspaceKey: workspaceKey ?? '' } }),
         queryKey: ['claude-code-sessions', workspaceKey ?? 'none'],
+        staleTime: 5_000,
     });
 
 export const claudeCodeSessionDetailQueryOptions = (sessionId: string | null) =>

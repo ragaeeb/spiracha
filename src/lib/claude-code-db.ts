@@ -706,7 +706,7 @@ const parseTranscriptFile = async (file: TranscriptFile): Promise<ClaudeCodeSess
     const rawEvents: Record<string, JsonValue>[] = [];
 
     try {
-        for await (const raw of readJsonlObjects(file.filePath)) {
+        for await (const raw of readJsonlObjects(file.filePath, 'claude-code')) {
             rawEvents.push(raw);
         }
     } catch (error) {

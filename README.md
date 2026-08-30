@@ -155,6 +155,7 @@ const page = await client.listConversations({
 
 Library and CLI use is quiet by default. Set `SPIRACHA_TRANSCRIPT_LOAD_LOGS=1` or
 `SPIRACHA_OPENCODE_DB_LOGS=1` only when diagnosing loader or OpenCode database timing.
+Malformed local records emit aggregated or first-sample warnings rather than one warning per record, so repeated list/detail loads do not flood stderr. Incompatible OpenCode table or column layouts fail with `OPENCODE_DB_INCOMPATIBLE` instead of appearing as empty history.
 
 The public client exposes the same operations in local and HTTP modes: source listing, path-scoped listing, detail reads, raw/Markdown/evidence/zip exports, source-owned deletes, and reference resolution.
 
@@ -194,9 +195,9 @@ Spiracha bounds temporary disk use by age and total retained bytes. Values are n
 | `SPIRACHA_UI_CACHE_MAX_BYTES` | `268435456` | Total UI JSON cache ceiling; oldest entries are pruned first. |
 | `SPIRACHA_UI_EXPORT_MAX_AGE_MS` | `86400000` | Maximum age of temporary downloadable exports. |
 | `SPIRACHA_UI_EXPORT_MAX_BYTES` | `1073741824` | Total temporary export ceiling; oldest exports are pruned first. |
-| `SPIRACHA_UI_LARGE_EXPORT_THRESHOLD_BYTES` | `134217728` | Size above which Codex export rendering switches to a temporary download. |
+| `SPIRACHA_UI_LARGE_EXPORT_THRESHOLD_BYTES` | `134217728` | Size above which a single transcript export switches to a temporary zipped download. |
 
-Claude Code, Kiro, and Cursor discovery use short-lived, bounded indexes with in-flight request coalescing and mutation invalidation. Cursor also indexes direct composer-id lookups instead of rescanning every workspace group. File identity metadata invalidates changed transcripts, source mutations invalidate affected entries immediately, and no raw source payload is persisted by these caches.
+Claude Code, Kiro, and Cursor discovery use short-lived, bounded indexes with in-flight request coalescing and mutation invalidation. Kiro builds one validated session-ID index across execution storage, including nested layouts, instead of rescanning per session. Cursor indexes direct composer-id lookups instead of rescanning every workspace group. File identity metadata invalidates changed transcripts, source mutations invalidate affected entries immediately, and no raw source payload is persisted by these caches.
 
 Cursor and Antigravity detail pages split metadata from large transcript/artifact documents. Codex thread metadata records whether a rollout is available, missing, or deferred; the UI can load a bounded preview, request the full transcript, or export directly. Temporary JSON cache and download files are created with private permissions and pruned by age and total bytes.
 

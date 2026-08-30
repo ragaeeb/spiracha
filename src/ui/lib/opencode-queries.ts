@@ -21,10 +21,12 @@ export const openCodeWorkspacesQueryOptions = () =>
 export const openCodeSessionsQueryOptions = (workspaceKey: string | null) =>
     queryOptions({
         enabled: workspaceKey !== null,
+        gcTime: 15 * 60_000,
         queryFn: () => listOpenCodeSessionsFn({ data: { workspaceKey: workspaceKey ?? '' } }),
         queryKey: ['opencode-sessions', workspaceKey ?? 'none'],
         retry: retrySqliteQuery,
         retryDelay,
+        staleTime: 5_000,
     });
 
 export const openCodeSessionDetailQueryOptions = (sessionId: string | null) =>
