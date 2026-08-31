@@ -57,7 +57,7 @@ Install the SDK in another Bun application with `bun add spiracha`. `list` and `
 ## What It Does
 
 - Browse local conversations across Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode.
-- Import exported ChatGPT, Claude, Gemini, Grok, Qwen, GLM, and compatible web conversations by dropping JSON files onto the Web page.
+- Import exported ChatGPT, Claude, Gemini, Grok, Qwen, GLM, Amazon Nova, DeepSeek, Mistral, Perplexity, and compatible web conversations by dropping JSON files onto the Web page.
 - Group each integration into workspace inventories with local search and source-specific export/delete actions where supported.
 - Search Codex projects from the app shell, with results delegated to the shareable `/codex?q=...` inventory filter.
 - Inspect source-specific detail pages with transcript, tool, reasoning, metadata, raw event, export, and delete flows where supported by the source. Transcript controls can filter user messages, commentary, tools, extra events, raw JSON, and text matches. Codex thread detail includes optional live updates isolated from page-loading connections, a tool-focused activity view, recorded goals, and sandbox policy.
@@ -68,13 +68,15 @@ Install the SDK in another Bun application with `bun add spiracha`. `list` and `
 - Expose a stable API for local clients that need normalized conversation metadata and message payloads.
 - Resolve Spiracha UI links and native source links into normalized `{ source, id }` references for cross-thread context lookup.
 
-Large bodies are loaded behind the lightweight metadata path where needed. Cursor, Antigravity, and imported Web detail routes fetch transcript/artifact bodies after browser hydration, and oversized Codex rollouts expose a deferred preview/full-load choice instead of inflating the initial route payload.
+Large bodies are loaded behind the lightweight metadata path where needed. Cursor and Antigravity detail routes fetch transcript/artifact documents after browser hydration; imported Web detail routes fetch normalized transcript events after hydration; and oversized Codex rollouts expose a deferred preview/full-load choice instead of inflating the initial route payload.
 
 ### Web chat imports
 
-Open `/web` and drop one or more JSON exports. Spiracha infers mapping-based ChatGPT-style envelopes plus native Claude, Grok, and ordinary role/content message arrays at runtime. A single parsed conversation opens directly; multiple conversations remain in a searchable, paginated list and link to `/web-chats/:conversationId`.
+Open `/web` and drop one or more JSON exports. Spiracha parses mapping-based ChatGPT-style envelopes, native Claude and Grok exports, and ordinary role/content message arrays at runtime. Provider detection uses content and model metadata before the file name, and recognizes ChatGPT, Claude, Gemini, Grok, Qwen, GLM, Amazon Nova, DeepSeek, Mistral, and Perplexity hints. Assistant reasoning remains separate from the answer, and embedded research/tool activity becomes normalized tool events where the source exposes enough structure. A single parsed conversation opens directly; multiple conversations remain in a searchable, paginated list and link to `/web-chats/:conversationId`.
 
-Each file is limited to 25 MB, with at most 20 files and 100 MB per import. Spiracha retains up to 128 MB of the most recent normalized conversations in server memory; imports disappear when evicted or when the Spiracha server stops. Web imports are a UI workflow and are not added to the stable data API or CLI source registry.
+Unsupported or malformed files return per-file errors while valid files in the same import remain available. Web conversation detail pages expose the normalized transcript, metadata, transcript controls, and Parsed JSON; they do not export or delete the original source file.
+
+Each file is limited to 25 MB, with at most 20 files and 100 MB per import. Spiracha retains up to 128 MB of the most recent normalized conversations in server memory and evicts the oldest entries first; imports disappear when evicted or when the Spiracha server stops. Each detail route uses a generated opaque ID and keeps the original provider conversation ID separately when one is present. Web imports are a UI workflow and are not added to the stable data API, CLI, or stable source registry.
 
 ## Stable Data API
 
@@ -238,6 +240,7 @@ Cursor reads use a retry-aware synchronous callback that opens a fresh read hand
 - `/threads/$threadId` for Codex thread detail.
 - `/claude-code`, `/cline`, `/grok`, `/kiro`, `/qoder`, `/cursor`, `/antigravity`, `/fx`, `/minimax-code`, and `/opencode` for source inventories.
 - Source detail routes include `/claude-code-sessions/$sessionId`, `/cline-tasks/$taskId`, `/grok-sessions/$sessionId`, `/kiro-sessions/$sessionId`, `/qoder-sessions/$sessionId`, `/cursor-threads/$composerId`, `/antigravity-conversations/$conversationId`, `/fx-sessions/$sessionId`, `/minimax-code-sessions/$sessionId`, and `/opencode-sessions/$sessionId`.
+- `/web` for JSON imports and a searchable in-memory list of imported conversations; `/web-chats/$conversationId` for parsed transcript, metadata, and normalized JSON.
 - FX workspace and detail pages support single, selected, and workspace-wide deletion. Deletion removes the session directory plus its session-index and latest-pointer entries while preserving workspace files and global FX command history.
 - MiniMax Code workspace and detail pages support single, selected, and workspace-wide deletion. Deletion removes finalized session directories and authoritative runtime database rows while preserving generated workspace files and append-only observability logs.
 - `/analytics` for project-scoped Codex token totals, average and median thread size, archive counts, tool usage, model tokens, client sources, reasoning-effort breakdowns, and deterministic optimization findings.
