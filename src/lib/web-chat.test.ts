@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import type { ThreadEvent } from './codex-browser-types';
-import { parseWebChatFiles } from './web-chat';
+import { getImportedWebChat, importWebChatFiles, parseWebChatFiles } from './web-chat';
 
 const isAssistantMessage = (event: ThreadEvent): event is Extract<ThreadEvent, { kind: 'message' }> =>
     event.kind === 'message' && event.role === 'assistant';
@@ -984,5 +984,29 @@ describe('parseWebChatFiles', () => {
         expect(getToolCalls(events)).toEqual([
             expect.objectContaining({ command: 'Deep Research App_start', name: 'api_tool.call_tool' }),
         ]);
+    });
+
+    it('should retain imported conversations without serializing the normalized conversation again', () => {
+        const input = createMappingExport({
+            conversationId: 'retention-size',
+            model: 'gpt-5-6-pro',
+            title: 'Retention size',
+        });
+        const content = JSON.stringify(input);
+        const originalStringify = JSON.stringify;
+        JSON.stringify = ((value: unknown, ...args: unknown[]) => {
+            if (value && typeof value === 'object' && 'events' in value && 'messageCount' in value) {
+                throw new Error('normalized conversation was reserialized');
+            }
+            return originalStringify(value, ...(args as [never, never]));
+        }) as typeof JSON.stringify;
+
+        try {
+            const result = importWebChatFiles([{ content, name: 'retention.json' }]);
+            expect(result.errors).toEqual([]);
+            expect(getImportedWebChat(result.conversations[0]!.id)).not.toBeNull();
+        } finally {
+            JSON.stringify = originalStringify;
+        }
     });
 });

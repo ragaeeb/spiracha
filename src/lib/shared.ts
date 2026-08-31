@@ -145,8 +145,20 @@ export const asBoolean = (value: JsonValue): boolean => {
 
 const emittedParserDiagnostics = new Set<string>();
 
-export const warnParserDiagnosticOnce = (source: string, code: string, details: Record<string, unknown>): void => {
-    const key = `${source}:${code}`;
+const getParserDiagnosticKey = (source: string, code: string, scope?: string): string =>
+    `${source}:${code}${scope ? `:${scope}` : ''}`;
+
+export const resetParserDiagnosticForTests = (source: string, code: string, scope?: string): void => {
+    emittedParserDiagnostics.delete(getParserDiagnosticKey(source, code, scope));
+};
+
+export const warnParserDiagnosticOnce = (
+    source: string,
+    code: string,
+    details: Record<string, unknown>,
+    scope?: string,
+): void => {
+    const key = getParserDiagnosticKey(source, code, scope);
     if (emittedParserDiagnostics.has(key)) {
         return;
     }
@@ -186,6 +198,7 @@ export const readJsonlObjects = (
             return;
         }
 
+        warnAboutInvalidRecords();
         closed = true;
         lines.close();
         stream.destroy();
@@ -195,7 +208,6 @@ export const readJsonlObjects = (
         while (true) {
             const nextLine = await lineIterator.next();
             if (nextLine.done) {
-                warnAboutInvalidRecords();
                 close();
                 return { done: true, value: undefined as never };
             }

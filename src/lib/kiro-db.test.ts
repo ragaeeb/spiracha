@@ -12,6 +12,7 @@ import {
     listKiroWorkspaceGroups,
     readKiroSessionTranscript,
 } from './kiro-db';
+import { resetParserDiagnosticForTests } from './shared';
 
 const tempRoots: string[] = [];
 const homeDir = os.homedir();
@@ -441,6 +442,36 @@ describe('kiro workspace discovery', () => {
         expect(await Bun.file(executionPath).exists()).toBe(false);
         expect(await Bun.file(path.join(workspaceDir, 'sessions.json')).json()).toEqual([]);
         expect(await readKiroSessionTranscript(sessionsDir, sessionId)).toBeNull();
+    });
+
+    it('should preserve stale, mismatched, and out-of-scope execution references during deletion', async () => {
+        const sessionsDir = await makeTempRoot();
+        const sessionId = 'session-safe-delete';
+        await writeSession({
+            createdAtMs: 1_781_212_901_555,
+            sessionId,
+            sessionsDir,
+            title: 'Safely delete this session',
+            updatedAtMs: 1_781_212_904_000,
+            workspacePath: corpusCwd,
+        });
+        const workspaceDir = path.join(sessionsDir, encodeKiroWorkspaceDirectoryName(corpusCwd));
+        const sessionPath = path.join(workspaceDir, `${sessionId}.json`);
+        const executionPath = path.join(sessionsDir, getKiroWorkspaceHash(corpusCwd), 'execution', 'stale.json');
+        const outOfScopePath = path.join(sessionsDir, 'config', 'nested', 'unsafe.json');
+        await mkdir(path.dirname(executionPath), { recursive: true });
+        await mkdir(path.dirname(outOfScopePath), { recursive: true });
+        const execution = { actions: [], chatSessionId: sessionId, executionId: 'safe-delete-execution' };
+        await Bun.write(executionPath, JSON.stringify(execution));
+        await Bun.write(outOfScopePath, JSON.stringify(execution));
+        await readKiroSessionTranscript(sessionsDir, sessionId);
+        await Bun.write(executionPath, JSON.stringify({ ...execution, chatSessionId: 'different-session' }));
+
+        const result = await deleteKiroSession(sessionsDir, sessionId);
+
+        expect(result.deletedFiles).toEqual([sessionPath]);
+        expect(await Bun.file(executionPath).exists()).toBe(true);
+        expect(await Bun.file(outOfScopePath).exists()).toBe(true);
     });
 
     it('should serialize concurrent deletes that update the same session index', async () => {
@@ -908,6 +939,7 @@ describe('kiro workspace discovery', () => {
         const workspaceDir = path.join(sessionsDir, encodeKiroWorkspaceDirectoryName(corpusCwd));
         await mkdir(workspaceDir, { recursive: true });
         await Bun.write(path.join(workspaceDir, 'broken.json'), '{broken');
+        resetParserDiagnosticForTests('kiro', 'malformed-json');
         const warnSpy = spyOn(console, 'warn').mockImplementation(() => undefined);
 
         try {
@@ -928,6 +960,7 @@ describe('kiro workspace discovery', () => {
         await mkdir(workspaceDir, { recursive: true });
         const filePath = path.join(workspaceDir, 'wrong-shape.json');
         await Bun.write(filePath, '[]');
+        resetParserDiagnosticForTests('kiro', 'schema-mismatch');
         const warnSpy = spyOn(console, 'warn').mockImplementation(() => undefined);
 
         try {

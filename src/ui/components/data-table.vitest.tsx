@@ -163,7 +163,11 @@ describe('DataTable', () => {
 
         expect(screen.getByText('Page 1 of 2')).toBeTruthy();
         expect(screen.queryByText('model-51')).toBeNull();
-        fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+        const previousButton = screen.getByRole('button', { name: 'Previous page' });
+        const nextButton = screen.getByRole('button', { name: 'Next page' });
+        expect(previousButton.getAttribute('type')).toBe('button');
+        expect(nextButton.getAttribute('type')).toBe('button');
+        fireEvent.click(nextButton);
         expect(screen.getByText('model-51')).toBeTruthy();
     });
 });

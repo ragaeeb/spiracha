@@ -36,6 +36,7 @@ export const OPENCODE_READ_DB_OPEN_FLAGS = constants.SQLITE_OPEN_READWRITE | con
 const OPENCODE_READONLY_DB_OPEN_FLAGS = constants.SQLITE_OPEN_READONLY | constants.SQLITE_OPEN_URI;
 const DEFAULT_OPENCODE_DB_CONCURRENCY = 2;
 const DESKTOP_STATE_FILE_CONCURRENCY = 4;
+const OPENCODE_SCHEMA_CACHE_MAX_ENTRIES = 128;
 const GLOBAL_OPENCODE_PROJECT_ID = 'global';
 const OPENCODE_OPTIONAL_SESSION_TABLES = [
     'session_context_epoch',
@@ -73,6 +74,7 @@ const OPENCODE_REQUIRED_COLUMNS = {
         'summary_deletions',
     ],
 } as const;
+const validatedOpenCodeSchemaMtimes = new Map<string, number>();
 
 type OpenCodeOptionalSessionTable = (typeof OPENCODE_OPTIONAL_SESSION_TABLES)[number];
 
@@ -274,12 +276,28 @@ const assertOpenCodeSchemaCompatibility = (db: Database): void => {
     }
 };
 
-const configureOpenCodeReadDb = (db: Database): Database => {
+const recordValidatedOpenCodeSchema = (dbPath: string, mtimeMs: number): void => {
+    validatedOpenCodeSchemaMtimes.delete(dbPath);
+    while (validatedOpenCodeSchemaMtimes.size >= OPENCODE_SCHEMA_CACHE_MAX_ENTRIES) {
+        const oldestPath = validatedOpenCodeSchemaMtimes.keys().next().value;
+        if (typeof oldestPath !== 'string') {
+            break;
+        }
+        validatedOpenCodeSchemaMtimes.delete(oldestPath);
+    }
+    validatedOpenCodeSchemaMtimes.set(dbPath, mtimeMs);
+};
+
+const configureOpenCodeReadDb = (db: Database, dbPath: string): Database => {
     try {
         db.exec('PRAGMA busy_timeout = 1000');
         db.exec('PRAGMA query_only = ON');
-        db.query('SELECT 1 FROM sqlite_schema LIMIT 1').get();
-        assertOpenCodeSchemaCompatibility(db);
+        const mtimeMs = Bun.file(dbPath).lastModified;
+        if (validatedOpenCodeSchemaMtimes.get(dbPath) !== mtimeMs) {
+            db.query('SELECT 1 FROM sqlite_schema LIMIT 1').get();
+            assertOpenCodeSchemaCompatibility(db);
+            recordValidatedOpenCodeSchema(dbPath, mtimeMs);
+        }
         return db;
     } catch (error) {
         db.close();
@@ -291,12 +309,13 @@ export const openOpenCodeReadDb = (dbPath: string): Database => {
     try {
         return configureOpenCodeReadDb(
             new Database(getOpenCodeReadDbUri(dbPath, 'ro'), OPENCODE_READONLY_DB_OPEN_FLAGS),
+            dbPath,
         );
     } catch (error) {
         if (error instanceof OpenCodeDbCompatibilityError) {
             throw error;
         }
-        return configureOpenCodeReadDb(new Database(getOpenCodeReadDbUri(dbPath), OPENCODE_READ_DB_OPEN_FLAGS));
+        return configureOpenCodeReadDb(new Database(getOpenCodeReadDbUri(dbPath), OPENCODE_READ_DB_OPEN_FLAGS), dbPath);
     }
 };
 
@@ -345,7 +364,7 @@ const parseJsonObject = (
     const parsed = parseJsonValue(value);
     const object = asObject(parsed);
     if (!object && details) {
-        warnParserDiagnosticOnce('opencode', 'malformed-json', details);
+        warnParserDiagnosticOnce('opencode', 'malformed-json', details, details.recordType);
     }
     return object ?? {};
 };
@@ -682,10 +701,15 @@ export const listOpenCodeWorkspaceGroups = async (
             const invalidGlobalRows = db.query(invalidGlobalWorkspaceRowsQuery).all() as { sessionId: string }[];
             for (const row of invalidGlobalRows) {
                 logOpenCodeDb('invalid-global-session-directory', { sessionId: row.sessionId });
-                warnParserDiagnosticOnce('opencode', 'skipped-session', {
-                    reason: 'blank global session directory',
-                    sessionId: row.sessionId,
-                });
+                warnParserDiagnosticOnce(
+                    'opencode',
+                    'skipped-session',
+                    {
+                        reason: 'blank global session directory',
+                        sessionId: row.sessionId,
+                    },
+                    row.sessionId,
+                );
             }
             const globalRows = db.query(globalWorkspaceRowsQuery).all() as WorkspaceRow[];
             return [...projectRows, ...globalRows]
@@ -758,10 +782,15 @@ const readOpenCodeSessionSummary = (db: Database, sessionId: string): OpenCodeSe
     const session = readSessionSummaries(db, `s.id = ? AND ${MAIN_SESSION_FILTER}`, [sessionId])[0] ?? null;
     if (session?.projectId === GLOBAL_OPENCODE_PROJECT_ID && !session.directory.trim()) {
         logOpenCodeDb('invalid-global-session-directory', { sessionId });
-        warnParserDiagnosticOnce('opencode', 'skipped-session', {
-            reason: 'blank global session directory',
+        warnParserDiagnosticOnce(
+            'opencode',
+            'skipped-session',
+            {
+                reason: 'blank global session directory',
+                sessionId,
+            },
             sessionId,
-        });
+        );
         return null;
     }
     return session;

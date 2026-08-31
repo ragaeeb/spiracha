@@ -606,6 +606,32 @@ const listExecutionFileReferencesForSession = async (
     sessionId: string,
 ): Promise<KiroExecutionFileReference[]> => (await getExecutionIndex(dataDir)).get(sessionId) ?? [];
 
+const isExpectedExecutionFilePath = (dataDir: string, filePath: string): boolean => {
+    const relativePath = path.relative(dataDir, filePath);
+    if (
+        !relativePath ||
+        relativePath === '..' ||
+        relativePath.startsWith(`..${path.sep}`) ||
+        path.isAbsolute(relativePath)
+    ) {
+        return false;
+    }
+    const rootDirectory = relativePath.split(path.sep)[0];
+    return rootDirectory === 'executions' || /^[a-f\d]{32}$/iu.test(rootDirectory ?? '');
+};
+
+const listVerifiedExecutionFilesForDeletion = async (dataDir: string, sessionId: string): Promise<string[]> => {
+    const references = await listExecutionFileReferencesForSession(dataDir, sessionId);
+    const verifiedPaths = await mapWithConcurrency(references, READ_CONCURRENCY, async ({ filePath }) => {
+        if (!isExpectedExecutionFilePath(dataDir, filePath)) {
+            return null;
+        }
+        const raw = await readJsonObject(filePath, false);
+        return raw && asString(raw.chatSessionId ?? null) === sessionId && Array.isArray(raw.actions) ? filePath : null;
+    });
+    return verifiedPaths.filter((filePath): filePath is string => filePath !== null);
+};
+
 const getActionTimestamp = (action: Record<string, JsonValue>, execution: Record<string, JsonValue>): string | null => {
     return toIso(
         parseTimestampMs(action.emittedAt) ??
@@ -1570,13 +1596,12 @@ const deletePhysicalKiroSession = async (sessionsDir: string, sessionId: string)
     }
 
     const transcript = await readSessionFile(file, { includeExecutions: false, sessionsDir });
-    const executionFiles = transcript
-        ? await listExecutionFileReferencesForSession(getKiroDataDirFromSessionsDir(sessionsDir), sessionId)
-        : [];
-    const deletedFiles = [file.filePath, ...executionFiles.map((execution) => execution.filePath)];
+    const dataDir = getKiroDataDirFromSessionsDir(sessionsDir);
+    const executionFiles = transcript ? await listVerifiedExecutionFilesForDeletion(dataDir, sessionId) : [];
+    const deletedFiles = [file.filePath, ...executionFiles];
 
     await Promise.all(deletedFiles.map((filePath) => rm(filePath, { force: true })));
-    executionIndexCache.delete(getKiroDataDirFromSessionsDir(sessionsDir));
+    executionIndexCache.delete(dataDir);
     await removeKiroSessionIndexEntry(path.dirname(file.filePath), sessionId);
     invalidateKiroDiscoveryCache([file.filePath]);
 

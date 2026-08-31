@@ -87,6 +87,21 @@ describe('web chat server', () => {
         await expect(importWebChatsFn({ data: { files } } as never)).rejects.toThrow();
     });
 
+    it('should reject malformed import payloads through the server validator', async () => {
+        await expect(importWebChatsFn({ data: {} } as never)).rejects.toThrow();
+        await expect(
+            importWebChatsFn({ data: { files: [{ content: 42, name: 'invalid.json' }] } } as never),
+        ).rejects.toThrow();
+    });
+
+    it('should accept a valid import payload through the server validator', async () => {
+        await expect(
+            importWebChatsFn({
+                data: { files: [{ content: JSON.stringify(exportedChat), name: 'valid-schema.json' }] },
+            } as never),
+        ).resolves.toMatchObject({ errors: [] });
+    });
+
     it('should validate imported file limits in UTF-8 bytes', async () => {
         const content = '€'.repeat(Math.floor(MAX_WEB_CHAT_FILE_BYTES / 3) + 1);
 

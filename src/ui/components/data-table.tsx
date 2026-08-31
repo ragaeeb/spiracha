@@ -278,6 +278,7 @@ export function DataTable<TData extends RowData>({
                             aria-label="Previous page"
                             disabled={!table.getCanPreviousPage()}
                             size="sm"
+                            type="button"
                             variant="outline"
                             onClick={() => table.previousPage()}
                         >
@@ -287,6 +288,7 @@ export function DataTable<TData extends RowData>({
                             aria-label="Next page"
                             disabled={!table.getCanNextPage()}
                             size="sm"
+                            type="button"
                             variant="outline"
                             onClick={() => table.nextPage()}
                         >

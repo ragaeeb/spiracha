@@ -34,6 +34,11 @@ export type WebChatParseResult = {
     errors: WebChatImportError[];
 };
 
+type SizedWebChatConversation = {
+    bytes: number;
+    conversation: WebChatConversation;
+};
+
 type NormalizedMessage = {
     id: string | null;
     model: string | null;
@@ -1230,8 +1235,10 @@ const finalizeConversation = (draft: ConversationDraft, fileName: string): WebCh
     };
 };
 
-export const parseWebChatFiles = (files: WebChatFileInput[]): WebChatParseResult => {
-    const conversations = new Map<string, WebChatConversation>();
+const parseSizedWebChatFiles = (
+    files: WebChatFileInput[],
+): { conversations: SizedWebChatConversation[]; errors: WebChatImportError[] } => {
+    const conversations = new Map<string, SizedWebChatConversation>();
     const errors: WebChatImportError[] = [];
     for (const file of files) {
         let value: unknown;
@@ -1246,25 +1253,30 @@ export const parseWebChatFiles = (files: WebChatFileInput[]): WebChatParseResult
             errors.push({ fileName: file.name, message: 'No supported web conversation was found.' });
             continue;
         }
+        const bytes = Math.ceil(Buffer.byteLength(file.content) / drafts.length);
         for (const draft of drafts) {
             const conversation = finalizeConversation(draft, file.name);
-            conversations.set(conversation.id, conversation);
+            conversations.set(conversation.id, { bytes, conversation });
         }
     }
     return { conversations: [...conversations.values()], errors };
+};
+
+export const parseWebChatFiles = (files: WebChatFileInput[]): WebChatParseResult => {
+    const result = parseSizedWebChatFiles(files);
+    return { conversations: result.conversations.map(({ conversation }) => conversation), errors: result.errors };
 };
 
 const MAX_IMPORTED_WEB_CHAT_BYTES = 128 * 1024 * 1024;
 const importedWebChats = new Map<string, { bytes: number; conversation: WebChatConversation }>();
 let importedWebChatBytes = 0;
 
-const retainImportedWebChat = (conversation: WebChatConversation) => {
+const retainImportedWebChat = (conversation: WebChatConversation, bytes: number) => {
     const previous = importedWebChats.get(conversation.id);
     if (previous) {
         importedWebChatBytes -= previous.bytes;
         importedWebChats.delete(conversation.id);
     }
-    const bytes = Buffer.byteLength(JSON.stringify(conversation));
     importedWebChats.set(conversation.id, { bytes, conversation });
     importedWebChatBytes += bytes;
     while (importedWebChatBytes > MAX_IMPORTED_WEB_CHAT_BYTES) {
@@ -1281,11 +1293,11 @@ const retainImportedWebChat = (conversation: WebChatConversation) => {
 const toWebChatSummary = ({ events: _events, ...summary }: WebChatConversation): WebChatConversationSummary => summary;
 
 export const importWebChatFiles = (files: WebChatFileInput[]): WebChatParseResult => {
-    const result = parseWebChatFiles(files);
-    for (const conversation of result.conversations) {
-        retainImportedWebChat(conversation);
+    const result = parseSizedWebChatFiles(files);
+    for (const { bytes, conversation } of result.conversations) {
+        retainImportedWebChat(conversation, bytes);
     }
-    return result;
+    return { conversations: result.conversations.map(({ conversation }) => conversation), errors: result.errors };
 };
 
 export const listImportedWebChats = (): WebChatConversationSummary[] =>

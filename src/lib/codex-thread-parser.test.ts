@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -63,6 +63,42 @@ describe('parseCodexTranscriptFile', () => {
         expect(transcript.isPartial).toBe(true);
         expect(transcript.rawIncluded).toBe(false);
         expect(transcript.statsArePartial).toBe(true);
+    });
+
+    it('should report skipped invalid records when the event limit closes parsing early', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-parser-early-close-test-'));
+        tempPaths.push(tempRoot);
+        const sessionFile = path.join(tempRoot, 'early-close.jsonl');
+        await Bun.write(
+            sessionFile,
+            [
+                '{broken',
+                JSON.stringify({
+                    payload: { message: 'first user prompt', type: 'user_message' },
+                    timestamp: '2026-07-07T12:00:00.000Z',
+                    type: 'response_item',
+                }),
+                JSON.stringify({
+                    payload: { message: 'unread answer', phase: 'final_answer', type: 'agent_message' },
+                    timestamp: '2026-07-07T12:00:01.000Z',
+                    type: 'response_item',
+                }),
+            ].join('\n'),
+        );
+        const warnSpy = spyOn(console, 'warn').mockImplementation(() => undefined);
+
+        try {
+            const transcript = await parseCodexTranscriptFile(sessionFile, { maxEvents: 1 });
+
+            expect(transcript.events).toHaveLength(1);
+            expect(warnSpy).toHaveBeenCalledWith('[spiracha:jsonl] skipped invalid records', {
+                count: 1,
+                filePath: sessionFile,
+                firstLineNumber: 1,
+            });
+        } finally {
+            warnSpy.mockRestore();
+        }
     });
 
     it('should omit messages that contain no renderable text blocks', async () => {
