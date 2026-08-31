@@ -1,6 +1,7 @@
 import { flexRender, type RowData, type RowSelectionState, type SortingState, useTable } from '@tanstack/react-table';
 import { ArrowDownUp } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { Button } from '#/components/ui/button';
 import { Checkbox } from '#/components/ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '#/components/ui/table';
 import { type DataTableColumnDef, dataTableFeatures } from '#/lib/data-table-config';
@@ -19,6 +20,8 @@ type DataTableProps<TData extends RowData> = {
     onRowClick?: (row: TData) => void;
     renderToolbar?: (input: { clearSelection: () => void; selectedRows: TData[] }) => ReactNode;
 };
+
+const PAGE_SIZE = 50;
 
 const getSortIndicator = (value: false | 'asc' | 'desc') => {
     if (value === 'asc') {
@@ -107,7 +110,7 @@ export function DataTable<TData extends RowData>({
     }, [currentRowIds]);
 
     const updateSelectionForRow = (rowId: string, checked: boolean, shiftKey: boolean) => {
-        const visibleRowIds = table.getRowModel().rows.map((row) => row.id);
+        const visibleRowIds = table.getPaginatedRowModel().rows.map((row) => row.id);
 
         if (shiftKey && lastSelectedRowIdRef.current) {
             const rangeRowIds = getRangeRowIds(visibleRowIds, lastSelectedRowIdRef.current, rowId);
@@ -160,7 +163,7 @@ export function DataTable<TData extends RowData>({
     };
     const tableColumns = enableRowSelection ? [selectionColumn, ...columns] : [...columns];
     const table = useTable<typeof dataTableFeatures, TData>({
-        autoResetPageIndex: false,
+        autoResetPageIndex: true,
         columns: tableColumns,
         data,
         enableRowSelection,
@@ -168,6 +171,7 @@ export function DataTable<TData extends RowData>({
         features: dataTableFeatures,
         getRowId,
         getSubRows,
+        initialState: { pagination: { pageIndex: 0, pageSize: PAGE_SIZE } },
         onRowSelectionChange: setRowSelection,
         onSortingChange: setSorting,
         sortDescFirst: false,
@@ -177,6 +181,7 @@ export function DataTable<TData extends RowData>({
             sorting,
         },
     });
+    const visibleRows = table.getPaginatedRowModel().rows;
     const selectedRows = table.getSelectedRowModel().flatRows.map((row) => row.original);
 
     return (
@@ -225,7 +230,7 @@ export function DataTable<TData extends RowData>({
                     ))}
                 </TableHeader>
                 <TableBody>
-                    {table.getRowModel().rows.length === 0 ? (
+                    {visibleRows.length === 0 ? (
                         <TableRow className="border-[var(--border)]">
                             <TableCell
                                 className="px-3 py-8 text-center text-[var(--muted-foreground)] text-sm"
@@ -235,7 +240,7 @@ export function DataTable<TData extends RowData>({
                             </TableCell>
                         </TableRow>
                     ) : (
-                        table.getRowModel().rows.map((row) => {
+                        visibleRows.map((row) => {
                             const clickable = Boolean(onRowClick);
 
                             return (
@@ -263,6 +268,35 @@ export function DataTable<TData extends RowData>({
                     )}
                 </TableBody>
             </Table>
+            {table.getPageCount() > 1 ? (
+                <div className="flex items-center justify-between border-[var(--border)] border-t px-3 py-2">
+                    <span className="text-[var(--muted-foreground)] text-sm">
+                        Page {(table.atoms.pagination?.get().pageIndex ?? 0) + 1} of {table.getPageCount()}
+                    </span>
+                    <div className="flex gap-2">
+                        <Button
+                            aria-label="Previous page"
+                            disabled={!table.getCanPreviousPage()}
+                            size="sm"
+                            type="button"
+                            variant="outline"
+                            onClick={() => table.previousPage()}
+                        >
+                            Previous
+                        </Button>
+                        <Button
+                            aria-label="Next page"
+                            disabled={!table.getCanNextPage()}
+                            size="sm"
+                            type="button"
+                            variant="outline"
+                            onClick={() => table.nextPage()}
+                        >
+                            Next
+                        </Button>
+                    </div>
+                </div>
+            ) : null}
         </div>
     );
 }

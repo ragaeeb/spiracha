@@ -46,6 +46,8 @@ import { Route as QoderSessionsSessionIdRouteImport } from './routes/qoder-sessi
 import { Route as QoderIndexRouteImport } from './routes/qoder.index'
 import { Route as QoderWorkspaceKeyRouteImport } from './routes/qoder.$workspaceKey'
 import { Route as ThreadsThreadIdRouteImport } from './routes/threads.$threadId'
+import { Route as WebChatsConversationIdRouteImport } from './routes/web-chats.$conversationId'
+import { Route as WebIndexRouteImport } from './routes/web.index'
 import { Route as ApiV1ConversationQueryRouteImport } from './routes/api.v1.conversation-query'
 import { Route as ApiV1ConversationsRouteImport } from './routes/api.v1.conversations'
 import { Route as ApiV1ResolveRouteImport } from './routes/api.v1.resolve'
@@ -247,6 +249,16 @@ const ThreadsThreadIdRoute = ThreadsThreadIdRouteImport.update({
   path: '/threads/$threadId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WebChatsConversationIdRoute = WebChatsConversationIdRouteImport.update({
+  id: '/web-chats/$conversationId',
+  path: '/web-chats/$conversationId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WebIndexRoute = WebIndexRouteImport.update({
+  id: '/web/',
+  path: '/web/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiV1ConversationQueryRoute = ApiV1ConversationQueryRouteImport.update({
   id: '/api/v1/conversation-query',
   path: '/api/v1/conversation-query',
@@ -336,6 +348,7 @@ export interface FileRoutesByFullPath {
   '/qoder-sessions/$sessionId': typeof QoderSessionsSessionIdRoute
   '/qoder/$workspaceKey': typeof QoderWorkspaceKeyRoute
   '/threads/$threadId': typeof ThreadsThreadIdRoute
+  '/web-chats/$conversationId': typeof WebChatsConversationIdRoute
   '/antigravity/': typeof AntigravityIndexRoute
   '/claude-code/': typeof ClaudeCodeIndexRoute
   '/cline/': typeof ClineIndexRoute
@@ -347,6 +360,7 @@ export interface FileRoutesByFullPath {
   '/minimax-code/': typeof MinimaxCodeIndexRoute
   '/opencode/': typeof OpencodeIndexRoute
   '/qoder/': typeof QoderIndexRoute
+  '/web/': typeof WebIndexRoute
   '/api/v1/conversation-query': typeof ApiV1ConversationQueryRoute
   '/api/v1/conversations': typeof ApiV1ConversationsRouteWithChildren
   '/api/v1/resolve': typeof ApiV1ResolveRoute
@@ -386,6 +400,7 @@ export interface FileRoutesByTo {
   '/qoder-sessions/$sessionId': typeof QoderSessionsSessionIdRoute
   '/qoder/$workspaceKey': typeof QoderWorkspaceKeyRoute
   '/threads/$threadId': typeof ThreadsThreadIdRoute
+  '/web-chats/$conversationId': typeof WebChatsConversationIdRoute
   '/antigravity': typeof AntigravityIndexRoute
   '/claude-code': typeof ClaudeCodeIndexRoute
   '/cline': typeof ClineIndexRoute
@@ -397,6 +412,7 @@ export interface FileRoutesByTo {
   '/minimax-code': typeof MinimaxCodeIndexRoute
   '/opencode': typeof OpencodeIndexRoute
   '/qoder': typeof QoderIndexRoute
+  '/web': typeof WebIndexRoute
   '/api/v1/conversation-query': typeof ApiV1ConversationQueryRoute
   '/api/v1/conversations': typeof ApiV1ConversationsRouteWithChildren
   '/api/v1/resolve': typeof ApiV1ResolveRoute
@@ -437,6 +453,7 @@ export interface FileRoutesById {
   '/qoder-sessions/$sessionId': typeof QoderSessionsSessionIdRoute
   '/qoder/$workspaceKey': typeof QoderWorkspaceKeyRoute
   '/threads/$threadId': typeof ThreadsThreadIdRoute
+  '/web-chats/$conversationId': typeof WebChatsConversationIdRoute
   '/antigravity/': typeof AntigravityIndexRoute
   '/claude-code/': typeof ClaudeCodeIndexRoute
   '/cline/': typeof ClineIndexRoute
@@ -448,6 +465,7 @@ export interface FileRoutesById {
   '/minimax-code/': typeof MinimaxCodeIndexRoute
   '/opencode/': typeof OpencodeIndexRoute
   '/qoder/': typeof QoderIndexRoute
+  '/web/': typeof WebIndexRoute
   '/api/v1/conversation-query': typeof ApiV1ConversationQueryRoute
   '/api/v1/conversations': typeof ApiV1ConversationsRouteWithChildren
   '/api/v1/resolve': typeof ApiV1ResolveRoute
@@ -489,6 +507,7 @@ export interface FileRouteTypes {
     | '/qoder-sessions/$sessionId'
     | '/qoder/$workspaceKey'
     | '/threads/$threadId'
+    | '/web-chats/$conversationId'
     | '/antigravity/'
     | '/claude-code/'
     | '/cline/'
@@ -500,6 +519,7 @@ export interface FileRouteTypes {
     | '/minimax-code/'
     | '/opencode/'
     | '/qoder/'
+    | '/web/'
     | '/api/v1/conversation-query'
     | '/api/v1/conversations'
     | '/api/v1/resolve'
@@ -539,6 +559,7 @@ export interface FileRouteTypes {
     | '/qoder-sessions/$sessionId'
     | '/qoder/$workspaceKey'
     | '/threads/$threadId'
+    | '/web-chats/$conversationId'
     | '/antigravity'
     | '/claude-code'
     | '/cline'
@@ -550,6 +571,7 @@ export interface FileRouteTypes {
     | '/minimax-code'
     | '/opencode'
     | '/qoder'
+    | '/web'
     | '/api/v1/conversation-query'
     | '/api/v1/conversations'
     | '/api/v1/resolve'
@@ -589,6 +611,7 @@ export interface FileRouteTypes {
     | '/qoder-sessions/$sessionId'
     | '/qoder/$workspaceKey'
     | '/threads/$threadId'
+    | '/web-chats/$conversationId'
     | '/antigravity/'
     | '/claude-code/'
     | '/cline/'
@@ -600,6 +623,7 @@ export interface FileRouteTypes {
     | '/minimax-code/'
     | '/opencode/'
     | '/qoder/'
+    | '/web/'
     | '/api/v1/conversation-query'
     | '/api/v1/conversations'
     | '/api/v1/resolve'
@@ -640,6 +664,7 @@ export interface RootRouteChildren {
   QoderSessionsSessionIdRoute: typeof QoderSessionsSessionIdRoute
   QoderWorkspaceKeyRoute: typeof QoderWorkspaceKeyRoute
   ThreadsThreadIdRoute: typeof ThreadsThreadIdRoute
+  WebChatsConversationIdRoute: typeof WebChatsConversationIdRoute
   AntigravityIndexRoute: typeof AntigravityIndexRoute
   ClaudeCodeIndexRoute: typeof ClaudeCodeIndexRoute
   ClineIndexRoute: typeof ClineIndexRoute
@@ -651,6 +676,7 @@ export interface RootRouteChildren {
   MinimaxCodeIndexRoute: typeof MinimaxCodeIndexRoute
   OpencodeIndexRoute: typeof OpencodeIndexRoute
   QoderIndexRoute: typeof QoderIndexRoute
+  WebIndexRoute: typeof WebIndexRoute
   ApiV1ConversationQueryRoute: typeof ApiV1ConversationQueryRoute
   ApiV1ConversationsRoute: typeof ApiV1ConversationsRouteWithChildren
   ApiV1ResolveRoute: typeof ApiV1ResolveRoute
@@ -919,6 +945,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ThreadsThreadIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/web-chats/$conversationId': {
+      id: '/web-chats/$conversationId'
+      path: '/web-chats/$conversationId'
+      fullPath: '/web-chats/$conversationId'
+      preLoaderRoute: typeof WebChatsConversationIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/web/': {
+      id: '/web/'
+      path: '/web'
+      fullPath: '/web/'
+      preLoaderRoute: typeof WebIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/v1/conversation-query': {
       id: '/api/v1/conversation-query'
       path: '/api/v1/conversation-query'
@@ -1062,6 +1102,7 @@ const rootRouteChildren: RootRouteChildren = {
   QoderSessionsSessionIdRoute: QoderSessionsSessionIdRoute,
   QoderWorkspaceKeyRoute: QoderWorkspaceKeyRoute,
   ThreadsThreadIdRoute: ThreadsThreadIdRoute,
+  WebChatsConversationIdRoute: WebChatsConversationIdRoute,
   AntigravityIndexRoute: AntigravityIndexRoute,
   ClaudeCodeIndexRoute: ClaudeCodeIndexRoute,
   ClineIndexRoute: ClineIndexRoute,
@@ -1073,6 +1114,7 @@ const rootRouteChildren: RootRouteChildren = {
   MinimaxCodeIndexRoute: MinimaxCodeIndexRoute,
   OpencodeIndexRoute: OpencodeIndexRoute,
   QoderIndexRoute: QoderIndexRoute,
+  WebIndexRoute: WebIndexRoute,
   ApiV1ConversationQueryRoute: ApiV1ConversationQueryRoute,
   ApiV1ConversationsRoute: ApiV1ConversationsRouteWithChildren,
   ApiV1ResolveRoute: ApiV1ResolveRoute,

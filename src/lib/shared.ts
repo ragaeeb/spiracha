@@ -143,7 +143,34 @@ export const asBoolean = (value: JsonValue): boolean => {
     return value === true;
 };
 
-export const readJsonlObjects = (filePath: string): AsyncIterableIterator<Record<string, JsonValue>> => {
+const emittedParserDiagnostics = new Set<string>();
+
+const getParserDiagnosticKey = (source: string, code: string, scope?: string): string =>
+    `${source}:${code}${scope ? `:${scope}` : ''}`;
+
+export const resetParserDiagnosticForTests = (source: string, code: string, scope?: string): void => {
+    emittedParserDiagnostics.delete(getParserDiagnosticKey(source, code, scope));
+};
+
+export const warnParserDiagnosticOnce = (
+    source: string,
+    code: string,
+    details: Record<string, unknown>,
+    scope?: string,
+): void => {
+    const key = getParserDiagnosticKey(source, code, scope);
+    if (emittedParserDiagnostics.has(key)) {
+        return;
+    }
+
+    emittedParserDiagnostics.add(key);
+    console.warn(`[spiracha:${source}] ${code}`, details);
+};
+
+export const readJsonlObjects = (
+    filePath: string,
+    diagnosticSource = 'jsonl',
+): AsyncIterableIterator<Record<string, JsonValue>> => {
     const stream = createReadStream(filePath, { encoding: 'utf8' });
     const lines = createInterface({
         crlfDelay: Infinity,
@@ -151,13 +178,27 @@ export const readJsonlObjects = (filePath: string): AsyncIterableIterator<Record
     });
     const lineIterator = lines[Symbol.asyncIterator]();
     let closed = false;
+    let invalidRecordCount = 0;
+    let firstInvalidLineNumber: number | null = null;
     let lineNumber = 0;
+
+    const warnAboutInvalidRecords = () => {
+        if (invalidRecordCount > 0) {
+            console.warn(`[spiracha:${diagnosticSource}] skipped invalid records`, {
+                count: invalidRecordCount,
+                filePath,
+                firstLineNumber: firstInvalidLineNumber,
+            });
+            invalidRecordCount = 0;
+        }
+    };
 
     const close = () => {
         if (closed) {
             return;
         }
 
+        warnAboutInvalidRecords();
         closed = true;
         lines.close();
         stream.destroy();
@@ -181,7 +222,8 @@ export const readJsonlObjects = (filePath: string): AsyncIterableIterator<Record
                 const parsed = JSON.parse(trimmed) as JsonValue;
                 const object = asObject(parsed);
                 if (!object) {
-                    console.warn('[spiracha:jsonl] invalid_json_line', { filePath, lineNumber });
+                    invalidRecordCount += 1;
+                    firstInvalidLineNumber ??= lineNumber;
                     continue;
                 }
 
@@ -190,7 +232,8 @@ export const readJsonlObjects = (filePath: string): AsyncIterableIterator<Record
                     value: object,
                 };
             } catch {
-                console.warn('[spiracha:jsonl] invalid_json_line', { filePath, lineNumber });
+                invalidRecordCount += 1;
+                firstInvalidLineNumber ??= lineNumber;
             }
         }
     };

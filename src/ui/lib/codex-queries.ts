@@ -67,6 +67,7 @@ export const threadSnapshotQueryOptions = (threadId: string) =>
 export const threadTranscriptPreviewQueryOptions = (threadId: string, filters?: ThreadTranscriptFilters) =>
     queryOptions({
         ...explicitThreadRefreshOnly,
+        gcTime: 60_000,
         queryFn: () => getThreadTranscriptPreviewFn({ data: { filters, threadId } }),
         queryKey: ['thread-transcript-preview', threadId, filters ?? 'all'],
         retry: retrySqliteQuery,
@@ -76,6 +77,7 @@ export const threadTranscriptPreviewQueryOptions = (threadId: string, filters?: 
 export const threadTranscriptQueryOptions = (threadId: string) =>
     queryOptions({
         ...explicitThreadRefreshOnly,
+        gcTime: 60_000,
         queryFn: () => getThreadTranscriptFn({ data: { threadId } }),
         queryKey: ['thread-transcript', threadId],
         retry: retrySqliteQuery,

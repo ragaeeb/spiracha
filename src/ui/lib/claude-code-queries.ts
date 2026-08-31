@@ -15,13 +15,16 @@ export const claudeCodeWorkspacesQueryOptions = () =>
 export const claudeCodeSessionsQueryOptions = (workspaceKey: string | null) =>
     queryOptions({
         enabled: workspaceKey !== null,
+        gcTime: 15 * 60_000,
         queryFn: () => listClaudeCodeSessionsFn({ data: { workspaceKey: workspaceKey ?? '' } }),
         queryKey: ['claude-code-sessions', workspaceKey ?? 'none'],
+        staleTime: 5_000,
     });
 
 export const claudeCodeSessionDetailQueryOptions = (sessionId: string | null) =>
     queryOptions({
         enabled: sessionId !== null,
+        gcTime: 60_000,
         queryFn: () => getClaudeCodeSessionDetailFn({ data: { sessionId: sessionId ?? '' } }),
         queryKey: ['claude-code-session', sessionId ?? 'none'],
     });
@@ -29,6 +32,7 @@ export const claudeCodeSessionDetailQueryOptions = (sessionId: string | null) =>
 export const claudeCodeSessionTranscriptQueryOptions = (sessionId: string | null) =>
     queryOptions({
         enabled: sessionId !== null,
+        gcTime: 60_000,
         queryFn: () => getClaudeCodeSessionTranscriptFn({ data: { sessionId: sessionId ?? '' } }),
         queryKey: ['claude-code-session-transcript', sessionId ?? 'none'],
     });

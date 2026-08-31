@@ -151,4 +151,23 @@ describe('DataTable', () => {
         expect(screen.getByText('none')).toBeTruthy();
         expect(screen.getByRole('checkbox', { name: 'Select row row-1' }).getAttribute('aria-checked')).toBe('false');
     });
+
+    it('should paginate large row sets', () => {
+        const manyRows = Array.from({ length: 51 }, (_, index) => ({
+            id: `row-${index + 1}`,
+            model: `model-${index + 1}`,
+            tokens: index + 1,
+        }));
+
+        render(<DataTable columns={columns} data={manyRows} emptyMessage="No rows" />);
+
+        expect(screen.getByText('Page 1 of 2')).toBeTruthy();
+        expect(screen.queryByText('model-51')).toBeNull();
+        const previousButton = screen.getByRole('button', { name: 'Previous page' });
+        const nextButton = screen.getByRole('button', { name: 'Next page' });
+        expect(previousButton.getAttribute('type')).toBe('button');
+        expect(nextButton.getAttribute('type')).toBe('button');
+        fireEvent.click(nextButton);
+        expect(screen.getByText('model-51')).toBeTruthy();
+    });
 });

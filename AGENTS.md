@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This repo is a Bun-first local app for browsing, exporting, and exposing agent conversation history from Codex, Claude Code, Cline, Grok, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode.
+This repo is a Bun-first local app for importing web conversations and browsing, exporting, and exposing agent conversation history from Codex, Claude Code, Cline, Grok, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode.
 
 The legacy exporter, MCP server, and Codex plugin were removed in the 2.0 hard cut. Do not add bridge commands, compatibility aliases, or deprecated entrypoints back. The current CLI is an API-driven thin client; new application workflows should import the stable `spiracha/client` Bun SDK instead of shelling out.
 
@@ -56,6 +56,12 @@ Stable conversation API:
   - source-specific mapping into normalized conversation shapes
 - `src/lib/conversation-data/evidence-*.ts`
   - source-independent lens validation, event pairing, bounded episode selection, projection, and Markdown evidence rendering
+
+Web import modules:
+- `src/lib/web-chat.ts`
+  - provider-aware JSON import parsing, reasoning/tool-event normalization, generated UI IDs, and bounded in-memory retention
+- `src/ui/lib/web-chat-server.ts`
+  - validated server functions for importing, listing, and loading normalized Web conversations
 
 Codex browser/export modules:
 - `src/lib/codex-browser-db.ts`
@@ -118,6 +124,7 @@ UI source tree:
   - TanStack Start browser UI
   - API routes live under `src/ui/routes/api.v1.*.ts`
   - source routes include `/threads/$threadId`, `/claude-code-sessions/$sessionId`, `/cline-tasks/$taskId`, `/grok-sessions/$sessionId`, `/kiro-sessions/$sessionId`, `/qoder-sessions/$sessionId`, `/cursor-threads/$composerId`, `/antigravity-conversations/$conversationId`, `/fx-sessions/$sessionId`, `/minimax-code-sessions/$sessionId`, and `/opencode-sessions/$sessionId`
+  - Web import routes are `/web` and `/web-chats/$conversationId`; imported conversations use server functions and remain in bounded process memory
   - Cursor and Antigravity detail routes load large transcript/artifact bodies through post-hydration server queries; Codex exposes deferred loading for oversized rollouts
 
 ## Stable API Contract
@@ -153,6 +160,7 @@ Defaults:
 - all-source collection should tolerate missing optional integrations
 - explicit source requests should surface source-specific failures
 - `delete_session_files` is accepted for single-delete query strings and batch-delete JSON; Cursor uses it to keep or remove transcript directories
+- Web imports are intentionally UI-only: they are not members of `CONVERSATION_SOURCES` and are not exposed through the stable API or CLI
 
 Do not bake review semantics into Spiracha. A client such as `fgh --collect` decides that a selected assistant message is a review and chooses where to save it.
 
@@ -169,6 +177,7 @@ Current tests cover:
 - MiniMax Code v2 snapshot discovery, reasoning/tool parsing, export rendering, and synchronized session/runtime deletion
 - FX checkpoint/event-log transcript reconstruction, externalized tool results, export rendering, and synchronized session/index/latest-pointer deletion
 - OpenCode MiniMax `<think>` tag extraction, including code-literal preservation
+- Web import parsing for mapping-based, native Claude/Grok, and generic role/content exports, provider detection, separate reasoning, embedded research/tool events, partial import errors, bounded retention, and Web UI server functions
 - UI component and adapter behavior through the Vitest suite wrapped by `src/ui-suite.test.ts`
 - package manifest hard-cut guarantees through `src/package-manifest.test.ts`
 - package metadata validation, cache lifecycle controls, and deferred detail-body server queries

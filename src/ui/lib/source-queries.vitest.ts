@@ -174,7 +174,37 @@ describe('source query options', () => {
         });
     });
 
+    it('should bound inactive heavy detail query retention without shortening list caches', () => {
+        const heavyQueries = [
+            antigravityConversationDetailQueryOptions('conversation-a'),
+            antigravityConversationDocumentsQueryOptions('conversation-a'),
+            claudeCodeSessionDetailQueryOptions('session-a'),
+            claudeCodeSessionTranscriptQueryOptions('session-a'),
+            clineTaskDetailQueryOptions('task-a'),
+            cursorThreadDetailQueryOptions('thread-a'),
+            cursorThreadTranscriptQueryOptions('thread-a'),
+            fxSessionDetailQueryOptions('session-a'),
+            grokSessionDetailQueryOptions('session-a'),
+            kiroSessionDetailQueryOptions('session-a'),
+            miniMaxCodeSessionDetailQueryOptions('session-a'),
+            openCodeSessionDetailQueryOptions('session-a'),
+            qoderSessionDetailQueryOptions('session-a'),
+        ];
+
+        for (const query of heavyQueries) {
+            expect(query.gcTime).toBe(60_000);
+        }
+
+        expect(antigravityConversationsQueryOptions('workspace-a').gcTime).toBeUndefined();
+        expect(claudeCodeSessionsQueryOptions('workspace-a').gcTime).toBe(15 * 60_000);
+        expect(cursorThreadsQueryOptions('workspace-a').gcTime).toBeUndefined();
+    });
+
     it('should configure Claude Code workspace, session, detail, and transcript queries', async () => {
+        expect(claudeCodeSessionsQueryOptions('workspace-a')).toMatchObject({
+            gcTime: 15 * 60_000,
+            staleTime: 5_000,
+        });
         expect(await runQuery(claudeCodeWorkspacesQueryOptions())).toBe('claude-workspaces');
         expect(await runQuery(claudeCodeSessionsQueryOptions('workspace-a'))).toBe('claude-sessions');
         expect(await runQuery(claudeCodeSessionDetailQueryOptions('session-a'))).toBe('claude-detail');
@@ -225,6 +255,10 @@ describe('source query options', () => {
     });
 
     it('should configure Grok, Kiro, and Qoder workspace, session, and detail queries', async () => {
+        expect(kiroSessionsQueryOptions('workspace-a')).toMatchObject({
+            gcTime: 15 * 60_000,
+            staleTime: 5_000,
+        });
         const sources = [
             {
                 detail: grokSessionDetailQueryOptions,
@@ -263,6 +297,10 @@ describe('source query options', () => {
 
     it('should configure OpenCode queries with bounded SQLite retries', async () => {
         const options = openCodeWorkspacesQueryOptions();
+        expect(openCodeSessionsQueryOptions('workspace-a')).toMatchObject({
+            gcTime: 15 * 60_000,
+            staleTime: 5_000,
+        });
         expect(await runQuery(options)).toBe('opencode-workspaces');
         expect((options.retry as (failures: number, error: unknown) => boolean)(2, 'retryable')).toBe(true);
         expect((options.retry as (failures: number, error: unknown) => boolean)(3, 'retryable')).toBe(false);

@@ -1,6 +1,6 @@
 import { Database } from 'bun:sqlite';
 import { afterEach, describe, expect, it, spyOn } from 'bun:test';
-import { chmod, mkdir, mkdtemp, readdir, rm, stat, symlink } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, rm, stat, symlink, utimes } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -16,6 +16,7 @@ import {
     resolveOpenCodeDbConcurrency,
 } from './opencode-db';
 import { createOpenCodeFixture } from './opencode-test-helpers';
+import { resetParserDiagnosticForTests } from './shared';
 
 const tempDirs: string[] = [];
 const originalLogSetting = process.env.SPIRACHA_OPENCODE_DB_LOGS;
@@ -194,6 +195,32 @@ describe('opencode db helpers', () => {
         expect(groups[0]?.partCount).toBe(6);
     });
 
+    it('should keep set-based workspace counts isolated by project', async () => {
+        const dbPath = await makeDbPath();
+        await createOpenCodeFixture(dbPath, {
+            projects: [
+                { id: 'project-a', worktree: '/workspace/a' },
+                { id: 'project-b', worktree: '/workspace/b' },
+            ],
+            sessions: [
+                {
+                    id: 'session-a',
+                    messages: [{ id: 'message-a', parts: [], role: 'user' }],
+                    projectId: 'project-a',
+                    title: 'A',
+                },
+                { id: 'session-b', messages: [], projectId: 'project-b', title: 'B' },
+            ],
+        });
+
+        const groups = await listOpenCodeWorkspaceGroups(dbPath);
+
+        expect(groups.map((group) => [group.projectId, group.sessionCount, group.messageCount])).toEqual([
+            ['project-a', 1, 1],
+            ['project-b', 1, 0],
+        ]);
+    });
+
     it('should expose global OpenCode sessions as directory workspaces', async () => {
         const dbPath = await makeDbPath();
         const worktree = '/Users/test/Downloads/import_export_deep_research_prompt_pack';
@@ -259,7 +286,10 @@ describe('opencode db helpers', () => {
             ],
         });
         process.env.SPIRACHA_OPENCODE_DB_LOGS = '1';
+        resetParserDiagnosticForTests('opencode', 'skipped-session', 'ses_blank_one');
+        resetParserDiagnosticForTests('opencode', 'skipped-session', 'ses_blank_two');
         const infoSpy = spyOn(console, 'info').mockImplementation(() => undefined);
+        const warnSpy = spyOn(console, 'warn').mockImplementation(() => undefined);
 
         try {
             const groups = await listOpenCodeWorkspaceGroups(dbPath);
@@ -270,8 +300,18 @@ describe('opencode db helpers', () => {
             expect(infoSpy).toHaveBeenCalledWith('[spiracha:opencode-db] invalid-global-session-directory', {
                 sessionId: 'ses_blank_two',
             });
+            expect(warnSpy).toHaveBeenCalledTimes(2);
+            expect(warnSpy).toHaveBeenCalledWith('[spiracha:opencode] skipped-session', {
+                reason: 'blank global session directory',
+                sessionId: 'ses_blank_one',
+            });
+            expect(warnSpy).toHaveBeenCalledWith('[spiracha:opencode] skipped-session', {
+                reason: 'blank global session directory',
+                sessionId: 'ses_blank_two',
+            });
         } finally {
             infoSpy.mockRestore();
+            warnSpy.mockRestore();
         }
     });
 
@@ -320,6 +360,32 @@ describe('opencode db helpers', () => {
             );
         } finally {
             db.close();
+        }
+    });
+
+    it('should reuse schema validation until the database modification time changes', async () => {
+        const dbPath = await createFixtureDb();
+        const querySpy = spyOn(Database.prototype, 'query');
+
+        try {
+            openOpenCodeReadDb(dbPath).close();
+            const firstValidationCount = querySpy.mock.calls.filter(([sql]) =>
+                String(sql).includes('sqlite_schema'),
+            ).length;
+            openOpenCodeReadDb(dbPath).close();
+            const cachedValidationCount = querySpy.mock.calls.filter(([sql]) =>
+                String(sql).includes('sqlite_schema'),
+            ).length;
+            expect(cachedValidationCount).toBe(firstValidationCount);
+
+            const changedAt = new Date(Date.now() + 5_000);
+            await utimes(dbPath, changedAt, changedAt);
+            openOpenCodeReadDb(dbPath).close();
+            expect(querySpy.mock.calls.filter(([sql]) => String(sql).includes('sqlite_schema')).length).toBeGreaterThan(
+                cachedValidationCount,
+            );
+        } finally {
+            querySpy.mockRestore();
         }
     });
 
@@ -424,6 +490,17 @@ describe('opencode db helpers', () => {
         await expect(listOpenCodeWorkspaceGroups(dbPath)).rejects.toThrow(/SQLite operation failed/u);
     });
 
+    it('should fail clearly when the OpenCode schema is incompatible', async () => {
+        const dbPath = await makeDbPath();
+        const db = new Database(dbPath);
+        db.exec('CREATE TABLE project (id TEXT PRIMARY KEY)');
+        db.close();
+
+        await expect(listOpenCodeWorkspaceGroups(dbPath)).rejects.toThrow(
+            /Unsupported OpenCode database schema.*missing tables: message, part, session.*project\.worktree/u,
+        );
+    });
+
     it('should read a session transcript with parsed parts in message order', async () => {
         const dbPath = await createFixtureDb();
 
@@ -446,6 +523,33 @@ describe('opencode db helpers', () => {
             toolName: 'read',
             type: 'tool',
         });
+    });
+
+    it('should emit one low-noise diagnostic for malformed transcript JSON', async () => {
+        const dbPath = await createFixtureDb();
+        const db = new Database(dbPath);
+        db.run("UPDATE message SET data = '{broken' WHERE id = 'msg_user'");
+        db.run("UPDATE part SET data = '[]' WHERE id = 'prt_user_text'");
+        db.close();
+        resetParserDiagnosticForTests('opencode', 'malformed-json', 'message');
+        resetParserDiagnosticForTests('opencode', 'malformed-json', 'part');
+        const warnSpy = spyOn(console, 'warn').mockImplementation(() => undefined);
+
+        try {
+            await readOpenCodeSessionTranscript(dbPath, 'ses_main');
+            await readOpenCodeSessionTranscript(dbPath, 'ses_main');
+            expect(warnSpy).toHaveBeenCalledTimes(2);
+            expect(warnSpy).toHaveBeenCalledWith('[spiracha:opencode] malformed-json', {
+                id: 'msg_user',
+                recordType: 'message',
+            });
+            expect(warnSpy).toHaveBeenCalledWith('[spiracha:opencode] malformed-json', {
+                id: 'prt_user_text',
+                recordType: 'part',
+            });
+        } finally {
+            warnSpy.mockRestore();
+        }
     });
 
     it('should preserve failed tool errors as tool output', async () => {

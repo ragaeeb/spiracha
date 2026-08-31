@@ -85,6 +85,7 @@ describe('AppShell', () => {
             'MiniMax Code',
             'OpenCode',
             'Qoder',
+            'Web',
         ]) {
             const link = screen.getByRole('link', { name: integration });
             expect(link.getAttribute('data-preload')).toBe('intent');
@@ -113,6 +114,7 @@ describe('AppShell', () => {
             'MiniMax Code',
             'OpenCode',
             'Qoder',
+            'Web',
         ]);
         expect(screen.getByRole('separator')).toBeTruthy();
     });
@@ -271,5 +273,17 @@ describe('AppShell', () => {
         );
 
         expect(screen.getByRole('link', { name: 'Cline' }).className).toContain('bg-[var(--accent-muted)]');
+    });
+
+    it('should keep Web active on imported conversation detail routes', () => {
+        useRouterStateMock.mockReturnValue('/web-chats/conversation-1');
+
+        render(
+            <AppShell>
+                <div>Content area</div>
+            </AppShell>,
+        );
+
+        expect(screen.getByRole('link', { name: 'Web' }).className).toContain('bg-[var(--accent-muted)]');
     });
 });

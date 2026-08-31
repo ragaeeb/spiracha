@@ -14,6 +14,7 @@ export const clineTasksQueryOptions = (workspaceKey: string | null) =>
 export const clineTaskDetailQueryOptions = (taskId: string | null) =>
     queryOptions({
         enabled: taskId !== null,
+        gcTime: 60_000,
         queryFn: () => getClineTaskDetailFn({ data: { taskId: taskId ?? '' } }),
         queryKey: ['cline-task', taskId ?? 'none'],
     });

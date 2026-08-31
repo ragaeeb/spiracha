@@ -21,6 +21,7 @@ export const miniMaxCodeSessionsQueryOptions = (workspaceKey: string | null) =>
 export const miniMaxCodeSessionDetailQueryOptions = (sessionId: string | null) =>
     queryOptions({
         enabled: sessionId !== null,
+        gcTime: 60_000,
         queryFn: () => getMiniMaxCodeSessionDetailFn({ data: { sessionId: sessionId ?? '' } }),
         queryKey: ['minimax-code-session', sessionId ?? 'none'],
     });

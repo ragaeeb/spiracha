@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, rm, utimes } from 'node:fs/promises';
 import os from 'node:os';
@@ -12,6 +12,7 @@ import {
     listKiroWorkspaceGroups,
     readKiroSessionTranscript,
 } from './kiro-db';
+import { resetParserDiagnosticForTests } from './shared';
 
 const tempRoots: string[] = [];
 const homeDir = os.homedir();
@@ -443,6 +444,36 @@ describe('kiro workspace discovery', () => {
         expect(await readKiroSessionTranscript(sessionsDir, sessionId)).toBeNull();
     });
 
+    it('should preserve stale, mismatched, and out-of-scope execution references during deletion', async () => {
+        const sessionsDir = await makeTempRoot();
+        const sessionId = 'session-safe-delete';
+        await writeSession({
+            createdAtMs: 1_781_212_901_555,
+            sessionId,
+            sessionsDir,
+            title: 'Safely delete this session',
+            updatedAtMs: 1_781_212_904_000,
+            workspacePath: corpusCwd,
+        });
+        const workspaceDir = path.join(sessionsDir, encodeKiroWorkspaceDirectoryName(corpusCwd));
+        const sessionPath = path.join(workspaceDir, `${sessionId}.json`);
+        const executionPath = path.join(sessionsDir, getKiroWorkspaceHash(corpusCwd), 'execution', 'stale.json');
+        const outOfScopePath = path.join(sessionsDir, 'config', 'nested', 'unsafe.json');
+        await mkdir(path.dirname(executionPath), { recursive: true });
+        await mkdir(path.dirname(outOfScopePath), { recursive: true });
+        const execution = { actions: [], chatSessionId: sessionId, executionId: 'safe-delete-execution' };
+        await Bun.write(executionPath, JSON.stringify(execution));
+        await Bun.write(outOfScopePath, JSON.stringify(execution));
+        await readKiroSessionTranscript(sessionsDir, sessionId);
+        await Bun.write(executionPath, JSON.stringify({ ...execution, chatSessionId: 'different-session' }));
+
+        const result = await deleteKiroSession(sessionsDir, sessionId);
+
+        expect(result.deletedFiles).toEqual([sessionPath]);
+        expect(await Bun.file(executionPath).exists()).toBe(true);
+        expect(await Bun.file(outOfScopePath).exists()).toBe(true);
+    });
+
     it('should serialize concurrent deletes that update the same session index', async () => {
         const sessionsDir = await makeTempRoot();
         const workspacePath = corpusCwd;
@@ -716,6 +747,231 @@ describe('kiro workspace discovery', () => {
             messageCount: 4,
             userMessageCount: 1,
         });
+    });
+
+    it('should index execution files in deeper changed storage layouts', async () => {
+        const sessionsDir = await makeTempRoot();
+        const sessionId = 'session-deep-execution';
+        await writeSession({
+            createdAtMs: 1_781_212_901_555,
+            sessionId,
+            sessionsDir,
+            title: 'Deep execution layout',
+            updatedAtMs: 1_781_212_904_000,
+            workspacePath: corpusCwd,
+        });
+        const executionPath = path.join(sessionsDir, 'executions', 'v2', 'nested', 'deeper', 'run.json');
+        await mkdir(path.dirname(executionPath), { recursive: true });
+        await Bun.write(
+            executionPath,
+            JSON.stringify({
+                actions: [
+                    {
+                        actionId: 'deep-message',
+                        actionType: 'assistantMessage',
+                        output: { message: 'Loaded from a changed execution layout.' },
+                    },
+                ],
+                chatSessionId: sessionId,
+                executionId: `${sessionId}-execution`,
+            }),
+        );
+        await Bun.write(path.join(sessionsDir, 'executions', 'artifact.bin'), 'not json');
+        const warnSpy = spyOn(console, 'warn').mockImplementation(() => undefined);
+
+        try {
+            const transcript = await readKiroSessionTranscript(sessionsDir, sessionId);
+
+            expect(
+                transcript?.entries.some((entry) => entry.parts[0]?.text?.includes('changed execution layout')),
+            ).toBe(true);
+            expect(warnSpy).not.toHaveBeenCalled();
+        } finally {
+            warnSpy.mockRestore();
+        }
+    });
+
+    it('should rehydrate only the selected session execution files after routing', async () => {
+        const sessionsDir = await makeTempRoot();
+        const sessionId = 'session-selected-execution';
+        const otherSessionId = 'session-other-execution';
+        await writeSession({
+            createdAtMs: 1_781_212_901_555,
+            sessionId,
+            sessionsDir,
+            title: 'Selected execution',
+            updatedAtMs: 1_781_212_904_000,
+            workspacePath: corpusCwd,
+        });
+
+        const executionRoot = path.join(sessionsDir, getKiroWorkspaceHash(corpusCwd));
+        const selectedPath = path.join(executionRoot, 'selected', 'execution.json');
+        const otherPath = path.join(executionRoot, 'other', 'execution.json');
+        await Promise.all([
+            mkdir(path.dirname(selectedPath), { recursive: true }),
+            mkdir(path.dirname(otherPath), { recursive: true }),
+        ]);
+        await Promise.all([
+            Bun.write(
+                selectedPath,
+                JSON.stringify({
+                    actions: [
+                        {
+                            actionId: 'selected-message',
+                            actionType: 'assistantMessage',
+                            output: { message: 'Selected execution loaded.' },
+                        },
+                    ],
+                    chatSessionId: sessionId,
+                    executionId: 'selected-execution',
+                }),
+            ),
+            Bun.write(
+                otherPath,
+                JSON.stringify({
+                    actions: [
+                        {
+                            actionId: 'other-message',
+                            actionType: 'assistantMessage',
+                            output: { message: 'Other execution must not load.' },
+                        },
+                    ],
+                    chatSessionId: otherSessionId,
+                    executionId: 'other-execution',
+                }),
+            ),
+        ]);
+
+        const originalBunFile = Bun.file;
+        const reads = new Map<string, number>();
+        Bun.file = ((pathOrBlob: string) => {
+            if (typeof pathOrBlob === 'string' && (pathOrBlob === selectedPath || pathOrBlob === otherPath)) {
+                reads.set(pathOrBlob, (reads.get(pathOrBlob) ?? 0) + 1);
+            }
+            return originalBunFile(pathOrBlob);
+        }) as typeof Bun.file;
+
+        try {
+            const transcript = await readKiroSessionTranscript(sessionsDir, sessionId);
+
+            expect(transcript?.executionEntries.map((entry) => entry.parts[0]?.text)).toEqual([
+                'Selected execution loaded.',
+            ]);
+            expect(reads.get(selectedPath)).toBe(2);
+            expect(reads.get(otherPath)).toBe(1);
+        } finally {
+            Bun.file = originalBunFile;
+        }
+    });
+
+    it('should serialize cold execution index reads to bound peak memory', async () => {
+        const sessionsDir = await makeTempRoot();
+        const sessionId = `session-serialized-index-${randomUUID()}`;
+        await writeSession({
+            createdAtMs: 1_781_212_901_555,
+            sessionId,
+            sessionsDir,
+            title: 'Serialized execution index',
+            updatedAtMs: 1_781_212_904_000,
+            workspacePath: corpusCwd,
+        });
+
+        const executionRoot = path.join(sessionsDir, 'executions');
+        const executionPaths = Array.from({ length: 12 }, (_, index) =>
+            path.join(executionRoot, `execution-${index}.json`),
+        );
+        await mkdir(executionRoot, { recursive: true });
+        await Promise.all(
+            executionPaths.map((filePath, index) =>
+                Bun.write(
+                    filePath,
+                    JSON.stringify({
+                        actions: [],
+                        chatSessionId: index === 0 ? sessionId : `other-session-${index}`,
+                        executionId: `execution-${index}`,
+                    }),
+                ),
+            ),
+        );
+
+        const originalBunFile = Bun.file;
+        let activeReads = 0;
+        let maxActiveReads = 0;
+        Bun.file = ((pathOrBlob: string) => {
+            const file = originalBunFile(pathOrBlob);
+            if (typeof pathOrBlob !== 'string' || !pathOrBlob.startsWith(executionRoot)) {
+                return file;
+            }
+
+            return new Proxy(file, {
+                get(target, property) {
+                    if (property !== 'json') {
+                        return Reflect.get(target, property, target);
+                    }
+
+                    const json = target.json.bind(target);
+                    return async () => {
+                        activeReads += 1;
+                        maxActiveReads = Math.max(maxActiveReads, activeReads);
+                        await Bun.sleep(2);
+                        try {
+                            return await json();
+                        } finally {
+                            activeReads -= 1;
+                        }
+                    };
+                },
+            }) as typeof file;
+        }) as typeof Bun.file;
+
+        try {
+            const transcript = await readKiroSessionTranscript(sessionsDir, sessionId);
+
+            expect(transcript?.session.sessionId).toBe(sessionId);
+            expect(maxActiveReads).toBe(1);
+        } finally {
+            Bun.file = originalBunFile;
+        }
+    });
+
+    it('should emit one low-noise diagnostic for malformed session JSON', async () => {
+        const sessionsDir = await makeTempRoot();
+        const workspaceDir = path.join(sessionsDir, encodeKiroWorkspaceDirectoryName(corpusCwd));
+        await mkdir(workspaceDir, { recursive: true });
+        await Bun.write(path.join(workspaceDir, 'broken.json'), '{broken');
+        resetParserDiagnosticForTests('kiro', 'malformed-json');
+        const warnSpy = spyOn(console, 'warn').mockImplementation(() => undefined);
+
+        try {
+            await listKiroWorkspaceGroups(sessionsDir);
+            await listKiroWorkspaceGroups(sessionsDir);
+            expect(warnSpy).toHaveBeenCalledTimes(1);
+            expect(warnSpy).toHaveBeenCalledWith('[spiracha:kiro] malformed-json', {
+                filePath: path.join(workspaceDir, 'broken.json'),
+            });
+        } finally {
+            warnSpy.mockRestore();
+        }
+    });
+
+    it('should diagnose a session schema mismatch without treating it as history', async () => {
+        const sessionsDir = await makeTempRoot();
+        const workspaceDir = path.join(sessionsDir, encodeKiroWorkspaceDirectoryName(corpusCwd));
+        await mkdir(workspaceDir, { recursive: true });
+        const filePath = path.join(workspaceDir, 'wrong-shape.json');
+        await Bun.write(filePath, '[]');
+        resetParserDiagnosticForTests('kiro', 'schema-mismatch');
+        const warnSpy = spyOn(console, 'warn').mockImplementation(() => undefined);
+
+        try {
+            await listKiroWorkspaceGroups(sessionsDir);
+            expect(warnSpy).toHaveBeenCalledWith('[spiracha:kiro] schema-mismatch', {
+                expected: 'object',
+                filePath,
+            });
+        } finally {
+            warnSpy.mockRestore();
+        }
     });
 
     it('should interleave Kiro execution entries at their matching assistant placeholders', async () => {

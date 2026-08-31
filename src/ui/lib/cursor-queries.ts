@@ -35,6 +35,7 @@ export const cursorThreadsQueryOptions = (workspaceKey: string | null) =>
 export const cursorThreadDetailQueryOptions = (composerId: string | null) =>
     queryOptions({
         enabled: composerId !== null,
+        gcTime: 60_000,
         queryFn: () => getCursorThreadDetailFn({ data: { composerId: composerId ?? '' } }),
         queryKey: ['cursor-thread', composerId ?? 'none'],
         retry: retrySqliteQuery,
@@ -44,6 +45,7 @@ export const cursorThreadDetailQueryOptions = (composerId: string | null) =>
 export const cursorThreadTranscriptQueryOptions = (composerId: string | null) =>
     queryOptions({
         enabled: composerId !== null,
+        gcTime: 60_000,
         queryFn: () => getCursorThreadTranscriptFn({ data: { composerId: composerId ?? '' } }),
         queryKey: ['cursor-thread-transcript', composerId ?? 'none'],
         retry: retrySqliteQuery,

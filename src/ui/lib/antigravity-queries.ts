@@ -29,6 +29,7 @@ export const antigravityConversationsQueryOptions = (workspaceKey: string | null
 export const antigravityConversationDetailQueryOptions = (conversationId: string | null) =>
     queryOptions({
         enabled: conversationId !== null,
+        gcTime: 60_000,
         queryFn: () => getAntigravityConversationDetailFn({ data: { conversationId: conversationId ?? '' } }),
         queryKey: ['antigravity-conversation', conversationId ?? 'none'],
     });
@@ -36,6 +37,7 @@ export const antigravityConversationDetailQueryOptions = (conversationId: string
 export const antigravityConversationDocumentsQueryOptions = (conversationId: string | null) =>
     queryOptions({
         enabled: conversationId !== null,
+        gcTime: 60_000,
         queryFn: () => getAntigravityConversationDocumentsFn({ data: { conversationId: conversationId ?? '' } }),
         queryKey: ['antigravity-conversation-documents', conversationId ?? 'none'],
     });

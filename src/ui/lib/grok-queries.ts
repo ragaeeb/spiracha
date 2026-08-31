@@ -17,6 +17,7 @@ export const grokSessionsQueryOptions = (workspaceKey: string | null) =>
 export const grokSessionDetailQueryOptions = (sessionId: string | null) =>
     queryOptions({
         enabled: sessionId !== null,
+        gcTime: 60_000,
         queryFn: () => getGrokSessionDetailFn({ data: { sessionId: sessionId ?? '' } }),
         queryKey: ['grok-session', sessionId ?? 'none'],
     });
