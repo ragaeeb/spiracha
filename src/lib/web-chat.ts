@@ -41,6 +41,7 @@ type NormalizedMessage = {
     reasoning: string[];
     recipient: string | null;
     role: string;
+    sourceOrder: number | null;
     text: string;
     timestamp: string | null;
 };
@@ -61,7 +62,13 @@ type ImportedToolEvent = {
     kind: 'call' | 'output';
     name: string | null;
     outputText: string | null;
+    sourceOrder?: number;
     timestamp: string | null;
+};
+
+type SourceMessage = {
+    message: JsonRecord;
+    sourceOrder: number;
 };
 
 const isRecord = (value: unknown): value is JsonRecord =>
@@ -321,6 +328,7 @@ const normalizeMessage = (
     message: JsonRecord,
     fallbackModel: string | null,
     fallbackId?: string,
+    sourceOrder: number | null = null,
 ): NormalizedMessage => {
     const author = isRecord(message.author) ? message.author : null;
     const metadata = isRecord(message.metadata) ? message.metadata : null;
@@ -335,6 +343,7 @@ const normalizeMessage = (
         reasoning: extractReasoning(message),
         recipient,
         role: normalizeRole(firstString(author?.role, message.role, message.sender)),
+        sourceOrder,
         text:
             text ||
             (recipient && recipient.toLowerCase() !== 'all' && toolLabel
@@ -502,6 +511,7 @@ const getGrokToolEvents = (rawPayload: unknown): ImportedToolEvent[] => {
 
 const getQwenToolEvents = (rawPayload: unknown): ImportedToolEvent[] => {
     const events: ImportedToolEvent[] = [];
+    let searchIndex = 0;
     visitJsonValues(rawPayload, (value) => {
         if (!isRecord(value) || value.deep_research === undefined) {
             return;
@@ -511,7 +521,8 @@ const getQwenToolEvents = (rawPayload: unknown): ImportedToolEvent[] => {
             if (!query || !isRecord(research)) {
                 return;
             }
-            const callId = `qwen-web-search:${createHash('sha256').update(query).digest('hex').slice(0, 32)}`;
+            const callId = `qwen-web-search:${createHash('sha256').update(query).digest('hex').slice(0, 32)}:${searchIndex}`;
+            searchIndex += 1;
             events.push({
                 argumentsText: JSON.stringify({ query }),
                 callId,
@@ -541,6 +552,20 @@ const getGeminiToolCalls = (rawPayload: unknown): ImportedToolEvent[] => {
     let hasResearchTrace = false;
     visitJsonValues(rawPayload, (value) => {
         if (typeof value === 'string' && /\bresearching websites\b/i.test(value)) {
+            hasResearchTrace = true;
+        }
+        if (isRecord(value) && Object.keys(value).some((key) => /grounding|citation|web.?search/i.test(key))) {
+            hasResearchTrace = true;
+        }
+        if (
+            Array.isArray(value) &&
+            value.some((item) => typeof item === 'string' && !/^https?:\/\//i.test(item)) &&
+            value.some(
+                (item) =>
+                    Array.isArray(item) &&
+                    item.some((nested) => typeof nested === 'string' && /^https?:\/\//i.test(nested)),
+            )
+        ) {
             hasResearchTrace = true;
         }
         if (typeof value !== 'string' || !/^https?:\/\//i.test(value) || !URL.canParse(value)) {
@@ -591,16 +616,18 @@ const getNovaInteractionToolEvents = (interaction: JsonRecord, interactionIndex:
     const interactionId = firstString(interaction.interactionId) ?? `interaction-${interactionIndex}`;
     let searchIndex = 0;
     let navigationIndex = 0;
-    let pendingSearchCallId: string | null = null;
-    return getNovaReasoningTexts(interaction).flatMap<ImportedToolEvent>((text) => {
+    const pendingSearchCallIds: string[] = [];
+    const entries = getNovaReasoningTexts(interaction).flatMap((text) => text.split(/\r?\n(?=[🔍🌎]\s+)/u));
+    return entries.flatMap<ImportedToolEvent>((text) => {
         const query = asString(text.match(NOVA_SEARCH_PATTERN)?.[1]);
         if (query) {
-            pendingSearchCallId = `${interactionId}:web-search:${searchIndex}`;
+            const callId = `${interactionId}:web-search:${searchIndex}`;
+            pendingSearchCallIds.push(callId);
             searchIndex += 1;
             return [
                 {
                     argumentsText: JSON.stringify({ query }),
-                    callId: pendingSearchCallId,
+                    callId,
                     kind: 'call',
                     name: 'web_search',
                     outputText: null,
@@ -610,8 +637,7 @@ const getNovaInteractionToolEvents = (interaction: JsonRecord, interactionIndex:
         }
         const results = asString(text.match(NOVA_RESULTS_PATTERN)?.[1]);
         if (results) {
-            const callId = pendingSearchCallId;
-            pendingSearchCallId = null;
+            const callId = pendingSearchCallIds.shift() ?? null;
             return [
                 {
                     argumentsText: null,
@@ -667,22 +693,39 @@ const addImportedToolEvents = (messages: NormalizedMessage[], toolEvents: Import
                 reasoning: [],
                 recipient: event.name,
                 role: event.kind === 'call' ? 'assistant' : 'tool',
+                sourceOrder: event.sourceOrder ?? null,
                 text: text ?? '',
                 timestamp: event.timestamp,
             } satisfies NormalizedMessage,
         ];
     });
-    const finalIndex = messages.findLastIndex((message) => message.phase === 'final_answer');
-    const insertionIndex = finalIndex === -1 ? messages.length : finalIndex;
-    return [...messages.slice(0, insertionIndex), ...toolMessages, ...messages.slice(insertionIndex)];
+    const positionedToolMessages = toolMessages.filter((message) => message.sourceOrder !== null);
+    const unpositionedToolMessages = toolMessages.filter((message) => message.sourceOrder === null);
+    const orderedMessages = [...positionedToolMessages, ...messages]
+        .map((message, index) => ({ index, message }))
+        .sort(
+            (left, right) =>
+                (left.message.sourceOrder ?? Number.POSITIVE_INFINITY) -
+                    (right.message.sourceOrder ?? Number.POSITIVE_INFINITY) || left.index - right.index,
+        )
+        .map(({ message }) => message);
+    const finalIndex = orderedMessages.findLastIndex((message) => message.phase === 'final_answer');
+    const insertionIndex = finalIndex === -1 ? orderedMessages.length : finalIndex;
+    return [
+        ...orderedMessages.slice(0, insertionIndex),
+        ...unpositionedToolMessages,
+        ...orderedMessages.slice(insertionIndex),
+    ];
 };
 
 const getProviderToolEvents = (
     root: JsonRecord,
     platform: string,
-    sourceMessages: JsonRecord[],
+    sourceMessages: SourceMessage[],
 ): ImportedToolEvent[] => {
-    const embedded = sourceMessages.flatMap(getEmbeddedToolEvents);
+    const embedded = sourceMessages.flatMap(({ message, sourceOrder }) =>
+        getEmbeddedToolEvents(message).map((event) => ({ ...event, sourceOrder })),
+    );
     if (platform === 'Grok') {
         return [...embedded, ...getGrokToolEvents(root.raw_payload)];
     }
@@ -780,13 +823,25 @@ const parseMappingConversation = (root: JsonRecord, fileName: string): Conversat
         return null;
     }
     const rootModel = normalizeModel(firstString(root.default_model_slug, root.model));
+    const sourceMessages: SourceMessage[] = [];
     const normalizedMessages = classifyAssistantPhases(
-        chain.flatMap(({ id, message }) => {
-            const normalized = normalizeMessage(message, rootModel, id);
+        chain.flatMap(({ id, message }, index) => {
+            const sourceOrder = index * 2;
+            const normalized = normalizeMessage(message, rootModel, id, sourceOrder);
             const report = getDeepResearchReport(message);
+            sourceMessages.push({ message, sourceOrder });
+            if (report) {
+                sourceMessages.push({ message: report, sourceOrder: sourceOrder + 1 });
+            }
             const reportMessage = report
                 ? {
-                      ...normalizeMessage(report, normalized.model ?? rootModel, `${id}-deep-research-report`),
+                      ...normalizeMessage(
+                          report,
+                          normalized.model ?? rootModel,
+                          `${id}-deep-research-report`,
+                          sourceOrder + 1,
+                      ),
+                      // ChatGPT report widgets may expose legacy internal labels such as gpt-5-thinking.
                       model: normalized.model ?? rootModel,
                   }
                 : null;
@@ -797,13 +852,8 @@ const parseMappingConversation = (root: JsonRecord, fileName: string): Conversat
     );
     const model = [...normalizedMessages].reverse().find((message) => message.model)?.model ?? rootModel;
     const platform = inferPlatform({ ...root, model }, fileName);
-    const messages = addImportedToolEvents(
-        normalizedMessages,
-        getProviderToolEvents(
-            root,
-            platform,
-            chain.map(({ message }) => message),
-        ),
+    const messages = classifyAssistantPhases(
+        addImportedToolEvents(normalizedMessages, getProviderToolEvents(root, platform, sourceMessages)),
     );
     if (messages.length === 0) {
         return null;
@@ -840,14 +890,14 @@ const parseGrokConversation = (root: JsonRecord): ConversationDraft | null => {
         return null;
     }
     const conversation = root.conversation;
-    const sourceMessages: JsonRecord[] = [];
+    const sourceMessages: SourceMessage[] = [];
     const normalizedMessages = classifyAssistantPhases(
         root.responses.flatMap((entry, index) => {
             const response = isRecord(entry) && isRecord(entry.response) ? entry.response : null;
             if (!response) {
                 return [];
             }
-            sourceMessages.push(response);
+            sourceMessages.push({ message: response, sourceOrder: index });
             const requestMetadata =
                 isRecord(response.metadata) && isRecord(response.metadata.request_metadata)
                     ? response.metadata.request_metadata
@@ -863,11 +913,14 @@ const parseGrokConversation = (root: JsonRecord): ConversationDraft | null => {
                 },
                 model,
                 `response-${index}`,
+                index,
             );
             return message.text || message.reasoning.length > 0 ? [message] : [];
         }),
     );
-    const messages = addImportedToolEvents(normalizedMessages, getProviderToolEvents(root, 'Grok', sourceMessages));
+    const messages = classifyAssistantPhases(
+        addImportedToolEvents(normalizedMessages, getProviderToolEvents(root, 'Grok', sourceMessages)),
+    );
     if (messages.length === 0) {
         return null;
     }
@@ -903,19 +956,22 @@ const parseMessageArrayConversation = (root: JsonRecord, fileName: string): Conv
         return null;
     }
     const rootModel = normalizeModel(firstString(root.model, root.model_slug, root.default_model_slug));
-    const sourceMessages = rawMessages.filter(isRecord);
+    const sourceMessages: SourceMessage[] = [];
     const normalizedMessages = classifyAssistantPhases(
         rawMessages.flatMap((value, index) => {
             if (!isRecord(value)) {
                 return [];
             }
-            const message = normalizeMessage(value, rootModel, `message-${index}`);
+            sourceMessages.push({ message: value, sourceOrder: index });
+            const message = normalizeMessage(value, rootModel, `message-${index}`, index);
             return message.text || message.reasoning.length > 0 ? [message] : [];
         }),
     );
     const model = [...normalizedMessages].reverse().find((message) => message.model)?.model ?? rootModel;
     const platform = inferPlatform({ ...root, model }, fileName);
-    const messages = addImportedToolEvents(normalizedMessages, getProviderToolEvents(root, platform, sourceMessages));
+    const messages = classifyAssistantPhases(
+        addImportedToolEvents(normalizedMessages, getProviderToolEvents(root, platform, sourceMessages)),
+    );
     if (messages.length === 0) {
         return null;
     }
@@ -946,6 +1002,7 @@ const parseCommonConversation = (root: JsonRecord, fileName: string): Conversati
             reasoning: [],
             recipient: null,
             role: 'user',
+            sourceOrder: 0,
             text: prompt,
             timestamp: null,
         });
@@ -961,6 +1018,7 @@ const parseCommonConversation = (root: JsonRecord, fileName: string): Conversati
             reasoning,
             recipient: null,
             role: 'assistant',
+            sourceOrder: 1,
             text: response,
             timestamp: null,
         });

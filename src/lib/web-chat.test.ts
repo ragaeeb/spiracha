@@ -331,7 +331,25 @@ describe('parseWebChatFiles', () => {
             author: { role: 'assistant' },
             content: {
                 content_type: 'text',
-                parts: ['# Deep Research Assignment\n\n## Executive synthesis\n\nThe report body.'],
+                parts: [
+                    {
+                        id: 'report-search',
+                        input: { query: 'durable identity' },
+                        name: 'web_search',
+                        type: 'tool_use',
+                    },
+                    {
+                        content: [
+                            {
+                                title: 'Identity source',
+                                url: 'https://example.com/identity',
+                            },
+                        ],
+                        tool_use_id: 'report-search',
+                        type: 'tool_result',
+                    },
+                    '# Deep Research Assignment\n\n## Executive synthesis\n\nThe report body.',
+                ],
             },
             metadata: { resolved_model_slug: 'gpt-5-thinking' },
         };
@@ -385,6 +403,15 @@ describe('parseWebChatFiles', () => {
 
         expect(conversation.messageCount).toBe(2);
         expect(conversation.model).toBe('gpt-5-6-instant');
+        expect(getToolCalls(conversation.events)).toContainEqual(
+            expect.objectContaining({ callId: 'report-search', name: 'web_search' }),
+        );
+        expect(getToolOutputs(conversation.events)).toContainEqual(
+            expect.objectContaining({
+                callId: 'report-search',
+                outputText: expect.stringContaining('https://example.com/identity'),
+            }),
+        );
         expect(conversation.events.at(-1)).toMatchObject({
             kind: 'message',
             model: 'gpt-5-6-instant',
@@ -513,6 +540,27 @@ describe('parseWebChatFiles', () => {
         expect(getToolCalls(ordinaryEvents)).toEqual([]);
     });
 
+    it('should detect Gemini research source groups without relying on English labels', () => {
+        const input = {
+            ...createMappingExport({
+                conversationId: 'gemini-localized-research',
+                model: 'gemini-3.1-pro-extended',
+                title: 'Gemini localized research',
+            }),
+            raw_payload: [['Recherche de sites...', ['https://example.com/localized-source']]],
+        };
+
+        const events = parseWebChatFiles([{ content: JSON.stringify(input), name: 'gemini.json' }]).conversations[0]!
+            .events;
+
+        expect(getToolCalls(events)).toEqual([
+            expect.objectContaining({
+                argumentsText: '{"url":"https://example.com/localized-source"}',
+                name: 'browse_page',
+            }),
+        ]);
+    });
+
     it('should expose attached Qwen deep-research queries as tool calls', () => {
         const input = {
             ...createMappingExport({
@@ -579,6 +627,32 @@ describe('parseWebChatFiles', () => {
         );
         expect(outputs[0]?.outputText).toContain('https://www.facebook.com/groups/fluttervn/posts/2015778435625251/');
         expect(outputs[0]?.outputText).toContain('Git rebase moves feature branch histories to the head of main.');
+    });
+
+    it('should keep repeated Qwen searches as distinct paired tool calls', () => {
+        const research = {
+            query: 'same query',
+            webSites: [{ title: 'Source', url: 'https://example.com/source' }],
+        };
+        const input = {
+            ...createMappingExport({
+                assistantMetadata: { qwen_model: 'qwen3.8-max' },
+                conversationId: 'qwen-repeated-research',
+                model: 'qwen3.8-max',
+                title: 'Qwen repeated research',
+            }),
+            raw_payload: { deep_research: [research, research] },
+        };
+
+        const events = parseWebChatFiles([{ content: JSON.stringify(input), name: 'qwen.json' }]).conversations[0]!
+            .events;
+        const calls = getToolCalls(events);
+        const outputs = getToolOutputs(events);
+
+        expect(calls).toHaveLength(2);
+        expect(outputs).toHaveLength(2);
+        expect(calls[0]?.callId).not.toBe(calls[1]?.callId);
+        expect(outputs.map((output) => output.callId)).toEqual(calls.map((call) => call.callId));
     });
 
     it('should expose Amazon Nova deep-research browsing with paired search results', () => {
@@ -649,6 +723,116 @@ describe('parseWebChatFiles', () => {
             }),
         ]);
         expect(outputs[0]?.outputText).toContain('https://git-scm.com/docs/git-patch-id');
+    });
+
+    it('should parse multiline Nova searches and pair queued results in order', () => {
+        const input = {
+            ...createMappingExport({
+                conversationId: 'nova-multiline-research',
+                model: 'NOVA_PRO_DEEP_RESEARCH_REASONING_FINE_TUNED',
+                title: 'Amazon Nova Conversation',
+            }),
+            raw_payload: {
+                conversationInteractions: [
+                    {
+                        interactionId: 'nova-parallel',
+                        messages: [
+                            {
+                                content: [
+                                    {
+                                        reasoningBlocks: [
+                                            {
+                                                text: [
+                                                    '🔍  Searching for: first query',
+                                                    '🔍  Searching for: second query',
+                                                    '🔍  Retrieved results: first result',
+                                                    '🔍  Retrieved results: second result',
+                                                ].join('\n'),
+                                            },
+                                        ],
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            },
+        };
+
+        const events = parseWebChatFiles([{ content: JSON.stringify(input), name: 'nova.json' }]).conversations[0]!
+            .events;
+        const calls = getToolCalls(events);
+        const outputs = getToolOutputs(events);
+
+        expect(calls.map((call) => call.command)).toEqual(['first query', 'second query']);
+        expect(outputs.map((output) => output.outputText)).toEqual(['first result', 'second result']);
+        expect(outputs.map((output) => output.callId)).toEqual(calls.map((call) => call.callId));
+    });
+
+    it('should keep embedded tool events beside their source turn', () => {
+        const input = {
+            ...createMappingExport({
+                conversationId: 'multi-turn-tools',
+                model: 'claude-sonnet-5',
+                title: 'Claude multi-turn tools',
+            }),
+            current_node: 'assistant-2',
+            mapping: {
+                'assistant-1': {
+                    children: ['user-2'],
+                    id: 'assistant-1',
+                    message: { author: { role: 'assistant' }, content: { parts: ['Answer one'] } },
+                    parent: 'tool-1',
+                },
+                'assistant-2': {
+                    children: [],
+                    id: 'assistant-2',
+                    message: { author: { role: 'assistant' }, content: { parts: ['Answer two'] } },
+                    parent: 'user-2',
+                },
+                root: { children: ['user-1'], id: 'root', message: null, parent: null },
+                'tool-1': {
+                    children: ['assistant-1'],
+                    id: 'tool-1',
+                    message: {
+                        author: { role: 'assistant' },
+                        content: {
+                            parts: [
+                                {
+                                    id: 'turn-one-search',
+                                    input: { query: 'first' },
+                                    name: 'web_search',
+                                    type: 'tool_use',
+                                },
+                            ],
+                        },
+                    },
+                    parent: 'user-1',
+                },
+                'user-1': {
+                    children: ['tool-1'],
+                    id: 'user-1',
+                    message: { author: { role: 'user' }, content: { parts: ['Question one'] } },
+                    parent: 'root',
+                },
+                'user-2': {
+                    children: ['assistant-2'],
+                    id: 'user-2',
+                    message: { author: { role: 'user' }, content: { parts: ['Question two'] } },
+                    parent: 'assistant-1',
+                },
+            },
+        };
+
+        const events = parseWebChatFiles([{ content: JSON.stringify(input), name: 'claude.json' }]).conversations[0]!
+            .events;
+        const toolIndex = events.findIndex((event) => event.kind === 'tool_call');
+        const firstAnswerIndex = events.findIndex((event) => event.kind === 'message' && event.text === 'Answer one');
+        const secondUserIndex = events.findIndex((event) => event.kind === 'message' && event.text === 'Question two');
+
+        expect(toolIndex).toBeGreaterThan(-1);
+        expect(toolIndex).toBeLessThan(firstAnswerIndex);
+        expect(firstAnswerIndex).toBeLessThan(secondUserIndex);
     });
 
     it('should expose attached Claude web-search and fetch blocks as tool calls', () => {

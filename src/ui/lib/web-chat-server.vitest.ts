@@ -2,9 +2,14 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@tanstack/react-start', () => ({
     createServerFn: () => {
+        let parse: ((value: unknown) => unknown) | null = null;
         const serverFn = {
-            handler: (callback: unknown) => callback,
-            validator: () => serverFn,
+            handler: (callback: (input: { data: unknown }) => unknown) => async (input?: { data: unknown }) =>
+                callback(parse && input ? { ...input, data: parse(input.data) } : (input as { data: unknown })),
+            validator: (schema: { parse: (value: unknown) => unknown }) => {
+                parse = schema.parse.bind(schema);
+                return serverFn;
+            },
         };
         return serverFn;
     },
@@ -15,6 +20,7 @@ import {
     getWebChatFn,
     importWebChatsFn,
     listWebChatsFn,
+    MAX_WEB_CHAT_FILE_BYTES,
     MAX_WEB_CHAT_FILES,
 } from './web-chat-server';
 
@@ -78,9 +84,15 @@ describe('web chat server', () => {
             name: `chat-${index}.json`,
         }));
 
-        await expect(importWebChatsFn({ data: { files } } as never)).rejects.toThrow(
-            `Import at most ${MAX_WEB_CHAT_FILES} files at once.`,
-        );
+        await expect(importWebChatsFn({ data: { files } } as never)).rejects.toThrow();
+    });
+
+    it('should validate imported file limits in UTF-8 bytes', async () => {
+        const content = '€'.repeat(Math.floor(MAX_WEB_CHAT_FILE_BYTES / 3) + 1);
+
+        await expect(
+            importWebChatsFn({ data: { files: [{ content, name: 'oversized-unicode.json' }] } } as never),
+        ).rejects.toThrow('Each imported file must be 25 MB or smaller.');
     });
 
     it('should reject missing parsed conversation ids', async () => {

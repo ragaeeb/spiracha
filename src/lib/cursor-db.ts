@@ -809,9 +809,11 @@ const DEV_CONTAINER_DIRS = [
     'Downloads',
     'Desktop',
 ];
-const REVERSE_WORKSPACE_ROOT_RE = /^\/Users\/[^/]+\/workspace\/reverse\/[^/]+/u;
-const CONTAINER_ROOT_RE = new RegExp(`^(/Users/[^/]+/(?:${DEV_CONTAINER_DIRS.join('|')})/[^/]+)`);
-const ABS_PATH_RE = /\/Users\/[^"'\s:,)\]]+/g;
+const HOME_ROOT_PATTERN = '(?:/Users/[^/]+|/home/[^/]+|/mnt/[A-Za-z]/Users/[^/]+|/?[A-Za-z]:/Users/[^/]+)';
+const REVERSE_WORKSPACE_ROOT_RE = new RegExp(`^${HOME_ROOT_PATTERN}/workspace/reverse/[^/]+`, 'u');
+const CONTAINER_ROOT_RE = new RegExp(`^(${HOME_ROOT_PATTERN}/(?:${DEV_CONTAINER_DIRS.join('|')})/[^/]+)`);
+const HOME_PROJECT_ROOT_RE = new RegExp(`^(${HOME_ROOT_PATTERN}/[^/]+)`);
+const ABS_PATH_RE = /(?:\/(?:Users|home)\/|\/mnt\/[A-Za-z]\/Users\/|\/?[A-Za-z]:[\\/]+Users[\\/]+)[^"'\s:,)\]]+/g;
 
 const isNoisePath = (value: string): boolean =>
     /\/Library(?:\/|$)|\/\.cursor(?:\/|$)|\/node_modules\/|\/\.git\/|^\/tmp|^\/var|^\/private|\/\.Trash\//u.test(
@@ -824,7 +826,7 @@ const stripLikelyFileName = (value: string): string => {
 };
 
 const containerRootFromPath = (value: string): string | null => {
-    const candidate = stripLikelyFileName(normalizeCursorPath(value));
+    const candidate = stripLikelyFileName(normalizeCursorPath(value).replace(/\\+/g, '/'));
     const reverseMatch = candidate.match(REVERSE_WORKSPACE_ROOT_RE);
     if (reverseMatch) {
         return reverseMatch[0] ?? null;
@@ -835,22 +837,18 @@ const containerRootFromPath = (value: string): string | null => {
         return match[1] ?? null;
     }
 
-    const parts = candidate.split('/');
-    if (parts.length >= 4 && parts[1] === 'Users') {
-        return `/${parts.slice(1, 4).join('/')}`;
-    }
-
-    return null;
+    return candidate.match(HOME_PROJECT_ROOT_RE)?.[1] ?? null;
 };
 
 const inferFolderFromPaths = (paths: string[]): string | null => {
     const counts = new Map<string, number>();
     for (const value of paths) {
-        if (isNoisePath(value)) {
+        const normalized = value.replace(/\\+/g, '/');
+        if (isNoisePath(normalized)) {
             continue;
         }
 
-        const root = containerRootFromPath(value);
+        const root = containerRootFromPath(normalized);
         if (root) {
             counts.set(root, (counts.get(root) ?? 0) + 1);
         }

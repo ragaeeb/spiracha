@@ -498,6 +498,52 @@ describe('cursor-db workspace discovery', () => {
         expect(threads.map((thread) => thread.composerId)).toContain('orphan-1');
     });
 
+    it('should infer Linux and Windows workspace folders for headerless orphan threads', async () => {
+        const userDir = await makeUserDir();
+        const spec: CursorFixtureSpec = {
+            buckets: [],
+            threads: [
+                {
+                    bubbles: [
+                        {
+                            bubbleId: 'linux-path',
+                            toolCall: {
+                                name: 'read_file',
+                                rawArgs: JSON.stringify({ path: '/home/test/workspace/linux-repo/src/main.ts' }),
+                                result: 'ok',
+                            },
+                            type: 2,
+                        },
+                    ],
+                    composerId: 'linux-orphan',
+                    name: 'Linux orphan',
+                },
+                {
+                    bubbles: [
+                        {
+                            bubbleId: 'windows-path',
+                            toolCall: {
+                                name: 'read_file',
+                                rawArgs: JSON.stringify({
+                                    path: 'C:\\Users\\test\\workspace\\windows-repo\\src\\main.ts',
+                                }),
+                                result: 'ok',
+                            },
+                            type: 2,
+                        },
+                    ],
+                    composerId: 'windows-orphan',
+                    name: 'Windows orphan',
+                },
+            ],
+        };
+        await createCursorFixture(userDir, spec);
+
+        const groups = await listCursorWorkspaceGroups(userDir);
+
+        expect(groups.map((group) => group.label)).toEqual(expect.arrayContaining(['linux-repo', 'windows-repo']));
+    });
+
     it('should infer the workspace folder from head content for empty headerless threads', async () => {
         const userDir = await makeUserDir();
         const spec: CursorFixtureSpec = {

@@ -6,19 +6,29 @@ export const MAX_WEB_CHAT_FILES = 20;
 export const MAX_WEB_CHAT_FILE_BYTES = 25 * 1024 * 1024;
 export const MAX_WEB_CHAT_IMPORT_BYTES = 100 * 1024 * 1024;
 
+const getTotalBytes = (files: WebChatFileInput[]): number =>
+    files.reduce((total, file) => total + Buffer.byteLength(file.content), 0);
+
 const fileSchema = z.object({
-    content: z.string().max(MAX_WEB_CHAT_FILE_BYTES),
+    content: z
+        .string()
+        .max(MAX_WEB_CHAT_FILE_BYTES)
+        .refine((content) => Buffer.byteLength(content) <= MAX_WEB_CHAT_FILE_BYTES, {
+            message: 'Each imported file must be 25 MB or smaller.',
+        }),
     name: z.string().min(1).max(255),
 });
-const importSchema = z.object({
-    files: z.array(fileSchema).min(1).max(MAX_WEB_CHAT_FILES),
-});
+const importSchema = z
+    .object({
+        files: z.array(fileSchema).min(1).max(MAX_WEB_CHAT_FILES),
+    })
+    .refine(({ files }) => getTotalBytes(files) <= MAX_WEB_CHAT_IMPORT_BYTES, {
+        message: 'The selected files exceed the 100 MB import limit.',
+        path: ['files'],
+    });
 const conversationSchema = z.object({
     conversationId: z.string().min(1),
 });
-
-const getTotalBytes = (files: WebChatFileInput[]): number =>
-    files.reduce((total, file) => total + Buffer.byteLength(file.content), 0);
 
 export const listWebChatsFn = createServerFn({ method: 'GET' }).handler(async () => {
     const { listImportedWebChats } = await import('@spiracha/lib/web-chat');
