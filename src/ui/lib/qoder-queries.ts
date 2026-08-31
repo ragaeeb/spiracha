@@ -30,6 +30,7 @@ export const qoderSessionsQueryOptions = (workspaceKey: string | null) =>
 export const qoderSessionDetailQueryOptions = (sessionId: string | null) =>
     queryOptions({
         enabled: sessionId !== null,
+        gcTime: 60_000,
         queryFn: () => getQoderSessionDetailFn({ data: { sessionId: sessionId ?? '' } }),
         queryKey: ['qoder-session', sessionId ?? 'none'],
         retry: retrySqliteQuery,

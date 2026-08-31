@@ -24,6 +24,7 @@ export const claudeCodeSessionsQueryOptions = (workspaceKey: string | null) =>
 export const claudeCodeSessionDetailQueryOptions = (sessionId: string | null) =>
     queryOptions({
         enabled: sessionId !== null,
+        gcTime: 60_000,
         queryFn: () => getClaudeCodeSessionDetailFn({ data: { sessionId: sessionId ?? '' } }),
         queryKey: ['claude-code-session', sessionId ?? 'none'],
     });
@@ -31,6 +32,7 @@ export const claudeCodeSessionDetailQueryOptions = (sessionId: string | null) =>
 export const claudeCodeSessionTranscriptQueryOptions = (sessionId: string | null) =>
     queryOptions({
         enabled: sessionId !== null,
+        gcTime: 60_000,
         queryFn: () => getClaudeCodeSessionTranscriptFn({ data: { sessionId: sessionId ?? '' } }),
         queryKey: ['claude-code-session-transcript', sessionId ?? 'none'],
     });

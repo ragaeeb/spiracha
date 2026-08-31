@@ -28,4 +28,10 @@ describe('threadSnapshotQueryOptions', () => {
             expect(query.refetchOnWindowFocus).toBe(false);
         }
     });
+
+    it('should expire heavy transcript data sooner without changing global query defaults', () => {
+        expect(threadTranscriptPreviewQueryOptions('thread-1').gcTime).toBe(60_000);
+        expect(threadTranscriptQueryOptions('thread-1').gcTime).toBe(60_000);
+        expect(threadSnapshotQueryOptions('thread-1').gcTime).toBeUndefined();
+    });
 });

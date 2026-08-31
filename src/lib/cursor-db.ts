@@ -1,8 +1,9 @@
 import { constants, Database } from 'bun:sqlite';
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { createReadStream, existsSync } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
+import { createInterface } from 'node:readline';
 import { decodeCursorChatModel, resolveCursorChatStorePath } from './cursor-chat-store';
 import {
     COMPOSER_DATA_KEY,
@@ -1802,45 +1803,53 @@ const parseAgentTranscriptBubble = (
     return isRenderableBubble(bubble) ? bubble : null;
 };
 
-const readCursorAgentTranscriptFile = async (filePath: string): Promise<CursorBubble[]> => {
-    let text = '';
+const parseCursorAgentTranscriptLine = (filePath: string, line: string, lineNumber: number): CursorBubble | null => {
+    if (!line.trim()) {
+        return null;
+    }
+
+    let raw: JsonValue;
     try {
-        text = await Bun.file(filePath).text();
+        raw = JSON.parse(line) as JsonValue;
     } catch (error) {
+        warnCursorDataIssue('invalid_agent_transcript_jsonl', {
+            error: error instanceof Error ? error.message : String(error),
+            filePath,
+            lineNumber,
+        });
+        return null;
+    }
+
+    const entry = asObject(raw);
+    return entry ? parseAgentTranscriptBubble(filePath, lineNumber, entry) : null;
+};
+
+const readCursorAgentTranscriptFile = async (filePath: string): Promise<CursorBubble[]> => {
+    const bubbles: CursorBubble[] = [];
+    const stream = createReadStream(filePath, { encoding: 'utf8' });
+    const lines = createInterface({
+        crlfDelay: Number.POSITIVE_INFINITY,
+        input: stream,
+    });
+    let lineNumber = 0;
+
+    try {
+        for await (const line of lines) {
+            lineNumber += 1;
+            const bubble = parseCursorAgentTranscriptLine(filePath, line, lineNumber);
+            if (bubble) {
+                bubbles.push(bubble);
+            }
+        }
+    } catch (error) {
+        bubbles.length = 0;
         warnCursorDataIssue('agent_transcript_unreadable', {
             error: error instanceof Error ? error.message : String(error),
             filePath,
         });
-        return [];
-    }
-
-    const bubbles: CursorBubble[] = [];
-    for (const [index, line] of text.split(/\n/u).entries()) {
-        if (!line.trim()) {
-            continue;
-        }
-
-        let raw: JsonValue;
-        try {
-            raw = JSON.parse(line) as JsonValue;
-        } catch (error) {
-            warnCursorDataIssue('invalid_agent_transcript_jsonl', {
-                error: error instanceof Error ? error.message : String(error),
-                filePath,
-                lineNumber: index + 1,
-            });
-            continue;
-        }
-
-        const entry = asObject(raw);
-        if (!entry) {
-            continue;
-        }
-
-        const bubble = parseAgentTranscriptBubble(filePath, index + 1, entry);
-        if (bubble) {
-            bubbles.push(bubble);
-        }
+    } finally {
+        lines.close();
+        stream.destroy();
     }
 
     return bubbles;

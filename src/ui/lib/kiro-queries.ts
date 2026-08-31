@@ -19,6 +19,7 @@ export const kiroSessionsQueryOptions = (workspaceKey: string | null) =>
 export const kiroSessionDetailQueryOptions = (sessionId: string | null) =>
     queryOptions({
         enabled: sessionId !== null,
+        gcTime: 60_000,
         queryFn: () => getKiroSessionDetailFn({ data: { sessionId: sessionId ?? '' } }),
         queryKey: ['kiro-session', sessionId ?? 'none'],
     });

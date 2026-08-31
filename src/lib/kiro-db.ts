@@ -30,6 +30,7 @@ import {
 export { getDefaultKiroDataDir, resolveKiroWorkspaceSessionsDir };
 
 const READ_CONCURRENCY = 8;
+const EXECUTION_INDEX_READ_CONCURRENCY = 1;
 const DELETE_CONCURRENCY = 1;
 const EXECUTION_CACHE_TTL_MS = 1_000;
 const EXECUTION_CACHE_MAX_ENTRIES = 128;
@@ -41,9 +42,9 @@ const WORKSPACE_KEY_PREFIX = 'workspace:';
 const kiroDeleteLimiter = createConcurrencyLimiter(DELETE_CONCURRENCY);
 const executionIndexCache = new Map<
     string,
-    { expiresAtMs: number; filesBySessionId: Map<string, KiroExecutionFile[]> }
+    { expiresAtMs: number; filesBySessionId: Map<string, KiroExecutionFileReference[]> }
 >();
-const executionIndexInFlight = new Map<string, Promise<Map<string, KiroExecutionFile[]>>>();
+const executionIndexInFlight = new Map<string, Promise<Map<string, KiroExecutionFileReference[]>>>();
 const transcriptFileCache = createBoundedFileCache<KiroSessionTranscript>({
     maxBytes: TRANSCRIPT_CACHE_MAX_BYTES,
     maxEntries: TRANSCRIPT_CACHE_MAX_ENTRIES,
@@ -77,6 +78,11 @@ type KiroSessionFile = {
 type KiroExecutionFile = {
     filePath: string;
     raw: Record<string, JsonValue>;
+};
+
+type KiroExecutionFileReference = {
+    filePath: string;
+    sessionId: string;
 };
 
 export type DeleteKiroSessionResult = {
@@ -532,26 +538,26 @@ const listFilesRecursively = async (root: string, excludedRoot: string): Promise
     return files;
 };
 
-const buildExecutionIndex = async (dataDir: string): Promise<Map<string, KiroExecutionFile[]>> => {
+const buildExecutionIndex = async (dataDir: string): Promise<Map<string, KiroExecutionFileReference[]>> => {
     const files = await listFilesRecursively(dataDir, path.join(dataDir, 'workspace-sessions'));
-    const executions = await mapWithConcurrency(files, READ_CONCURRENCY, async (filePath) => {
+    const executions = await mapWithConcurrency(files, EXECUTION_INDEX_READ_CONCURRENCY, async (filePath) => {
         const raw = await readJsonObject(filePath, false);
         const sessionId = asString(raw?.chatSessionId ?? null);
-        return raw && sessionId && Array.isArray(raw.actions) ? { execution: { filePath, raw }, sessionId } : null;
+        return raw && sessionId && Array.isArray(raw.actions) ? { filePath, sessionId } : null;
     });
-    const filesBySessionId = new Map<string, KiroExecutionFile[]>();
+    const filesBySessionId = new Map<string, KiroExecutionFileReference[]>();
     for (const item of executions) {
         if (!item) {
             continue;
         }
         const sessionFiles = filesBySessionId.get(item.sessionId) ?? [];
-        sessionFiles.push(item.execution);
+        sessionFiles.push({ filePath: item.filePath, sessionId: item.sessionId });
         filesBySessionId.set(item.sessionId, sessionFiles);
     }
     return filesBySessionId;
 };
 
-const getExecutionIndex = async (dataDir: string): Promise<Map<string, KiroExecutionFile[]>> => {
+const getExecutionIndex = async (dataDir: string): Promise<Map<string, KiroExecutionFileReference[]>> => {
     const nowMs = Date.now();
     for (const [key, entry] of executionIndexCache) {
         if (entry.expiresAtMs <= nowMs) {
@@ -595,8 +601,10 @@ const getExecutionIndex = async (dataDir: string): Promise<Map<string, KiroExecu
     }
 };
 
-const listExecutionFilesForSession = async (dataDir: string, sessionId: string): Promise<KiroExecutionFile[]> =>
-    (await getExecutionIndex(dataDir)).get(sessionId) ?? [];
+const listExecutionFileReferencesForSession = async (
+    dataDir: string,
+    sessionId: string,
+): Promise<KiroExecutionFileReference[]> => (await getExecutionIndex(dataDir)).get(sessionId) ?? [];
 
 const getActionTimestamp = (action: Record<string, JsonValue>, execution: Record<string, JsonValue>): string | null => {
     return toIso(
@@ -880,11 +888,26 @@ const compareExecutionFiles = (left: KiroExecutionFile, right: KiroExecutionFile
 };
 
 const readExecutionFiles = async (sessionsDir: string, session: KiroSessionSummary): Promise<KiroExecutionFile[]> => {
-    const executions = await listExecutionFilesForSession(
+    const executionReferences = await listExecutionFileReferencesForSession(
         getKiroDataDirFromSessionsDir(sessionsDir),
         session.sessionId,
     );
-    return executions.sort(compareExecutionFiles);
+    const executions = await mapWithConcurrency(
+        executionReferences,
+        READ_CONCURRENCY,
+        async ({ filePath, sessionId }) => {
+            const raw = await readJsonObject(filePath, false);
+            return raw &&
+                sessionId === session.sessionId &&
+                asString(raw.chatSessionId ?? null) === sessionId &&
+                Array.isArray(raw.actions)
+                ? { filePath, raw }
+                : null;
+        },
+    );
+    return executions
+        .filter((execution): execution is KiroExecutionFile => execution !== null)
+        .sort(compareExecutionFiles);
 };
 
 const groupExecutionEntriesById = (executionEntries: KiroTranscriptEntry[]) => {
@@ -1548,7 +1571,7 @@ const deletePhysicalKiroSession = async (sessionsDir: string, sessionId: string)
 
     const transcript = await readSessionFile(file, { includeExecutions: false, sessionsDir });
     const executionFiles = transcript
-        ? await listExecutionFilesForSession(getKiroDataDirFromSessionsDir(sessionsDir), sessionId)
+        ? await listExecutionFileReferencesForSession(getKiroDataDirFromSessionsDir(sessionsDir), sessionId)
         : [];
     const deletedFiles = [file.filePath, ...executionFiles.map((execution) => execution.filePath)];
 

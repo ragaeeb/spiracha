@@ -30,4 +30,10 @@ describe('web chat query options', () => {
             queryKey: ['web-chat-events', 'none'],
         });
     });
+
+    it('should expire imported conversation detail and event data sooner than the list cache', () => {
+        expect(webChatQueryOptions('chat-1').gcTime).toBe(60_000);
+        expect(webChatEventsQueryOptions('chat-1').gcTime).toBe(60_000);
+        expect(webChatsQueryOptions().gcTime).toBeUndefined();
+    });
 });

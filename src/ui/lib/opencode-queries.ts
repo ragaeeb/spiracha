@@ -32,6 +32,7 @@ export const openCodeSessionsQueryOptions = (workspaceKey: string | null) =>
 export const openCodeSessionDetailQueryOptions = (sessionId: string | null) =>
     queryOptions({
         enabled: sessionId !== null,
+        gcTime: 60_000,
         queryFn: () => getOpenCodeSessionDetailFn({ data: { sessionId: sessionId ?? '' } }),
         queryKey: ['opencode-session', sessionId ?? 'none'],
         retry: retrySqliteQuery,

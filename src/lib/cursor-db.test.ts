@@ -1147,6 +1147,86 @@ describe('cursor-db transcript reads', () => {
             console.warn = warn;
         }
     });
+
+    it('should stream agent JSONL while preserving physical line numbers', async () => {
+        const userDir = await makeUserDir();
+        const composerId = 'streamed-agent-transcript';
+        const transcriptDir = path.join(userDir, 'projects', 'demo-project', 'agent-transcripts', composerId);
+        const transcriptPath = path.join(transcriptDir, `${composerId}.jsonl`);
+        await mkdir(transcriptDir, { recursive: true });
+        await Bun.write(
+            transcriptPath,
+            [
+                '{not-json',
+                '',
+                JSON.stringify({
+                    message: { content: [{ text: 'Recovered streamed line.', type: 'text' }] },
+                    role: 'assistant',
+                }),
+            ].join('\r\n'),
+        );
+
+        const originalBunFile = Bun.file;
+        let transcriptFileReads = 0;
+        Bun.file = ((pathOrBlob: string) => {
+            if (pathOrBlob === transcriptPath) {
+                transcriptFileReads += 1;
+            }
+            return originalBunFile(pathOrBlob);
+        }) as typeof Bun.file;
+        const warn = console.warn;
+        const warnings: unknown[][] = [];
+        console.warn = (...args: unknown[]) => warnings.push(args);
+
+        try {
+            const transcript = await readCursorThreadTranscriptWithAgentFiles(
+                path.join(userDir, 'missing-state.vscdb'),
+                composerId,
+                userDir,
+                [transcriptDir],
+            );
+
+            expect(transcript?.bubbles.map((bubble) => bubble.text)).toEqual(['Recovered streamed line.']);
+            expect(transcript?.bubbles[0]?.bubbleId.endsWith(':3')).toBe(true);
+            expect(warnings).toContainEqual([
+                '[spiracha:cursor] invalid_agent_transcript_jsonl',
+                expect.objectContaining({ filePath: transcriptPath, lineNumber: 1 }),
+            ]);
+            expect(transcriptFileReads).toBe(0);
+        } finally {
+            console.warn = warn;
+            Bun.file = originalBunFile;
+        }
+    });
+
+    it('should return no transcript when an agent JSONL stream cannot be read', async () => {
+        const userDir = await makeUserDir();
+        const composerId = 'unreadable-agent-transcript';
+        const transcriptDir = path.join(userDir, 'agent-transcripts', composerId);
+        const transcriptPath = path.join(transcriptDir, `${composerId}.jsonl`);
+        await mkdir(transcriptPath, { recursive: true });
+
+        const warn = console.warn;
+        const warnings: unknown[][] = [];
+        console.warn = (...args: unknown[]) => warnings.push(args);
+
+        try {
+            const transcript = await readCursorThreadTranscriptWithAgentFiles(
+                path.join(userDir, 'missing-state.vscdb'),
+                composerId,
+                userDir,
+                [transcriptDir],
+            );
+
+            expect(transcript).toBeNull();
+            expect(warnings).toContainEqual([
+                '[spiracha:cursor] agent_transcript_unreadable',
+                expect.objectContaining({ filePath: transcriptPath }),
+            ]);
+        } finally {
+            console.warn = warn;
+        }
+    });
 });
 
 describe('openCursorReadonlyDb', () => {

@@ -10,6 +10,7 @@ export const webChatsQueryOptions = () =>
 export const webChatQueryOptions = (conversationId: string | null) =>
     queryOptions({
         enabled: conversationId !== null,
+        gcTime: 60_000,
         queryFn: () => getWebChatFn({ data: { conversationId: conversationId ?? '' } }),
         queryKey: ['web-chat', conversationId ?? 'none'],
     });
@@ -17,6 +18,7 @@ export const webChatQueryOptions = (conversationId: string | null) =>
 export const webChatEventsQueryOptions = (conversationId: string | null) =>
     queryOptions({
         enabled: conversationId !== null,
+        gcTime: 60_000,
         queryFn: () => getWebChatEventsFn({ data: { conversationId: conversationId ?? '' } }),
         queryKey: ['web-chat-events', conversationId ?? 'none'],
     });

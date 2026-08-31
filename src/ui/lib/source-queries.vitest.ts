@@ -174,6 +174,32 @@ describe('source query options', () => {
         });
     });
 
+    it('should bound inactive heavy detail query retention without shortening list caches', () => {
+        const heavyQueries = [
+            antigravityConversationDetailQueryOptions('conversation-a'),
+            antigravityConversationDocumentsQueryOptions('conversation-a'),
+            claudeCodeSessionDetailQueryOptions('session-a'),
+            claudeCodeSessionTranscriptQueryOptions('session-a'),
+            clineTaskDetailQueryOptions('task-a'),
+            cursorThreadDetailQueryOptions('thread-a'),
+            cursorThreadTranscriptQueryOptions('thread-a'),
+            fxSessionDetailQueryOptions('session-a'),
+            grokSessionDetailQueryOptions('session-a'),
+            kiroSessionDetailQueryOptions('session-a'),
+            miniMaxCodeSessionDetailQueryOptions('session-a'),
+            openCodeSessionDetailQueryOptions('session-a'),
+            qoderSessionDetailQueryOptions('session-a'),
+        ];
+
+        for (const query of heavyQueries) {
+            expect(query.gcTime).toBe(60_000);
+        }
+
+        expect(antigravityConversationsQueryOptions('workspace-a').gcTime).toBeUndefined();
+        expect(claudeCodeSessionsQueryOptions('workspace-a').gcTime).toBe(15 * 60_000);
+        expect(cursorThreadsQueryOptions('workspace-a').gcTime).toBeUndefined();
+    });
+
     it('should configure Claude Code workspace, session, detail, and transcript queries', async () => {
         expect(claudeCodeSessionsQueryOptions('workspace-a')).toMatchObject({
             gcTime: 15 * 60_000,

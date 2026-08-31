@@ -14,6 +14,7 @@ export const fxSessionsQueryOptions = (workspaceKey: string | null) =>
 export const fxSessionDetailQueryOptions = (sessionId: string | null) =>
     queryOptions({
         enabled: sessionId !== null,
+        gcTime: 60_000,
         queryFn: () => getFxSessionDetailFn({ data: { sessionId: sessionId ?? '' } }),
         queryKey: ['fx-session', sessionId ?? 'none'],
     });
