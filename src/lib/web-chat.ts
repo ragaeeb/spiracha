@@ -55,6 +55,15 @@ type ConversationDraft = {
     updatedAtMs: number | null;
 };
 
+type ImportedToolEvent = {
+    argumentsText: string | null;
+    callId: string | null;
+    kind: 'call' | 'output';
+    name: string | null;
+    outputText: string | null;
+    timestamp: string | null;
+};
+
 const isRecord = (value: unknown): value is JsonRecord =>
     typeof value === 'object' && value !== null && !Array.isArray(value);
 
@@ -117,6 +126,25 @@ const normalizeRole = (value: unknown): string => {
 const uniqueStrings = (values: Array<string | null>): string[] => [
     ...new Set(values.filter((value): value is string => Boolean(value))),
 ];
+
+const pushInVisitOrder = (pending: unknown[], values: unknown[]) => {
+    for (let index = values.length - 1; index >= 0; index -= 1) {
+        pending.push(values[index]);
+    }
+};
+
+const visitJsonValues = (root: unknown, visitor: (value: unknown) => void) => {
+    const pending = [root];
+    while (pending.length > 0) {
+        const value = pending.pop();
+        visitor(value);
+        if (Array.isArray(value)) {
+            pushInVisitOrder(pending, value);
+        } else if (isRecord(value)) {
+            pushInVisitOrder(pending, Object.values(value));
+        }
+    }
+};
 
 const REASONING_TYPES = new Set(['analysis', 'reasoning', 'reasoning_recap', 'thinking', 'thoughts']);
 const TOOL_TYPES = new Set(['tool_result', 'tool_use']);
@@ -246,6 +274,7 @@ const extractMessageModel = (message: JsonRecord): string | null => {
 };
 
 const PLATFORM_HINTS: ReadonlyArray<readonly [RegExp, string]> = [
+    [/amazon[\W_]*nova|(?:^|[^a-z])nova(?:[^a-z]|$)/i, 'Amazon Nova'],
     [/claude|anthropic/i, 'Claude'],
     [/gemini|bard/i, 'Gemini'],
     [/grok|\bxai\b/i, 'Grok'],
@@ -294,18 +323,379 @@ const normalizeMessage = (
     fallbackId?: string,
 ): NormalizedMessage => {
     const author = isRecord(message.author) ? message.author : null;
+    const metadata = isRecord(message.metadata) ? message.metadata : null;
+    const chatgptSdk = metadata && isRecord(metadata.chatgpt_sdk) ? metadata.chatgpt_sdk : null;
+    const recipient = asString(message.recipient);
+    const text = extractMessageText(message);
+    const toolLabel = firstString(chatgptSdk?.resource_name, metadata?.tool_invoking_message);
     return {
         id: firstString(message.id, message.uuid, message._id, fallbackId),
         model: extractMessageModel(message) ?? fallbackModel,
         phase: null,
         reasoning: extractReasoning(message),
-        recipient: asString(message.recipient),
+        recipient,
         role: normalizeRole(firstString(author?.role, message.role, message.sender)),
-        text: extractMessageText(message),
+        text:
+            text ||
+            (recipient && recipient.toLowerCase() !== 'all' && toolLabel
+                ? JSON.stringify({ resource_name: toolLabel })
+                : ''),
         timestamp: toIsoTimestamp(
             message.create_time ?? message.created_at ?? message.timestamp ?? message.update_time ?? message.updated_at,
         ),
     };
+};
+
+const getToolResultText = (value: unknown): string => {
+    const values = Array.isArray(value) ? value : [value];
+    return values
+        .map((item) => {
+            if (typeof item === 'string') {
+                return asString(item);
+            }
+            if (!isRecord(item)) {
+                return null;
+            }
+            return uniqueStrings([
+                asString(item.title),
+                asString(item.url),
+                asString(item.snippet),
+                asString(item.description),
+                extractTextBlock(item),
+            ]).join('\n');
+        })
+        .filter((text): text is string => Boolean(text))
+        .join('\n\n');
+};
+
+const getEmbeddedToolEvents = (message: JsonRecord): ImportedToolEvent[] => {
+    const content = message.content;
+    const blocks = Array.isArray(content)
+        ? content
+        : isRecord(content) && Array.isArray(content.parts)
+          ? content.parts
+          : [];
+    const timestamp = toIsoTimestamp(
+        message.create_time ?? message.created_at ?? message.timestamp ?? message.update_time ?? message.updated_at,
+    );
+    return blocks.flatMap<ImportedToolEvent>((block) => {
+        if (!isRecord(block)) {
+            return [];
+        }
+        if (getBlockType(block) === 'tool_result') {
+            const outputText = getToolResultText(block.content);
+            return outputText
+                ? [
+                      {
+                          argumentsText: null,
+                          callId: firstString(block.tool_use_id, block.id),
+                          kind: 'output',
+                          name: null,
+                          outputText,
+                          timestamp,
+                      } satisfies ImportedToolEvent,
+                  ]
+                : [];
+        }
+        if (getBlockType(block) !== 'tool_use') {
+            return [];
+        }
+        const name = firstString(block.name, block.tool_name);
+        if (!name) {
+            return [];
+        }
+        return [
+            {
+                argumentsText: JSON.stringify(block.input ?? {}),
+                callId: firstString(block.id, block.tool_use_id),
+                kind: 'call',
+                name,
+                outputText: null,
+                timestamp,
+            },
+        ];
+    });
+};
+
+const GROK_TOOL_CARD_PATTERN = /<xai:tool_usage_card>([\s\S]*?)<\/xai:tool_usage_card>/g;
+const getGrokCardValue = (card: string, field: string): string | null =>
+    asString(card.match(new RegExp(`<xai:${field}>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?<\\/xai:${field}>`))?.[1]);
+
+const getGrokResultEvents = (value: unknown): ImportedToolEvent[] =>
+    Array.isArray(value)
+        ? value.flatMap((result) => {
+              if (!isRecord(result) || !Array.isArray(result.web_results)) {
+                  return [];
+              }
+              const outputText = getToolResultText(result.web_results);
+              return outputText
+                  ? [
+                        {
+                            argumentsText: null,
+                            callId: firstString(result.tool_usage_card_id),
+                            kind: 'output',
+                            name: null,
+                            outputText,
+                            timestamp: null,
+                        } satisfies ImportedToolEvent,
+                    ]
+                  : [];
+          })
+        : [];
+
+const getGrokCallEvents = (value: string): ImportedToolEvent[] =>
+    [...value.matchAll(GROK_TOOL_CARD_PATTERN)].flatMap((match) => {
+        const card = match[1] ?? '';
+        const name = getGrokCardValue(card, 'tool_name');
+        const argumentsText = getGrokCardValue(card, 'tool_args');
+        return name && argumentsText
+            ? [
+                  {
+                      argumentsText,
+                      callId: getGrokCardValue(card, 'tool_usage_card_id'),
+                      kind: 'call',
+                      name,
+                      outputText: null,
+                      timestamp: null,
+                  } satisfies ImportedToolEvent,
+              ]
+            : [];
+    });
+
+const pairGrokToolEvents = (calls: ImportedToolEvent[], results: ImportedToolEvent[]): ImportedToolEvent[] => {
+    const resultsByCallId = new Map<string, ImportedToolEvent[]>();
+    const unpairedResults: ImportedToolEvent[] = [];
+    for (const result of results) {
+        if (!result.callId) {
+            unpairedResults.push(result);
+            continue;
+        }
+        const matchingResults = resultsByCallId.get(result.callId) ?? [];
+        matchingResults.push(result);
+        resultsByCallId.set(result.callId, matchingResults);
+    }
+    const paired = calls.flatMap((call) => {
+        const matchingResults = call.callId ? (resultsByCallId.get(call.callId) ?? []) : [];
+        if (call.callId) {
+            resultsByCallId.delete(call.callId);
+        }
+        return [call, ...matchingResults];
+    });
+    return [...paired, ...unpairedResults, ...[...resultsByCallId.values()].flat()];
+};
+
+const getGrokToolEvents = (rawPayload: unknown): ImportedToolEvent[] => {
+    const events: ImportedToolEvent[] = [];
+    visitJsonValues(rawPayload, (value) => {
+        if (!isRecord(value) || typeof value.tool_usage_card !== 'string') {
+            return;
+        }
+        events.push(
+            ...pairGrokToolEvents(
+                getGrokCallEvents(value.tool_usage_card),
+                getGrokResultEvents(value.tool_usage_card_results),
+            ),
+        );
+    });
+    return events;
+};
+
+const getQwenToolEvents = (rawPayload: unknown): ImportedToolEvent[] => {
+    const events: ImportedToolEvent[] = [];
+    visitJsonValues(rawPayload, (value) => {
+        if (!isRecord(value) || value.deep_research === undefined) {
+            return;
+        }
+        visitJsonValues(value.deep_research, (research) => {
+            const query = isRecord(research) ? asString(research.query) : null;
+            if (!query || !isRecord(research)) {
+                return;
+            }
+            const callId = `qwen-web-search:${createHash('sha256').update(query).digest('hex').slice(0, 32)}`;
+            events.push({
+                argumentsText: JSON.stringify({ query }),
+                callId,
+                kind: 'call',
+                name: 'web_search',
+                outputText: null,
+                timestamp: null,
+            });
+            const outputText = getToolResultText(research.webSites);
+            if (outputText) {
+                events.push({
+                    argumentsText: null,
+                    callId,
+                    kind: 'output',
+                    name: null,
+                    outputText,
+                    timestamp: null,
+                });
+            }
+        });
+    });
+    return events;
+};
+
+const getGeminiToolCalls = (rawPayload: unknown): ImportedToolEvent[] => {
+    const calls: ImportedToolEvent[] = [];
+    let hasResearchTrace = false;
+    visitJsonValues(rawPayload, (value) => {
+        if (typeof value === 'string' && /\bresearching websites\b/i.test(value)) {
+            hasResearchTrace = true;
+        }
+        if (typeof value !== 'string' || !/^https?:\/\//i.test(value) || !URL.canParse(value)) {
+            return;
+        }
+        const url = new URL(value);
+        const host = url.hostname.toLowerCase();
+        if (
+            host === 'gemini.google.com' ||
+            host === 'gstatic.com' ||
+            host.endsWith('.gstatic.com') ||
+            host === 'googleusercontent.com' ||
+            host.endsWith('.googleusercontent.com')
+        ) {
+            return;
+        }
+        calls.push({
+            argumentsText: JSON.stringify({ url: value }),
+            callId: null,
+            kind: 'call',
+            name: 'browse_page',
+            outputText: null,
+            timestamp: null,
+        });
+    });
+    return hasResearchTrace ? calls : [];
+};
+
+const NOVA_SEARCH_PATTERN = /^🔍\s+Searching for:\s*([\s\S]+)$/;
+const NOVA_RESULTS_PATTERN = /^🔍\s+Retrieved results:\s*([\s\S]+)$/;
+const NOVA_NAVIGATION_PATTERN = /^🌎\s+Navigating to:\s*([\s\S]+)$/;
+const MARKDOWN_URL_PATTERN = /\]\((https?:\/\/[^)]+)\)/g;
+
+const getNovaReasoningTexts = (interaction: JsonRecord): string[] =>
+    (Array.isArray(interaction.messages) ? interaction.messages : []).flatMap((message) =>
+        isRecord(message) && Array.isArray(message.content)
+            ? message.content.flatMap((content) =>
+                  isRecord(content) && Array.isArray(content.reasoningBlocks)
+                      ? content.reasoningBlocks
+                            .map((block) => (isRecord(block) ? asString(block.text) : null))
+                            .filter((text): text is string => Boolean(text))
+                      : [],
+              )
+            : [],
+    );
+
+const getNovaInteractionToolEvents = (interaction: JsonRecord, interactionIndex: number): ImportedToolEvent[] => {
+    const interactionId = firstString(interaction.interactionId) ?? `interaction-${interactionIndex}`;
+    let searchIndex = 0;
+    let navigationIndex = 0;
+    let pendingSearchCallId: string | null = null;
+    return getNovaReasoningTexts(interaction).flatMap<ImportedToolEvent>((text) => {
+        const query = asString(text.match(NOVA_SEARCH_PATTERN)?.[1]);
+        if (query) {
+            pendingSearchCallId = `${interactionId}:web-search:${searchIndex}`;
+            searchIndex += 1;
+            return [
+                {
+                    argumentsText: JSON.stringify({ query }),
+                    callId: pendingSearchCallId,
+                    kind: 'call',
+                    name: 'web_search',
+                    outputText: null,
+                    timestamp: null,
+                } satisfies ImportedToolEvent,
+            ];
+        }
+        const results = asString(text.match(NOVA_RESULTS_PATTERN)?.[1]);
+        if (results) {
+            const callId = pendingSearchCallId;
+            pendingSearchCallId = null;
+            return [
+                {
+                    argumentsText: null,
+                    callId,
+                    kind: 'output',
+                    name: null,
+                    outputText: results,
+                    timestamp: null,
+                } satisfies ImportedToolEvent,
+            ];
+        }
+        const destination = asString(text.match(NOVA_NAVIGATION_PATTERN)?.[1]);
+        if (!destination) {
+            return [];
+        }
+        const urls = [...destination.matchAll(MARKDOWN_URL_PATTERN)].map((match) => match[1]!);
+        const callId = `${interactionId}:browse-page:${navigationIndex}`;
+        navigationIndex += 1;
+        return [
+            {
+                argumentsText: JSON.stringify({ url: urls[0] ?? destination, urls }),
+                callId,
+                kind: 'call',
+                name: 'browse_page',
+                outputText: null,
+                timestamp: null,
+            } satisfies ImportedToolEvent,
+        ];
+    });
+};
+
+const getNovaToolEvents = (rawPayload: unknown): ImportedToolEvent[] =>
+    isRecord(rawPayload) && Array.isArray(rawPayload.conversationInteractions)
+        ? rawPayload.conversationInteractions.flatMap((interaction, index) =>
+              isRecord(interaction) ? getNovaInteractionToolEvents(interaction, index) : [],
+          )
+        : [];
+
+const addImportedToolEvents = (messages: NormalizedMessage[], toolEvents: ImportedToolEvent[]): NormalizedMessage[] => {
+    const seen = new Set<string>();
+    const toolMessages = toolEvents.flatMap((event) => {
+        const text = event.kind === 'call' ? event.argumentsText : event.outputText;
+        const key = `${event.kind}\0${event.callId ?? ''}\0${event.name ?? ''}\0${text ?? ''}`;
+        if (seen.has(key)) {
+            return [];
+        }
+        seen.add(key);
+        return [
+            {
+                id: event.callId,
+                model: null,
+                phase: null,
+                reasoning: [],
+                recipient: event.name,
+                role: event.kind === 'call' ? 'assistant' : 'tool',
+                text: text ?? '',
+                timestamp: event.timestamp,
+            } satisfies NormalizedMessage,
+        ];
+    });
+    const finalIndex = messages.findLastIndex((message) => message.phase === 'final_answer');
+    const insertionIndex = finalIndex === -1 ? messages.length : finalIndex;
+    return [...messages.slice(0, insertionIndex), ...toolMessages, ...messages.slice(insertionIndex)];
+};
+
+const getProviderToolEvents = (
+    root: JsonRecord,
+    platform: string,
+    sourceMessages: JsonRecord[],
+): ImportedToolEvent[] => {
+    const embedded = sourceMessages.flatMap(getEmbeddedToolEvents);
+    if (platform === 'Grok') {
+        return [...embedded, ...getGrokToolEvents(root.raw_payload)];
+    }
+    if (platform === 'Qwen') {
+        return [...embedded, ...getQwenToolEvents(root.raw_payload)];
+    }
+    if (platform === 'Gemini') {
+        return [...embedded, ...getGeminiToolCalls(root.raw_payload)];
+    }
+    if (platform === 'Amazon Nova') {
+        return [...embedded, ...getNovaToolEvents(root.raw_payload)];
+    }
+    return embedded;
 };
 
 const getDeepResearchReport = (message: JsonRecord): JsonRecord | null => {
@@ -390,25 +780,39 @@ const parseMappingConversation = (root: JsonRecord, fileName: string): Conversat
         return null;
     }
     const rootModel = normalizeModel(firstString(root.default_model_slug, root.model));
-    const messages = classifyAssistantPhases(
+    const normalizedMessages = classifyAssistantPhases(
         chain.flatMap(({ id, message }) => {
             const normalized = normalizeMessage(message, rootModel, id);
             const report = getDeepResearchReport(message);
-            const reportMessage = report ? normalizeMessage(report, rootModel, `${id}-deep-research-report`) : null;
+            const reportMessage = report
+                ? {
+                      ...normalizeMessage(report, normalized.model ?? rootModel, `${id}-deep-research-report`),
+                      model: normalized.model ?? rootModel,
+                  }
+                : null;
             return [normalized, reportMessage].filter((item): item is NormalizedMessage =>
                 Boolean(item && (item.text || item.reasoning.length > 0)),
             );
         }),
     );
+    const model = [...normalizedMessages].reverse().find((message) => message.model)?.model ?? rootModel;
+    const platform = inferPlatform({ ...root, model }, fileName);
+    const messages = addImportedToolEvents(
+        normalizedMessages,
+        getProviderToolEvents(
+            root,
+            platform,
+            chain.map(({ message }) => message),
+        ),
+    );
     if (messages.length === 0) {
         return null;
     }
-    const model = [...messages].reverse().find((message) => message.model)?.model ?? rootModel;
     return {
         createdAtMs: toTimestampMs(root.create_time ?? root.created_at),
         messages,
         model,
-        platform: inferPlatform({ ...root, model }, fileName),
+        platform,
         sourceConversationId: firstString(root.conversation_id, root.id, root.uuid),
         title: firstString(root.title, root.name),
         updatedAtMs: toTimestampMs(root.update_time ?? root.updated_at),
@@ -436,12 +840,14 @@ const parseGrokConversation = (root: JsonRecord): ConversationDraft | null => {
         return null;
     }
     const conversation = root.conversation;
-    const messages = classifyAssistantPhases(
+    const sourceMessages: JsonRecord[] = [];
+    const normalizedMessages = classifyAssistantPhases(
         root.responses.flatMap((entry, index) => {
             const response = isRecord(entry) && isRecord(entry.response) ? entry.response : null;
             if (!response) {
                 return [];
             }
+            sourceMessages.push(response);
             const requestMetadata =
                 isRecord(response.metadata) && isRecord(response.metadata.request_metadata)
                     ? response.metadata.request_metadata
@@ -461,6 +867,7 @@ const parseGrokConversation = (root: JsonRecord): ConversationDraft | null => {
             return message.text || message.reasoning.length > 0 ? [message] : [];
         }),
     );
+    const messages = addImportedToolEvents(normalizedMessages, getProviderToolEvents(root, 'Grok', sourceMessages));
     if (messages.length === 0) {
         return null;
     }
@@ -496,7 +903,8 @@ const parseMessageArrayConversation = (root: JsonRecord, fileName: string): Conv
         return null;
     }
     const rootModel = normalizeModel(firstString(root.model, root.model_slug, root.default_model_slug));
-    const messages = classifyAssistantPhases(
+    const sourceMessages = rawMessages.filter(isRecord);
+    const normalizedMessages = classifyAssistantPhases(
         rawMessages.flatMap((value, index) => {
             if (!isRecord(value)) {
                 return [];
@@ -505,15 +913,17 @@ const parseMessageArrayConversation = (root: JsonRecord, fileName: string): Conv
             return message.text || message.reasoning.length > 0 ? [message] : [];
         }),
     );
+    const model = [...normalizedMessages].reverse().find((message) => message.model)?.model ?? rootModel;
+    const platform = inferPlatform({ ...root, model }, fileName);
+    const messages = addImportedToolEvents(normalizedMessages, getProviderToolEvents(root, platform, sourceMessages));
     if (messages.length === 0) {
         return null;
     }
-    const model = [...messages].reverse().find((message) => message.model)?.model ?? rootModel;
     return {
         createdAtMs: toTimestampMs(root.create_time ?? root.created_at),
         messages,
         model,
-        platform: inferPlatform({ ...root, model }, fileName),
+        platform,
         sourceConversationId: firstString(root.conversation_id, root.chat_id, root.id, root.uuid),
         title: firstString(root.title, root.name, root.summary),
         updatedAtMs: toTimestampMs(root.update_time ?? root.updated_at),
@@ -648,6 +1058,30 @@ const buildMessageEvent = (message: NormalizedMessage, platform: string, sequenc
           }
         : null;
 
+const TOOL_LABEL_KEYS = ['query', 'q', 'url', 'ref_id', 'path', 'resource_name', 'toolLabel'] as const;
+
+const getToolArgumentLabel = (value: unknown): string | null => {
+    const pending = [value];
+    while (pending.length > 0) {
+        const current = pending.shift();
+        if (Array.isArray(current)) {
+            pending.push(...current);
+            continue;
+        }
+        if (!isRecord(current)) {
+            continue;
+        }
+        for (const key of TOOL_LABEL_KEYS) {
+            const label = asString(current[key]);
+            if (label) {
+                return label;
+            }
+        }
+        pending.push(...Object.values(current));
+    }
+    return null;
+};
+
 const buildToolEvent = (message: NormalizedMessage, platform: string, sequence: number): ThreadEvent | null => {
     if (!message.text) {
         return null;
@@ -655,8 +1089,9 @@ const buildToolEvent = (message: NormalizedMessage, platform: string, sequence: 
     const raw = { messageId: message.id, platform, source: 'web_import' };
     if (isToolCallMessage(message)) {
         let argumentsParseFailed = false;
+        let command = message.text;
         try {
-            JSON.parse(message.text);
+            command = getToolArgumentLabel(JSON.parse(message.text)) ?? message.text;
         } catch {
             argumentsParseFailed = true;
         }
@@ -664,7 +1099,7 @@ const buildToolEvent = (message: NormalizedMessage, platform: string, sequence: 
             argumentsParseFailed,
             argumentsText: message.text,
             callId: message.id,
-            command: null,
+            command,
             kind: 'tool_call',
             name: message.recipient ?? 'tool',
             raw,

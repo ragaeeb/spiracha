@@ -5,6 +5,9 @@ import { parseWebChatFiles } from './web-chat';
 const isAssistantMessage = (event: ThreadEvent): event is Extract<ThreadEvent, { kind: 'message' }> =>
     event.kind === 'message' && event.role === 'assistant';
 
+const getToolCalls = (events: ThreadEvent[]) => events.filter((event) => event.kind === 'tool_call');
+const getToolOutputs = (events: ThreadEvent[]) => events.filter((event) => event.kind === 'tool_output');
+
 const createMappingExport = (input: {
     assistantMetadata?: Record<string, unknown>;
     conversationId: string;
@@ -330,7 +333,7 @@ describe('parseWebChatFiles', () => {
                 content_type: 'text',
                 parts: ['# Deep Research Assignment\n\n## Executive synthesis\n\nThe report body.'],
             },
-            metadata: { model_slug: 'gpt-5-6-pro' },
+            metadata: { resolved_model_slug: 'gpt-5-thinking' },
         };
         const mapping = {
             launcher: {
@@ -351,6 +354,8 @@ describe('parseWebChatFiles', () => {
                         chatgpt_sdk: {
                             widget_state: JSON.stringify({ report_message: reportMessage, status: 'completed' }),
                         },
+                        default_model_slug: 'gpt-5-6-pro',
+                        model_slug: 'gpt-5-6-instant',
                     },
                 },
                 parent: 'launcher',
@@ -379,11 +384,421 @@ describe('parseWebChatFiles', () => {
         const conversation = result.conversations[0]!;
 
         expect(conversation.messageCount).toBe(2);
+        expect(conversation.model).toBe('gpt-5-6-instant');
         expect(conversation.events.at(-1)).toMatchObject({
             kind: 'message',
+            model: 'gpt-5-6-instant',
             phase: 'final_answer',
             role: 'assistant',
             text: '# Deep Research Assignment\n\n## Executive synthesis\n\nThe report body.',
         });
+    });
+
+    it('should expose attached Grok deep-search browsing as tool calls', () => {
+        const input = {
+            conversation: { id: 'grok-research', title: 'Grok research' },
+            raw_payload: {
+                data: {
+                    grok_conversation_items_by_rest_id: {
+                        items: [
+                            {
+                                deepsearch_headers: [
+                                    {
+                                        steps: [
+                                            {
+                                                tool_usage_card:
+                                                    '<xai:tool_usage_card><xai:tool_usage_card_id>grok-call</xai:tool_usage_card_id><xai:tool_name>web_search</xai:tool_name><xai:tool_args><![CDATA[{"query":"CodeRabbit pricing"}]]></xai:tool_args></xai:tool_usage_card>',
+                                                tool_usage_card_results: [
+                                                    { message: 'Searching the web', tool_usage_card_id: 'grok-call' },
+                                                    {
+                                                        tool_usage_card_id: 'grok-call',
+                                                        web_results: [
+                                                            {
+                                                                snippet:
+                                                                    '* stale suppressions are removed instead of carried forward',
+                                                                title: 'fallow/docs/fallow-compliance.md at main · fallow-rs/fallow · GitHub',
+                                                                url: 'https://github.com/fallow-rs/fallow/blob/main/docs/fallow-compliance.md',
+                                                            },
+                                                            {
+                                                                snippet: 'Requires review-comments: true',
+                                                                title: 'fallow: codebase intelligence for TypeScript and JavaScript',
+                                                                url: 'https://docs.fallow.tools/integrations/ci',
+                                                            },
+                                                            {
+                                                                snippet:
+                                                                    'Both shapes route to the same rule ids as function findings',
+                                                                title: 'fallow: codebase intelligence for TypeScript and JavaScript',
+                                                                url: 'https://docs.fallow.tools/explanations/health',
+                                                            },
+                                                            {
+                                                                snippet: 'A compact health score for the current state',
+                                                                title: 'GitHub - fallow-rs/fallow at v2.82.0 · GitHub',
+                                                                url: 'https://github.com/fallow-rs/fallow/tree/v2.82.0',
+                                                            },
+                                                        ],
+                                                    },
+                                                ],
+                                            },
+                                        ],
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                },
+            },
+            responses: [
+                { response: { message: 'Research this', sender: 'human' } },
+                { response: { message: 'Research complete', sender: 'assistant' } },
+            ],
+        };
+
+        const events = parseWebChatFiles([{ content: JSON.stringify(input), name: 'grok.json' }]).conversations[0]!
+            .events;
+
+        expect(getToolCalls(events)).toEqual([
+            expect.objectContaining({
+                argumentsText: '{"query":"CodeRabbit pricing"}',
+                callId: 'grok-call',
+                command: 'CodeRabbit pricing',
+                name: 'web_search',
+            }),
+        ]);
+        const outputs = getToolOutputs(events);
+        expect(outputs).toHaveLength(1);
+        expect(outputs[0]).toMatchObject({ callId: 'grok-call' });
+        for (const url of [
+            'https://github.com/fallow-rs/fallow/blob/main/docs/fallow-compliance.md',
+            'https://docs.fallow.tools/integrations/ci',
+            'https://docs.fallow.tools/explanations/health',
+            'https://github.com/fallow-rs/fallow/tree/v2.82.0',
+        ]) {
+            expect(outputs[0]?.outputText).toContain(url);
+        }
+    });
+
+    it('should expose attached Gemini research sources as tool calls', () => {
+        const input = {
+            ...createMappingExport({
+                conversationId: 'gemini-research',
+                model: 'gemini-3.1-pro-extended',
+                title: 'Gemini research',
+            }),
+            raw_payload: [
+                [
+                    'Researching websites...',
+                    [
+                        'https://www.gstatic.com/favicon/v2/client=SOCIAL',
+                        'http://googleusercontent.com/immersive_entry_chip/0',
+                        'https://example.com/source',
+                    ],
+                ],
+            ],
+        };
+
+        const events = parseWebChatFiles([{ content: JSON.stringify(input), name: 'gemini.json' }]).conversations[0]!
+            .events;
+
+        expect(getToolCalls(events)).toEqual([
+            expect.objectContaining({
+                argumentsText: '{"url":"https://example.com/source"}',
+                command: 'https://example.com/source',
+                name: 'browse_page',
+            }),
+        ]);
+
+        const ordinary = { ...input, conversation_id: 'gemini-ordinary', raw_payload: ['https://example.com/link'] };
+        const ordinaryEvents = parseWebChatFiles([{ content: JSON.stringify(ordinary), name: 'gemini.json' }])
+            .conversations[0]!.events;
+        expect(getToolCalls(ordinaryEvents)).toEqual([]);
+    });
+
+    it('should expose attached Qwen deep-research queries as tool calls', () => {
+        const input = {
+            ...createMappingExport({
+                assistantMetadata: { qwen_model: 'qwen3.8-max' },
+                conversationId: 'qwen-research',
+                model: 'qwen3.8-max',
+                title: 'Qwen research',
+            }),
+            raw_payload: {
+                data: {
+                    chat: {
+                        history: {
+                            messages: {
+                                assistant: {
+                                    content_list: [
+                                        {
+                                            extra: {
+                                                deep_research: [
+                                                    {
+                                                        query: 'Commercial AI code-review products architecture',
+                                                        webSites: [
+                                                            {
+                                                                description:
+                                                                    'Sometimes things can be chaotic and line changes need reorganizing.',
+                                                                title: 'Is there a way to move lines to other commits? : r/git',
+                                                                url: 'https://www.reddit.com/r/git/comments/1r9oz12/is_there_a_way_to_move_lines_to_other_commits/',
+                                                            },
+                                                            {
+                                                                description:
+                                                                    'Git rebase moves feature branch histories to the head of main.',
+                                                                title: 'Do you know how git rebase works?',
+                                                                url: 'https://www.facebook.com/groups/fluttervn/posts/2015778435625251/',
+                                                            },
+                                                        ],
+                                                    },
+                                                ],
+                                            },
+                                        },
+                                    ],
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        };
+
+        const events = parseWebChatFiles([{ content: JSON.stringify(input), name: 'qwen.json' }]).conversations[0]!
+            .events;
+
+        const calls = getToolCalls(events);
+        expect(calls).toEqual([
+            expect.objectContaining({
+                command: 'Commercial AI code-review products architecture',
+                name: 'web_search',
+            }),
+        ]);
+        expect(calls[0]?.callId).not.toBeNull();
+        const outputs = getToolOutputs(events);
+        expect(outputs).toHaveLength(1);
+        expect(outputs[0]?.callId).toBe(calls[0]?.callId);
+        expect(outputs[0]?.outputText).toContain(
+            'https://www.reddit.com/r/git/comments/1r9oz12/is_there_a_way_to_move_lines_to_other_commits/',
+        );
+        expect(outputs[0]?.outputText).toContain('https://www.facebook.com/groups/fluttervn/posts/2015778435625251/');
+        expect(outputs[0]?.outputText).toContain('Git rebase moves feature branch histories to the head of main.');
+    });
+
+    it('should expose Amazon Nova deep-research browsing with paired search results', () => {
+        const input = {
+            ...createMappingExport({
+                conversationId: 'nova-research',
+                model: 'NOVA_PRO_DEEP_RESEARCH_REASONING_FINE_TUNED',
+                title: 'Amazon Nova Conversation',
+            }),
+            raw_payload: {
+                conversationInteractions: [
+                    {
+                        interactionId: 'nova-interaction',
+                        messages: [
+                            {
+                                content: [
+                                    {
+                                        reasoningBlocks: [
+                                            {
+                                                index: 1,
+                                                text: '🔍  Searching for: "SARIF fingerprint algorithm", "Git patch-id"',
+                                            },
+                                            {
+                                                index: 2,
+                                                text: '🌎  Navigating to: [GitHub](https://github.com/github/codeql-action/blob/main/src/fingerprints.ts)',
+                                            },
+                                            {
+                                                index: 3,
+                                                text: '🔍  Retrieved results: [OASIS SARIF](https://docs.oasis-open.org/sarif/sarif/v2.1.0/), [Git patch-id](https://git-scm.com/docs/git-patch-id)',
+                                            },
+                                        ],
+                                        text: 'Answer',
+                                    },
+                                ],
+                                role: 'assistant',
+                            },
+                        ],
+                        modelLookupName: 'NOVA_PRO_DEEP_RESEARCH_REASONING_FINE_TUNED',
+                        platform: 'Bedrock',
+                    },
+                ],
+            },
+        };
+
+        const conversation = parseWebChatFiles([
+            { content: JSON.stringify(input), name: 'Amazon_Nova_Conversation.json' },
+        ]).conversations[0]!;
+        const calls = getToolCalls(conversation.events);
+        const outputs = getToolOutputs(conversation.events);
+
+        expect(conversation.platform).toBe('Amazon Nova');
+        expect(conversation.model).toBe('NOVA_PRO_DEEP_RESEARCH_REASONING_FINE_TUNED');
+        expect(calls).toEqual([
+            expect.objectContaining({
+                callId: 'nova-interaction:web-search:0',
+                command: '"SARIF fingerprint algorithm", "Git patch-id"',
+                name: 'web_search',
+            }),
+            expect.objectContaining({
+                command: 'https://github.com/github/codeql-action/blob/main/src/fingerprints.ts',
+                name: 'browse_page',
+            }),
+        ]);
+        expect(outputs).toEqual([
+            expect.objectContaining({
+                callId: 'nova-interaction:web-search:0',
+                outputText: expect.stringContaining('https://docs.oasis-open.org/sarif/sarif/v2.1.0/'),
+            }),
+        ]);
+        expect(outputs[0]?.outputText).toContain('https://git-scm.com/docs/git-patch-id');
+    });
+
+    it('should expose attached Claude web-search and fetch blocks as tool calls', () => {
+        const input = createMappingExport({
+            conversationId: 'claude-research',
+            model: 'claude-sonnet-5',
+            title: 'Claude research',
+        });
+        Object.assign(input.mapping.assistant.message, {
+            content: {
+                content_type: 'text',
+                parts: [
+                    {
+                        id: 'search-call',
+                        input: { query: 'CodeRabbit pricing 2026' },
+                        name: 'web_search',
+                        type: 'tool_use',
+                    },
+                    {
+                        id: 'fetch-call',
+                        input: { url: 'https://www.coderabbit.ai/pricing' },
+                        name: 'web_fetch',
+                        type: 'tool_use',
+                    },
+                    { text: 'Answer', type: 'text' },
+                ],
+            },
+        });
+
+        const events = parseWebChatFiles([{ content: JSON.stringify(input), name: 'claude.json' }]).conversations[0]!
+            .events;
+
+        expect(getToolCalls(events)).toEqual([
+            expect.objectContaining({ callId: 'search-call', command: 'CodeRabbit pricing 2026', name: 'web_search' }),
+            expect.objectContaining({
+                callId: 'fetch-call',
+                command: 'https://www.coderabbit.ai/pricing',
+                name: 'web_fetch',
+            }),
+        ]);
+    });
+
+    it('should expose every attached Claude web-search result under tool calls', () => {
+        const input = createMappingExport({
+            conversationId: 'claude-search-results',
+            model: 'claude-sonnet-5',
+            title: 'Claude search results',
+        });
+        Object.assign(input.mapping.assistant.message, {
+            content: {
+                content_type: 'text',
+                parts: [
+                    {
+                        id: 'semgrep-search',
+                        input: { query: 'Semgrep 2026 pricing free tier AppSec platform status' },
+                        name: 'web_search',
+                        type: 'tool_use',
+                    },
+                    {
+                        content: [
+                            {
+                                title: 'Semgrep Pricing in 2026: Open Source vs Team vs Enterprise Costs - DEV Community',
+                                type: 'knowledge',
+                                url: 'https://dev.to/rahulxsingh/semgrep-pricing-in-2026-open-source-vs-team-vs-enterprise-costs-3dic',
+                            },
+                            {
+                                title: 'Semgrep Software Pricing & Plans 2026: See Your Cost',
+                                type: 'knowledge',
+                                url: 'https://www.vendr.com/marketplace/semgrep',
+                            },
+                        ],
+                        name: 'web_search',
+                        tool_use_id: 'semgrep-search',
+                        type: 'tool_result',
+                    },
+                    { text: 'Answer', type: 'text' },
+                ],
+            },
+        });
+
+        const events = parseWebChatFiles([{ content: JSON.stringify(input), name: 'claude.json' }]).conversations[0]!
+            .events;
+
+        expect(getToolOutputs(events)).toEqual([
+            expect.objectContaining({
+                callId: 'semgrep-search',
+                outputText:
+                    'Semgrep Pricing in 2026: Open Source vs Team vs Enterprise Costs - DEV Community\nhttps://dev.to/rahulxsingh/semgrep-pricing-in-2026-open-source-vs-team-vs-enterprise-costs-3dic\n\nSemgrep Software Pricing & Plans 2026: See Your Cost\nhttps://www.vendr.com/marketplace/semgrep',
+            }),
+        ]);
+    });
+
+    it('should expose attached ChatGPT research searches as tool calls', () => {
+        const input = createMappingExport({
+            conversationId: 'chatgpt-search',
+            model: 'gpt-5-6-pro',
+            title: 'Research protocol assignment',
+        });
+        Object.assign(input.mapping.assistant.message, {
+            content: { content_type: 'code', text: '{"search_query":[{"q":"primary sources"}]}' },
+            recipient: 'web.run',
+        });
+
+        const events = parseWebChatFiles([{ content: JSON.stringify(input), name: 'chatgpt-search.json' }])
+            .conversations[0]!.events;
+
+        expect(getToolCalls(events)).toEqual([
+            expect.objectContaining({ command: 'primary sources', name: 'web.run' }),
+        ]);
+    });
+
+    it('should expose attached ChatGPT research page opens as tool calls', () => {
+        const input = createMappingExport({
+            conversationId: 'chatgpt-open',
+            model: 'gpt-5-6-pro',
+            title: 'Research protocol',
+        });
+        Object.assign(input.mapping.assistant.message, {
+            content: { content_type: 'code', text: '{"open":[{"ref_id":"https://example.com/report"}]}' },
+            recipient: 'web.run',
+        });
+
+        const events = parseWebChatFiles([{ content: JSON.stringify(input), name: 'chatgpt-open.json' }])
+            .conversations[0]!.events;
+
+        expect(getToolCalls(events)).toEqual([
+            expect.objectContaining({ command: 'https://example.com/report', name: 'web.run' }),
+        ]);
+    });
+
+    it('should expose the attached ChatGPT Deep Research app launch as a tool call', () => {
+        const input = createMappingExport({
+            conversationId: 'deep-research-launch',
+            model: 'gpt-5-6-pro',
+            title: 'Deep Research Assignment',
+        });
+        Object.assign(input.mapping.assistant.message, {
+            content: { content_type: 'code', text: '' },
+            metadata: {
+                chatgpt_sdk: { resource_name: 'Deep Research App_start' },
+                tool_invoking_message: 'Running app request',
+            },
+            recipient: 'api_tool.call_tool',
+        });
+
+        const events = parseWebChatFiles([{ content: JSON.stringify(input), name: 'deep-research.json' }])
+            .conversations[0]!.events;
+
+        expect(getToolCalls(events)).toEqual([
+            expect.objectContaining({ command: 'Deep Research App_start', name: 'api_tool.call_tool' }),
+        ]);
     });
 });
