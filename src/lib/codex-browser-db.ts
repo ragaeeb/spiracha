@@ -2261,6 +2261,16 @@ const readThreadBrowseDatabaseData = (dbPath: string, requestedThreadIds: string
     );
 };
 
+export const getThreadRelationsBatch = (dbPath: string, threadIds: string[]): Map<string, ThreadRelations> => {
+    const databaseData = readThreadBrowseDatabaseData(dbPath, threadIds);
+    return new Map(
+        [...new Set(threadIds)].map((threadId) => [
+            threadId,
+            databaseData.relationsByThreadId.get(threadId) ?? { childEdges: [], parentThreadId: null },
+        ]),
+    );
+};
+
 const buildThreadBrowseData = (
     dbPath: string,
     thread: ThreadRow,

@@ -43,6 +43,16 @@ describe('getCodexAnalytics', () => {
         ]);
         expect(analytics.summary.threadsWithWebSearch).toBe(3);
         expect(analytics.summary.distinctToolNames).toBe(2);
+        expect(analytics.agentDx.schema).toBe('agent-dx/v1');
+        expect(analytics.agentDx.goalSpans).toHaveLength(2);
+        expect(
+            analytics.agentDx.goalSpans.find((span) => span.rootThreadId === fixture.threads[0]!.threadId),
+        ).toMatchObject({
+            childThreadIdsSpawnedInSpan: [fixture.threads[1]!.threadId],
+            repositoryIdentityBefore: '36ed476dc8418f2e02cd15c46fe824624801ed99',
+            source: 'vscode',
+            terminalOutcome: 'complete',
+        });
     });
 
     it('should report median tokens and source-specific breakdowns', async () => {

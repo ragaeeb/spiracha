@@ -2,6 +2,7 @@
 import path from 'node:path';
 import process from 'node:process';
 import { createConversationClient } from '../src/client';
+import { renderAgentDxAnalyticsExport } from '../src/lib/agent-dx-analytics';
 import { CONVERSATION_SOURCES } from '../src/lib/conversation-data/types';
 import { runProductionUiServer } from '../src/lib/production-ui-server';
 import type {
@@ -9,6 +10,7 @@ import type {
     ConversationMessageSelector,
 } from '../src/client';
 import type { ConversationSource, EvidenceLens } from '../src/lib/conversation-data/types';
+import type { CodexAnalytics } from '../src/lib/codex-browser-types';
 
 export const SPIRACHA_USAGE = `Usage: spiracha <command> [options]
 
@@ -20,6 +22,7 @@ Commands:
                                 Export Markdown or the original JSON transcript
   evidence <ref> --lens <file> [--output <path>]
                                 Export focused evidence as Markdown
+  analytics export [options]    Export provider-neutral goal-span analytics
 
 List options:
   --source <a,b>                Filter by one or more sources
@@ -32,6 +35,11 @@ List options:
 
 Get/Markdown export options:
   --message-selector <selector> all, last_assistant, or last_final_answer
+
+Analytics export options:
+  --format <json|csv>           Output format (default: json)
+  --project <name>              Restrict Codex analytics to one project
+  --output <path>               Write to a file instead of stdout
 
 Run spiracha --help for this message.
 `;
@@ -57,6 +65,12 @@ export type SpirachaCliCommand =
           lens: string;
           output?: string;
           ref: string;
+      }
+    | {
+          command: 'analytics-export';
+          format: 'csv' | 'json';
+          output?: string;
+          project: string | null;
       };
 
 const isConversationSource = (value: string): value is ConversationSource =>
@@ -64,6 +78,8 @@ const isConversationSource = (value: string): value is ConversationSource =>
 
 const isMessageSelector = (value: string): value is ConversationMessageSelector =>
     value === 'all' || value === 'last_assistant' || value === 'last_final_answer';
+
+const isAnalyticsFormat = (value: string): value is 'csv' | 'json' => value === 'csv' || value === 'json';
 
 const requiredValue = (args: string[], index: number, option: string): string => {
     const value = args[index + 1];
@@ -96,12 +112,44 @@ const sourceValue = (value: string, option: string): ConversationSource => {
     return value;
 };
 
+const parseAnalyticsExportArgs = (args: string[]): Extract<SpirachaCliCommand, { command: 'analytics-export' }> => {
+    if (args[1] !== 'export') {
+        throw new Error('Usage: spiracha analytics export [--format json|csv] [--project <name>] [--output <path>].');
+    }
+    const options: Record<string, string> = {};
+    for (let index = 2; index < args.length; index += 1) {
+        const option = args[index];
+        if (!option.startsWith('--')) {
+            throw new Error(`Unexpected argument "${option}".`);
+        }
+        const value = requiredValue(args, index, option);
+        index += 1;
+        if (option !== '--format' && option !== '--output' && option !== '--project') {
+            throw new Error(`Unknown option "${option}".`);
+        }
+        options[option.slice(2)] = value;
+    }
+    const format = options.format ?? 'json';
+    if (!isAnalyticsFormat(format)) {
+        throw new Error(`Unknown analytics format "${format}".`);
+    }
+    return {
+        command: 'analytics-export',
+        format,
+        ...(options.output === undefined ? {} : { output: options.output }),
+        project: options.project ?? null,
+    };
+};
+
 export const parseSpirachaCliArgs = (args: string[]): SpirachaCliCommand => {
     if (args.length === 0 || args[0] === '--help' || args[0] === '-h' || args[0] === 'help') {
         return { command: 'help' };
     }
 
     const command = args[0];
+    if (command === 'analytics') {
+        return parseAnalyticsExportArgs(args);
+    }
     if (command === 'serve') {
         if (args.length !== 1) {
             throw new Error('The serve command does not accept options.');
@@ -252,6 +300,7 @@ type SpirachaCliIo = {
 
 type SpirachaCliDependencies = {
     client?: ConversationClient;
+    getCodexAnalytics?: (project: string | null) => Promise<CodexAnalytics>;
     io?: SpirachaCliIo;
     runServer?: () => Promise<number>;
 };
@@ -296,6 +345,26 @@ export const runSpirachaCli = async (args: string[], dependencies: SpirachaCliDe
             return await (
                 dependencies.runServer ?? (() => runProductionUiServer(resolveSpirachaPackageRoot()))
             )();
+        } catch (error) {
+            io.stderr(`spiracha: ${error instanceof Error ? error.message : String(error)}\n`);
+            return 1;
+        }
+    }
+
+    if (parsed.command === 'analytics-export') {
+        try {
+            const analytics = await (
+                dependencies.getCodexAnalytics ??
+                (async (project: string | null) => {
+                    const [{ getCodexAnalytics }, { resolveCodexThreadDbPath }] = await Promise.all([
+                        import('../src/lib/codex-analytics'),
+                        import('../src/lib/codex-browser-db'),
+                    ]);
+                    return getCodexAnalytics({ dbPath: resolveCodexThreadDbPath(), project });
+                })
+            )(parsed.project);
+            await emitOutput(renderAgentDxAnalyticsExport(analytics.agentDx, parsed.format), parsed.output, io);
+            return 0;
         } catch (error) {
             io.stderr(`spiracha: ${error instanceof Error ? error.message : String(error)}\n`);
             return 1;

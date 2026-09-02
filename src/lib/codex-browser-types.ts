@@ -1,5 +1,19 @@
+import type { AgentDxAnalytics } from './agent-dx-analytics';
 import type { SessionMeta, ThreadRelations, ThreadRow } from './codex-thread-types';
 import type { JsonValue } from './shared';
+
+export type {
+    AgentDxAnalytics,
+    AgentDxDistributionItem,
+    AgentDxEventClass,
+    AgentDxGoalSpan,
+    AgentDxIncrementalTokens,
+    AgentDxRetainedBytes,
+    AgentDxTerminalOutcome,
+    AgentDxUsage,
+    AgentDxUsageSemantics,
+    AgentDxWarning,
+} from './agent-dx-analytics';
 
 export type DynamicToolDefinition = {
     deferLoading: boolean;
@@ -336,6 +350,7 @@ export type CodexOptimizationAnalytics = {
 };
 
 export type CodexAnalytics = {
+    agentDx: AgentDxAnalytics;
     modelsByTokens: ModelTokenSummary[];
     optimization: CodexOptimizationAnalytics;
     reasoningEfforts: DistributionItem[];
