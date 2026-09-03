@@ -934,6 +934,53 @@ describe('cursor-db transcript reads', () => {
         expect(transcript?.renderableBubbleCount).toBe(3);
     });
 
+    it('should not append replayed agent progress after the SQLite final answer', async () => {
+        const userDir = await makeUserDir();
+        const spec = baseSpec();
+        spec.threads[0]!.bubbles = [
+            { bubbleId: 'b1', text: 'Original request', type: 1 },
+            { bubbleId: 'b2', text: 'Fix: Cut a `## 1.1.0` section.', type: 2 },
+        ];
+        await createCursorFixture(userDir, spec);
+        const transcriptDir = path.join(userDir, 'projects', 'demo-project', 'agent-transcripts', 'thread-1');
+        await mkdir(transcriptDir, { recursive: true });
+        await Bun.write(
+            path.join(transcriptDir, 'thread-1.jsonl'),
+            [
+                JSON.stringify({
+                    message: { content: [{ text: 'Original request', type: 'text' }] },
+                    role: 'user',
+                }),
+                JSON.stringify({
+                    message: {
+                        content: [
+                            {
+                                text: 'I’ll inspect the release, upload, signing, and validation paths next, then walk docs and remaining high-risk modules.',
+                                type: 'text',
+                            },
+                        ],
+                    },
+                    role: 'assistant',
+                }),
+                JSON.stringify({
+                    message: { content: [{ text: 'Fix: Cut a `## 1.1.0` section.', type: 'text' }] },
+                    role: 'assistant',
+                }),
+            ].join('\n'),
+        );
+
+        const transcript = await readCursorThreadTranscriptWithAgentFiles(
+            getCursorGlobalDbPath(userDir),
+            'thread-1',
+            userDir,
+        );
+
+        expect(transcript?.bubbles.map((bubble) => bubble.text)).toEqual([
+            'Original request',
+            'Fix: Cut a `## 1.1.0` section.',
+        ]);
+    });
+
     it('should use pre-resolved transcript directories without rediscovering them', async () => {
         const userDir = await makeUserDir();
         await createCursorFixture(userDir, baseSpec());

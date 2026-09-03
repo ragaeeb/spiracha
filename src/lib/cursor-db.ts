@@ -1719,25 +1719,19 @@ const areEquivalentBubbles = (left: CursorBubble, right: CursorBubble): boolean 
     );
 };
 
+const hasEquivalentBubble = (bubbles: CursorBubble[], candidate: CursorBubble): boolean => {
+    return bubbles.some((bubble) => areEquivalentBubbles(bubble, candidate));
+};
+
 const findAgentTailStartIndex = (existingBubbles: CursorBubble[], agentBubbles: CursorBubble[]): number => {
-    const maxOverlap = Math.min(existingBubbles.length, agentBubbles.length);
-    // Agent transcript files contain the complete run while SQLite may lag or truncate the tail.
-    // Match the longest SQLite suffix to the agent prefix, then append only the remaining agent tail.
-    for (let overlapLength = maxOverlap; overlapLength > 0; overlapLength -= 1) {
-        const existingStart = existingBubbles.length - overlapLength;
-        const matches = agentBubbles
-            .slice(0, overlapLength)
-            .every((bubble, index) => areEquivalentBubbles(existingBubbles[existingStart + index]!, bubble));
-        if (matches) {
-            return overlapLength;
+    // Agent transcript files can replay a run after SQLite already contains its final answer.
+    for (let index = agentBubbles.length - 1; index >= 0; index -= 1) {
+        if (hasEquivalentBubble(existingBubbles, agentBubbles[index]!)) {
+            return index + 1;
         }
     }
 
     return 0;
-};
-
-const hasEquivalentBubble = (bubbles: CursorBubble[], candidate: CursorBubble): boolean => {
-    return bubbles.some((bubble) => areEquivalentBubbles(bubble, candidate));
 };
 
 const getAgentTranscriptContentParts = (entry: Record<string, JsonValue>): Record<string, JsonValue>[] => {
