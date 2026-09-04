@@ -1,6 +1,7 @@
 import type { ProjectSummary } from '@spiracha/lib/codex-browser-types';
 import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
-import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
+import { Cloud } from 'lucide-react';
 import { startTransition, useDeferredValue, useState } from 'react';
 import { DeleteConfirmDialog } from '#/components/delete-confirm-dialog';
 import { ListSearchInput } from '#/components/list-search-input';
@@ -8,6 +9,7 @@ import { PageHeader } from '#/components/page-header';
 import { ProjectsLoadingState } from '#/components/projects-loading-state';
 import { ProjectsTable } from '#/components/projects-table';
 import { RouteErrorPanel } from '#/components/route-error-panel';
+import { Button } from '#/components/ui/button';
 import { projectsQueryOptions } from '#/lib/codex-queries';
 import { deleteProjectFn } from '#/lib/codex-server';
 import { getMutationErrorMessage } from '#/lib/mutation-error';
@@ -59,18 +61,27 @@ function ProjectsPage() {
         <div className="space-y-4">
             <PageHeader
                 actions={
-                    <ListSearchInput
-                        placeholder="Search project name, cwd, or model"
-                        value={searchInput}
-                        onValueChange={(value) => {
-                            startTransition(() => {
-                                void navigate({
-                                    replace: true,
-                                    search: (previous: Record<string, unknown>) => withTextQuerySearch(previous, value),
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                        <Button asChild className="rounded-full" variant="outline">
+                            <Link to="/codex/cloud">
+                                <Cloud className="mr-2 size-4" />
+                                Codex Cloud
+                            </Link>
+                        </Button>
+                        <ListSearchInput
+                            placeholder="Search project name, cwd, or model"
+                            value={searchInput}
+                            onValueChange={(value) => {
+                                startTransition(() => {
+                                    void navigate({
+                                        replace: true,
+                                        search: (previous: Record<string, unknown>) =>
+                                            withTextQuerySearch(previous, value),
+                                    });
                                 });
-                            });
-                        }}
-                    />
+                            }}
+                        />
+                    </div>
                 }
                 eyebrow="Inventory"
                 subtitle="Derived projects are grouped from the final basename of each thread cwd, matching the existing CLI behavior."
