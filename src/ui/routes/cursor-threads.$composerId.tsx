@@ -63,6 +63,11 @@ const buildCursorThreadMetadata = (detail: CursorThreadDetail) => {
         },
         { label: 'Workspace key', value: <span data-mono="true">{detail.thread.workspaceKey}</span> },
         { label: 'Mode', value: detail.thread.mode ?? 'unknown' },
+        { label: 'Storage status', value: detail.thread.status ?? 'unknown' },
+        {
+            label: 'Moved snapshots',
+            value: detail.thread.snapshotCount > 1 ? formatNumber(detail.thread.snapshotCount) : 'n/a',
+        },
         { label: 'Model', value: detail.thread.model ? formatModelLabel(detail.thread.model) : 'unknown' },
         { label: 'Reasoning', value: detail.thread.reasoningEffort ?? 'unknown' },
         {
@@ -89,6 +94,33 @@ const buildCursorThreadMetadata = (detail: CursorThreadDetail) => {
                 ),
         },
     ];
+};
+
+const CursorMovedSnapshotNotice = ({ thread }: { thread: CursorThreadMetadata['thread'] }) => {
+    if (thread.snapshotCount <= 1 || !thread.latestSnapshotComposerId) {
+        return null;
+    }
+
+    const isLatest = thread.latestSnapshotComposerId === thread.composerId;
+    return (
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--panel-secondary)] p-4 text-sm" role="status">
+            <p className="font-medium">{isLatest ? 'Latest moved Cursor snapshot' : 'Older moved Cursor snapshot'}</p>
+            <p className="mt-1 text-[var(--muted-foreground)]">
+                Cursor created {formatNumber(thread.snapshotCount)} physical records while moving this conversation
+                between workspaces.{' '}
+                {isLatest ? 'This is the latest record.' : 'This record ends before the latest one.'}
+            </p>
+            {!isLatest ? (
+                <Link
+                    className="mt-2 inline-block text-[var(--accent)] underline-offset-2 hover:underline"
+                    params={{ composerId: thread.latestSnapshotComposerId }}
+                    to="/cursor-threads/$composerId"
+                >
+                    Open latest snapshot
+                </Link>
+            ) : null}
+        </div>
+    );
 };
 
 const buildCursorTranscriptStatsItems = (
@@ -155,7 +187,7 @@ const CursorThreadDetailErrorComponent = ({ error }: { error: Error }) => {
 
 const CursorThreadMetrics = ({ detail }: { detail: CursorThreadDetail }) => (
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="Messages" value={formatNumber(detail.thread.bubbleCount)} />
+        <MetricCard label="Stored bubbles" value={formatNumber(detail.thread.bubbleCount)} />
         <MetricCard label="Size" value={formatBytes(detail.thread.bubbleBytes)} />
         <MetricCard
             helper={detail.thread.reasoningEffort ? `${detail.thread.reasoningEffort} reasoning` : undefined}
@@ -367,6 +399,8 @@ const CursorThreadDetailPage = () => {
                 subtitle="Thread detail for the selected Cursor workspace conversation."
                 title={detail.thread.name}
             />
+
+            <CursorMovedSnapshotNotice thread={detail.thread} />
 
             <CursorThreadMetrics detail={detail} />
 

@@ -35,17 +35,34 @@ const CursorThreadTitleCell = ({ depth, thread }: { depth: number; thread: Curso
             {depth > 0 ? (
                 <GitFork aria-hidden="true" className="size-4 shrink-0 text-[var(--muted-foreground)]" />
             ) : null}
-            <Link
-                className="block min-w-0 flex-1 space-y-1 rounded-md outline-none transition hover:opacity-80 focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
-                params={{ composerId: thread.composerId }}
-                to="/cursor-threads/$composerId"
-            >
-                <p className="truncate font-medium underline-offset-2 hover:underline">{thread.name}</p>
+            <div className="min-w-0 flex-1 space-y-1">
+                <Link
+                    className="block rounded-md font-medium outline-none transition hover:underline focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                    params={{ composerId: thread.composerId }}
+                    to="/cursor-threads/$composerId"
+                >
+                    <span className="block truncate">{thread.name}</span>
+                </Link>
                 <p className="truncate text-[var(--muted-foreground)] text-xs">
                     {thread.mode ? `${thread.mode} · ` : ''}
                     {thread.composerId}
                 </p>
-            </Link>
+                {thread.snapshotCount > 1 ? (
+                    thread.latestSnapshotComposerId && thread.latestSnapshotComposerId !== thread.composerId ? (
+                        <Link
+                            className="block truncate text-[var(--accent)] text-xs hover:underline"
+                            params={{ composerId: thread.latestSnapshotComposerId }}
+                            to="/cursor-threads/$composerId"
+                        >
+                            Older moved snapshot · open latest
+                        </Link>
+                    ) : (
+                        <p className="truncate text-[var(--muted-foreground)] text-xs">
+                            Latest moved snapshot · {formatNumber(thread.snapshotCount)} physical records
+                        </p>
+                    )
+                ) : null}
+            </div>
         </div>
     </div>
 );
@@ -115,7 +132,7 @@ const columns = (
         }),
         columnHelper.accessor('bubbleCount', {
             cell: (info) => <span className="font-mono text-sm">{formatNumber(info.getValue())}</span>,
-            header: 'Messages',
+            header: 'Stored bubbles',
         }),
         columnHelper.accessor('bubbleBytes', {
             cell: (info) => <span className="font-mono text-sm">{formatBytes(info.getValue())}</span>,

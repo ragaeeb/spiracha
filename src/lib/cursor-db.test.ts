@@ -225,7 +225,7 @@ describe('cursor-db workspace discovery', () => {
             if (sql.includes('SELECT ? AS composerId, key, value FROM cursorDiskKV')) {
                 hydratedComposerIds.push(sql);
             }
-            if (sql.includes("key LIKE 'composerData:%'")) {
+            if (sql.includes("key LIKE 'composerData:%'") && !sql.includes("'$.fullConversationHeadersOnly'")) {
                 globalHeadScanCount += 1;
             }
             const statement = originalQuery.call(this, sql);
@@ -450,6 +450,147 @@ describe('cursor-db workspace discovery', () => {
             ]),
         );
         expect(groups.find((group) => group.key === 'folder:/Users/test/workspace/e2e')?.threadCount ?? 0).toBe(0);
+    });
+
+    it('should identify moved root snapshots without conflating their subagents', async () => {
+        const userDir = await makeUserDir();
+        await createCursorFixture(userDir, {
+            buckets: [
+                { bucketId: 'source-root', folder: 'file:///Users/test/workspace/demo' },
+                { bucketId: 'move-a', folder: 'file:///Users/test/.cursor/worktrees/demo-a' },
+                { bucketId: 'move-b', folder: 'file:///Users/test/.cursor/worktrees/demo-b' },
+            ],
+            composerTableHeaders: [
+                { bucketId: 'source-root', composerId: 'created-root' },
+                {
+                    bucketId: 'move-a',
+                    composerId: 'moved-root',
+                    moved: true,
+                    sourceEnvironmentId: 'source-root',
+                },
+                {
+                    bucketId: 'move-b',
+                    composerId: 'latest-root',
+                    moved: true,
+                    sourceEnvironmentId: 'source-root',
+                },
+                {
+                    bucketId: 'move-a',
+                    composerId: 'real-subagent',
+                    isSubagent: true,
+                    parentComposerId: 'moved-root',
+                },
+                { bucketId: 'source-root', composerId: 'independent-copy' },
+            ],
+            threads: [
+                {
+                    bubbles: [
+                        { bubbleId: 'shared-root-prompt', text: 'Start the conductor', type: 1 },
+                        { bubbleId: 'created-answer', text: 'Moving to the first worktree.', type: 2 },
+                    ],
+                    composerId: 'created-root',
+                    createdAt: 100,
+                    lastUpdatedAt: 200,
+                    name: 'Conductor',
+                    status: 'aborted',
+                },
+                {
+                    bubbles: [
+                        { bubbleId: 'shared-root-prompt', text: 'Start the conductor', type: 1 },
+                        { bubbleId: 'moved-answer', text: 'Moving to the next worktree.', type: 2 },
+                    ],
+                    composerId: 'moved-root',
+                    createdAt: 201,
+                    lastUpdatedAt: 300,
+                    name: 'Conductor',
+                    status: 'aborted',
+                },
+                {
+                    bubbles: [
+                        { bubbleId: 'shared-root-prompt', text: 'Start the conductor', type: 1 },
+                        { bubbleId: 'latest-answer', text: 'The work is complete.', type: 2 },
+                    ],
+                    composerId: 'latest-root',
+                    createdAt: 301,
+                    lastUpdatedAt: 400,
+                    name: 'Conductor',
+                    status: 'completed',
+                },
+                {
+                    bubbles: [
+                        { bubbleId: 'shared-root-prompt', text: 'Start the conductor', type: 1 },
+                        { bubbleId: 'subagent-answer', text: 'Independent verification.', type: 2 },
+                    ],
+                    composerId: 'real-subagent',
+                    createdAt: 250,
+                    lastUpdatedAt: 275,
+                    name: 'Verifier',
+                    status: 'completed',
+                },
+                {
+                    bubbles: [
+                        { bubbleId: 'shared-root-prompt', text: 'Start the conductor', type: 1 },
+                        { bubbleId: 'copy-answer', text: 'This is an independent copy.', type: 2 },
+                    ],
+                    composerId: 'independent-copy',
+                    createdAt: 350,
+                    lastUpdatedAt: 450,
+                    name: 'Conductor copy',
+                    status: 'completed',
+                },
+            ],
+        });
+
+        const globalDb = new Database(getCursorGlobalDbPath(userDir));
+        for (const composerId of ['created-root', 'moved-root', 'latest-root']) {
+            const key = `composerData:${composerId}`;
+            const row = globalDb.query('SELECT value FROM cursorDiskKV WHERE key = ?').get(key) as { value: string };
+            const head = JSON.parse(row.value) as { fullConversationHeadersOnly: Array<Record<string, unknown>> };
+            head.fullConversationHeadersOnly.unshift({ bubbleId: `${composerId}-bootstrap`, type: 2 });
+            globalDb.run('UPDATE cursorDiskKV SET value = ? WHERE key = ?', [JSON.stringify(head), key]);
+        }
+        globalDb.close();
+
+        const older = await getCursorThreadSummaryByComposerId('moved-root', userDir, {
+            includeTranscriptDirs: false,
+        });
+        const latest = await getCursorThreadSummaryByComposerId('latest-root', userDir, {
+            includeTranscriptDirs: false,
+        });
+        const subagent = await getCursorThreadSummaryByComposerId('real-subagent', userDir, {
+            includeTranscriptDirs: false,
+        });
+        const independentCopy = await getCursorThreadSummaryByComposerId('independent-copy', userDir, {
+            includeTranscriptDirs: false,
+        });
+
+        expect(older?.thread).toEqual(
+            expect.objectContaining({
+                latestSnapshotComposerId: 'latest-root',
+                snapshotCount: 3,
+                status: 'aborted',
+            }),
+        );
+        expect(latest?.thread).toEqual(
+            expect.objectContaining({
+                latestSnapshotComposerId: 'latest-root',
+                snapshotCount: 3,
+                status: 'completed',
+            }),
+        );
+        expect(subagent?.thread).toEqual(
+            expect.objectContaining({
+                latestSnapshotComposerId: null,
+                parentComposerId: 'moved-root',
+                snapshotCount: 1,
+            }),
+        );
+        expect(independentCopy?.thread).toEqual(
+            expect.objectContaining({
+                latestSnapshotComposerId: null,
+                snapshotCount: 1,
+            }),
+        );
     });
 
     it('should match a workspace by folder basename query', async () => {

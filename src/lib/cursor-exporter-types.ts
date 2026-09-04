@@ -114,6 +114,9 @@ export type CursorThreadSummary = {
     model: string | null;
     reasoningEffort: string | null;
     parentComposerId: string | null;
+    latestSnapshotComposerId: string | null;
+    snapshotCount: number;
+    status: string | null;
 };
 
 export type CursorBubbleKind = 'user' | 'assistant' | 'unknown';

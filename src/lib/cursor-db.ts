@@ -751,6 +751,7 @@ export const getCursorThreadSummaryByComposerId = async (
 type ParsedGlobalHead = {
     name: string | null;
     createdAtMs: number | null;
+    firstUserBubbleId: string | null;
     lastUpdatedAtMs: number | null;
     mode: string | null;
     pathHint: string | null;
@@ -763,7 +764,9 @@ type HeaderInfo = {
     name: string | null;
     uriPath: string | null;
     bucketId: string | null;
+    lineageEnvironmentId: string | null;
     parentComposerId: string | null;
+    wasMoved: boolean;
 };
 type BubbleStat = { count: number; bytes: number };
 
@@ -1043,11 +1046,26 @@ const hasStoredCursorBubbleData = (value: string | null): boolean => {
     }
 };
 
+const getFirstUserBubbleId = (parsed: Record<string, JsonValue>): string | null => {
+    const headers = Array.isArray(parsed.fullConversationHeadersOnly) ? parsed.fullConversationHeadersOnly : [];
+    for (const rawHeader of headers) {
+        const header = asObject(rawHeader);
+        if (asNumber(header?.type ?? null) === 1) {
+            const bubbleId = asString(header?.bubbleId ?? null);
+            if (bubbleId) {
+                return bubbleId;
+            }
+        }
+    }
+    return null;
+};
+
 const parseGlobalHead = (value: string | null): ParsedGlobalHead => {
     let parsed: Record<string, JsonValue> | null = {};
     if (value === null) {
         return {
             createdAtMs: null,
+            firstUserBubbleId: null,
             lastUpdatedAtMs: null,
             mode: null,
             model: null,
@@ -1063,6 +1081,7 @@ const parseGlobalHead = (value: string | null): ParsedGlobalHead => {
     } catch {
         return {
             createdAtMs: null,
+            firstUserBubbleId: null,
             lastUpdatedAtMs: null,
             mode: null,
             model: null,
@@ -1076,6 +1095,7 @@ const parseGlobalHead = (value: string | null): ParsedGlobalHead => {
     if (!parsed) {
         return {
             createdAtMs: null,
+            firstUserBubbleId: null,
             lastUpdatedAtMs: null,
             mode: null,
             model: null,
@@ -1100,6 +1120,7 @@ const parseGlobalHead = (value: string | null): ParsedGlobalHead => {
 
     return {
         createdAtMs: asNumber(parsed.createdAt ?? null),
+        firstUserBubbleId: getFirstUserBubbleId(parsed),
         lastUpdatedAtMs: asNumber(parsed.lastUpdatedAt ?? null),
         mode: asString(parsed.unifiedMode ?? null),
         model: encodedGrokModel?.[1] ?? rawModel,
@@ -1197,11 +1218,18 @@ const toHeaderInfo = (header: ComposerEntry): HeaderInfo => {
         | undefined;
     const uriPath = identifier?.uri?.path ?? identifier?.uri?.fsPath ?? null;
     const subagentInfo = asObject(header.subagentInfo ?? null);
+    const agentLocation = asObject(header.agentLocation ?? null);
+    const sourceEnvironment = asObject(agentLocation?.sourceEnvironment ?? null);
+    const environment = asObject(agentLocation?.environment ?? null);
+    const agentLocationHistory = Array.isArray(header.agentLocationHistory) ? header.agentLocationHistory : [];
     return {
         bucketId: identifier?.id ?? null,
+        lineageEnvironmentId:
+            asString(sourceEnvironment?.id ?? null) ?? asString(environment?.id ?? null) ?? identifier?.id ?? null,
         name: typeof header.name === 'string' ? header.name : null,
         parentComposerId: asString(subagentInfo?.parentComposerId ?? null),
         uriPath: uriPath ? normalizeCursorPath(uriPath) : null,
+        wasMoved: agentLocationHistory.some((entry) => asString(asObject(entry)?.reason ?? null) === 'moved'),
     };
 };
 
@@ -1275,9 +1303,12 @@ type ResolvedThread = {
     bucketId: string | null;
     model: string | null;
     reasoningEffort: string | null;
+    firstUserBubbleId: string | null;
+    lineageEnvironmentId: string | null;
     parentComposerId: string | null;
     hasBubbleData?: boolean;
     status: string | null;
+    wasMoved: boolean;
 };
 
 const findLinkedBucketId = (
@@ -1352,11 +1383,13 @@ const resolveThreadFolder = (
         bucketId: linkedBucketId,
         composerId,
         createdAtMs: head?.createdAtMs ?? null,
+        firstUserBubbleId: head?.firstUserBubbleId ?? null,
         folder,
         groupKey,
         groupLabel: folder ? path.basename(folder) : 'Unknown project',
         hasBubbleData: Boolean(head?.hasBubbleData || stat.count > 0),
         lastUpdatedAtMs: head?.lastUpdatedAtMs ?? null,
+        lineageEnvironmentId: headerInfo?.lineageEnvironmentId ?? null,
         mode: head?.mode ?? null,
         model: head?.model ?? null,
         name: head?.name || headerInfo?.name || '(untitled)',
@@ -1364,21 +1397,132 @@ const resolveThreadFolder = (
         reasoningEffort: head?.reasoningEffort ?? null,
         stat,
         status: head?.status ?? null,
+        wasMoved: headerInfo?.wasMoved ?? false,
     };
 };
 
-const toThreadSummary = (resolved: ResolvedThread): CursorThreadSummary => ({
+type MovedSnapshotLineage = {
+    latestSnapshotComposerId: string;
+    snapshotCount: number;
+};
+
+type MovedSnapshotCandidate = Pick<
+    ResolvedThread,
+    | 'composerId'
+    | 'createdAtMs'
+    | 'firstUserBubbleId'
+    | 'lastUpdatedAtMs'
+    | 'lineageEnvironmentId'
+    | 'parentComposerId'
+    | 'wasMoved'
+>;
+
+const compareCursorSnapshotRecency = (left: MovedSnapshotCandidate, right: MovedSnapshotCandidate): number =>
+    (left.createdAtMs ?? left.lastUpdatedAtMs ?? 0) - (right.createdAtMs ?? right.lastUpdatedAtMs ?? 0) ||
+    left.composerId.localeCompare(right.composerId);
+
+// Cursor creates a new root composer when it moves one logical conversation into another worktree,
+// but stores no parent composer id. The source environment plus original user bubble is its durable lineage evidence.
+const getMovedSnapshotLineages = (threads: MovedSnapshotCandidate[]): Map<string, MovedSnapshotLineage> => {
+    const candidates = new Map<string, MovedSnapshotCandidate[]>();
+    for (const thread of threads) {
+        if (thread.parentComposerId || !thread.firstUserBubbleId || !thread.lineageEnvironmentId) {
+            continue;
+        }
+        const key = JSON.stringify([thread.lineageEnvironmentId, thread.firstUserBubbleId]);
+        const members = candidates.get(key) ?? [];
+        members.push(thread);
+        candidates.set(key, members);
+    }
+
+    const lineages = new Map<string, MovedSnapshotLineage>();
+    for (const candidatesForLineage of candidates.values()) {
+        const ordered = candidatesForLineage.toSorted(compareCursorSnapshotRecency);
+        const moved = ordered.filter((thread) => thread.wasMoved);
+        if (moved.length === 0) {
+            continue;
+        }
+        const first = ordered[0]!;
+        const members = first.wasMoved ? moved : [first, ...moved];
+        if (members.length < 2) {
+            continue;
+        }
+        const latest = members.at(-1)!;
+        for (const member of members) {
+            lineages.set(member.composerId, {
+                latestSnapshotComposerId: latest.composerId,
+                snapshotCount: members.length,
+            });
+        }
+    }
+    return lineages;
+};
+
+const readMovedSnapshotLineage = (
+    db: Database,
+    composerId: string,
+    head: GlobalHead,
+    headerInfo: HeaderInfo | undefined,
+): MovedSnapshotLineage | undefined => {
+    if (!head.firstUserBubbleId || !headerInfo?.lineageEnvironmentId || headerInfo.parentComposerId) {
+        return;
+    }
+
+    const rows = db
+        .query(
+            `SELECT substr(key, 14) AS id, value
+             FROM cursorDiskKV
+             WHERE key LIKE 'composerData:%'
+               AND EXISTS (
+                   SELECT 1
+                   FROM json_each(
+                       CASE
+                           WHEN json_valid(cursorDiskKV.value) THEN cursorDiskKV.value
+                           ELSE '{}'
+                       END,
+                       '$.fullConversationHeadersOnly'
+                   ) AS header
+                   WHERE json_extract(header.value, '$.type') = 1
+                     AND json_extract(header.value, '$.bubbleId') = ?
+               )`,
+        )
+        .all(head.firstUserBubbleId) as Array<{ id: string; value: string }>;
+    const candidates = rows.flatMap<MovedSnapshotCandidate>((row) => {
+        const candidateHead = { ...parseGlobalHead(row.value), hasBubbleData: hasStoredCursorBubbleData(row.value) };
+        const candidateHeader = readHeaderInfoById(db, row.id);
+        if (!candidateHeader || (!candidateHead.hasBubbleData && candidateHead.status === 'aborted')) {
+            return [];
+        }
+        return [
+            {
+                composerId: row.id,
+                createdAtMs: candidateHead.createdAtMs,
+                firstUserBubbleId: candidateHead.firstUserBubbleId,
+                lastUpdatedAtMs: candidateHead.lastUpdatedAtMs,
+                lineageEnvironmentId: candidateHeader.lineageEnvironmentId,
+                parentComposerId: candidateHeader.parentComposerId,
+                wasMoved: candidateHeader.wasMoved,
+            },
+        ];
+    });
+    return getMovedSnapshotLineages(candidates).get(composerId);
+};
+
+const toThreadSummary = (resolved: ResolvedThread, lineage?: MovedSnapshotLineage): CursorThreadSummary => ({
     bubbleBytes: resolved.stat.bytes,
     bubbleCount: resolved.stat.count,
     bucketId: resolved.bucketId,
     composerId: resolved.composerId,
     createdAtMs: resolved.createdAtMs,
     lastUpdatedAtMs: resolved.lastUpdatedAtMs,
+    latestSnapshotComposerId: lineage?.latestSnapshotComposerId ?? null,
     mode: resolved.mode,
     model: resolved.model,
     name: resolved.name,
     parentComposerId: resolved.parentComposerId,
     reasoningEffort: resolved.reasoningEffort,
+    snapshotCount: lineage?.snapshotCount ?? 1,
+    status: resolved.status,
     transcriptDirs: [],
     workspaceKey: resolved.groupKey,
     workspaceLabel: resolved.groupLabel,
@@ -1414,17 +1558,22 @@ const assembleDiscovery = (
     bucketGroups: CursorWorkspaceGroup[],
     fileHistoryActivity: Map<string, number>,
 ): CursorDiscovery => {
+    const includedThreads = resolved.filter(shouldIncludeResolvedThread);
+    const movedSnapshotLineages = getMovedSnapshotLineages(includedThreads);
     const threadsByKey = new Map<string, CursorThreadSummary[]>();
     const lastActiveByKey = new Map<string, number>();
 
     const groupLabels = new Map(bucketGroups.map((group) => [group.key, group.label]));
-    for (const thread of resolved.filter(shouldIncludeResolvedThread)) {
+    for (const thread of includedThreads) {
         const list = threadsByKey.get(thread.groupKey) ?? [];
         list.push(
-            toThreadSummary({
-                ...thread,
-                groupLabel: groupLabels.get(thread.groupKey) ?? thread.groupLabel,
-            }),
+            toThreadSummary(
+                {
+                    ...thread,
+                    groupLabel: groupLabels.get(thread.groupKey) ?? thread.groupLabel,
+                },
+                movedSnapshotLineages.get(thread.composerId),
+            ),
         );
         threadsByKey.set(thread.groupKey, list);
         lastActiveByKey.set(
@@ -1492,9 +1641,12 @@ const getCursorThreadSummaryByComposerIdDirect = async (
             return null;
         }
 
+        const headerInfo = readHeaderInfoById(db, composerId);
+
         return {
             head,
-            headerInfo: readHeaderInfoById(db, composerId),
+            headerInfo,
+            lineage: readMovedSnapshotLineage(db, composerId, head, headerInfo),
         };
     });
     if (!data) {
@@ -1538,7 +1690,7 @@ const getCursorThreadSummaryByComposerIdDirect = async (
         bucketGroups.find((candidate) => candidate.key === resolved.groupKey) ??
         buildBucketlessGroup(resolved.groupKey, 1, resolved.lastUpdatedAtMs ?? 0);
     const [thread] = await hydrateCursorThreadSummaries(
-        [toThreadSummary({ ...resolved, groupLabel: group.label })],
+        [toThreadSummary({ ...resolved, groupLabel: group.label }, data.lineage)],
         userDir,
         options,
     );
@@ -1579,11 +1731,14 @@ const getCursorCliThreadSummaryByComposerId = async (
         composerId,
         createdAtMs: transcript.createdAtMs,
         lastUpdatedAtMs: transcript.lastUpdatedAtMs,
+        latestSnapshotComposerId: null,
         mode: null,
         model: null,
         name: getCursorAgentThreadName(transcript.bubbles),
         parentComposerId: null,
         reasoningEffort: null,
+        snapshotCount: 1,
+        status: null,
         transcriptDirs,
         workspaceKey,
         workspaceLabel: group.label,
@@ -2205,10 +2360,12 @@ const readCursorCliTranscriptThread = async (
         bucketId: null,
         composerId: transcriptEntry.name,
         createdAtMs: transcript.createdAtMs,
+        firstUserBubbleId: null,
         folder,
         groupKey: folder ? `folder:${folder}` : UNKNOWN_GROUP_KEY,
         groupLabel: folder ? path.basename(folder) : 'Unknown project',
         lastUpdatedAtMs: transcript.lastUpdatedAtMs,
+        lineageEnvironmentId: null,
         mode: null,
         model: null,
         name: getCursorAgentThreadName(transcript.bubbles),
@@ -2216,6 +2373,7 @@ const readCursorCliTranscriptThread = async (
         reasoningEffort: null,
         stat: { bytes: transcript.bytes, count: transcript.bubbles.length },
         status: null,
+        wasMoved: false,
     };
 };
 
