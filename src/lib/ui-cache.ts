@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readdir, rename, rm, stat, utimes } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { assertPrivateRuntimeDirectorySafe, ensurePrivateRuntimeDirectory } from './private-runtime-directory';
+import { assertPrivateRuntimeDirectorySafe, ensurePrivateRuntimeDirectory } from './private-runtime-directory.ts';
 import { resolveUiRuntimeConfig } from './runtime-config';
 
 export const UI_CACHE_DIR_ENV = 'SPIRACHA_UI_CACHE_DIR';
