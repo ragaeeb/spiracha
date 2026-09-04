@@ -358,7 +358,7 @@ export const runSpirachaCli = async (args: string[], dependencies: SpirachaCliDe
                 (async (project: string | null) => {
                     const [{ getCodexAnalytics }, { resolveCodexThreadDbPath }] = await Promise.all([
                         import('../src/lib/codex-analytics'),
-                        import('../src/lib/codex-browser-db'),
+                        import('../src/lib/codex-database'),
                     ]);
                     return getCodexAnalytics({ dbPath: resolveCodexThreadDbPath(), project });
                 })

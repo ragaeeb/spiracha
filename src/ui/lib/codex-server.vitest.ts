@@ -31,15 +31,24 @@ vi.mock('@tanstack/react-start', () => ({
     },
 }));
 
-vi.mock('@spiracha/lib/codex-browser-db', () => ({
-    deleteCodexProject: vi.fn(),
-    deleteCodexThread: vi.fn(),
-    deleteCodexThreads: vi.fn(),
-    getCodexDashboardSummary: vi.fn(),
+vi.mock('@spiracha/lib/codex-browser-queries', () => ({
     getThreadBrowseData: getThreadBrowseDataMock,
     listCodexProjects: vi.fn(),
     listProjectThreads: vi.fn(),
+}));
+
+vi.mock('@spiracha/lib/codex-database', () => ({
     resolveCodexThreadDbPath: resolveCodexThreadDbPathMock,
+}));
+
+vi.mock('@spiracha/lib/codex-dashboard', () => ({
+    getCodexDashboardSummary: vi.fn(),
+}));
+
+vi.mock('@spiracha/lib/codex-thread-mutations', () => ({
+    deleteCodexProject: vi.fn(),
+    deleteCodexThread: vi.fn(),
+    deleteCodexThreads: vi.fn(),
 }));
 
 vi.mock('@spiracha/lib/codex-browser-export', () => ({

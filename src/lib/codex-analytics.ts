@@ -5,7 +5,7 @@ import {
     createAgentDxAccumulator,
     finishAgentDxAnalysis,
 } from './agent-dx-analytics';
-import { getThreadRelationsBatch, listScopedThreads } from './codex-browser-db';
+import { getThreadRelationsBatch, listScopedThreads } from './codex-browser-queries';
 import type { CodexAnalytics, DistributionItem, ModelTokenSummary } from './codex-browser-types';
 import {
     captureCodexOptimizationRecord,

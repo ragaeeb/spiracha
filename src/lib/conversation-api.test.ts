@@ -54,6 +54,25 @@ const validLens = {
 const createRequest = (path: string, init?: RequestInit) => new Request(`http://localhost:3000${path}`, init);
 
 describe('conversation API handler', () => {
+    it('should reject cross-origin requests before loading conversations', async () => {
+        let loaded = false;
+        const response = await handleConversationApiRequest(
+            new Request('http://localhost:3000/api/v1/sources', {
+                headers: { Origin: 'http://evil.example' },
+            }),
+            {
+                listConversationSources: async () => {
+                    loaded = true;
+                    return [];
+                },
+            },
+        );
+
+        expect(response.status).toBe(403);
+        expect(loaded).toBe(false);
+        expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
+    });
+
     it('should export focused evidence through the stable POST envelope', async () => {
         const response = await handleConversationApiRequest(
             createRequest('/api/v1/conversations/codex/thread-1/evidence', {

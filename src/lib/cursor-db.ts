@@ -642,6 +642,7 @@ export type ListCursorThreadsOptions = {
     includeModelAttribution?: boolean;
     includeTranscriptDirs?: boolean;
     updatedAfterMs?: number;
+    updatedBeforeMs?: number;
 };
 
 const readCursorChatStoreModel = async (
@@ -738,13 +739,7 @@ export const getCursorThreadSummaryByComposerId = async (
         return null;
     }
 
-    const discovered = (await discoverCursorWorkspaces(userDir, options)).threadsByComposerId.get(composerId);
-    if (!discovered) {
-        return null;
-    }
-
-    const [thread] = await hydrateCursorThreadSummaries([discovered.thread], userDir, options);
-    return thread ? { group: discovered.group, thread } : null;
+    return getCursorThreadSummaryByComposerIdDirect(composerId, userDir, options);
 };
 
 // Older threads' workspace buckets get pruned by Cursor over time, and many threads predate the
@@ -781,6 +776,18 @@ type CursorDiscovery = {
 type CursorDiscoveryOptions = {
     strict?: boolean;
     updatedAfterMs?: number;
+    updatedBeforeMs?: number;
+};
+
+const isCursorThreadWithinUpdateWindow = (
+    lastUpdatedAtMs: number | null,
+    options: Pick<CursorDiscoveryOptions, 'updatedAfterMs' | 'updatedBeforeMs'>,
+): boolean => {
+    const updatedAtMs = lastUpdatedAtMs ?? 0;
+    return (
+        (options.updatedAfterMs === undefined || updatedAtMs >= options.updatedAfterMs) &&
+        (options.updatedBeforeMs === undefined || updatedAtMs <= options.updatedBeforeMs)
+    );
 };
 
 // Discovery does a full scan of the (potentially multi-GB) global DB, so cache it briefly. Writes
@@ -986,27 +993,25 @@ const inferFolderFromBubbles = (db: Database, composerId: string): string | null
 };
 
 const readAllHeads = (db: Database, options: CursorDiscoveryOptions = {}): Map<string, GlobalHead> => {
+    const predicates = ["key LIKE 'composerData:%'"];
+    const lastUpdatedAtExpression =
+        "CASE WHEN json_valid(value) THEN COALESCE(json_extract(value, '$.lastUpdatedAt'), 0) ELSE 0 END";
+    const parameters: number[] = [];
     if (options.updatedAfterMs !== undefined) {
-        const rows = db
-            .query(
-                `SELECT substr(key, 14) AS id, value
-                 FROM cursorDiskKV
-                 WHERE key LIKE 'composerData:%'
-                    AND COALESCE(json_extract(value, '$.lastUpdatedAt'), 0) >= ?`,
-            )
-            .all(options.updatedAfterMs) as Array<{ id: string; value: string | null }>;
-
-        return new Map(
-            rows.map((row) => [
-                row.id,
-                { ...parseGlobalHead(row.value), hasBubbleData: hasStoredCursorBubbleData(row.value) },
-            ]),
-        );
+        predicates.push(`${lastUpdatedAtExpression} >= ?`);
+        parameters.push(options.updatedAfterMs);
     }
-
+    if (options.updatedBeforeMs !== undefined) {
+        predicates.push(`${lastUpdatedAtExpression} <= ?`);
+        parameters.push(options.updatedBeforeMs);
+    }
     const rows = db
-        .query(`SELECT substr(key, 14) AS id, value FROM cursorDiskKV WHERE key LIKE 'composerData:%'`)
-        .all() as Array<{ id: string; value: string | null }>;
+        .query(
+            `SELECT substr(key, 14) AS id, value
+             FROM cursorDiskKV
+             WHERE ${predicates.join(' AND ')}`,
+        )
+        .all(...parameters) as Array<{ id: string; value: string | null }>;
 
     return new Map(
         rows.map((row) => [
@@ -1105,6 +1110,18 @@ const parseGlobalHead = (value: string | null): ParsedGlobalHead => {
     };
 };
 
+const readGlobalHeadById = (db: Database, composerId: string): GlobalHead | null => {
+    const row = db.query('SELECT value FROM cursorDiskKV WHERE key = ?').get(`composerData:${composerId}`) as {
+        value?: string | null;
+    } | null;
+    if (!row) {
+        return null;
+    }
+
+    const value = row.value ?? null;
+    return { ...parseGlobalHead(value), hasBubbleData: hasStoredCursorBubbleData(value) };
+};
+
 const readBubbleStats = (db: Database, composerIds: Iterable<string>): Map<string, BubbleStat> => {
     const ids = [...new Set(composerIds)];
     if (ids.length === 0) {
@@ -1174,24 +1191,59 @@ const hydrateCursorThreadBubbleStats = async (
     });
 };
 
+const toHeaderInfo = (header: ComposerEntry): HeaderInfo => {
+    const identifier = header.workspaceIdentifier as
+        | { id?: string; uri?: { path?: string; fsPath?: string } }
+        | undefined;
+    const uriPath = identifier?.uri?.path ?? identifier?.uri?.fsPath ?? null;
+    const subagentInfo = asObject(header.subagentInfo ?? null);
+    return {
+        bucketId: identifier?.id ?? null,
+        name: typeof header.name === 'string' ? header.name : null,
+        parentComposerId: asString(subagentInfo?.parentComposerId ?? null),
+        uriPath: uriPath ? normalizeCursorPath(uriPath) : null,
+    };
+};
+
+const readComposerHeaderById = (db: Database, composerId: string): ComposerEntry | null => {
+    try {
+        const modernTable = db
+            .query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'composerHeaders'")
+            .get();
+        if (modernTable) {
+            const row = db
+                .query(
+                    'SELECT composerId, workspaceId, createdAt, lastUpdatedAt, isSubagent, value FROM composerHeaders WHERE composerId = ?',
+                )
+                .get(composerId) as ComposerHeaderRow | null;
+            if (row) {
+                return parseComposerHeaderRow(row);
+            }
+        }
+    } catch {}
+
+    try {
+        return (
+            readItemValue<{ allComposers?: ComposerEntry[] }>(db, COMPOSER_HEADERS_KEY)?.allComposers?.find(
+                (header) => header.composerId === composerId,
+            ) ?? null
+        );
+    } catch {}
+
+    return null;
+};
+
+const readHeaderInfoById = (db: Database, composerId: string): HeaderInfo | undefined => {
+    const header = readComposerHeaderById(db, composerId);
+    return header ? toHeaderInfo(header) : undefined;
+};
+
 const readHeaderInfo = (globalDbPath: string, strict = false): Map<string, HeaderInfo> => {
     const info = new Map<string, HeaderInfo>();
     for (const header of (strict ? loadGlobalComposerHeadersStrict : loadGlobalComposerHeaders)(globalDbPath)) {
-        if (!header.composerId) {
-            continue;
+        if (header.composerId) {
+            info.set(header.composerId, toHeaderInfo(header));
         }
-
-        const identifier = header.workspaceIdentifier as
-            | { id?: string; uri?: { path?: string; fsPath?: string } }
-            | undefined;
-        const uriPath = identifier?.uri?.path ?? identifier?.uri?.fsPath ?? null;
-        const subagentInfo = asObject(header.subagentInfo ?? null);
-        info.set(header.composerId, {
-            bucketId: identifier?.id ?? null,
-            name: typeof header.name === 'string' ? header.name : null,
-            parentComposerId: asString(subagentInfo?.parentComposerId ?? null),
-            uriPath: uriPath ? normalizeCursorPath(uriPath) : null,
-        });
     }
 
     return info;
@@ -1424,6 +1476,121 @@ const buildBucketlessGroup = (key: string, threadCount: number, lastActiveMs: nu
     };
 };
 
+const getCursorThreadSummaryByComposerIdDirect = async (
+    composerId: string,
+    userDir: string,
+    options: ListCursorThreadsOptions,
+): Promise<{ group: CursorWorkspaceGroup; thread: CursorThreadSummary } | null> => {
+    const globalDbPath = getCursorGlobalDbPath(userDir);
+    if (!(await pathExists(globalDbPath))) {
+        return getCursorCliThreadSummaryByComposerId(composerId, userDir, options);
+    }
+
+    const data = withCursorReadonlyDb(globalDbPath, (db) => {
+        const head = readGlobalHeadById(db, composerId);
+        if (!head) {
+            return null;
+        }
+
+        return {
+            head,
+            headerInfo: readHeaderInfoById(db, composerId),
+        };
+    });
+    if (!data) {
+        return getCursorCliThreadSummaryByComposerId(composerId, userDir, options);
+    }
+    if (!isCursorThreadWithinUpdateWindow(data.head.lastUpdatedAtMs, options)) {
+        return null;
+    }
+
+    const bucket = data.headerInfo?.bucketId
+        ? await buildBucket(
+              getCursorWorkspaceStorageDir(userDir),
+              data.headerInfo.bucketId,
+              new Map([[data.headerInfo.bucketId, new Set([composerId])]]),
+              readBucketComposerIds,
+          )
+        : null;
+    const bucketGroups = bucket ? groupCursorBuckets([bucket]) : [];
+    const bucketIdToGroupKey = new Map(bucket ? [[bucket.bucketId, bucketGroups[0]?.key ?? '']] : []);
+    const bucketIdToFolder = new Map(bucket ? [[bucket.bucketId, bucket.folders[0] ?? null]] : []);
+    const bucketComposerIds = data.headerInfo?.bucketId
+        ? new Map([[composerId, data.headerInfo.bucketId]])
+        : new Map<string, string>();
+    const resolved = withCursorReadonlyDb(globalDbPath, (db) =>
+        resolveThreadFolder(
+            composerId,
+            data.head,
+            data.headerInfo,
+            { bytes: 0, count: 0 },
+            bucketIdToGroupKey,
+            bucketIdToFolder,
+            bucketComposerIds,
+            db,
+        ),
+    );
+    if (!shouldIncludeResolvedThread(resolved)) {
+        return null;
+    }
+
+    const group =
+        bucketGroups.find((candidate) => candidate.key === resolved.groupKey) ??
+        buildBucketlessGroup(resolved.groupKey, 1, resolved.lastUpdatedAtMs ?? 0);
+    const [thread] = await hydrateCursorThreadSummaries(
+        [toThreadSummary({ ...resolved, groupLabel: group.label })],
+        userDir,
+        options,
+    );
+    return thread ? { group, thread } : null;
+};
+
+const getCursorCliThreadSummaryByComposerId = async (
+    composerId: string,
+    userDir: string,
+    options: ListCursorThreadsOptions,
+): Promise<{ group: CursorWorkspaceGroup; thread: CursorThreadSummary } | null> => {
+    const transcriptDirs = await findCursorTranscriptDirs(composerId, userDir);
+    if (transcriptDirs.length === 0) {
+        return null;
+    }
+
+    const transcript = await readCursorAgentTranscript(composerId, userDir, transcriptDirs);
+    if (
+        transcript.bubbles.length === 0 ||
+        !isCursorCliTranscriptWithinUpdateWindow(transcript, options.updatedAfterMs, options.updatedBeforeMs)
+    ) {
+        return null;
+    }
+
+    let folder: string | null = null;
+    for (const transcriptDir of transcriptDirs) {
+        folder = await readCursorProjectWorkspacePath(path.dirname(path.dirname(transcriptDir)));
+        if (folder) {
+            break;
+        }
+    }
+    const workspaceKey = folder ? `folder:${folder}` : UNKNOWN_GROUP_KEY;
+    const group = buildBucketlessGroup(workspaceKey, 1, transcript.lastUpdatedAtMs ?? 0);
+    const thread: CursorThreadSummary = {
+        bubbleBytes: transcript.bytes,
+        bubbleCount: transcript.bubbles.length,
+        bucketId: null,
+        composerId,
+        createdAtMs: transcript.createdAtMs,
+        lastUpdatedAtMs: transcript.lastUpdatedAtMs,
+        mode: null,
+        model: null,
+        name: getCursorAgentThreadName(transcript.bubbles),
+        parentComposerId: null,
+        reasoningEffort: null,
+        transcriptDirs,
+        workspaceKey,
+        workspaceLabel: group.label,
+    };
+    return { group, thread };
+};
+
 const buildDiscoveryGroups = (
     threadsByKey: Map<string, CursorThreadSummary[]>,
     bucketGroups: CursorWorkspaceGroup[],
@@ -1444,6 +1611,73 @@ const buildDiscoveryGroups = (
     return groups.sort((a, b) => b.lastActiveMs - a.lastActiveMs);
 };
 
+const resolveCursorDatabaseThreads = (
+    db: Database,
+    heads: Map<string, GlobalHead>,
+    headerInfo: Map<string, HeaderInfo>,
+    bucketComposerIds: Map<string, string>,
+    bucketIdToGroupKey: Map<string, string>,
+    bucketIdToFolder: Map<string, string | null>,
+    options: CursorDiscoveryOptions,
+) => {
+    const universe =
+        options.updatedAfterMs === undefined
+            ? new Set<string>([...heads.keys(), ...headerInfo.keys(), ...bucketComposerIds.keys()])
+            : new Set<string>(heads.keys());
+    const resolved: ResolvedThread[] = [];
+
+    for (const composerId of universe) {
+        const head =
+            heads.get(composerId) ??
+            (options.updatedAfterMs === undefined && options.updatedBeforeMs !== undefined
+                ? (readGlobalHeadById(db, composerId) ?? undefined)
+                : undefined);
+        if (head && !isCursorThreadWithinUpdateWindow(head.lastUpdatedAtMs, options)) {
+            continue;
+        }
+        resolved.push(
+            resolveThreadFolder(
+                composerId,
+                head,
+                headerInfo.get(composerId),
+                { bytes: 0, count: 0 },
+                bucketIdToGroupKey,
+                bucketIdToFolder,
+                bucketComposerIds,
+                db,
+            ),
+        );
+    }
+
+    return { kind: 'resolved' as const, knownComposerIds: new Set(universe), resolved };
+};
+
+const readCursorDatabaseDiscovery = (
+    globalDbPath: string,
+    buckets: CursorWorkspaceBucket[],
+    bucketIdToGroupKey: Map<string, string>,
+    bucketIdToFolder: Map<string, string | null>,
+    options: CursorDiscoveryOptions,
+) =>
+    withCursorReadonlyDb(globalDbPath, (db) => {
+        const heads = readAllHeads(db, options);
+        if (options.updatedAfterMs !== undefined && heads.size === 0) {
+            return { kind: 'empty' as const };
+        }
+
+        const bucketComposerIds =
+            options.updatedAfterMs === undefined ? collectBucketComposerIds(buckets, options.strict) : new Map();
+        return resolveCursorDatabaseThreads(
+            db,
+            heads,
+            readHeaderInfo(globalDbPath, options.strict),
+            bucketComposerIds,
+            bucketIdToGroupKey,
+            bucketIdToFolder,
+            options,
+        );
+    });
+
 const buildDiscovery = async (userDir: string, options: CursorDiscoveryOptions = {}): Promise<CursorDiscovery> => {
     const buckets = await (options.strict ? loadCursorBucketsStrict(userDir) : loadCursorBuckets(userDir));
     const bucketGroups = groupCursorBuckets(buckets);
@@ -1463,46 +1697,22 @@ const buildDiscovery = async (userDir: string, options: CursorDiscoveryOptions =
         }
     }
 
-    const databaseResult = withCursorReadonlyDb(globalDbPath, (db) => {
-        const heads = readAllHeads(db, options);
-        if (options.updatedAfterMs !== undefined && heads.size === 0) {
-            return { kind: 'empty' as const };
-        }
-
-        const headerInfo = readHeaderInfo(globalDbPath, options.strict);
-        const bucketComposerIds =
-            options.updatedAfterMs === undefined ? collectBucketComposerIds(buckets, options.strict) : new Map();
-        const universe =
-            options.updatedAfterMs === undefined
-                ? new Set<string>([...heads.keys(), ...headerInfo.keys(), ...bucketComposerIds.keys()])
-                : new Set<string>(heads.keys());
-        const resolved: ResolvedThread[] = [];
-
-        for (const composerId of universe) {
-            resolved.push(
-                resolveThreadFolder(
-                    composerId,
-                    heads.get(composerId),
-                    headerInfo.get(composerId),
-                    { bytes: 0, count: 0 },
-                    bucketIdToGroupKey,
-                    bucketIdToFolder,
-                    bucketComposerIds,
-                    db,
-                ),
-            );
-        }
-
-        const knownComposerIds = new Set(universe);
-        return { kind: 'resolved' as const, knownComposerIds, resolved };
-    });
+    const databaseResult = readCursorDatabaseDiscovery(
+        globalDbPath,
+        buckets,
+        bucketIdToGroupKey,
+        bucketIdToFolder,
+        options,
+    );
 
     if (databaseResult.kind === 'empty') {
         return assembleDiscovery(cliThreads, bucketGroups, new Map());
     }
 
     const fileHistoryActivity =
-        options.updatedAfterMs === undefined ? await readCursorFileHistoryProjectActivity(userDir) : new Map();
+        options.updatedAfterMs === undefined && options.updatedBeforeMs === undefined
+            ? await readCursorFileHistoryProjectActivity(userDir)
+            : new Map();
     return assembleDiscovery(
         [
             ...databaseResult.resolved,
@@ -1517,7 +1727,7 @@ const discoverCursorWorkspaces = async (
     userDir: string,
     options: CursorDiscoveryOptions = {},
 ): Promise<CursorDiscovery> => {
-    if (options.updatedAfterMs !== undefined || options.strict) {
+    if (options.updatedAfterMs !== undefined || options.updatedBeforeMs !== undefined || options.strict) {
         return await buildDiscovery(userDir, options);
     }
 
@@ -1949,8 +2159,16 @@ const readCursorDirectoryEntries = async (directory: string): Promise<CursorDire
     }
 };
 
-const isCursorCliTranscriptAfterUpdate = (transcript: CursorAgentTranscript, updatedAfterMs?: number): boolean => {
-    return updatedAfterMs === undefined || (transcript.lastUpdatedAtMs ?? 0) > updatedAfterMs;
+const isCursorCliTranscriptWithinUpdateWindow = (
+    transcript: CursorAgentTranscript,
+    updatedAfterMs?: number,
+    updatedBeforeMs?: number,
+): boolean => {
+    const lastUpdatedAtMs = transcript.lastUpdatedAtMs ?? 0;
+    return (
+        (updatedAfterMs === undefined || lastUpdatedAtMs >= updatedAfterMs) &&
+        (updatedBeforeMs === undefined || lastUpdatedAtMs <= updatedBeforeMs)
+    );
 };
 
 const readCursorCliTranscriptThread = async (
@@ -1965,14 +2183,20 @@ const readCursorCliTranscriptThread = async (
     }
 
     const transcriptDir = path.join(agentTranscriptsDir, transcriptEntry.name);
-    if (
-        options.updatedAfterMs !== undefined &&
-        (await getNewestCursorTranscriptMtimeMs(transcriptDir, transcriptEntry.name)) <= options.updatedAfterMs
-    ) {
-        return null;
+    if (options.updatedAfterMs !== undefined || options.updatedBeforeMs !== undefined) {
+        const newestMtimeMs = await getNewestCursorTranscriptMtimeMs(transcriptDir, transcriptEntry.name);
+        if (
+            (options.updatedAfterMs !== undefined && newestMtimeMs < options.updatedAfterMs) ||
+            (options.updatedBeforeMs !== undefined && newestMtimeMs > options.updatedBeforeMs)
+        ) {
+            return null;
+        }
     }
     const transcript = await readCursorAgentTranscript(transcriptEntry.name, userDir, [transcriptDir]);
-    if (transcript.bubbles.length === 0 || !isCursorCliTranscriptAfterUpdate(transcript, options.updatedAfterMs)) {
+    if (
+        transcript.bubbles.length === 0 ||
+        !isCursorCliTranscriptWithinUpdateWindow(transcript, options.updatedAfterMs, options.updatedBeforeMs)
+    ) {
         return null;
     }
 

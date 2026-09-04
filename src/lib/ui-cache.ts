@@ -1,10 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { chmod, lstat, mkdir, readdir, rename, rm, stat, utimes } from 'node:fs/promises';
+import { readdir, rename, rm, stat, utimes } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { assertPrivateRuntimeDirectorySafe, ensurePrivateRuntimeDirectory } from './private-runtime-directory';
 import { resolveUiRuntimeConfig } from './runtime-config';
 
-const CACHE_DIR = path.join(os.tmpdir(), 'spiracha-ui-cache');
+export const UI_CACHE_DIR_ENV = 'SPIRACHA_UI_CACHE_DIR';
+const DEFAULT_CACHE_DIR = path.join(os.tmpdir(), 'spiracha-ui-cache');
 const CACHE_ENVELOPE_VERSION = 1;
 const CACHE_PURGE_INTERVAL_MS = 60 * 1000;
 const CACHE_KEY_PREFIX_MAX_LENGTH = 80;
@@ -19,7 +21,7 @@ type CacheReadResult<T> = { hit: true; value: T } | { hit: false };
 const inFlightCacheLoads = new Map<string, Promise<unknown>>();
 const activeCachePathCounts = new Map<string, number>();
 const pendingCachePathRemovals = new Set<string>();
-let cacheDirectoryInitialized = false;
+let initializedCacheDir: string | null = null;
 let cacheInvalidationGeneration = 0;
 let lastCachePurgeAtMs = 0;
 
@@ -48,10 +50,11 @@ const finishActiveCachePath = async (filePath: string): Promise<void> => {
 };
 
 export const pruneUiCacheEntries = async (
-    cacheDir: string = CACHE_DIR,
+    cacheDir: string = getUiCacheDir(),
     maxAgeMs: number = resolveUiRuntimeConfig().cacheMaxAgeMs,
     maxBytes: number = resolveUiRuntimeConfig().cacheMaxBytes,
 ) => {
+    await assertPrivateRuntimeDirectorySafe(cacheDir, 'cache');
     const cutoff = Date.now() - maxAgeMs;
     const entries = await readdir(cacheDir, { withFileTypes: true }).catch((error: unknown) => {
         if ((error as { code?: unknown }).code === 'ENOENT') {
@@ -100,42 +103,33 @@ export const pruneUiCacheEntries = async (
     await Promise.all(oversizedFiles.map(removeInactiveCachePath));
 };
 
-const assertSafeCacheDirectory = async () => {
-    const metadata = await lstat(CACHE_DIR);
-    if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
-        throw new Error(`Unsafe Spiracha cache directory: ${CACHE_DIR}`);
-    }
-    return metadata;
-};
+export const getUiCacheDir = () => process.env[UI_CACHE_DIR_ENV]?.trim() || DEFAULT_CACHE_DIR;
 
-const refreshCacheDirectoryState = async () => {
+const refreshCacheDirectoryState = async (cacheDir: string) => {
     try {
-        await assertSafeCacheDirectory();
+        await assertPrivateRuntimeDirectorySafe(cacheDir, 'cache');
     } catch (error) {
         if ((error as { code?: unknown }).code !== 'ENOENT') {
             throw error;
         }
-        cacheDirectoryInitialized = false;
+        initializedCacheDir = null;
     }
 };
 
 const ensureCacheDir = async () => {
-    if (cacheDirectoryInitialized) {
-        await refreshCacheDirectoryState();
+    const cacheDir = getUiCacheDir();
+    if (initializedCacheDir === cacheDir) {
+        await refreshCacheDirectoryState(cacheDir);
     }
 
-    if (!cacheDirectoryInitialized) {
-        await mkdir(CACHE_DIR, { mode: 0o700, recursive: true });
-        const metadata = await assertSafeCacheDirectory();
-        if ((metadata.mode & 0o777) !== 0o700) {
-            await chmod(CACHE_DIR, 0o700);
-        }
-        cacheDirectoryInitialized = true;
+    if (initializedCacheDir !== cacheDir) {
+        await ensurePrivateRuntimeDirectory(cacheDir, 'cache');
+        initializedCacheDir = cacheDir;
     }
     const now = Date.now();
     if (now - lastCachePurgeAtMs >= CACHE_PURGE_INTERVAL_MS) {
         lastCachePurgeAtMs = now;
-        void pruneUiCacheEntries(CACHE_DIR).catch((error) => {
+        void pruneUiCacheEntries(cacheDir).catch((error) => {
             console.warn('[spiracha:ui-cache] cache pruning failed', {
                 error: error instanceof Error ? error.message : String(error),
             });
@@ -145,7 +139,7 @@ const ensureCacheDir = async () => {
 
 const toCachePath = (key: string) => {
     const safeKey = key.replace(/[^a-zA-Z0-9._-]/gu, '_').slice(0, CACHE_KEY_PREFIX_MAX_LENGTH);
-    return path.join(CACHE_DIR, `${safeKey}-${hashCacheKeyPartsIterable([key])}.json`);
+    return path.join(getUiCacheDir(), `${safeKey}-${hashCacheKeyPartsIterable([key])}.json`);
 };
 
 export const hashCacheKeyPartsIterable = (parts: Iterable<string>) => {
@@ -268,19 +262,21 @@ export const withCachedJson = async <T>(key: string, loader: () => Promise<T>): 
 export const invalidateCacheByPrefix = async (...prefixes: string[]) => {
     cacheInvalidationGeneration += 1;
     await ensureCacheDir();
-    const entries = await readdir(CACHE_DIR);
+    const cacheDir = getUiCacheDir();
+    const entries = await readdir(cacheDir);
 
     await Promise.all(
         entries
             .filter((entry) => prefixes.some((prefix) => entry.startsWith(prefix)))
-            .map((entry) => removeInactiveCachePath(path.join(CACHE_DIR, entry))),
+            .map((entry) => removeInactiveCachePath(path.join(cacheDir, entry))),
     );
 };
 
 export const clearUiCache = async (): Promise<void> => {
     cacheInvalidationGeneration += 1;
     await ensureCacheDir();
-    const entries = await readdir(CACHE_DIR);
-    await Promise.all(entries.map((entry) => removeInactiveCachePath(path.join(CACHE_DIR, entry))));
+    const cacheDir = getUiCacheDir();
+    const entries = await readdir(cacheDir);
+    await Promise.all(entries.map((entry) => removeInactiveCachePath(path.join(cacheDir, entry))));
     lastCachePurgeAtMs = 0;
 };

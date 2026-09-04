@@ -1217,4 +1217,145 @@ describe('kiro workspace discovery', () => {
         expect(await listKiroSessionsForGroup('workspace:missing', missingSessionsDir)).toEqual([]);
         expect(await readKiroSessionTranscript(missingSessionsDir, 'missing')).toBeNull();
     });
+
+    it('should apply inclusive timestamp bounds to session listings', async () => {
+        const sessionsDir = await makeTempRoot();
+        const workspacePath = path.join(homeDir, 'workspace', 'bounded');
+        await writeSession({
+            createdAtMs: 1_700_000_000_000,
+            sessionId: 'kiro-before',
+            sessionsDir,
+            title: 'Before',
+            updatedAtMs: 1_700_000_000_000,
+            workspacePath,
+        });
+        await writeSession({
+            createdAtMs: 1_700_000_100_000,
+            sessionId: 'kiro-at-bound',
+            sessionsDir,
+            title: 'At bound',
+            updatedAtMs: 1_700_000_100_000,
+            workspacePath,
+        });
+        await writeSession({
+            createdAtMs: 1_700_000_200_000,
+            sessionId: 'kiro-after',
+            sessionsDir,
+            title: 'After',
+            updatedAtMs: 1_700_000_200_000,
+            workspacePath,
+        });
+
+        const groups = await listKiroWorkspaceGroups(sessionsDir);
+        const sessions = await listKiroSessionsForGroup(groups[0]!.key, sessionsDir, {
+            updatedAfterMs: 1_700_000_100_000,
+            updatedBeforeMs: 1_700_000_100_000,
+        });
+
+        expect(sessions.map((session) => session.sessionId)).toEqual(['kiro-at-bound']);
+    });
+
+    it('should avoid hydrating malformed sessions outside the requested timestamp window', async () => {
+        const sessionsDir = await makeTempRoot();
+        const workspacePath = path.join(homeDir, 'workspace', 'bounded-malformed');
+        await writeSession({
+            createdAtMs: 1_700_000_100_000,
+            sessionId: 'kiro-in-window',
+            sessionsDir,
+            title: 'In window',
+            updatedAtMs: 1_700_000_100_000,
+            workspacePath,
+        });
+        const workspaceDir = path.join(sessionsDir, encodeKiroWorkspaceDirectoryName(workspacePath));
+        const malformedPath = path.join(workspaceDir, 'kiro-out-of-window.json');
+        await Bun.write(malformedPath, '{broken');
+        const oldDate = new Date(1_700_000_000_000);
+        await utimes(malformedPath, oldDate, oldDate);
+        resetParserDiagnosticForTests('kiro', 'malformed-json');
+        const warnSpy = spyOn(console, 'warn').mockImplementation(() => undefined);
+
+        try {
+            const sessions = await listKiroSessionsForGroup(
+                `workspace:${encodeKiroWorkspaceDirectoryName(workspacePath)}`,
+                sessionsDir,
+                { updatedAfterMs: 1_700_000_100_000, updatedBeforeMs: 1_700_000_100_000 },
+            );
+
+            expect(sessions.map((session) => session.sessionId)).toEqual(['kiro-in-window']);
+            expect(warnSpy).not.toHaveBeenCalledWith('[spiracha:kiro] malformed-json', {
+                filePath: malformedPath,
+            });
+        } finally {
+            warnSpy.mockRestore();
+        }
+    });
+
+    it('should include older continuation parents needed by an in-window child', async () => {
+        const sessionsDir = await makeTempRoot();
+        const workspacePath = path.join(homeDir, 'workspace', 'bounded-continuation');
+        await writeSession({
+            activeTabs: ['bounded-root'],
+            createdAtMs: 1_700_000_000_000,
+            sessionId: 'bounded-root',
+            sessionsDir,
+            title: 'Bounded task',
+            updatedAtMs: 1_700_000_000_000,
+            workspacePath,
+        });
+        await writeSession({
+            activeTabs: ['bounded-root', 'bounded-child'],
+            createdAtMs: 1_700_000_100_000,
+            sessionId: 'bounded-child',
+            sessionsDir,
+            title: 'Bounded task (Continued)',
+            updatedAtMs: 1_700_000_100_000,
+            userText: '# Conversation Summary\n\nEarlier context.',
+            workspacePath,
+        });
+
+        const sessions = await listKiroSessionsForGroup(
+            `workspace:${encodeKiroWorkspaceDirectoryName(workspacePath)}`,
+            sessionsDir,
+            { updatedAfterMs: 1_700_000_100_000, updatedBeforeMs: 1_700_000_100_000 },
+        );
+
+        expect(sessions).toHaveLength(1);
+        expect(sessions[0]).toMatchObject({
+            continuationSessionIds: ['bounded-root', 'bounded-child'],
+            lastActiveAtMs: 1_700_000_100_000,
+            sessionId: 'bounded-root',
+        });
+    });
+
+    it('should exclude a bounded root when its newer continuation is outside the upper bound', async () => {
+        const sessionsDir = await makeTempRoot();
+        const workspacePath = path.join(homeDir, 'workspace', 'bounded-upper-continuation');
+        await writeSession({
+            activeTabs: ['upper-root'],
+            createdAtMs: 1_700_000_100_000,
+            sessionId: 'upper-root',
+            sessionsDir,
+            title: 'Upper bounded task',
+            updatedAtMs: 1_700_000_100_000,
+            workspacePath,
+        });
+        await writeSession({
+            activeTabs: ['upper-root', 'upper-child'],
+            createdAtMs: 1_700_000_200_000,
+            sessionId: 'upper-child',
+            sessionsDir,
+            title: 'Upper bounded task (Continued)',
+            updatedAtMs: 1_700_000_200_000,
+            userText: '# Conversation Summary\n\nNewer context.',
+            workspacePath,
+        });
+
+        const sessions = await listKiroSessionsForGroup(
+            `workspace:${encodeKiroWorkspaceDirectoryName(workspacePath)}`,
+            sessionsDir,
+            { updatedBeforeMs: 1_700_000_100_000 },
+        );
+
+        expect(sessions).toEqual([]);
+    });
 });

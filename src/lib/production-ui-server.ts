@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { isAllowedLocalRequestOrigin } from './local-request-security';
 import {
     buildUiExportContentDisposition,
     getUiExportContentType,
@@ -10,6 +11,11 @@ import {
 type ProductionUiFetchOptions = {
     appFetch: (request: Request) => Promise<Response> | Response;
     clientDirectory: string;
+};
+
+const withLocalSecurityHeaders = (response: Response) => {
+    response.headers.set('X-Content-Type-Options', 'nosniff');
+    return response;
 };
 
 export const resolveClientAssetPath = (clientDirectory: string, pathname: string): string | null => {
@@ -30,11 +36,13 @@ export const resolveClientAssetPath = (clientDirectory: string, pathname: string
 
 const getExportResponse = async (request: Request, pathname: string): Promise<Response> => {
     if (request.method !== 'GET' && request.method !== 'HEAD') {
-        return new Response('Method Not Allowed', { headers: { Allow: 'GET, HEAD' }, status: 405 });
+        return withLocalSecurityHeaders(
+            new Response('Method Not Allowed', { headers: { Allow: 'GET, HEAD' }, status: 405 }),
+        );
     }
     const exportFilePath = await resolveReadableUiExportFileFromRequestPath(pathname);
     if (!exportFilePath) {
-        return new Response('Not Found', { status: 404 });
+        return withLocalSecurityHeaders(new Response('Not Found', { status: 404 }));
     }
     const file = Bun.file(exportFilePath);
     return new Response(request.method === 'HEAD' ? null : file, {
@@ -42,6 +50,7 @@ const getExportResponse = async (request: Request, pathname: string): Promise<Re
             'Cache-Control': 'no-store',
             'Content-Disposition': buildUiExportContentDisposition(exportFilePath),
             'Content-Type': getUiExportContentType(exportFilePath),
+            'X-Content-Type-Options': 'nosniff',
         },
     });
 };
@@ -66,12 +75,16 @@ const getAssetResponse = async (
         headers: {
             'Cache-Control': pathname.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache',
             'Content-Type': file.type,
+            'X-Content-Type-Options': 'nosniff',
         },
     });
 };
 
 export const createProductionUiFetch = ({ appFetch, clientDirectory }: ProductionUiFetchOptions) => {
     return async (request: Request): Promise<Response> => {
+        if (!isAllowedLocalRequestOrigin(request.url, request.headers.get('Origin'))) {
+            return withLocalSecurityHeaders(new Response('Forbidden', { status: 403 }));
+        }
         const pathname = new URL(request.url).pathname;
         if (pathname.startsWith(UI_EXPORT_URL_PREFIX)) {
             return getExportResponse(request, pathname);
@@ -82,7 +95,7 @@ export const createProductionUiFetch = ({ appFetch, clientDirectory }: Productio
             return assetResponse;
         }
 
-        return appFetch(request);
+        return withLocalSecurityHeaders(await appFetch(request));
     };
 };
 

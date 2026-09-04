@@ -1,6 +1,7 @@
-import { chmod, mkdir, readdir, rm, stat } from 'node:fs/promises';
+import { lstat, readdir, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { assertPrivateRuntimeDirectorySafe, ensurePrivateRuntimeDirectory } from './private-runtime-directory';
 import { resolveUiRuntimeConfig } from './runtime-config.ts';
 
 export const UI_EXPORT_DIR_ENV = 'SPIRACHA_UI_EXPORT_DIR';
@@ -35,8 +36,7 @@ export const getUiExportDir = () => {
 
 export const ensureUiExportDir = async () => {
     const exportDir = getUiExportDir();
-    await mkdir(exportDir, { mode: 0o700, recursive: true });
-    await chmod(exportDir, 0o700);
+    await ensurePrivateRuntimeDirectory(exportDir, 'export');
     await purgeStaleUiExports(exportDir);
     return exportDir;
 };
@@ -64,16 +64,16 @@ export const getUiExportContentType = (filePath: string) => {
 };
 
 export const purgeStaleUiExportFile = async (filePath: string, cutoff: number) => {
-    let metadata: Awaited<ReturnType<typeof stat>>;
+    let metadata: Awaited<ReturnType<typeof lstat>>;
     try {
-        metadata = await stat(filePath);
+        metadata = await lstat(filePath);
     } catch (error) {
         if ((error as { code?: unknown }).code === 'ENOENT') {
             return;
         }
         throw error;
     }
-    if (metadata.mtimeMs < cutoff) {
+    if (metadata.isFile() && !metadata.isSymbolicLink() && metadata.mtimeMs < cutoff) {
         await rm(filePath, { force: true });
     }
 };
@@ -83,6 +83,7 @@ export const purgeStaleUiExports = async (
     maxAgeMs: number = resolveUiRuntimeConfig().exportMaxAgeMs,
     maxBytes: number = resolveUiRuntimeConfig().exportMaxBytes,
 ) => {
+    await assertPrivateRuntimeDirectorySafe(exportDir, 'export');
     const entries = await readdir(exportDir, { withFileTypes: true });
     const cutoff = Date.now() - maxAgeMs;
     const files = (
@@ -92,8 +93,10 @@ export const purgeStaleUiExports = async (
                 .map(async (entry) => {
                     const filePath = path.join(exportDir, entry.name);
                     try {
-                        const metadata = await stat(filePath);
-                        return { filePath, mtimeMs: metadata.mtimeMs, name: entry.name, size: metadata.size };
+                        const metadata = await lstat(filePath);
+                        return metadata.isFile() && !metadata.isSymbolicLink()
+                            ? { filePath, mtimeMs: metadata.mtimeMs, name: entry.name, size: metadata.size }
+                            : null;
                     } catch (error) {
                         if ((error as { code?: unknown }).code === 'ENOENT') {
                             return null;
@@ -141,8 +144,9 @@ export const resolveReadableUiExportFileFromRequestPath = async (pathname: strin
     }
 
     try {
-        const metadata = await stat(filePath);
-        return metadata.isFile() ? filePath : null;
+        await assertPrivateRuntimeDirectorySafe(getUiExportDir(), 'export');
+        const metadata = await lstat(filePath);
+        return metadata.isFile() && !metadata.isSymbolicLink() ? filePath : null;
     } catch {
         return null;
     }

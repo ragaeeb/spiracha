@@ -2,13 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {
-    CodexDbCompatibilityError,
-    CodexThreadNotFoundError,
-    getThreadBrowseData,
-    getThreadBrowseDataBatch,
-} from './codex-browser-db';
+import { getThreadBrowseData, getThreadBrowseDataBatch } from './codex-browser-queries';
 import type { ThreadBrowseData } from './codex-browser-types';
+import { CodexDbCompatibilityError, CodexThreadNotFoundError } from './codex-database';
 import {
     CodexRolloutContentError,
     CodexRolloutMutationError,

@@ -1217,6 +1217,71 @@ const readSessionFiles = async (files: KiroSessionFile[]): Promise<KiroSessionTr
     return transcripts.flatMap((transcript) => (transcript && transcript.renderablePartCount > 0 ? [transcript] : []));
 };
 
+const getSessionFileId = (file: KiroSessionFile): string => {
+    return file.indexEntry?.sessionId ?? path.basename(file.filePath, '.json');
+};
+
+const isKiroSessionFileWithinUpdateWindow = (
+    mtimeMs: number | null,
+    indexEntry: KiroSessionIndexEntry | null,
+    options: { updatedAfterMs?: number; updatedBeforeMs?: number },
+): boolean => {
+    const updatedAtMs = mtimeMs ?? indexEntry?.createdAtMs ?? 0;
+    return (
+        (options.updatedAfterMs === undefined || updatedAtMs >= options.updatedAfterMs) &&
+        (options.updatedBeforeMs === undefined || updatedAtMs <= options.updatedBeforeMs)
+    );
+};
+
+const filterKiroSessionFilesByUpdateWindow = async (
+    files: KiroSessionFile[],
+    options: { updatedAfterMs?: number; updatedBeforeMs?: number },
+): Promise<KiroSessionFile[]> => {
+    if (options.updatedAfterMs === undefined) {
+        return files;
+    }
+
+    const candidates = await mapWithConcurrency(files, READ_CONCURRENCY, async (file) => {
+        const mtimeMs = await stat(file.filePath)
+            .then((fileStat) => fileStat.mtimeMs)
+            .catch(() => null);
+        // Keep upper bounds for the post-merge filter so newer continuation children can exclude their roots.
+        return isKiroSessionFileWithinUpdateWindow(mtimeMs, file.indexEntry, {
+            updatedAfterMs: options.updatedAfterMs,
+        })
+            ? file
+            : null;
+    });
+    return candidates.filter((file): file is KiroSessionFile => file !== null);
+};
+
+const readKiroSessionFilesForUpdateWindow = async (
+    files: KiroSessionFile[],
+    options: { updatedAfterMs?: number; updatedBeforeMs?: number },
+): Promise<KiroSessionTranscript[]> => {
+    const candidates = await filterKiroSessionFilesByUpdateWindow(files, options);
+    if (candidates.length === files.length) {
+        return readSessionFiles(files);
+    }
+
+    const filesBySessionId = new Map(files.map((file) => [getSessionFileId(file), file]));
+    const hydratedPaths = new Set<string>();
+    const transcripts: KiroSessionTranscript[] = [];
+    let pendingFiles = candidates;
+    while (pendingFiles.length > 0) {
+        for (const file of pendingFiles) {
+            hydratedPaths.add(file.filePath);
+        }
+        transcripts.push(...(await readSessionFiles(pendingFiles)));
+        const continuationIds = new Set(transcripts.flatMap(getActiveTabIds));
+        pendingFiles = [...continuationIds]
+            .map((sessionId) => filesBySessionId.get(sessionId))
+            .filter((file): file is KiroSessionFile => Boolean(file && !hydratedPaths.has(file.filePath)));
+    }
+
+    return transcripts;
+};
+
 const KIRO_CONTINUATION_SUMMARY_PATTERN = /^(?:# Conversation Summary|## Summary of Conversation)\b/u;
 
 const getActiveTabIds = (transcript: KiroSessionTranscript): string[] => {
@@ -1472,6 +1537,7 @@ const sortSessions = (sessions: KiroSessionSummary[]): KiroSessionSummary[] => {
 export const listKiroSessionsForGroup = async (
     workspaceKey: string,
     sessionsDir = resolveKiroWorkspaceSessionsDir(),
+    options: { updatedAfterMs?: number; updatedBeforeMs?: number } = {},
 ): Promise<KiroSessionSummary[]> => {
     const directoryName = getDirectoryNameFromWorkspaceKey(workspaceKey);
     if (!directoryName || !(await pathExists(sessionsDir))) {
@@ -1479,8 +1545,11 @@ export const listKiroSessionsForGroup = async (
     }
 
     const files = await listSessionFilesForWorkspace(sessionsDir, directoryName);
-    const transcripts = await readSessionFiles(files);
-    return sortSessions(mergeKiroContinuationTranscripts(transcripts).map((transcript) => transcript.session));
+    const transcripts = await readKiroSessionFilesForUpdateWindow(files, options);
+    const sessions = mergeKiroContinuationTranscripts(transcripts).map((transcript) => transcript.session);
+    return sortSessions(
+        sessions.filter((session) => isKiroSessionFileWithinUpdateWindow(session.lastActiveAtMs, null, options)),
+    );
 };
 
 const locateSessionFile = async (sessionsDir: string, sessionId: string): Promise<KiroSessionFile | null> => {

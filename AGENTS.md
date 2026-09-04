@@ -64,7 +64,7 @@ Web import modules:
   - validated server functions for importing, listing, and loading normalized Web conversations
 
 Codex browser/export modules:
-- `src/lib/codex-browser-db.ts`
+- `src/lib/codex-database.ts`, `src/lib/codex-fallback-index.ts`, `src/lib/codex-browser-queries.ts`, `src/lib/codex-dashboard.ts`, `src/lib/codex-thread-mutations.ts`
   - project/thread browsing queries, delete flows, dashboard summaries, DB path resolution
 - `src/lib/codex-browser-export.ts`
   - UI-facing thread download rendering
@@ -94,7 +94,7 @@ Source-specific browser/export modules:
 - `src/lib/cline-db.ts`, `src/lib/cline-exporter-types.ts`, `src/lib/cline-transcript.ts`
 - `src/lib/grok-db.ts`, `src/lib/grok-exporter-types.ts`, `src/lib/grok-transcript-phase.ts`, `src/lib/grok-transcript.ts`
 - `src/lib/kiro-db.ts`, `src/lib/kiro-exporter-types.ts`, `src/lib/kiro-transcript-phase.ts`, `src/lib/kiro-transcript.ts` (detail data exposes history and execution sources separately plus the integrated transcript)
-- `src/lib/qoder-db.ts`, `src/lib/qoder-acp-client.ts`, `src/lib/qoder-exporter-types.ts`, `src/lib/qoder-transcript-phase.ts`, `src/lib/qoder-transcript.ts`
+- `src/lib/qoder-storage.ts`, `src/lib/qoder-sessions.ts`, `src/lib/qoder-session-transcript.ts`, `src/lib/qoder-acp-client.ts`, `src/lib/qoder-exporter-types.ts`, `src/lib/qoder-transcript-phase.ts`, `src/lib/qoder-transcript.ts`
 - `src/lib/cursor-db.ts`, `src/lib/cursor-exporter-types.ts`, `src/lib/cursor-recovery.ts`, `src/lib/cursor-transcript-phase.ts`, `src/lib/cursor-transcript.ts`
 - `src/lib/antigravity-db.ts`, `src/lib/antigravity-exporter-types.ts`, `src/lib/antigravity-keychain.ts`, `src/lib/antigravity-projects.ts`, `src/lib/antigravity-trajectory.ts`, `src/lib/antigravity-transcript-contract.ts`, `src/lib/antigravity-transcript-events.ts`, `src/lib/antigravity-transcript-history.ts`, `src/lib/antigravity-transcript-phase.ts`
 - `src/lib/minimax-code-db.ts`, `src/lib/minimax-code-exporter-types.ts`, `src/lib/minimax-code-transcript-phase.ts`, `src/lib/minimax-code-transcript.ts`

@@ -20,7 +20,6 @@ import {
     createDeepLinks,
     createTextMessage,
     finalizeMessages,
-    isWithinUpdatedWindow,
     normalizeAssistantPhase,
     normalizeRole,
     normalizeToolStatus,
@@ -215,9 +214,10 @@ const listOpenCodeConversationsForPath = async (options: ListConversationsForPat
         if (!match) {
             continue;
         }
-        const sessions = (await listOpenCodeSessionsForGroup(group.key, dbPath)).filter((session) =>
-            isWithinUpdatedWindow(session.lastUpdatedAtMs, options),
-        );
+        const sessions = await listOpenCodeSessionsForGroup(group.key, dbPath, {
+            updatedAfterMs: options.updatedAfterMs,
+            updatedBeforeMs: options.updatedBeforeMs,
+        });
         conversations.push(
             ...(await mapWithConcurrency(sessions, OPENCODE_CONVERSATION_HYDRATION_CONCURRENCY, (session) =>
                 buildConversation(session, dbPath, [match], options),

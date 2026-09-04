@@ -201,6 +201,7 @@ describe('cursor-db workspace discovery', () => {
                     threadsInComposerData: true,
                 },
             ],
+            composerTableHeaders: [{ bucketId: 'bucket-two', composerId: 'thread-2' }],
             headerLinks: [
                 { bucketId: 'bucket-one', composerId: 'thread-1' },
                 { bucketId: 'bucket-two', composerId: 'thread-2' },
@@ -218,11 +219,32 @@ describe('cursor-db workspace discovery', () => {
         });
         const originalQuery = Database.prototype.query;
         const hydratedComposerIds: string[] = [];
+        let legacyHeaderReadCount = 0;
+        let globalHeadScanCount = 0;
         Database.prototype.query = function (this: Database, sql: string) {
             if (sql.includes('SELECT ? AS composerId, key, value FROM cursorDiskKV')) {
                 hydratedComposerIds.push(sql);
             }
-            return originalQuery.call(this, sql);
+            if (sql.includes("key LIKE 'composerData:%'")) {
+                globalHeadScanCount += 1;
+            }
+            const statement = originalQuery.call(this, sql);
+            if (!sql.includes('SELECT value FROM ItemTable WHERE key = ?')) {
+                return statement;
+            }
+            return new Proxy(statement, {
+                get: (target, property, receiver) => {
+                    if (property !== 'get') {
+                        return Reflect.get(target, property, receiver);
+                    }
+                    return (...parameters: unknown[]) => {
+                        if (parameters[0] === 'composer.composerHeaders') {
+                            legacyHeaderReadCount += 1;
+                        }
+                        return Reflect.apply(target.get, target, parameters);
+                    };
+                },
+            }) as typeof statement;
         } as typeof originalQuery;
 
         try {
@@ -232,6 +254,8 @@ describe('cursor-db workspace discovery', () => {
             expect(result?.group.folders).toEqual(['/Users/test/workspace/two']);
             expect(hydratedComposerIds).toHaveLength(1);
             expect(hydratedComposerIds[0]?.match(/SELECT \? AS composerId/gu)).toHaveLength(1);
+            expect(legacyHeaderReadCount).toBe(0);
+            expect(globalHeadScanCount).toBe(0);
         } finally {
             Database.prototype.query = originalQuery;
         }
@@ -632,6 +656,24 @@ describe('cursor-db workspace discovery', () => {
         const groups = await listCursorWorkspaceGroups(userDir);
 
         expect(groups).toEqual([]);
+    });
+
+    it('should tolerate malformed global composer heads during bounded discovery', async () => {
+        const userDir = await makeUserDir();
+        await createCursorFixture(userDir, baseSpec());
+        const db = new Database(getCursorGlobalDbPath(userDir));
+        try {
+            db.run('INSERT OR REPLACE INTO cursorDiskKV (key, value) VALUES (?, ?)', [
+                'composerData:malformed-head',
+                '{broken',
+            ]);
+        } finally {
+            db.close();
+        }
+
+        const groups = await listCursorWorkspaceGroups(userDir, { updatedAfterMs: 0 });
+
+        expect(groups.map((group) => group.label)).toContain('demo');
     });
 
     it('should list threads for a workspace with bubble counts', async () => {
@@ -1449,5 +1491,96 @@ describe('parseCursorBubble', () => {
         expect(bubble.thinking).toBe('reasoning');
         expect(bubble.toolCall?.name).toBe('run');
         expect(bubble.toolCall?.resultText).toBe('ok');
+    });
+});
+
+describe('Cursor bounded discovery', () => {
+    it('should apply inclusive lower and upper bounds to direct and grouped lookups', async () => {
+        const userDir = await makeUserDir();
+        await createCursorFixture(userDir, {
+            buckets: [
+                {
+                    bucketId: 'bounded',
+                    composerIds: ['old-thread', 'new-thread'],
+                    folder: 'file:///Users/test/workspace/bounded',
+                    threadsInComposerData: true,
+                },
+            ],
+            headerLinks: [
+                { bucketId: 'bounded', composerId: 'old-thread' },
+                { bucketId: 'bounded', composerId: 'new-thread' },
+            ],
+            threads: [
+                {
+                    bubbles: [{ bubbleId: 'old', text: 'old', type: 1 }],
+                    composerId: 'old-thread',
+                    lastUpdatedAt: 1000,
+                    name: 'Old',
+                },
+                {
+                    bubbles: [{ bubbleId: 'new', text: 'new', type: 1 }],
+                    composerId: 'new-thread',
+                    lastUpdatedAt: 2000,
+                    name: 'New',
+                },
+            ],
+        });
+        const [group] = await listCursorWorkspaceGroups(userDir);
+
+        const grouped = await listCursorThreadsForGroup(group!, userDir, {
+            includeTranscriptDirs: false,
+            updatedAfterMs: 1000,
+            updatedBeforeMs: 1000,
+        });
+        const direct = await getCursorThreadSummaryByComposerId('old-thread', userDir, {
+            includeTranscriptDirs: false,
+            updatedAfterMs: 1000,
+            updatedBeforeMs: 1000,
+        });
+
+        expect(grouped.map((thread) => thread.composerId)).toEqual(['old-thread']);
+        expect(direct?.thread.composerId).toBe('old-thread');
+    });
+
+    it('should retain upper-bound header-only threads without enumerating global heads', async () => {
+        const userDir = await makeUserDir();
+        await createCursorFixture(userDir, {
+            buckets: [
+                {
+                    bucketId: 'header-only-bucket',
+                    composerIds: ['known-thread'],
+                    folder: 'file:///Users/test/workspace/header-only',
+                    threadsInComposerData: true,
+                },
+            ],
+            headerLinks: [{ bucketId: 'header-only-bucket', composerId: 'known-thread' }],
+            threads: [
+                {
+                    bubbles: [{ bubbleId: 'known', text: 'known', type: 1 }],
+                    composerId: 'known-thread',
+                    lastUpdatedAt: 2000,
+                    name: 'Known',
+                },
+            ],
+        });
+
+        const db = new Database(getCursorGlobalDbPath(userDir));
+        const headerRow = db.query("SELECT value FROM ItemTable WHERE key = 'composer.composerHeaders'").get() as {
+            value: string;
+        };
+        const headers = JSON.parse(headerRow.value) as { allComposers: Array<Record<string, unknown>> };
+        headers.allComposers.push({
+            composerId: 'header-only-thread',
+            name: 'Header only',
+            workspaceIdentifier: { id: 'header-only-bucket' },
+        });
+        db.run("UPDATE ItemTable SET value = ? WHERE key = 'composer.composerHeaders'", [JSON.stringify(headers)]);
+        db.close();
+
+        const groups = await listCursorWorkspaceGroups(userDir, { updatedBeforeMs: 3000 });
+
+        expect(groups.find((group) => group.key === 'folder:/Users/test/workspace/header-only')).toMatchObject({
+            threadCount: 2,
+        });
     });
 });
