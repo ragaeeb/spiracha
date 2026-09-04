@@ -52,8 +52,11 @@ import { Route as ApiV1ConversationQueryRouteImport } from './routes/api.v1.conv
 import { Route as ApiV1ConversationsRouteImport } from './routes/api.v1.conversations'
 import { Route as ApiV1ResolveRouteImport } from './routes/api.v1.resolve'
 import { Route as ApiV1SourcesRouteImport } from './routes/api.v1.sources'
+import { Route as CodexCloudIndexRouteImport } from './routes/codex.cloud.index'
 import { Route as ApiV1ConversationsDeleteRouteImport } from './routes/api.v1.conversations.delete'
 import { Route as ApiV1ConversationsExportRouteImport } from './routes/api.v1.conversations.export'
+import { Route as CodexCloudProjectsEnvironmentIdRouteImport } from './routes/codex.cloud.projects.$environmentId'
+import { Route as CodexCloudTasksTaskIdRouteImport } from './routes/codex.cloud.tasks.$taskId'
 import { Route as ApiV1CodexThreadsEventsRouteImport } from './routes/api.v1.codex.threads.events'
 import { Route as ApiV1ConversationsSourceIdRouteImport } from './routes/api.v1.conversations.$source.$id'
 import { Route as ApiV1ConversationsSourceIdEvidenceRouteImport } from './routes/api.v1.conversations.$source.$id.evidence'
@@ -279,6 +282,11 @@ const ApiV1SourcesRoute = ApiV1SourcesRouteImport.update({
   path: '/api/v1/sources',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CodexCloudIndexRoute = CodexCloudIndexRouteImport.update({
+  id: '/codex/cloud/',
+  path: '/codex/cloud/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiV1ConversationsDeleteRoute =
   ApiV1ConversationsDeleteRouteImport.update({
     id: '/delete',
@@ -291,6 +299,17 @@ const ApiV1ConversationsExportRoute =
     path: '/export',
     getParentRoute: () => ApiV1ConversationsRoute,
   } as any)
+const CodexCloudProjectsEnvironmentIdRoute =
+  CodexCloudProjectsEnvironmentIdRouteImport.update({
+    id: '/codex/cloud/projects/$environmentId',
+    path: '/codex/cloud/projects/$environmentId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const CodexCloudTasksTaskIdRoute = CodexCloudTasksTaskIdRouteImport.update({
+  id: '/codex/cloud/tasks/$taskId',
+  path: '/codex/cloud/tasks/$taskId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiV1CodexThreadsEventsRoute = ApiV1CodexThreadsEventsRouteImport.update({
   id: '/api/v1/codex/threads/events',
   path: '/api/v1/codex/threads/events',
@@ -365,8 +384,11 @@ export interface FileRoutesByFullPath {
   '/api/v1/conversations': typeof ApiV1ConversationsRouteWithChildren
   '/api/v1/resolve': typeof ApiV1ResolveRoute
   '/api/v1/sources': typeof ApiV1SourcesRoute
+  '/codex/cloud/': typeof CodexCloudIndexRoute
   '/api/v1/conversations/delete': typeof ApiV1ConversationsDeleteRoute
   '/api/v1/conversations/export': typeof ApiV1ConversationsExportRoute
+  '/codex/cloud/projects/$environmentId': typeof CodexCloudProjectsEnvironmentIdRoute
+  '/codex/cloud/tasks/$taskId': typeof CodexCloudTasksTaskIdRoute
   '/api/v1/codex/threads/events': typeof ApiV1CodexThreadsEventsRoute
   '/api/v1/conversations/$source/$id': typeof ApiV1ConversationsSourceIdRouteWithChildren
   '/api/v1/conversations/$source/$id/evidence': typeof ApiV1ConversationsSourceIdEvidenceRoute
@@ -417,8 +439,11 @@ export interface FileRoutesByTo {
   '/api/v1/conversations': typeof ApiV1ConversationsRouteWithChildren
   '/api/v1/resolve': typeof ApiV1ResolveRoute
   '/api/v1/sources': typeof ApiV1SourcesRoute
+  '/codex/cloud': typeof CodexCloudIndexRoute
   '/api/v1/conversations/delete': typeof ApiV1ConversationsDeleteRoute
   '/api/v1/conversations/export': typeof ApiV1ConversationsExportRoute
+  '/codex/cloud/projects/$environmentId': typeof CodexCloudProjectsEnvironmentIdRoute
+  '/codex/cloud/tasks/$taskId': typeof CodexCloudTasksTaskIdRoute
   '/api/v1/codex/threads/events': typeof ApiV1CodexThreadsEventsRoute
   '/api/v1/conversations/$source/$id': typeof ApiV1ConversationsSourceIdRouteWithChildren
   '/api/v1/conversations/$source/$id/evidence': typeof ApiV1ConversationsSourceIdEvidenceRoute
@@ -470,8 +495,11 @@ export interface FileRoutesById {
   '/api/v1/conversations': typeof ApiV1ConversationsRouteWithChildren
   '/api/v1/resolve': typeof ApiV1ResolveRoute
   '/api/v1/sources': typeof ApiV1SourcesRoute
+  '/codex/cloud/': typeof CodexCloudIndexRoute
   '/api/v1/conversations/delete': typeof ApiV1ConversationsDeleteRoute
   '/api/v1/conversations/export': typeof ApiV1ConversationsExportRoute
+  '/codex/cloud/projects/$environmentId': typeof CodexCloudProjectsEnvironmentIdRoute
+  '/codex/cloud/tasks/$taskId': typeof CodexCloudTasksTaskIdRoute
   '/api/v1/codex/threads/events': typeof ApiV1CodexThreadsEventsRoute
   '/api/v1/conversations/$source/$id': typeof ApiV1ConversationsSourceIdRouteWithChildren
   '/api/v1/conversations/$source/$id/evidence': typeof ApiV1ConversationsSourceIdEvidenceRoute
@@ -524,8 +552,11 @@ export interface FileRouteTypes {
     | '/api/v1/conversations'
     | '/api/v1/resolve'
     | '/api/v1/sources'
+    | '/codex/cloud/'
     | '/api/v1/conversations/delete'
     | '/api/v1/conversations/export'
+    | '/codex/cloud/projects/$environmentId'
+    | '/codex/cloud/tasks/$taskId'
     | '/api/v1/codex/threads/events'
     | '/api/v1/conversations/$source/$id'
     | '/api/v1/conversations/$source/$id/evidence'
@@ -576,8 +607,11 @@ export interface FileRouteTypes {
     | '/api/v1/conversations'
     | '/api/v1/resolve'
     | '/api/v1/sources'
+    | '/codex/cloud'
     | '/api/v1/conversations/delete'
     | '/api/v1/conversations/export'
+    | '/codex/cloud/projects/$environmentId'
+    | '/codex/cloud/tasks/$taskId'
     | '/api/v1/codex/threads/events'
     | '/api/v1/conversations/$source/$id'
     | '/api/v1/conversations/$source/$id/evidence'
@@ -628,8 +662,11 @@ export interface FileRouteTypes {
     | '/api/v1/conversations'
     | '/api/v1/resolve'
     | '/api/v1/sources'
+    | '/codex/cloud/'
     | '/api/v1/conversations/delete'
     | '/api/v1/conversations/export'
+    | '/codex/cloud/projects/$environmentId'
+    | '/codex/cloud/tasks/$taskId'
     | '/api/v1/codex/threads/events'
     | '/api/v1/conversations/$source/$id'
     | '/api/v1/conversations/$source/$id/evidence'
@@ -681,6 +718,9 @@ export interface RootRouteChildren {
   ApiV1ConversationsRoute: typeof ApiV1ConversationsRouteWithChildren
   ApiV1ResolveRoute: typeof ApiV1ResolveRoute
   ApiV1SourcesRoute: typeof ApiV1SourcesRoute
+  CodexCloudIndexRoute: typeof CodexCloudIndexRoute
+  CodexCloudProjectsEnvironmentIdRoute: typeof CodexCloudProjectsEnvironmentIdRoute
+  CodexCloudTasksTaskIdRoute: typeof CodexCloudTasksTaskIdRoute
   ApiV1CodexThreadsEventsRoute: typeof ApiV1CodexThreadsEventsRoute
 }
 
@@ -987,6 +1027,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiV1SourcesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/codex/cloud/': {
+      id: '/codex/cloud/'
+      path: '/codex/cloud'
+      fullPath: '/codex/cloud/'
+      preLoaderRoute: typeof CodexCloudIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/v1/conversations/delete': {
       id: '/api/v1/conversations/delete'
       path: '/delete'
@@ -1000,6 +1047,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/api/v1/conversations/export'
       preLoaderRoute: typeof ApiV1ConversationsExportRouteImport
       parentRoute: typeof ApiV1ConversationsRoute
+    }
+    '/codex/cloud/projects/$environmentId': {
+      id: '/codex/cloud/projects/$environmentId'
+      path: '/codex/cloud/projects/$environmentId'
+      fullPath: '/codex/cloud/projects/$environmentId'
+      preLoaderRoute: typeof CodexCloudProjectsEnvironmentIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/codex/cloud/tasks/$taskId': {
+      id: '/codex/cloud/tasks/$taskId'
+      path: '/codex/cloud/tasks/$taskId'
+      fullPath: '/codex/cloud/tasks/$taskId'
+      preLoaderRoute: typeof CodexCloudTasksTaskIdRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/v1/codex/threads/events': {
       id: '/api/v1/codex/threads/events'
@@ -1119,6 +1180,9 @@ const rootRouteChildren: RootRouteChildren = {
   ApiV1ConversationsRoute: ApiV1ConversationsRouteWithChildren,
   ApiV1ResolveRoute: ApiV1ResolveRoute,
   ApiV1SourcesRoute: ApiV1SourcesRoute,
+  CodexCloudIndexRoute: CodexCloudIndexRoute,
+  CodexCloudProjectsEnvironmentIdRoute: CodexCloudProjectsEnvironmentIdRoute,
+  CodexCloudTasksTaskIdRoute: CodexCloudTasksTaskIdRoute,
   ApiV1CodexThreadsEventsRoute: ApiV1CodexThreadsEventsRoute,
 }
 export const routeTree = rootRouteImport

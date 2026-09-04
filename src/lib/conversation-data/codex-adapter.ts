@@ -1,11 +1,7 @@
-import {
-    CodexThreadNotFoundError,
-    deleteCodexThread,
-    getThreadBrowseData,
-    listScopedThreads,
-    resolveCodexThreadDbPath,
-} from '../codex-browser-db';
+import { getThreadBrowseData, listCodexThreadsForPath } from '../codex-browser-queries';
 import type { MessageEvent, ThreadBrowseData, ThreadEvent } from '../codex-browser-types';
+import { CodexThreadNotFoundError, resolveCodexThreadDbPath } from '../codex-database';
+import { deleteCodexThread } from '../codex-thread-mutations';
 import { parseCodexTranscriptFile } from '../codex-thread-parser';
 import type { ThreadRow } from '../codex-thread-types';
 import { cleanInlineTitle } from '../shared';
@@ -16,7 +12,6 @@ import {
     createTextMessage,
     durationTextToMs,
     finalizeMessages,
-    isWithinUpdatedWindow,
     normalizeAssistantPhase,
     normalizeRole,
     normalizeToolStatus,
@@ -260,10 +255,11 @@ const listCodexConversationsForPath = async (
     if (!(await Bun.file(dbPath).exists())) {
         return [];
     }
-    const threads = listScopedThreads(dbPath, null);
-    const matchedThreads = (await filterThreadsForPath(threads, options.cwd)).filter(({ thread }) =>
-        isWithinUpdatedWindow(toTimestampMs(thread), options),
-    );
+    const threads = await listCodexThreadsForPath(dbPath, options.cwd, {
+        updatedAfterMs: options.updatedAfterMs,
+        updatedBeforeMs: options.updatedBeforeMs,
+    });
+    const matchedThreads = await filterThreadsForPath(threads, options.cwd);
 
     return Promise.all(
         matchedThreads.map(({ matches, thread }) =>

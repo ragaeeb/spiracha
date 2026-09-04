@@ -21,7 +21,6 @@ import {
     createDeepLinks,
     createTextMessage,
     finalizeMessages,
-    isWithinUpdatedWindow,
     normalizeAssistantPhase,
     normalizeRole,
     normalizeToolStatus,
@@ -202,9 +201,10 @@ const listKiroConversationsForPath = async (options: ListConversationsForPathOpt
         if (!match) {
             continue;
         }
-        const sessions = (await listKiroSessionsForGroup(group.key, sessionsDir)).filter((session) =>
-            isWithinUpdatedWindow(session.lastActiveAtMs, options),
-        );
+        const sessions = await listKiroSessionsForGroup(group.key, sessionsDir, {
+            updatedAfterMs: options.updatedAfterMs,
+            updatedBeforeMs: options.updatedBeforeMs,
+        });
         conversations.push(
             ...(await mapWithConcurrency(sessions, KIRO_CONVERSATION_HYDRATION_CONCURRENCY, (session) =>
                 buildConversation(session, sessionsDir, [match], options),

@@ -1,5 +1,6 @@
 import { mapWithConcurrency } from '../concurrency';
 import {
+    getCursorThreadSummaryByComposerId,
     listCursorThreadsForGroup,
     listCursorWorkspaceGroups,
     readCursorThreadTranscriptWithAgentFiles,
@@ -21,7 +22,6 @@ import {
     createDeepLinks,
     createTextMessage,
     finalizeMessages,
-    isWithinUpdatedWindow,
     normalizeToolStatus,
 } from './adapter-helpers';
 import { selectConversationMessages } from './message-selector';
@@ -187,12 +187,10 @@ const listCursorConversationsForPath = async (options: ListConversationsForPathO
             includeBubbleStats: true,
             includeModelAttribution: true,
             includeTranscriptDirs: false,
+            updatedAfterMs: options.updatedAfterMs,
+            updatedBeforeMs: options.updatedBeforeMs,
         });
         for (const thread of threads) {
-            if (!isWithinUpdatedWindow(thread.lastUpdatedAtMs, options)) {
-                continue;
-            }
-
             candidates.push({ group, match, thread });
         }
     }
@@ -204,16 +202,12 @@ const listCursorConversationsForPath = async (options: ListConversationsForPathO
 
 const getCursorConversation = async (options: GetConversationOptions): Promise<ConversationDetail | null> => {
     const userDir = getUserDir(options);
-    const groups = await listCursorWorkspaceGroups(userDir);
-    for (const group of groups) {
-        const threads = await listCursorThreadsForGroup(group, userDir, { includeTranscriptDirs: false });
-        const thread = threads.find((entry) => entry.composerId === options.id);
-        if (thread) {
-            return buildConversation(thread, group, userDir, [], {
-                includeMessages: true,
-                messageSelector: options.messageSelector ?? 'all',
-            });
-        }
+    const direct = await getCursorThreadSummaryByComposerId(options.id, userDir, { includeTranscriptDirs: false });
+    if (direct) {
+        return buildConversation(direct.thread, direct.group, userDir, [], {
+            includeMessages: true,
+            messageSelector: options.messageSelector ?? 'all',
+        });
     }
 
     return null;

@@ -16,6 +16,38 @@ afterEach(async () => {
 });
 
 describe('spiracha executable', () => {
+    it('should parse analytics export options', () => {
+        expect(
+            parseSpirachaCliArgs(['analytics', 'export', '--format', 'csv', '--project', 'spiracha', '--output', 'dx.csv']),
+        ).toEqual({
+            command: 'analytics-export',
+            format: 'csv',
+            output: 'dx.csv',
+            project: 'spiracha',
+        });
+    });
+
+    it('should export provider-neutral analytics through the CLI', async () => {
+        const stdout: Array<string | Uint8Array> = [];
+        const output = await mkdtemp(path.join(os.tmpdir(), 'spiracha-analytics-cli-'));
+        temporaryPaths.push(output);
+        const analytics = {
+            goalSpans: [],
+            schema: 'agent-dx/v1',
+            warnings: [],
+        } as never;
+
+        expect(
+            await runSpirachaCli(['analytics', 'export', '--format', 'json', '--output', path.join(output, 'dx.json')], {
+                getCodexAnalytics: async () => ({ agentDx: analytics } as never),
+                io: { stderr: () => {}, stdout: (value) => stdout.push(value) },
+                runServer: async () => 0,
+            }),
+        ).toBe(0);
+        expect(stdout).toEqual([]);
+        expect(await Bun.file(path.join(output, 'dx.json')).text()).toBe(`${JSON.stringify(analytics, null, 2)}\n`);
+    });
+
     it('should resolve the package root from the executable location', () => {
         expect(resolveSpirachaPackageRoot('/tmp/spiracha-package/bin')).toBe('/tmp/spiracha-package');
     });

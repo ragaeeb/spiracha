@@ -31,10 +31,16 @@ vi.mock('@tanstack/react-start', () => ({
     },
 }));
 
-vi.mock('@spiracha/lib/qoder-db', () => ({
+vi.mock('@spiracha/lib/qoder-sessions', () => ({
     listQoderSessionsForGroup: listQoderSessionsForGroupMock,
     listQoderWorkspaceGroups: listQoderWorkspaceGroupsMock,
+}));
+
+vi.mock('@spiracha/lib/qoder-session-transcript', () => ({
     readQoderSessionTranscript: readQoderSessionTranscriptMock,
+}));
+
+vi.mock('@spiracha/lib/qoder-exporter-types', async () => ({
     resolveQoderGlobalStateDb: resolveQoderGlobalStateDbMock,
     resolveQoderWorkspaceStorageDir: resolveQoderWorkspaceStorageDirMock,
 }));

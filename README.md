@@ -32,6 +32,10 @@ Open the local URL printed by Vite.
 
 Spiracha requires Bun 1.4.0 or newer. Set `PORT` to choose a different port, for example `PORT=4100 bunx spiracha serve`.
 
+## Local security
+
+Spiracha binds to loopback `127.0.0.1` and is intended for same-user local access; it does not provide remote authentication or rate limiting. Browser requests that send an `Origin` must match the exact server origin, and `Origin: null` is rejected. Runtime cache and export directories are private owner-only directories, and symlinked or non-regular export files are rejected.
+
 ## CLI
 
 The packaged CLI is a thin client over Spiracha's normalized conversation API. With no arguments, it prints help:
@@ -289,5 +293,7 @@ The hard-cut package keeps one `spiracha` bin, the stable `spiracha/client` and 
 - No `codex-chats`, `codex-chats-claude`, or legacy export command remains.
 - CLI export/evidence flows use the stable normalized client and do not reintroduce source-specific exporter entrypoints.
 - No MCP server or local Codex plugin remains.
+- The internal Codex browser database module was split into focused database, query, dashboard, fallback-index, and mutation modules; the former monolith is not a supported import path.
+- The former Qoder database module was split into storage, session-listing, and session-transcript modules; the former monolith is not a supported import path.
 - Programmatic consumers should call the stable local HTTP API or import `spiracha/client` from Bun rather than shelling out.
 - Normalized conversation messages now always include `toolEvidence` (`null` for non-tool messages); consumers that construct these DTOs must provide that explicit field.

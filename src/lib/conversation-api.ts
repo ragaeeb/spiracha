@@ -24,6 +24,7 @@ import { validateEvidenceLens } from './conversation-data/evidence-lens';
 import { buildEvidenceExport } from './conversation-data/evidence-markdown';
 import { decodeConversationCursor } from './conversation-data/pagination';
 import { createConversationMarkdownZip } from './conversation-zip-export';
+import { isAllowedLocalRequestOrigin } from './local-request-security';
 import { getExportPlatformName } from './ui-export-archive';
 
 type ConversationApiDependencies = {
@@ -40,6 +41,7 @@ type ConversationApiDependencies = {
 
 type ApiErrorCode =
     | 'conversation_not_found'
+    | 'origin_not_allowed'
     | 'internal_error'
     | 'method_not_allowed'
     | 'not_found'
@@ -1269,6 +1271,9 @@ export const handleConversationApiRequest = async (
     dependencies: ConversationApiDependencies = {},
 ): Promise<Response> => {
     const url = new URL(request.url);
+    if (!isAllowedLocalRequestOrigin(request.url, request.headers.get('Origin'))) {
+        return errorResponse('origin_not_allowed', 'Browser Origin is not allowed for this local API.', 403);
+    }
     const segments = url.pathname.split('/').filter(Boolean);
     const parsed = parseApiSegments(segments);
 

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { mkdir, readdir, rm, stat, utimes } from 'node:fs/promises';
+import { mkdir, readdir, rm, stat, symlink, utimes } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -10,6 +10,7 @@ import {
     invalidateCacheByPrefix,
     pruneUiCacheEntries,
     setCachedJson,
+    UI_CACHE_DIR_ENV,
     withCachedJson,
 } from './ui-cache';
 
@@ -58,6 +59,26 @@ describe('ui cache', () => {
         await setCachedJson('private-cache', { ok: true });
 
         expect((await stat(CACHE_DIR)).mode & 0o777).toBe(0o700);
+    });
+
+    it('should reject a configured cache directory symlink', async () => {
+        const target = path.join(os.tmpdir(), 'spiracha-ui-cache-target');
+        const link = path.join(os.tmpdir(), 'spiracha-ui-cache-link');
+        await rm(target, { force: true, recursive: true });
+        await rm(link, { force: true, recursive: true });
+        await mkdir(target, { mode: 0o700 });
+        await symlink(target, link);
+        process.env[UI_CACHE_DIR_ENV] = link;
+
+        try {
+            await expect(setCachedJson('unsafe-cache', { ok: true })).rejects.toThrow(
+                'Unsafe Spiracha cache directory',
+            );
+        } finally {
+            delete process.env[UI_CACHE_DIR_ENV];
+            await rm(link, { force: true, recursive: true });
+            await rm(target, { force: true, recursive: true });
+        }
     });
 
     it('should support an explicit development bypass without writing cache files', async () => {
@@ -134,7 +155,7 @@ describe('ui cache', () => {
 
     it('should not size-evict an in-progress temporary cache write', async () => {
         const activeTempPath = path.join(CACHE_DIR, 'active-write.tmp');
-        await mkdir(CACHE_DIR, { recursive: true });
+        await mkdir(CACHE_DIR, { mode: 0o700, recursive: true });
         await Bun.write(activeTempPath, 'in progress');
 
         await pruneUiCacheEntries(CACHE_DIR, Number.POSITIVE_INFINITY, 0);
@@ -144,7 +165,7 @@ describe('ui cache', () => {
 
     it('should not age-evict temporary cache writes', async () => {
         const activeTempPath = path.join(CACHE_DIR, 'old-active-write.tmp');
-        await mkdir(CACHE_DIR, { recursive: true });
+        await mkdir(CACHE_DIR, { mode: 0o700, recursive: true });
         await Bun.write(activeTempPath, 'in progress');
         const staleTime = new Date(Date.now() - 48 * 60 * 60 * 1000);
         await utimes(activeTempPath, staleTime, staleTime);

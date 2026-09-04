@@ -1,45 +1,20 @@
 import { Database } from 'bun:sqlite';
 import { readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { mapWithConcurrency } from './concurrency';
 import { getPortablePathBasename } from './portable-path';
-import { loadQoderAcpSession, type QoderAcpSessionUpdate, resolveQoderAcpSocketPath } from './qoder-acp-client';
 import {
-    getDefaultQoderUserDir,
     type QoderSessionSummary,
-    type QoderSessionTranscript,
     type QoderTranscriptEntry,
     type QoderTranscriptPart,
-    type QoderWorkspaceGroup,
-    resolveQoderCliProjectsDir,
     resolveQoderGlobalStateDb,
     resolveQoderWorkspaceStorageDir,
 } from './qoder-exporter-types';
-import { coalesceQoderMessageChunks } from './qoder-transcript-phase';
-import {
-    asObject,
-    asString,
-    cleanExtractedText,
-    cleanInlineTitle,
-    isWorkspacePathQuery,
-    type JsonValue,
-    toFileUri,
-    workspacePathMatchesQuery,
-} from './shared';
+import { asObject, asString, cleanExtractedText, cleanInlineTitle, type JsonValue, toFileUri } from './shared';
 import { runWithSqliteRetry } from './sqlite-retry';
 
-export {
-    getDefaultQoderUserDir,
-    resolveQoderCliProjectsDir,
-    resolveQoderGlobalStateDb,
-    resolveQoderWorkspaceStorageDir,
-};
-
-const READ_CONCURRENCY = 8;
 const WORKSPACE_KEY_PREFIX = 'workspace:';
 const LOCAL_HISTORY_KEY_PATTERN = /^lingma\.chat\.localHistory\.(.+)\.quest$/u;
 const MODEL_CONFIG_KEYS = ['aicoding.modelConfigs.cache.assistant', 'aicoding.modelConfigs.cache.quest'] as const;
-const ACP_RECENT_SESSION_WINDOW_MS = 24 * 60 * 60 * 1000;
 const QODER_MODEL_LABELS: Record<string, string> = {
     dfmodel: 'DeepSeek V4 Flash',
     dmodel: 'DeepSeek V4 Pro',
@@ -85,7 +60,7 @@ type QoderTaskEntry = {
     workspacePath: string;
 };
 
-type QoderSessionRecord = {
+export type QoderSessionRecord = {
     histories: QoderHistoryEntry[];
     sessionId: string;
     task: QoderTaskEntry | null;
@@ -93,7 +68,7 @@ type QoderSessionRecord = {
     workspaceStorageId: string | null;
 };
 
-type QoderStateData = {
+export type QoderStateData = {
     fileOperationCount: number;
     lastActiveAtMs: number | null;
     rawState: Record<string, JsonValue> | null;
@@ -102,7 +77,7 @@ type QoderStateData = {
     statePath: string | null;
 };
 
-type SessionStats = {
+export type SessionStats = {
     assistantMessageCount: number;
     fileOperationCount: number;
     messageCount: number;
@@ -116,30 +91,23 @@ type QoderModelConfigState = {
     questDefaultModel: string | null;
 };
 
-type QoderDataRecords = {
+export type QoderDataRecords = {
     modelConfig: QoderModelConfigState;
     records: QoderSessionRecord[];
     workspaceStorageIds: string[];
 };
 
-type QoderTranscriptReadOptions = {
-    acpDrainMs?: number;
-    acpSocketPath?: string | null;
-    acpTimeoutMs?: number;
-    enableAcp?: boolean;
-};
-
-const pathExists = async (target: string): Promise<boolean> => {
+export const pathExists = async (target: string): Promise<boolean> => {
     return await stat(target)
         .then(() => true)
         .catch(() => false);
 };
 
-const toIso = (value: number | null): string | null => {
+export const toIso = (value: number | null): string | null => {
     return value === null ? null : new Date(value).toISOString();
 };
 
-const parseTimestampMs = (value: JsonValue | undefined): number | null => {
+export const parseTimestampMs = (value: JsonValue | undefined): number | null => {
     if (typeof value === 'number' && Number.isFinite(value)) {
         // Qoder stores some task timestamps in Unix seconds and others in epoch milliseconds.
         return value > 0 && value < 10_000_000_000 ? value * 1000 : value;
@@ -172,7 +140,7 @@ const normalizePromptText = (value: string | null | undefined): string | null =>
     return cleaned ? cleaned : null;
 };
 
-const getWorkspaceKey = (worktree: string): string => {
+export const getWorkspaceKey = (worktree: string): string => {
     return `${WORKSPACE_KEY_PREFIX}${Buffer.from(worktree, 'utf8').toString('base64url')}`;
 };
 
@@ -180,7 +148,7 @@ const warnQoder = (event: string, details: Record<string, JsonValue>) => {
     console.warn(`[spiracha:qoder] ${event}`, details);
 };
 
-const getWorktreeFromWorkspaceKey = (workspaceKey: string): string | null => {
+export const getWorktreeFromWorkspaceKey = (workspaceKey: string): string | null => {
     if (!workspaceKey.startsWith(WORKSPACE_KEY_PREFIX)) {
         warnQoder('invalid_workspace_key', { workspaceKey });
         return null;
@@ -200,15 +168,15 @@ const getWorktreeFromWorkspaceKey = (workspaceKey: string): string | null => {
     }
 };
 
-const getWorkspaceLabel = (worktree: string): string => {
+export const getWorkspaceLabel = (worktree: string): string => {
     return getPortablePathBasename(worktree) || worktree;
 };
 
-const getWorkspaceUri = (worktree: string): string => {
+export const getWorkspaceUri = (worktree: string): string => {
     return worktree.startsWith(path.sep) ? toFileUri(worktree) : worktree;
 };
 
-const parseJsonValue = (value: string): JsonValue | null => {
+export const parseJsonValue = (value: string): JsonValue | null => {
     try {
         return JSON.parse(value) as JsonValue;
     } catch {
@@ -263,7 +231,7 @@ const readGlobalRows = async (globalStateDb = resolveQoderGlobalStateDb()): Prom
     }
 };
 
-const asJsonObject = (value: JsonValue | null): Record<string, JsonValue> | null => {
+export const asJsonObject = (value: JsonValue | null): Record<string, JsonValue> | null => {
     return value === null ? null : asObject(value);
 };
 
@@ -334,7 +302,7 @@ const parseJsonObjectString = (value: JsonValue | undefined): Record<string, Jso
     return text ? asJsonObject(parseJsonValue(text)) : null;
 };
 
-const normalizeQoderModelLabel = (value: string | null): string | null => {
+export const normalizeQoderModelLabel = (value: string | null): string | null => {
     return value ? (QODER_MODEL_LABELS[value] ?? value) : null;
 };
 
@@ -472,7 +440,7 @@ const parseModelConfigState = (rows: ItemTableRow[]): QoderModelConfigState => (
     questDefaultModel: parseDefaultModelConfig(rows, 'aicoding.modelConfigs.cache.quest'),
 });
 
-const getModelFallback = (modelConfig: QoderModelConfigState): string | null => {
+export const getModelFallback = (modelConfig: QoderModelConfigState): string | null => {
     return modelConfig.questDefaultModel ?? modelConfig.assistantDefaultModel;
 };
 
@@ -655,7 +623,7 @@ const readJsonObject = async (filePath: string): Promise<Record<string, JsonValu
     return asJsonObject(value);
 };
 
-const readStateData = async (
+export const readQoderStateData = async (
     workspaceStorageDir: string,
     workspaceStorageIds: string[],
     record: QoderSessionRecord,
@@ -732,7 +700,7 @@ const updateStatsFromEntry = (stats: SessionStats, entry: QoderTranscriptEntry) 
     stats.renderablePartCount += entry.parts.filter(isRenderablePart).length;
 };
 
-const createStatsFromEntries = (entries: QoderTranscriptEntry[], snapshotFileCount: number): SessionStats => {
+export const createStatsFromEntries = (entries: QoderTranscriptEntry[], snapshotFileCount: number): SessionStats => {
     const stats = createEmptyStats();
     stats.snapshotFileCount = snapshotFileCount;
     for (const entry of entries) {
@@ -745,7 +713,7 @@ const getRecordTitle = (record: QoderSessionRecord): string => {
     return cleanInlineTitle(record.task?.title ?? record.histories[0]?.title ?? record.sessionId);
 };
 
-const maxNullable = (...values: (number | null)[]): number | null => {
+export const maxNullable = (...values: (number | null)[]): number | null => {
     return values.reduce<number | null>((latest, value) => {
         if (value === null) {
             return latest;
@@ -766,14 +734,14 @@ const getCreatedAtMs = (record: QoderSessionRecord): number | null => {
     return record.task?.createdAtMs ?? historyCreatedAt;
 };
 
-const getLastActiveAtMs = (record: QoderSessionRecord, state: QoderStateData): number | null => {
+export const getLastActiveAtMs = (record: QoderSessionRecord, state: QoderStateData): number | null => {
     const latestHistoryAt = record.histories.reduce<number | null>((latest, history) => {
         return maxNullable(latest, history.timestampMs);
     }, null);
     return maxNullable(record.task?.updatedAtMs ?? null, latestHistoryAt, state.lastActiveAtMs);
 };
 
-const toSessionSummary = (
+export const toQoderSessionSummary = (
     record: QoderSessionRecord,
     state: QoderStateData,
     stats: SessionStats,
@@ -808,7 +776,7 @@ const toSessionSummary = (
     };
 };
 
-const loadRecords = async (
+export const loadQoderRecords = async (
     globalStateDb = resolveQoderGlobalStateDb(),
     workspaceStorageDir = resolveQoderWorkspaceStorageDir(),
 ): Promise<QoderDataRecords> => {
@@ -823,125 +791,20 @@ const loadRecords = async (
     };
 };
 
-const readRecordSummary = async (
+export const readQoderRecordSummary = async (
     record: QoderSessionRecord,
     workspaceStorageDir: string,
     workspaceStorageIds: string[],
     modelFallback: string | null,
 ): Promise<QoderSessionSummary> => {
-    const state = await readStateData(workspaceStorageDir, workspaceStorageIds, record);
+    const state = await readQoderStateData(workspaceStorageDir, workspaceStorageIds, record);
     // List stats describe persisted Qoder state only; detail reads may additionally hydrate CLI or live ACP messages.
     const entries = buildLocalTranscriptEntries(record, state);
     const stats = createStatsFromEntries(entries, state.snapshotFileCount);
-    return toSessionSummary(record, state, stats, modelFallback);
+    return toQoderSessionSummary(record, state, stats, modelFallback);
 };
 
-const compareNullableMsDesc = (left: number | null, right: number | null): number => {
-    return (right ?? 0) - (left ?? 0);
-};
-
-const sumSessions = (sessions: QoderSessionSummary[], key: keyof SessionStats): number => {
-    return sessions.reduce((total, session) => total + session[key], 0);
-};
-
-const toWorkspaceGroup = (worktree: string, sessions: QoderSessionSummary[]): QoderWorkspaceGroup => {
-    const lastActiveAtMs = sessions.reduce<number | null>((latest, session) => {
-        return maxNullable(latest, session.lastActiveAtMs);
-    }, null);
-
-    return {
-        assistantMessageCount: sumSessions(sessions, 'assistantMessageCount'),
-        fileOperationCount: sumSessions(sessions, 'fileOperationCount'),
-        key: getWorkspaceKey(worktree),
-        label: getWorkspaceLabel(worktree),
-        lastActiveAtIso: toIso(lastActiveAtMs),
-        lastActiveAtMs,
-        messageCount: sumSessions(sessions, 'messageCount'),
-        renderablePartCount: sumSessions(sessions, 'renderablePartCount'),
-        sessionCount: sessions.length,
-        snapshotFileCount: sumSessions(sessions, 'snapshotFileCount'),
-        uri: getWorkspaceUri(worktree),
-        userMessageCount: sumSessions(sessions, 'userMessageCount'),
-        workspaceStorageIds: [...new Set(sessions.flatMap((session) => session.workspaceStorageId ?? []))],
-        worktree,
-    };
-};
-
-export const listQoderWorkspaceGroups = async (
-    globalStateDb = resolveQoderGlobalStateDb(),
-    workspaceStorageDir = resolveQoderWorkspaceStorageDir(),
-): Promise<QoderWorkspaceGroup[]> => {
-    const { modelConfig, records, workspaceStorageIds } = await loadRecords(globalStateDb, workspaceStorageDir);
-    const modelFallback = getModelFallback(modelConfig);
-    const summaries = await mapWithConcurrency(records, READ_CONCURRENCY, (record) =>
-        readRecordSummary(record, workspaceStorageDir, workspaceStorageIds, modelFallback),
-    );
-    const sessionsByWorktree = new Map<string, QoderSessionSummary[]>();
-
-    for (const session of summaries) {
-        const sessions = sessionsByWorktree.get(session.worktree) ?? [];
-        sessions.push(session);
-        sessionsByWorktree.set(session.worktree, sessions);
-    }
-
-    return [...sessionsByWorktree.entries()]
-        .map(([worktree, sessions]) => toWorkspaceGroup(worktree, sessions))
-        .sort(
-            (left, right) =>
-                compareNullableMsDesc(left.lastActiveAtMs, right.lastActiveAtMs) ||
-                left.worktree.localeCompare(right.worktree),
-        );
-};
-
-const qoderWorkspaceMatchesQuery = (workspace: QoderWorkspaceGroup, query: string): boolean => {
-    const raw = query.trim();
-    if (!raw) {
-        return true;
-    }
-
-    const lowered = raw.toLowerCase();
-    if (workspace.key.toLowerCase() === lowered || workspace.label.toLowerCase() === lowered) {
-        return true;
-    }
-
-    if (isWorkspacePathQuery(raw)) {
-        return workspacePathMatchesQuery(workspace.worktree, raw);
-    }
-
-    return getPortablePathBasename(workspace.worktree).toLowerCase() === lowered;
-};
-
-export const findQoderWorkspaceGroups = (groups: QoderWorkspaceGroup[], query: string): QoderWorkspaceGroup[] => {
-    return groups.filter((group) => qoderWorkspaceMatchesQuery(group, query));
-};
-
-const sortSessions = (sessions: QoderSessionSummary[]): QoderSessionSummary[] => {
-    return [...sessions].sort(
-        (left, right) =>
-            compareNullableMsDesc(left.lastActiveAtMs, right.lastActiveAtMs) || left.title.localeCompare(right.title),
-    );
-};
-
-export const listQoderSessionsForGroup = async (
-    workspaceKey: string,
-    globalStateDb = resolveQoderGlobalStateDb(),
-    workspaceStorageDir = resolveQoderWorkspaceStorageDir(),
-): Promise<QoderSessionSummary[]> => {
-    const worktree = getWorktreeFromWorkspaceKey(workspaceKey);
-    if (!worktree) {
-        return [];
-    }
-
-    const { modelConfig, records, workspaceStorageIds } = await loadRecords(globalStateDb, workspaceStorageDir);
-    const matchingRecords = records.filter((record) => record.worktree === worktree);
-    const modelFallback = getModelFallback(modelConfig);
-    const summaries = await mapWithConcurrency(matchingRecords, READ_CONCURRENCY, (record) =>
-        readRecordSummary(record, workspaceStorageDir, workspaceStorageIds, modelFallback),
-    );
-    return sortSessions(summaries);
-};
-
-const parseTextPart = (raw: Record<string, JsonValue>, text: string): QoderTranscriptPart => ({
+export const parseTextPart = (raw: Record<string, JsonValue>, text: string): QoderTranscriptPart => ({
     raw,
     text,
     type: 'text',
@@ -1051,492 +914,7 @@ const buildOperationEntry = (
     };
 };
 
-type QoderCliPart = {
-    entryType: QoderTranscriptEntry['entryType'];
-    raw: Record<string, JsonValue>;
-    role: string;
-    text: string;
-};
-
-type QoderCliTranscript = {
-    entries: QoderTranscriptEntry[];
-    model: string | null;
-    path: string | null;
-};
-
-const getCliWorkspaceDirectoryName = (worktree: string): string => {
-    return worktree.replace(/[\\/]+/gu, '-');
-};
-
-const getCliTranscriptCandidates = (projectsDir: string, record: QoderSessionRecord): string[] => {
-    return [
-        path.join(projectsDir, `${record.sessionId}.jsonl`),
-        path.join(projectsDir, getCliWorkspaceDirectoryName(record.worktree), `${record.sessionId}.jsonl`),
-    ];
-};
-
-const locateCliTranscriptPath = async (projectsDir: string, record: QoderSessionRecord): Promise<string | null> => {
-    for (const candidate of getCliTranscriptCandidates(projectsDir, record)) {
-        if (await pathExists(candidate)) {
-            return candidate;
-        }
-    }
-
-    return null;
-};
-
-const stringifyCliValue = (value: JsonValue | undefined): string | null => {
-    if (typeof value === 'string') {
-        return value;
-    }
-
-    if (typeof value === 'number' || typeof value === 'boolean') {
-        return String(value);
-    }
-
-    if (value === null || value === undefined) {
-        return null;
-    }
-
-    return JSON.stringify(value, null, 2);
-};
-
-const getCliTextValue = (value: JsonValue | undefined): string | null => {
-    if (Array.isArray(value)) {
-        const text = value
-            .map((item) => getCliTextValue(item))
-            .filter((item): item is string => Boolean(item?.trim()))
-            .join('\n');
-        return text ? text : null;
-    }
-
-    const objectValue = asObject(value ?? null);
-    if (objectValue) {
-        return (
-            getCliTextValue(objectValue.text) ??
-            getCliTextValue(objectValue.content) ??
-            getCliTextValue(objectValue.result) ??
-            stringifyCliValue(objectValue)
-        );
-    }
-
-    return stringifyCliValue(value);
-};
-
-const getCliPartData = (part: Record<string, JsonValue>): Record<string, JsonValue> => {
-    return asObject(part.data ?? null) ?? part;
-};
-
-const getCliToolName = (part: Record<string, JsonValue>, data: Record<string, JsonValue>): string => {
-    return asString(data.name ?? null) ?? asString(part.name ?? null) ?? 'qoder_tool';
-};
-
-const formatCliToolCall = (part: Record<string, JsonValue>, data: Record<string, JsonValue>): string | null => {
-    const name = getCliToolName(part, data);
-    const input = getCliTextValue(data.input ?? part.input);
-    const text = [name, input].filter((value): value is string => Boolean(value?.trim())).join('\n');
-    return text || null;
-};
-
-const cliTextPartToTranscriptPart = (part: Record<string, JsonValue>, role: string): QoderCliPart | null => {
-    const data = getCliPartData(part);
-    const text = getCliTextValue(data.text ?? part.text);
-    return text ? { entryType: 'message', raw: part, role, text } : null;
-};
-
-const cliReasoningPartToTranscriptPart = (part: Record<string, JsonValue>, type: string): QoderCliPart | null => {
-    const data = getCliPartData(part);
-    const text = getCliTextValue(data.thinking ?? data.signature ?? part.thinking ?? part.text);
-    return text ? { entryType: 'message', raw: { ...part, sourceType: type }, role: 'assistant', text } : null;
-};
-
-const cliToolCallPartToTranscriptPart = (part: Record<string, JsonValue>): QoderCliPart | null => {
-    const data = getCliPartData(part);
-    const text = formatCliToolCall(part, data);
-    return text
-        ? {
-              entryType: 'tool_call',
-              raw: {
-                  ...part,
-                  command: text,
-                  toolCallId: asString(data.id ?? data.tool_use_id ?? part.id ?? part.tool_use_id ?? null),
-                  toolName: getCliToolName(part, data),
-              },
-              role: 'tool',
-              text,
-          }
-        : null;
-};
-
-const cliToolOutputPartToTranscriptPart = (part: Record<string, JsonValue>): QoderCliPart | null => {
-    const data = getCliPartData(part);
-    const text = getCliTextValue(data.content ?? data.output ?? part.content);
-    return text
-        ? {
-              entryType: 'tool_output',
-              raw: {
-                  ...part,
-                  toolCallId: asString(data.tool_use_id ?? part.tool_use_id ?? null),
-                  toolName: getCliToolName(part, data),
-              },
-              role: 'tool',
-              text,
-          }
-        : null;
-};
-
-const cliPartToTranscriptPart = (part: Record<string, JsonValue>, role: string): QoderCliPart | null => {
-    const type = asString(part.type ?? null);
-    switch (type) {
-        case 'text':
-            return cliTextPartToTranscriptPart(part, role);
-        case 'reasoning':
-        case 'thinking':
-            return cliReasoningPartToTranscriptPart(part, type);
-        case 'tool_call':
-        case 'tool_use':
-            return cliToolCallPartToTranscriptPart(part);
-        case 'tool_result':
-        case 'tool_output':
-            return cliToolOutputPartToTranscriptPart(part);
-        default:
-            return null;
-    }
-};
-
-const getCliLineParts = (raw: Record<string, JsonValue>): Record<string, JsonValue>[] => {
-    const parts = Array.isArray(raw.parts) ? raw.parts : asObject(raw.message ?? null)?.content;
-    return Array.isArray(parts)
-        ? parts.map((part) => asObject(part)).filter((part): part is Record<string, JsonValue> => Boolean(part))
-        : [];
-};
-
-const getCliLineRole = (raw: Record<string, JsonValue>): string => {
-    return (
-        asString(raw.role ?? null) ??
-        asString(asObject(raw.message ?? null)?.role ?? null) ??
-        asString(raw.type ?? null) ??
-        'unknown'
-    );
-};
-
-const normalizeCliModel = (model: string | null, modelFallback: string | null): string | null => {
-    if (!model) {
-        return null;
-    }
-
-    if (model === 'auto') {
-        return modelFallback;
-    }
-
-    return normalizeQoderModelLabel(model);
-};
-
-const parseCliTranscriptLine = (
-    raw: Record<string, JsonValue>,
-    lineIndex: number,
-    sourcePath: string,
-): QoderTranscriptEntry[] => {
-    const role = getCliLineRole(raw);
-    const timestamp = toIso(parseTimestampMs(raw.created_at ?? raw.timestamp ?? raw.updated_at));
-    const parentId = asString(raw.id ?? raw.uuid ?? null) ?? `${sourcePath}:${lineIndex}`;
-    return getCliLineParts(raw).flatMap((part, partIndex) => {
-        const parsed = cliPartToTranscriptPart(part, role);
-        if (!parsed) {
-            return [];
-        }
-
-        return [
-            {
-                entryId: `${parentId}:${partIndex}`,
-                entryType: parsed.entryType,
-                parts: [
-                    parseTextPart(
-                        {
-                            ...parsed.raw,
-                            source: 'qoderCliTranscript',
-                            sourcePath,
-                        },
-                        parsed.text,
-                    ),
-                ],
-                raw,
-                requestId: asString(raw.request_set_id ?? raw.requestSetId ?? null),
-                role: parsed.role,
-                timestamp,
-            },
-        ];
-    });
-};
-
-const readCliTranscriptEntries = async (
-    projectsDir: string,
-    record: QoderSessionRecord,
-    modelFallback: string | null,
-): Promise<QoderCliTranscript> => {
-    const transcriptPath = await locateCliTranscriptPath(projectsDir, record);
-    if (!transcriptPath) {
-        return { entries: [], model: null, path: null };
-    }
-
-    const text = await Bun.file(transcriptPath)
-        .text()
-        .catch(() => '');
-    let model: string | null = null;
-    const entries = text.split(/\r?\n/u).flatMap((line, lineIndex) => {
-        if (!line.trim()) {
-            return [];
-        }
-
-        const raw = asJsonObject(parseJsonValue(line));
-        model ??= normalizeCliModel(asString(raw?.model ?? null), modelFallback);
-        return raw ? parseCliTranscriptLine(raw, lineIndex, transcriptPath) : [];
-    });
-
-    return { entries, model, path: transcriptPath };
-};
-
-const getRawStringValue = (raw: Record<string, JsonValue>, keys: string[]): string | null => {
-    for (const key of keys) {
-        const value = asString(raw[key] ?? null);
-        if (value?.trim()) {
-            return value;
-        }
-    }
-
-    return null;
-};
-
-const stringifyAcpValue = (value: JsonValue | undefined): string | null => {
-    if (typeof value === 'string') {
-        return value;
-    }
-
-    if (typeof value === 'number' || typeof value === 'boolean') {
-        return String(value);
-    }
-
-    if (value === null || value === undefined) {
-        return null;
-    }
-
-    return JSON.stringify(value, null, 2);
-};
-
-const getAcpContentText = (update: Record<string, JsonValue>): string | null => {
-    const content = asObject(update.content ?? null);
-    const data = asObject(update.data ?? null);
-    return (
-        getRawStringValue(content ?? {}, ['text', 'content', 'thinking']) ??
-        getRawStringValue(data ?? {}, ['text', 'content', 'thinking', 'output']) ??
-        getRawStringValue(update, ['text', 'content', 'thinking', 'message', 'delta'])
-    );
-};
-
-const getAcpTimestamp = (update: Record<string, JsonValue>): string | null => {
-    return toIso(parseTimestampMs(update.timestamp ?? update.created_at ?? update.createdAt ?? update.updated_at));
-};
-
-const buildAcpMessageEntry = (
-    event: QoderAcpSessionUpdate,
-    index: number,
-    role: 'assistant' | 'user',
-): QoderTranscriptEntry | null => {
-    const text = getAcpContentText(event.update);
-    if (!text?.trim()) {
-        return null;
-    }
-
-    return {
-        entryId: `qoder-acp:${event.sessionId}:${index}`,
-        entryType: 'message',
-        parts: [
-            parseTextPart(
-                {
-                    requestId: event.requestId,
-                    sessionUpdate: event.update.sessionUpdate ?? null,
-                    source: 'qoderAcpSessionLoad',
-                },
-                text,
-            ),
-        ],
-        raw: event.update,
-        requestId: event.requestId,
-        role,
-        timestamp: getAcpTimestamp(event.update),
-    };
-};
-
-const getAcpToolId = (update: Record<string, JsonValue>, index: number): string => {
-    return (
-        getRawStringValue(update, ['toolCallId', 'tool_call_id', 'callId', 'id']) ??
-        getRawStringValue(asObject(update.toolCall ?? null) ?? {}, ['id', 'toolCallId']) ??
-        `tool:${index}`
-    );
-};
-
-const getAcpToolName = (update: Record<string, JsonValue>): string => {
-    return (
-        getRawStringValue(update, ['toolName', 'name', 'title', 'kind']) ??
-        getRawStringValue(asObject(update.toolCall ?? null) ?? {}, ['toolName', 'name', 'title', 'kind']) ??
-        'qoder_tool'
-    );
-};
-
-const buildAcpToolCallText = (update: Record<string, JsonValue>): string | null => {
-    const toolCall = asObject(update.toolCall ?? null);
-    const name = getAcpToolName(update);
-    const input =
-        stringifyAcpValue(update.input) ??
-        stringifyAcpValue(update.arguments) ??
-        stringifyAcpValue(update.rawInput) ??
-        stringifyAcpValue(toolCall?.input) ??
-        stringifyAcpValue(toolCall?.arguments);
-    return [name, input].filter((value): value is string => Boolean(value?.trim())).join('\n') || null;
-};
-
-const buildAcpToolOutputText = (update: Record<string, JsonValue>): string | null => {
-    const text =
-        getAcpContentText(update) ??
-        stringifyAcpValue(update.output) ??
-        stringifyAcpValue(update.result) ??
-        stringifyAcpValue(update.rawOutput);
-    return text?.trim() ? text : null;
-};
-
-const buildAcpToolEntry = (
-    event: QoderAcpSessionUpdate,
-    index: number,
-    entryType: 'tool_call' | 'tool_output',
-): QoderTranscriptEntry | null => {
-    const text = entryType === 'tool_call' ? buildAcpToolCallText(event.update) : buildAcpToolOutputText(event.update);
-    if (!text) {
-        return null;
-    }
-
-    const toolCallId = getAcpToolId(event.update, index);
-    const toolName = getAcpToolName(event.update);
-    return {
-        entryId: `qoder-acp:${event.sessionId}:${toolCallId}:${index}`,
-        entryType,
-        parts: [
-            parseTextPart(
-                {
-                    requestId: event.requestId,
-                    sessionUpdate: event.update.sessionUpdate ?? null,
-                    source: 'qoderAcpSessionLoad',
-                    toolCallId,
-                    toolName,
-                },
-                text,
-            ),
-        ],
-        raw: event.update,
-        requestId: event.requestId,
-        role: 'tool',
-        timestamp: getAcpTimestamp(event.update),
-    };
-};
-
-const acpUpdateToEntry = (event: QoderAcpSessionUpdate, index: number): QoderTranscriptEntry | null => {
-    switch (event.update.sessionUpdate) {
-        case 'user_message_chunk':
-            return buildAcpMessageEntry(event, index, 'user');
-        case 'agent_thought_chunk':
-        case 'agent_message_chunk':
-            return buildAcpMessageEntry(event, index, 'assistant');
-        case 'tool_call':
-            return buildAcpToolEntry(event, index, 'tool_call');
-        case 'tool_call_update':
-            return buildAcpToolEntry(event, index, 'tool_output');
-        default:
-            return null;
-    }
-};
-
-const getAcpModel = (events: QoderAcpSessionUpdate[]): string | null => {
-    for (const event of [...events].reverse()) {
-        if (event.update.sessionUpdate !== 'current_model_update') {
-            continue;
-        }
-
-        const model = normalizeQoderModelLabel(getRawStringValue(event.update, ['modelId', 'model', 'modelName']));
-        if (model) {
-            return model;
-        }
-    }
-
-    return null;
-};
-
-const getTaskIdForAcpLoad = (record: QoderSessionRecord): string | null => {
-    return record.task?.id ?? (record.sessionId.replace(/\.session\.execution$/u, '') || null);
-};
-
-const shouldUseAcp = (
-    record: QoderSessionRecord,
-    state: QoderStateData,
-    cliTranscript: QoderCliTranscript,
-    options: QoderTranscriptReadOptions,
-    globalStateDb: string,
-    workspaceStorageDir: string,
-): boolean => {
-    if (options.enableAcp === false) {
-        return false;
-    }
-
-    if (cliTranscript.entries.some((entry) => entry.role === 'assistant')) {
-        return false;
-    }
-
-    if (options.acpSocketPath) {
-        return true;
-    }
-
-    if (globalStateDb !== resolveQoderGlobalStateDb() || workspaceStorageDir !== resolveQoderWorkspaceStorageDir()) {
-        return false;
-    }
-
-    const lastActiveAtMs = getLastActiveAtMs(record, state);
-    return lastActiveAtMs !== null && Date.now() - lastActiveAtMs <= ACP_RECENT_SESSION_WINDOW_MS;
-};
-
-const readAcpTranscriptEntries = async (
-    record: QoderSessionRecord,
-    state: QoderStateData,
-    cliTranscript: QoderCliTranscript,
-    options: QoderTranscriptReadOptions,
-    globalStateDb: string,
-    workspaceStorageDir: string,
-): Promise<{ entries: QoderTranscriptEntry[]; model: string | null; socketPath: string | null }> => {
-    if (!shouldUseAcp(record, state, cliTranscript, options, globalStateDb, workspaceStorageDir)) {
-        return { entries: [], model: null, socketPath: null };
-    }
-
-    const loaded = await loadQoderAcpSession({
-        cwd: record.worktree,
-        drainMs: options.acpDrainMs,
-        sessionId: record.sessionId,
-        socketPath: options.acpSocketPath ?? resolveQoderAcpSocketPath(),
-        taskId: getTaskIdForAcpLoad(record),
-        timeoutMs: options.acpTimeoutMs,
-    });
-    if (!loaded) {
-        return { entries: [], model: null, socketPath: null };
-    }
-
-    return {
-        entries: coalesceQoderMessageChunks(
-            loaded.events
-                .map((event, index) => acpUpdateToEntry(event, index))
-                .filter((entry): entry is QoderTranscriptEntry => Boolean(entry)),
-        ),
-        model: getAcpModel(loaded.events),
-        socketPath: loaded.socketPath,
-    };
-};
-
-const buildLocalTranscriptEntryGroups = (
+export const buildLocalTranscriptEntryGroups = (
     record: QoderSessionRecord,
     state: QoderStateData,
 ): { historyEntries: QoderTranscriptEntry[]; operationEntries: QoderTranscriptEntry[] } => {
@@ -1553,83 +931,4 @@ const buildLocalTranscriptEntryGroups = (
 const buildLocalTranscriptEntries = (record: QoderSessionRecord, state: QoderStateData): QoderTranscriptEntry[] => {
     const { historyEntries, operationEntries } = buildLocalTranscriptEntryGroups(record, state);
     return [...historyEntries, ...operationEntries];
-};
-
-const buildTranscriptEntries = async (
-    record: QoderSessionRecord,
-    state: QoderStateData,
-    cliProjectsDir: string,
-    modelFallback: string | null,
-    options: QoderTranscriptReadOptions,
-    globalStateDb: string,
-    workspaceStorageDir: string,
-): Promise<{
-    acpSocketPath: string | null;
-    cliTranscriptPath: string | null;
-    entries: QoderTranscriptEntry[];
-    model: string | null;
-}> => {
-    const { historyEntries, operationEntries } = buildLocalTranscriptEntryGroups(record, state);
-    const cliTranscript = await readCliTranscriptEntries(cliProjectsDir, record, modelFallback);
-    const acpTranscript = await readAcpTranscriptEntries(
-        record,
-        state,
-        cliTranscript,
-        options,
-        globalStateDb,
-        workspaceStorageDir,
-    );
-    const transcriptEntries = cliTranscript.entries.some((entry) => entry.role === 'assistant')
-        ? cliTranscript.entries
-        : acpTranscript.entries;
-    const shouldIncludeHistory = !transcriptEntries.some((entry) => entry.role === 'user');
-
-    return {
-        acpSocketPath: acpTranscript.socketPath,
-        cliTranscriptPath: cliTranscript.path,
-        entries: [...(shouldIncludeHistory ? historyEntries : []), ...transcriptEntries, ...operationEntries],
-        model: acpTranscript.model ?? cliTranscript.model ?? modelFallback,
-    };
-};
-
-export const readQoderSessionTranscript = async (
-    globalStateDb: string,
-    workspaceStorageDir: string,
-    sessionId: string,
-    cliProjectsDir = resolveQoderCliProjectsDir(),
-    options: QoderTranscriptReadOptions = {},
-): Promise<QoderSessionTranscript | null> => {
-    const { modelConfig, records, workspaceStorageIds } = await loadRecords(globalStateDb, workspaceStorageDir);
-    const record = records.find((candidate) => candidate.sessionId === sessionId);
-    if (!record) {
-        return null;
-    }
-
-    const state = await readStateData(workspaceStorageDir, workspaceStorageIds, record);
-    const modelFallback = getModelFallback(modelConfig);
-    const { acpSocketPath, cliTranscriptPath, entries, model } = await buildTranscriptEntries(
-        record,
-        state,
-        cliProjectsDir,
-        modelFallback,
-        options,
-        globalStateDb,
-        workspaceStorageDir,
-    );
-    const stats = createStatsFromEntries(entries, state.snapshotFileCount);
-
-    return {
-        entries,
-        rawSession: {
-            histories: record.histories.map((history) => history.raw),
-            sourceAcpSocketPath: acpSocketPath,
-            sourceCliTranscriptPath: cliTranscriptPath,
-            sourceStatePath: state.statePath,
-            state: state.rawState,
-            task: record.task?.raw ?? null,
-            workspaceStorageId: record.workspaceStorageId,
-        },
-        renderablePartCount: stats.renderablePartCount,
-        session: toSessionSummary(record, state, stats, model),
-    };
 };

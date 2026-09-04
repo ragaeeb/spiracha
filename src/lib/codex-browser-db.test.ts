@@ -4,23 +4,27 @@ import { mkdir, mkdtemp, rm, utimes } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
-    CodexDbCompatibilityError,
-    CodexThreadNotFoundError,
-    deleteCodexProject,
-    deleteCodexThread,
-    deleteCodexThreads,
-    getCodexDashboardSummary,
     getThreadBrowseData,
     getThreadBrowseDataBatch,
     listCodexProjects,
     listProjectThreads,
     listScopedThreads,
-    mergeSessionIndexLinesForRewrite,
-    reconcileCodexSessionIndex,
+} from './codex-browser-queries';
+import { getCodexDashboardSummary } from './codex-dashboard';
+import {
+    CodexDbCompatibilityError,
+    CodexThreadNotFoundError,
     resolveCodexThreadDbPath,
     withReadonlyDb,
-} from './codex-browser-db';
+} from './codex-database';
 import { createCodexBrowserFixture } from './codex-test-helpers';
+import {
+    deleteCodexProject,
+    deleteCodexThread,
+    deleteCodexThreads,
+    mergeSessionIndexLinesForRewrite,
+    reconcileCodexSessionIndex,
+} from './codex-thread-mutations';
 
 const tempPaths: string[] = [];
 
@@ -1647,7 +1651,7 @@ describe('codex browser db', () => {
         await waitForOutputMarker(holder.stdout, 'LOCK_HELD');
 
         const deleteScript = `
-            import { deleteCodexThread } from './src/lib/codex-browser-db.ts';
+            import { deleteCodexThread } from './src/lib/codex-thread-mutations.ts';
             console.error('DELETE_STARTED');
             const result = await deleteCodexThread(Bun.argv.at(-2), Bun.argv.at(-1));
             console.log(JSON.stringify(result.deletedThreadIds));
@@ -1676,7 +1680,7 @@ describe('codex browser db', () => {
         const fixture = await createCodexBrowserFixture(tempRoot);
         const threadId = fixture.threads[0]!.threadId;
         const childScript = `
-            import { deleteCodexThread } from './src/lib/codex-browser-db.ts';
+            import { deleteCodexThread } from './src/lib/codex-thread-mutations.ts';
             const result = await deleteCodexThread(Bun.argv.at(-2), Bun.argv.at(-1));
             console.log(JSON.stringify(result.deletedThreadIds));
         `;

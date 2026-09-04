@@ -4,13 +4,13 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { strFromU8, unzipSync } from 'fflate';
-import { CodexThreadNotFoundError } from './codex-browser-db';
 import {
     isArchiveWideFailure,
     isPerEntryExportFailure,
     renderCodexThreadDownload,
     renderCodexThreadsDownload,
 } from './codex-browser-export';
+import { CodexThreadNotFoundError } from './codex-database';
 import { createCodexBrowserFixture, createCodexFixture } from './codex-test-helpers';
 import { UI_EXPORT_DIR_ENV } from './ui-export-files';
 

@@ -30,6 +30,45 @@ afterEach(async () => {
     await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { force: true, recursive: true })));
 });
 
+describe('OpenCode bounded session queries', () => {
+    it('should apply inclusive timestamp bounds before session hydration', async () => {
+        const dbPath = await makeDbPath();
+        await createOpenCodeFixture(dbPath, {
+            projects: [{ id: 'bounded', worktree: '/Users/test/workspace/bounded' }],
+            sessions: [
+                {
+                    id: 'before',
+                    messages: [],
+                    projectId: 'bounded',
+                    timeUpdated: 1_700_000_000_000,
+                    title: 'Before',
+                },
+                {
+                    id: 'at-bound',
+                    messages: [],
+                    projectId: 'bounded',
+                    timeUpdated: 1_700_000_100_000,
+                    title: 'At bound',
+                },
+                {
+                    id: 'after',
+                    messages: [],
+                    projectId: 'bounded',
+                    timeUpdated: 1_700_000_200_000,
+                    title: 'After',
+                },
+            ],
+        });
+
+        const sessions = await listOpenCodeSessionsForGroup('project:bounded', dbPath, {
+            updatedAfterMs: 1_700_000_100_000,
+            updatedBeforeMs: 1_700_000_100_000,
+        });
+
+        expect(sessions.map((session) => session.sessionId)).toEqual(['at-bound']);
+    });
+});
+
 const makeDbPath = async (): Promise<string> => {
     const dir = await mkdtemp(path.join(os.tmpdir(), 'opencode-fixture-'));
     tempDirs.push(dir);

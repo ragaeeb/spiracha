@@ -16,6 +16,7 @@ const replaceExactProjectPath = (text: string, projectPath: string) => {
     let result = text;
 
     for (const variant of toUniquePathVariants(projectPath)) {
+        result = result.replaceAll(`file://${variant}`, () => variant);
         const escapedVariant = escapeForRegex(variant);
         result = result.replace(new RegExp(`${escapedVariant}(?<separator>[\\\\/])`, 'gu'), '');
         result = result.replace(new RegExp(`${escapedVariant}(?=$|[^A-Za-z0-9._-])`, 'gu'), '.');

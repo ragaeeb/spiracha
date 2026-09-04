@@ -1,4 +1,11 @@
-import { listScopedThreads } from './codex-browser-db';
+import type { AgentDxThreadSummary } from './agent-dx-analytics';
+import {
+    buildAgentDxAnalytics,
+    captureAgentDxRecord,
+    createAgentDxAccumulator,
+    finishAgentDxAnalysis,
+} from './agent-dx-analytics';
+import { getThreadRelationsBatch, listScopedThreads } from './codex-browser-queries';
 import type { CodexAnalytics, DistributionItem, ModelTokenSummary } from './codex-browser-types';
 import {
     captureCodexOptimizationRecord,
@@ -7,7 +14,7 @@ import {
     type ThreadOptimizationSummary,
 } from './codex-optimization-analysis';
 import { buildCodexOptimizationAnalytics } from './codex-optimization-findings';
-import type { ThreadRow } from './codex-thread-types';
+import type { ThreadRelations, ThreadRow } from './codex-thread-types';
 import { mapWithConcurrency } from './concurrency';
 import { getPortablePathBasename } from './portable-path';
 import { asObject, asString, readJsonlObjects } from './shared';
@@ -20,6 +27,7 @@ export type CodexAnalyticsInput = {
 };
 
 export type ThreadAnalyticsSummary = {
+    agentDx?: AgentDxThreadSummary;
     hasWebSearch: boolean;
     optimization?: ThreadOptimizationSummary;
     toolNames: string[];
@@ -27,6 +35,7 @@ export type ThreadAnalyticsSummary = {
 
 export type ComputeCodexAnalyticsOptions = {
     loadThreadAnalytics?: (thread: ThreadRow) => Promise<ThreadAnalyticsSummary>;
+    threadRelations?: ReadonlyMap<string, ThreadRelations>;
     transcriptConcurrency?: number;
 };
 
@@ -121,14 +130,32 @@ const threadMetadataCacheKeyParts = (thread: ThreadRow) => [
     thread.preview,
 ];
 
-export const buildCodexAnalyticsCacheKey = (dbPath: string, threads: ThreadRow[], project: string | null) => {
+export const buildCodexAnalyticsCacheKey = (
+    dbPath: string,
+    threads: ThreadRow[],
+    project: string | null,
+    threadRelations?: ReadonlyMap<string, ThreadRelations>,
+) => {
     const parts = (function* () {
-        yield 'v5';
+        yield 'v6';
         yield dbPath;
         yield project ?? 'all';
         yield String(threads.length);
         for (const thread of threads) {
             yield* threadMetadataCacheKeyParts(thread);
+        }
+        for (const thread of threads) {
+            const relations = threadRelations?.get(thread.id);
+            if (!relations) {
+                continue;
+            }
+            yield thread.id;
+            yield relations.parentThreadId ?? '';
+            for (const edge of relations.childEdges) {
+                yield edge.parent_thread_id;
+                yield edge.child_thread_id;
+                yield edge.status;
+            }
         }
     })();
 
@@ -139,12 +166,20 @@ const buildThreadAnalyticsCacheKey = (thread: ThreadRow) => {
     return `thread-analytics-${hashCacheKeyPartsIterable(['v3', ...threadMetadataCacheKeyParts(thread)])}`;
 };
 
-const parseThreadAnalyticsFile = async (sessionFile: string): Promise<ThreadAnalyticsSummary> => {
+const parseThreadAnalyticsFile = async (thread: ThreadRow): Promise<ThreadAnalyticsSummary> => {
     const toolNames: string[] = [];
     const optimization = createCodexOptimizationAccumulator();
+    const agentDx = createAgentDxAccumulator({
+        createdAtMs: thread.created_at_ms ?? thread.created_at * 1000,
+        cwd: thread.cwd,
+        reportedUsageValue: thread.tokens_used,
+        repositoryIdentityBefore: thread.git_sha,
+        sourceThreadId: thread.id,
+    });
     let hasWebSearch = false;
 
-    for await (const parsed of readJsonlObjects(sessionFile)) {
+    for await (const parsed of readJsonlObjects(thread.rollout_path)) {
+        captureAgentDxRecord(parsed, agentDx);
         captureCodexOptimizationRecord(parsed, optimization);
         if (parsed.type !== 'response_item') {
             continue;
@@ -167,6 +202,7 @@ const parseThreadAnalyticsFile = async (sessionFile: string): Promise<ThreadAnal
     }
 
     return {
+        agentDx: finishAgentDxAnalysis(agentDx),
         hasWebSearch,
         optimization: finishCodexOptimizationAnalysis(optimization),
         toolNames,
@@ -174,7 +210,7 @@ const parseThreadAnalyticsFile = async (sessionFile: string): Promise<ThreadAnal
 };
 
 const getCachedThreadAnalytics = async (thread: ThreadRow): Promise<ThreadAnalyticsSummary> => {
-    return withCachedJson(buildThreadAnalyticsCacheKey(thread), () => parseThreadAnalyticsFile(thread.rollout_path));
+    return withCachedJson(buildThreadAnalyticsCacheKey(thread), () => parseThreadAnalyticsFile(thread));
 };
 
 export const computeCodexAnalyticsFromThreads = async (
@@ -191,6 +227,39 @@ export const computeCodexAnalyticsFromThreads = async (
     const transcriptConcurrency = options.transcriptConcurrency ?? resolveAnalyticsTranscriptConcurrency();
     const threadAnalytics = await mapWithConcurrency(threads, transcriptConcurrency, (thread) =>
         loadThreadAnalytics(thread),
+    );
+    const threadIds = new Set(threads.map((thread) => thread.id));
+    const agentDx = buildAgentDxAnalytics(
+        threads.map((thread, index) => {
+            const relation = options.threadRelations?.get(thread.id);
+            const summary =
+                threadAnalytics[index]!.agentDx ??
+                finishAgentDxAnalysis(
+                    createAgentDxAccumulator({
+                        createdAtMs: thread.created_at_ms ?? thread.created_at * 1000,
+                        cwd: thread.cwd,
+                        reportedUsageValue: thread.tokens_used,
+                        repositoryIdentityBefore: thread.git_sha,
+                        sourceThreadId: thread.id,
+                    }),
+                );
+            return {
+                agentRole: thread.agent_role,
+                childThreadIds: (relation?.childEdges ?? [])
+                    .map((edge) => edge.child_thread_id)
+                    .filter((childId) => threadIds.has(childId)),
+                createdAtMs: thread.created_at_ms ?? thread.created_at * 1000,
+                cwd: thread.cwd,
+                firstUserMessage: thread.first_user_message,
+                gitSha: thread.git_sha,
+                parentThreadId: relation?.parentThreadId ?? null,
+                source: thread.source,
+                summary,
+                threadId: thread.id,
+                title: thread.title,
+                tokensUsed: thread.tokens_used,
+            };
+        }),
     );
 
     for (const thread of threads) {
@@ -209,6 +278,7 @@ export const computeCodexAnalyticsFromThreads = async (
     }
 
     return {
+        agentDx,
         modelsByTokens: buildModelsByTokens(threads),
         optimization: buildCodexOptimizationAnalytics(
             threadAnalytics.flatMap((analytics) => (analytics.optimization ? [analytics.optimization] : [])),
@@ -231,10 +301,15 @@ export const computeCodexAnalyticsFromThreads = async (
 
 export const getCodexAnalytics = async (input: CodexAnalyticsInput): Promise<CodexAnalytics> => {
     const threads = listScopedThreads(input.dbPath, input.project);
-    const key = buildCodexAnalyticsCacheKey(input.dbPath, threads, input.project);
+    const threadRelations = getThreadRelationsBatch(
+        input.dbPath,
+        threads.map((thread) => thread.id),
+    );
+    const key = buildCodexAnalyticsCacheKey(input.dbPath, threads, input.project, threadRelations);
 
     return withCachedJson(key, async () =>
         computeCodexAnalyticsFromThreads(threads, {
+            threadRelations,
             transcriptConcurrency: input.transcriptConcurrency,
         }),
     );
