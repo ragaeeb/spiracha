@@ -138,14 +138,14 @@ describe('cursorConversationAdapter', () => {
             ],
         });
 
-        const conversations = await cursorConversationAdapter.listConversationsForPath({
+        const conversations = await cursorConversationAdapter.listConversations({
             cwd: '/repo',
             includeMessages: false,
             locations: { cursorUserDir: userDir },
             updatedAfterMs: 100,
             updatedBeforeMs: 300,
         });
-        const excluded = await cursorConversationAdapter.listConversationsForPath({
+        const excluded = await cursorConversationAdapter.listConversations({
             cwd: '/repo',
             locations: { cursorUserDir: userDir },
             updatedBeforeMs: 100,

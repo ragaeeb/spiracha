@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { CLINE_SESSION_ID, writeClineSessionFixture } from '../cline-test-helpers';
-import { deleteConversation, listConversationsForPath, resolveConversationRef } from './index';
+import { deleteConversation, listConversations, resolveConversationRef } from './index';
 
 const tempRoots: string[] = [];
 
@@ -19,7 +19,7 @@ describe('Cline conversation adapter', () => {
         const dataDir = path.join(root, 'cline-data');
         await writeClineSessionFixture({ dataDir, workspacePath });
 
-        const page = await listConversationsForPath({
+        const page = await listConversations({
             cwd: workspacePath,
             includeMessages: true,
             locations: { clineDataDir: dataDir },

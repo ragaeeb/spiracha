@@ -141,14 +141,14 @@ describe('Claude Code conversation adapter', () => {
         const cwd = path.join(projectsDir, 'repo');
         await writeClaudeSession(projectsDir, 'session-in-window', cwd);
 
-        const conversations = await claudeCodeConversationAdapter.listConversationsForPath({
+        const conversations = await claudeCodeConversationAdapter.listConversations({
             cwd,
             includeMessages: false,
             locations: { claudeCodeProjectsDir: projectsDir },
             updatedAfterMs: Date.parse('2026-06-01T10:00:02.000Z'),
             updatedBeforeMs: Date.parse('2026-06-01T10:00:04.000Z'),
         });
-        const excluded = await claudeCodeConversationAdapter.listConversationsForPath({
+        const excluded = await claudeCodeConversationAdapter.listConversations({
             cwd,
             locations: { claudeCodeProjectsDir: projectsDir },
             updatedAfterMs: Date.parse('2026-06-01T10:00:04.000Z'),

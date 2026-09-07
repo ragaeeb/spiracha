@@ -21,7 +21,7 @@ import type {
     ConversationPathMatch,
     DeleteConversationOptions,
     GetConversationOptions,
-    ListConversationsForPathOptions,
+    ListConversationsOptions,
 } from './types';
 
 const FX_CONVERSATION_HYDRATION_CONCURRENCY = 4;
@@ -105,7 +105,7 @@ const buildConversation = async (
     session: FxSessionSummary,
     dataDir: string,
     matches: ConversationPathMatch[],
-    options: Pick<ListConversationsForPathOptions, 'includeMessages' | 'messageSelector'>,
+    options: Pick<ListConversationsOptions, 'includeMessages' | 'messageSelector'>,
     loadedTranscript: FxSessionTranscript | null = null,
 ): Promise<ConversationDetail> => {
     const transcript =
@@ -143,7 +143,11 @@ const buildConversation = async (
     };
 };
 
-const listFxConversationsForPath = async (options: ListConversationsForPathOptions) => {
+const listFxConversations = async (options: ListConversationsOptions) => {
+    if (!options.cwd) {
+        return [];
+    }
+
     const dataDir = getDataDir(options);
     const groups = await listFxWorkspaceGroups(dataDir);
     const conversations: ConversationDetail[] = [];
@@ -189,6 +193,6 @@ const deleteFxConversation = async (options: DeleteConversationOptions) => {
 export const fxConversationAdapter: ConversationAdapter = {
     deleteConversation: deleteFxConversation,
     getConversation: getFxConversation,
-    listConversationsForPath: listFxConversationsForPath,
+    listConversations: listFxConversations,
     source: 'fx',
 };

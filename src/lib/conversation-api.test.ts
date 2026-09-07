@@ -157,6 +157,7 @@ describe('conversation API handler', () => {
             listConversationSources: async () => [
                 {
                     label: 'Codex',
+                    scope: 'workspace',
                     source: 'codex',
                 },
             ],
@@ -164,7 +165,7 @@ describe('conversation API handler', () => {
 
         expect(response.status).toBe(200);
         await expect(response.json()).resolves.toEqual({
-            data: [{ label: 'Codex', source: 'codex' }],
+            data: [{ label: 'Codex', scope: 'workspace', source: 'codex' }],
         });
     });
 
@@ -172,7 +173,7 @@ describe('conversation API handler', () => {
         const response = await handleConversationApiRequest(
             createRequest('/api/v1/conversations?cwd=/repo&include_messages=true&message_selector=last_final_answer'),
             {
-                listConversationsForPath: async (options) => {
+                listConversations: async (options) => {
                     expect(options).toMatchObject({
                         cwd: '/repo',
                         includeMessages: true,
@@ -208,6 +209,15 @@ describe('conversation API handler', () => {
         });
     });
 
+    it('should reject a whitespace-only cwd instead of treating it as global scope', async () => {
+        const response = await handleConversationApiRequest(createRequest('/api/v1/conversations?cwd=%20%20'), {});
+
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toMatchObject({
+            error: { code: 'validation_error', details: { field: 'cwd' } },
+        });
+    });
+
     it('should accept snake_case JSON options for conversation query clients', async () => {
         const response = await handleConversationApiRequest(
             createRequest('/api/v1/conversation-query', {
@@ -223,7 +233,7 @@ describe('conversation API handler', () => {
                 method: 'POST',
             }),
             {
-                listConversationsForPath: async (options) => {
+                listConversations: async (options) => {
                     expect(options).toMatchObject({
                         cwd: '/repo',
                         includeMessages: true,
@@ -248,7 +258,7 @@ describe('conversation API handler', () => {
         const response = await handleConversationApiRequest(
             createRequest('/api/v1/conversations?cwd=/repo&source=codex,codex'),
             {
-                listConversationsForPath: async (options) => {
+                listConversations: async (options) => {
                     expect(options.sources).toEqual(['codex']);
                     return { data: [], meta: { hasNext: false, nextCursor: null } };
                 },
@@ -258,15 +268,36 @@ describe('conversation API handler', () => {
         expect(response.status).toBe(200);
     });
 
-    it('should return typed errors for missing required input', async () => {
-        const response = await handleConversationApiRequest(createRequest('/api/v1/conversations'), {});
-
-        expect(response.status).toBe(400);
-        await expect(response.json()).resolves.toMatchObject({
-            error: {
-                code: 'validation_error',
+    it('should allow global list queries without a cwd', async () => {
+        const response = await handleConversationApiRequest(createRequest('/api/v1/conversations?source=grok-bot'), {
+            listConversations: async (options) => {
+                expect(options.cwd).toBeUndefined();
+                expect(options.sources).toEqual(['grok-bot']);
+                return { data: [], meta: { hasNext: false, nextCursor: null } };
             },
         });
+
+        expect(response.status).toBe(200);
+        await expect(response.json()).resolves.toMatchObject({
+            data: [],
+            meta: { has_next: false, next_cursor: null },
+        });
+    });
+
+    it('should reject source scopes that do not match the list scope', async () => {
+        const workspaceResponse = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations?cwd=/repo&source=grok-bot'),
+            {},
+        );
+        const globalResponse = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations?source=codex'),
+            {},
+        );
+
+        expect(workspaceResponse.status).toBe(400);
+        expect(globalResponse.status).toBe(400);
+        await expect(workspaceResponse.json()).resolves.toMatchObject({ error: { code: 'validation_error' } });
+        await expect(globalResponse.json()).resolves.toMatchObject({ error: { code: 'validation_error' } });
     });
 
     it('should not dispatch GET batch-action paths to the conversation list handler', async () => {
@@ -275,7 +306,7 @@ describe('conversation API handler', () => {
             const response = await handleConversationApiRequest(
                 createRequest(`/api/v1/conversations/${action}?cwd=/repo`),
                 {
-                    listConversationsForPath: async () => {
+                    listConversations: async () => {
                         listCalled = true;
                         return { data: [], meta: { hasNext: false, nextCursor: null } };
                     },

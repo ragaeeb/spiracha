@@ -37,7 +37,7 @@ import type {
     ConversationPathMatch,
     DeleteConversationOptions,
     GetConversationOptions,
-    ListConversationsForPathOptions,
+    ListConversationsOptions,
 } from './types';
 
 const GROK_CONVERSATION_HYDRATION_CONCURRENCY = 4;
@@ -140,7 +140,7 @@ const buildConversation = async (
     session: GrokSessionSummary,
     sessionsDir: string,
     matches: ConversationPathMatch[],
-    options: Pick<ListConversationsForPathOptions, 'includeMessages' | 'messageSelector'>,
+    options: Pick<ListConversationsOptions, 'includeMessages' | 'messageSelector'>,
     loadedTranscript: GrokSessionTranscript | null = null,
 ): Promise<ConversationDetail> => {
     const transcript =
@@ -189,7 +189,11 @@ const buildConversation = async (
     };
 };
 
-const listGrokConversationsForPath = async (options: ListConversationsForPathOptions) => {
+const listGrokConversations = async (options: ListConversationsOptions) => {
+    if (!options.cwd) {
+        return [];
+    }
+
     const sessionsDir = getSessionsDir(options);
     const groups = await listGrokWorkspaceGroups(sessionsDir);
     const conversations: ConversationDetail[] = [];
@@ -254,6 +258,6 @@ export const grokConversationAdapter: ConversationAdapter = {
     deleteConversation: deleteGrokConversation,
     getConversation: getGrokConversation,
     getConversationRaw: getGrokConversationRaw,
-    listConversationsForPath: listGrokConversationsForPath,
+    listConversations: listGrokConversations,
     source: 'grok',
 };

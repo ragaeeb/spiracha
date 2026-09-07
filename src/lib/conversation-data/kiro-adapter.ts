@@ -36,7 +36,7 @@ import type {
     ConversationPathMatch,
     DeleteConversationOptions,
     GetConversationOptions,
-    ListConversationsForPathOptions,
+    ListConversationsOptions,
 } from './types';
 
 const KIRO_CONVERSATION_HYDRATION_CONCURRENCY = 4;
@@ -148,7 +148,7 @@ const buildConversation = async (
     session: KiroSessionSummary,
     sessionsDir: string,
     matches: ConversationPathMatch[],
-    options: Pick<ListConversationsForPathOptions, 'includeMessages' | 'messageSelector'>,
+    options: Pick<ListConversationsOptions, 'includeMessages' | 'messageSelector'>,
     loadedTranscript: KiroSessionTranscript | null = null,
 ): Promise<ConversationDetail> => {
     const transcript = options.includeMessages
@@ -191,7 +191,11 @@ const buildConversation = async (
     };
 };
 
-const listKiroConversationsForPath = async (options: ListConversationsForPathOptions) => {
+const listKiroConversations = async (options: ListConversationsOptions) => {
+    if (!options.cwd) {
+        return [];
+    }
+
     const sessionsDir = getSessionsDir(options);
     const groups = await listKiroWorkspaceGroups(sessionsDir);
     const conversations: ConversationDetail[] = [];
@@ -254,6 +258,6 @@ export const kiroConversationAdapter: ConversationAdapter = {
     deleteConversation: deleteKiroConversation,
     getConversation: getKiroConversation,
     getConversationRaw: getKiroConversationRaw,
-    listConversationsForPath: listKiroConversationsForPath,
+    listConversations: listKiroConversations,
     source: 'kiro',
 };

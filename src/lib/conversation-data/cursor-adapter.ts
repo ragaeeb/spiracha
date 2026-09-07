@@ -34,7 +34,7 @@ import type {
     DeleteConversationOptions,
     DeleteConversationResult,
     GetConversationOptions,
-    ListConversationsForPathOptions,
+    ListConversationsOptions,
 } from './types';
 
 const CURSOR_CONVERSATION_HYDRATION_CONCURRENCY = 4;
@@ -129,7 +129,7 @@ const buildConversation = async (
     group: CursorWorkspaceGroup,
     userDir: string,
     matches: ConversationPathMatch[],
-    options: Pick<ListConversationsForPathOptions, 'includeMessages' | 'messageSelector'>,
+    options: Pick<ListConversationsOptions, 'includeMessages' | 'messageSelector'>,
 ): Promise<ConversationDetail> => {
     const globalDbPath = getCursorGlobalDbPath(userDir);
     const transcript = options.includeMessages
@@ -173,7 +173,11 @@ const buildConversation = async (
     };
 };
 
-const listCursorConversationsForPath = async (options: ListConversationsForPathOptions) => {
+const listCursorConversations = async (options: ListConversationsOptions) => {
+    if (!options.cwd) {
+        return [];
+    }
+
     const userDir = getUserDir(options);
     const groups = await listCursorWorkspaceGroups(userDir);
     const candidates: { group: CursorWorkspaceGroup; match: ConversationPathMatch; thread: CursorThreadSummary }[] = [];
@@ -245,6 +249,6 @@ export const toCursorDeleteConversationResult = (result: CursorPruneResult): Del
 export const cursorConversationAdapter: ConversationAdapter = {
     deleteConversation: deleteCursorConversation,
     getConversation: getCursorConversation,
-    listConversationsForPath: listCursorConversationsForPath,
+    listConversations: listCursorConversations,
     source: 'cursor',
 };

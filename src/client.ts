@@ -5,7 +5,7 @@ import {
     getConversation as getLocalConversation,
     getConversationRaw as getLocalConversationRaw,
     listConversationSources as listLocalConversationSources,
-    listConversationsForPath as listLocalConversationsForPath,
+    listConversations as listLocalConversations,
     renderConversationMarkdown as renderLocalConversationMarkdown,
     resolveConversationRef as resolveLocalConversationRef,
 } from './lib/conversation-data';
@@ -28,7 +28,7 @@ import type {
     ExportConversationsZipOptions,
     GetConversationOptions,
     GetConversationRawOptions,
-    ListConversationsForPathOptions,
+    ListConversationsOptions,
     ResolvedConversationRef,
 } from './lib/conversation-data/types';
 import { createConversationMarkdownZip } from './lib/conversation-zip-export';
@@ -50,6 +50,7 @@ export type {
     ConversationRawDownload,
     ConversationSource,
     ConversationSourceInfo,
+    ConversationSourceScope,
     ConversationToolEvidence,
     ConversationZipDownload,
     DeleteConversationOptions,
@@ -63,7 +64,7 @@ export type {
     ExportConversationsZipOptions,
     GetConversationOptions,
     GetConversationRawOptions,
-    ListConversationsForPathOptions,
+    ListConversationsOptions,
     ResolvedConversationRef,
 } from './lib/conversation-data/types';
 
@@ -115,7 +116,7 @@ export type ConversationClient = {
     ) => Promise<ConversationEvidenceExport | null>;
     exportConversationsZip: (options: ExportConversationsZipOptions) => Promise<ConversationZipDownload | null>;
     getConversation: (options: GetConversationOptions) => Promise<ConversationDetail | null>;
-    listConversations: (options: ListConversationsForPathOptions) => Promise<ConversationPage>;
+    listConversations: (options: ListConversationsOptions) => Promise<ConversationPage>;
     listSources: () => Promise<ConversationSourceInfo[]>;
     resolveConversationRef: (ref: string) => Promise<ResolvedConversationRef | null>;
 };
@@ -146,8 +147,10 @@ const appendOptionalNumber = (url: URL, key: string, value: number | undefined):
     }
 };
 
-const appendListOptions = (url: URL, options: ListConversationsForPathOptions): void => {
-    url.searchParams.set('cwd', options.cwd);
+const appendListOptions = (url: URL, options: ListConversationsOptions): void => {
+    if (options.cwd !== undefined) {
+        url.searchParams.set('cwd', options.cwd);
+    }
     if (options.cursor) {
         url.searchParams.set('cursor', options.cursor);
     }
@@ -440,8 +443,7 @@ const makeLocalClient = (options: LocalConversationClientOptions): ConversationC
     exportConversationRaw: (getOptions) => getLocalConversationRaw(withDefaultLocations(getOptions, options.locations)),
     exportConversationsZip: (exportOptions) => exportLocalConversationsZip(exportOptions, options.locations),
     getConversation: (getOptions) => getLocalConversation(withDefaultLocations(getOptions, options.locations)),
-    listConversations: (listOptions) =>
-        listLocalConversationsForPath(withDefaultLocations(listOptions, options.locations)),
+    listConversations: (listOptions) => listLocalConversations(withDefaultLocations(listOptions, options.locations)),
     listSources: () => listLocalConversationSources(),
     resolveConversationRef: (ref) => resolveLocalConversationRef(ref),
 });

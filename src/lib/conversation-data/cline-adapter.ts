@@ -22,7 +22,7 @@ import type {
     ConversationPathMatch,
     DeleteConversationOptions,
     GetConversationOptions,
-    ListConversationsForPathOptions,
+    ListConversationsOptions,
 } from './types';
 
 const CLINE_CONVERSATION_HYDRATION_CONCURRENCY = 4;
@@ -59,7 +59,7 @@ const buildConversation = async (
     task: ClineTaskSummary,
     dataDir: string,
     matches: ConversationPathMatch[],
-    options: Pick<ListConversationsForPathOptions, 'includeMessages' | 'messageSelector'>,
+    options: Pick<ListConversationsOptions, 'includeMessages' | 'messageSelector'>,
     loadedTranscript: ClineTaskTranscript | null = null,
 ): Promise<ConversationDetail> => {
     const transcript =
@@ -98,7 +98,11 @@ const buildConversation = async (
     };
 };
 
-const listClineConversationsForPath = async (options: ListConversationsForPathOptions) => {
+const listClineConversations = async (options: ListConversationsOptions) => {
+    if (!options.cwd) {
+        return [];
+    }
+
     const dataDir = getDataDir(options);
     const transcriptCache = createClineTranscriptCache(dataDir);
     const groups = await listClineWorkspaceGroups(dataDir, transcriptCache);
@@ -154,6 +158,6 @@ export const clineConversationAdapter: ConversationAdapter = {
     deleteConversation: deleteClineConversation,
     getConversation: getClineConversation,
     getConversationRaw: getClineConversationRaw,
-    listConversationsForPath: listClineConversationsForPath,
+    listConversations: listClineConversations,
     source: 'cline',
 };

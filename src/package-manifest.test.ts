@@ -139,6 +139,7 @@ describe('package manifest', () => {
             'Codex',
             'Claude Code',
             'Grok',
+            'Grok Bot',
             'Kiro',
             'Qoder',
             'Cursor',

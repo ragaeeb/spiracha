@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { writeMiniMaxCodeRuntimeFixture, writeMiniMaxCodeSessionFixture } from '../minimax-code-test-helpers';
-import { deleteConversation, listConversationsForPath, resolveConversationRef } from './index';
+import { deleteConversation, listConversations, resolveConversationRef } from './index';
 
 const tempRoots: string[] = [];
 
@@ -24,7 +24,7 @@ describe('MiniMax Code conversation adapter', () => {
         const sessionsDir = path.join(tempRoot, 'v2', 'sessions');
         const fixture = await writeMiniMaxCodeSessionFixture({ sessionsDir, workspacePath });
 
-        const page = await listConversationsForPath({
+        const page = await listConversations({
             cwd: workspacePath,
             includeMessages: true,
             locations: { minimaxCodeSessionsDir: sessionsDir },
@@ -66,7 +66,7 @@ describe('MiniMax Code conversation adapter', () => {
         snapshot.record.updatedAtMs = 1_784_770_000_000;
         await Bun.write(fixture.snapshotPath, `${JSON.stringify(snapshot)}\n`);
 
-        const page = await listConversationsForPath({
+        const page = await listConversations({
             cwd: workspacePath,
             includeMessages: true,
             locations: { minimaxCodeSessionsDir: sessionsDir },
@@ -85,7 +85,7 @@ describe('MiniMax Code conversation adapter', () => {
         const sessionsDir = path.join(tempRoot, 'v2', 'sessions');
         await writeMiniMaxCodeSessionFixture({ sessionsDir, workspacePath });
 
-        const page = await listConversationsForPath({
+        const page = await listConversations({
             cwd: workspacePath,
             includeMessages: true,
             locations: { minimaxCodeSessionsDir: sessionsDir },

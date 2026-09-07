@@ -3,6 +3,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { createConversationClient } from '../src/client';
 import { renderAgentDxAnalyticsExport } from '../src/lib/agent-dx-analytics';
+import { getConversationListScopeError } from '../src/lib/conversation-data';
 import { CONVERSATION_SOURCES } from '../src/lib/conversation-data/types';
 import { runProductionUiServer } from '../src/lib/production-ui-server';
 import type {
@@ -16,10 +17,10 @@ export const SPIRACHA_USAGE = `Usage: spiracha <command> [options]
 
 Commands:
   serve                         Start the local UI server
-  list --cwd <path>             List conversations as JSON
+  list [--cwd <path>]           List conversations as JSON
   get <ref>                     Get one conversation as JSON
   export <ref> [--raw] [--output <path>]
-                                Export Markdown or the original JSON transcript
+                                Export Markdown or the original source transcript
   evidence <ref> --lens <file> [--output <path>]
                                 Export focused evidence as Markdown
   analytics export [options]    Export provider-neutral goal-span analytics
@@ -49,7 +50,7 @@ export type SpirachaCliCommand =
     | { command: 'serve' }
     | {
           command: 'list';
-          cwd: string;
+          cwd?: string;
           cursor?: string;
           includeMessages?: boolean;
           limit?: number;
@@ -244,22 +245,23 @@ export const parseSpirachaCliArgs = (args: string[]): SpirachaCliCommand => {
     if (command === 'list') {
         const sourceText = options.source as string | undefined;
         const cwd = options.cwd as string | undefined;
-        if (!cwd) throw new Error('Missing required option "--cwd".');
-        if (!path.isAbsolute(cwd)) throw new Error('Option "--cwd" must be an absolute path.');
+        if (cwd && !path.isAbsolute(cwd)) throw new Error('Option "--cwd" must be an absolute path.');
+        const sources =
+            sourceText === undefined
+                ? undefined
+                : sourceText.split(',').map((source) => sourceValue(source.trim(), '--source'));
+        const scopeError = getConversationListScopeError({ cwd, sources });
+        if (scopeError) throw new Error(scopeError);
         return {
             command,
-            cwd,
+            ...(cwd === undefined ? {} : { cwd }),
             ...(options.cursor === undefined ? {} : { cursor: options.cursor as string }),
             ...(options.includeMessages === undefined ? {} : { includeMessages: options.includeMessages as boolean }),
             ...(options.limit === undefined ? {} : { limit: options.limit as number }),
             ...(options.messageSelector === undefined
                 ? {}
                 : { messageSelector: options.messageSelector as ConversationMessageSelector }),
-            ...(sourceText === undefined
-                ? {}
-                : {
-                      sources: sourceText.split(',').map((source) => sourceValue(source.trim(), '--source')),
-                  }),
+            ...(sources === undefined ? {} : { sources }),
             ...(options.updatedAfterMs === undefined ? {} : { updatedAfterMs: options.updatedAfterMs as number }),
             ...(options.updatedBeforeMs === undefined ? {} : { updatedBeforeMs: options.updatedBeforeMs as number }),
         };

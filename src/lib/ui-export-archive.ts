@@ -10,6 +10,7 @@ export type ExportPlatform =
     | 'cursor'
     | 'fx'
     | 'grok'
+    | 'grok-bot'
     | 'kiro'
     | 'minimax'
     | 'opencode'
@@ -23,6 +24,7 @@ const EXPORT_PLATFORM_BY_SOURCE: Record<ConversationSource, ExportPlatform> = {
     cursor: 'cursor',
     fx: 'fx',
     grok: 'grok',
+    'grok-bot': 'grok-bot',
     kiro: 'kiro',
     'minimax-code': 'minimax',
     opencode: 'opencode',

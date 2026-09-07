@@ -35,7 +35,7 @@ import type {
     ConversationMessage,
     ConversationPathMatch,
     GetConversationOptions,
-    ListConversationsForPathOptions,
+    ListConversationsOptions,
 } from './types';
 
 const QODER_CONVERSATION_HYDRATION_CONCURRENCY = 4;
@@ -149,7 +149,7 @@ const buildConversation = async (
     session: QoderSessionSummary,
     locations: ReturnType<typeof getQoderLocations>,
     matches: ConversationPathMatch[],
-    options: Pick<ListConversationsForPathOptions, 'includeMessages' | 'messageSelector'>,
+    options: Pick<ListConversationsOptions, 'includeMessages' | 'messageSelector'>,
     loadedTranscript: QoderSessionTranscript | null = null,
 ): Promise<ConversationDetail> => {
     const transcript = options.includeMessages
@@ -221,7 +221,11 @@ const buildConversation = async (
     };
 };
 
-const listQoderConversationsForPath = async (options: ListConversationsForPathOptions) => {
+const listQoderConversations = async (options: ListConversationsOptions) => {
+    if (!options.cwd) {
+        return [];
+    }
+
     const locations = getQoderLocations(options);
     const groups = await listQoderWorkspaceGroups(locations.globalStateDb, locations.workspaceStorageDir);
     const candidates: { match: ConversationPathMatch; session: QoderSessionSummary }[] = [];
@@ -303,6 +307,6 @@ const getQoderConversationRaw = async (options: GetConversationOptions) => {
 export const qoderConversationAdapter: ConversationAdapter = {
     getConversation: getQoderConversation,
     getConversationRaw: getQoderConversationRaw,
-    listConversationsForPath: listQoderConversationsForPath,
+    listConversations: listQoderConversations,
     source: 'qoder',
 };

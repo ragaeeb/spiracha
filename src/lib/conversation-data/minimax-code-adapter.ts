@@ -32,7 +32,7 @@ import type {
     ConversationPathMatch,
     DeleteConversationOptions,
     GetConversationOptions,
-    ListConversationsForPathOptions,
+    ListConversationsOptions,
 } from './types';
 
 const MINIMAX_CODE_CONVERSATION_HYDRATION_CONCURRENCY = 4;
@@ -144,7 +144,7 @@ const buildConversation = async (
     session: MiniMaxCodeSessionSummary,
     sessionsDir: string,
     matches: ConversationPathMatch[],
-    options: Pick<ListConversationsForPathOptions, 'includeMessages' | 'messageSelector'>,
+    options: Pick<ListConversationsOptions, 'includeMessages' | 'messageSelector'>,
     loadedTranscript: MiniMaxCodeSessionTranscript | null = null,
 ): Promise<ConversationDetail> => {
     const transcript =
@@ -192,7 +192,11 @@ const buildConversation = async (
     };
 };
 
-const listMiniMaxCodeConversationsForPath = async (options: ListConversationsForPathOptions) => {
+const listMiniMaxCodeConversations = async (options: ListConversationsOptions) => {
+    if (!options.cwd) {
+        return [];
+    }
+
     const sessionsDir = getSessionsDir(options);
     const groups = await listMiniMaxCodeWorkspaceGroups(sessionsDir);
     const conversations: ConversationDetail[] = [];
@@ -258,6 +262,6 @@ export const minimaxCodeConversationAdapter: ConversationAdapter = {
     deleteConversation: deleteMiniMaxCodeConversation,
     getConversation: getMiniMaxCodeConversation,
     getConversationRaw: getMiniMaxCodeConversationRaw,
-    listConversationsForPath: listMiniMaxCodeConversationsForPath,
+    listConversations: listMiniMaxCodeConversations,
     source: 'minimax-code',
 };

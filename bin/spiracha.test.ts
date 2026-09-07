@@ -73,6 +73,10 @@ describe('spiracha executable', () => {
             limit: 2,
             sources: ['codex', 'cline'],
         });
+        expect(parseSpirachaCliArgs(['list', '--source', 'grok-bot'])).toEqual({
+            command: 'list',
+            sources: ['grok-bot'],
+        });
     });
 
     it('should reject invalid local list and evidence options', () => {
@@ -80,6 +84,7 @@ describe('spiracha executable', () => {
         expect(() => parseSpirachaCliArgs(['list', '--cwd', '/repo', '--limit', '0'])).toThrow(
             'integer from 1 to 200',
         );
+        expect(() => parseSpirachaCliArgs(['list', '--source', 'codex'])).toThrow('workspace source');
         expect(() =>
             parseSpirachaCliArgs([
                 'evidence',

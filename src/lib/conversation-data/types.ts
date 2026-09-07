@@ -8,11 +8,14 @@ export const CONVERSATION_SOURCES = [
     'cursor',
     'fx',
     'antigravity',
+    'grok-bot',
     'minimax-code',
     'opencode',
 ] as const;
 
 export type ConversationSource = (typeof CONVERSATION_SOURCES)[number];
+
+export type ConversationSourceScope = 'global' | 'workspace';
 
 export type ConversationMessageRole = 'assistant' | 'system' | 'tool' | 'unknown' | 'user';
 
@@ -121,6 +124,7 @@ export type ConversationPathMatch = {
 
 export type ConversationSourceInfo = {
     label: string;
+    scope: ConversationSourceScope;
     source: ConversationSource;
 };
 
@@ -173,6 +177,7 @@ export type ConversationDataLocations = {
     codexDbPath?: string;
     cursorUserDir?: string;
     fxDataDir?: string;
+    grokBotPersistenceDir?: string;
     grokSessionsDir?: string;
     kiroWorkspaceSessionsDir?: string;
     minimaxCodeRuntimeDbPath?: string;
@@ -184,9 +189,9 @@ export type ConversationDataLocations = {
     qoderWorkspaceStorageDir?: string;
 };
 
-export type ListConversationsForPathOptions = {
+export type ListConversationsOptions = {
     cursor?: string | null;
-    cwd: string;
+    cwd?: string;
     includeMessages?: boolean;
     limit?: number;
     locations?: ConversationDataLocations;
@@ -270,6 +275,6 @@ export type ConversationAdapter = {
     deleteConversation?: (options: DeleteConversationOptions) => Promise<DeleteConversationResult>;
     getConversation: (options: GetConversationOptions) => Promise<ConversationDetail | null>;
     getConversationRaw?: (options: GetConversationRawOptions) => Promise<ConversationRawDownload | null>;
-    listConversationsForPath: (options: ListConversationsForPathOptions) => Promise<ConversationDetail[]>;
+    listConversations: (options: ListConversationsOptions) => Promise<ConversationDetail[]>;
     source: ConversationSource;
 };

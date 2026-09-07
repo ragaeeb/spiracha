@@ -30,6 +30,8 @@ import { Route as CursorWorkspaceKeyRouteImport } from './routes/cursor.$workspa
 import { Route as FxSessionsSessionIdRouteImport } from './routes/fx-sessions.$sessionId'
 import { Route as FxIndexRouteImport } from './routes/fx.index'
 import { Route as FxWorkspaceKeyRouteImport } from './routes/fx.$workspaceKey'
+import { Route as GrokBotChatsConversationIdRouteImport } from './routes/grok-bot-chats.$conversationId'
+import { Route as GrokBotIndexRouteImport } from './routes/grok-bot.index'
 import { Route as GrokSessionsSessionIdRouteImport } from './routes/grok-sessions.$sessionId'
 import { Route as GrokIndexRouteImport } from './routes/grok.index'
 import { Route as GrokWorkspaceKeyRouteImport } from './routes/grok.$workspaceKey'
@@ -168,6 +170,17 @@ const FxIndexRoute = FxIndexRouteImport.update({
 const FxWorkspaceKeyRoute = FxWorkspaceKeyRouteImport.update({
   id: '/fx/$workspaceKey',
   path: '/fx/$workspaceKey',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GrokBotChatsConversationIdRoute =
+  GrokBotChatsConversationIdRouteImport.update({
+    id: '/grok-bot-chats/$conversationId',
+    path: '/grok-bot-chats/$conversationId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const GrokBotIndexRoute = GrokBotIndexRouteImport.update({
+  id: '/grok-bot/',
+  path: '/grok-bot/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const GrokSessionsSessionIdRoute = GrokSessionsSessionIdRouteImport.update({
@@ -356,6 +369,7 @@ export interface FileRoutesByFullPath {
   '/cursor/$workspaceKey': typeof CursorWorkspaceKeyRoute
   '/fx-sessions/$sessionId': typeof FxSessionsSessionIdRoute
   '/fx/$workspaceKey': typeof FxWorkspaceKeyRoute
+  '/grok-bot-chats/$conversationId': typeof GrokBotChatsConversationIdRoute
   '/grok-sessions/$sessionId': typeof GrokSessionsSessionIdRoute
   '/grok/$workspaceKey': typeof GrokWorkspaceKeyRoute
   '/kiro-sessions/$sessionId': typeof KiroSessionsSessionIdRoute
@@ -374,6 +388,7 @@ export interface FileRoutesByFullPath {
   '/codex/': typeof CodexIndexRoute
   '/cursor/': typeof CursorIndexRoute
   '/fx/': typeof FxIndexRoute
+  '/grok-bot/': typeof GrokBotIndexRoute
   '/grok/': typeof GrokIndexRoute
   '/kiro/': typeof KiroIndexRoute
   '/minimax-code/': typeof MinimaxCodeIndexRoute
@@ -411,6 +426,7 @@ export interface FileRoutesByTo {
   '/cursor/$workspaceKey': typeof CursorWorkspaceKeyRoute
   '/fx-sessions/$sessionId': typeof FxSessionsSessionIdRoute
   '/fx/$workspaceKey': typeof FxWorkspaceKeyRoute
+  '/grok-bot-chats/$conversationId': typeof GrokBotChatsConversationIdRoute
   '/grok-sessions/$sessionId': typeof GrokSessionsSessionIdRoute
   '/grok/$workspaceKey': typeof GrokWorkspaceKeyRoute
   '/kiro-sessions/$sessionId': typeof KiroSessionsSessionIdRoute
@@ -429,6 +445,7 @@ export interface FileRoutesByTo {
   '/codex': typeof CodexIndexRoute
   '/cursor': typeof CursorIndexRoute
   '/fx': typeof FxIndexRoute
+  '/grok-bot': typeof GrokBotIndexRoute
   '/grok': typeof GrokIndexRoute
   '/kiro': typeof KiroIndexRoute
   '/minimax-code': typeof MinimaxCodeIndexRoute
@@ -467,6 +484,7 @@ export interface FileRoutesById {
   '/cursor/$workspaceKey': typeof CursorWorkspaceKeyRoute
   '/fx-sessions/$sessionId': typeof FxSessionsSessionIdRoute
   '/fx/$workspaceKey': typeof FxWorkspaceKeyRoute
+  '/grok-bot-chats/$conversationId': typeof GrokBotChatsConversationIdRoute
   '/grok-sessions/$sessionId': typeof GrokSessionsSessionIdRoute
   '/grok/$workspaceKey': typeof GrokWorkspaceKeyRoute
   '/kiro-sessions/$sessionId': typeof KiroSessionsSessionIdRoute
@@ -485,6 +503,7 @@ export interface FileRoutesById {
   '/codex/': typeof CodexIndexRoute
   '/cursor/': typeof CursorIndexRoute
   '/fx/': typeof FxIndexRoute
+  '/grok-bot/': typeof GrokBotIndexRoute
   '/grok/': typeof GrokIndexRoute
   '/kiro/': typeof KiroIndexRoute
   '/minimax-code/': typeof MinimaxCodeIndexRoute
@@ -524,6 +543,7 @@ export interface FileRouteTypes {
     | '/cursor/$workspaceKey'
     | '/fx-sessions/$sessionId'
     | '/fx/$workspaceKey'
+    | '/grok-bot-chats/$conversationId'
     | '/grok-sessions/$sessionId'
     | '/grok/$workspaceKey'
     | '/kiro-sessions/$sessionId'
@@ -542,6 +562,7 @@ export interface FileRouteTypes {
     | '/codex/'
     | '/cursor/'
     | '/fx/'
+    | '/grok-bot/'
     | '/grok/'
     | '/kiro/'
     | '/minimax-code/'
@@ -579,6 +600,7 @@ export interface FileRouteTypes {
     | '/cursor/$workspaceKey'
     | '/fx-sessions/$sessionId'
     | '/fx/$workspaceKey'
+    | '/grok-bot-chats/$conversationId'
     | '/grok-sessions/$sessionId'
     | '/grok/$workspaceKey'
     | '/kiro-sessions/$sessionId'
@@ -597,6 +619,7 @@ export interface FileRouteTypes {
     | '/codex'
     | '/cursor'
     | '/fx'
+    | '/grok-bot'
     | '/grok'
     | '/kiro'
     | '/minimax-code'
@@ -634,6 +657,7 @@ export interface FileRouteTypes {
     | '/cursor/$workspaceKey'
     | '/fx-sessions/$sessionId'
     | '/fx/$workspaceKey'
+    | '/grok-bot-chats/$conversationId'
     | '/grok-sessions/$sessionId'
     | '/grok/$workspaceKey'
     | '/kiro-sessions/$sessionId'
@@ -652,6 +676,7 @@ export interface FileRouteTypes {
     | '/codex/'
     | '/cursor/'
     | '/fx/'
+    | '/grok-bot/'
     | '/grok/'
     | '/kiro/'
     | '/minimax-code/'
@@ -690,6 +715,7 @@ export interface RootRouteChildren {
   CursorWorkspaceKeyRoute: typeof CursorWorkspaceKeyRoute
   FxSessionsSessionIdRoute: typeof FxSessionsSessionIdRoute
   FxWorkspaceKeyRoute: typeof FxWorkspaceKeyRoute
+  GrokBotChatsConversationIdRoute: typeof GrokBotChatsConversationIdRoute
   GrokSessionsSessionIdRoute: typeof GrokSessionsSessionIdRoute
   GrokWorkspaceKeyRoute: typeof GrokWorkspaceKeyRoute
   KiroSessionsSessionIdRoute: typeof KiroSessionsSessionIdRoute
@@ -708,6 +734,7 @@ export interface RootRouteChildren {
   CodexIndexRoute: typeof CodexIndexRoute
   CursorIndexRoute: typeof CursorIndexRoute
   FxIndexRoute: typeof FxIndexRoute
+  GrokBotIndexRoute: typeof GrokBotIndexRoute
   GrokIndexRoute: typeof GrokIndexRoute
   KiroIndexRoute: typeof KiroIndexRoute
   MinimaxCodeIndexRoute: typeof MinimaxCodeIndexRoute
@@ -871,6 +898,20 @@ declare module '@tanstack/react-router' {
       path: '/fx/$workspaceKey'
       fullPath: '/fx/$workspaceKey'
       preLoaderRoute: typeof FxWorkspaceKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/grok-bot-chats/$conversationId': {
+      id: '/grok-bot-chats/$conversationId'
+      path: '/grok-bot-chats/$conversationId'
+      fullPath: '/grok-bot-chats/$conversationId'
+      preLoaderRoute: typeof GrokBotChatsConversationIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/grok-bot/': {
+      id: '/grok-bot/'
+      path: '/grok-bot'
+      fullPath: '/grok-bot/'
+      preLoaderRoute: typeof GrokBotIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/grok-sessions/$sessionId': {
@@ -1152,6 +1193,7 @@ const rootRouteChildren: RootRouteChildren = {
   CursorWorkspaceKeyRoute: CursorWorkspaceKeyRoute,
   FxSessionsSessionIdRoute: FxSessionsSessionIdRoute,
   FxWorkspaceKeyRoute: FxWorkspaceKeyRoute,
+  GrokBotChatsConversationIdRoute: GrokBotChatsConversationIdRoute,
   GrokSessionsSessionIdRoute: GrokSessionsSessionIdRoute,
   GrokWorkspaceKeyRoute: GrokWorkspaceKeyRoute,
   KiroSessionsSessionIdRoute: KiroSessionsSessionIdRoute,
@@ -1170,6 +1212,7 @@ const rootRouteChildren: RootRouteChildren = {
   CodexIndexRoute: CodexIndexRoute,
   CursorIndexRoute: CursorIndexRoute,
   FxIndexRoute: FxIndexRoute,
+  GrokBotIndexRoute: GrokBotIndexRoute,
   GrokIndexRoute: GrokIndexRoute,
   KiroIndexRoute: KiroIndexRoute,
   MinimaxCodeIndexRoute: MinimaxCodeIndexRoute,

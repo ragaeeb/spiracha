@@ -1,7 +1,7 @@
 import {
     deleteAntigravityConversation,
     getAntigravityConversationById,
-    listAntigravityConversations,
+    listAntigravityConversations as listStoredAntigravityConversations,
     readAntigravityConversationMessages,
 } from '../antigravity-db';
 import type { AntigravityConversation } from '../antigravity-exporter-types';
@@ -28,7 +28,7 @@ import type {
     ConversationPathMatch,
     DeleteConversationOptions,
     GetConversationOptions,
-    ListConversationsForPathOptions,
+    ListConversationsOptions,
 } from './types';
 
 const getRoots = (options: { locations?: { antigravityRoots?: string[] } }) =>
@@ -178,7 +178,7 @@ const readMessages = async (conversation: AntigravityConversation) => {
 const buildConversation = async (
     conversation: AntigravityConversation,
     matches: ConversationPathMatch[],
-    options: Pick<ListConversationsForPathOptions, 'includeMessages' | 'messageSelector'>,
+    options: Pick<ListConversationsOptions, 'includeMessages' | 'messageSelector'>,
     preloadedMessages: ConversationMessage[] | null = null,
 ): Promise<ConversationDetail> => {
     const allMessages = options.includeMessages ? (preloadedMessages ?? (await readMessages(conversation))) : [];
@@ -220,9 +220,14 @@ const getReferencedPathMatch = async (
     return getFirstConversationPathMatch(requestedPath, referencedPaths);
 };
 
-const listAntigravityConversationsForPath = async (options: ListConversationsForPathOptions) => {
+const listAntigravityConversations = async (options: ListConversationsOptions) => {
+    if (!options.cwd) {
+        return [];
+    }
+
+    const cwd = options.cwd;
     const roots = getRoots(options);
-    const conversations = await listAntigravityConversations(roots);
+    const conversations = await listStoredAntigravityConversations(roots);
     const result: ConversationDetail[] = [];
     const pathReferenceCandidates: AntigravityConversation[] = [];
 
@@ -232,7 +237,7 @@ const listAntigravityConversationsForPath = async (options: ListConversationsFor
         }
 
         const workspacePath = getWorkspacePath(conversation);
-        const match = await getConversationPathMatch(options.cwd, workspacePath);
+        const match = await getConversationPathMatch(cwd, workspacePath);
         if (match) {
             result.push(await buildConversation(conversation, [match], options));
             continue;
@@ -255,7 +260,7 @@ const listAntigravityConversationsForPath = async (options: ListConversationsFor
                 });
                 return null;
             }
-            const referencedPathMatch = await getReferencedPathMatch(options.cwd, messages);
+            const referencedPathMatch = await getReferencedPathMatch(cwd, messages);
             if (referencedPathMatch) {
                 return buildConversation(conversation, [referencedPathMatch], options, messages);
             }
@@ -268,7 +273,7 @@ const listAntigravityConversationsForPath = async (options: ListConversationsFor
 };
 
 const getAntigravityConversation = async (options: GetConversationOptions): Promise<ConversationDetail | null> => {
-    const conversation = (await listAntigravityConversations(getRoots(options))).find(
+    const conversation = (await listStoredAntigravityConversations(getRoots(options))).find(
         (entry) => entry.conversationId === options.id,
     );
     return conversation
@@ -296,6 +301,6 @@ export const antigravityConversationAdapter: ConversationAdapter = {
     deleteConversation: deleteAntigravityConversationById,
     getConversation: getAntigravityConversation,
     getConversationRaw: getAntigravityConversationRaw,
-    listConversationsForPath: listAntigravityConversationsForPath,
+    listConversations: listAntigravityConversations,
     source: 'antigravity',
 };

@@ -12,7 +12,7 @@
     "dependencies": {
         "fflate": "0.8.3"
     },
-    "description": "Browse and expose local Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode conversation history through a local UI and stable data API.",
+    "description": "Browse and expose local Codex, Claude Code, Grok, Grok Bot, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode conversation history through a local UI and stable data API.",
     "devDependencies": {
         "@biomejs/biome": "2.5.12",
         "@tailwindcss/typography": "0.5.20",
@@ -85,6 +85,7 @@
         "claude",
         "cline",
         "grok",
+        "grok-bot",
         "kiro",
         "qoder",
         "cursor",

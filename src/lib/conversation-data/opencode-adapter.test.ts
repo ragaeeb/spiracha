@@ -113,14 +113,14 @@ describe('opencodeConversationAdapter', () => {
             ],
         });
 
-        const conversations = await opencodeConversationAdapter.listConversationsForPath({
+        const conversations = await opencodeConversationAdapter.listConversations({
             cwd: '/repo',
             includeMessages: false,
             locations: { opencodeDbPath: dbPath },
             updatedAfterMs: 100,
             updatedBeforeMs: 300,
         });
-        const excluded = await opencodeConversationAdapter.listConversationsForPath({
+        const excluded = await opencodeConversationAdapter.listConversations({
             cwd: '/repo',
             locations: { opencodeDbPath: dbPath },
             updatedAfterMs: 300,

@@ -33,7 +33,7 @@ import type {
     ConversationPathMatch,
     DeleteConversationOptions,
     GetConversationOptions,
-    ListConversationsForPathOptions,
+    ListConversationsOptions,
 } from './types';
 
 const OPENCODE_CONVERSATION_HYDRATION_CONCURRENCY = 4;
@@ -160,7 +160,7 @@ const buildConversation = async (
     session: OpenCodeSessionSummary,
     dbPath: string,
     matches: ConversationPathMatch[],
-    options: Pick<ListConversationsForPathOptions, 'includeMessages' | 'messageSelector'>,
+    options: Pick<ListConversationsOptions, 'includeMessages' | 'messageSelector'>,
     loadedTranscript: OpenCodeSessionTranscript | null = null,
 ): Promise<ConversationDetail> => {
     const transcript =
@@ -204,7 +204,11 @@ const buildConversation = async (
     };
 };
 
-const listOpenCodeConversationsForPath = async (options: ListConversationsForPathOptions) => {
+const listOpenCodeConversations = async (options: ListConversationsOptions) => {
+    if (!options.cwd) {
+        return [];
+    }
+
     const dbPath = getDbPath(options);
     const groups = await listOpenCodeWorkspaceGroups(dbPath);
     const conversations: ConversationDetail[] = [];
@@ -261,6 +265,6 @@ const deleteOpenCodeConversation = async (options: DeleteConversationOptions) =>
 export const opencodeConversationAdapter: ConversationAdapter = {
     deleteConversation: deleteOpenCodeConversation,
     getConversation: getOpenCodeConversation,
-    listConversationsForPath: listOpenCodeConversationsForPath,
+    listConversations: listOpenCodeConversations,
     source: 'opencode',
 };

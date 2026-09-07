@@ -27,7 +27,7 @@ import type {
     ConversationPathMatch,
     DeleteConversationOptions,
     GetConversationOptions,
-    ListConversationsForPathOptions,
+    ListConversationsOptions,
 } from './types';
 
 const getCodexDbPath = (options: { locations?: { codexDbPath?: string } }) => {
@@ -196,7 +196,7 @@ const readCodexMessages = async (thread: ThreadRow): Promise<ConversationMessage
 const buildCodexConversation = async (
     thread: ThreadRow,
     matches: ConversationPathMatch[],
-    options: { includeMessages: boolean; messageSelector: ListConversationsForPathOptions['messageSelector'] },
+    options: { includeMessages: boolean; messageSelector: ListConversationsOptions['messageSelector'] },
 ): Promise<ConversationDetail> => {
     const allMessages = options.includeMessages ? await readCodexMessages(thread) : [];
     const messages = options.includeMessages
@@ -248,9 +248,11 @@ const filterThreadsForPath = async (
     return filtered;
 };
 
-const listCodexConversationsForPath = async (
-    options: ListConversationsForPathOptions,
-): Promise<ConversationDetail[]> => {
+const listCodexConversations = async (options: ListConversationsOptions): Promise<ConversationDetail[]> => {
+    if (!options.cwd) {
+        return [];
+    }
+
     const dbPath = getCodexDbPath(options);
     if (!(await Bun.file(dbPath).exists())) {
         return [];
@@ -314,6 +316,6 @@ export const codexConversationAdapter: ConversationAdapter = {
     deleteConversation: deleteCodexConversation,
     getConversation: getCodexConversation,
     getConversationRaw: getCodexConversationRaw,
-    listConversationsForPath: listCodexConversationsForPath,
+    listConversations: listCodexConversations,
     source: 'codex',
 };
