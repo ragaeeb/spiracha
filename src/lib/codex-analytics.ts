@@ -138,7 +138,7 @@ export const buildCodexAnalyticsCacheKey = (
     threadRelations?: ReadonlyMap<string, ThreadRelations>,
 ) => {
     const parts = (function* () {
-        yield 'v7';
+        yield 'v8';
         yield dbPath;
         yield project ?? 'all';
         yield String(threads.length);
@@ -164,7 +164,7 @@ export const buildCodexAnalyticsCacheKey = (
 };
 
 const buildThreadAnalyticsCacheKey = (thread: ThreadRow) => {
-    return `thread-analytics-${hashCacheKeyPartsIterable(['v4', ...threadMetadataCacheKeyParts(thread)])}`;
+    return `thread-analytics-${hashCacheKeyPartsIterable(['v5', ...threadMetadataCacheKeyParts(thread)])}`;
 };
 
 const parseThreadAnalyticsFile = async (thread: ThreadRow): Promise<ThreadAnalyticsSummary> => {

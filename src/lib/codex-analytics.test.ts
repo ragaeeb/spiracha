@@ -20,45 +20,48 @@ afterEach(async () => {
 });
 
 describe('getCodexAnalytics', () => {
-    it('should ignore pre-agent-DX thread cache entries and parse the transcript', async () => {
-        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-analytics-upgrade-'));
-        tempPaths.push(tempRoot);
-        const thread = createThreadRow({ rollout_path: path.join(tempRoot, 'rollout.jsonl') });
-        await Bun.write(
-            thread.rollout_path,
-            JSON.stringify({
-                payload: {
-                    arguments: JSON.stringify({ cmd: 'cat README.md' }),
-                    call_id: 'read',
-                    name: 'exec_command',
-                    type: 'function_call',
-                },
-                type: 'response_item',
-            }),
-        );
-        const legacyKey = `thread-analytics-${hashCacheKeyPartsIterable([
-            'v3',
-            thread.id,
-            thread.rollout_path,
-            String(thread.updated_at_ms ?? thread.updated_at * 1000),
-            String(thread.created_at_ms ?? thread.created_at * 1000),
-            String(thread.tokens_used),
-            String(thread.archived),
-            String(thread.archived_at ?? ''),
-            thread.cwd,
-            thread.model ?? '',
-            thread.reasoning_effort ?? '',
-            thread.source,
-            thread.model_provider,
-            thread.cli_version,
-            thread.title,
-            thread.preview,
-        ])}`;
-        await setCachedJson(legacyKey, { hasWebSearch: false, toolNames: [] });
-        const analytics = await computeCodexAnalyticsFromThreads([thread]);
-        expect(analytics.toolUsage).toEqual([{ count: 1, name: 'exec_command' }]);
-        expect(analytics.agentDx.goalSpans[0]?.discoveryCallCount).toBe(1);
-    });
+    it.each(['v3', 'v4'])(
+        'should ignore obsolete thread cache entries and parse the transcript (%s)',
+        async (version) => {
+            const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-analytics-upgrade-'));
+            tempPaths.push(tempRoot);
+            const thread = createThreadRow({ rollout_path: path.join(tempRoot, 'rollout.jsonl') });
+            await Bun.write(
+                thread.rollout_path,
+                JSON.stringify({
+                    payload: {
+                        arguments: JSON.stringify({ cmd: 'cat README.md' }),
+                        call_id: 'read',
+                        name: 'exec_command',
+                        type: 'function_call',
+                    },
+                    type: 'response_item',
+                }),
+            );
+            const legacyKey = `thread-analytics-${hashCacheKeyPartsIterable([
+                version,
+                thread.id,
+                thread.rollout_path,
+                String(thread.updated_at_ms ?? thread.updated_at * 1000),
+                String(thread.created_at_ms ?? thread.created_at * 1000),
+                String(thread.tokens_used),
+                String(thread.archived),
+                String(thread.archived_at ?? ''),
+                thread.cwd,
+                thread.model ?? '',
+                thread.reasoning_effort ?? '',
+                thread.source,
+                thread.model_provider,
+                thread.cli_version,
+                thread.title,
+                thread.preview,
+            ])}`;
+            await setCachedJson(legacyKey, { hasWebSearch: false, toolNames: [] });
+            const analytics = await computeCodexAnalyticsFromThreads([thread]);
+            expect(analytics.toolUsage).toEqual([{ count: 1, name: 'exec_command' }]);
+            expect(analytics.agentDx.goalSpans[0]?.discoveryCallCount).toBe(1);
+        },
+    );
 
     it('should aggregate global analytics from thread rows and parsed transcript events', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-analytics-global-test-'));

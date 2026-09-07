@@ -2082,21 +2082,6 @@ const areEquivalentBubbles = (left: CursorBubble, right: CursorBubble): boolean 
     );
 };
 
-const hasEquivalentBubble = (bubbles: CursorBubble[], candidate: CursorBubble): boolean => {
-    return bubbles.some((bubble) => areEquivalentBubbles(bubble, candidate));
-};
-
-const findAgentTailStartIndex = (existingBubbles: CursorBubble[], agentBubbles: CursorBubble[]): number => {
-    // Agent transcript files can replay a run after SQLite already contains its final answer.
-    for (let index = agentBubbles.length - 1; index >= 0; index -= 1) {
-        if (hasEquivalentBubble(existingBubbles, agentBubbles[index]!)) {
-            return index + 1;
-        }
-    }
-
-    return 0;
-};
-
 const parseCursorAgentTranscriptLine = (filePath: string, line: string, lineNumber: number): CursorBubble | null => {
     if (!line.trim()) {
         return null;
@@ -2354,95 +2339,40 @@ const readCursorCliTranscriptThreads = async (
     return [...threadsById.values()];
 };
 
-const updateAgentTextProgress = (existingBubbles: CursorBubble[], agentBubbles: CursorBubble[]): CursorBubble[] => {
-    const updated = [...existingBubbles];
-    for (const candidate of agentBubbles) {
-        const candidateIndex = existingBubbles.findIndex((bubble) => areEquivalentBubbles(bubble, candidate));
-        if (candidateIndex < 0) {
-            continue;
-        }
-        const existing = existingBubbles[candidateIndex]!;
-        const existingText = normalizeBubbleText(existing.text);
-        const candidateText = normalizeBubbleText(candidate.text);
-        if (candidateText.length > existingText.length && candidateText.startsWith(existingText)) {
-            updated[candidateIndex] = { ...existing, text: candidate.text };
-        }
-    }
-    return updated;
-};
-
-const appendUniqueAgentBubbles = (transcript: CursorThreadTranscript, candidates: CursorBubble[]) => {
-    const seen = [...transcript.bubbles];
-    const appended: CursorBubble[] = [];
-    for (const bubble of candidates) {
-        if (hasEquivalentBubble(seen, bubble)) {
-            continue;
-        }
-
-        seen.push(bubble);
-        appended.push(bubble);
-    }
-    return { appended, seen };
-};
-
-const getPrecedingAgentSupplements = (seen: CursorBubble[], candidates: CursorBubble[]): CursorBubble[] => {
-    const supplements: CursorBubble[] = [];
-    for (const bubble of candidates) {
-        if ((!bubble.toolCall && !bubble.thinking?.trim()) || hasEquivalentBubble([...seen, ...supplements], bubble)) {
-            continue;
-        }
-        supplements.push(bubble);
-    }
-    return supplements;
-};
-
 const mergeAgentTranscriptTail = (
     transcript: CursorThreadTranscript,
     agentBubbles: CursorBubble[],
 ): CursorThreadTranscript => {
-    const tailStartIndex = findAgentTailStartIndex(transcript.bubbles, agentBubbles);
-    const overlap = tailStartIndex > 0 ? agentBubbles[tailStartIndex - 1] : undefined;
-    if (!overlap) {
-        const { appended, seen } = appendUniqueAgentBubbles(transcript, agentBubbles);
-        return appended.length === 0
-            ? transcript
-            : {
-                  ...transcript,
-                  bubbles: seen,
-                  renderableBubbleCount: transcript.renderableBubbleCount + appended.length,
-              };
+    const bubbles = [...transcript.bubbles];
+    let insertAt = bubbles.length;
+    let changed = false;
+    // Walk backward so missing replay events stay before their next persisted anchor, including across turns.
+    for (let index = agentBubbles.length - 1; index >= 0; index -= 1) {
+        const candidate = agentBubbles[index]!;
+        const matchedIndex = bubbles.findLastIndex(
+            (bubble, bubbleIndex) => bubbleIndex <= insertAt && areEquivalentBubbles(bubble, candidate),
+        );
+        if (matchedIndex < 0) {
+            bubbles.splice(insertAt, 0, candidate);
+            changed = true;
+            continue;
+        }
+        const existing = bubbles[matchedIndex]!;
+        const existingText = normalizeBubbleText(existing.text);
+        const candidateText = normalizeBubbleText(candidate.text);
+        if (candidateText.length > existingText.length && candidateText.startsWith(existingText)) {
+            bubbles[matchedIndex] = { ...existing, text: candidate.text };
+            changed = true;
+        }
+        insertAt = matchedIndex;
     }
-
-    const overlapIndex = transcript.bubbles.findIndex((bubble) => areEquivalentBubbles(bubble, overlap));
-    if (overlapIndex < 0) {
-        const { appended, seen } = appendUniqueAgentBubbles(transcript, agentBubbles.slice(tailStartIndex));
-        return appended.length === 0
-            ? transcript
-            : {
-                  ...transcript,
-                  bubbles: seen,
-                  renderableBubbleCount: transcript.renderableBubbleCount + appended.length,
-              };
-    }
-
-    const seen = updateAgentTextProgress(transcript.bubbles, agentBubbles.slice(0, tailStartIndex));
-    const precedingSupplements = getPrecedingAgentSupplements(seen, agentBubbles.slice(0, tailStartIndex - 1));
-    seen.splice(overlapIndex, 0, ...precedingSupplements);
-    const { appended, seen: merged } = appendUniqueAgentBubbles(
-        { ...transcript, bubbles: seen },
-        agentBubbles.slice(tailStartIndex),
-    );
-
-    const changedExistingBubble = merged.some((bubble, index) => bubble !== transcript.bubbles[index]);
-    if (appended.length === 0 && !changedExistingBubble) {
-        return transcript;
-    }
-
-    return {
-        ...transcript,
-        bubbles: merged,
-        renderableBubbleCount: transcript.renderableBubbleCount + precedingSupplements.length + appended.length,
-    };
+    return changed
+        ? {
+              ...transcript,
+              bubbles,
+              renderableBubbleCount: transcript.renderableBubbleCount + bubbles.length - transcript.bubbles.length,
+          }
+        : transcript;
 };
 
 const inferCursorUserDirFromGlobalDbPath = (globalDbPath: string): string => {

@@ -362,7 +362,7 @@ describe('ThreadsTable', () => {
     });
 
     it('should show up to 100 Codex project threads on one page', () => {
-        const threads = Array.from({ length: 51 }, (_, index) => ({
+        const threads = Array.from({ length: 101 }, (_, index) => ({
             ...threadEntry,
             thread: {
                 ...threadEntry.thread,
@@ -381,7 +381,8 @@ describe('ThreadsTable', () => {
             />,
         );
 
-        expect(screen.getByRole('link', { name: 'Thread 51' })).toBeTruthy();
-        expect(screen.queryByText('Page 1 of 2')).toBeNull();
+        expect(screen.getByRole('link', { name: 'Thread 100' })).toBeTruthy();
+        expect(screen.queryByRole('link', { name: 'Thread 101' })).toBeNull();
+        expect(screen.getByText('Page 1 of 2')).toBeTruthy();
     });
 });

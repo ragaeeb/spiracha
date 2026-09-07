@@ -39,7 +39,7 @@ export const handleCodexThreadEventsRequest = async (request: Request): Promise<
 
     const [
         { CodexThreadNotFoundError, resolveCodexThreadDbPath },
-        { getThreadBrowseData },
+        { getThreadBrowseDataBatch },
         { createCodexThreadEventResponse },
     ] = await Promise.all([
         import('@spiracha/lib/codex-database'),
@@ -49,19 +49,18 @@ export const handleCodexThreadEventsRequest = async (request: Request): Promise<
     const dbPath = process.env.SPIRACHA_CODEX_DB?.trim() || resolveCodexThreadDbPath();
 
     try {
-        const threads = threadIds.map((threadId) => ({
-            rolloutPath: getThreadBrowseData(dbPath, threadId).thread.rollout_path,
-            threadId,
-        }));
-        const response = createCodexThreadEventResponse({
-            signal: request.signal,
-            threads,
-        });
-        if (corsOrigin) {
-            response.headers.set('Access-Control-Allow-Origin', corsOrigin);
-            response.headers.set('Vary', 'Origin');
-        }
-        return response;
+        const browseResults = getThreadBrowseDataBatch(dbPath, threadIds);
+        return withCors(
+            createCodexThreadEventResponse({
+                signal: request.signal,
+                threads: browseResults.map((result) => {
+                    if (result.status === 'missing') {
+                        throw new CodexThreadNotFoundError(result.threadId);
+                    }
+                    return { rolloutPath: result.data.thread.rollout_path, threadId: result.threadId };
+                }),
+            }),
+        );
     } catch (error) {
         if (error instanceof CodexThreadNotFoundError) {
             return withCors(jsonError({ error: error.message }, 404));

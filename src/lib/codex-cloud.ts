@@ -29,6 +29,8 @@ const DEFAULT_MAX_TASKS = 200;
 
 const MAX_CURSOR_PAGES = 100;
 
+const CODEX_CLOUD_REQUEST_TIMEOUT_MS = 30_000;
+
 type FetchImplementation = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 export type CodexCloudAuth = {
@@ -406,6 +408,8 @@ const performCloudRequest = async (
         }
     }
 
+    const timeoutSignal = AbortSignal.timeout(CODEX_CLOUD_REQUEST_TIMEOUT_MS);
+
     try {
         return await fetchImpl(url, {
             headers: {
@@ -414,8 +418,12 @@ const performCloudRequest = async (
                 'User-Agent': 'spiracha-codex-cloud',
             },
             redirect: 'error',
+            signal: timeoutSignal,
         });
     } catch {
+        if (timeoutSignal.aborted) {
+            throw new CodexCloudError('Codex Cloud request timed out. Check the network and try again.');
+        }
         throw new CodexCloudError('Codex Cloud could not be reached. Check the network and try again.');
     }
 };

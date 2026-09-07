@@ -705,7 +705,7 @@ const captureCommandMetrics = (
         accumulator.readObservations.push({ fingerprint: normalizedCommand, state });
     }
     if (commands.some(isGateCommand)) {
-        accumulator.gateFingerprints.add(fingerprint);
+        accumulator.gateFingerprints.add(normalizedCommand);
         increment(accumulator.gateCounts, fingerprint);
     }
     if (commands.some(isMutationCommand)) {
@@ -1106,11 +1106,16 @@ const descendantsFor = (
     childrenById: Map<string, string[]>,
 ) => {
     const members: AgentDxThreadDescriptor[] = [];
+    const visitedSet = new Set<string>();
     const visit = (threadId: string) => {
-        const descriptor = byId.get(threadId);
-        if (!descriptor || members.some((member) => member.threadId === threadId)) {
+        if (visitedSet.has(threadId)) {
             return;
         }
+        const descriptor = byId.get(threadId);
+        if (!descriptor) {
+            return;
+        }
+        visitedSet.add(threadId);
         members.push(descriptor);
         for (const childId of childrenById.get(threadId) ?? []) {
             visit(childId);
@@ -1171,29 +1176,29 @@ const buildSpanWarnings = (summaries: AgentDxThreadSummary[], crossChildSameStat
     return warningMap(warnings);
 };
 
-const childRoleLabels = (members: AgentDxThreadDescriptor[], directChildIds: string[]) =>
+const childRoleLabels = (members: AgentDxThreadDescriptor[], directChildIdsSet: ReadonlySet<string>) =>
     members
-        .filter((member) => directChildIds.includes(member.threadId))
+        .filter((member) => directChildIdsSet.has(member.threadId))
         .flatMap((child) => (child.agentRole ? [child.agentRole] : child.summary.roleFanout));
 
 const buildGoalSpan = (
     root: AgentDxThreadDescriptor,
     members: AgentDxThreadDescriptor[],
-    directChildIds: string[],
+    directChildIdsSet: ReadonlySet<string>,
 ): AgentDxGoalSpan => {
     const summaries = members.map((member) => member.summary);
     const before = root.summary.repositoryIdentityBefore ?? root.gitSha ?? null;
     const turnOrGoalId = root.summary.turnOrGoalIds.length === 1 ? root.summary.turnOrGoalIds[0]! : null;
     const readOwners = collectReadOwners(members);
     const crossChildSameStateRereads = countCrossChildRereads(readOwners);
-    const directChildren = members.filter((member) => directChildIds.includes(member.threadId));
-    const roleLabels = childRoleLabels(members, directChildIds);
+    const directChildren = members.filter((member) => directChildIdsSet.has(member.threadId));
+    const roleLabels = childRoleLabels(members, directChildIdsSet);
     const taskLabel = root.summary.taskLabelAndKaluRow ?? root.title ?? root.firstUserMessage ?? null;
     const uniqueReadCount = readOwners.size;
     const readCount = members.reduce((total, member) => total + member.summary.readObservations.length, 0);
     const warnings = buildSpanWarnings(summaries, crossChildSameStateRereads);
     const source = root.source;
-    const goalSpanId = [source, root.threadId, turnOrGoalId ?? 'thread', before ?? root.cwd].join('\0');
+    const goalSpanId = JSON.stringify([source, root.threadId, turnOrGoalId ?? 'thread', before ?? root.cwd]);
     return {
         assignmentId: summaries.map((summary) => summary.assignmentId).find(Boolean) ?? null,
         childThreadIdsSpawnedInSpan: members
@@ -1274,9 +1279,10 @@ export const buildAgentDxAnalytics = (descriptors: AgentDxThreadDescriptor[]): A
     }
     const roots = descriptors.filter((descriptor) => !parentById.has(descriptor.threadId));
     const goalSpans = roots
-        .map((root) =>
-            buildGoalSpan(root, descendantsFor(root, byId, childrenById), childrenById.get(root.threadId) ?? []),
-        )
+        .map((root) => {
+            const directChildIdsSet = new Set(childrenById.get(root.threadId) ?? []);
+            return buildGoalSpan(root, descendantsFor(root, byId, childrenById), directChildIdsSet);
+        })
         .sort((left, right) => left.goalSpanId.localeCompare(right.goalSpanId));
     return {
         goalSpans,
@@ -1333,8 +1339,8 @@ const csvText = (value: unknown) => {
     if (value === null || value === undefined) {
         return '';
     }
-    const text = typeof value === 'string' ? value : (JSON.stringify(value) ?? '');
-    return /[",\n]/u.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+    const text = (typeof value === 'string' ? value : (JSON.stringify(value) ?? '')).replaceAll('\0', '\\0');
+    return /[",\r\n]/u.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 };
 
 const spanCsvValues = (span: AgentDxGoalSpan): unknown[] => [

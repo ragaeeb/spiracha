@@ -21,7 +21,7 @@ type ActivityTimestampedThread = {
     updated_at_ms: number | null;
 };
 
-type SessionIndexEntry = {
+export type SessionIndexEntry = {
     id: string;
     thread_name?: string;
     updated_at?: string;
@@ -56,6 +56,11 @@ type FallbackThreadRowOptions = ReadFallbackThreadRowsOptions & {
     projectName?: string | null;
 };
 
+type LruCache<K, V> = {
+    get: (key: K) => V | undefined;
+    set: (key: K, value: V) => void;
+};
+
 const JSONL_READ_CHUNK_BYTES = 64 * 1024;
 const SESSION_META_READ_CHUNK_BYTES = 64 * 1024;
 const SESSION_META_READ_LIMIT_BYTES = 4 * 1024 * 1024;
@@ -64,14 +69,47 @@ const FALLBACK_STATS_TAIL_READ_LIMIT_BYTES = 512 * 1024;
 const FALLBACK_STATS_RECORD_PATTERN = /"type"\s*:\s*"(?:agent_message|message|token_count|turn_context)"/u;
 const THREAD_ID_PATTERN = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/iu;
 const THREAD_LIST_IO_CONCURRENCY = 8;
+const FALLBACK_CACHE_MAX_ENTRIES = 64;
 
-const sessionFileIndexCache = new Map<string, { fingerprint: string; sessionFilesByThreadId: Map<string, string> }>();
-const sessionIndexEntriesCache = new Map<string, { entries: SessionIndexEntry[]; fingerprint: string }>();
-const fallbackThreadRowCache = new Map<
+const createLruCache = <K, V>(maxEntries: number): LruCache<K, V> => {
+    const entries = new Map<K, V>();
+    return {
+        get: (key) => {
+            const value = entries.get(key);
+            if (value === undefined) {
+                return undefined;
+            }
+            entries.delete(key);
+            entries.set(key, value);
+            return value;
+        },
+        set: (key, value) => {
+            entries.delete(key);
+            entries.set(key, value);
+            while (entries.size > maxEntries) {
+                const oldestKey = entries.keys().next().value;
+                if (oldestKey === undefined) {
+                    break;
+                }
+                entries.delete(oldestKey);
+            }
+        },
+    };
+};
+
+const sessionFileIndexCache = createLruCache<
+    string,
+    { fingerprint: string; sessionFilesByThreadId: Map<string, string> }
+>(FALLBACK_CACHE_MAX_ENTRIES);
+const sessionIndexEntriesCache = createLruCache<string, { entries: SessionIndexEntry[]; fingerprint: string }>(
+    FALLBACK_CACHE_MAX_ENTRIES,
+);
+const fallbackThreadRowCache = createLruCache<
     string,
     { fingerprint: string; row: ThreadRow | null; sessionMeta: FallbackSessionMeta | null }
->();
-const parseJsonlObject = <T>(line: string): T | null => {
+>(FALLBACK_CACHE_MAX_ENTRIES);
+
+export const parseJsonlObject = <T>(line: string): T | null => {
     try {
         return JSON.parse(line) as T;
     } catch {
@@ -620,7 +658,7 @@ export const readFallbackThreadRow = (
     } catch {
         return null;
     }
-    const fingerprint = `${fileStats.size}:${fileStats.mtimeMs}:${entry.thread_name ?? ''}:${entry.updated_at ?? ''}`;
+    const fingerprint = `${fileStats.dev}:${fileStats.ino}:${fileStats.size}:${fileStats.mtimeMs}:${fileStats.ctimeMs}:${entry.thread_name ?? ''}:${entry.updated_at ?? ''}`;
     const cached = fallbackThreadRowCache.get(sessionFile);
     const sessionMeta = cached?.fingerprint === fingerprint ? cached.sessionMeta : readFallbackSessionMeta(sessionFile);
     if (!sessionMeta) {

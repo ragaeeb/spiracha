@@ -242,7 +242,7 @@ Spiracha bounds temporary disk use by age and total retained bytes. Values are n
 | `SPIRACHA_UI_EXPORT_MAX_BYTES` | `1073741824` | Total temporary export ceiling; oldest exports are pruned first. |
 | `SPIRACHA_UI_LARGE_EXPORT_THRESHOLD_BYTES` | `134217728` | Size above which a single transcript export switches to a temporary zipped download. |
 
-Claude Code, Kiro, and Cursor discovery use short-lived, bounded indexes with in-flight request coalescing and mutation invalidation. Kiro builds one validated session-ID index across execution storage, including nested layouts, instead of rescanning per session. Cursor indexes direct composer-id lookups instead of rescanning every workspace group. File identity metadata invalidates changed transcripts, source mutations invalidate affected entries immediately, and no raw source payload is persisted by these caches.
+Codex fallback session indexes and rollout rows use bounded LRU caches. Claude Code, Kiro, and Cursor discovery use short-lived, bounded indexes with in-flight request coalescing and mutation invalidation. Kiro builds one validated session-ID index across execution storage, including nested layouts, instead of rescanning per session. Cursor indexes direct composer-id lookups instead of rescanning every workspace group. File identity metadata invalidates changed transcripts, source mutations invalidate affected entries immediately, and no raw source payload is persisted by these caches.
 
 Cursor and Antigravity detail pages split metadata from large transcript/artifact documents. Codex thread metadata records whether a rollout is available, missing, or deferred; the UI can load a bounded preview, request the full transcript, or export directly. Temporary JSON cache and download files are created with private permissions under the user cache directory (`~/.cache/spiracha/ui-cache` and `~/.cache/spiracha/ui-exports` by default) and pruned by age and total bytes.
 
@@ -260,9 +260,9 @@ Encrypted Antigravity transcripts use the macOS Keychain item `Antigravity Safe 
 
 ### Codex Cloud login and analytics
 
-Codex Cloud browsing uses the local Codex-managed ChatGPT login. `SPIRACHA_CODEX_AUTH` can select its auth file, and `CODEX_BIN` selects the Codex executable. After an HTTP 401, Spiracha asks the CLI to refresh once and rereads the login; the CLI may update its managed authentication file. Missing CLI, failed refresh, repeated 401, and malformed inventory errors are reported without including tokens or provider response bodies.
+Codex Cloud browsing uses the local Codex-managed ChatGPT login. `SPIRACHA_CODEX_AUTH` can select its auth file, and `CODEX_BIN` selects the Codex executable. After an HTTP 401, Spiracha asks the CLI to refresh once and rereads the login; the CLI may update its managed authentication file. Each Cloud HTTP attempt has a 30-second abort deadline. Missing CLI, failed refresh, timeouts, repeated 401, and malformed inventory errors are reported without including tokens or provider response bodies.
 
-Agent-DX command metrics use conservative shell heuristics. Quoted examples, comments, and heredoc bodies do not count as executed gates or mutations; complex shell constructs can remain unclassified. Repository-after identities require recognizable Git command output. Missing CSV fields are empty cells.
+Agent-DX command metrics use conservative shell heuristics. Quoted examples, comments, and heredoc bodies do not count as executed gates or mutations; complex shell constructs can remain unclassified. Repository-after identities require recognizable Git command output. Missing CSV fields are empty cells; carriage returns are quoted and NUL bytes are rendered as printable escapes. Goal-span IDs encode an identity tuple as JSON and should be treated as opaque strings.
 
 ### Codex browser database compatibility
 

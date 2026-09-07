@@ -53,6 +53,7 @@ These rules define the boundary between source-specific discovery and Spiracha's
 ## Caching and loading
 
 - UI JSON caches are private, versioned, age/byte bounded, and safe to invalidate by key prefix. `SPIRACHA_UI_CACHE_BYPASS=1` bypasses both reads and writes; it does not remove existing entries.
+- Codex fallback caches bound retained session-file indexes, session-index entries, and rollout rows with LRU eviction and fingerprint validation.
 - Claude Code, Kiro, and Cursor discovery use bounded indexes with in-flight request coalescing. Transcript caches are keyed by source-file identity and invalidated after source mutations or changed-file detection. Raw provider payloads are not persisted in these caches.
 - Large UI documents are not part of the initial metadata path for Cursor and Antigravity detail routes. Web detail routes likewise load normalized transcript events after hydration. Codex rollout metadata reports `available`, `deferred`, or `missing` so the UI can choose a bounded preview, full load, or export path.
 - Temporary UI export files are private downloads subject to age and total-byte pruning. By default, cache and export files live under `~/.cache/spiracha/ui-cache` and `~/.cache/spiracha/ui-exports`; environment overrides remain available. Export and cache lifecycle settings are operational controls; parsing and safety limits remain code constants.

@@ -174,6 +174,7 @@ export const compareThreadsByRecentActivity = (
 type CodexRowDecoder = {
     assertValid: () => void;
     nullableNumber: (field: string) => number | null;
+    nullableString: (field: string) => string | null;
     requiredNumber: (field: string) => number;
     requiredString: (field: string) => string;
     values: Record<string, unknown>;
@@ -201,10 +202,21 @@ const createCodexRowDecoder = (row: unknown, tableName: string): CodexRowDecoder
     };
     const nullableNumber = (field: string) => {
         const value = values[field];
-        if (value === null) {
+        if (value === null || value === undefined) {
             return null;
         }
         if (typeof value !== 'number' || !Number.isFinite(value)) {
+            invalidFields.push(fieldPath(field));
+            return null;
+        }
+        return value;
+    };
+    const nullableString = (field: string) => {
+        const value = values[field];
+        if (value === null || value === undefined) {
+            return null;
+        }
+        if (typeof value !== 'string') {
             invalidFields.push(fieldPath(field));
             return null;
         }
@@ -218,6 +230,7 @@ const createCodexRowDecoder = (row: unknown, tableName: string): CodexRowDecoder
             }
         },
         nullableNumber,
+        nullableString,
         requiredNumber,
         requiredString,
         values,
@@ -353,81 +366,40 @@ export const assertCodexSchemaCompatibility = (db: Database, profile: CodexDbSch
 };
 
 export const decodeThreadRow = (row: unknown): ThreadRow => {
-    const values = row as Record<string, unknown>;
-    const invalidFields: string[] = [];
-    const requiredString = (field: keyof ThreadRow) => {
-        const value = values[field];
-        if (typeof value !== 'string') {
-            invalidFields.push(`threads.${String(field)}`);
-            return '';
-        }
-        return value;
-    };
-    const requiredNumber = (field: keyof ThreadRow) => {
-        const value = values[field];
-        if (typeof value !== 'number' || !Number.isFinite(value)) {
-            invalidFields.push(`threads.${String(field)}`);
-            return 0;
-        }
-        return value;
-    };
-    const nullableString = (field: keyof ThreadRow) => {
-        const value = values[field];
-        if (value === null || value === undefined) {
-            return null;
-        }
-        if (typeof value !== 'string') {
-            invalidFields.push(`threads.${String(field)}`);
-            return null;
-        }
-        return value;
-    };
-    const nullableNumber = (field: keyof ThreadRow) => {
-        const value = values[field];
-        if (value === null || value === undefined) {
-            return null;
-        }
-        if (typeof value !== 'number' || !Number.isFinite(value)) {
-            invalidFields.push(`threads.${String(field)}`);
-            return null;
-        }
-        return value;
-    };
+    const decoder = createCodexRowDecoder(row, 'threads');
 
     const decoded: ThreadRow = {
-        agent_nickname: nullableString('agent_nickname'),
-        agent_path: nullableString('agent_path'),
-        agent_role: nullableString('agent_role'),
-        approval_mode: requiredString('approval_mode'),
-        archived: requiredNumber('archived'),
-        archived_at: nullableNumber('archived_at'),
-        cli_version: requiredString('cli_version'),
-        created_at: requiredNumber('created_at'),
-        created_at_ms: nullableNumber('created_at_ms'),
-        cwd: requiredString('cwd'),
-        first_user_message: requiredString('first_user_message'),
-        git_branch: nullableString('git_branch'),
-        git_origin_url: nullableString('git_origin_url'),
-        git_sha: nullableString('git_sha'),
-        has_user_event: requiredNumber('has_user_event'),
-        id: requiredString('id'),
-        memory_mode: requiredString('memory_mode'),
-        model: nullableString('model'),
-        model_provider: requiredString('model_provider'),
-        preview: requiredString('preview'),
-        reasoning_effort: nullableString('reasoning_effort'),
-        rollout_path: requiredString('rollout_path'),
-        sandbox_policy: requiredString('sandbox_policy'),
-        source: requiredString('source'),
-        thread_source: nullableString('thread_source'),
-        title: requiredString('title'),
-        tokens_used: requiredNumber('tokens_used'),
-        updated_at: requiredNumber('updated_at'),
-        updated_at_ms: nullableNumber('updated_at_ms'),
+        agent_nickname: decoder.nullableString('agent_nickname'),
+        agent_path: decoder.nullableString('agent_path'),
+        agent_role: decoder.nullableString('agent_role'),
+        approval_mode: decoder.requiredString('approval_mode'),
+        archived: decoder.requiredNumber('archived'),
+        archived_at: decoder.nullableNumber('archived_at'),
+        cli_version: decoder.requiredString('cli_version'),
+        created_at: decoder.requiredNumber('created_at'),
+        created_at_ms: decoder.nullableNumber('created_at_ms'),
+        cwd: decoder.requiredString('cwd'),
+        first_user_message: decoder.requiredString('first_user_message'),
+        git_branch: decoder.nullableString('git_branch'),
+        git_origin_url: decoder.nullableString('git_origin_url'),
+        git_sha: decoder.nullableString('git_sha'),
+        has_user_event: decoder.requiredNumber('has_user_event'),
+        id: decoder.requiredString('id'),
+        memory_mode: decoder.requiredString('memory_mode'),
+        model: decoder.nullableString('model'),
+        model_provider: decoder.requiredString('model_provider'),
+        preview: decoder.requiredString('preview'),
+        reasoning_effort: decoder.nullableString('reasoning_effort'),
+        rollout_path: decoder.requiredString('rollout_path'),
+        sandbox_policy: decoder.requiredString('sandbox_policy'),
+        source: decoder.requiredString('source'),
+        thread_source: decoder.nullableString('thread_source'),
+        title: decoder.requiredString('title'),
+        tokens_used: decoder.requiredNumber('tokens_used'),
+        updated_at: decoder.requiredNumber('updated_at'),
+        updated_at_ms: decoder.nullableNumber('updated_at_ms'),
     };
-    if (invalidFields.length > 0) {
-        throw new CodexDbCompatibilityError(CODEX_BROWSE_SCHEMA_PROFILE, [], [], invalidFields);
-    }
+    decoder.assertValid();
     return decoded;
 };
 

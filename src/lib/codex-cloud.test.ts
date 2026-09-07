@@ -1,10 +1,11 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, spyOn } from 'bun:test';
 import { chmod, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { MessageEvent } from './codex-browser-types';
 import {
     type CodexCloudAuth,
+    CodexCloudError,
     type CodexCloudTaskDetail,
     createCodexCloudClient,
     normalizeCodexCloudTask,
@@ -176,6 +177,81 @@ describe('Codex Cloud client', () => {
         expect(requests[0]?.searchParams.get('task_filter')).toBe('current');
         expect(requests[0]?.searchParams.get('limit')).toBe('20');
         expect(requests[1]?.searchParams.get('cursor')).toBe('next-cursor');
+    });
+
+    it.each(['getTask', 'listTasks'] as const)(
+        'should abort a stalled %s HTTP request with a Codex Cloud timeout error',
+        async (method) => {
+            let requestSignal: AbortSignal | null | undefined;
+            let markRequestStarted: () => void = () => {};
+            const requestStarted = new Promise<void>((resolve) => {
+                markRequestStarted = resolve;
+            });
+            const timeoutController = new AbortController();
+            const timeoutSpy = spyOn(AbortSignal, 'timeout').mockReturnValue(timeoutController.signal);
+            const client = createCodexCloudClient({
+                fetchImpl: async (_input, init) =>
+                    new Promise<Response>((_resolve, reject) => {
+                        requestSignal = init?.signal;
+                        markRequestStarted();
+                        requestSignal?.addEventListener('abort', () => reject(requestSignal?.reason), { once: true });
+                    }),
+                readAuth: async () => auth,
+            });
+
+            const pending = (method === 'getTask' ? client.getTask('task_timeout') : client.listTasks()).catch(
+                (error: unknown) => error,
+            );
+            await requestStarted;
+            timeoutController.abort();
+            try {
+                const result = await pending;
+
+                expect(result).toBeInstanceOf(CodexCloudError);
+                expect((result as CodexCloudError).message).toContain('timed out');
+                expect((result as CodexCloudError).status).toBeNull();
+                expect(requestSignal?.aborted).toBe(true);
+                expect(timeoutSpy).toHaveBeenCalledWith(30_000);
+            } finally {
+                timeoutSpy.mockRestore();
+            }
+        },
+    );
+
+    it('should preserve the safe generic error for a non-timeout HTTP failure', async () => {
+        const client = createCodexCloudClient({
+            fetchImpl: async () => {
+                throw new Error('synthetic fetch failure');
+            },
+            readAuth: async () => auth,
+        });
+
+        const result = await client.getTask('task_network').catch((error: unknown) => error);
+
+        expect(result).toBeInstanceOf(CodexCloudError);
+        expect((result as CodexCloudError).message).toContain('could not be reached');
+    });
+
+    it('should preserve a zero millisecond tool duration', () => {
+        const events = mapCodexCloudTurnEvents({
+            branch: null,
+            createdAt: null,
+            environmentId: null,
+            environmentLabel: null,
+            id: 'turn-duration',
+            model: null,
+            status: 'completed',
+            threadEvents: {
+                events: [
+                    {
+                        method: 'item/completed',
+                        params: { item: { durationMs: 0, id: 'command-duration', type: 'commandExecution' } },
+                    },
+                ],
+            },
+        });
+
+        expect(events.find((event) => event.kind === 'tool_output')).toMatchObject({ wallTime: '0 ms' });
     });
 
     it('should accept the normalized CLI list shape with project and diff metadata', async () => {

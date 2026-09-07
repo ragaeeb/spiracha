@@ -270,6 +270,7 @@ const makeToolOutputEvent = (item: CloudRecord, event: unknown, fallbackTimestam
     ]
         .filter(Boolean)
         .join('\n\n');
+    const durationMs = asFiniteNumber(item.durationMs ?? item.duration_ms);
 
     return {
         callId: itemCallId(item),
@@ -280,9 +281,7 @@ const makeToolOutputEvent = (item: CloudRecord, event: unknown, fallbackTimestam
         sequence: 0,
         summary,
         timestamp: eventTimestamp(event, item, fallbackTimestamp),
-        wallTime: asFiniteNumber(item.durationMs ?? item.duration_ms)
-            ? `${asFiniteNumber(item.durationMs ?? item.duration_ms)} ms`
-            : null,
+        wallTime: durationMs === null ? null : `${durationMs} ms`,
     };
 };
 

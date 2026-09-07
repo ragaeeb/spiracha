@@ -20,10 +20,12 @@ import {
     withSqliteTransaction,
     withWritableDb,
 } from './codex-database';
+import type { SessionIndexEntry } from './codex-fallback-index';
 import {
     findSessionFileByThreadId,
     getSessionFilesByThreadId,
     isFallbackSubagent,
+    parseJsonlObject,
     readFallbackSessionMeta,
     readSessionIndexEntries,
     stringOrNull,
@@ -50,19 +52,6 @@ const CODEX_UI_CACHE_PREFIXES = ['analytics-', 'thread-', 'thread-preview-'] as 
 const SESSION_FILE_DELETE_CONCURRENCY = 16;
 let sessionIndexMutationQueue = Promise.resolve();
 
-type SessionIndexEntry = {
-    id: string;
-    thread_name?: string;
-    updated_at?: string;
-};
-
-const parseJsonlObject = <T>(line: string): T | null => {
-    try {
-        return JSON.parse(line) as T;
-    } catch {
-        return null;
-    }
-};
 const getThreadDeleteTargets = (db: Database, threadIds: string[]) => {
     if (threadIds.length === 0) {
         return [];
@@ -510,11 +499,7 @@ export const deleteCodexProject = async (
     projectName: string,
     options: DeleteProjectOptions = {},
 ): Promise<DeleteProjectResult> => {
-    const existingThreadIds = new Set(
-        withReadonlyDb(dbPath, (db) =>
-            (db.query('SELECT id FROM threads').all() as Array<{ id: string }>).map(({ id }) => id),
-        ),
-    );
+    const existingThreadIds = withReadonlyDb(dbPath, (db) => readDbThreadIds(db));
     const fallbackThreadIds = listFallbackThreadIdsForProject(dbPath, existingThreadIds, projectName);
     const projectThreadIds = withReadonlyDb(dbPath, (db) =>
         (

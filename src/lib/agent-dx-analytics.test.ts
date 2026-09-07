@@ -52,7 +52,9 @@ describe('agent DX analytics', () => {
                 accumulator,
             );
         }
-        expect(finishAgentDxAnalysis(accumulator).repeatedGateCalls).toBe(1);
+        const summary = finishAgentDxAnalysis(accumulator);
+        expect(summary.gateFingerprints).toEqual(['rtk bun test && rtk bun run lint']);
+        expect(summary.repeatedGateCalls).toBe(1);
     });
 
     it('should leave missing CSV values empty while retaining explicit null text', () => {
@@ -68,10 +70,87 @@ describe('agent DX analytics', () => {
                 title: 'null',
             },
         ]);
-        const row = renderAgentDxAnalyticsExport(analytics, 'csv').split('\n')[1]!.split(',');
-        expect(row[AGENT_DX_CSV_COLUMNS.indexOf('repository_identity_before')]).toBe('');
-        expect(row[AGENT_DX_CSV_COLUMNS.indexOf('repository_identity_after')]).toBe('');
-        expect(row[AGENT_DX_CSV_COLUMNS.indexOf('task_label_and_kalu_row')]).toBe('null');
+        const row = renderAgentDxAnalyticsExport(analytics, 'csv').split('\n')[1]!;
+        expect(row).toContain(',codex,root,root,,,,null,');
+    });
+
+    it('should keep gate repetition scoped to observed state and workdir', () => {
+        const accumulator = createAgentDxAccumulator({ cwd: '/repo' });
+        for (const [call_id, workdir] of [
+            ['gate-repo', '/repo'],
+            ['gate-other', '/other'],
+        ] as const) {
+            captureAgentDxRecord(
+                responseItem({
+                    arguments: JSON.stringify({ cmd: 'rtk bun test', workdir }),
+                    call_id,
+                    name: 'exec_command',
+                    type: 'function_call',
+                }),
+                accumulator,
+            );
+        }
+
+        expect(finishAgentDxAnalysis(accumulator)).toMatchObject({
+            gateFingerprints: ['rtk bun test'],
+            repeatedGateCalls: 0,
+        });
+    });
+
+    it('should quote carriage returns and escape NULs in CSV analytics identifiers', () => {
+        const analytics = buildAgentDxAnalytics([
+            {
+                childThreadIds: [],
+                cwd: '/repo\r\0',
+                firstUserMessage: '',
+                gitSha: null,
+                source: 'codex',
+                summary: finishAgentDxAnalysis(createAgentDxAccumulator({ cwd: '/repo\r\0' })),
+                threadId: 'root\0thread',
+                title: 'row\rvalue\0tail',
+            },
+        ]);
+        const csv = renderAgentDxAnalyticsExport(analytics, 'csv');
+        const goalSpanId = analytics.goalSpans[0]?.goalSpanId;
+
+        expect(csv).not.toContain('\0');
+        expect(goalSpanId).toBe(JSON.stringify(['codex', 'root\0thread', 'thread', '/repo\r\0']));
+        expect(goalSpanId).not.toContain('\0');
+        expect(csv).toContain('"row\rvalue\\0tail"');
+    });
+
+    it('should keep goal span identities distinct when components contain delimiters and controls', () => {
+        const makeSpan = (threadId: string, turnOrGoalId: string) => {
+            const accumulator = createAgentDxAccumulator({ cwd: '/repo' });
+            captureAgentDxRecord(
+                {
+                    payload: { turn_id: turnOrGoalId, type: 'turn_context' },
+                    timestamp: '2026-09-02T12:00:00.000Z',
+                    type: 'turn_context',
+                },
+                accumulator,
+            );
+            return buildAgentDxAnalytics([
+                {
+                    childThreadIds: [],
+                    cwd: '/repo',
+                    firstUserMessage: '',
+                    gitSha: null,
+                    source: 'codex',
+                    summary: finishAgentDxAnalysis(accumulator),
+                    threadId,
+                    title: 'identity test',
+                },
+            ]).goalSpans[0]!;
+        };
+
+        const first = makeSpan('root|thread\0', 'turn');
+        const second = makeSpan('root', 'thread\0|turn');
+
+        expect(first.goalSpanId).toBe(JSON.stringify(['codex', 'root|thread\0', 'turn', '/repo']));
+        expect(first.goalSpanId).not.toBe(second.goalSpanId);
+        expect(first.goalSpanId).not.toContain('\0');
+        expect(second.goalSpanId).not.toContain('\0');
     });
 
     it('should only infer repository identity from unambiguous Git output', () => {

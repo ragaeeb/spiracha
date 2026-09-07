@@ -1117,51 +1117,79 @@ describe('cursor-db transcript reads', () => {
         expect(transcript?.renderableBubbleCount).toBe(3);
     });
 
-    it('should not append replayed agent progress after the SQLite final answer', async () => {
+    it.each([
+        ['Final answer', 'Final answer', 'Final answer'],
+        ['Final answer with details', 'Final answer', 'Final answer with details'],
+        ['Final answer', 'Final answer with details', 'Final answer with details'],
+    ])(
+        'should preserve unmatched progress before an overlapping final answer (%s, %s)',
+        async (stored, replayed, final) => {
+            const userDir = await makeUserDir();
+            const spec = baseSpec();
+            spec.threads[0]!.bubbles = [
+                { bubbleId: 'b1', text: 'Original request', type: 1 },
+                { bubbleId: 'b2', text: stored, type: 2 },
+            ];
+            await createCursorFixture(userDir, spec);
+            const transcriptDir = path.join(userDir, 'projects', 'demo-project', 'agent-transcripts', 'thread-1');
+            await mkdir(transcriptDir, { recursive: true });
+            await Bun.write(
+                path.join(transcriptDir, 'thread-1.jsonl'),
+                [
+                    { role: 'user', text: 'Original request' },
+                    { role: 'assistant', text: 'Inspecting the release and validation paths.' },
+                    { role: 'assistant', text: replayed },
+                ]
+                    .map(({ role, text }) => JSON.stringify({ message: { content: [{ text, type: 'text' }] }, role }))
+                    .join('\n'),
+            );
+            const transcript = await readCursorThreadTranscriptWithAgentFiles(
+                getCursorGlobalDbPath(userDir),
+                'thread-1',
+                userDir,
+            );
+            expect(transcript?.bubbles.map((bubble) => bubble.text)).toEqual([
+                'Original request',
+                'Inspecting the release and validation paths.',
+                final,
+            ]);
+            expect(transcript?.renderableBubbleCount).toBe(3);
+        },
+    );
+
+    it('should retain missing replay events beside their own turn anchors', async () => {
         const userDir = await makeUserDir();
         const spec = baseSpec();
         spec.threads[0]!.bubbles = [
-            { bubbleId: 'b1', text: 'Original request', type: 1 },
-            { bubbleId: 'b2', text: 'Fix: Cut a `## 1.1.0` section.', type: 2 },
+            { bubbleId: 'b1', text: 'Repeated request', type: 1 },
+            { bubbleId: 'b2', text: 'Repeated answer', type: 2 },
+            { bubbleId: 'b3', text: 'Repeated request', type: 1 },
+            { bubbleId: 'b4', text: 'Repeated answer', type: 2 },
         ];
         await createCursorFixture(userDir, spec);
         const transcriptDir = path.join(userDir, 'projects', 'demo-project', 'agent-transcripts', 'thread-1');
         await mkdir(transcriptDir, { recursive: true });
+        const messages = [
+            { role: 'user', text: 'Repeated request' },
+            { role: 'assistant', text: 'Investigating first request' },
+            { role: 'assistant', text: 'Repeated answer' },
+            { role: 'user', text: 'Repeated request' },
+            { role: 'assistant', text: 'Investigating second request' },
+            { role: 'assistant', text: 'Repeated answer' },
+        ];
         await Bun.write(
             path.join(transcriptDir, 'thread-1.jsonl'),
-            [
-                JSON.stringify({
-                    message: { content: [{ text: 'Original request', type: 'text' }] },
-                    role: 'user',
-                }),
-                JSON.stringify({
-                    message: {
-                        content: [
-                            {
-                                text: 'I’ll inspect the release, upload, signing, and validation paths next, then walk docs and remaining high-risk modules.',
-                                type: 'text',
-                            },
-                        ],
-                    },
-                    role: 'assistant',
-                }),
-                JSON.stringify({
-                    message: { content: [{ text: 'Fix: Cut a `## 1.1.0` section.', type: 'text' }] },
-                    role: 'assistant',
-                }),
-            ].join('\n'),
+            messages
+                .map(({ role, text }) => JSON.stringify({ message: { content: [{ text, type: 'text' }] }, role }))
+                .join('\n'),
         );
-
         const transcript = await readCursorThreadTranscriptWithAgentFiles(
             getCursorGlobalDbPath(userDir),
             'thread-1',
             userDir,
         );
-
-        expect(transcript?.bubbles.map((bubble) => bubble.text)).toEqual([
-            'Original request',
-            'Fix: Cut a `## 1.1.0` section.',
-        ]);
+        expect(transcript?.bubbles.map((bubble) => bubble.text)).toEqual(messages.map((message) => message.text));
+        expect(transcript?.renderableBubbleCount).toBe(6);
     });
 
     it('should retain agent tool calls that precede a SQLite final answer', async () => {

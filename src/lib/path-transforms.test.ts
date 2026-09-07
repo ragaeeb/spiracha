@@ -52,6 +52,19 @@ describe('applyPathTransforms', () => {
         ).toBe(['Project file: src\\index.ts', 'External file: ~\\Desktop\\notes.md'].join('\n'));
     });
 
+    it.each(['file://C:/Users/user/project', 'file:///C:/Users/user/project'])(
+        'should convert Windows drive file URIs to relative paths (%s)',
+        (rootUri) => {
+            const settings = {
+                convertToProjectRoot: true,
+                projectPath: 'C:\\Users\\user\\project',
+                redactUsername: false,
+            };
+            expect(applyPathTransforms(`${rootUri}/src/index.ts`, settings)).toBe('src/index.ts');
+            expect(applyPathTransforms(rootUri, settings)).toBe('.');
+        },
+    );
+
     it('should remove file URI schemes for Windows UNC project paths', () => {
         expect(
             applyPathTransforms('file://server/share/project/src/index.ts', {

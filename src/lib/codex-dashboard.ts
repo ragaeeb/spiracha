@@ -22,6 +22,9 @@ const DASHBOARD_RESULT_LIMIT = 5;
 
 type DashboardThreadCandidate = DashboardThreadSummary & Pick<ThreadRow, 'first_user_message' | 'rollout_path'>;
 
+type DashboardDatabaseCandidate = Omit<DashboardThreadCandidate, 'first_user_message' | 'preview' | 'title'> &
+    Record<'first_user_message' | 'preview' | 'title', unknown>;
+
 type ProjectSummaryAccumulator = {
     archivedThreadCount: number;
     cwdPaths: Set<string>;
@@ -142,6 +145,8 @@ type DashboardDatabaseTotals = {
     total_tokens: number;
 };
 
+const normalizeDashboardString = (value: unknown) => (typeof value === 'string' ? value : '');
+
 const readDashboardDatabaseData = (dbPath: string) =>
     withReadonlyDb(dbPath, (db) => {
         const totals = db
@@ -162,7 +167,16 @@ const readDashboardDatabaseData = (dbPath: string) =>
                 WHERE ${getUserVisibleThreadFilter(db)}
                   AND typeof(cwd) = 'text' AND TRIM(cwd) <> ''
             `)
-            .all() as DashboardThreadCandidate[];
+            .all()
+            .map((row) => {
+                const candidate = row as DashboardDatabaseCandidate;
+                return {
+                    ...candidate,
+                    first_user_message: normalizeDashboardString(candidate.first_user_message),
+                    preview: normalizeDashboardString(candidate.preview),
+                    title: normalizeDashboardString(candidate.title),
+                };
+            });
         const existingTableNames = getExistingTableNames(db);
         const relationCount = existingTableNames.has('thread_spawn_edges')
             ? (
