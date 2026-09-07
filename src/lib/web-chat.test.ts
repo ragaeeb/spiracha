@@ -50,6 +50,162 @@ const createMappingExport = (input: {
 });
 
 describe('parseWebChatFiles', () => {
+    it('should extract Gemini research artifacts once and preserve their Markdown exactly', () => {
+        const content =
+            '# Research Report — AI-assisted label quality and safe autonomous experiment control\n\nArabic: رحمه الله\n';
+        const artifact = ['im_report', null, 'Research report', 'task', content, [], null, null, [], 'im_report', 3];
+        const input = {
+            ...createMappingExport({ conversationId: 'gemini-artifact', model: 'gemini-3-pro', title: 'Research' }),
+            raw_payload: [[artifact, artifact], ['im_invalid', null, 'Invalid', null, 42], content],
+        };
+        const conversation = parseWebChatFiles([{ content: JSON.stringify(input), name: 'gemini.json' }])
+            .conversations[0]!;
+        expect(conversation.artifacts).toEqual([{ content, id: 'im_report', title: 'Research report' }]);
+        expect(conversation.events.filter((event) => event.kind === 'reasoning')).toEqual([]);
+        expect(
+            parseWebChatFiles([
+                { content: JSON.stringify({ ...input, default_model_slug: 'gpt-5' }), name: 'chatgpt.json' },
+            ]).conversations[0]!.artifacts,
+        ).toEqual([]);
+    });
+
+    it('should keep Gemini document sections out of reasoning while preserving actual thoughts', () => {
+        const section = 'Research relies on provided snapshot.\n\n## Source Ledger\nOriginal sources.';
+        const content = `# Research Report\n\n${section}`;
+        const input = {
+            messages: [
+                {
+                    content: {
+                        content_type: 'thoughts',
+                        parts: ['Research complete.'],
+                        thoughts: [{ content: section }, { content: 'I should compare the sources.' }],
+                    },
+                    role: 'assistant',
+                },
+            ],
+            model: 'gemini-3-pro',
+            raw_payload: [
+                [
+                    'im_sections',
+                    null,
+                    'Report',
+                    null,
+                    content,
+                    [],
+                    null,
+                    null,
+                    [[section]],
+                    'im_sections',
+                    3,
+                    null,
+                    false,
+                    null,
+                    null,
+                    null,
+                    null,
+                    [content, null, null, [[section]]],
+                ],
+            ],
+        };
+        const conversation = parseWebChatFiles([{ content: JSON.stringify(input), name: 'gemini.json' }])
+            .conversations[0]!;
+        expect(conversation.artifacts).toEqual([{ content, id: 'im_sections', title: 'Report' }]);
+        expect(conversation.events.filter((event) => event.kind === 'reasoning').map((event) => event.content)).toEqual(
+            ['I should compare the sources.'],
+        );
+    });
+
+    it('should append numbered Gemini works cited once and reuse their browsing tool calls', () => {
+        const body = '# Report\n\nResearch relies on provided snapshot. [cite: 1, 2]\n';
+        const first = [
+            null,
+            null,
+            null,
+            [['https://www.gstatic.com/icon', 'https://example.com/one', 'First [source]'], 1],
+        ];
+        const second = [
+            null,
+            null,
+            null,
+            [['https://www.gstatic.com/icon', 'https://example.com/two', 'Second source'], 2],
+        ];
+        const citations = [
+            {
+                44: [
+                    [[' [cite: 2]'], [second]],
+                    [[' [cite: 1, 2]'], [first, second]],
+                ],
+            },
+        ];
+        const document = ['im_cited', null, 'Report', null, body, citations, null, null, [], 'im_cited', 3];
+        const input = {
+            messages: [
+                {
+                    content: { content_type: 'thoughts', parts: ['Done'], thoughts: [{ content: body }] },
+                    role: 'assistant',
+                },
+            ],
+            model: 'gemini-3-pro',
+            raw_payload: [document, document],
+        };
+        const conversation = parseWebChatFiles([{ content: JSON.stringify(input), name: 'gemini.json' }])
+            .conversations[0]!;
+        expect(conversation.artifacts).toEqual([
+            {
+                content: `${body}\n## Works cited\n\n1. [First \\[source\\]](<https://example.com/one>)\n2. [Second source](<https://example.com/two>)\n`,
+                id: 'im_cited',
+                title: 'Report',
+            },
+        ]);
+        expect(
+            getToolCalls(conversation.events)
+                .map((event) => event.argumentsText)
+                .sort(),
+        ).toEqual(['{"url":"https://example.com/one"}', '{"url":"https://example.com/two"}']);
+        expect(conversation.events.filter((event) => event.kind === 'reasoning')).toEqual([]);
+    });
+
+    it('should ignore malformed Gemini citations and keep uncited document bodies unchanged', () => {
+        const body = '# Report\n';
+        const input = {
+            messages: [{ content: 'Done', role: 'assistant' }],
+            model: 'gemini-3-pro',
+            raw_payload: [
+                [
+                    'im_bad_citations',
+                    null,
+                    'Report',
+                    null,
+                    body,
+                    [
+                        {
+                            44: [
+                                null,
+                                [
+                                    [],
+                                    [
+                                        null,
+                                        [null, null, null, [[null, 'javascript:alert(1)', 'Bad URL'], 1]],
+                                        [null, null, null, [[null, 'https://example.com', 'Bad number'], -1]],
+                                        [null, null, null, [[null, 'https://example.com', null], 2]],
+                                    ],
+                                ],
+                            ],
+                        },
+                    ],
+                    null,
+                    null,
+                    [],
+                    'im_bad_citations',
+                    3,
+                ],
+            ],
+        };
+        expect(
+            parseWebChatFiles([{ content: JSON.stringify(input), name: 'gemini.json' }]).conversations[0]!.artifacts[0]!
+                .content,
+        ).toBe(body);
+    });
     it('should infer the attached mapping export providers at runtime', () => {
         const cases = [
             { assistantMetadata: { grok_mode: 'deepsearch' }, expected: 'Grok', model: 'Normal' },

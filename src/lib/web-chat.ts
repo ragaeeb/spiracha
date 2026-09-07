@@ -25,7 +25,14 @@ export type WebChatConversationSummary = {
     title: string;
 };
 
+export type WebChatArtifact = {
+    id: string;
+    title: string;
+    content: string;
+};
+
 export type WebChatConversation = WebChatConversationSummary & {
+    artifacts: WebChatArtifact[];
     events: ThreadEvent[];
 };
 
@@ -52,6 +59,7 @@ type NormalizedMessage = {
 };
 
 type ConversationDraft = {
+    artifacts?: WebChatArtifact[];
     createdAtMs: number | null;
     messages: NormalizedMessage[];
     model: string | null;
@@ -253,7 +261,10 @@ const extractReasoning = (message: JsonRecord): string[] => {
         if (Array.isArray(content.parts)) {
             fragments.push(...content.parts.flatMap(extractPartReasoning));
         }
-        if (REASONING_TYPES.has(getBlockType(content))) {
+        if (
+            REASONING_TYPES.has(getBlockType(content)) &&
+            !(Array.isArray(content.thoughts) && content.thoughts.length > 0)
+        ) {
             fragments.push(extractReasoningBlock(content.content), ...extractReasoningValues(content.parts));
         }
     }
@@ -559,8 +570,10 @@ const getGeminiToolCalls = (rawPayload: unknown): ImportedToolEvent[] => {
         if (typeof value === 'string' && /\bresearching websites\b/i.test(value)) {
             hasResearchTrace = true;
         }
-        if (isRecord(value) && Object.keys(value).some((key) => /grounding|citation|web.?search/i.test(key))) {
-            hasResearchTrace = true;
+        if (isRecord(value)) {
+            hasResearchTrace ||=
+                Object.keys(value).some((key) => /grounding|citation|web.?search/i.test(key)) ||
+                getGeminiCitations([value]).length > 0;
         }
         if (
             Array.isArray(value) &&
@@ -597,6 +610,64 @@ const getGeminiToolCalls = (rawPayload: unknown): ImportedToolEvent[] => {
         });
     });
     return hasResearchTrace ? calls : [];
+};
+
+const getGeminiCitations = (metadata: unknown): Array<{ number: number; title: string; url: string }> => {
+    const citations = new Map<number, { number: number; title: string; url: string }>();
+    // Field 44 holds citation groups; each source pairs [favicon, URL, title] with its displayed number.
+    const groups = Array.isArray(metadata)
+        ? metadata.flatMap((entry) => (isRecord(entry) && Array.isArray(entry[44]) ? entry[44] : []))
+        : [];
+    visitJsonValues(groups, (value) => {
+        if (!Array.isArray(value) || !Array.isArray(value[0])) {
+            return;
+        }
+        const [number, url, title] = [value[1], value[0][1], value[0][2]];
+        if (
+            !Number.isSafeInteger(number) ||
+            number <= 0 ||
+            typeof url !== 'string' ||
+            !/^https?:\/\//i.test(url) ||
+            !URL.canParse(url) ||
+            typeof title !== 'string' ||
+            !title.trim()
+        ) {
+            return;
+        }
+        citations.set(number, { number, title, url });
+    });
+    return [...citations.values()].sort((left, right) => left.number - right.number);
+};
+
+const getGeminiArtifacts = (rawPayload: unknown): WebChatArtifact[] => {
+    const artifacts = new Map<string, WebChatArtifact>();
+    visitJsonValues(rawPayload, (value) => {
+        // Gemini immersive document tuples repeat the document ID at index 9; type 3 contains Markdown.
+        if (
+            !Array.isArray(value) ||
+            typeof value[0] !== 'string' ||
+            !value[0].startsWith('im_') ||
+            value[9] !== value[0] ||
+            value[10] !== 3 ||
+            typeof value[2] !== 'string' ||
+            !value[2].trim() ||
+            typeof value[4] !== 'string' ||
+            !value[4].trim()
+        ) {
+            return;
+        }
+        const citations = getGeminiCitations(value[5]).map(({ number, title, url }) => {
+            const label = title.replace(/\r?\n/g, ' ').replace(/[\\`*_[\]<>]/g, '\\$&');
+            const destination = new URL(url).href.replace(/[<>]/g, encodeURIComponent);
+            return `${number}. [${label}](<${destination}>)`;
+        });
+        const content =
+            citations.length > 0
+                ? `${value[4]}${value[4].endsWith('\n') ? '\n' : '\n\n'}## Works cited\n\n${citations.join('\n')}\n`
+                : value[4];
+        artifacts.set(value[0], { content, id: value[0], title: value[2] });
+    });
+    return [...artifacts.values()];
 };
 
 const NOVA_SEARCH_PATTERN = /^🔍\s+Searching for:\s*([\s\S]+)$/;
@@ -1049,7 +1120,18 @@ const parseConversation = (value: unknown, fileName: string): ConversationDraft 
         parseMessageArrayConversation(value, fileName) ??
         parseCommonConversation(value, fileName);
     if (parsed) {
-        return parsed;
+        const artifacts = parsed.platform === 'Gemini' ? getGeminiArtifacts(value.raw_payload) : [];
+        return {
+            ...parsed,
+            artifacts,
+            messages: parsed.messages.map((message) => ({
+                ...message,
+                // Some Gemini exports mislabel document sections as thoughts; retain them only in the artifact.
+                reasoning: message.reasoning.filter(
+                    (text) => !artifacts.some((artifact) => artifact.content.includes(text)),
+                ),
+            })),
+        };
     }
     for (const nested of [value.data, value.payload]) {
         const nestedParsed = parseConversation(nested, fileName);
@@ -1222,6 +1304,7 @@ const finalizeConversation = (draft: ConversationDraft, fileName: string): WebCh
     const identity = draft.sourceConversationId ?? JSON.stringify({ events, fileName, title: draft.title });
     const id = createHash('sha256').update(draft.platform).update('\0').update(identity).digest('hex').slice(0, 32);
     return {
+        artifacts: draft.artifacts ?? [],
         createdAtMs,
         events,
         fileName,
@@ -1290,7 +1373,11 @@ const retainImportedWebChat = (conversation: WebChatConversation, bytes: number)
     }
 };
 
-const toWebChatSummary = ({ events: _events, ...summary }: WebChatConversation): WebChatConversationSummary => summary;
+const toWebChatSummary = ({
+    artifacts: _artifacts,
+    events: _events,
+    ...summary
+}: WebChatConversation): WebChatConversationSummary => summary;
 
 export const importWebChatFiles = (files: WebChatFileInput[]): WebChatParseResult => {
     const result = parseSizedWebChatFiles(files);

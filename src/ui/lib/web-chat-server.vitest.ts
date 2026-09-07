@@ -16,6 +16,7 @@ vi.mock('@tanstack/react-start', () => ({
 }));
 
 import {
+    getWebChatArtifactsFn,
     getWebChatEventsFn,
     getWebChatFn,
     importWebChatsFn,
@@ -44,6 +45,36 @@ const exportedChat = {
 };
 
 describe('web chat server', () => {
+    it('should load artifact bodies separately from import and list summaries', async () => {
+        const content = '# Report\n\nOriginal Markdown\n';
+        const result = await importWebChatsFn({
+            data: {
+                files: [
+                    {
+                        content: JSON.stringify({
+                            ...exportedChat,
+                            conversation_id: 'gemini-server-artifact',
+                            default_model_slug: 'gemini-3-pro',
+                            raw_payload: [
+                                ['im_report', null, 'Report', null, content, [], null, null, [], 'im_report', 3],
+                            ],
+                        }),
+                        name: 'gemini.json',
+                    },
+                ],
+            },
+        } as never);
+        const summary = result.conversations[0]!;
+        expect(summary).not.toHaveProperty('artifacts');
+        expect(await getWebChatFn({ data: { conversationId: summary.id } } as never)).not.toHaveProperty('artifacts');
+        expect(await listWebChatsFn()).toContainEqual(summary);
+        expect(await getWebChatArtifactsFn({ data: { conversationId: summary.id } } as never)).toEqual([
+            { content, id: 'im_report', title: 'Report' },
+        ]);
+        await expect(getWebChatArtifactsFn({ data: { conversationId: 'missing-artifact' } } as never)).rejects.toThrow(
+            'Imported web conversation not found',
+        );
+    });
     it('should import summaries and expose the parsed detail by route id', async () => {
         const result = await importWebChatsFn({
             data: { files: [{ content: JSON.stringify(exportedChat), name: 'chatgpt.json' }] },
