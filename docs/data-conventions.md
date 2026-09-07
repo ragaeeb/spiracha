@@ -62,7 +62,7 @@ These rules define the boundary between source-specific discovery and Spiracha's
 - The root `#package-metadata` import is the validated package metadata boundary for the UI. Missing or malformed homepage/version metadata fails loudly.
 - TanStack server functions keep Bun-only database imports on the server boundary. Browser-safe transcript phase/filter modules may be imported by client adapters; database readers must not cross into browser bundles.
 - The `spiracha` CLI is an API-driven thin client. Use `spiracha serve`, `spiracha list [--cwd <path>]`, `spiracha list --source grok-bot`, `spiracha get <ref>`, `spiracha export <ref> [--raw] [--output <path>]`, and `spiracha evidence <ref> --lens <file> [--output <path>]`; no arguments print help. Applications should import the Bun SDK from `spiracha/client` instead of shelling out.
-- Bun 1.4.0 or newer is required. `bun start` is the UI development server; `bun run build` emits bundled client/server output consumed by `spiracha serve`. The package has one runtime dependency (`fflate`); UI/build/test tooling is development-only.
+- Bun 1.4.2 or newer is required. `bun start` is the UI development server; `bun run build` emits bundled client/server output consumed by `spiracha serve`. The package has one runtime dependency (`fflate`); UI/build/test tooling is development-only.
 - Markdown remains deterministic generation and domain parsing. Bun 1.4's `Bun.markdown` was evaluated but is unstable for this contract and is not used.
 
 ## Delete behavior

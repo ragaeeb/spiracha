@@ -30,7 +30,7 @@ bun start
 
 Open the local URL printed by Vite.
 
-The local CLI, UI server, and `spiracha/client` require Bun 1.4.0 or newer. The `spiracha/payload` converter uses standard Web APIs and also runs in Node.js 22+, modern browsers with Web Crypto, and Cloudflare Workers. Set `PORT` to choose a different port, for example `PORT=4100 bunx spiracha serve`.
+The local CLI, UI server, and `spiracha/client` require Bun 1.4.2 or newer. The `spiracha/payload` converter uses standard Web APIs and also runs in Node.js 22+, modern browsers with Web Crypto, and Cloudflare Workers. Set `PORT` to choose a different port, for example `PORT=4100 bunx spiracha serve`.
 
 ## Local security
 

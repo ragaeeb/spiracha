@@ -18,7 +18,7 @@ Main entrypoints:
 - `rtk bun test`, `rtk bun run lint`, `rtk bun run typecheck`, `rtk bun run build`, and `rtk bun run coverage` for verification
 - `rtk bun run test:package` for the packaged-entrypoint smoke test
 
-Bun 1.4.0 or newer is required for development and local storage workflows. The compiled `spiracha/payload` export must run without Bun or Node built-ins in Node.js, browsers, and Workers.
+Bun 1.4.2 or newer is required for development and local storage workflows. The compiled `spiracha/payload` export must run without Bun or Node built-ins in Node.js, browsers, and Workers.
 
 ## Conventions and Rules
 
