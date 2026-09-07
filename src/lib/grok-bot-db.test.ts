@@ -6,6 +6,7 @@ import {
     deleteGrokBotConversation,
     encodeGrokBotPersistenceKey,
     getGrokBotPersistenceFilePath,
+    isGrokBotRunning,
     listGrokBotConversations,
     readGrokBotConversation,
 } from './grok-bot-db';
@@ -13,6 +14,16 @@ import {
 const CURRENT_ACCOUNT_SLOT = 'google-oauth2|user/01?reserved%value';
 const KIWI_ID = 'bd5bbf01-a4e1-47f8-885f-f2188cf04aab';
 const BAMBA_ID = '477a1920-782e-4470-944f-b808c21f0fde';
+const KIWI_ROSTER_ROW = {
+    avatarUrl: 'https://example.test/kiwi.png',
+    createdAt: 1_700_000_000_000,
+    description: 'Software Engineering',
+    id: KIWI_ID,
+    isGroup: false,
+    name: 'Kiwi',
+    title: 'Developer',
+    unreadCount: 3,
+};
 
 const writePersistenceBlob = async (root: string, key: string, value: unknown, schemaVersion = 1) => {
     await Bun.write(getGrokBotPersistenceFilePath(root, key), JSON.stringify({ schemaVersion, value }));
@@ -26,14 +37,7 @@ const writeFixture = async (root: string) => {
         `${accountPrefix}.roster.last-roster`,
         {
             rows: [
-                {
-                    createdAt: 1_700_000_000_000,
-                    description: 'Software Engineering',
-                    id: KIWI_ID,
-                    isGroup: false,
-                    name: 'Kiwi',
-                    title: 'Developer',
-                },
+                KIWI_ROSTER_ROW,
                 {
                     createdAt: 1_700_000_000_100,
                     id: BAMBA_ID,
@@ -75,8 +79,43 @@ const writeFixture = async (root: string) => {
 };
 
 describe('grok bot persistence', () => {
+    it('should classify only pgrep statuses zero and one as running and stopped', async () => {
+        const processWithExitCode = (exitCode: number) => () => ({ exited: Promise.resolve(exitCode) });
+
+        await expect(isGrokBotRunning(processWithExitCode(0))).resolves.toBe(true);
+        await expect(isGrokBotRunning(processWithExitCode(1))).resolves.toBe(false);
+    });
+
+    it('should fail closed when the Grok Bot running check is unavailable', async () => {
+        const unavailableProcess = () => {
+            throw new Error('spawn ENOENT');
+        };
+        const unexpectedExitProcess = () => ({ exited: Promise.resolve(2) });
+
+        await expect(isGrokBotRunning(unavailableProcess)).rejects.toThrow(
+            'Unable to verify whether Grok Bot is running',
+        );
+        await expect(isGrokBotRunning(unexpectedExitProcess)).rejects.toThrow(
+            'Unable to verify whether Grok Bot is running',
+        );
+    });
+
     it('should encode persistence keys as unpadded lowercase base32', () => {
         expect(encodeGrokBotPersistenceKey('foo')).toBe('mzxw6');
+        expect(encodeGrokBotPersistenceKey('f')).toBe('my');
+        expect(encodeGrokBotPersistenceKey('sand.client.slice.client-meta.account-slot')).toBe(
+            'onqw4zbomnwgszlooqxhg3djmnss4y3mnfsw45bnnvsxiyjomfrwg33vnz2c243mn52a',
+        );
+        expect(encodeGrokBotPersistenceKey(CURRENT_ACCOUNT_SLOT)).toBe(
+            'm5xw6z3mmuww6ylvorude7dvonsxelzqge7xezltmvzhmzleev3gc3dvmu',
+        );
+        expect(
+            encodeGrokBotPersistenceKey(
+                `sand.client.slice.account.${encodeURIComponent(CURRENT_ACCOUNT_SLOT)}.transcript.replicas.${BAMBA_ID}`,
+            ),
+        ).toBe(
+            'onqw4zbomnwgszlooqxhg3djmnss4yldmnxxk3tufztw633hnrss233bov2gqmrfg5bxk43foisterrqgestgrtsmvzwk4twmvsckmrvozqwy5lffz2heyloonrxe2lqoqxhezlqnruwgyltfy2don3bge4tembng44dezjngq2dombnhe2dizrnmi4daoddgiywmmdgmrsq',
+        );
         expect(encodeGrokBotPersistenceKey('')).toBe('');
         expect(path.basename(getGrokBotPersistenceFilePath('/persist', 'roster.last-roster'))).toMatch(
             /^[a-z2-7]+\.blob$/u,
@@ -112,18 +151,47 @@ describe('grok bot persistence', () => {
             await expect(deleteGrokBotConversation(root, BAMBA_ID, async () => true)).rejects.toThrow(
                 'Quit Grok Bot before deleting',
             );
+            await expect(deleteGrokBotConversation(root, 'missing-id', async () => true)).resolves.toEqual({
+                deletedFiles: [],
+                deletedIds: [],
+            });
             await expect(listGrokBotConversations(root)).resolves.toHaveLength(2);
             await expect(deleteGrokBotConversation(root, BAMBA_ID, async () => false)).resolves.toEqual({
                 deletedFiles: [replicaPath],
                 deletedIds: [BAMBA_ID],
             });
             expect(await Bun.file(replicaPath).exists()).toBe(false);
+            const rosterPath = getGrokBotPersistenceFilePath(root, `${accountPrefix}.roster.last-roster`);
+            await expect(Bun.file(rosterPath).json()).resolves.toEqual(
+                expect.objectContaining({
+                    value: expect.objectContaining({ rows: [KIWI_ROSTER_ROW] }),
+                }),
+            );
             await expect(listGrokBotConversations(root)).resolves.toEqual([expect.objectContaining({ id: KIWI_ID })]);
             await expect(readGrokBotConversation(root, BAMBA_ID)).resolves.toBeNull();
             await expect(deleteGrokBotConversation(root, BAMBA_ID, async () => false)).resolves.toEqual({
                 deletedFiles: [],
                 deletedIds: [],
             });
+        } finally {
+            await rm(root, { force: true, recursive: true });
+        }
+    });
+
+    it('should delete an oversized transcript replica without reading it', async () => {
+        const root = await mkdtemp(path.join(os.tmpdir(), 'grok-bot-db-delete-large-'));
+        try {
+            await writeFixture(root);
+            const accountPrefix = `sand.client.slice.account.${encodeURIComponent(CURRENT_ACCOUNT_SLOT)}`;
+            const replicaPath = getGrokBotPersistenceFilePath(root, `${accountPrefix}.transcript.replicas.${BAMBA_ID}`);
+            await Bun.write(replicaPath, new Uint8Array(16 * 1024 * 1024 + 1));
+
+            await expect(deleteGrokBotConversation(root, BAMBA_ID, async () => false)).resolves.toEqual({
+                deletedFiles: [replicaPath],
+                deletedIds: [BAMBA_ID],
+            });
+            expect(await Bun.file(replicaPath).exists()).toBe(false);
+            await expect(listGrokBotConversations(root)).resolves.toEqual([expect.objectContaining({ id: KIWI_ID })]);
         } finally {
             await rm(root, { force: true, recursive: true });
         }

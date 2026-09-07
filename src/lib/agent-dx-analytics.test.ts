@@ -16,6 +16,88 @@ const responseItem = (payload: Record<string, JsonValue>, timestamp = '2026-09-0
 });
 
 describe('agent DX analytics', () => {
+    it('should classify executed command names without counting quoted, commented, or heredoc examples', () => {
+        for (const command of [
+            'echo "bun test --coverage; cat docs; rm example"',
+            'printf "%s" "apply_patch"',
+            'cat platform.md # bun test --coverage',
+            "cat <<'DOC'\nbun test\nrm example\nDOC",
+        ]) {
+            const accumulator = createAgentDxAccumulator({ cwd: '/repo' });
+            for (const call_id of ['first', 'again']) {
+                captureAgentDxRecord(
+                    responseItem({
+                        arguments: JSON.stringify({ cmd: command }),
+                        call_id,
+                        name: 'exec_command',
+                        type: 'function_call',
+                    }),
+                    accumulator,
+                );
+            }
+            const summary = finishAgentDxAnalysis(accumulator);
+            expect(summary.repeatedGateCalls).toBe(0);
+            expect(summary.firstMutationLatencyMs).toBeNull();
+            expect(summary.discoveryCallCount).toBe(2);
+        }
+        const accumulator = createAgentDxAccumulator({ cwd: '/repo' });
+        for (const call_id of ['first', 'again']) {
+            captureAgentDxRecord(
+                responseItem({
+                    arguments: JSON.stringify({ cmd: 'rtk bun test && rtk bun run lint' }),
+                    call_id,
+                    name: 'exec_command',
+                    type: 'function_call',
+                }),
+                accumulator,
+            );
+        }
+        expect(finishAgentDxAnalysis(accumulator).repeatedGateCalls).toBe(1);
+    });
+
+    it('should leave missing CSV values empty while retaining explicit null text', () => {
+        const analytics = buildAgentDxAnalytics([
+            {
+                childThreadIds: [],
+                cwd: '/repo',
+                firstUserMessage: '',
+                gitSha: null,
+                source: 'codex',
+                summary: finishAgentDxAnalysis(createAgentDxAccumulator({ cwd: '/repo' })),
+                threadId: 'root',
+                title: 'null',
+            },
+        ]);
+        const row = renderAgentDxAnalyticsExport(analytics, 'csv').split('\n')[1]!.split(',');
+        expect(row[AGENT_DX_CSV_COLUMNS.indexOf('repository_identity_before')]).toBe('');
+        expect(row[AGENT_DX_CSV_COLUMNS.indexOf('repository_identity_after')]).toBe('');
+        expect(row[AGENT_DX_CSV_COLUMNS.indexOf('task_label_and_kalu_row')]).toBe('null');
+    });
+
+    it('should only infer repository identity from unambiguous Git output', () => {
+        const sha = '0123456789abcdef0123456789abcdef01234567';
+        for (const [command, output, expected] of [
+            ['git rev-parse HEAD', `${sha}\nwarning: unrelated deadbeef`, sha],
+            ['git rev-parse HEAD', 'fatal: missing object deadbeef', null],
+            ['git commit -m done', '[next abc1234] done\nfile deadbeef changed', 'abc1234'],
+            ['echo "git rev-parse HEAD"', sha, null],
+            ['git rev-parse HEAD && sha256sum data', `${sha}\n${'a'.repeat(64)}`, null],
+        ] as const) {
+            const accumulator = createAgentDxAccumulator({ cwd: '/repo' });
+            captureAgentDxRecord(
+                responseItem({
+                    arguments: JSON.stringify({ cmd: command }),
+                    call_id: 'git',
+                    name: 'exec_command',
+                    type: 'function_call',
+                }),
+                accumulator,
+            );
+            captureAgentDxRecord(responseItem({ call_id: 'git', output, type: 'function_call_output' }), accumulator);
+            expect(finishAgentDxAnalysis(accumulator).repositoryIdentityAfter).toBe(expected);
+        }
+    });
+
     it('should retain provider-neutral event, usage, saturation, polling, and lineage metrics', () => {
         const accumulator = createAgentDxAccumulator({
             createdAtMs: Date.parse('2026-09-02T12:00:00.000Z'),

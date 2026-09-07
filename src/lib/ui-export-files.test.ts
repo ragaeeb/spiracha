@@ -30,6 +30,12 @@ afterEach(async () => {
 });
 
 describe('ui export file helpers', () => {
+    it('should use a stable user-private default export directory', () => {
+        delete process.env[UI_EXPORT_DIR_ENV];
+
+        expect(getUiExportDir()).toBe(path.join(os.homedir(), '.cache', 'spiracha', 'ui-exports'));
+    });
+
     it('should create the export directory with owner-only permissions', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'spiracha-ui-export-mode-test-'));
         tempPaths.push(tempRoot);

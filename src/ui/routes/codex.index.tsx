@@ -24,7 +24,7 @@ export const Route = createFileRoute('/codex/')({
     validateSearch: parseTextQuerySearch,
 });
 
-function ProjectsErrorComponent({ error }: { error: Error }) {
+function ProjectsErrorComponent({ error }: { error: unknown }) {
     return <RouteErrorPanel error={error} title="Failed to load Codex inventory" />;
 }
 

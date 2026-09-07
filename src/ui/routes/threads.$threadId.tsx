@@ -426,7 +426,7 @@ function LargeThreadPreviewNotice({
     );
 }
 
-function ThreadErrorComponent({ error }: { error: Error }) {
+function ThreadErrorComponent({ error }: { error: unknown }) {
     return <RouteErrorPanel error={error} title="Failed to load thread" />;
 }
 

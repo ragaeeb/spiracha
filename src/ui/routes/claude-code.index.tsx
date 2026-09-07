@@ -19,7 +19,7 @@ export const Route = createFileRoute('/claude-code/')({
     pendingMs: 0,
 });
 
-function ClaudeCodeErrorComponent({ error }: { error: Error }) {
+function ClaudeCodeErrorComponent({ error }: { error: unknown }) {
     return <RouteErrorPanel error={error} title="Failed to load Claude Code workspaces" />;
 }
 

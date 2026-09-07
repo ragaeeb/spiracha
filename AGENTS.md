@@ -68,6 +68,10 @@ Web import modules:
 Codex browser/export modules:
 - `src/lib/codex-database.ts`, `src/lib/codex-fallback-index.ts`, `src/lib/codex-browser-queries.ts`, `src/lib/codex-dashboard.ts`, `src/lib/codex-thread-mutations.ts`
   - project/thread browsing queries, delete flows, dashboard summaries, DB path resolution
+- `src/lib/codex-cloud.ts`, `src/lib/codex-cloud-transcript.ts`
+  - authenticated, read-only Cloud browsing and normalized task transcripts; the Codex CLI owns login refresh
+- `src/lib/agent-dx-analytics.ts`
+  - deterministic goal-span analytics and JSON/CSV export; command classification is conservative and heuristic
 - `src/lib/codex-browser-export.ts`
   - UI-facing thread download rendering
 - `src/lib/codex-browser-types.ts`
@@ -171,7 +175,7 @@ Defaults:
 - `delete_session_files` is accepted for single-delete query strings and batch-delete JSON; Cursor uses it to keep or remove transcript directories
 - Web imports are intentionally UI-only: they are not members of `CONVERSATION_SOURCES` and are not exposed through the stable API or CLI
 - Supplied payload conversion is separately exposed through `spiracha/payload` and the Bun `spiracha/client`; it reuses Web and native normalization without adding imported conversations to the stable source registry. Claude Code payload conversion is unsupported.
-- Grok Bot is a global, read-only source backed by the installed macOS app's account-scoped persistence directory. Its list path reads the validated roster only; detail reads one exact transcript replica, and raw export returns the original `.blob` bytes.
+- Grok Bot is a global source backed by the installed macOS app's account-scoped persistence directory. List reads the validated roster only, detail reads one exact replica, and raw export returns the original `.blob` bytes. Local deletion removes the selected original roster row and replica after a fail-closed process check; keep the app stopped throughout deletion. The check is not an atomic writer lock, and partial replica cleanup is reported separately.
 
 Do not bake review semantics into Spiracha. A client such as `fgh --collect` decides that a selected assistant message is a review and chooses where to save it.
 

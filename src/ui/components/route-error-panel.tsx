@@ -2,7 +2,7 @@ import { getErrorPresentation } from '#/lib/error-presentation';
 import { ReloadErrorPanel } from './reload-error-panel';
 
 type RouteErrorPanelProps = {
-    error: Error;
+    error: unknown;
     title: string;
 };
 

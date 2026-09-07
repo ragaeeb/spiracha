@@ -29,7 +29,7 @@ import {
 import { RouteStateResetBoundary } from '#/lib/route-state-reset';
 import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
-const MiniMaxCodeSessionDetailErrorComponent = ({ error }: { error: Error }) => {
+const MiniMaxCodeSessionDetailErrorComponent = ({ error }: { error: unknown }) => {
     return <RouteErrorPanel error={error} title="Failed to load MiniMax Code session" />;
 };
 

@@ -294,6 +294,7 @@ const RAW_EXPORT_SOURCES = new Set<ConversationSource>([
     'cline',
     'codex',
     'grok',
+    'grok-bot',
     'kiro',
     'minimax-code',
     'qoder',

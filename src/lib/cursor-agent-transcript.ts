@@ -62,12 +62,18 @@ export const parseCursorAgentTranscriptRecord = (raw: unknown, bubbleId: string)
         .map((part) => (typeof part.text === 'string' ? part.text : null))
         .filter((value): value is string => Boolean(value?.trim()))
         .join('\n\n');
+    const thinking =
+        parts
+            .filter((part) => part.type === 'thinking' && typeof part.thinking === 'string')
+            .map((part) => part.thinking as string)
+            .filter((value) => value.trim())
+            .join('\n\n') || null;
     const bubble: CursorBubble = {
         bubbleId,
         createdAtMs: null,
         kind,
         text,
-        thinking: null,
+        thinking,
         toolCall: parseAgentTranscriptToolCall(parts),
     };
 

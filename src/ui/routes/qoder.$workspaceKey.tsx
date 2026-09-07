@@ -28,7 +28,7 @@ const findWorkspaceOrThrow = (workspaces: QoderWorkspaceGroup[], workspaceKey: s
     return workspace;
 };
 
-const QoderWorkspaceErrorComponent = ({ error }: { error: Error }) => {
+const QoderWorkspaceErrorComponent = ({ error }: { error: unknown }) => {
     return <RouteErrorPanel error={error} title="Failed to load Qoder workspace" />;
 };
 

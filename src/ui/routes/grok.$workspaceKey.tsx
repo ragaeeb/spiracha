@@ -96,7 +96,7 @@ export const Route = createFileRoute('/grok/$workspaceKey')({
     pendingComponent: () => <LoadingPanel description="Loading Grok sessions." title="Loading workspace" />,
 });
 
-function GrokWorkspaceErrorComponent({ error }: { error: Error }) {
+function GrokWorkspaceErrorComponent({ error }: { error: unknown }) {
     return <RouteErrorPanel error={error} title="Failed to load Grok workspace" />;
 }
 

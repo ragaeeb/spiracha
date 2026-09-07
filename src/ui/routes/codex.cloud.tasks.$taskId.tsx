@@ -47,7 +47,7 @@ export const Route = createFileRoute('/codex/cloud/tasks/$taskId')({
     validateSearch: parseThreadTranscriptSearch,
 });
 
-function CodexCloudTaskErrorComponent({ error }: { error: Error }) {
+function CodexCloudTaskErrorComponent({ error }: { error: unknown }) {
     return <RouteErrorPanel error={error} title="Failed to load Codex Cloud task" />;
 }
 

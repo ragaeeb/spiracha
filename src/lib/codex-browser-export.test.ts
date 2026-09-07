@@ -359,7 +359,7 @@ describe('renderCodexThreadDownload', () => {
         tempPaths.push(tempRoot);
         const fixture = await createCodexBrowserFixture(tempRoot);
         const originalThreadId = fixture.threads[0]!.threadId;
-        const collidingThreadId = `${originalThreadId.slice(0, 8)}-ffff-7fff-8fff-ffffffffffff`;
+        const collidingThreadId = `${originalThreadId.slice(0, 8)}/../../escaped`;
         const db = new Database(fixture.dbPath);
 
         try {
@@ -453,6 +453,7 @@ describe('renderCodexThreadDownload', () => {
         expect(entries).toHaveLength(3);
         expect(entries).toContain('spiracha-manifest.json');
         expect(new Set(entries).size).toBe(3);
+        expect(entries.every((entry) => entry === path.basename(entry))).toBe(true);
     });
 
     it('should keep exportable threads and record skipped threads in a batch manifest', async () => {

@@ -32,7 +32,7 @@ import {
 import { RouteStateResetBoundary } from '#/lib/route-state-reset';
 import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
-const KiroSessionDetailErrorComponent = ({ error }: { error: Error }) => {
+const KiroSessionDetailErrorComponent = ({ error }: { error: unknown }) => {
     return <RouteErrorPanel error={error} title="Failed to load Kiro session" />;
 };
 

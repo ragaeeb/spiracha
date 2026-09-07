@@ -6,6 +6,7 @@ import path from 'node:path';
 import {
     clearUiCache,
     getCachedJson,
+    getUiCacheDir,
     hashCacheKeyPartsIterable,
     invalidateCacheByPrefix,
     pruneUiCacheEntries,
@@ -14,7 +15,7 @@ import {
     withCachedJson,
 } from './ui-cache';
 
-const CACHE_DIR = path.join(os.tmpdir(), 'spiracha-ui-cache');
+const CACHE_DIR = getUiCacheDir();
 const originalCacheBypass = process.env.SPIRACHA_UI_CACHE_BYPASS;
 const CACHE_KEY_PREFIX_MAX_LENGTH = 80;
 const getCacheFilePath = (key: string) => {

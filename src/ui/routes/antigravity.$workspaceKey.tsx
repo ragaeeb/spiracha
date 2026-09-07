@@ -124,7 +124,7 @@ export const Route = createFileRoute('/antigravity/$workspaceKey')({
     ),
 });
 
-function AntigravityWorkspaceErrorComponent({ error }: { error: Error }) {
+function AntigravityWorkspaceErrorComponent({ error }: { error: unknown }) {
     return <RouteErrorPanel error={error} title="Failed to load Antigravity workspace" />;
 }
 

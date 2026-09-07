@@ -347,16 +347,19 @@ const readCodexCloudAuth = async (): Promise<CodexCloudAuth> => {
 
 const refreshCodexCloudAuth = async () => {
     const command = process.env.CODEX_BIN?.trim() || 'codex';
+    let child: ReturnType<typeof Bun.spawn>;
     try {
-        const child = Bun.spawn([command, 'cloud', 'list', '--json', '--limit', '1'], {
+        child = Bun.spawn([command, 'cloud', 'list', '--json', '--limit', '1'], {
             stderr: 'ignore',
             stdout: 'ignore',
         });
-        if ((await child.exited) !== 0) {
-            throw new Error('refresh failed');
-        }
     } catch {
-        throw new CodexCloudError('Codex Cloud login expired. Run `codex login` and try again.');
+        throw new CodexCloudError(
+            'Could not start the Codex CLI to refresh login. Check `CODEX_BIN` or install Codex.',
+        );
+    }
+    if ((await child.exited) !== 0) {
+        throw new CodexCloudError('Codex Cloud login refresh failed. Run `codex login` and try again.');
     }
 };
 
@@ -367,15 +370,20 @@ const runCodexCloudList = async ({ cursor, limit }: { cursor?: string; limit: nu
         args.push('--cursor', cursor);
     }
 
+    let child: ReturnType<typeof Bun.spawn>;
     try {
-        const child = Bun.spawn([command, ...args], { stderr: 'ignore', stdout: 'pipe' });
-        const output = await new Response(child.stdout).text();
-        if ((await child.exited) !== 0) {
-            throw new Error('list failed');
-        }
+        child = Bun.spawn([command, ...args], { stderr: 'ignore', stdout: 'pipe' });
+    } catch {
+        throw new CodexCloudError('Could not start the Codex CLI for inventory. Check `CODEX_BIN` or install Codex.');
+    }
+    const output = await new Response(child.stdout as ReadableStream<Uint8Array>).text();
+    if ((await child.exited) !== 0) {
+        throw new CodexCloudError('Codex CLI inventory command failed. Run `codex login` and try again.');
+    }
+    try {
         return JSON.parse(output) as unknown;
     } catch {
-        throw new CodexCloudError('Codex Cloud inventory is unavailable. Run `codex login` and try again.');
+        throw new CodexCloudError('Codex CLI returned invalid inventory JSON. Update Codex and try again.');
     }
 };
 
@@ -438,11 +446,15 @@ const appendCloudTasks = (rawItems: unknown[], tasks: CodexCloudTask[], seenTask
     }
 };
 
-const getCloudListItems = (response: CloudListResponse) => {
-    if (Array.isArray(response.items)) {
-        return response.items;
+const getCloudListItems = (response: unknown) => {
+    const record = asRecord(response);
+    if (Array.isArray(record?.items)) {
+        return record.items;
     }
-    return Array.isArray(response.tasks) ? response.tasks : [];
+    if (Array.isArray(record?.tasks)) {
+        return record.tasks;
+    }
+    throw new CodexCloudError('Codex Cloud returned an invalid inventory response.');
 };
 
 const updateCloudListCursor = ({
@@ -516,8 +528,23 @@ export const createCodexCloudClient = (options: CodexCloudClientOptions = {}): C
             return parseCloudResponse(response);
         }
 
-        await refreshAuth();
+        await response.body?.cancel();
+        try {
+            await refreshAuth();
+        } catch (error) {
+            if (error instanceof CodexCloudError) {
+                throw error;
+            }
+            throw new CodexCloudError('Codex Cloud login refresh failed. Run `codex login` and try again.');
+        }
         const refreshedResponse = await performCloudRequest(fetchImpl, endpoint, searchParams, await readAuth());
+        if (refreshedResponse.status === 401) {
+            await refreshedResponse.body?.cancel();
+            throw new CodexCloudError(
+                'Codex Cloud is still unauthorized after refreshing login. Run `codex login` and try again.',
+                401,
+            );
+        }
         return parseCloudResponse(refreshedResponse);
     };
 

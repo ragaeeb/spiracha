@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'bun:test';
+import { chmod, mkdtemp, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import type { MessageEvent } from './codex-browser-types';
 import {
     type CodexCloudAuth,
@@ -21,7 +24,113 @@ const jsonResponse = (value: JsonValue, status = 200) =>
         status,
     });
 
+const withCodexBinFixture = async <T>(script: string | null, callback: () => Promise<T>): Promise<T> => {
+    const previousCodexBin = process.env.CODEX_BIN;
+    const root = await mkdtemp(path.join(os.tmpdir(), 'codex-cloud-cli-'));
+    const executable = path.join(root, 'codex');
+    try {
+        if (script !== null) {
+            await Bun.write(executable, script);
+            await chmod(executable, 0o700);
+        }
+        process.env.CODEX_BIN = executable;
+        return await callback();
+    } finally {
+        if (previousCodexBin === undefined) {
+            delete process.env.CODEX_BIN;
+        } else {
+            process.env.CODEX_BIN = previousCodexBin;
+        }
+        await rm(root, { force: true, recursive: true });
+    }
+};
+
 describe('Codex Cloud client', () => {
+    it('should report when the Codex CLI executable is missing', async () => {
+        await withCodexBinFixture(null, async () => {
+            const client = createCodexCloudClient({ readAuth: async () => auth });
+
+            await expect(client.listTasks()).rejects.toThrow(
+                'Could not start the Codex CLI for inventory. Check `CODEX_BIN` or install Codex.',
+            );
+        });
+    });
+
+    it('should report a nonzero Codex CLI inventory exit', async () => {
+        await withCodexBinFixture('#!/bin/sh\nexit 7\n', async () => {
+            const client = createCodexCloudClient({ readAuth: async () => auth });
+
+            await expect(client.listTasks()).rejects.toThrow(
+                'Codex CLI inventory command failed. Run `codex login` and try again.',
+            );
+        });
+    });
+
+    it('should report invalid JSON from the Codex CLI inventory command', async () => {
+        await withCodexBinFixture("#!/bin/sh\nprintf 'not-json\\n'\n", async () => {
+            const client = createCodexCloudClient({ readAuth: async () => auth });
+
+            await expect(client.listTasks()).rejects.toThrow(
+                'Codex CLI returned invalid inventory JSON. Update Codex and try again.',
+            );
+        });
+    });
+
+    it('should report a nonzero default Codex CLI refresh after a 401 response', async () => {
+        await withCodexBinFixture('#!/bin/sh\nexit 9\n', async () => {
+            const client = createCodexCloudClient({
+                fetchImpl: async () => new Response('', { status: 401 }),
+                readAuth: async () => auth,
+            });
+
+            await expect(client.getTask('task_example')).rejects.toThrow(
+                'Codex Cloud login refresh failed. Run `codex login` and try again.',
+            );
+        });
+    });
+
+    it('should explain a second unauthorized response without exposing credentials or response bodies', async () => {
+        let refreshes = 0;
+        const client = createCodexCloudClient({
+            fetchImpl: async () => new Response('secret response body access-token', { status: 401 }),
+            readAuth: async () => auth,
+            refreshAuth: async () => {
+                refreshes += 1;
+            },
+        });
+        const error = await client.getTask('task_example').catch((error: unknown) => error);
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toContain('after refreshing');
+        expect((error as Error).message).not.toContain('access-token');
+        expect((error as Error).message).not.toContain('secret response body');
+        expect(refreshes).toBe(1);
+    });
+
+    it('should distinguish refresh failures without exposing the refresh error', async () => {
+        let requests = 0;
+        const client = createCodexCloudClient({
+            fetchImpl: async () => {
+                requests += 1;
+                return new Response('', { status: 401 });
+            },
+            readAuth: async () => auth,
+            refreshAuth: async () => {
+                throw new Error('access-token');
+            },
+        });
+        const error = await client.getTask('task_example').catch((error: unknown) => error);
+        expect((error as Error).message).toContain('refresh failed');
+        expect((error as Error).message).not.toContain('access-token');
+        expect(requests).toBe(1);
+    });
+
+    it('should reject malformed Cloud inventory envelopes instead of reporting an empty inventory', async () => {
+        for (const value of [null, {}, { tasks: 'invalid' }, []]) {
+            const client = createCodexCloudClient({ listCommandImpl: async () => value, readAuth: async () => auth });
+            await expect(client.listTasks()).rejects.toThrow('invalid inventory');
+        }
+    });
+
     it('should list all pages with the current-task filter and stop at a repeated cursor', async () => {
         const requests: URL[] = [];
         const client = createCodexCloudClient({

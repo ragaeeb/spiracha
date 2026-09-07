@@ -9,7 +9,7 @@ import { RouteErrorPanel } from '#/components/route-error-panel';
 import { fxWorkspacesQueryOptions } from '#/lib/fx-queries';
 import { matchesTextQuery } from '#/lib/text-filter';
 
-const FxErrorComponent = ({ error }: { error: Error }) => (
+const FxErrorComponent = ({ error }: { error: unknown }) => (
     <RouteErrorPanel error={error} title="Failed to load FX workspaces" />
 );
 

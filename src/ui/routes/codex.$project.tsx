@@ -86,7 +86,7 @@ export const Route = createFileRoute('/codex/$project')({
     validateSearch: parseTextQuerySearch,
 });
 
-function ProjectDetailErrorComponent({ error }: { error: Error }) {
+function ProjectDetailErrorComponent({ error }: { error: unknown }) {
     return <RouteErrorPanel error={error} title="Failed to load Codex project" />;
 }
 

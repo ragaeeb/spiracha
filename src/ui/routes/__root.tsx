@@ -24,7 +24,7 @@ const themeInitScript = `
   })()
 `;
 
-function RootErrorComponent({ error }: { error: Error }) {
+function RootErrorComponent({ error }: { error: unknown }) {
     const presentation = getErrorPresentation(error, { fallbackTitle: 'Something went wrong' });
 
     return (

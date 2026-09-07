@@ -30,7 +30,7 @@ import {
 } from '#/lib/route-search';
 import { RouteStateResetBoundary } from '#/lib/route-state-reset';
 
-const QoderSessionDetailErrorComponent = ({ error }: { error: Error }) => {
+const QoderSessionDetailErrorComponent = ({ error }: { error: unknown }) => {
     return <RouteErrorPanel error={error} title="Failed to load Qoder session" />;
 };
 

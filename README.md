@@ -34,7 +34,7 @@ The local CLI, UI server, and `spiracha/client` require Bun 1.4.2 or newer. The 
 
 ## Local security
 
-Spiracha binds to loopback `127.0.0.1` and is intended for same-user local access; it does not provide remote authentication or rate limiting. Browser requests that send an `Origin` must match the exact server origin, and `Origin: null` is rejected. Runtime cache and export directories are private owner-only directories, and symlinked or non-regular export files are rejected.
+Spiracha binds to loopback `127.0.0.1` and is intended for same-user local access; it does not provide remote authentication or rate limiting. Browser requests that send an `Origin` must match the server origin or another loopback spelling on the same scheme and port; `Origin: null` is rejected. Runtime cache and export directories are private owner-only directories, and symlinked or non-regular export files are rejected.
 
 ## CLI
 
@@ -174,7 +174,7 @@ Malformed local records emit aggregated or first-sample warnings rather than one
 
 The public client exposes the same operations in local and HTTP modes: source listing, scoped listing, detail reads, raw/Markdown/evidence/zip exports, source-owned deletes, and reference resolution.
 
-`client.exportConversationRaw({ source, id })` returns the original source JSON/JSONL/blob file as a `Blob`, with its native filename and MIME type in local mode. The HTTP `/raw` endpoint names downloads `<source>-<conversation-id>.json` while preserving the original bytes and MIME type. Raw exports never parse, filter, normalize, or reserialize the source file. Grok Bot exports the account-scoped `.blob` replica byte-for-byte and is read-only; it exposes no delete operation. Sources whose conversation exists only inside a shared database, or which have no standalone JSON transcript, return `null` from the client and `404` from HTTP rather than synthesizing a replacement.
+`client.exportConversationRaw({ source, id })` returns the original source JSON/JSONL/blob file as a `Blob`, with its native filename and MIME type in local mode. The HTTP `/raw` endpoint names downloads `<source>-<conversation-id>.json` while preserving the original bytes and MIME type. Raw exports never parse, filter, normalize, or reserialize the source file. Grok Bot exports the account-scoped `.blob` replica byte-for-byte. Grok Bot chat detail pages include a Raw tab for normalized chat and transcript-event JSON, and the normal export dialog supports Raw JSON, Markdown, text, and zip downloads. Local Grok Bot deletion removes the roster entry and replica only after a fail-closed process check confirms the app is stopped; an unavailable or unexpected process-check result refuses deletion. Sources whose conversation exists only inside a shared database, or which have no standalone JSON transcript, return `null` from the client and `404` from HTTP rather than synthesizing a replacement.
 
 Focused evidence is a deterministic, lossy Markdown export for qualitative DX analysis. It does not change full-transcript exports. See [Focused evidence lenses](docs/focused-evidence.md) for the complete lens schema, bounds, local and HTTP examples, UI workflow, privacy behavior, omission accounting, and performance limits.
 
@@ -198,7 +198,7 @@ const fromFile = await convertConversationPayload({
 });
 ```
 
-Each result contains the detected `source`, `id`, `title`, `model` ID when available, timestamps, workspace metadata, normalized `messages`, `artifacts`, and `markdown`. Markdown uses the stable API's model labels and message selectors (`all`, `last_assistant`, `last_final_answer`). Embedded artifacts are included in Markdown and also returned separately; Gemini reports include their numbered Works cited entries. Multiple Web conversations return multiple results.
+Each result contains the detected `source`, `id`, `title`, `model` ID when available, timestamps, workspace metadata, normalized `messages`, `artifacts`, and `markdown`. With no explicit `source`, the converter tries every native payload adapter first. Exactly one native match wins; multiple native matches are ambiguous and require a source hint, even if the generic Web parser could also accept the shape. Native parser rejections are ignored during this inference pass; if no native adapter matches, the converter falls back to Web inference. Markdown uses the stable API's model labels and message selectors (`all`, `last_assistant`, `last_final_answer`). Embedded artifacts are included in Markdown and also returned separately; Gemini reports include their numbered Works cited entries. Multiple Web conversations return multiple results.
 
 The optional `fileName` supplies a Web provider hint; it is never opened. Payloads are limited to 25 MB. Invalid options, malformed JSON/JSONL, unsupported or ambiguous formats, and incomplete exports throw `ConversationPayloadError` with a machine-readable `code`. Claude Code is explicitly unsupported by this function; Claude Web exports remain supported. Sources that store content in multiple files, databases, or encrypted binary data require a self-contained decoded JSON export, including any necessary message/tool bodies.
 
@@ -226,7 +226,8 @@ The `/analytics` view can scope results to one project or all projects. It repor
 | FX | `~/.fx` | `SPIRACHA_FX_DATA_DIR` |
 | MiniMax Code | `~/.minimax/v2/sessions` and `~/.minimax/v2/sqlite/runtime-state.sqlite` | `SPIRACHA_MINIMAX_CODE_DATA_DIR`, `SPIRACHA_MINIMAX_CODE_SESSIONS_DIR`, `SPIRACHA_MINIMAX_CODE_RUNTIME_DB_PATH` |
 | OpenCode | `${XDG_DATA_HOME:-~/.local/share}/opencode/opencode.db` | `SPIRACHA_OPENCODE_DATA_DIR`, `SPIRACHA_OPENCODE_DB` |
-| UI exports | OS temp directory under `spiracha-ui-exports` | `SPIRACHA_UI_EXPORT_DIR` |
+| UI cache | `~/.cache/spiracha/ui-cache` | `SPIRACHA_UI_CACHE_DIR` |
+| UI exports | `~/.cache/spiracha/ui-exports` | `SPIRACHA_UI_EXPORT_DIR` |
 
 ### Cache and export lifecycle
 
@@ -243,7 +244,7 @@ Spiracha bounds temporary disk use by age and total retained bytes. Values are n
 
 Claude Code, Kiro, and Cursor discovery use short-lived, bounded indexes with in-flight request coalescing and mutation invalidation. Kiro builds one validated session-ID index across execution storage, including nested layouts, instead of rescanning per session. Cursor indexes direct composer-id lookups instead of rescanning every workspace group. File identity metadata invalidates changed transcripts, source mutations invalidate affected entries immediately, and no raw source payload is persisted by these caches.
 
-Cursor and Antigravity detail pages split metadata from large transcript/artifact documents. Codex thread metadata records whether a rollout is available, missing, or deferred; the UI can load a bounded preview, request the full transcript, or export directly. Temporary JSON cache and download files are created with private permissions and pruned by age and total bytes.
+Cursor and Antigravity detail pages split metadata from large transcript/artifact documents. Codex thread metadata records whether a rollout is available, missing, or deferred; the UI can load a bounded preview, request the full transcript, or export directly. Temporary JSON cache and download files are created with private permissions under the user cache directory (`~/.cache/spiracha/ui-cache` and `~/.cache/spiracha/ui-exports` by default) and pruned by age and total bytes.
 
 ### Qoder live ACP hydration
 
@@ -256,6 +257,12 @@ When an Antigravity conversation has a live trajectory database, Spiracha treats
 Markdown transcript exports identify this parser contract with `transcript_schema: antigravity-transcript/v2`. The UI parser retains complete tool output in its event data and export, but bounds the rendered preview to 20,000 characters so a single large operation result cannot dominate the detail page.
 
 Encrypted Antigravity transcripts use the macOS Keychain item `Antigravity Safe Storage` / `Antigravity Key` and the Electron-compatible `saltysalt` PBKDF2 derivation. Keychain access is reacquired for each protected server request; the raw secret is not stored in process-global state or returned to the browser. Non-encrypted transcripts do not require Keychain access, and other platforms report decryption as unsupported.
+
+### Codex Cloud login and analytics
+
+Codex Cloud browsing uses the local Codex-managed ChatGPT login. `SPIRACHA_CODEX_AUTH` can select its auth file, and `CODEX_BIN` selects the Codex executable. After an HTTP 401, Spiracha asks the CLI to refresh once and rereads the login; the CLI may update its managed authentication file. Missing CLI, failed refresh, repeated 401, and malformed inventory errors are reported without including tokens or provider response bodies.
+
+Agent-DX command metrics use conservative shell heuristics. Quoted examples, comments, and heredoc bodies do not count as executed gates or mutations; complex shell constructs can remain unclassified. Repository-after identities require recognizable Git command output. Missing CSV fields are empty cells.
 
 ### Codex browser database compatibility
 

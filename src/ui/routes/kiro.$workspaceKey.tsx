@@ -85,7 +85,7 @@ const getDeleteTitle = (pendingDelete: PendingSessionDelete | null) => {
         : 'Delete this Kiro session?';
 };
 
-const KiroWorkspaceErrorComponent = ({ error }: { error: Error }) => {
+const KiroWorkspaceErrorComponent = ({ error }: { error: unknown }) => {
     return <RouteErrorPanel error={error} title="Failed to load Kiro workspace" />;
 };
 

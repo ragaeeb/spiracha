@@ -9,7 +9,7 @@ import { RouteErrorPanel } from '#/components/route-error-panel';
 import { grokWorkspacesQueryOptions } from '#/lib/grok-queries';
 import { matchesTextQuery } from '#/lib/text-filter';
 
-const GrokErrorComponent = ({ error }: { error: Error }) => {
+const GrokErrorComponent = ({ error }: { error: unknown }) => {
     return <RouteErrorPanel error={error} title="Failed to load Grok workspaces" />;
 };
 

@@ -128,9 +128,14 @@ const buildUniqueBatchEntryBaseName = (baseName: string, threadId: string, usedB
         return baseName;
     }
 
-    const collisionSafeBaseName = `${baseName}-${threadId}`;
-    usedBaseNames.add(collisionSafeBaseName);
-    return collisionSafeBaseName;
+    const collisionSafeBaseName = `${baseName}-${sanitizeExportFileName(threadId) || 'thread'}`;
+    let uniqueBaseName = collisionSafeBaseName;
+    let suffix = 2;
+    while (usedBaseNames.has(uniqueBaseName)) {
+        uniqueBaseName = `${collisionSafeBaseName}-${suffix++}`;
+    }
+    usedBaseNames.add(uniqueBaseName);
+    return uniqueBaseName;
 };
 
 const toDownloadOptions = (input: CodexExportSettings): CodexTranscriptRenderOptions => {

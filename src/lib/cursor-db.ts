@@ -1012,7 +1012,7 @@ const readAllHeads = (db: Database, options: CursorDiscoveryOptions = {}): Map<s
     }
     const rows = db
         .query(
-            `SELECT substr(key, 14) AS id, value
+            `SELECT substr(key, length('composerData:') + 1) AS id, value
              FROM cursorDiskKV
              WHERE ${predicates.join(' AND ')}`,
         )
@@ -2354,14 +2354,26 @@ const readCursorCliTranscriptThreads = async (
     return [...threadsById.values()];
 };
 
-const mergeAgentTranscriptTail = (
-    transcript: CursorThreadTranscript,
-    agentBubbles: CursorBubble[],
-): CursorThreadTranscript => {
-    const tailStartIndex = findAgentTailStartIndex(transcript.bubbles, agentBubbles);
+const updateAgentTextProgress = (existingBubbles: CursorBubble[], agentBubbles: CursorBubble[]): CursorBubble[] => {
+    const updated = [...existingBubbles];
+    for (const candidate of agentBubbles) {
+        const candidateIndex = existingBubbles.findIndex((bubble) => areEquivalentBubbles(bubble, candidate));
+        if (candidateIndex < 0) {
+            continue;
+        }
+        const existing = existingBubbles[candidateIndex]!;
+        const existingText = normalizeBubbleText(existing.text);
+        const candidateText = normalizeBubbleText(candidate.text);
+        if (candidateText.length > existingText.length && candidateText.startsWith(existingText)) {
+            updated[candidateIndex] = { ...existing, text: candidate.text };
+        }
+    }
+    return updated;
+};
+
+const appendUniqueAgentBubbles = (transcript: CursorThreadTranscript, candidates: CursorBubble[]) => {
     const seen = [...transcript.bubbles];
     const appended: CursorBubble[] = [];
-    const candidates = agentBubbles.slice(tailStartIndex);
     for (const bubble of candidates) {
         if (hasEquivalentBubble(seen, bubble)) {
             continue;
@@ -2370,15 +2382,66 @@ const mergeAgentTranscriptTail = (
         seen.push(bubble);
         appended.push(bubble);
     }
+    return { appended, seen };
+};
 
-    if (appended.length === 0) {
+const getPrecedingAgentSupplements = (seen: CursorBubble[], candidates: CursorBubble[]): CursorBubble[] => {
+    const supplements: CursorBubble[] = [];
+    for (const bubble of candidates) {
+        if ((!bubble.toolCall && !bubble.thinking?.trim()) || hasEquivalentBubble([...seen, ...supplements], bubble)) {
+            continue;
+        }
+        supplements.push(bubble);
+    }
+    return supplements;
+};
+
+const mergeAgentTranscriptTail = (
+    transcript: CursorThreadTranscript,
+    agentBubbles: CursorBubble[],
+): CursorThreadTranscript => {
+    const tailStartIndex = findAgentTailStartIndex(transcript.bubbles, agentBubbles);
+    const overlap = tailStartIndex > 0 ? agentBubbles[tailStartIndex - 1] : undefined;
+    if (!overlap) {
+        const { appended, seen } = appendUniqueAgentBubbles(transcript, agentBubbles);
+        return appended.length === 0
+            ? transcript
+            : {
+                  ...transcript,
+                  bubbles: seen,
+                  renderableBubbleCount: transcript.renderableBubbleCount + appended.length,
+              };
+    }
+
+    const overlapIndex = transcript.bubbles.findIndex((bubble) => areEquivalentBubbles(bubble, overlap));
+    if (overlapIndex < 0) {
+        const { appended, seen } = appendUniqueAgentBubbles(transcript, agentBubbles.slice(tailStartIndex));
+        return appended.length === 0
+            ? transcript
+            : {
+                  ...transcript,
+                  bubbles: seen,
+                  renderableBubbleCount: transcript.renderableBubbleCount + appended.length,
+              };
+    }
+
+    const seen = updateAgentTextProgress(transcript.bubbles, agentBubbles.slice(0, tailStartIndex));
+    const precedingSupplements = getPrecedingAgentSupplements(seen, agentBubbles.slice(0, tailStartIndex - 1));
+    seen.splice(overlapIndex, 0, ...precedingSupplements);
+    const { appended, seen: merged } = appendUniqueAgentBubbles(
+        { ...transcript, bubbles: seen },
+        agentBubbles.slice(tailStartIndex),
+    );
+
+    const changedExistingBubble = merged.some((bubble, index) => bubble !== transcript.bubbles[index]);
+    if (appended.length === 0 && !changedExistingBubble) {
         return transcript;
     }
 
     return {
         ...transcript,
-        bubbles: [...transcript.bubbles, ...appended],
-        renderableBubbleCount: transcript.renderableBubbleCount + appended.length,
+        bubbles: merged,
+        renderableBubbleCount: transcript.renderableBubbleCount + precedingSupplements.length + appended.length,
     };
 };
 

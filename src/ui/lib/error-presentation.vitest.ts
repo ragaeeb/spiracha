@@ -2,6 +2,24 @@ import { describe, expect, it } from 'vitest';
 import { getErrorPresentation } from './error-presentation';
 
 describe('error presentation', () => {
+    it('should handle unknown thrown route values without crashing or exposing paths', () => {
+        for (const error of [null, undefined, 42, {}]) {
+            expect(getErrorPresentation(error, { fallbackTitle: 'Load failed' })).toEqual({
+                description: 'An unexpected error occurred. Reload and try again.',
+                isDatabaseError: false,
+                title: 'Load failed',
+            });
+        }
+        for (const error of [
+            'Cannot read /Users/example/private.txt',
+            { message: 'Cannot read /Users/example/private.txt' },
+        ]) {
+            expect(getErrorPresentation(error, { fallbackTitle: 'Load failed' }).description).toBe(
+                'Cannot read [local path]',
+            );
+        }
+    });
+
     it('should describe SQLite failures without blaming a specific integration', () => {
         const presentation = getErrorPresentation(new Error('SQLITE_BUSY: database is locked'), {
             fallbackTitle: 'Failed to load Codex',

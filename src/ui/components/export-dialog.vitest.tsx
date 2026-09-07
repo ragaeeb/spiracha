@@ -62,6 +62,38 @@ describe('ExportDialog', () => {
         }
     });
 
+    it('should offer and download raw Grok Bot transcript JSON', async () => {
+        const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+        HTMLElement.prototype.scrollIntoView = vi.fn();
+        const downloadUrlFile = vi.spyOn(download, 'downloadUrlFileWithCancellation').mockResolvedValue(undefined);
+
+        try {
+            render(
+                <ExportDialog
+                    focusedEvidenceTarget={{ id: 'chat-1', source: 'grok-bot' }}
+                    open
+                    onExport={vi.fn()}
+                    onOpenChange={vi.fn()}
+                />,
+            );
+            fireEvent.click(screen.getByRole('combobox', { name: 'Export mode' }));
+            fireEvent.click(screen.getByText('Raw JSON'));
+            fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
+
+            await waitFor(() =>
+                expect(downloadUrlFile).toHaveBeenCalledWith(
+                    expect.any(Object),
+                    'grok-bot-chat-1.json',
+                    '/api/v1/conversations/grok-bot/chat-1/raw',
+                    { onStateChange: expect.any(Function) },
+                ),
+            );
+        } finally {
+            HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+            downloadUrlFile.mockRestore();
+        }
+    });
+
     it('should offer raw JSON for bulk exports', () => {
         const onExport = vi.fn();
         const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;

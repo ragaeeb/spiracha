@@ -72,6 +72,27 @@ describe('payload SDK', () => {
         expect(last!.id).toBe(all!.id);
     });
 
+    it('should continue auto-detection to Web after a native parser rejects the shape', async () => {
+        const payload = [
+            { content: 'Question', role: 'user', type: 'message' },
+            { content: 'Answer', role: 'assistant', type: 'message' },
+        ];
+        const [result] = await convertConversationPayload({ payload });
+        expect(result!.source).toBe('web');
+        expect(result!.messages.map((message) => message.text)).toEqual(['Question', 'Answer']);
+        await expect(convertConversationPayload({ payload, source: 'opencode' })).rejects.toMatchObject({
+            code: 'malformed_payload',
+        });
+
+        const malformedNative = { history: 'not-an-array', sessionId: 'kiro' };
+        await expect(convertConversationPayload({ payload: malformedNative })).rejects.toMatchObject({
+            code: 'unsupported_format',
+        });
+        await expect(convertConversationPayload({ payload: malformedNative, source: 'kiro' })).rejects.toMatchObject({
+            code: 'malformed_payload',
+        });
+    });
+
     it('should infer every supported Web provider and preserve distinct conversations', async () => {
         const models = [
             'gpt-5',
@@ -169,6 +190,14 @@ describe('payload SDK', () => {
         expect(result!.markdown).toContain('Cursor answer');
     });
 
+    it('should reserve Claude Code rejection for Claude-shaped records', async () => {
+        await expect(
+            convertConversationPayload({
+                payload: { message: 'Foreign answer', sessionId: 'foreign', type: 'assistant' },
+            }),
+        ).rejects.toMatchObject({ code: 'unsupported_format' });
+    });
+
     it('should retain metadata in nested Web conversation envelopes', async () => {
         const data = {
             id: 'inner',
@@ -209,6 +238,15 @@ describe('payload SDK', () => {
         const [nested] = await convertConversationPayload({ payload: { data: payload } });
         expect(nested!.artifacts).toEqual(result!.artifacts);
         expect(nested!.model).toBe(result!.model);
+    });
+
+    it('should keep artifact headings on one Markdown line while preserving raw titles', async () => {
+        const payload = structuredClone(geminiResearchPayload);
+        (payload.raw_payload[0] as unknown[])[2] = 'Report\n## Injected heading';
+        const [result] = await convertConversationPayload({ payload });
+        expect(result!.artifacts[0]!.title).toBe('Report\n## Injected heading');
+        expect(result!.markdown).toContain('### Report\n\n# Findings');
+        expect(result!.markdown).not.toContain('## Injected heading');
     });
 
     it('should enforce payload limits and preserve useful JSONL errors', async () => {

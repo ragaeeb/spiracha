@@ -6,7 +6,7 @@ import { assertPrivateRuntimeDirectorySafe, ensurePrivateRuntimeDirectory } from
 import { resolveUiRuntimeConfig } from './runtime-config';
 
 export const UI_CACHE_DIR_ENV = 'SPIRACHA_UI_CACHE_DIR';
-const DEFAULT_CACHE_DIR = path.join(os.tmpdir(), 'spiracha-ui-cache');
+const DEFAULT_CACHE_DIR = path.join(os.homedir(), '.cache', 'spiracha', 'ui-cache');
 const CACHE_ENVELOPE_VERSION = 1;
 const CACHE_PURGE_INTERVAL_MS = 60 * 1000;
 const CACHE_KEY_PREFIX_MAX_LENGTH = 80;

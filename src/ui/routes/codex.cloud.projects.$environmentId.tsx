@@ -28,7 +28,7 @@ export const Route = createFileRoute('/codex/cloud/projects/$environmentId')({
     validateSearch: parseTextQuerySearch,
 });
 
-function CodexCloudProjectErrorComponent({ error }: { error: Error }) {
+function CodexCloudProjectErrorComponent({ error }: { error: unknown }) {
     return <RouteErrorPanel error={error} title="Failed to load Codex Cloud project" />;
 }
 

@@ -7,7 +7,7 @@ import { resolveUiRuntimeConfig } from './runtime-config.ts';
 export const UI_EXPORT_DIR_ENV = 'SPIRACHA_UI_EXPORT_DIR';
 export const UI_EXPORT_URL_PREFIX = '/__exports/';
 
-const DEFAULT_UI_EXPORT_DIR = path.join(os.tmpdir(), 'spiracha-ui-exports');
+const DEFAULT_UI_EXPORT_DIR = path.join(os.homedir(), '.cache', 'spiracha', 'ui-exports');
 const MAX_EXPORT_FILE_NAME_BYTES = 200;
 
 const decodeExportFileName = (value: string) => {

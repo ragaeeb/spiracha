@@ -121,7 +121,7 @@ const getCursorDeleteTitle = (pendingDelete: PendingCursorDelete | null) => {
     return 'Delete Cursor thread?';
 };
 
-const CursorWorkspaceErrorComponent = ({ error }: { error: Error }) => {
+const CursorWorkspaceErrorComponent = ({ error }: { error: unknown }) => {
     return <RouteErrorPanel error={error} title="Failed to load Cursor workspace" />;
 };
 

@@ -121,4 +121,25 @@ describe('production UI server', () => {
         expect(delegated).toBe(false);
         expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
     });
+
+    it('should delegate loopback-alias SSE requests with CORS origin intact', async () => {
+        const root = await mkdtemp(path.join(os.tmpdir(), 'spiracha-production-sse-origin-'));
+        tempPaths.push(root);
+        const fetch = createProductionUiFetch({
+            appFetch: (request) =>
+                new Response(request.url, {
+                    headers: { 'Content-Type': 'text/event-stream' },
+                }),
+            clientDirectory: root,
+        });
+
+        const response = await fetch(
+            new Request('http://127.0.0.1:3000/api/v1/codex/threads/events?threadId=thread-1', {
+                headers: { Origin: 'http://localhost:3000' },
+            }),
+        );
+
+        expect(response.status).toBe(200);
+        expect(await response.text()).toContain('/api/v1/codex/threads/events');
+    });
 });

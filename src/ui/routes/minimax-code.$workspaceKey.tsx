@@ -79,7 +79,7 @@ const getDeleteTitle = (pendingDelete: PendingSessionDelete | null) => {
         : 'Delete this MiniMax Code session?';
 };
 
-const MiniMaxCodeWorkspaceErrorComponent = ({ error }: { error: Error }) => {
+const MiniMaxCodeWorkspaceErrorComponent = ({ error }: { error: unknown }) => {
     return <RouteErrorPanel error={error} title="Failed to load MiniMax Code workspace" />;
 };
 

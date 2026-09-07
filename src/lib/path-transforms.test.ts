@@ -52,6 +52,16 @@ describe('applyPathTransforms', () => {
         ).toBe(['Project file: src\\index.ts', 'External file: ~\\Desktop\\notes.md'].join('\n'));
     });
 
+    it('should remove file URI schemes for Windows UNC project paths', () => {
+        expect(
+            applyPathTransforms('file://server/share/project/src/index.ts', {
+                convertToProjectRoot: true,
+                projectPath: '\\\\server\\share\\project',
+                redactUsername: false,
+            }),
+        ).toBe('src/index.ts');
+    });
+
     it('should not rewrite sibling paths that only share the project-path prefix', () => {
         expect(
             applyPathTransforms('/Users/user/workspace/spiracha-docs/README.md', {

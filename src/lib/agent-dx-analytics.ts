@@ -435,14 +435,23 @@ const extractReferences = (value: JsonValue | undefined) => {
     return references;
 };
 
-const isReadCommand = (command: string) =>
-    /(?:^|[;&|]\s*)(?:rtk\s+)?(?:cat|grep|head|read|rg|sed|tail)\b/iu.test(command);
+// ponytail: conservative shell heuristics; use a shell parser if execution-level classification is required.
+const classifiableCommands = (command: string | null, fallback: string) =>
+    (command ?? fallback)
+        .replace(/<<-?\s*(['"]?)(\w+)\1[^\n]*\n[\s\S]*?^[\t ]*\2(?:\n|$)/gmu, '\n')
+        .replace(/'[^']*'|"(?:\\[\s\S]|[^"\\])*"|\\[\s\S]|(?:^|\s)#[^\n]*/gu, ' ')
+        .split(/[;&|\n]/u)
+        .map((part) => part.trim().replace(/^rtk\s+(?:proxy\s+)?/iu, ''));
+
+const isReadCommand = (command: string) => /^(?:cat|grep|head|read|rg|sed|tail)\b/iu.test(command);
 
 const isGateCommand = (command: string) =>
-    /(?:^|\s)(?:check(?::[\w-]+)?|coverage|lint|test(?::[\w-]+)?|typecheck)(?:\s|$)/iu.test(command);
+    /^(?:(?:bun|npm|pnpm|yarn)\s+(?:run\s+)?(?:check|coverage|lint|test|typecheck)(?::[\w-]+)?|(?:cargo|go)\s+(?:test|check)|pytest|vitest|tsc)(?:\s|$)/iu.test(
+        command,
+    );
 
 const isMutationCommand = (command: string) =>
-    /(?:apply_patch|bun\.write|git\s+(?:add|commit|mv|rm|restore)|(?:cp|mkdir|mv|rm|touch)\b|(?:perl|sed)\s+-i\b|writeFile)/iu.test(
+    /^(?:(?:apply_patch|edit_file|write_file|cp|mkdir|mv|rm|touch)\b|git\s+(?:add|commit|mv|rm|restore)\b|(?:perl|sed)\s+-i\b|(?:Bun\.write|writeFile)\s*\()/iu.test(
         command,
     );
 
@@ -572,11 +581,19 @@ const captureTokenUsage = (payload: Record<string, JsonValue>, accumulator: Agen
 };
 
 const captureRepositoryAfter = (call: AgentDxToolCall, output: string, accumulator: AgentDxAccumulator) => {
-    if (!call.command || !/(?:git\s+rev-parse\s+.*HEAD|git\s+commit)/iu.test(call.command)) {
+    const command = call.command?.trim();
+    if (!command) {
         return;
     }
-    const hashes = output.match(/\b[0-9a-f]{7,64}\b/giu);
-    const hash = hashes?.at(-1);
+    const hashes = /^(?:rtk\s+)?git\s+rev-parse\s+(?:--verify\s+)?HEAD$/iu.test(command)
+        ? output.match(/^[\t ]*(?:[0-9a-f]{40}|[0-9a-f]{64})[\t ]*$/gimu)
+        : null;
+    const hash =
+        hashes?.length === 1
+            ? hashes[0]!.trim()
+            : /^(?:rtk\s+)?git\s+commit\b[^\r\n;&|]*$/iu.test(command)
+              ? output.match(/^\[[^\]\r\n]+ ([0-9a-f]{7,64})\]/imu)?.[1]
+              : null;
     if (hash) {
         accumulator.repositoryIdentityAfter = hash;
     }
@@ -682,15 +699,16 @@ const captureCommandMetrics = (
     const state = accumulator.repositoryIdentityAfter ?? accumulator.repositoryIdentityBefore ?? accumulator.cwd;
     const fingerprint = `${state}\0${parsed.workdir ?? accumulator.cwd}\0${normalizedCommand}`;
     increment(accumulator.commandCounts, fingerprint);
-    if (isReadCommand(normalizedCommand)) {
+    const commands = classifiableCommands(parsed.command, normalizedCommand);
+    if (commands.some(isReadCommand)) {
         increment(accumulator.readCounts, fingerprint);
         accumulator.readObservations.push({ fingerprint: normalizedCommand, state });
     }
-    if (isGateCommand(normalizedCommand)) {
+    if (commands.some(isGateCommand)) {
         accumulator.gateFingerprints.add(fingerprint);
         increment(accumulator.gateCounts, fingerprint);
     }
-    if (isMutationCommand(normalizedCommand)) {
+    if (commands.some(isMutationCommand)) {
         if (accumulator.firstMutationAtMs === null) {
             accumulator.firstMutationAtMs = parseTimestampMs(record) ?? accumulator.createdAtMs;
         }
@@ -1312,6 +1330,9 @@ export const AGENT_DX_CSV_COLUMNS = [
 ] as const;
 
 const csvText = (value: unknown) => {
+    if (value === null || value === undefined) {
+        return '';
+    }
     const text = typeof value === 'string' ? value : (JSON.stringify(value) ?? '');
     return /[",\n]/u.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 };

@@ -10,7 +10,7 @@ import {
     getThreadRolloutLoadState,
     LARGE_THREAD_SIZE_BYTES,
 } from './codex-thread-cache';
-import { invalidateCacheByPrefix } from './ui-cache';
+import { getUiCacheDir, invalidateCacheByPrefix } from './ui-cache';
 
 const tempPaths: string[] = [];
 
@@ -283,7 +283,7 @@ describe('getCachedCodexTranscriptStats', () => {
         );
 
         const stats = await getCachedCodexTranscriptStats(sessionFile);
-        const cacheDir = path.join(os.tmpdir(), 'spiracha-ui-cache');
+        const cacheDir = getUiCacheDir();
         const cacheEntries = (await readdir(cacheDir)).filter((entry) => entry.startsWith('thread-list-stats-'));
         const cachedPayloads = await Promise.all(
             cacheEntries.map((entry) => Bun.file(path.join(cacheDir, entry)).text()),

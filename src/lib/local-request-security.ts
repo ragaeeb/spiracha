@@ -18,7 +18,17 @@ export const isAllowedLocalRequestOrigin = (requestUrlValue: string, origin: str
         }
 
         const suppliedOrigin = new URL(origin);
-        return suppliedOrigin.origin === requestUrl.origin && suppliedOrigin.origin === origin;
+        if (suppliedOrigin.origin !== origin) {
+            return false;
+        }
+        if (suppliedOrigin.origin === requestUrl.origin) {
+            return true;
+        }
+        return (
+            suppliedOrigin.protocol === requestUrl.protocol &&
+            suppliedOrigin.port === requestUrl.port &&
+            isLocalLoopbackHostname(suppliedOrigin.hostname)
+        );
     } catch {
         return false;
     }

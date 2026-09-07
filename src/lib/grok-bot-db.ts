@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { lstat, rename, rm } from 'node:fs/promises';
+import { lstat, open, rename, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { GrokBotConversation, GrokBotConversationSummary, GrokBotRosterRow } from './grok-bot-payload';
+import type { GrokBotConversation, GrokBotConversationSummary } from './grok-bot-payload';
 import { parseGrokBotRosterRow, parseGrokBotTranscript } from './grok-bot-payload';
 
 const BASE32_ALPHABET = 'abcdefghijklmnopqrstuvwxyz234567';
@@ -19,7 +19,7 @@ const asRecord = (value: unknown): Record<string, unknown> | null => {
 
 const missingFile = (error: unknown) => error instanceof Error && 'code' in error && error.code === 'ENOENT';
 
-const readableBlobPath = async (filePath: string, label: string): Promise<string | null> => {
+const existingBlobPath = async (filePath: string, label: string, maximumBytes?: number): Promise<string | null> => {
     let stats: Awaited<ReturnType<typeof lstat>>;
     try {
         stats = await lstat(filePath);
@@ -35,11 +35,26 @@ const readableBlobPath = async (filePath: string, label: string): Promise<string
     if (!stats.isFile()) {
         throw new Error(`Grok Bot ${label} must be a regular file.`);
     }
-    if (stats.size > MAX_GROK_BOT_BLOB_BYTES) {
-        throw new Error(`Grok Bot ${label} exceeds the ${MAX_GROK_BOT_BLOB_BYTES}-byte limit.`);
+    if (maximumBytes !== undefined && stats.size > maximumBytes) {
+        throw new Error(`Grok Bot ${label} exceeds the ${maximumBytes}-byte limit.`);
     }
 
     return filePath;
+};
+
+const readableBlobPath = async (filePath: string, label: string): Promise<string | null> =>
+    existingBlobPath(filePath, label, MAX_GROK_BOT_BLOB_BYTES);
+
+const deletableBlobPath = async (filePath: string, label: string): Promise<string | null> =>
+    existingBlobPath(filePath, label);
+
+const syncPath = async (filePath: string, flags: string) => {
+    const file = await open(filePath, flags);
+    try {
+        await file.sync();
+    } finally {
+        await file.close();
+    }
 };
 
 const readJsonBlob = async (filePath: string, label: string): Promise<unknown | null> => {
@@ -105,29 +120,42 @@ const readRoster = async (persistenceDir: string) => {
         throw new Error('Grok Bot roster is incompatible.');
     }
 
-    const rows = rosterValue.rows.map(parseGrokBotRosterRow);
+    const rawRows = rosterValue.rows.map((row, index) => {
+        const record = asRecord(row);
+        if (!record) {
+            throw new Error(`Grok Bot roster row ${index} is incompatible.`);
+        }
+        return record;
+    });
+    const rows = rawRows.map(parseGrokBotRosterRow);
     if (new Set(rows.map((row) => row.id)).size !== rows.length) {
         throw new Error('Grok Bot roster contains duplicate conversation ids.');
     }
-    return { accountSlot, rosterEnvelope, rosterPath, rosterValue, rows };
+    return { accountSlot, rawRows, rosterEnvelope, rosterPath, rosterValue, rows };
 };
 
 const writeRosterRows = async (
     rosterPath: string,
     rosterEnvelope: Record<string, unknown>,
     rosterValue: Record<string, unknown>,
-    rows: GrokBotRosterRow[],
+    rows: Record<string, unknown>[],
 ) => {
     const temporaryPath = `${rosterPath}.${randomUUID()}.tmp`;
     try {
-        await Bun.write(
-            temporaryPath,
-            JSON.stringify({
-                ...rosterEnvelope,
-                value: { ...rosterValue, rows },
-            }),
-        );
+        const file = await open(temporaryPath, 'w');
+        try {
+            await file.writeFile(
+                JSON.stringify({
+                    ...rosterEnvelope,
+                    value: { ...rosterValue, rows },
+                }),
+            );
+            await file.sync();
+        } finally {
+            await file.close();
+        }
         await rename(temporaryPath, rosterPath);
+        await syncPath(path.dirname(rosterPath), 'r');
     } finally {
         await rm(temporaryPath, { force: true });
     }
@@ -166,9 +194,32 @@ export const resolveGrokBotPersistenceDir = (): string => {
     );
 };
 
-export const isGrokBotRunning = async (): Promise<boolean> => {
-    const proc = Bun.spawn(['pgrep', '-x', 'Grok Bot'], { stderr: 'ignore', stdout: 'ignore' });
-    return (await proc.exited) === 0;
+type GrokBotProcess = Pick<ReturnType<typeof Bun.spawn>, 'exited'>;
+type GrokBotProcessFactory = () => GrokBotProcess;
+
+const spawnGrokBotProcess: GrokBotProcessFactory = () =>
+    Bun.spawn(['pgrep', '-x', 'Grok Bot'], { stderr: 'ignore', stdout: 'ignore' });
+
+const runningCheckUnavailable = (detail?: string): Error =>
+    new Error(
+        `Unable to verify whether Grok Bot is running${detail ? `: ${detail}` : ''}. Quit Grok Bot and retry before deleting.`,
+    );
+
+export const isGrokBotRunning = async (spawnProcess: GrokBotProcessFactory = spawnGrokBotProcess): Promise<boolean> => {
+    let exitCode: number;
+    try {
+        exitCode = await spawnProcess().exited;
+    } catch {
+        throw runningCheckUnavailable();
+    }
+
+    if (exitCode === 0) {
+        return true;
+    }
+    if (exitCode === 1) {
+        return false;
+    }
+    throw runningCheckUnavailable(`pgrep exited with status ${exitCode}`);
 };
 
 export const listGrokBotConversations = async (
@@ -234,28 +285,28 @@ export const deleteGrokBotConversation = async (
     conversationId: string,
     checkGrokBotRunning: () => Promise<boolean> = isGrokBotRunning,
 ) => {
-    if (await checkGrokBotRunning()) {
-        throw new Error(
-            'Quit Grok Bot before deleting. It can rewrite chat history on exit, which can resurrect deleted chats.',
-        );
-    }
-
     const roster = await readRoster(persistenceDir);
     const row = roster?.rows.find((candidate) => candidate.id === conversationId);
     if (!roster || !row) {
         return { deletedFiles: [], deletedIds: [] };
     }
 
+    if (await checkGrokBotRunning()) {
+        throw new Error(
+            'Quit Grok Bot before deleting. It can rewrite chat history on exit, which can resurrect deleted chats.',
+        );
+    }
+
     const replicaPath = getGrokBotPersistenceFilePath(
         persistenceDir,
         accountKey(roster.accountSlot, `transcript.replicas.${conversationId}`),
     );
-    const existingReplicaPath = await readableBlobPath(replicaPath, 'transcript replica');
+    const existingReplicaPath = await deletableBlobPath(replicaPath, 'transcript replica');
     await writeRosterRows(
         roster.rosterPath,
         roster.rosterEnvelope,
         roster.rosterValue,
-        roster.rows.filter((candidate) => candidate.id !== conversationId),
+        roster.rawRows.filter((candidate) => candidate.id !== conversationId),
     );
 
     if (!existingReplicaPath) {

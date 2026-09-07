@@ -20,6 +20,7 @@ import type {
 } from './conversation-payload-types';
 import { parseWebPayload } from './conversation-payload-web';
 import { sha256Hex } from './sha256';
+import { cleanInlineTitle } from './shared-text';
 
 export type {
     ConversationPayloadArtifact,
@@ -72,10 +73,17 @@ const parsePayloadDrafts = async (
     if (options.source) {
         return nativeParsers[options.source](value, options.source);
     }
-    const candidates = Object.entries(nativeParsers).flatMap(([source, parse]) => {
-        const drafts = parse(value);
-        return drafts ? [{ drafts, source }] : [];
-    });
+    const candidates: Array<{ drafts: PayloadConversationDraft[]; source: string }> = [];
+    for (const [source, parse] of Object.entries(nativeParsers)) {
+        try {
+            const drafts = parse(value);
+            if (drafts) {
+                candidates.push({ drafts, source });
+            }
+        } catch {
+            // A native parser may reject a shape it claimed while another parser, including Web, can still accept it.
+        }
+    }
     if (candidates.length > 1) {
         throw new ConversationPayloadError(
             'ambiguous_source',
@@ -139,15 +147,23 @@ const serializePayload = (value: unknown): string => {
 
 const isClaudeCodePayload = (value: unknown): boolean => {
     const records = Array.isArray(value) ? value : [value];
-    return records.some(
-        (record) =>
-            typeof record === 'object' &&
-            record !== null &&
-            'sessionId' in record &&
-            'type' in record &&
-            'message' in record &&
-            (record.type === 'user' || record.type === 'assistant'),
-    );
+    return records.some((record) => {
+        if (typeof record !== 'object' || record === null || Array.isArray(record)) {
+            return false;
+        }
+        const candidate = record as Record<string, unknown>;
+        const message = candidate.message;
+        return (
+            typeof candidate.sessionId === 'string' &&
+            typeof candidate.uuid === 'string' &&
+            (candidate.type === 'user' || candidate.type === 'assistant') &&
+            typeof message === 'object' &&
+            message !== null &&
+            !Array.isArray(message) &&
+            (typeof (message as Record<string, unknown>).content === 'string' ||
+                Array.isArray((message as Record<string, unknown>).content))
+        );
+    });
 };
 
 const validateOptions = (options: ConvertConversationPayloadOptions) => {
@@ -198,7 +214,7 @@ const finalizePayload = async (
     const markdown =
         artifacts.length > 0
             ? `${transcript}\n## Artifacts\n\n${artifacts
-                  .map((artifact) => `### ${artifact.title}\n\n${artifact.content}`)
+                  .map((artifact) => `### ${cleanInlineTitle(artifact.title)}\n\n${artifact.content}`)
                   .join('\n\n')
                   .trimEnd()}\n`
             : transcript;

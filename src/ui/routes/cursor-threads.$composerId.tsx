@@ -181,7 +181,7 @@ const CursorThreadRawPanels = ({ detail, events }: { detail: CursorThreadDetail;
     );
 };
 
-const CursorThreadDetailErrorComponent = ({ error }: { error: Error }) => {
+const CursorThreadDetailErrorComponent = ({ error }: { error: unknown }) => {
     return <RouteErrorPanel error={error} title="Failed to load Cursor thread" />;
 };
 

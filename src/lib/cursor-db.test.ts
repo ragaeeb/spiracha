@@ -163,7 +163,7 @@ describe('cursor-db workspace discovery', () => {
         const originalQuery = Database.prototype.query;
         let headScanCount = 0;
         Database.prototype.query = function (this: Database, sql: string) {
-            if (sql.includes('SELECT substr(key, 14) AS id')) {
+            if (sql.includes("SELECT substr(key, length('composerData:') + 1) AS id")) {
                 headScanCount += 1;
             }
             return originalQuery.call(this, sql);
@@ -1164,6 +1164,43 @@ describe('cursor-db transcript reads', () => {
         ]);
     });
 
+    it('should retain agent tool calls that precede a SQLite final answer', async () => {
+        const userDir = await makeUserDir();
+        const spec = baseSpec();
+        spec.threads[0]!.bubbles = [
+            { bubbleId: 'b1', text: 'Original request', type: 1 },
+            { bubbleId: 'b2', text: 'Final answer', type: 2 },
+        ];
+        await createCursorFixture(userDir, spec);
+        const transcriptDir = path.join(userDir, 'projects', 'demo-project', 'agent-transcripts', 'thread-1');
+        await mkdir(transcriptDir, { recursive: true });
+        await Bun.write(
+            path.join(transcriptDir, 'thread-1.jsonl'),
+            [
+                JSON.stringify({ message: { content: [{ text: 'Original request', type: 'text' }] }, role: 'user' }),
+                JSON.stringify({
+                    message: { content: [{ input: { path: 'README.md' }, name: 'read_file', type: 'tool_use' }] },
+                    role: 'assistant',
+                }),
+                JSON.stringify({
+                    message: { content: [{ input: { path: 'README.md' }, name: 'read_file', type: 'tool_use' }] },
+                    role: 'assistant',
+                }),
+                JSON.stringify({ message: { content: [{ text: 'Final answer', type: 'text' }] }, role: 'assistant' }),
+            ].join('\n'),
+        );
+
+        const transcript = await readCursorThreadTranscriptWithAgentFiles(
+            getCursorGlobalDbPath(userDir),
+            'thread-1',
+            userDir,
+        );
+
+        expect(transcript?.bubbles.map((bubble) => bubble.text)).toEqual(['Original request', '', 'Final answer']);
+        expect(transcript?.bubbles[1]?.toolCall?.name).toBe('read_file');
+        expect(transcript?.renderableBubbleCount).toBe(3);
+    });
+
     it('should use pre-resolved transcript directories without rediscovering them', async () => {
         const userDir = await makeUserDir();
         await createCursorFixture(userDir, baseSpec());
@@ -1304,7 +1341,7 @@ describe('cursor-db transcript reads', () => {
         expect(transcript?.bubbles.map((bubble) => bubble.text)).toEqual(['Original request', 'Part one', 'Part two']);
     });
 
-    it('should treat superset agent messages as overlap when merging tail bubbles', async () => {
+    it('should preserve newer text when an agent bubble extends SQLite text', async () => {
         const userDir = await makeUserDir();
         const spec = baseSpec();
         spec.threads[0]!.bubbles = [
@@ -1336,7 +1373,7 @@ describe('cursor-db transcript reads', () => {
 
         expect(transcript?.bubbles.map((bubble) => bubble.text)).toEqual([
             'Original request',
-            'Known assistant update',
+            'Known assistant update with extra streamed text',
             'Final tail message',
         ]);
     });

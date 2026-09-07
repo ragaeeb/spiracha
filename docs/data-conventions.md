@@ -22,8 +22,8 @@ These rules define the boundary between source-specific discovery and Spiracha's
 - List limits are positive integers capped at 200. Pagination uses opaque keyset cursors ordered by update time, source, and conversation ID; clients must pass `next_cursor` back with the same filters.
 - `updated_after_ms` and `updated_before_ms` are applied before the final page is returned. `cwd` matching is lexical and does not inspect the filesystem.
 - All-source collection may skip unavailable optional integrations. An explicit `source` request preserves that source's failure so callers can distinguish absence from a broken requested integration.
-- Sources declare a collection scope: workspace sources require an absolute `cwd`, while global sources omit it. All-source collection selects only sources matching the requested scope; it never mixes pathless global records into a workspace query. Grok Bot is global and read-only.
-- Grok Bot inventory reads the validated roster only, so `include_messages` does not hydrate every account replica; detail and export read one exact replica on demand.
+- Sources declare a collection scope: workspace sources require an absolute `cwd`, while global sources omit it. All-source collection selects only sources matching the requested scope; it never mixes pathless global records into a workspace query. Grok Bot is global; reads and raw exports are read-only, while local deletion is available only after a fail-closed check confirms the Grok Bot app is stopped.
+- Grok Bot inventory reads the validated roster only, so `include_messages` does not hydrate every account replica; detail and export read one exact replica on demand. The detail UI exposes normalized chat and transcript-event JSON in its Raw tab. Deletion removes the selected roster row and replica while the app is stopped; process-check failures and unexpected process statuses fail closed.
 
 ## Normalized data
 
@@ -36,7 +36,7 @@ These rules define the boundary between source-specific discovery and Spiracha's
 
 ## Web imports
 
-- Web imports are a UI-only workflow. They are not members of `CONVERSATION_SOURCES`, the stable API, the CLI, or focused-evidence inputs.
+- Stored Web imports are a UI-only workflow. They are not members of `CONVERSATION_SOURCES`, the stable API, the CLI, or focused-evidence inputs. Supplied Web payloads can separately be converted in memory through `spiracha/payload` and the Bun client, without creating stored imports.
 - The parser accepts mapping-based ChatGPT-style exports, native Claude and Grok shapes, and generic role/content message arrays. Provider labels use content and model metadata before file-name hints and may resolve to ChatGPT, Claude, Gemini, Grok, Qwen, GLM, Amazon Nova, DeepSeek, Mistral, or Perplexity; otherwise the label is `Unknown`.
 - Assistant reasoning is retained as separate normalized reasoning events. Embedded provider tool and research records become normalized tool-call/tool-output events only when the source exposes enough structure; the parser does not invent missing identifiers.
 - The UI validates at most 20 files per import, 25 MB per file, and 100 MB total. Successful files remain available when another selected file is malformed or unsupported.
@@ -55,7 +55,7 @@ These rules define the boundary between source-specific discovery and Spiracha's
 - UI JSON caches are private, versioned, age/byte bounded, and safe to invalidate by key prefix. `SPIRACHA_UI_CACHE_BYPASS=1` bypasses both reads and writes; it does not remove existing entries.
 - Claude Code, Kiro, and Cursor discovery use bounded indexes with in-flight request coalescing. Transcript caches are keyed by source-file identity and invalidated after source mutations or changed-file detection. Raw provider payloads are not persisted in these caches.
 - Large UI documents are not part of the initial metadata path for Cursor and Antigravity detail routes. Web detail routes likewise load normalized transcript events after hydration. Codex rollout metadata reports `available`, `deferred`, or `missing` so the UI can choose a bounded preview, full load, or export path.
-- Temporary UI export files are private downloads subject to age and total-byte pruning. Export and cache lifecycle settings are operational controls; parsing and safety limits remain code constants.
+- Temporary UI export files are private downloads subject to age and total-byte pruning. By default, cache and export files live under `~/.cache/spiracha/ui-cache` and `~/.cache/spiracha/ui-exports`; environment overrides remain available. Export and cache lifecycle settings are operational controls; parsing and safety limits remain code constants.
 
 ## Package and server boundaries
 
@@ -71,4 +71,5 @@ These rules define the boundary between source-specific discovery and Spiracha's
 - Codex deletion removes database rows, session-index entries, and structural Codex Desktop Recent/sidebar references together. It preserves unrelated text that merely mentions a deleted ID and sets a deleted-thread write-block flag so the desktop client does not recreate the reference.
 - Cursor database deletion and transcript-directory deletion are separately controllable. The UI defaults to both; the stable API accepts `delete_session_files`. Preserving transcript directories can cause the conversation to be discovered again.
 - Cursor writes require Cursor to be closed. Workspace cleanup can return a bounded opaque retry target after the database mutation commits; filesystem paths stay server-side and retry targets expire after a short TTL.
+- Grok Bot deletion preserves original sibling roster records, syncs the replacement roster, and removes the selected regular replica without applying the transcript read-size limit. Its exact-name process check rejects unavailable or unexpected process results but does not lock out a subsequent app relaunch. Cross-process coordination and recovery after a roster/replica partial deletion are tracked in [#102](https://github.com/ragaeeb/spiracha/issues/102) and [#101](https://github.com/ragaeeb/spiracha/issues/101).
 - Partial filesystem cleanup is reported through `cleanupFailures`; it is not silently treated as complete success.
