@@ -4,6 +4,7 @@ import { createReadStream, existsSync } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
+import { isRenderableCursorBubble, parseCursorAgentTranscriptRecord } from './cursor-agent-transcript';
 import { decodeCursorChatModel, resolveCursorChatStorePath } from './cursor-chat-store';
 import {
     COMPOSER_DATA_KEY,
@@ -23,7 +24,8 @@ import {
     resolveCursorUserDir,
 } from './cursor-exporter-types';
 import { getCursorBubbleKeyRange, isCursorBubbleKeyForComposer, isSafeCursorComposerId } from './cursor-id';
-import { asNumber, asObject, asString, type JsonValue, pathExists, toFileUri } from './shared';
+import { pathExists, toFileUri } from './shared';
+import { asNumber, asObject, asString, type JsonValue } from './shared-text';
 import { runWithSqliteRetry } from './sqlite-retry';
 
 type ComposerEntry = Record<string, JsonValue> & {
@@ -2009,10 +2011,6 @@ const readBubble = (db: Database, composerId: string, bubbleId: string): CursorB
     return parseCursorBubble(bubbleId, raw);
 };
 
-const isRenderableBubble = (bubble: CursorBubble): boolean => {
-    return Boolean(bubble.text.trim() || bubble.thinking?.trim() || bubble.toolCall);
-};
-
 const normalizeBubbleText = (value: string | null): string => {
     return (value ?? '').replace(/\s+/gu, ' ').trim();
 };
@@ -2099,67 +2097,6 @@ const findAgentTailStartIndex = (existingBubbles: CursorBubble[], agentBubbles: 
     return 0;
 };
 
-const getAgentTranscriptContentParts = (entry: Record<string, JsonValue>): Record<string, JsonValue>[] => {
-    const message = asObject(entry.message ?? null);
-    const content = message?.content ?? entry.content ?? null;
-    if (Array.isArray(content)) {
-        return content.map((part) => asObject(part)).filter((part): part is Record<string, JsonValue> => Boolean(part));
-    }
-
-    if (typeof content === 'string') {
-        return [{ text: content, type: 'text' }];
-    }
-
-    return [];
-};
-
-const parseAgentTranscriptToolCall = (parts: Record<string, JsonValue>[]): CursorToolCall | null => {
-    const toolUse = parts.find((part) => asString(part.type ?? null) === 'tool_use');
-    if (!toolUse) {
-        return null;
-    }
-
-    const name = asString(toolUse.name ?? null);
-    if (!name) {
-        return null;
-    }
-
-    return {
-        argumentsText: toolUse.input === undefined ? null : JSON.stringify(toolUse.input),
-        callId: asString(toolUse.id ?? null),
-        name,
-        resultText: null,
-        status: null,
-    };
-};
-
-const parseAgentTranscriptBubble = (
-    filePath: string,
-    lineNumber: number,
-    raw: Record<string, JsonValue>,
-): CursorBubble | null => {
-    const message = asObject(raw.message ?? null);
-    const role = asString(raw.role ?? message?.role ?? null);
-    const kind = role === 'user' || role === 'assistant' ? role : 'unknown';
-    const parts = getAgentTranscriptContentParts(raw);
-    const text = parts
-        .filter((part) => asString(part.type ?? null) === 'text')
-        .map((part) => asString(part.text ?? null))
-        .filter((value): value is string => Boolean(value?.trim()))
-        .join('\n\n');
-    const toolCall = parseAgentTranscriptToolCall(parts);
-    const bubble: CursorBubble = {
-        bubbleId: `agent-transcript:${hashText(path.resolve(filePath))}:${path.basename(filePath)}:${lineNumber}`,
-        createdAtMs: null,
-        kind,
-        text,
-        thinking: null,
-        toolCall,
-    };
-
-    return isRenderableBubble(bubble) ? bubble : null;
-};
-
 const parseCursorAgentTranscriptLine = (filePath: string, line: string, lineNumber: number): CursorBubble | null => {
     if (!line.trim()) {
         return null;
@@ -2178,7 +2115,12 @@ const parseCursorAgentTranscriptLine = (filePath: string, line: string, lineNumb
     }
 
     const entry = asObject(raw);
-    return entry ? parseAgentTranscriptBubble(filePath, lineNumber, entry) : null;
+    return entry
+        ? parseCursorAgentTranscriptRecord(
+              entry,
+              `agent-transcript:${hashText(path.resolve(filePath))}:${path.basename(filePath)}:${lineNumber}`,
+          )
+        : null;
 };
 
 const readCursorAgentTranscriptFile = async (filePath: string): Promise<CursorBubble[]> => {
@@ -2458,7 +2400,7 @@ export const readCursorThreadTranscript = (globalDbPath: string, composerId: str
         const bubbles: CursorBubble[] = [];
         for (const bubbleId of orderedIds) {
             const bubble = readBubble(db, composerId, bubbleId);
-            if (bubble && isRenderableBubble(bubble)) {
+            if (bubble && isRenderableCursorBubble(bubble)) {
                 bubbles.push(bubble);
             }
         }

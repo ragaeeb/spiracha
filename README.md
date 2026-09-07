@@ -30,7 +30,7 @@ bun start
 
 Open the local URL printed by Vite.
 
-Spiracha requires Bun 1.4.0 or newer. Set `PORT` to choose a different port, for example `PORT=4100 bunx spiracha serve`.
+The local CLI, UI server, and `spiracha/client` require Bun 1.4.0 or newer. The `spiracha/payload` converter uses standard Web APIs and also runs in Node.js 22+, modern browsers with Web Crypto, and Cloudflare Workers. Set `PORT` to choose a different port, for example `PORT=4100 bunx spiracha serve`.
 
 ## Local security
 
@@ -174,9 +174,37 @@ Malformed local records emit aggregated or first-sample warnings rather than one
 
 The public client exposes the same operations in local and HTTP modes: source listing, scoped listing, detail reads, raw/Markdown/evidence/zip exports, source-owned deletes, and reference resolution.
 
-`client.exportConversationRaw({ source, id })` returns the original source JSON/JSONL/blob file as a `Blob`, with its native filename and MIME type. The `/raw` endpoint serves the same bytes directly with download headers. Raw exports never parse, filter, normalize, or reserialize the source file. Grok Bot exports the account-scoped `.blob` replica byte-for-byte and is read-only; it exposes no delete operation. Sources whose conversation exists only inside a shared database, or which have no standalone JSON transcript, return `null` from the client and `404` from HTTP rather than synthesizing a replacement.
+`client.exportConversationRaw({ source, id })` returns the original source JSON/JSONL/blob file as a `Blob`, with its native filename and MIME type in local mode. The HTTP `/raw` endpoint names downloads `<source>-<conversation-id>.json` while preserving the original bytes and MIME type. Raw exports never parse, filter, normalize, or reserialize the source file. Grok Bot exports the account-scoped `.blob` replica byte-for-byte and is read-only; it exposes no delete operation. Sources whose conversation exists only inside a shared database, or which have no standalone JSON transcript, return `null` from the client and `404` from HTTP rather than synthesizing a replacement.
 
 Focused evidence is a deterministic, lossy Markdown export for qualitative DX analysis. It does not change full-transcript exports. See [Focused evidence lenses](docs/focused-evidence.md) for the complete lens schema, bounds, local and HTTP examples, UI workflow, privacy behavior, omission accounting, and performance limits.
+
+### Convert supplied JSON or JSONL
+
+`convertConversationPayload` is an in-memory SDK function for data your application already holds. Import it from `spiracha/payload` for portable conversion; this subpath ships compiled JavaScript and TypeScript declarations in the same `spiracha` package. Existing Bun callers can also use the export from `spiracha/client`. It accepts a parsed JSON object/array or the text of a JSON/JSONL export. It does not read source applications, follow file paths, contact a server, or retain imports in the Web UI.
+
+```ts
+import { convertConversationPayload } from 'spiracha/payload';
+
+const conversations = await convertConversationPayload({
+    payload: { model: 'gpt-5', messages: [{ role: 'assistant', content: 'Hello' }] },
+    messageSelector: 'all',
+});
+console.log(conversations[0].markdown);
+
+const fromFile = await convertConversationPayload({
+    payload: await uploadedFile.text(), // A browser File, or supply JSON/JSONL text directly.
+    // Supply source when an export's structure cannot uniquely identify its origin.
+    source: 'codex',
+});
+```
+
+Each result contains the detected `source`, `id`, `title`, `model` ID when available, timestamps, workspace metadata, normalized `messages`, `artifacts`, and `markdown`. Markdown uses the stable API's model labels and message selectors (`all`, `last_assistant`, `last_final_answer`). Embedded artifacts are included in Markdown and also returned separately; Gemini reports include their numbered Works cited entries. Multiple Web conversations return multiple results.
+
+The optional `fileName` supplies a Web provider hint; it is never opened. Payloads are limited to 25 MB. Invalid options, malformed JSON/JSONL, unsupported or ambiguous formats, and incomplete exports throw `ConversationPayloadError` with a machine-readable `code`. Claude Code is explicitly unsupported by this function; Claude Web exports remain supported. Sources that store content in multiple files, databases, or encrypted binary data require a self-contained decoded JSON export, including any necessary message/tool bodies.
+
+Use `artifacts[].content` for a standalone embedded report, including Gemini Works cited; `markdown` is the entire conversation plus artifacts. `createdAtMs` and `updatedAtMs` are nullable Unix epoch milliseconds on the conversation. Individual artifacts do not have timestamps. `model` is an optional string, with display labels formatted in Markdown rather than separate provider/name/version fields.
+
+The supported payload shapes and validation plan are described in [Payload conversion SDK](docs/payload-sdk-plan.md). This function does not add Web imports to the stable source registry or HTTP API.
 
 ### Codex analytics
 
@@ -274,7 +302,7 @@ Run one root test file with `bun test src/lib/shared.test.ts`. Run one UI test f
 
 `bun run test:package` launches the packaged `bin/spiracha.ts` entrypoint against an isolated fixture and checks the published UI boundary. `bun run format` applies the repository's Biome formatting and lint fixes when intentionally reformatting source.
 
-`bun start` runs the UI development server. `bun run build` emits bundled client assets and a bundled server entrypoint; `spiracha serve` runs that built output. The published package ships the built client/server output and the Bun SDK sources, not the UI source tree or Vite toolchain. Only `fflate` is a runtime dependency; the UI and build/test toolchain stays in `devDependencies`.
+`bun start` runs the UI development server. `bun run build` emits bundled client assets and a bundled server entrypoint; `spiracha serve` runs that built output. The published package ships the built client/server output, portable payload JavaScript/declarations, and the Bun SDK sources, not the UI source tree or Vite toolchain. Only `fflate` is a runtime dependency; the UI and build/test toolchain stays in `devDependencies`.
 
 Spiracha has one application boundary: the stable API, server functions, browser route tree, and UI all resolve through one manifest and one dependency graph. Vite is a development/build tool; Vitest uses its normal Node runtime.
 
@@ -288,7 +316,7 @@ TanStack Router generates `src/ui/routeTree.gen.ts` during development/build. Do
 
 Spiracha's Markdown is deterministic generation and domain parsing. Bun 1.4's `Bun.markdown` was evaluated, but it is currently unstable for this contract, so Spiracha does not depend on it.
 
-The hard-cut package keeps one `spiracha` bin, the stable `spiracha/client` and `spiracha/types` exports, and the bundled UI/server runtime. It does not restore legacy CLI aliases, an MCP server, a Codex plugin, or a separate exporter package.
+The hard-cut package keeps one `spiracha` bin, the stable `spiracha/client`, `spiracha/types`, and portable `spiracha/payload` exports, and the bundled UI/server runtime. It does not restore legacy CLI aliases, an MCP server, a Codex plugin, or a separate exporter package.
 
 ## Breaking Consequences
 

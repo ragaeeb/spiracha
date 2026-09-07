@@ -3,13 +3,12 @@ import type { MessageEvent } from './codex-browser-types';
 import {
     type CodexCloudAuth,
     type CodexCloudTaskDetail,
-    type CodexCloudTurn,
     createCodexCloudClient,
-    mapCodexCloudTurnEvents,
     normalizeCodexCloudTask,
     renderCodexCloudExport,
 } from './codex-cloud';
-import type { JsonValue } from './shared';
+import { type CodexCloudTurn, mapCodexCloudTurnEvents } from './codex-cloud-transcript';
+import type { JsonValue } from './shared-text';
 
 const auth: CodexCloudAuth = {
     accessToken: 'access-token',

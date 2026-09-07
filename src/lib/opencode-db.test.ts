@@ -16,7 +16,7 @@ import {
     resolveOpenCodeDbConcurrency,
 } from './opencode-db';
 import { createOpenCodeFixture } from './opencode-test-helpers';
-import { resetParserDiagnosticForTests } from './shared';
+import { resetParserDiagnosticForTests } from './shared-text';
 
 const tempDirs: string[] = [];
 const originalLogSetting = process.env.SPIRACHA_OPENCODE_DB_LOGS;

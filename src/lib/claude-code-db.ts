@@ -18,18 +18,20 @@ import {
 import { mapWithConcurrency } from './concurrency';
 import { getPortablePathBasename } from './portable-path';
 import {
+    isWorkspacePathQuery,
+    readDirectoryEntriesIfExists,
+    readJsonlObjects,
+    workspacePathMatchesQuery,
+} from './shared';
+import {
     asBoolean,
     asNumber,
     asObject,
     asString,
     cleanExtractedText,
     cleanInlineTitle,
-    isWorkspacePathQuery,
     type JsonValue,
-    readDirectoryEntriesIfExists,
-    readJsonlObjects,
-    workspacePathMatchesQuery,
-} from './shared';
+} from './shared-text';
 
 export { getDefaultClaudeCodeDataDir, resolveClaudeCodeProjectsDir };
 

@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 import type { CodexDbSchemaProfile, DynamicToolRow, ThreadListEntry } from './codex-browser-types';
 import type { SpawnEdgeRow, ThreadRow } from './codex-thread-types';
 import { DEFAULT_CODEX_DIR, DEFAULT_DB_PATH } from './codex-thread-types';
-import { cleanInlineTitle } from './shared';
+import { cleanInlineTitle } from './shared-text';
 import { runWithSqliteRetry } from './sqlite-retry';
 
 export const SQLITE_DELETE_BATCH_SIZE = 400;

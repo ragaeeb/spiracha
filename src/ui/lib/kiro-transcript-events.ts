@@ -1,7 +1,7 @@
 import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/codex-browser-types';
 import type { KiroSessionTranscript, KiroTranscriptEntry, KiroTranscriptPart } from '@spiracha/lib/kiro-exporter-types';
 import { getFinalKiroAssistantMessageEntryIds, getKiroMessagePhase } from '@spiracha/lib/kiro-transcript-phase';
-import type { JsonValue } from '@spiracha/lib/shared';
+import type { JsonValue } from '@spiracha/lib/shared-text';
 import { getThreadTranscriptStats } from './thread-transcript-stats';
 
 const buildRaw = (

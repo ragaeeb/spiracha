@@ -6,7 +6,6 @@ import {
     readCursorThreadTranscriptWithAgentFiles,
 } from '../cursor-db';
 import type {
-    CursorBubble,
     CursorPruneResult,
     CursorThreadSummary,
     CursorThreadTranscript,
@@ -14,22 +13,15 @@ import type {
 } from '../cursor-exporter-types';
 import { getCursorGlobalDbPath, resolveCursorUserDir } from '../cursor-exporter-types';
 import { collectCursorThreadsForDeletion, isCursorRunning, pruneCursorThreads } from '../cursor-recovery';
-import { getCursorTextBubblePhase, getFinalCursorAssistantTextBubbleIds } from '../cursor-transcript-phase';
-import { cleanInlineTitle } from '../shared';
+import { cleanInlineTitle } from '../shared-text';
 import { runWithTranscriptLoadLimit } from '../transcript-load-limiter';
-import {
-    createConversationUiPath,
-    createDeepLinks,
-    createTextMessage,
-    finalizeMessages,
-    normalizeToolStatus,
-} from './adapter-helpers';
+import { createConversationUiPath, createDeepLinks } from './adapter-helpers';
+import { cursorBubblesToMessages } from './cursor-message-normalizer';
 import { selectConversationMessages } from './message-selector';
 import { getFirstConversationPathMatch } from './path-match';
 import type {
     ConversationAdapter,
     ConversationDetail,
-    ConversationMessage,
     ConversationPathMatch,
     DeleteConversationOptions,
     DeleteConversationResult,
@@ -42,82 +34,8 @@ const CURSOR_CONVERSATION_HYDRATION_CONCURRENCY = 4;
 const getUserDir = (options: { locations?: { cursorUserDir?: string } }) =>
     options.locations?.cursorUserDir ?? resolveCursorUserDir();
 
-const bubbleToMessages = (
-    bubble: CursorBubble,
-    finalAssistantTextBubbleIds: Set<string>,
-    order: number,
-): ConversationMessage[] => {
-    const thinking = createTextMessage({
-        createdAtMs: bubble.createdAtMs,
-        id: `${bubble.bubbleId}:thinking`,
-        order,
-        phase: 'reasoning',
-        role: 'assistant',
-        text: bubble.thinking,
-    });
-    const text = createTextMessage({
-        createdAtMs: bubble.createdAtMs,
-        id: bubble.bubbleId,
-        order,
-        phase: getCursorTextBubblePhase(bubble, finalAssistantTextBubbleIds) ?? 'unknown',
-        role: bubble.kind === 'assistant' ? 'assistant' : bubble.kind === 'user' ? 'user' : 'unknown',
-        text: bubble.text,
-    });
-    const toolCall = bubble.toolCall
-        ? createTextMessage({
-              createdAtMs: bubble.createdAtMs,
-              id: `${bubble.bubbleId}:tool_call`,
-              metadata: { callId: bubble.toolCall.callId, status: bubble.toolCall.status },
-              order,
-              phase: 'tool_call',
-              role: 'tool',
-              text: [bubble.toolCall.name, bubble.toolCall.argumentsText].filter(Boolean).join('\n'),
-              toolEvidence: {
-                  callId: bubble.toolCall.callId,
-                  command: null,
-                  durationMs: null,
-                  exitCode: null,
-                  inputText: bubble.toolCall.argumentsText,
-                  name: bubble.toolCall.name,
-                  namespace: bubble.toolCall.name.includes('.') ? (bubble.toolCall.name.split('.')[0] ?? null) : null,
-                  outputText: null,
-                  status: normalizeToolStatus(bubble.toolCall.status),
-                  workdir: null,
-              },
-          })
-        : [];
-    const toolOutput = bubble.toolCall
-        ? createTextMessage({
-              createdAtMs: bubble.createdAtMs,
-              id: `${bubble.bubbleId}:tool_output`,
-              metadata: { callId: bubble.toolCall.callId, status: bubble.toolCall.status },
-              order,
-              phase: 'tool_output',
-              role: 'tool',
-              text: bubble.toolCall.resultText,
-              toolEvidence: {
-                  callId: bubble.toolCall.callId,
-                  command: null,
-                  durationMs: null,
-                  exitCode: null,
-                  inputText: null,
-                  name: bubble.toolCall.name,
-                  namespace: bubble.toolCall.name.includes('.') ? (bubble.toolCall.name.split('.')[0] ?? null) : null,
-                  outputText: bubble.toolCall.resultText,
-                  status: normalizeToolStatus(bubble.toolCall.status),
-                  workdir: null,
-              },
-          })
-        : [];
-
-    return [...thinking, ...text, ...toolCall, ...toolOutput];
-};
-
 const transcriptToMessages = (transcript: CursorThreadTranscript) => {
-    const finalAssistantTextBubbleIds = getFinalCursorAssistantTextBubbleIds(transcript.bubbles);
-    return finalizeMessages(
-        transcript.bubbles.flatMap((bubble, order) => bubbleToMessages(bubble, finalAssistantTextBubbleIds, order)),
-    );
+    return cursorBubblesToMessages(transcript.bubbles);
 };
 
 const getWorkspacePath = (group: CursorWorkspaceGroup) => {

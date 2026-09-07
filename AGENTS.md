@@ -18,7 +18,7 @@ Main entrypoints:
 - `rtk bun test`, `rtk bun run lint`, `rtk bun run typecheck`, `rtk bun run build`, and `rtk bun run coverage` for verification
 - `rtk bun run test:package` for the packaged-entrypoint smoke test
 
-Bun 1.4.0 or newer is required.
+Bun 1.4.0 or newer is required for development and local storage workflows. The compiled `spiracha/payload` export must run without Bun or Node built-ins in Node.js, browsers, and Workers.
 
 ## Conventions and Rules
 
@@ -41,6 +41,8 @@ Bun 1.4.0 or newer is required.
 Stable conversation API:
 - `src/client.ts`
   - public Bun client export for local serverless access and HTTP access to the same normalized conversation DTOs
+- `src/lib/conversation-payload.ts`, `src/lib/conversation-payload-*.ts`
+  - `spiracha/payload` portable entrypoint (compiled JS and declarations), also exposed by the Bun client; public `convertConversationPayload` SDK workflow for in-memory JSON/JSONL inference and normalized Markdown; source parsers must not load files, databases, network resources, or Keychain data from supplied payloads
 - `src/lib/conversation-api.ts`
   - HTTP request handler shared by TanStack API routes and root tests
   - owns response envelopes, validation errors, route dispatch, and default selector behavior
@@ -108,7 +110,9 @@ Shared utilities:
 - `src/lib/model-label.ts`
 - `src/lib/path-transforms.ts`
 - `src/lib/portable-path.ts`
-- `src/lib/shared.ts`
+- `src/lib/shared.ts`, `src/lib/shared-text.ts` (I/O and portable text helpers)
+- `src/lib/conversation-data/markdown.ts` (portable normalized Markdown rendering)
+- `src/lib/codex-transcript-records.ts`, `src/lib/codex-cloud-transcript.ts` (portable Codex normalization)
 - `src/lib/sqlite-error.ts`
 - `src/lib/sqlite-retry.ts`
 - `src/lib/ui-cache.ts`
@@ -136,6 +140,9 @@ The package exposes:
   - `createConversationClient({ mode: 'http', baseUrl })` for a running UI server
 - `spiracha/types`
   - normalized conversation DTO types
+- `spiracha/payload`
+  - in-memory JSON/JSONL conversion in Bun, Node.js 22+, browsers, and Workers; no storage imports or I/O
+  - built with `bun run build:payload`, included in the release build
 
 The local UI server exposes:
 - `GET /api/v1/sources`
@@ -163,6 +170,7 @@ Defaults:
 - explicit source requests should surface source-specific failures
 - `delete_session_files` is accepted for single-delete query strings and batch-delete JSON; Cursor uses it to keep or remove transcript directories
 - Web imports are intentionally UI-only: they are not members of `CONVERSATION_SOURCES` and are not exposed through the stable API or CLI
+- Supplied payload conversion is separately exposed through `spiracha/payload` and the Bun `spiracha/client`; it reuses Web and native normalization without adding imported conversations to the stable source registry. Claude Code payload conversion is unsupported.
 - Grok Bot is a global, read-only source backed by the installed macOS app's account-scoped persistence directory. Its list path reads the validated roster only; detail reads one exact transcript replica, and raw export returns the original `.blob` bytes.
 
 Do not bake review semantics into Spiracha. A client such as `fgh --collect` decides that a selected assistant message is a review and chooses where to save it.

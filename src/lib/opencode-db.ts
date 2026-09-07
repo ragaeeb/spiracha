@@ -18,16 +18,8 @@ import {
     resolveOpenCodeDbPath,
 } from './opencode-exporter-types';
 import { splitOpenCodeThinkTaggedText } from './opencode-think-tags';
-import {
-    asNumber,
-    asObject,
-    asString,
-    isWorkspacePathQuery,
-    type JsonValue,
-    pathExists,
-    warnParserDiagnosticOnce,
-    workspacePathMatchesQuery,
-} from './shared';
+import { isWorkspacePathQuery, pathExists, workspacePathMatchesQuery } from './shared';
+import { asNumber, asObject, asString, type JsonValue, warnParserDiagnosticOnce } from './shared-text';
 import { runWithSqliteRetry } from './sqlite-retry';
 
 export { getDefaultOpenCodeDataDir, resolveOpenCodeDbPath };

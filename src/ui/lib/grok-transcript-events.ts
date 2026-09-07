@@ -1,7 +1,7 @@
 import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/codex-browser-types';
 import type { GrokSessionTranscript, GrokTranscriptEntry, GrokTranscriptPart } from '@spiracha/lib/grok-exporter-types';
 import { getFinalGrokAssistantTextPartIds, getGrokTextPartPhase } from '@spiracha/lib/grok-transcript-phase';
-import type { JsonValue } from '@spiracha/lib/shared';
+import type { JsonValue } from '@spiracha/lib/shared-text';
 import { getThreadTranscriptStats } from './thread-transcript-stats';
 
 const buildRaw = (

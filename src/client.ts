@@ -1,4 +1,14 @@
 import { mapWithConcurrency } from './lib/concurrency';
+
+export type { ConversationPayloadErrorCode } from './lib/conversation-payload';
+export { ConversationPayloadError, convertConversationPayload } from './lib/conversation-payload';
+export type {
+    ConversationPayloadArtifact,
+    ConversationPayloadSource,
+    ConvertConversationPayloadOptions,
+    ConvertedConversation,
+} from './lib/conversation-payload-types';
+
 import {
     deleteConversation as deleteLocalConversation,
     deleteConversations as deleteLocalConversations,
@@ -6,11 +16,11 @@ import {
     getConversationRaw as getLocalConversationRaw,
     listConversationSources as listLocalConversationSources,
     listConversations as listLocalConversations,
-    renderConversationMarkdown as renderLocalConversationMarkdown,
     resolveConversationRef as resolveLocalConversationRef,
 } from './lib/conversation-data';
 import { validateEvidenceLens } from './lib/conversation-data/evidence-lens';
 import { buildEvidenceExport } from './lib/conversation-data/evidence-markdown';
+import { renderConversationMarkdown as renderLocalConversationMarkdown } from './lib/conversation-data/markdown';
 import type {
     ConversationDataLocations,
     ConversationDetail,

@@ -1,6 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
-import type { ExportFormat, JsonValue } from './shared';
+import type { ExportFormat, JsonValue } from './shared-text';
 
 export const getDefaultFxDataDir = (_env: NodeJS.ProcessEnv = process.env, homeDir = os.homedir()): string => {
     return path.join(homeDir, '.fx');

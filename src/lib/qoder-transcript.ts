@@ -15,7 +15,7 @@ import {
     renderDocumentTitle,
     renderMetadataBlock,
     renderSection,
-} from './shared';
+} from './shared-text';
 
 const getSessionTitle = (session: QoderSessionSummary): string => {
     return cleanInlineTitle(session.title || session.sessionId);

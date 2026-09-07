@@ -18,15 +18,15 @@ import {
     type ListConversationsOptions,
     listConversationSources,
     listConversations,
-    renderConversationMarkdown,
     resolveConversationRef,
 } from './conversation-data';
 import { validateEvidenceLens } from './conversation-data/evidence-lens';
 import { buildEvidenceExport } from './conversation-data/evidence-markdown';
+import { renderConversationMarkdown } from './conversation-data/markdown';
 import { decodeConversationCursor } from './conversation-data/pagination';
 import { createConversationMarkdownZip } from './conversation-zip-export';
 import { isAllowedLocalRequestOrigin } from './local-request-security';
-import { getExportPlatformName } from './ui-export-archive';
+import { getExportPlatformName, sanitizeExportFileName } from './ui-export-archive';
 
 type ConversationApiDependencies = {
     buildEvidenceExport?: typeof buildEvidenceExport;
@@ -501,10 +501,12 @@ const handleRawConversation = async (
         });
     }
 
+    const fileName = `${sanitizeExportFileName(`${result.value.source}-${result.value.id}`) || 'conversation'}.json`;
+
     return new Response(includeBody ? download.blob : null, {
         headers: {
             'Cache-Control': 'no-store',
-            'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(download.fileName)}`,
+            'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`,
             'Content-Type': download.mimeType,
             'X-Content-Type-Options': 'nosniff',
         },

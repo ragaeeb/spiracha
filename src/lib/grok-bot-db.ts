@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { lstat, rename, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import type { GrokBotConversation, GrokBotConversationSummary, GrokBotRosterRow } from './grok-bot-payload';
+import { parseGrokBotRosterRow, parseGrokBotTranscript } from './grok-bot-payload';
 
 const BASE32_ALPHABET = 'abcdefghijklmnopqrstuvwxyz234567';
 const ACCOUNT_SLOT_KEY = 'sand.client.slice.client-meta.account-slot';
@@ -9,63 +11,10 @@ const ACCOUNT_KEY_PREFIX = 'sand.client.slice.account';
 const MAX_GROK_BOT_BLOB_BYTES = 16 * 1024 * 1024;
 const GROK_BOT_PERSISTENCE_ENV = 'SPIRACHA_GROK_BOT_PERSISTENCE_DIR';
 
-export type GrokBotRosterRow = {
-    createdAtMs: number | null;
-    description: string | null;
-    id: string;
-    isGroup: boolean;
-    lastActivityAtMs: number | null;
-    memberIds: string[];
-    name: string;
-    title: string | null;
-    updatedAtMs: number | null;
-};
-
-export type GrokBotTranscriptEntry = Record<string, unknown> & {
-    id: string | null;
-    kind: string;
-    timestampMs: number | null;
-};
-
-export type GrokBotTranscript = {
-    entries: GrokBotTranscriptEntry[];
-    persistedAtMs: number | null;
-};
-
-export type GrokBotConversationSummary = {
-    id: string;
-    roster: GrokBotRosterRow;
-    rosterRows: GrokBotRosterRow[];
-};
-
-export type GrokBotConversation = GrokBotConversationSummary & {
-    persistencePath: string;
-    transcript: GrokBotTranscript;
-};
-
 const asRecord = (value: unknown): Record<string, unknown> | null => {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
         ? (value as Record<string, unknown>)
         : null;
-};
-
-const toTimestampMs = (value: unknown): number | null => {
-    if (typeof value !== 'number' || !Number.isFinite(value)) {
-        return null;
-    }
-
-    return Math.floor(value);
-};
-
-const readOptionalString = (record: Record<string, unknown>, key: string): string | null => {
-    const value = record[key];
-    if (value === undefined || value === null) {
-        return null;
-    }
-    if (typeof value !== 'string') {
-        throw new Error(`Grok Bot roster field "${key}" is incompatible.`);
-    }
-    return value;
 };
 
 const missingFile = (error: unknown) => error instanceof Error && 'code' in error && error.code === 'ENOENT';
@@ -135,34 +84,6 @@ const readAccountSlot = async (persistenceDir: string): Promise<string | null> =
     return accountSlot;
 };
 
-const parseRosterRow = (value: unknown, index: number): GrokBotRosterRow => {
-    const record = asRecord(value);
-    if (!record || typeof record.id !== 'string' || !record.id.trim() || typeof record.name !== 'string') {
-        throw new Error(`Grok Bot roster row ${index} is incompatible.`);
-    }
-    if (record.isGroup !== undefined && typeof record.isGroup !== 'boolean') {
-        throw new Error(`Grok Bot roster row ${index} is incompatible.`);
-    }
-    if (
-        record.memberIds !== undefined &&
-        (!Array.isArray(record.memberIds) || record.memberIds.some((memberId) => typeof memberId !== 'string'))
-    ) {
-        throw new Error(`Grok Bot roster row ${index} is incompatible.`);
-    }
-
-    return {
-        createdAtMs: toTimestampMs(record.createdAtMs ?? record.createdAt),
-        description: readOptionalString(record, 'description'),
-        id: record.id,
-        isGroup: record.isGroup === true,
-        lastActivityAtMs: toTimestampMs(record.lastActivityAtMs ?? record.lastActivityAt),
-        memberIds: (record.memberIds ?? []) as string[],
-        name: record.name,
-        title: readOptionalString(record, 'title'),
-        updatedAtMs: toTimestampMs(record.updatedAtMs ?? record.updatedAt),
-    };
-};
-
 const readRoster = async (persistenceDir: string) => {
     const accountSlot = await readAccountSlot(persistenceDir);
     if (!accountSlot) {
@@ -184,7 +105,7 @@ const readRoster = async (persistenceDir: string) => {
         throw new Error('Grok Bot roster is incompatible.');
     }
 
-    const rows = rosterValue.rows.map(parseRosterRow);
+    const rows = rosterValue.rows.map(parseGrokBotRosterRow);
     if (new Set(rows.map((row) => row.id)).size !== rows.length) {
         throw new Error('Grok Bot roster contains duplicate conversation ids.');
     }
@@ -210,32 +131,6 @@ const writeRosterRows = async (
     } finally {
         await rm(temporaryPath, { force: true });
     }
-};
-
-const parseTranscriptEntry = (value: unknown, index: number): GrokBotTranscriptEntry => {
-    const record = asRecord(value);
-    if (!record || typeof record.kind !== 'string' || !record.kind.trim()) {
-        throw new Error(`Grok Bot transcript entry ${index} is incompatible.`);
-    }
-
-    return {
-        ...record,
-        id: typeof record.id === 'string' && record.id.trim() ? record.id : null,
-        kind: record.kind,
-        timestampMs: toTimestampMs(record.timestampMs),
-    };
-};
-
-const parseTranscript = (value: unknown): GrokBotTranscript => {
-    const transcriptValue = asRecord(envelopeValue(value, 1, 'transcript replica'));
-    if (!transcriptValue || !Array.isArray(transcriptValue.entries)) {
-        throw new Error('Grok Bot transcript replica is incompatible.');
-    }
-
-    return {
-        entries: transcriptValue.entries.map(parseTranscriptEntry),
-        persistedAtMs: toTimestampMs(transcriptValue.persistedAtMs ?? transcriptValue.persistedAt),
-    };
 };
 
 export const encodeGrokBotPersistenceKey = (value: string): string => {
@@ -315,7 +210,7 @@ export const readGrokBotConversation = async (
         persistencePath,
         roster: row,
         rosterRows: roster.rows,
-        transcript: parseTranscript(value),
+        transcript: parseGrokBotTranscript(value),
     };
 };
 

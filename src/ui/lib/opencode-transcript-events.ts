@@ -5,7 +5,7 @@ import {
     getFinalOpenCodeAssistantTextPartIds,
     getOpenCodeTextPartPhase,
 } from '@spiracha/lib/opencode-transcript-phase';
-import type { JsonValue } from '@spiracha/lib/shared';
+import type { JsonValue } from '@spiracha/lib/shared-text';
 import { getThreadTranscriptStats } from './thread-transcript-stats';
 
 const toTimestamp = (value: number | null | undefined): string | null => {

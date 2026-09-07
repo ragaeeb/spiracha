@@ -3,28 +3,30 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
+    createExportWriteStream,
+    expandHome,
+    finalizeExportWriteStream,
+    pathExists,
+    readDirectoryEntriesIfExists,
+    readJsonlObjects,
+    toFileUri,
+    writeExportFile,
+} from './shared';
+import {
     asBoolean,
     asNumber,
     asObject,
     asString,
     cleanExtractedText,
     cleanInlineTitle,
-    createExportWriteStream,
-    expandHome,
-    finalizeExportWriteStream,
     formatInlineLiteral,
     formatModelLabel,
     inlineCode,
-    pathExists,
-    readDirectoryEntriesIfExists,
-    readJsonlObjects,
     renderCodeBlock,
     renderDocumentTitle,
     renderMetadataBlock,
     renderSection,
-    toFileUri,
-    writeExportFile,
-} from './shared';
+} from './shared-text';
 
 const tempPaths: string[] = [];
 

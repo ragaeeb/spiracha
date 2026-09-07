@@ -8,6 +8,32 @@ const isAssistantMessage = (event: ThreadEvent): event is Extract<ThreadEvent, {
 const getToolCalls = (events: ThreadEvent[]) => events.filter((event) => event.kind === 'tool_call');
 const getToolOutputs = (events: ThreadEvent[]) => events.filter((event) => event.kind === 'tool_output');
 
+it('should preserve nested Web metadata and use outer metadata only as a fallback', async () => {
+    const { conversations, errors } = await parseWebChatFiles([
+        {
+            content: JSON.stringify({
+                data: {
+                    create_time: 1_700_000_000,
+                    id: 'nested',
+                    messages: [{ content: 'Answer', role: 'assistant' }],
+                    title: 'Inner title',
+                },
+                model: 'gpt-5',
+                title: 'Outer title',
+            }),
+            name: 'nested.json',
+        },
+    ]);
+    expect(errors).toEqual([]);
+    expect(conversations[0]).toMatchObject({
+        createdAtMs: 1_700_000_000_000,
+        model: 'gpt-5',
+        platform: 'ChatGPT',
+        sourceConversationId: 'nested',
+        title: 'Inner title',
+    });
+});
+
 const createMappingExport = (input: {
     assistantMetadata?: Record<string, unknown>;
     conversationId: string;
@@ -50,7 +76,7 @@ const createMappingExport = (input: {
 });
 
 describe('parseWebChatFiles', () => {
-    it('should extract Gemini research artifacts once and preserve their Markdown exactly', () => {
+    it('should extract Gemini research artifacts once and preserve their Markdown exactly', async () => {
         const content =
             '# Research Report — AI-assisted label quality and safe autonomous experiment control\n\nArabic: رحمه الله\n';
         const artifact = ['im_report', null, 'Research report', 'task', content, [], null, null, [], 'im_report', 3];
@@ -58,18 +84,20 @@ describe('parseWebChatFiles', () => {
             ...createMappingExport({ conversationId: 'gemini-artifact', model: 'gemini-3-pro', title: 'Research' }),
             raw_payload: [[artifact, artifact], ['im_invalid', null, 'Invalid', null, 42], content],
         };
-        const conversation = parseWebChatFiles([{ content: JSON.stringify(input), name: 'gemini.json' }])
+        const conversation = (await parseWebChatFiles([{ content: JSON.stringify(input), name: 'gemini.json' }]))
             .conversations[0]!;
         expect(conversation.artifacts).toEqual([{ content, id: 'im_report', title: 'Research report' }]);
         expect(conversation.events.filter((event) => event.kind === 'reasoning')).toEqual([]);
         expect(
-            parseWebChatFiles([
-                { content: JSON.stringify({ ...input, default_model_slug: 'gpt-5' }), name: 'chatgpt.json' },
-            ]).conversations[0]!.artifacts,
+            (
+                await parseWebChatFiles([
+                    { content: JSON.stringify({ ...input, default_model_slug: 'gpt-5' }), name: 'chatgpt.json' },
+                ])
+            ).conversations[0]!.artifacts,
         ).toEqual([]);
     });
 
-    it('should keep Gemini document sections out of reasoning while preserving actual thoughts', () => {
+    it('should keep Gemini document sections out of reasoning while preserving actual thoughts', async () => {
         const section = 'Research relies on provided snapshot.\n\n## Source Ledger\nOriginal sources.';
         const content = `# Research Report\n\n${section}`;
         const input = {
@@ -107,7 +135,7 @@ describe('parseWebChatFiles', () => {
                 ],
             ],
         };
-        const conversation = parseWebChatFiles([{ content: JSON.stringify(input), name: 'gemini.json' }])
+        const conversation = (await parseWebChatFiles([{ content: JSON.stringify(input), name: 'gemini.json' }]))
             .conversations[0]!;
         expect(conversation.artifacts).toEqual([{ content, id: 'im_sections', title: 'Report' }]);
         expect(conversation.events.filter((event) => event.kind === 'reasoning').map((event) => event.content)).toEqual(
@@ -115,7 +143,7 @@ describe('parseWebChatFiles', () => {
         );
     });
 
-    it('should append numbered Gemini works cited once and reuse their browsing tool calls', () => {
+    it('should append numbered Gemini works cited once and reuse their browsing tool calls', async () => {
         const body = '# Report\n\nResearch relies on provided snapshot. [cite: 1, 2]\n';
         const first = [
             null,
@@ -148,7 +176,7 @@ describe('parseWebChatFiles', () => {
             model: 'gemini-3-pro',
             raw_payload: [document, document],
         };
-        const conversation = parseWebChatFiles([{ content: JSON.stringify(input), name: 'gemini.json' }])
+        const conversation = (await parseWebChatFiles([{ content: JSON.stringify(input), name: 'gemini.json' }]))
             .conversations[0]!;
         expect(conversation.artifacts).toEqual([
             {
@@ -165,7 +193,7 @@ describe('parseWebChatFiles', () => {
         expect(conversation.events.filter((event) => event.kind === 'reasoning')).toEqual([]);
     });
 
-    it('should ignore malformed Gemini citations and keep uncited document bodies unchanged', () => {
+    it('should ignore malformed Gemini citations and keep uncited document bodies unchanged', async () => {
         const body = '# Report\n';
         const input = {
             messages: [{ content: 'Done', role: 'assistant' }],
@@ -202,11 +230,11 @@ describe('parseWebChatFiles', () => {
             ],
         };
         expect(
-            parseWebChatFiles([{ content: JSON.stringify(input), name: 'gemini.json' }]).conversations[0]!.artifacts[0]!
-                .content,
+            (await parseWebChatFiles([{ content: JSON.stringify(input), name: 'gemini.json' }])).conversations[0]!
+                .artifacts[0]!.content,
         ).toBe(body);
     });
-    it('should infer the attached mapping export providers at runtime', () => {
+    it('should infer the attached mapping export providers at runtime', async () => {
         const cases = [
             { assistantMetadata: { grok_mode: 'deepsearch' }, expected: 'Grok', model: 'Normal' },
             { expected: 'Gemini', model: 'gemini-3.1-pro-extended' },
@@ -216,7 +244,7 @@ describe('parseWebChatFiles', () => {
         ];
 
         for (const [index, testCase] of cases.entries()) {
-            const result = parseWebChatFiles([
+            const result = await parseWebChatFiles([
                 {
                     content: JSON.stringify(
                         createMappingExport({
@@ -242,7 +270,7 @@ describe('parseWebChatFiles', () => {
         }
     });
 
-    it('should follow the selected mapping branch and preserve reasoning separately', () => {
+    it('should follow the selected mapping branch and preserve reasoning separately', async () => {
         const base = createMappingExport({
             conversationId: 'branching-chat',
             model: 'gemini-3-pro',
@@ -279,7 +307,7 @@ describe('parseWebChatFiles', () => {
             },
         };
 
-        const result = parseWebChatFiles([{ content: JSON.stringify(input), name: 'branch.json' }]);
+        const result = await parseWebChatFiles([{ content: JSON.stringify(input), name: 'branch.json' }]);
         const events = result.conversations[0]!.events;
 
         expect(events.map((event) => event.kind)).toEqual(['message', 'reasoning', 'message']);
@@ -287,7 +315,7 @@ describe('parseWebChatFiles', () => {
         expect(events[2]).toMatchObject({ kind: 'message', text: 'Final answer' });
     });
 
-    it('should prefer content provider hints over a misleading file name', () => {
+    it('should prefer content provider hints over a misleading file name', async () => {
         const input = createMappingExport({
             conversationId: 'misnamed-chat',
             model: 'gpt-5',
@@ -298,7 +326,7 @@ describe('parseWebChatFiles', () => {
             parts: ['Reasoning stored in parts'],
         };
 
-        const result = parseWebChatFiles([{ content: JSON.stringify(input), name: 'claude-export.json' }]);
+        const result = await parseWebChatFiles([{ content: JSON.stringify(input), name: 'claude-export.json' }]);
 
         expect(result.conversations[0]!.platform).toBe('ChatGPT');
         expect(result.conversations[0]!.events.map((event) => event.kind)).toEqual(['message', 'reasoning']);
@@ -308,7 +336,7 @@ describe('parseWebChatFiles', () => {
         });
     });
 
-    it('should parse native Claude and Grok exports from one multi-file import', () => {
+    it('should parse native Claude and Grok exports from one multi-file import', async () => {
         const claude = {
             chat_messages: [
                 {
@@ -354,7 +382,7 @@ describe('parseWebChatFiles', () => {
             ],
         };
 
-        const result = parseWebChatFiles([
+        const result = await parseWebChatFiles([
             { content: JSON.stringify(claude), name: 'claude.json' },
             { content: JSON.stringify(grok), name: 'grok.json' },
         ]);
@@ -367,7 +395,7 @@ describe('parseWebChatFiles', () => {
         ).toEqual(['final_answer', 'final_answer']);
     });
 
-    it('should split arrays of conversations and parse generic GLM role-content messages', () => {
+    it('should split arrays of conversations and parse generic GLM role-content messages', async () => {
         const first = createMappingExport({
             conversationId: 'first',
             model: 'gpt-5',
@@ -382,7 +410,7 @@ describe('parseWebChatFiles', () => {
             title: 'Second',
         };
 
-        const result = parseWebChatFiles([{ content: JSON.stringify([first, second]), name: 'many.json' }]);
+        const result = await parseWebChatFiles([{ content: JSON.stringify([first, second]), name: 'many.json' }]);
 
         expect(result.errors).toEqual([]);
         expect(result.conversations).toHaveLength(2);
@@ -391,13 +419,13 @@ describe('parseWebChatFiles', () => {
         expect(result.conversations[1]!.events.at(-1)).toMatchObject({ phase: 'final_answer' });
     });
 
-    it('should keep valid files when another file is invalid', () => {
+    it('should keep valid files when another file is invalid', async () => {
         const valid = createMappingExport({
             conversationId: 'valid',
             model: 'gpt-5',
             title: 'Valid',
         });
-        const result = parseWebChatFiles([
+        const result = await parseWebChatFiles([
             { content: JSON.stringify(valid), name: 'valid.json' },
             { content: '{not json', name: 'broken.json' },
             { content: JSON.stringify({ unrelated: true }), name: 'unknown.json' },
@@ -410,7 +438,7 @@ describe('parseWebChatFiles', () => {
         ]);
     });
 
-    it('should classify ChatGPT progress as commentary and tool traffic as tools', () => {
+    it('should classify ChatGPT progress as commentary and tool traffic as tools', async () => {
         const mapping = {
             final: {
                 children: [],
@@ -465,7 +493,7 @@ describe('parseWebChatFiles', () => {
             },
         };
 
-        const result = parseWebChatFiles([
+        const result = await parseWebChatFiles([
             {
                 content: JSON.stringify({ conversation_id: 'research', current_node: 'final', mapping }),
                 name: 'research.json',
@@ -482,7 +510,7 @@ describe('parseWebChatFiles', () => {
         expect(events.filter((event) => event.kind === 'tool_output')).toHaveLength(1);
     });
 
-    it('should extract a completed ChatGPT deep-research report from widget state', () => {
+    it('should extract a completed ChatGPT deep-research report from widget state', async () => {
         const reportMessage = {
             author: { role: 'assistant' },
             content: {
@@ -544,7 +572,7 @@ describe('parseWebChatFiles', () => {
             },
         };
 
-        const result = parseWebChatFiles([
+        const result = await parseWebChatFiles([
             {
                 content: JSON.stringify({
                     conversation_id: 'deep-research',
@@ -577,7 +605,7 @@ describe('parseWebChatFiles', () => {
         });
     });
 
-    it('should expose attached Grok deep-search browsing as tool calls', () => {
+    it('should expose attached Grok deep-search browsing as tool calls', async () => {
         const input = {
             conversation: { id: 'grok-research', title: 'Grok research' },
             raw_payload: {
@@ -636,8 +664,8 @@ describe('parseWebChatFiles', () => {
             ],
         };
 
-        const events = parseWebChatFiles([{ content: JSON.stringify(input), name: 'grok.json' }]).conversations[0]!
-            .events;
+        const events = (await parseWebChatFiles([{ content: JSON.stringify(input), name: 'grok.json' }]))
+            .conversations[0]!.events;
 
         expect(getToolCalls(events)).toEqual([
             expect.objectContaining({
@@ -660,7 +688,7 @@ describe('parseWebChatFiles', () => {
         }
     });
 
-    it('should expose attached Gemini research sources as tool calls', () => {
+    it('should expose attached Gemini research sources as tool calls', async () => {
         const input = {
             ...createMappingExport({
                 conversationId: 'gemini-research',
@@ -679,8 +707,8 @@ describe('parseWebChatFiles', () => {
             ],
         };
 
-        const events = parseWebChatFiles([{ content: JSON.stringify(input), name: 'gemini.json' }]).conversations[0]!
-            .events;
+        const events = (await parseWebChatFiles([{ content: JSON.stringify(input), name: 'gemini.json' }]))
+            .conversations[0]!.events;
 
         expect(getToolCalls(events)).toEqual([
             expect.objectContaining({
@@ -691,12 +719,12 @@ describe('parseWebChatFiles', () => {
         ]);
 
         const ordinary = { ...input, conversation_id: 'gemini-ordinary', raw_payload: ['https://example.com/link'] };
-        const ordinaryEvents = parseWebChatFiles([{ content: JSON.stringify(ordinary), name: 'gemini.json' }])
+        const ordinaryEvents = (await parseWebChatFiles([{ content: JSON.stringify(ordinary), name: 'gemini.json' }]))
             .conversations[0]!.events;
         expect(getToolCalls(ordinaryEvents)).toEqual([]);
     });
 
-    it('should detect Gemini research source groups without relying on English labels', () => {
+    it('should detect Gemini research source groups without relying on English labels', async () => {
         const input = {
             ...createMappingExport({
                 conversationId: 'gemini-localized-research',
@@ -706,8 +734,8 @@ describe('parseWebChatFiles', () => {
             raw_payload: [['Recherche de sites...', ['https://example.com/localized-source']]],
         };
 
-        const events = parseWebChatFiles([{ content: JSON.stringify(input), name: 'gemini.json' }]).conversations[0]!
-            .events;
+        const events = (await parseWebChatFiles([{ content: JSON.stringify(input), name: 'gemini.json' }]))
+            .conversations[0]!.events;
 
         expect(getToolCalls(events)).toEqual([
             expect.objectContaining({
@@ -717,7 +745,7 @@ describe('parseWebChatFiles', () => {
         ]);
     });
 
-    it('should expose attached Qwen deep-research queries as tool calls', () => {
+    it('should expose attached Qwen deep-research queries as tool calls', async () => {
         const input = {
             ...createMappingExport({
                 assistantMetadata: { qwen_model: 'qwen3.8-max' },
@@ -764,8 +792,8 @@ describe('parseWebChatFiles', () => {
             },
         };
 
-        const events = parseWebChatFiles([{ content: JSON.stringify(input), name: 'qwen.json' }]).conversations[0]!
-            .events;
+        const events = (await parseWebChatFiles([{ content: JSON.stringify(input), name: 'qwen.json' }]))
+            .conversations[0]!.events;
 
         const calls = getToolCalls(events);
         expect(calls).toEqual([
@@ -785,7 +813,7 @@ describe('parseWebChatFiles', () => {
         expect(outputs[0]?.outputText).toContain('Git rebase moves feature branch histories to the head of main.');
     });
 
-    it('should keep repeated Qwen searches as distinct paired tool calls', () => {
+    it('should keep repeated Qwen searches as distinct paired tool calls', async () => {
         const research = {
             query: 'same query',
             webSites: [{ title: 'Source', url: 'https://example.com/source' }],
@@ -800,8 +828,8 @@ describe('parseWebChatFiles', () => {
             raw_payload: { deep_research: [research, research] },
         };
 
-        const events = parseWebChatFiles([{ content: JSON.stringify(input), name: 'qwen.json' }]).conversations[0]!
-            .events;
+        const events = (await parseWebChatFiles([{ content: JSON.stringify(input), name: 'qwen.json' }]))
+            .conversations[0]!.events;
         const calls = getToolCalls(events);
         const outputs = getToolOutputs(events);
 
@@ -811,7 +839,7 @@ describe('parseWebChatFiles', () => {
         expect(outputs.map((output) => output.callId)).toEqual(calls.map((call) => call.callId));
     });
 
-    it('should expose Amazon Nova deep-research browsing with paired search results', () => {
+    it('should expose Amazon Nova deep-research browsing with paired search results', async () => {
         const input = {
             ...createMappingExport({
                 conversationId: 'nova-research',
@@ -853,9 +881,9 @@ describe('parseWebChatFiles', () => {
             },
         };
 
-        const conversation = parseWebChatFiles([
-            { content: JSON.stringify(input), name: 'Amazon_Nova_Conversation.json' },
-        ]).conversations[0]!;
+        const conversation = (
+            await parseWebChatFiles([{ content: JSON.stringify(input), name: 'Amazon_Nova_Conversation.json' }])
+        ).conversations[0]!;
         const calls = getToolCalls(conversation.events);
         const outputs = getToolOutputs(conversation.events);
 
@@ -881,7 +909,7 @@ describe('parseWebChatFiles', () => {
         expect(outputs[0]?.outputText).toContain('https://git-scm.com/docs/git-patch-id');
     });
 
-    it('should parse multiline Nova searches and pair queued results in order', () => {
+    it('should parse multiline Nova searches and pair queued results in order', async () => {
         const input = {
             ...createMappingExport({
                 conversationId: 'nova-multiline-research',
@@ -915,8 +943,8 @@ describe('parseWebChatFiles', () => {
             },
         };
 
-        const events = parseWebChatFiles([{ content: JSON.stringify(input), name: 'nova.json' }]).conversations[0]!
-            .events;
+        const events = (await parseWebChatFiles([{ content: JSON.stringify(input), name: 'nova.json' }]))
+            .conversations[0]!.events;
         const calls = getToolCalls(events);
         const outputs = getToolOutputs(events);
 
@@ -925,7 +953,7 @@ describe('parseWebChatFiles', () => {
         expect(outputs.map((output) => output.callId)).toEqual(calls.map((call) => call.callId));
     });
 
-    it('should keep embedded tool events beside their source turn', () => {
+    it('should keep embedded tool events beside their source turn', async () => {
         const input = {
             ...createMappingExport({
                 conversationId: 'multi-turn-tools',
@@ -980,8 +1008,8 @@ describe('parseWebChatFiles', () => {
             },
         };
 
-        const events = parseWebChatFiles([{ content: JSON.stringify(input), name: 'claude.json' }]).conversations[0]!
-            .events;
+        const events = (await parseWebChatFiles([{ content: JSON.stringify(input), name: 'claude.json' }]))
+            .conversations[0]!.events;
         const toolIndex = events.findIndex((event) => event.kind === 'tool_call');
         const firstAnswerIndex = events.findIndex((event) => event.kind === 'message' && event.text === 'Answer one');
         const secondUserIndex = events.findIndex((event) => event.kind === 'message' && event.text === 'Question two');
@@ -991,7 +1019,7 @@ describe('parseWebChatFiles', () => {
         expect(firstAnswerIndex).toBeLessThan(secondUserIndex);
     });
 
-    it('should expose attached Claude web-search and fetch blocks as tool calls', () => {
+    it('should expose attached Claude web-search and fetch blocks as tool calls', async () => {
         const input = createMappingExport({
             conversationId: 'claude-research',
             model: 'claude-sonnet-5',
@@ -1018,8 +1046,8 @@ describe('parseWebChatFiles', () => {
             },
         });
 
-        const events = parseWebChatFiles([{ content: JSON.stringify(input), name: 'claude.json' }]).conversations[0]!
-            .events;
+        const events = (await parseWebChatFiles([{ content: JSON.stringify(input), name: 'claude.json' }]))
+            .conversations[0]!.events;
 
         expect(getToolCalls(events)).toEqual([
             expect.objectContaining({ callId: 'search-call', command: 'CodeRabbit pricing 2026', name: 'web_search' }),
@@ -1031,7 +1059,7 @@ describe('parseWebChatFiles', () => {
         ]);
     });
 
-    it('should expose every attached Claude web-search result under tool calls', () => {
+    it('should expose every attached Claude web-search result under tool calls', async () => {
         const input = createMappingExport({
             conversationId: 'claude-search-results',
             model: 'claude-sonnet-5',
@@ -1069,8 +1097,8 @@ describe('parseWebChatFiles', () => {
             },
         });
 
-        const events = parseWebChatFiles([{ content: JSON.stringify(input), name: 'claude.json' }]).conversations[0]!
-            .events;
+        const events = (await parseWebChatFiles([{ content: JSON.stringify(input), name: 'claude.json' }]))
+            .conversations[0]!.events;
 
         expect(getToolOutputs(events)).toEqual([
             expect.objectContaining({
@@ -1081,7 +1109,7 @@ describe('parseWebChatFiles', () => {
         ]);
     });
 
-    it('should expose attached ChatGPT research searches as tool calls', () => {
+    it('should expose attached ChatGPT research searches as tool calls', async () => {
         const input = createMappingExport({
             conversationId: 'chatgpt-search',
             model: 'gpt-5-6-pro',
@@ -1092,7 +1120,7 @@ describe('parseWebChatFiles', () => {
             recipient: 'web.run',
         });
 
-        const events = parseWebChatFiles([{ content: JSON.stringify(input), name: 'chatgpt-search.json' }])
+        const events = (await parseWebChatFiles([{ content: JSON.stringify(input), name: 'chatgpt-search.json' }]))
             .conversations[0]!.events;
 
         expect(getToolCalls(events)).toEqual([
@@ -1100,7 +1128,7 @@ describe('parseWebChatFiles', () => {
         ]);
     });
 
-    it('should expose attached ChatGPT research page opens as tool calls', () => {
+    it('should expose attached ChatGPT research page opens as tool calls', async () => {
         const input = createMappingExport({
             conversationId: 'chatgpt-open',
             model: 'gpt-5-6-pro',
@@ -1111,7 +1139,7 @@ describe('parseWebChatFiles', () => {
             recipient: 'web.run',
         });
 
-        const events = parseWebChatFiles([{ content: JSON.stringify(input), name: 'chatgpt-open.json' }])
+        const events = (await parseWebChatFiles([{ content: JSON.stringify(input), name: 'chatgpt-open.json' }]))
             .conversations[0]!.events;
 
         expect(getToolCalls(events)).toEqual([
@@ -1119,7 +1147,7 @@ describe('parseWebChatFiles', () => {
         ]);
     });
 
-    it('should expose the attached ChatGPT Deep Research app launch as a tool call', () => {
+    it('should expose the attached ChatGPT Deep Research app launch as a tool call', async () => {
         const input = createMappingExport({
             conversationId: 'deep-research-launch',
             model: 'gpt-5-6-pro',
@@ -1134,7 +1162,7 @@ describe('parseWebChatFiles', () => {
             recipient: 'api_tool.call_tool',
         });
 
-        const events = parseWebChatFiles([{ content: JSON.stringify(input), name: 'deep-research.json' }])
+        const events = (await parseWebChatFiles([{ content: JSON.stringify(input), name: 'deep-research.json' }]))
             .conversations[0]!.events;
 
         expect(getToolCalls(events)).toEqual([
@@ -1142,7 +1170,7 @@ describe('parseWebChatFiles', () => {
         ]);
     });
 
-    it('should retain imported conversations without serializing the normalized conversation again', () => {
+    it('should retain imported conversations without serializing the normalized conversation again', async () => {
         const input = createMappingExport({
             conversationId: 'retention-size',
             model: 'gpt-5-6-pro',
@@ -1158,7 +1186,7 @@ describe('parseWebChatFiles', () => {
         }) as typeof JSON.stringify;
 
         try {
-            const result = importWebChatFiles([{ content, name: 'retention.json' }]);
+            const result = await importWebChatFiles([{ content, name: 'retention.json' }]);
             expect(result.errors).toEqual([]);
             expect(getImportedWebChat(result.conversations[0]!.id)).not.toBeNull();
         } finally {

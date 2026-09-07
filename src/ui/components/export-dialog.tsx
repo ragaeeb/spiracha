@@ -35,9 +35,11 @@ type ExportDialogProps = {
     forceZipArchive?: boolean;
     focusedEvidenceTarget?: { id: string; source: ConversationSource };
     open: boolean;
+    onRawJsonExport?: (callbacks: ExportLifecycleCallbacks) => void;
     pending?: boolean;
     skippedThreadCount?: number;
     showCommentaryOption?: boolean;
+    showRawJsonOption?: boolean;
     showToolsOption?: boolean;
     title?: string;
     onExport: (options: ExportDialogOptions, callbacks: ExportLifecycleCallbacks) => void;
@@ -185,6 +187,7 @@ type ExportModeContentProps = {
     mode: ExportMode;
     options: ExportDialogOptions;
     preview: ConversationEvidenceExport | null;
+    showRawJsonOption: boolean;
     showCommentaryOption: boolean;
     showToolsOption: boolean;
     zipDescriptionId: string;
@@ -201,6 +204,7 @@ const ExportModeContent = ({
     mode,
     options,
     preview,
+    showRawJsonOption,
     showCommentaryOption,
     showToolsOption,
     zipDescriptionId,
@@ -209,7 +213,7 @@ const ExportModeContent = ({
     onOptionsChange,
 }: ExportModeContentProps) => (
     <>
-        {focusedEvidenceTarget ? (
+        {focusedEvidenceTarget || showRawJsonOption ? (
             <div className="space-y-2">
                 <label className="font-medium text-sm" htmlFor="export-mode">
                     Export mode
@@ -223,9 +227,10 @@ const ExportModeContent = ({
                     </SelectTrigger>
                     <SelectContent>
                         <SelectItem value="full">Full transcript</SelectItem>
-                        <SelectItem value="focused">Focused evidence</SelectItem>
-                        {RAW_EXPORT_SOURCES.has(focusedEvidenceTarget.source) ? (
-                            <SelectItem value="raw">Raw source JSON</SelectItem>
+                        {focusedEvidenceTarget ? <SelectItem value="focused">Focused evidence</SelectItem> : null}
+                        {showRawJsonOption ||
+                        (focusedEvidenceTarget && RAW_EXPORT_SOURCES.has(focusedEvidenceTarget.source)) ? (
+                            <SelectItem value="raw">Raw JSON</SelectItem>
                         ) : null}
                     </SelectContent>
                 </Select>
@@ -334,9 +339,11 @@ export function ExportDialog({
     forceZipArchive = false,
     focusedEvidenceTarget,
     open,
+    onRawJsonExport,
     pending = false,
     skippedThreadCount = 0,
     showCommentaryOption = true,
+    showRawJsonOption = false,
     showToolsOption = true,
     title = 'Export thread',
     onExport,
@@ -438,6 +445,36 @@ export function ExportDialog({
         setSubmitted(false);
     };
 
+    const submitRawExport = async () => {
+        if (focusedEvidenceTarget) {
+            const { id, source } = focusedEvidenceTarget;
+            try {
+                await downloadUrlFileWithCancellation(
+                    downloadCancellation,
+                    `${source}-${id}.json`,
+                    `/api/v1/conversations/${source}/${encodeURIComponent(id)}/raw`,
+                    { onStateChange: setDownloadState },
+                );
+            } catch (error) {
+                setExportError(error instanceof Error ? error.message : 'Raw transcript export failed.');
+            } finally {
+                submissionInProgress.current = false;
+                setSubmitted(false);
+            }
+            return;
+        }
+
+        if (onRawJsonExport) {
+            onRawJsonExport({ onDownloadStateChange: setDownloadState });
+            return;
+        }
+
+        setExportError('Raw JSON export is unavailable.');
+        setDownloadState('failed');
+        submissionInProgress.current = false;
+        setSubmitted(false);
+    };
+
     const submitExport = async () => {
         if (submissionInProgress.current) {
             return;
@@ -451,21 +488,8 @@ export function ExportDialog({
             await submitFocusedExport(token);
             return;
         }
-        if (mode === 'raw' && focusedEvidenceTarget) {
-            const { id, source } = focusedEvidenceTarget;
-            try {
-                await downloadUrlFileWithCancellation(
-                    downloadCancellation,
-                    `${source}-${id}.jsonl`,
-                    `/api/v1/conversations/${source}/${encodeURIComponent(id)}/raw`,
-                    { onStateChange: setDownloadState },
-                );
-            } catch (error) {
-                setExportError(error instanceof Error ? error.message : 'Raw transcript export failed.');
-            } finally {
-                submissionInProgress.current = false;
-                setSubmitted(false);
-            }
+        if (mode === 'raw') {
+            await submitRawExport();
             return;
         }
         updateSetting('exportDefaults', options);
@@ -491,6 +515,7 @@ export function ExportDialog({
                         mode={mode}
                         options={options}
                         preview={preview}
+                        showRawJsonOption={showRawJsonOption}
                         showCommentaryOption={showCommentaryOption}
                         showToolsOption={showToolsOption}
                         zipDescriptionId={zipDescriptionId}

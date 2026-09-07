@@ -8,7 +8,7 @@ import {
     isClaudeCodeSyntheticTranscriptEntry,
 } from '@spiracha/lib/claude-code-transcript-phase';
 import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/codex-browser-types';
-import type { JsonValue } from '@spiracha/lib/shared';
+import type { JsonValue } from '@spiracha/lib/shared-text';
 import { getThreadTranscriptStats } from './thread-transcript-stats';
 
 const buildRaw = (

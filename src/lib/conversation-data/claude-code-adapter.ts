@@ -13,7 +13,7 @@ import type {
 } from '../claude-code-exporter-types';
 import { getClaudeCodeAssistantMessagePhase, resolveClaudeCodeProjectsDir } from '../claude-code-exporter-types';
 import { mapWithConcurrency } from '../concurrency';
-import { cleanInlineTitle } from '../shared';
+import { cleanInlineTitle } from '../shared-text';
 import { runWithTranscriptLoadLimit } from '../transcript-load-limiter';
 import {
     createConversationUiPath,

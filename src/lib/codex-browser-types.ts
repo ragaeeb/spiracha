@@ -1,6 +1,6 @@
 import type { AgentDxAnalytics } from './agent-dx-analytics';
 import type { SessionMeta, ThreadRelations, ThreadRow } from './codex-thread-types';
-import type { JsonValue } from './shared';
+import type { JsonValue } from './shared-text';
 
 export type {
     AgentDxAnalytics,

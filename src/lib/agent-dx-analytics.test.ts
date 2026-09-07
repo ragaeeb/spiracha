@@ -7,7 +7,7 @@ import {
     finishAgentDxAnalysis,
     renderAgentDxAnalyticsExport,
 } from './agent-dx-analytics';
-import type { JsonValue } from './shared';
+import type { JsonValue } from './shared-text';
 
 const responseItem = (payload: Record<string, JsonValue>, timestamp = '2026-09-02T12:00:00.000Z') => ({
     payload,

@@ -1,7 +1,7 @@
 import net from 'node:net';
 import path from 'node:path';
 import { resolveQoderUserDir } from './qoder-exporter-types';
-import { asObject, asString, type JsonValue } from './shared';
+import { asObject, asString, type JsonValue } from './shared-text';
 
 const DEFAULT_TIMEOUT_MS = 2_500;
 const DEFAULT_DRAIN_MS = 300;

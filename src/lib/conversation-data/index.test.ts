@@ -2,12 +2,8 @@ import { describe, expect, it } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {
-    listConversationSources,
-    listConversations,
-    renderConversationMarkdown,
-    resolveConversationRef,
-} from './index';
+import { listConversationSources, listConversations, resolveConversationRef } from './index';
+import { renderConversationMarkdown } from './markdown';
 import type { ConversationMessage } from './types';
 
 const createMessage = (overrides: Partial<ConversationMessage>): ConversationMessage => ({

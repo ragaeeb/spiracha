@@ -1,0 +1,9 @@
+{
+    "compilerOptions": {
+        "declarationMap": false,
+        "emitDeclarationOnly": true,
+        "rootDir": "./src/lib"
+    },
+    "extends": "./tsconfig.json",
+    "include": ["src/lib/conversation-payload.ts"]
+}

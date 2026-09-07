@@ -1,5 +1,6 @@
-import type { JsonValue } from './shared';
-import { asObject, asString, readJsonlObjects } from './shared';
+import { readJsonlObjects } from './shared';
+import type { JsonValue } from './shared-text';
+import { asObject, asString } from './shared-text';
 
 export const AGENT_DX_ANALYTICS_SCHEMA = 'agent-dx/v1' as const;
 

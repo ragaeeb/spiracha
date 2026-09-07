@@ -1,6 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
-import type { ExportFormat } from './shared';
+import type { ExportFormat } from './shared-text';
 
 type CursorPlatform = NodeJS.Platform;
 

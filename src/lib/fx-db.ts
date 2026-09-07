@@ -7,66 +7,44 @@ import type {
     FxSessionSummary,
     FxSessionTranscript,
     FxToolCall,
-    FxToolStatus,
     FxTranscriptMessage,
     FxWorkspaceGroup,
 } from './fx-exporter-types';
 import { getDefaultFxDataDir, resolveFxDataDir } from './fx-exporter-types';
-import { getPortablePathBasename } from './portable-path';
 import {
-    asNumber,
-    asObject,
-    asString,
-    cleanInlineTitle,
-    type JsonValue,
-    readDirectoryEntriesIfExists,
-    readJsonlObjects,
-} from './shared';
+    consumeFxTurnSourceEvent,
+    createFxToolCall,
+    createFxTurnSourceParseState,
+    createMessage,
+    type FxSessionRecord,
+    type FxTurnSource,
+    finalizeFxTurnSourceParse,
+    firstString,
+    getToolCallInputs,
+    getWorkspaceKey,
+    objectArray,
+    parseAssistantMessage,
+    parseFxSessionRecordPayload,
+    parseUserMessage,
+    toSessionSummary,
+    WORKSPACE_KEY_PREFIX,
+} from './fx-transcript-parser';
+import { getPortablePathBasename } from './portable-path';
+import { readDirectoryEntriesIfExists, readJsonlObjects } from './shared';
+import { asObject, asString, type JsonValue } from './shared-text';
 
 export { getDefaultFxDataDir, resolveFxDataDir };
 
 const READ_CONCURRENCY = 4;
-const WORKSPACE_KEY_PREFIX = 'workspace:';
+
 const fxDeleteLimiter = createConcurrencyLimiter(1);
+
 const isSafeSessionId = (sessionId: string): boolean =>
     Boolean(sessionId) && sessionId !== '.' && sessionId !== '..' && /^[A-Za-z0-9._-]+$/u.test(sessionId);
 
 type ReadFxOptions = {
     includeRawPayloads?: boolean;
 };
-
-type FxSessionRecord = {
-    conversationLanguage: string | null;
-    createdAtMs: number | null;
-    currentModelId: string | null;
-    currentModelVariant: string | null;
-    lastActiveAtMs: number | null;
-    sessionId: string;
-    title: string;
-    totalInputTokens: number | null;
-    totalOutputTokens: number | null;
-    worktree: string;
-};
-
-type FxTurnSource = {
-    createdAtMs: number | null;
-    finishReason: 'in_progress' | 'stop';
-    raw: Record<string, JsonValue>;
-    turn: Record<string, JsonValue>;
-};
-
-type SessionStats = Pick<
-    FxSessionSummary,
-    | 'assistantMessageCount'
-    | 'messageCount'
-    | 'reasoningCount'
-    | 'renderablePartCount'
-    | 'toolCallCount'
-    | 'toolResultCount'
-    | 'userMessageCount'
->;
-
-const getWorkspaceKey = (worktree: string): string => `${WORKSPACE_KEY_PREFIX}${encodeURIComponent(worktree)}`;
 
 const getWorktreeFromWorkspaceKey = (workspaceKey: string): string | null => {
     if (!workspaceKey.startsWith(WORKSPACE_KEY_PREFIX)) {
@@ -85,34 +63,6 @@ const readJsonObject = async (filePath: string): Promise<Record<string, JsonValu
         .catch(() => null)) as JsonValue | null;
     return asObject(value);
 };
-
-const firstString = (...values: (JsonValue | undefined)[]): string | null => {
-    for (const value of values) {
-        const text = asString(value ?? null)?.trim();
-        if (text) {
-            return text;
-        }
-    }
-    return null;
-};
-
-const firstNumber = (...values: (JsonValue | undefined)[]): number | null => {
-    for (const value of values) {
-        const number = asNumber(value ?? null);
-        if (number !== null) {
-            return number;
-        }
-    }
-    return null;
-};
-
-const objectArray = (value: JsonValue | undefined): Record<string, JsonValue>[] =>
-    Array.isArray(value)
-        ? value.flatMap((item) => {
-              const object = asObject(item);
-              return object ? [object] : [];
-          })
-        : [];
 
 const getSessionIndexRecords = async (dataDir: string): Promise<Record<string, JsonValue>[]> => {
     const root = await readJsonObject(path.join(dataDir, 'sessions', 'index.json'));
@@ -138,36 +88,13 @@ const parseSessionRecord = async (
     if (!session) {
         return null;
     }
-    const state = asObject(checkpoint?.state ?? null);
-    const preferences = asObject(session.preferences ?? null) ?? asObject(state?.preferences ?? null);
-    const worktree = firstString(indexRecord.workspace_root, session.workspace_root, state?.workspace_root);
-    if (!worktree) {
-        return null;
-    }
-    const rawTitle = firstString(display?.title, indexRecord.title, indexRecord.preview);
-    return {
-        conversationLanguage: firstString(indexRecord.conversation_language, session.conversation_language),
-        createdAtMs: firstNumber(indexRecord.created_at_ms, session.created_at_ms, state?.created_at_ms),
-        currentModelId: firstString(preferences?.model),
-        currentModelVariant: firstString(preferences?.effort),
-        lastActiveAtMs: firstNumber(indexRecord.updated_at_ms, session.updated_at_ms, state?.updated_at_ms),
+    return parseFxSessionRecordPayload({
+        checkpoint,
+        display,
+        indexRecord,
+        session,
         sessionId,
-        title: cleanInlineTitle(rawTitle ?? sessionId) || sessionId,
-        totalInputTokens: firstNumber(session.total_input_tokens, state?.total_input_tokens),
-        totalOutputTokens: firstNumber(session.total_output_tokens, state?.total_output_tokens),
-        worktree,
-    };
-};
-
-const normalizeToolStatus = (value: JsonValue | undefined): FxToolStatus => {
-    const status = asString(value ?? null)?.toLowerCase();
-    if (status && /(?:success|complete|done|finish)/u.test(status)) {
-        return 'succeeded';
-    }
-    if (status && /(?:fail|error|reject|cancel)/u.test(status)) {
-        return 'failed';
-    }
-    return 'unknown';
+    });
 };
 
 const resolveToolOutput = async (sessionDir: string, result: Record<string, JsonValue>): Promise<string | null> => {
@@ -181,93 +108,20 @@ const resolveToolOutput = async (sessionDir: string, result: Record<string, Json
     return asString(result.output ?? null)?.trim() || asString(result.preview ?? null)?.trim() || null;
 };
 
-const commandFromArguments = (argumentsText: string | null): string | null => {
-    if (!argumentsText) {
-        return null;
-    }
-    try {
-        return asString(asObject(JSON.parse(argumentsText) as JsonValue)?.command ?? null)?.trim() || null;
-    } catch {
-        return null;
-    }
-};
-
 const parseToolCalls = async (
     sessionDir: string,
     step: Record<string, JsonValue>,
     includeRawPayloads: boolean,
 ): Promise<FxToolCall[]> => {
-    const results = Array.isArray(step.tool_results)
-        ? step.tool_results.flatMap((value) => {
-              const result = asObject(value);
-              return result ? [result] : [];
-          })
-        : [];
-    const resultsById = new Map(
-        results.flatMap((result) => {
-            const id = asString(result.tool_call_id ?? null)?.trim();
-            return id ? [[id, result] as const] : [];
-        }),
-    );
-    if (!Array.isArray(step.tool_calls)) {
-        return [];
-    }
     return Promise.all(
-        step.tool_calls.flatMap((value) => {
-            const call = asObject(value);
-            if (!call) {
-                return [];
-            }
-            const callId = asString(call.id ?? null)?.trim() || null;
-            const result = callId ? resultsById.get(callId) : undefined;
-            const argumentsText = asString(call.arguments_json ?? null)?.trim() || null;
-            return [
-                (async (): Promise<FxToolCall> => ({
-                    argumentsText,
-                    callId,
-                    command: commandFromArguments(argumentsText),
-                    outputText: result ? await resolveToolOutput(sessionDir, result) : null,
-                    raw: includeRawPayloads ? { call, ...(result ? { result } : {}) } : {},
-                    status: normalizeToolStatus(result?.status),
-                    toolName: asString(call.name ?? null)?.trim() || 'unknown',
-                }))(),
-            ];
-        }),
+        getToolCallInputs(step).map(async (input) =>
+            createFxToolCall(
+                input,
+                includeRawPayloads,
+                input.result ? await resolveToolOutput(sessionDir, input.result) : null,
+            ),
+        ),
     );
-};
-
-const createMessage = (
-    input: Pick<
-        FxTranscriptMessage,
-        'content' | 'createdAtMs' | 'finishReason' | 'messageId' | 'role' | 'toolCalls'
-    > & {
-        raw: Record<string, JsonValue>;
-    },
-): FxTranscriptMessage => ({
-    ...input,
-    messageType: input.role === 'user' ? 1 : 2,
-    reasoning: null,
-    thinkingDurationMs: null,
-});
-
-const parseUserMessage = (
-    source: FxTurnSource,
-    turnIndex: number,
-    includeRawPayloads: boolean,
-): FxTranscriptMessage | null => {
-    const user = asObject(source.turn.user ?? null);
-    const content = firstString(user?.text);
-    return content
-        ? createMessage({
-              content,
-              createdAtMs: source.createdAtMs,
-              finishReason: null,
-              messageId: `turn:${turnIndex}:user`,
-              raw: includeRawPayloads ? { user: user ?? {} } : {},
-              role: 'user',
-              toolCalls: [],
-          })
-        : null;
 };
 
 const parseToolStepMessage = async (
@@ -293,25 +147,6 @@ const parseToolStepMessage = async (
         : null;
 };
 
-const parseAssistantMessage = (
-    source: FxTurnSource,
-    turnIndex: number,
-    includeRawPayloads: boolean,
-): FxTranscriptMessage | null => {
-    const content = firstString(source.turn.assistant);
-    return content
-        ? createMessage({
-              content,
-              createdAtMs: source.createdAtMs,
-              finishReason: source.finishReason,
-              messageId: `turn:${turnIndex}:assistant`,
-              raw: includeRawPayloads ? source.raw : {},
-              role: 'assistant',
-              toolCalls: [],
-          })
-        : null;
-};
-
 const parseTurn = async (
     sessionDir: string,
     source: FxTurnSource,
@@ -331,115 +166,13 @@ const parseTurn = async (
     ].flatMap((message) => (message ? [message] : []));
 };
 
-const recoveryToTurn = (checkpoint: Record<string, JsonValue>): Record<string, JsonValue> => ({
-    assistant: checkpoint.assistant_source ?? null,
-    execution: checkpoint.execution ?? null,
-    kind: 'assistant',
-    user: checkpoint.user ?? null,
-});
-
-const getCheckpointTurnSources = (state: Record<string, JsonValue> | null): FxTurnSource[] =>
-    objectArray(state?.history).map((turn) => ({
-        createdAtMs: firstNumber(state?.created_at_ms),
-        finishReason: 'stop',
-        raw: turn,
-        turn,
-    }));
-
-type PendingTurn = { checkpoint: Record<string, JsonValue> | null; createdAtMs: number | null };
-
-const updatePendingTurn = (
-    event: Record<string, JsonValue>,
-    pending: PendingTurn,
-    sources: FxTurnSource[],
-): PendingTurn => {
-    const kind = firstString(event.kind);
-    const payload = asObject(event.payload ?? null);
-    if (kind === 'recovery_checkpoint_set') {
-        return {
-            checkpoint: asObject(payload?.checkpoint ?? null),
-            createdAtMs: pending.createdAtMs ?? firstNumber(event.timestamp_ms),
-        };
-    }
-    const committedTurn = kind === 'history_turn_committed' ? asObject(payload?.turn ?? null) : null;
-    if (!committedTurn) {
-        return pending;
-    }
-    sources.push({
-        createdAtMs: pending.createdAtMs ?? firstNumber(event.timestamp_ms),
-        finishReason: 'stop',
-        raw: committedTurn,
-        turn: committedTurn,
-    });
-    return { checkpoint: null, createdAtMs: null };
-};
-
 const readTurnSources = async (sessionDir: string): Promise<FxTurnSource[]> => {
     const checkpoint = await readJsonObject(path.join(sessionDir, 'checkpoint.json'));
-    const state = asObject(checkpoint?.state ?? null);
-    const sources = getCheckpointTurnSources(state);
-    const throughSeq = firstNumber(checkpoint?.through_seq) ?? 0;
-    let pending: PendingTurn = { checkpoint: null, createdAtMs: null };
+    const state = createFxTurnSourceParseState(checkpoint, 0);
     for await (const event of readJsonlObjects(path.join(sessionDir, 'events.jsonl'))) {
-        const seq = firstNumber(event.seq) ?? 0;
-        if (seq <= throughSeq) {
-            continue;
-        }
-        pending = updatePendingTurn(event, pending, sources);
+        consumeFxTurnSourceEvent(event, state);
     }
-    if (pending.checkpoint) {
-        sources.push({
-            createdAtMs: pending.createdAtMs,
-            finishReason: 'in_progress',
-            raw: pending.checkpoint,
-            turn: recoveryToTurn(pending.checkpoint),
-        });
-    }
-    return sources;
-};
-
-const getSessionStats = (messages: FxTranscriptMessage[]): SessionStats => {
-    const toolCalls = messages.flatMap((message) => message.toolCalls);
-    const reasoningCount = messages.filter((message) => Boolean(message.reasoning)).length;
-    const toolResultCount = toolCalls.filter((toolCall) => Boolean(toolCall.outputText)).length;
-    return {
-        assistantMessageCount: messages.filter((message) => message.role === 'assistant').length,
-        messageCount: messages.length,
-        reasoningCount,
-        renderablePartCount:
-            messages.filter((message) => Boolean(message.content)).length +
-            reasoningCount +
-            toolCalls.length +
-            toolResultCount,
-        toolCallCount: toolCalls.length,
-        toolResultCount,
-        userMessageCount: messages.filter((message) => message.role === 'user').length,
-    };
-};
-
-const toSessionSummary = (
-    dataDir: string,
-    record: FxSessionRecord,
-    messages: FxTranscriptMessage[],
-): FxSessionSummary => {
-    const stats = getSessionStats(messages);
-    return {
-        ...stats,
-        conversationLanguage: record.conversationLanguage,
-        createdAtMs: record.createdAtMs,
-        currentModelId: record.currentModelId,
-        currentModelVariant: record.currentModelVariant,
-        lastActiveAtMs: record.lastActiveAtMs,
-        sessionDir: path.join(dataDir, 'sessions', record.sessionId),
-        sessionId: record.sessionId,
-        status: messages.at(-1)?.finishReason === 'in_progress' ? 'in_progress' : 'complete',
-        title: record.title,
-        totalInputTokens: record.totalInputTokens,
-        totalOutputTokens: record.totalOutputTokens,
-        workspaceKey: getWorkspaceKey(record.worktree),
-        workspaceLabel: getPortablePathBasename(record.worktree) || record.worktree,
-        worktree: record.worktree,
-    };
+    return finalizeFxTurnSourceParse(state);
 };
 
 export const readFxSessionTranscript = async (
@@ -466,7 +199,7 @@ export const readFxSessionTranscript = async (
             ),
         )
     ).flat();
-    const session = toSessionSummary(dataDir, record, messages);
+    const session = toSessionSummary(path.join(dataDir, 'sessions', record.sessionId), record, messages);
     return {
         messages,
         rawPayloadsOmitted: includeRawPayloads ? undefined : true,

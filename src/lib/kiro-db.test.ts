@@ -12,7 +12,7 @@ import {
     listKiroWorkspaceGroups,
     readKiroSessionTranscript,
 } from './kiro-db';
-import { resetParserDiagnosticForTests } from './shared';
+import { resetParserDiagnosticForTests } from './shared-text';
 
 const tempRoots: string[] = [];
 const homeDir = os.homedir();

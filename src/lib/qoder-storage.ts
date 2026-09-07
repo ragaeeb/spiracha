@@ -9,24 +9,21 @@ import {
     resolveQoderGlobalStateDb,
     resolveQoderWorkspaceStorageDir,
 } from './qoder-exporter-types';
-import { asObject, asString, cleanExtractedText, cleanInlineTitle, type JsonValue, toFileUri } from './shared';
+import {
+    asJsonObject,
+    normalizeQoderModelLabel,
+    parseJsonValue,
+    parseTextPart,
+    parseTimestampMs,
+    toIso,
+} from './qoder-transcript-parser';
+import { toFileUri } from './shared';
+import { asObject, asString, cleanExtractedText, cleanInlineTitle, type JsonValue } from './shared-text';
 import { runWithSqliteRetry } from './sqlite-retry';
 
 const WORKSPACE_KEY_PREFIX = 'workspace:';
 const LOCAL_HISTORY_KEY_PATTERN = /^lingma\.chat\.localHistory\.(.+)\.quest$/u;
 const MODEL_CONFIG_KEYS = ['aicoding.modelConfigs.cache.assistant', 'aicoding.modelConfigs.cache.quest'] as const;
-const QODER_MODEL_LABELS: Record<string, string> = {
-    dfmodel: 'DeepSeek V4 Flash',
-    dmodel: 'DeepSeek V4 Pro',
-    gm51model: 'GLM 5.2',
-    gmodel: 'GLM 5',
-    kmodel: 'Kimi K2.7 Code',
-    mmodel: 'MiniMax M3',
-    q35model: 'Qwen 3.5 Plus',
-    q35model_preview: 'Qwen 3.7 Max DogFooding',
-    qmodel: 'Qwen 3.7 Plus',
-    qmodel_latest: 'Qwen 3.7 Max',
-};
 
 type ItemTableRow = {
     key: string;
@@ -103,30 +100,6 @@ export const pathExists = async (target: string): Promise<boolean> => {
         .catch(() => false);
 };
 
-export const toIso = (value: number | null): string | null => {
-    return value === null ? null : new Date(value).toISOString();
-};
-
-export const parseTimestampMs = (value: JsonValue | undefined): number | null => {
-    if (typeof value === 'number' && Number.isFinite(value)) {
-        // Qoder stores some task timestamps in Unix seconds and others in epoch milliseconds.
-        return value > 0 && value < 10_000_000_000 ? value * 1000 : value;
-    }
-
-    if (typeof value === 'string') {
-        const numeric = Number(value);
-        if (Number.isFinite(numeric)) {
-            // Match the numeric branch so seconds-like string values sort correctly.
-            return numeric > 0 && numeric < 10_000_000_000 ? numeric * 1000 : numeric;
-        }
-
-        const parsed = Date.parse(value);
-        return Number.isFinite(parsed) ? parsed : null;
-    }
-
-    return null;
-};
-
 const cleanLabel = (value: string | null | undefined): string | null => {
     const cleaned = value?.replace(/\s+/g, ' ').trim();
     return cleaned ? cleaned : null;
@@ -176,14 +149,6 @@ export const getWorkspaceUri = (worktree: string): string => {
     return worktree.startsWith(path.sep) ? toFileUri(worktree) : worktree;
 };
 
-export const parseJsonValue = (value: string): JsonValue | null => {
-    try {
-        return JSON.parse(value) as JsonValue;
-    } catch {
-        return null;
-    }
-};
-
 export const isUnavailableQoderGlobalStateError = (error: unknown): boolean => {
     if (!(error instanceof Error)) {
         return false;
@@ -229,10 +194,6 @@ const readGlobalRows = async (globalStateDb = resolveQoderGlobalStateDb()): Prom
         }
         throw error;
     }
-};
-
-export const asJsonObject = (value: JsonValue | null): Record<string, JsonValue> | null => {
-    return value === null ? null : asObject(value);
 };
 
 const parseHistoryRows = (rows: ItemTableRow[]): QoderHistoryEntry[] => {
@@ -300,10 +261,6 @@ const getStringValue = (raw: Record<string, JsonValue>, keys: string[]): string 
 const parseJsonObjectString = (value: JsonValue | undefined): Record<string, JsonValue> | null => {
     const text = asString(value ?? null);
     return text ? asJsonObject(parseJsonValue(text)) : null;
-};
-
-export const normalizeQoderModelLabel = (value: string | null): string | null => {
-    return value ? (QODER_MODEL_LABELS[value] ?? value) : null;
 };
 
 const getTaskModel = (raw: Record<string, JsonValue>): string | null => {
@@ -803,12 +760,6 @@ export const readQoderRecordSummary = async (
     const stats = createStatsFromEntries(entries, state.snapshotFileCount);
     return toQoderSessionSummary(record, state, stats, modelFallback);
 };
-
-export const parseTextPart = (raw: Record<string, JsonValue>, text: string): QoderTranscriptPart => ({
-    raw,
-    text,
-    type: 'text',
-});
 
 const buildHistoryEntry = (history: QoderHistoryEntry, index: number): QoderTranscriptEntry => ({
     entryId: history.id || `history:${index}`,

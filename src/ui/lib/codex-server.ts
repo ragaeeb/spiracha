@@ -63,6 +63,10 @@ const exportThreadsSchema = z.object({
     zipArchive: z.boolean().default(true),
 });
 
+const exportRawThreadsSchema = z.object({
+    threadIds: z.array(z.string().min(1)).min(1),
+});
+
 const getDbPath = async () => {
     const configuredDbPath = process.env.SPIRACHA_CODEX_DB?.trim();
     if (configuredDbPath) {
@@ -265,6 +269,35 @@ export const exportThreadsFn = createServerFn({ method: 'POST' })
             },
             threadIds: data.threadIds,
             zipArchive: data.zipArchive,
+        });
+    });
+
+export const exportRawThreadsFn = createServerFn({ method: 'POST' })
+    .validator(exportRawThreadsSchema)
+    .handler(async ({ data }) => {
+        const { renderCodexThreadDownload, renderCodexThreadsDownload } = await import(
+            '@spiracha/lib/codex-browser-export'
+        );
+        const dbPath = await getDbPath();
+        if (data.threadIds.length === 1) {
+            return renderCodexThreadDownload({
+                dbPath,
+                includeCommentary: false,
+                includeMetadata: false,
+                includeTools: false,
+                outputFormat: 'json',
+                threadId: data.threadIds[0]!,
+            });
+        }
+
+        return renderCodexThreadsDownload({
+            dbPath,
+            includeCommentary: false,
+            includeMetadata: false,
+            includeTools: false,
+            outputFormat: 'json',
+            threadIds: data.threadIds,
+            zipArchive: true,
         });
     });
 

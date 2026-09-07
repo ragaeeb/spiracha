@@ -1,6 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
-import type { ExportFormat, JsonValue } from './shared';
+import type { ExportFormat, JsonValue } from './shared-text';
 
 export type CodexTranscriptRenderOptions = {
     includeMetadata: boolean;

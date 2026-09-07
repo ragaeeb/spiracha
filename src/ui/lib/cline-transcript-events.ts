@@ -1,6 +1,6 @@
 import type { ClineTaskTranscript, ClineTranscriptMessage } from '@spiracha/lib/cline-exporter-types';
 import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/codex-browser-types';
-import type { JsonValue } from '@spiracha/lib/shared';
+import type { JsonValue } from '@spiracha/lib/shared-text';
 import { getThreadTranscriptStats } from './thread-transcript-stats';
 
 const timestamp = (value: number | null) => (value === null ? null : new Date(value).toISOString());

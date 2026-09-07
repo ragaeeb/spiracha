@@ -1,6 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
-import type { ExportFormat, JsonValue } from './shared';
+import type { ExportFormat, JsonValue } from './shared-text';
 
 export const getDefaultOpenCodeDataDir = (env: NodeJS.ProcessEnv = process.env, homeDir = os.homedir()): string => {
     return path.join(env.XDG_DATA_HOME || path.join(homeDir, '.local', 'share'), 'opencode');

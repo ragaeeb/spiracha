@@ -1,7 +1,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import type { ClaudeCodeAssistantMessagePhase } from './claude-code-transcript-phase';
-import type { ExportFormat, JsonValue } from './shared';
+import type { ExportFormat, JsonValue } from './shared-text';
 
 export type { ClaudeCodeAssistantMessagePhase } from './claude-code-transcript-phase';
 export { getClaudeCodeAssistantMessagePhase } from './claude-code-transcript-phase';

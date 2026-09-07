@@ -19,7 +19,7 @@ import {
     renderDocumentTitle,
     renderMetadataBlock,
     renderSection,
-} from './shared';
+} from './shared-text';
 
 const TOOL_OUTPUT_PREVIEW_LIMIT = 4000;
 

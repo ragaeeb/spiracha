@@ -49,7 +49,7 @@ export const importWebChatsFn = createServerFn({ method: 'POST' })
                 throw new Error('The selected files exceed the 100 MB import limit.');
             }
             const { importWebChatFiles } = await import('@spiracha/lib/web-chat');
-            const result = importWebChatFiles(data.files);
+            const result = await importWebChatFiles(data.files);
             return {
                 conversations: result.conversations.map(
                     ({ artifacts: _artifacts, events: _events, ...summary }) => summary,

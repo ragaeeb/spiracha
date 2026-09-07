@@ -16,12 +16,13 @@ import type { CodexTranscriptRenderOptions } from './codex-thread-types';
 import { renderCodexSessionFile, writeCodexSessionFileExport } from './codex-transcript-renderer';
 import { applyPathTransforms, type PathDisplaySettings } from './path-transforms';
 import { resolveUiRuntimeConfig } from './runtime-config';
-import type { ExportFormat } from './shared';
+import type { ExportFormat } from './shared-text';
 import {
     buildBatchExportBaseName,
     buildConversationExportBaseName,
     buildExportArchiveBaseName,
     getExportMimeType,
+    sanitizeExportFileName,
 } from './ui-export-archive';
 import { buildUiExportDownloadUrl, ensureUiExportDir } from './ui-export-files';
 import { zipExportDirectory, zipExportFile } from './ui-export-zip';
@@ -32,7 +33,7 @@ type RenderCodexThreadDownloadInput = {
     includeMetadata: boolean;
     includeTools: boolean;
     largeExportThresholdBytes?: number;
-    outputFormat: ExportFormat;
+    outputFormat: ExportFormat | 'json';
     pathDisplaySettings?: Pick<PathDisplaySettings, 'convertToProjectRoot' | 'redactUsername'>;
     publicExportDir?: string;
     threadId: string;
@@ -42,6 +43,11 @@ type RenderCodexThreadDownloadInput = {
 type RenderCodexThreadsDownloadInput = Omit<RenderCodexThreadDownloadInput, 'threadId'> & {
     threadIds: string[];
 };
+
+type CodexExportSettings = Pick<
+    RenderCodexThreadDownloadInput,
+    'includeCommentary' | 'includeMetadata' | 'includeTools' | 'outputFormat'
+>;
 
 export type CodexThreadDownload =
     | {
@@ -99,6 +105,19 @@ const buildExportBaseName = (thread: ReturnType<typeof getThreadBrowseData>['thr
 
 const buildArchiveBaseName = (baseName: string) => buildExportArchiveBaseName('codex', baseName);
 
+const buildRawExportBaseName = (threadId: string) => `codex-${sanitizeExportFileName(threadId) || 'thread'}`;
+
+const buildCodexExportFileBaseName = (
+    outputFormat: RenderCodexThreadDownloadInput['outputFormat'],
+    thread: ReturnType<typeof getThreadBrowseData>['thread'],
+) => (outputFormat === 'json' ? buildRawExportBaseName(thread.id) : buildExportBaseName(thread));
+
+const getCodexExportFileExtension = (outputFormat: RenderCodexThreadDownloadInput['outputFormat']) =>
+    outputFormat === 'json' ? 'json' : outputFormat === 'md' ? 'md' : 'txt';
+
+const getCodexExportMimeType = (outputFormat: RenderCodexThreadDownloadInput['outputFormat']) =>
+    outputFormat === 'json' ? 'application/json' : getExportMimeType(outputFormat);
+
 const buildUniqueArchivePath = (exportDir: string, exportBaseName: string) => {
     return path.join(exportDir, `${exportBaseName}-${randomUUID()}.zip`);
 };
@@ -114,13 +133,85 @@ const buildUniqueBatchEntryBaseName = (baseName: string, threadId: string, usedB
     return collisionSafeBaseName;
 };
 
-const toDownloadOptions = (input: RenderCodexThreadDownloadInput): CodexTranscriptRenderOptions => {
+const toDownloadOptions = (input: CodexExportSettings): CodexTranscriptRenderOptions => {
     return {
         includeCommentary: input.includeCommentary,
         includeMetadata: input.includeMetadata,
         includeTools: input.includeTools,
-        outputFormat: input.outputFormat,
+        outputFormat: input.outputFormat === 'json' ? 'md' : input.outputFormat,
     };
+};
+
+type CodexExportFileInput = {
+    input: CodexExportSettings;
+    outputRelativePath: string;
+    relations: ThreadBrowseData['relations'];
+    savedPath: string;
+    sessionFile: string;
+    thread: ThreadBrowseData['thread'];
+    transform: (text: string) => string;
+};
+
+const writeCodexExportFile = async ({
+    input,
+    outputRelativePath,
+    relations,
+    savedPath,
+    sessionFile,
+    thread,
+    transform,
+}: CodexExportFileInput) => {
+    if (input.outputFormat === 'json') {
+        await Bun.write(savedPath, Bun.file(sessionFile));
+        return;
+    }
+
+    const saved = await writeCodexSessionFileExport(
+        {
+            fallbackReason: null,
+            outputRelativePath,
+            relations,
+            sessionFile,
+            thread,
+        },
+        toDownloadOptions(input),
+        savedPath,
+        transform,
+    );
+
+    if (!saved) {
+        throw new Error(`Thread ${thread.id} produced no exportable content`);
+    }
+};
+
+const renderCodexExportContent = async ({
+    input,
+    outputRelativePath,
+    relations,
+    sessionFile,
+    thread,
+    transform,
+}: Omit<CodexExportFileInput, 'savedPath'>) => {
+    if (input.outputFormat === 'json') {
+        return Bun.file(sessionFile).text();
+    }
+
+    const content = await renderCodexSessionFile(
+        {
+            fallbackReason: null,
+            outputRelativePath,
+            relations,
+            sessionFile,
+            thread,
+        },
+        toDownloadOptions(input),
+    );
+
+    if (!content) {
+        throw new Error(`Thread ${thread.id} produced no exportable content`);
+    }
+
+    return transform(content);
 };
 
 const resolvePublicExportDir = async (publicExportDir?: string) => {
@@ -279,10 +370,10 @@ export const renderCodexThreadDownload = async (
         return await withStableRolloutSnapshot({
             dbPath: input.dbPath,
             render: async ({ browseData, rollout, snapshotPath }) => {
-                const extension = input.outputFormat === 'md' ? 'md' : 'txt';
-                const fileBaseName = buildExportBaseName(browseData.thread);
+                const fileBaseName = buildCodexExportFileBaseName(input.outputFormat, browseData.thread);
+                const extension = getCodexExportFileExtension(input.outputFormat);
                 fileName = `${fileBaseName}.${extension}`;
-                const mimeType = getExportMimeType(input.outputFormat);
+                const mimeType = getCodexExportMimeType(input.outputFormat);
                 const transform = (text: string) =>
                     input.pathDisplaySettings
                         ? applyPathTransforms(text, {
@@ -308,22 +399,15 @@ export const renderCodexThreadDownload = async (
                     const savedPath = path.join(workspaceDir, fileName);
                     const zipPath = buildUniqueArchivePath(exportDir, exportBaseName);
                     try {
-                        const saved = await writeCodexSessionFileExport(
-                            {
-                                fallbackReason: null,
-                                outputRelativePath: fileName,
-                                relations: browseData.relations,
-                                sessionFile: snapshotPath,
-                                thread: browseData.thread,
-                            },
-                            toDownloadOptions(input),
+                        await writeCodexExportFile({
+                            input,
+                            outputRelativePath: fileName,
+                            relations: browseData.relations,
                             savedPath,
+                            sessionFile: snapshotPath,
+                            thread: browseData.thread,
                             transform,
-                        );
-
-                        if (!saved) {
-                            throw new Error(`Thread ${input.threadId} produced no exportable content`);
-                        }
+                        });
 
                         await zipExportFile(savedPath, zipPath);
                     } finally {
@@ -348,20 +432,14 @@ export const renderCodexThreadDownload = async (
                     };
                 }
 
-                const content = await renderCodexSessionFile(
-                    {
-                        fallbackReason: null,
-                        outputRelativePath: fileName,
-                        relations: browseData.relations,
-                        sessionFile: snapshotPath,
-                        thread: browseData.thread,
-                    },
-                    toDownloadOptions(input),
-                );
-
-                if (!content) {
-                    throw new Error(`Thread ${input.threadId} produced no exportable content`);
-                }
+                const content = await renderCodexExportContent({
+                    input,
+                    outputRelativePath: fileName,
+                    relations: browseData.relations,
+                    sessionFile: snapshotPath,
+                    thread: browseData.thread,
+                    transform,
+                });
 
                 logExportEvent('info', 'single_inline_ready', {
                     durationMs: Date.now() - startedAt,
@@ -371,7 +449,7 @@ export const renderCodexThreadDownload = async (
                 });
 
                 return {
-                    content: transform(content),
+                    content,
                     fileName,
                     mimeType,
                     mode: 'download' as const,
@@ -409,13 +487,13 @@ const renderCodexBatchEntry = async (
             dbPath: input.dbPath,
             initialBrowseData: result.data,
             render: async ({ browseData, snapshotPath }) => {
-                const singleBaseName = buildExportBaseName(browseData.thread);
+                const singleBaseName = buildCodexExportFileBaseName(input.outputFormat, browseData.thread);
                 const uniqueBaseName = buildUniqueBatchEntryBaseName(
                     singleBaseName,
                     browseData.thread.id,
                     usedBatchEntryBaseNames,
                 );
-                const extension = input.outputFormat === 'md' ? 'md' : 'txt';
+                const extension = getCodexExportFileExtension(input.outputFormat);
                 const resolvedFileName = `${uniqueBaseName}.${extension}`;
                 const savedPath = path.join(bundleDirectory, resolvedFileName);
                 const transform = (text: string) =>
@@ -434,27 +512,15 @@ const renderCodexBatchEntry = async (
                     });
                 }
 
-                const saved = await writeCodexSessionFileExport(
-                    {
-                        fallbackReason: null,
-                        outputRelativePath: resolvedFileName,
-                        relations: browseData.relations,
-                        sessionFile: snapshotPath,
-                        thread: browseData.thread,
-                    },
-                    {
-                        ...toDownloadOptions({
-                            ...input,
-                            threadId: browseData.thread.id,
-                        }),
-                    },
+                await writeCodexExportFile({
+                    input,
+                    outputRelativePath: resolvedFileName,
+                    relations: browseData.relations,
                     savedPath,
+                    sessionFile: snapshotPath,
+                    thread: browseData.thread,
                     transform,
-                );
-
-                if (!saved) {
-                    throw new Error(`Thread ${browseData.thread.id} produced no exportable content`);
-                }
+                });
 
                 return resolvedFileName;
             },

@@ -549,14 +549,14 @@ describe('conversation API handler', () => {
                 expect(options).toEqual({ id: 'thread-1', source: 'codex' });
                 return {
                     blob: new Blob([original]),
-                    fileName: 'rollout-thread-1.jsonl',
+                    fileName: 'messages.jsonl',
                     mimeType: 'application/x-ndjson',
                 };
             },
         });
 
         expect(response.status).toBe(200);
-        expect(response.headers.get('Content-Disposition')).toBe("attachment; filename*=UTF-8''rollout-thread-1.jsonl");
+        expect(response.headers.get('Content-Disposition')).toBe("attachment; filename*=UTF-8''codex-thread-1.json");
         expect(response.headers.get('Content-Type')).toBe('application/x-ndjson');
         await expect(response.text()).resolves.toBe(original);
     });
@@ -574,7 +574,7 @@ describe('conversation API handler', () => {
         );
 
         expect(response.status).toBe(200);
-        expect(response.headers.get('Content-Disposition')).toBe("attachment; filename*=UTF-8''thread%201.jsonl");
+        expect(response.headers.get('Content-Disposition')).toBe("attachment; filename*=UTF-8''codex-thread-1.json");
         await expect(response.text()).resolves.toBe('');
     });
 

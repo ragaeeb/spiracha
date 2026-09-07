@@ -127,6 +127,55 @@ describe('renderCodexThreadDownload', () => {
         expect(download.content).toContain('Modern tool output');
     });
 
+    it('should preserve raw JSON bytes with source and conversation filenames', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-export-raw-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const selectedThreads = fixture.threads.slice(0, 2);
+        const singleDownload = await renderCodexThreadDownload({
+            dbPath: fixture.dbPath,
+            includeCommentary: false,
+            includeMetadata: false,
+            includeTools: false,
+            outputFormat: 'json',
+            threadId: selectedThreads[0]!.threadId,
+        });
+
+        expect(singleDownload).toMatchObject({
+            fileName: `codex-${selectedThreads[0]!.threadId}.json`,
+            mimeType: 'application/json',
+            mode: 'download',
+        });
+        if (singleDownload.mode !== 'download') {
+            throw new Error('expected inline raw download');
+        }
+        expect(singleDownload.content).toBe(await Bun.file(selectedThreads[0]!.sessionFile).text());
+
+        const download = await renderCodexThreadsDownload({
+            dbPath: fixture.dbPath,
+            includeCommentary: false,
+            includeMetadata: false,
+            includeTools: false,
+            outputFormat: 'json',
+            publicExportDir: tempRoot,
+            threadIds: selectedThreads.map((thread) => thread.threadId),
+        });
+
+        expect(download.mode).toBe('download_url');
+        if (download.mode !== 'download_url') {
+            throw new Error('expected zipped raw download');
+        }
+
+        const zipPath = path.join(tempRoot, path.basename(download.downloadUrl));
+        const entries = await listZipEntries(zipPath);
+        expect(entries).toEqual(
+            [...selectedThreads.map((thread) => `codex-${thread.threadId}.json`), 'spiracha-manifest.json'].sort(),
+        );
+        await expect(readZipEntry(zipPath, `codex-${selectedThreads[0]!.threadId}.json`)).resolves.toBe(
+            await Bun.file(selectedThreads[0]!.sessionFile).text(),
+        );
+    });
+
     it('should apply project-root conversion and username redaction to exported content', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-export-test-'));
         tempPaths.push(tempRoot);

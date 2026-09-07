@@ -17,7 +17,8 @@ import { buildCodexOptimizationAnalytics } from './codex-optimization-findings';
 import type { ThreadRelations, ThreadRow } from './codex-thread-types';
 import { mapWithConcurrency } from './concurrency';
 import { getPortablePathBasename } from './portable-path';
-import { asObject, asString, readJsonlObjects } from './shared';
+import { readJsonlObjects } from './shared';
+import { asObject, asString } from './shared-text';
 import { hashCacheKeyPartsIterable, withCachedJson } from './ui-cache';
 
 export type CodexAnalyticsInput = {

@@ -72,6 +72,7 @@ vi.mock('@spiracha/lib/codex-thread-recovery', () => ({
 }));
 
 import {
+    exportRawThreadsFn,
     exportThreadFn,
     exportThreadsFn,
     getThreadSnapshotFn,
@@ -214,6 +215,27 @@ describe('loadThreadTranscript', () => {
                 convertToProjectRoot: true,
                 redactUsername: true,
             },
+            threadIds: ['thread-1', 'thread-2'],
+            zipArchive: true,
+        });
+    });
+
+    it('should export selected Codex rollout files as raw JSON', async () => {
+        renderCodexThreadsDownloadMock.mockResolvedValue({
+            downloadUrl: '/__exports/raw.zip',
+            fileName: 'codex-threads.zip',
+            mimeType: 'application/zip',
+            mode: 'download_url',
+        });
+
+        await exportRawThreadsFn({ data: { threadIds: ['thread-1', 'thread-2'] } });
+
+        expect(renderCodexThreadsDownloadMock).toHaveBeenCalledWith({
+            dbPath: '/tmp/state.sqlite',
+            includeCommentary: false,
+            includeMetadata: false,
+            includeTools: false,
+            outputFormat: 'json',
             threadIds: ['thread-1', 'thread-2'],
             zipArchive: true,
         });

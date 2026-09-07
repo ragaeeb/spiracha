@@ -1,5 +1,5 @@
 import type { ConversationDetail, ConversationMessage } from '@spiracha/lib/conversation-data/types';
-import type { JsonValue } from '@spiracha/lib/shared';
+import type { JsonValue } from '@spiracha/lib/shared-text';
 import {
     cleanExtractedText,
     cleanInlineTitle,
@@ -8,7 +8,7 @@ import {
     renderDocumentTitle,
     renderMetadataBlock,
     renderSection,
-} from '@spiracha/lib/shared';
+} from '@spiracha/lib/shared-text';
 import { queryOptions } from '@tanstack/react-query';
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';

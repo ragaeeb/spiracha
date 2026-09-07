@@ -12,8 +12,8 @@ import {
     maxNullable,
     readQoderRecordSummary,
     type SessionStats,
-    toIso,
 } from './qoder-storage';
+import { toIso } from './qoder-transcript-parser';
 import { isWorkspacePathQuery, workspacePathMatchesQuery } from './shared';
 
 const READ_CONCURRENCY = 8;

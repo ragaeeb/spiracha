@@ -58,7 +58,7 @@ describe('conversation client', () => {
                 requests.push(new URL(request.url).pathname);
                 return new Response(original, {
                     headers: {
-                        'Content-Disposition': "attachment; filename*=UTF-8''rollout-thread-1.jsonl",
+                        'Content-Disposition': "attachment; filename*=UTF-8''codex-thread-1.json",
                         'Content-Type': 'application/x-ndjson',
                     },
                 });
@@ -71,7 +71,7 @@ describe('conversation client', () => {
             const download = await client.exportConversationRaw({ id: 'thread-1', source: 'codex' });
 
             expect(download).not.toBeNull();
-            expect(download!.fileName).toBe('rollout-thread-1.jsonl');
+            expect(download!.fileName).toBe('codex-thread-1.json');
             expect(download!.mimeType).toBe('application/x-ndjson');
             await expect(download!.blob.text()).resolves.toBe(original);
             expect(requests).toEqual(['/api/v1/conversations/codex/thread-1/raw']);

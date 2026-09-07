@@ -14,7 +14,7 @@ import {
     renderDocumentTitle,
     renderMetadataBlock,
     renderSection,
-} from './shared';
+} from './shared-text';
 
 const getSessionTitle = (session: KiroSessionSummary): string => {
     return cleanInlineTitle(session.title || session.sessionId);

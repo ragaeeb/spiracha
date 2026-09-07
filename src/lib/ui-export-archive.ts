@@ -1,6 +1,6 @@
 import type { ConversationSource } from './conversation-data/types';
 import { getPortablePathBasename } from './portable-path';
-import type { ExportFormat } from './shared';
+import type { ExportFormat } from './shared-text';
 
 export type ExportPlatform =
     | 'antigravity'

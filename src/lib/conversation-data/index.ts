@@ -1,5 +1,4 @@
 import { mapWithConcurrency } from '../concurrency';
-import { formatModelLabel } from '../model-label';
 import { antigravityConversationAdapter } from './antigravity-adapter';
 import { claudeCodeConversationAdapter } from './claude-code-adapter';
 import { clineConversationAdapter } from './cline-adapter';
@@ -9,7 +8,6 @@ import { fxConversationAdapter } from './fx-adapter';
 import { grokConversationAdapter } from './grok-adapter';
 import { grokBotConversationAdapter } from './grok-bot-adapter';
 import { kiroConversationAdapter } from './kiro-adapter';
-import { selectConversationMessages } from './message-selector';
 import { minimaxCodeConversationAdapter } from './minimax-code-adapter';
 import { opencodeConversationAdapter } from './opencode-adapter';
 import { decodeConversationCursor, paginateConversations } from './pagination';
@@ -17,8 +15,6 @@ import { qoderConversationAdapter } from './qoder-adapter';
 import {
     CONVERSATION_SOURCES,
     type ConversationAdapter,
-    type ConversationMessage,
-    type ConversationMessageSelector,
     type ConversationPage,
     type ConversationRawDownload,
     type ConversationSource,
@@ -36,7 +32,9 @@ import {
 } from './types';
 
 export { selectConversationMessages } from './message-selector';
+
 export { getConversationPathMatch, normalizeConversationPath } from './path-match';
+
 export {
     CONVERSATION_SOURCES,
     type ConversationAdapter,
@@ -131,7 +129,9 @@ const ADAPTERS: Partial<Record<ConversationSource, ConversationAdapter>> = {
 };
 
 const MAX_LIMIT = 200;
+
 const DEFAULT_LIMIT = 100;
+
 const DELETE_CONCURRENCY_BY_SOURCE: Record<ConversationSource, number> = {
     antigravity: 1,
     'claude-code': 4,
@@ -445,38 +445,4 @@ export const resolveConversationRef = async (ref: string): Promise<ResolvedConve
     }
 
     return parseUrlRef(trimmed);
-};
-
-export const renderConversationMarkdown = (
-    conversation: {
-        messages: ConversationMessage[];
-        model?: string;
-        title: string | null;
-    },
-    options: {
-        messageSelector?: ConversationMessageSelector;
-    } = {},
-) => {
-    const selectedMessages = options.messageSelector
-        ? selectConversationMessages(conversation.messages, options.messageSelector)
-        : conversation.messages;
-    const title = conversation.title?.trim() || 'Conversation';
-    const roleLabels: Record<Exclude<ConversationMessage['role'], 'assistant'>, string> = {
-        system: 'System',
-        tool: 'Tool',
-        unknown: 'Unknown',
-        user: 'User',
-    };
-    const sections = selectedMessages.map((message) => {
-        const text = message.text.trim() || '_No message content._';
-        const roleLabel =
-            message.role === 'assistant'
-                ? formatModelLabel(message.model ?? conversation.model)
-                : roleLabels[message.role];
-        return `## ${roleLabel}\n\n${text}`;
-    });
-    if (sections.length === 0) {
-        sections.push('_No messages selected._');
-    }
-    return [`# ${title}`, ...sections].join('\n\n').trimEnd() + '\n';
 };

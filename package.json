@@ -60,6 +60,10 @@
             "import": "./src/client.ts",
             "types": "./src/client.ts"
         },
+        "./payload": {
+            "import": "./dist/payload/conversation-payload.js",
+            "types": "./dist/payload/conversation-payload.d.ts"
+        },
         "./types": {
             "import": "./src/lib/conversation-data/types.ts",
             "types": "./src/lib/conversation-data/types.ts"
@@ -106,7 +110,8 @@
         "url": "git+https://github.com/ragaeeb/spiracha.git"
     },
     "scripts": {
-        "build": "bun run typecheck && bun run build:ui && bun run build:server",
+        "build": "bun run typecheck && bun run build:ui && bun run build:server && bun run build:payload",
+        "build:payload": "bun run ./src/build-payload.ts",
         "build:server": "bun run ./src/build-server.ts",
         "build:ui": "bun --bun vite build",
         "coverage": "bun run coverage:root && bun run coverage:ui",
