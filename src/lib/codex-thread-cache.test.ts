@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -10,11 +10,23 @@ import {
     getThreadRolloutLoadState,
     LARGE_THREAD_SIZE_BYTES,
 } from './codex-thread-cache';
-import { getUiCacheDir, invalidateCacheByPrefix } from './ui-cache';
+import { getUiCacheDir, invalidateCacheByPrefix, UI_CACHE_DIR_ENV } from './ui-cache';
 
 const tempPaths: string[] = [];
+const originalCacheDir = process.env[UI_CACHE_DIR_ENV];
+
+beforeEach(async () => {
+    const cacheDir = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-cache-store-'));
+    tempPaths.push(cacheDir);
+    process.env[UI_CACHE_DIR_ENV] = cacheDir;
+});
 
 afterEach(async () => {
+    if (originalCacheDir === undefined) {
+        delete process.env[UI_CACHE_DIR_ENV];
+    } else {
+        process.env[UI_CACHE_DIR_ENV] = originalCacheDir;
+    }
     await Promise.all(tempPaths.splice(0).map((targetPath) => rm(targetPath, { force: true, recursive: true })));
 });
 
