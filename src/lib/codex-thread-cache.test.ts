@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, rm, utimes } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createCodexBrowserFixture } from './codex-test-helpers';
@@ -31,6 +31,20 @@ afterEach(async () => {
 });
 
 describe('getCachedThreadTranscriptPreview', () => {
+    it('should distinguish equal-size same-name rollouts in different directories', async () => {
+        const roots = await Promise.all([0, 1].map(() => mkdtemp(path.join(os.tmpdir(), 'codex-cache-identity-'))));
+        tempPaths.push(...roots);
+        const files = roots.map((root) => path.join(root, 'same.jsonl'));
+        await Promise.all(
+            files.map(async (file, index) => {
+                await Bun.write(file, JSON.stringify({ payload: { model: `model-${index}` }, type: 'turn_context' }));
+                await utimes(file, 100, 100);
+            }),
+        );
+        expect(await getCachedCodexTranscriptModelNames(files[0]!)).toEqual(['model-0']);
+        expect(await getCachedCodexTranscriptModelNames(files[1]!)).toEqual(['model-1']);
+    });
+
     it('should retain every model in chronological order and attribute assistant messages after a switch', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-cache-model-history-test-'));
         tempPaths.push(tempRoot);

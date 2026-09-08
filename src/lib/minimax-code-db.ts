@@ -490,8 +490,8 @@ const deleteMiniMaxCodeRuntimeRows = async (runtimeDbPath: string, sessionId: st
 
     const db = new Database(runtimeDbPath, { create: false, readwrite: true, strict: true });
     try {
-        db.run('PRAGMA busy_timeout = 5000');
-        return runWithSqliteRetry({
+        db.run('PRAGMA busy_timeout = 0');
+        return await runWithSqliteRetry({
             action: () =>
                 db.transaction(() => {
                     assertSessionIsUnlocked(db, sessionId);

@@ -1016,7 +1016,7 @@ describe('cursor-db transcript reads', () => {
         spec.threads[0]!.model = 'cursor-grok-4.6-high';
         await createCursorFixture(userDir, spec);
 
-        const head = readCursorThreadHead(getCursorGlobalDbPath(userDir), 'thread-1');
+        const head = await readCursorThreadHead(getCursorGlobalDbPath(userDir), 'thread-1');
 
         expect(head?.orderedBubbleIds).toEqual(['b1', 'b2', 'b3']);
         expect(head?.name).toBe('Demo thread');
@@ -1027,7 +1027,7 @@ describe('cursor-db transcript reads', () => {
         const userDir = await makeUserDir();
         await createCursorFixture(userDir, baseSpec());
 
-        const transcript = readCursorThreadTranscript(getCursorGlobalDbPath(userDir), 'thread-1');
+        const transcript = await readCursorThreadTranscript(getCursorGlobalDbPath(userDir), 'thread-1');
 
         expect(transcript?.renderableBubbleCount).toBe(3);
         expect(transcript?.bubbles[0]?.kind).toBe('user');
@@ -1062,7 +1062,7 @@ describe('cursor-db transcript reads', () => {
             db.close();
         }
 
-        const transcript = readCursorThreadTranscript(getCursorGlobalDbPath(userDir), 'thread-legacy');
+        const transcript = await readCursorThreadTranscript(getCursorGlobalDbPath(userDir), 'thread-legacy');
 
         expect(transcript?.bubbles.map((bubble) => bubble.bubbleId)).toEqual(['z-first', 'a-second']);
     });
@@ -1073,7 +1073,7 @@ describe('cursor-db transcript reads', () => {
         spec.threads[0]!.omittedBubbleHeaders = 50;
         await createCursorFixture(userDir, spec);
 
-        const transcript = readCursorThreadTranscript(getCursorGlobalDbPath(userDir), 'thread-1');
+        const transcript = await readCursorThreadTranscript(getCursorGlobalDbPath(userDir), 'thread-1');
 
         expect(transcript?.omittedBubbleCount).toBe(50);
     });
@@ -1656,7 +1656,7 @@ describe('openCursorReadonlyDb', () => {
         });
 
         try {
-            const count = withCursorReadonlyDb(globalDbPath, (db) => {
+            const count = await withCursorReadonlyDb(globalDbPath, (db) => {
                 return (db.query('SELECT COUNT(*) AS count FROM cursorDiskKV').get() as { count: number }).count;
             });
 
@@ -1671,12 +1671,12 @@ describe('openCursorReadonlyDb', () => {
         const userDir = await makeUserDir();
         await createCursorFixture(userDir, baseSpec());
 
-        expect(() =>
+        await expect(
             withCursorReadonlyDb(getCursorGlobalDbPath(userDir), async () => {
                 await Promise.resolve();
                 return null;
             }),
-        ).toThrow('Cursor SQLite callbacks must be synchronous');
+        ).rejects.toThrow('Cursor SQLite callbacks must be synchronous');
     });
 });
 

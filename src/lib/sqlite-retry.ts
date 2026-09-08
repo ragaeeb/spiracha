@@ -1,21 +1,12 @@
 import { isRetryableSqliteError } from './sqlite-error';
 
 const DEFAULT_RETRY_DELAYS_MS = [40, 120, 250] as const;
-const SLEEP_BUFFER = new Int32Array(new SharedArrayBuffer(4));
 
-type SyncRetryOptions<T> = {
+type RetryOptions<T> = {
     action: () => T;
     delaysMs?: readonly number[];
     onRetry?: (details: { attempt: number; delayMs: number; error: unknown }) => void;
-    sleep?: (delayMs: number) => void;
-};
-
-const sleepSync = (delayMs: number) => {
-    if (delayMs <= 0) {
-        return;
-    }
-
-    Atomics.wait(SLEEP_BUFFER, 0, 0, delayMs);
+    sleep?: (delayMs: number) => Promise<unknown>;
 };
 
 const toRetryExhaustedError = (attemptCount: number, error: unknown) => {
@@ -29,12 +20,12 @@ const shouldRetrySqliteError = (error: unknown, attempt: number, delaysMs: reado
     return isRetryableSqliteError(error) && attempt < delaysMs.length;
 };
 
-export const runWithSqliteRetry = <T>({
+export const runWithSqliteRetry = async <T>({
     action,
     delaysMs = DEFAULT_RETRY_DELAYS_MS,
     onRetry,
-    sleep = sleepSync,
-}: SyncRetryOptions<T>): T => {
+    sleep = Bun.sleep,
+}: RetryOptions<T>): Promise<T> => {
     let attempt = 0;
 
     while (true) {
@@ -50,7 +41,7 @@ export const runWithSqliteRetry = <T>({
 
             const delayMs = delaysMs[attempt] ?? 0;
             onRetry?.({ attempt: attempt + 1, delayMs, error });
-            sleep(delayMs);
+            await sleep(delayMs);
             attempt += 1;
         }
     }

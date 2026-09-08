@@ -200,6 +200,13 @@ const isCursorSafetyError = (error: unknown): boolean =>
     error instanceof Error && error.message.startsWith('Unsafe Cursor');
 
 const deleteCursorWorkspaceGroup = async (group: CursorWorkspaceGroup, deleteSessionFiles: boolean) => {
+    const { runCursorWorkspaceDeletion } = await import('@spiracha/lib/cursor-recovery');
+    return runCursorWorkspaceDeletion(group, deleteSessionFiles, () =>
+        executeCursorWorkspaceDeletion(group, deleteSessionFiles),
+    );
+};
+
+const executeCursorWorkspaceDeletion = async (group: CursorWorkspaceGroup, deleteSessionFiles: boolean) => {
     const { listCursorThreadsForGroup } = await import('@spiracha/lib/cursor-db');
     const {
         collectCursorThreadsForDeletion,

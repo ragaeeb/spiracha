@@ -173,4 +173,14 @@ describe('Grok Bot server operations', () => {
             'Grok Bot chat not found: missing',
         );
     });
+    it('should report residual deletion cleanup so the dialog can retry', async () => {
+        deleteConversationMock.mockResolvedValue({
+            cleanupFailures: [{ error: 'replica busy', path: '/fixture/replica.blob', phase: 'transcript-replica' }],
+            deletedFiles: [],
+            deletedIds: ['chat-id'],
+        });
+        await expect(deleteGrokBotChatFn({ data: { conversationId: 'chat-id' } } as never)).rejects.toThrow(
+            'Roster entry removed; cleanup remains. Keep Grok Bot stopped and retry: replica busy',
+        );
+    });
 });

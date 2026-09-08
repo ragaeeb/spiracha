@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { getThreadBrowseData, getThreadBrowseDataBatch } from './codex-browser-queries';
-import type { ThreadBrowseData } from './codex-browser-types';
+import type { CodexThreadBrowseBatchResult, ThreadBrowseData } from './codex-browser-types';
 import { CodexDbCompatibilityError, CodexThreadNotFoundError } from './codex-database';
 import {
     CodexRolloutContentError,
@@ -92,7 +92,7 @@ type BatchExportManifest = {
     skippedCount: number;
 };
 
-const buildExportBaseName = (thread: ReturnType<typeof getThreadBrowseData>['thread']) => {
+const buildExportBaseName = (thread: ThreadBrowseData['thread']) => {
     return buildConversationExportBaseName(
         {
             cwd: thread.cwd,
@@ -109,7 +109,7 @@ const buildRawExportBaseName = (threadId: string) => `codex-${sanitizeExportFile
 
 const buildCodexExportFileBaseName = (
     outputFormat: RenderCodexThreadDownloadInput['outputFormat'],
-    thread: ReturnType<typeof getThreadBrowseData>['thread'],
+    thread: ThreadBrowseData['thread'],
 ) => (outputFormat === 'json' ? buildRawExportBaseName(thread.id) : buildExportBaseName(thread));
 
 const getCodexExportFileExtension = (outputFormat: RenderCodexThreadDownloadInput['outputFormat']) =>
@@ -270,7 +270,7 @@ const withStableRolloutSnapshot = async <T>({
 }): Promise<T> => {
     for (let attempt = 1; attempt <= MAX_ROLLOUT_EXPORT_ATTEMPTS; attempt += 1) {
         const browseData =
-            attempt === 1 && initialBrowseData ? initialBrowseData : getThreadBrowseData(dbPath, threadId);
+            attempt === 1 && initialBrowseData ? initialBrowseData : await getThreadBrowseData(dbPath, threadId);
         const attemptWorkspace = await mkdtemp(path.join(os.tmpdir(), 'spiracha-codex-rollout-attempt-'));
         const snapshotPath = path.join(attemptWorkspace, 'rollout.jsonl');
 
@@ -474,7 +474,7 @@ export const renderCodexThreadDownload = async (
 
 const renderCodexBatchEntry = async (
     input: RenderCodexThreadsDownloadInput,
-    result: ReturnType<typeof getThreadBrowseDataBatch>[number],
+    result: CodexThreadBrowseBatchResult,
     bundleDirectory: string,
     usedBatchEntryBaseNames: Set<string>,
 ): Promise<BatchExportManifestEntry> => {
@@ -561,7 +561,7 @@ export const renderCodexThreadsDownload = async (
         throw new Error('No threads selected for export');
     }
 
-    const browseResults = getThreadBrowseDataBatch(input.dbPath, threadIds);
+    const browseResults = await getThreadBrowseDataBatch(input.dbPath, threadIds);
     const browseEntries = browseResults.flatMap((result) => (result.status === 'found' && result.data ? [result] : []));
     if (browseEntries.length === 0) {
         throw new Error('No exportable threads');

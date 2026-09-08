@@ -274,6 +274,8 @@ UI batch Codex exports use one batch browse pass and include a versioned `spirac
 
 ### Cursor SQLite access
 
+SQLite retry boundaries return promises and use `Bun.sleep` between bounded attempts, allowing unrelated requests to progress during contention. Database callbacks remain synchronous: connections close and transactions complete or roll back before retry sleeps. Internal callers must await database reads and mutations; the synchronous helper contract has been removed.
+
 Cursor reads use a retry-aware synchronous callback that opens a fresh read handle for each attempt and closes it before retrying. Cursor mutations use a same-database `BEGIN IMMEDIATE` transaction with the shared bounded SQLite retry policy and no stacked long `busy_timeout`. Missing writable databases fail closed instead of being created. Discovery is cached per user directory, coalesces concurrent scans, and maintains a composer-id index for direct detail lookup. Recovery and deletion keep cross-database compensation and filesystem cleanup outside retry callbacks; destructive discovery uses strict readers so exhausted locks cannot be mistaken for empty data. UI mutation entrypoints still require Cursor to be closed before writing because Cursor can rewrite its history on exit. Workspace cleanup can be retried with a short-lived opaque token after the database mutation has committed.
 
 ## UI Routes
@@ -335,3 +337,5 @@ The hard-cut package keeps one `spiracha` bin, the stable `spiracha/client`, `sp
 - The former Qoder database module was split into storage, session-listing, and session-transcript modules; the former monolith is not a supported import path.
 - Programmatic consumers should call the stable local HTTP API or import `spiracha/client` from Bun rather than shelling out.
 - Normalized conversation messages now always include `toolEvidence` (`null` for non-tool messages); consumers that construct these DTOs must provide that explicit field.
+
+Deletion recovery protocols: [Codex](docs/codex-deletion-recovery.md), [Cursor](docs/cursor-crash-recovery.md), and [Grok Bot](docs/grok-bot-deletion.md). See [concurrency](docs/concurrency.md) for cancellation, source scheduling, and server tuning.

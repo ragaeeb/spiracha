@@ -282,7 +282,7 @@ const recordValidatedOpenCodeSchema = (dbPath: string, mtimeMs: number): void =>
 
 const configureOpenCodeReadDb = (db: Database, dbPath: string): Database => {
     try {
-        db.exec('PRAGMA busy_timeout = 1000');
+        db.exec('PRAGMA busy_timeout = 0');
         db.exec('PRAGMA query_only = ON');
         const mtimeMs = Bun.file(dbPath).lastModified;
         if (validatedOpenCodeSchemaMtimes.get(dbPath) !== mtimeMs) {
@@ -311,7 +311,7 @@ export const openOpenCodeReadDb = (dbPath: string): Database => {
     }
 };
 
-const withOpenCodeReadonlyDb = <T>(dbPath: string, action: (db: Database) => T): T => {
+const withOpenCodeReadonlyDb = <T>(dbPath: string, action: (db: Database) => T): Promise<T> => {
     return runWithSqliteRetry({
         action: () => {
             const db = openOpenCodeReadDb(dbPath);
@@ -324,7 +324,7 @@ const withOpenCodeReadonlyDb = <T>(dbPath: string, action: (db: Database) => T):
     });
 };
 
-const withOpenCodeWritableDb = <T>(dbPath: string, action: (db: Database) => T): T => {
+const withOpenCodeWritableDb = <T>(dbPath: string, action: (db: Database) => T): Promise<T> => {
     return runWithSqliteRetry({
         action: () => {
             const db = new Database(dbPath);

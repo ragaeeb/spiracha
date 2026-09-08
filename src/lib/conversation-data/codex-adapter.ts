@@ -143,7 +143,7 @@ const getCodexConversation = async (options: GetConversationOptions): Promise<Co
     const dbPath = getCodexDbPath(options);
     let browseData: ThreadBrowseData;
     try {
-        browseData = getThreadBrowseData(dbPath, options.id);
+        browseData = await getThreadBrowseData(dbPath, options.id);
     } catch (error) {
         if (error instanceof CodexThreadNotFoundError) {
             return null;
@@ -161,7 +161,7 @@ const getCodexConversation = async (options: GetConversationOptions): Promise<Co
 const getCodexConversationRaw = async (options: GetConversationOptions) => {
     const dbPath = getCodexDbPath(options);
     try {
-        return createRawConversationDownload(getThreadBrowseData(dbPath, options.id).thread.rollout_path);
+        return createRawConversationDownload((await getThreadBrowseData(dbPath, options.id)).thread.rollout_path);
     } catch (error) {
         if (error instanceof CodexThreadNotFoundError) {
             return null;

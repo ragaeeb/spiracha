@@ -117,7 +117,7 @@ export const getThreadSnapshotFn = createServerFn({ method: 'GET' })
         logCodexThreadLoad('snapshot_start', {
             threadId: data.threadId,
         });
-        const browseData = getThreadBrowseData(dbPath, data.threadId);
+        const browseData = await getThreadBrowseData(dbPath, data.threadId);
         const transcript: ParsedCodexTranscript | null = null;
         let rollout: Awaited<ReturnType<typeof getThreadRolloutLoadState>>;
 
@@ -174,7 +174,7 @@ export const loadThreadTranscriptPreview = async (
         import('@spiracha/lib/codex-thread-cache'),
     ]);
     const dbPath = await getDbPath();
-    const browseData = getThreadBrowseData(dbPath, threadId);
+    const browseData = await getThreadBrowseData(dbPath, threadId);
     logCodexThreadLoad('preview_start', {
         rolloutPath: browseData.thread.rollout_path,
         threadId,
@@ -197,7 +197,7 @@ export const loadThreadTranscript = async (threadId: string) => {
         import('@spiracha/lib/codex-thread-cache'),
     ]);
     const dbPath = await getDbPath();
-    const browseData = getThreadBrowseData(dbPath, threadId);
+    const browseData = await getThreadBrowseData(dbPath, threadId);
     const startedAt = Date.now();
     logCodexThreadLoad('full_start', {
         rolloutPath: browseData.thread.rollout_path,

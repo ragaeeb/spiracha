@@ -393,7 +393,7 @@ describe('opencode db helpers', () => {
 
         try {
             expect(db.query('PRAGMA query_only').get()).toEqual({ query_only: 1 });
-            expect(db.query('PRAGMA busy_timeout').get()).toEqual({ timeout: 1_000 });
+            expect(db.query('PRAGMA busy_timeout').get()).toEqual({ timeout: 0 });
             expect(() => db.exec("UPDATE project SET name = 'changed' WHERE id = 'pro_demo'")).toThrow(
                 'attempt to write a readonly database',
             );

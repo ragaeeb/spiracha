@@ -202,7 +202,7 @@ const readDashboardDatabaseData = (dbPath: string) =>
     });
 
 export const getCodexDashboardSummary = async (dbPath: string): Promise<DashboardSummary> => {
-    const database = readDashboardDatabaseData(dbPath);
+    const database = await readDashboardDatabaseData(dbPath);
     const fallbackThreads = readFallbackThreadRows(dbPath, database.existingThreadIds);
     const recentCandidates = await applyRolloutActivityTimestamps(dbPath, [
         ...applySessionIndexThreadNames(dbPath, database.recentCandidates),

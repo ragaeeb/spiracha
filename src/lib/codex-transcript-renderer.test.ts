@@ -111,7 +111,7 @@ describe('codex transcript renderer helpers', () => {
             ].join('\n'),
         );
 
-        const browseData = getThreadBrowseData(fixture.dbPath, fixture.threadId);
+        const browseData = await getThreadBrowseData(fixture.dbPath, fixture.threadId);
         const content = await renderCodexSessionFile(
             {
                 fallbackReason: null,
@@ -217,7 +217,7 @@ describe('codex transcript renderer helpers', () => {
             ].join('\n'),
         );
 
-        const browseData = getThreadBrowseData(fixture.dbPath, fixture.threadId);
+        const browseData = await getThreadBrowseData(fixture.dbPath, fixture.threadId);
         const content = await renderCodexSessionFile(
             {
                 fallbackReason: null,
@@ -306,7 +306,7 @@ describe('codex transcript renderer helpers', () => {
             ].join('\n'),
         );
 
-        const browseData = getThreadBrowseData(fixture.dbPath, fixture.threadId);
+        const browseData = await getThreadBrowseData(fixture.dbPath, fixture.threadId);
         const target = {
             fallbackReason: null,
             outputRelativePath: 'Transcript.md',
@@ -392,7 +392,7 @@ describe('codex transcript renderer helpers', () => {
             ].join('\n'),
         );
 
-        const browseData = getThreadBrowseData(fixture.dbPath, fixture.threadId);
+        const browseData = await getThreadBrowseData(fixture.dbPath, fixture.threadId);
         const content = await renderCodexSessionFile(
             {
                 fallbackReason: null,
@@ -431,7 +431,7 @@ describe('codex transcript renderer helpers', () => {
             }),
         );
 
-        const browseData = getThreadBrowseData(fixture.dbPath, fixture.threadId);
+        const browseData = await getThreadBrowseData(fixture.dbPath, fixture.threadId);
         const content = await renderCodexSessionFile(
             {
                 fallbackReason: null,
@@ -487,7 +487,7 @@ describe('codex transcript renderer helpers', () => {
             ].join('\n'),
         );
 
-        const browseData = getThreadBrowseData(fixture.dbPath, fixture.threadId);
+        const browseData = await getThreadBrowseData(fixture.dbPath, fixture.threadId);
         const content = await renderCodexSessionFile(
             {
                 fallbackReason: null,
@@ -580,7 +580,7 @@ describe('codex transcript renderer helpers', () => {
             ].join('\n'),
         );
 
-        const browseData = getThreadBrowseData(fixture.dbPath, fixture.threadId);
+        const browseData = await getThreadBrowseData(fixture.dbPath, fixture.threadId);
         const content = await renderCodexSessionFile(
             {
                 fallbackReason: null,

@@ -84,7 +84,7 @@ const readThreadsForPath = (
     dbPath: string,
     cwd: string,
     options: CodexPathThreadListOptions,
-): { existingThreadIds: Set<string>; threads: ThreadRow[] } => {
+): Promise<{ existingThreadIds: Set<string>; threads: ThreadRow[] }> => {
     const time = getThreadTimePredicate(options);
     return withReadonlyDb(dbPath, (db) => {
         const filters = [getUserVisibleThreadFilter(db), PATH_CWD_FILTER, ...(time.sql ? [time.sql.slice(5)] : [])];
@@ -108,7 +108,7 @@ export const listCodexThreadsForPath = async (
     options: CodexPathThreadListOptions = {},
 ): Promise<ThreadRow[]> => {
     const normalizedCwd = await normalizeConversationPath(cwd);
-    const databaseData = readThreadsForPath(dbPath, normalizedCwd, options);
+    const databaseData = await readThreadsForPath(dbPath, normalizedCwd, options);
     const fallbackThreads = await listFallbackThreadsForPath(
         dbPath,
         databaseData.existingThreadIds,
@@ -118,8 +118,8 @@ export const listCodexThreadsForPath = async (
     return [...databaseData.threads, ...fallbackThreads].sort(compareThreadsByRecentActivity);
 };
 
-export const listScopedThreads = (dbPath: string, projectName: string | null): ThreadRow[] => {
-    return mergeFallbackThreadRows(dbPath, readThreads(dbPath, projectName), projectName);
+export const listScopedThreads = async (dbPath: string, projectName: string | null): Promise<ThreadRow[]> => {
+    return mergeFallbackThreadRows(dbPath, await readThreads(dbPath, projectName), projectName);
 };
 
 const readProjectSummaryDatabaseData = (dbPath: string) => {
@@ -222,7 +222,7 @@ const mapProjectSummaries = (projectMap: Map<string, ProjectSummaryAccumulator>)
         .sort((left, right) => right.totalTokens - left.totalTokens || left.name.localeCompare(right.name));
 
 export const listCodexProjects = async (dbPath: string): Promise<ProjectSummary[]> => {
-    const database = readProjectSummaryDatabaseData(dbPath);
+    const database = await readProjectSummaryDatabaseData(dbPath);
     const fallbackThreads = readFallbackThreadRows(dbPath, database.existingThreadIds);
     return mapProjectSummaries(
         mergeProjectAggregateRows(buildProjectSummaryMap(fallbackThreads), database.projectAggregates),
@@ -239,9 +239,9 @@ export const listProjectThreads = async (
     projectName: string,
     options: ListProjectThreadsOptions = {},
 ): Promise<ThreadListEntry[]> => {
-    const threads = mergeFallbackThreadRows(dbPath, readThreads(dbPath, projectName), projectName);
+    const threads = mergeFallbackThreadRows(dbPath, await readThreads(dbPath, projectName), projectName);
     const activeThreads = await applyRolloutActivityTimestamps(dbPath, threads);
-    const hierarchyByThreadId = getThreadHierarchyById(
+    const hierarchyByThreadId = await getThreadHierarchyById(
         dbPath,
         activeThreads.map((thread) => thread.id),
     );
@@ -398,7 +398,10 @@ const readBrowseRelations = (
     }
 };
 
-const readThreadBrowseDatabaseData = (dbPath: string, requestedThreadIds: string[]): ThreadBrowseDatabaseData => {
+const readThreadBrowseDatabaseData = (
+    dbPath: string,
+    requestedThreadIds: string[],
+): Promise<ThreadBrowseDatabaseData> => {
     const threadIds = uniqueValues(requestedThreadIds);
     return withReadonlyDb(dbPath, (db) =>
         withSqliteTransaction(db, (snapshotDb) => {
@@ -427,8 +430,11 @@ const readThreadBrowseDatabaseData = (dbPath: string, requestedThreadIds: string
     );
 };
 
-export const getThreadRelationsBatch = (dbPath: string, threadIds: string[]): Map<string, ThreadRelations> => {
-    const databaseData = readThreadBrowseDatabaseData(dbPath, threadIds);
+export const getThreadRelationsBatch = async (
+    dbPath: string,
+    threadIds: string[],
+): Promise<Map<string, ThreadRelations>> => {
+    const databaseData = await readThreadBrowseDatabaseData(dbPath, threadIds);
     return new Map(
         [...new Set(threadIds)].map((threadId) => [
             threadId,
@@ -476,12 +482,15 @@ const buildThreadBrowseData = (
     };
 };
 
-export const getThreadBrowseDataBatch = (dbPath: string, threadIds: string[]): CodexThreadBrowseBatchResult[] => {
+export const getThreadBrowseDataBatch = async (
+    dbPath: string,
+    threadIds: string[],
+): Promise<CodexThreadBrowseBatchResult[]> => {
     if (threadIds.length === 0) {
         return [];
     }
     const filesystemData = readBrowseFilesystemData(dbPath);
-    const databaseData = readThreadBrowseDatabaseData(dbPath, threadIds);
+    const databaseData = await readThreadBrowseDatabaseData(dbPath, threadIds);
     const fallbackThreadsById = new Map<string, ThreadRow>();
     for (const threadId of uniqueValues(threadIds)) {
         if (databaseData.threadsById.has(threadId)) {
@@ -515,8 +524,8 @@ export const getThreadBrowseDataBatch = (dbPath: string, threadIds: string[]): C
     });
 };
 
-export const getThreadBrowseData = (dbPath: string, threadId: string): ThreadBrowseData => {
-    const result = getThreadBrowseDataBatch(dbPath, [threadId])[0]!;
+export const getThreadBrowseData = async (dbPath: string, threadId: string): Promise<ThreadBrowseData> => {
+    const result = (await getThreadBrowseDataBatch(dbPath, [threadId]))[0]!;
     if (result.status === 'missing') {
         throw new CodexThreadNotFoundError(threadId);
     }

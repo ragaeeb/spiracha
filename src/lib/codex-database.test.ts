@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'bun:test';
-import { CodexDbCompatibilityError, decodeThreadGoalRow, decodeThreadRow } from './codex-database';
+import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import {
+    assertSafeCodexRolloutPaths,
+    CodexDbCompatibilityError,
+    decodeThreadGoalRow,
+    decodeThreadRow,
+} from './codex-database';
 
 const validThreadRow = {
     agent_nickname: 'assistant',
@@ -91,4 +99,22 @@ describe('Codex thread row decoding', () => {
             expect(error).toMatchObject({ invalidFields: ['threads.model'] });
         }
     });
+});
+
+it('should canonicalize missing rollouts through existing ancestors and reject escaped parents', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'codex-rollout-path-'));
+    try {
+        const home = path.join(root, 'home');
+        await mkdir(home);
+        await symlink(home, path.join(root, 'alias'));
+        await symlink(root, path.join(home, 'escape'));
+        const dbPath = path.join(root, 'alias', 'state.sqlite');
+        await expect(assertSafeCodexRolloutPaths(dbPath, ['sessions/missing/rollout.jsonl'])).resolves.toBeUndefined();
+        await expect(assertSafeCodexRolloutPaths(dbPath, ['escape/missing/rollout.jsonl'])).rejects.toThrow(
+            'Unsafe Codex rollout path',
+        );
+        await expect(assertSafeCodexRolloutPaths(dbPath, ['..'])).rejects.toThrow('Unsafe Codex rollout path');
+    } finally {
+        await rm(root, { force: true, recursive: true });
+    }
 });

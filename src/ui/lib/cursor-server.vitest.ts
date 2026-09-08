@@ -85,6 +85,8 @@ vi.mock('@spiracha/lib/cursor-recovery', () => ({
     pruneCursorThreads: pruneCursorThreadsMock,
     recoverCursorWorkspaceGroup: recoverCursorWorkspaceGroupMock,
     retryCursorWorkspaceCleanup: retryCursorWorkspaceCleanupMock,
+    runCursorWorkspaceDeletion: (_group: unknown, _deleteSessionFiles: boolean, action: () => Promise<unknown>) =>
+        action(),
 }));
 
 vi.mock('@spiracha/lib/cursor-transcript', () => ({
