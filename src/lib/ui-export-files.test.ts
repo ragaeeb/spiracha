@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdir, mkdtemp, rm, stat, utimes } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, stat, symlink, utimes } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -30,6 +30,12 @@ afterEach(async () => {
 });
 
 describe('ui export file helpers', () => {
+    it('should use a stable user-private default export directory', () => {
+        delete process.env[UI_EXPORT_DIR_ENV];
+
+        expect(getUiExportDir()).toBe(path.join(os.homedir(), '.cache', 'spiracha', 'ui-exports'));
+    });
+
     it('should create the export directory with owner-only permissions', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'spiracha-ui-export-mode-test-'));
         tempPaths.push(tempRoot);
@@ -39,6 +45,16 @@ describe('ui export file helpers', () => {
         await ensureUiExportDir();
 
         expect((await stat(exportDir)).mode & 0o777).toBe(0o700);
+    });
+
+    it('should reject a configured export directory symlink', async () => {
+        const target = await mkdtemp(path.join(os.tmpdir(), 'spiracha-ui-export-target-'));
+        const link = path.join(os.tmpdir(), 'spiracha-ui-export-link');
+        tempPaths.push(target, link);
+        await symlink(target, link);
+        process.env[UI_EXPORT_DIR_ENV] = link;
+
+        await expect(ensureUiExportDir()).rejects.toThrow('Unsafe Spiracha export directory');
     });
 
     it('should tolerate an export disappearing during stale-file purging', async () => {

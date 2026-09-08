@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
-const UI_SUITE_TIMEOUT_MS = 60_000;
+const UI_SUITE_TIMEOUT_MS = 180_000;
 
 type SpawnResult = {
     exitCode: number;

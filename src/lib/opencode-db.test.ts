@@ -16,7 +16,7 @@ import {
     resolveOpenCodeDbConcurrency,
 } from './opencode-db';
 import { createOpenCodeFixture } from './opencode-test-helpers';
-import { resetParserDiagnosticForTests } from './shared';
+import { resetParserDiagnosticForTests } from './shared-text';
 
 const tempDirs: string[] = [];
 const originalLogSetting = process.env.SPIRACHA_OPENCODE_DB_LOGS;
@@ -28,6 +28,45 @@ afterEach(async () => {
         process.env.SPIRACHA_OPENCODE_DB_LOGS = originalLogSetting;
     }
     await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { force: true, recursive: true })));
+});
+
+describe('OpenCode bounded session queries', () => {
+    it('should apply inclusive timestamp bounds before session hydration', async () => {
+        const dbPath = await makeDbPath();
+        await createOpenCodeFixture(dbPath, {
+            projects: [{ id: 'bounded', worktree: '/Users/test/workspace/bounded' }],
+            sessions: [
+                {
+                    id: 'before',
+                    messages: [],
+                    projectId: 'bounded',
+                    timeUpdated: 1_700_000_000_000,
+                    title: 'Before',
+                },
+                {
+                    id: 'at-bound',
+                    messages: [],
+                    projectId: 'bounded',
+                    timeUpdated: 1_700_000_100_000,
+                    title: 'At bound',
+                },
+                {
+                    id: 'after',
+                    messages: [],
+                    projectId: 'bounded',
+                    timeUpdated: 1_700_000_200_000,
+                    title: 'After',
+                },
+            ],
+        });
+
+        const sessions = await listOpenCodeSessionsForGroup('project:bounded', dbPath, {
+            updatedAfterMs: 1_700_000_100_000,
+            updatedBeforeMs: 1_700_000_100_000,
+        });
+
+        expect(sessions.map((session) => session.sessionId)).toEqual(['at-bound']);
+    });
 });
 
 const makeDbPath = async (): Promise<string> => {

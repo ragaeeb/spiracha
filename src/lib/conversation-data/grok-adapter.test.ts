@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { deleteConversation, listConversationsForPath, resolveConversationRef } from './index';
+import { deleteConversation, listConversations, resolveConversationRef } from './index';
 
 const tempRoots: string[] = [];
 
@@ -88,7 +88,7 @@ describe('grok conversation adapter', () => {
         const workspacePath = path.join(grokHome, 'repo');
         const fixture = await writeGrokConversation(grokHome, workspacePath);
 
-        const page = await listConversationsForPath({
+        const page = await listConversations({
             cwd: workspacePath,
             includeMessages: true,
             locations: { grokSessionsDir: fixture.sessionsDir },
@@ -121,7 +121,7 @@ describe('grok conversation adapter', () => {
         const workspacePath = path.join(grokHome, 'repo');
         const fixture = await writeGrokConversation(grokHome, workspacePath);
 
-        const page = await listConversationsForPath({
+        const page = await listConversations({
             cwd: workspacePath,
             includeMessages: true,
             locations: { grokSessionsDir: fixture.sessionsDir },

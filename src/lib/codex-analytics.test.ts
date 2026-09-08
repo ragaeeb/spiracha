@@ -11,6 +11,7 @@ import {
 import type { ThreadOptimizationSummary } from './codex-optimization-analysis';
 import { createCodexBrowserFixture } from './codex-test-helpers';
 import type { ThreadRow } from './codex-thread-types';
+import { hashCacheKeyPartsIterable, setCachedJson } from './ui-cache';
 
 const tempPaths: string[] = [];
 
@@ -19,6 +20,49 @@ afterEach(async () => {
 });
 
 describe('getCodexAnalytics', () => {
+    it.each(['v3', 'v4'])(
+        'should ignore obsolete thread cache entries and parse the transcript (%s)',
+        async (version) => {
+            const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-analytics-upgrade-'));
+            tempPaths.push(tempRoot);
+            const thread = createThreadRow({ rollout_path: path.join(tempRoot, 'rollout.jsonl') });
+            await Bun.write(
+                thread.rollout_path,
+                JSON.stringify({
+                    payload: {
+                        arguments: JSON.stringify({ cmd: 'cat README.md' }),
+                        call_id: 'read',
+                        name: 'exec_command',
+                        type: 'function_call',
+                    },
+                    type: 'response_item',
+                }),
+            );
+            const legacyKey = `thread-analytics-${hashCacheKeyPartsIterable([
+                version,
+                thread.id,
+                thread.rollout_path,
+                String(thread.updated_at_ms ?? thread.updated_at * 1000),
+                String(thread.created_at_ms ?? thread.created_at * 1000),
+                String(thread.tokens_used),
+                String(thread.archived),
+                String(thread.archived_at ?? ''),
+                thread.cwd,
+                thread.model ?? '',
+                thread.reasoning_effort ?? '',
+                thread.source,
+                thread.model_provider,
+                thread.cli_version,
+                thread.title,
+                thread.preview,
+            ])}`;
+            await setCachedJson(legacyKey, { hasWebSearch: false, toolNames: [] });
+            const analytics = await computeCodexAnalyticsFromThreads([thread]);
+            expect(analytics.toolUsage).toEqual([{ count: 1, name: 'exec_command' }]);
+            expect(analytics.agentDx.goalSpans[0]?.discoveryCallCount).toBe(1);
+        },
+    );
+
     it('should aggregate global analytics from thread rows and parsed transcript events', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-analytics-global-test-'));
         tempPaths.push(tempRoot);
@@ -43,6 +87,16 @@ describe('getCodexAnalytics', () => {
         ]);
         expect(analytics.summary.threadsWithWebSearch).toBe(3);
         expect(analytics.summary.distinctToolNames).toBe(2);
+        expect(analytics.agentDx.schema).toBe('agent-dx/v1');
+        expect(analytics.agentDx.goalSpans).toHaveLength(2);
+        expect(
+            analytics.agentDx.goalSpans.find((span) => span.rootThreadId === fixture.threads[0]!.threadId),
+        ).toMatchObject({
+            childThreadIdsSpawnedInSpan: [fixture.threads[1]!.threadId],
+            repositoryIdentityBefore: '36ed476dc8418f2e02cd15c46fe824624801ed99',
+            source: 'vscode',
+            terminalOutcome: 'complete',
+        });
     });
 
     it('should report median tokens and source-specific breakdowns', async () => {

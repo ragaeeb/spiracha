@@ -54,6 +54,25 @@ const validLens = {
 const createRequest = (path: string, init?: RequestInit) => new Request(`http://localhost:3000${path}`, init);
 
 describe('conversation API handler', () => {
+    it('should reject cross-origin requests before loading conversations', async () => {
+        let loaded = false;
+        const response = await handleConversationApiRequest(
+            new Request('http://localhost:3000/api/v1/sources', {
+                headers: { Origin: 'http://evil.example' },
+            }),
+            {
+                listConversationSources: async () => {
+                    loaded = true;
+                    return [];
+                },
+            },
+        );
+
+        expect(response.status).toBe(403);
+        expect(loaded).toBe(false);
+        expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
+    });
+
     it('should export focused evidence through the stable POST envelope', async () => {
         const response = await handleConversationApiRequest(
             createRequest('/api/v1/conversations/codex/thread-1/evidence', {
@@ -138,6 +157,7 @@ describe('conversation API handler', () => {
             listConversationSources: async () => [
                 {
                     label: 'Codex',
+                    scope: 'workspace',
                     source: 'codex',
                 },
             ],
@@ -145,7 +165,7 @@ describe('conversation API handler', () => {
 
         expect(response.status).toBe(200);
         await expect(response.json()).resolves.toEqual({
-            data: [{ label: 'Codex', source: 'codex' }],
+            data: [{ label: 'Codex', scope: 'workspace', source: 'codex' }],
         });
     });
 
@@ -153,7 +173,7 @@ describe('conversation API handler', () => {
         const response = await handleConversationApiRequest(
             createRequest('/api/v1/conversations?cwd=/repo&include_messages=true&message_selector=last_final_answer'),
             {
-                listConversationsForPath: async (options) => {
+                listConversations: async (options) => {
                     expect(options).toMatchObject({
                         cwd: '/repo',
                         includeMessages: true,
@@ -189,6 +209,15 @@ describe('conversation API handler', () => {
         });
     });
 
+    it('should reject a whitespace-only cwd instead of treating it as global scope', async () => {
+        const response = await handleConversationApiRequest(createRequest('/api/v1/conversations?cwd=%20%20'), {});
+
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toMatchObject({
+            error: { code: 'validation_error', details: { field: 'cwd' } },
+        });
+    });
+
     it('should accept snake_case JSON options for conversation query clients', async () => {
         const response = await handleConversationApiRequest(
             createRequest('/api/v1/conversation-query', {
@@ -204,7 +233,7 @@ describe('conversation API handler', () => {
                 method: 'POST',
             }),
             {
-                listConversationsForPath: async (options) => {
+                listConversations: async (options) => {
                     expect(options).toMatchObject({
                         cwd: '/repo',
                         includeMessages: true,
@@ -229,7 +258,7 @@ describe('conversation API handler', () => {
         const response = await handleConversationApiRequest(
             createRequest('/api/v1/conversations?cwd=/repo&source=codex,codex'),
             {
-                listConversationsForPath: async (options) => {
+                listConversations: async (options) => {
                     expect(options.sources).toEqual(['codex']);
                     return { data: [], meta: { hasNext: false, nextCursor: null } };
                 },
@@ -239,15 +268,36 @@ describe('conversation API handler', () => {
         expect(response.status).toBe(200);
     });
 
-    it('should return typed errors for missing required input', async () => {
-        const response = await handleConversationApiRequest(createRequest('/api/v1/conversations'), {});
-
-        expect(response.status).toBe(400);
-        await expect(response.json()).resolves.toMatchObject({
-            error: {
-                code: 'validation_error',
+    it('should allow global list queries without a cwd', async () => {
+        const response = await handleConversationApiRequest(createRequest('/api/v1/conversations?source=grok-bot'), {
+            listConversations: async (options) => {
+                expect(options.cwd).toBeUndefined();
+                expect(options.sources).toEqual(['grok-bot']);
+                return { data: [], meta: { hasNext: false, nextCursor: null } };
             },
         });
+
+        expect(response.status).toBe(200);
+        await expect(response.json()).resolves.toMatchObject({
+            data: [],
+            meta: { has_next: false, next_cursor: null },
+        });
+    });
+
+    it('should reject source scopes that do not match the list scope', async () => {
+        const workspaceResponse = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations?cwd=/repo&source=grok-bot'),
+            {},
+        );
+        const globalResponse = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations?source=codex'),
+            {},
+        );
+
+        expect(workspaceResponse.status).toBe(400);
+        expect(globalResponse.status).toBe(400);
+        await expect(workspaceResponse.json()).resolves.toMatchObject({ error: { code: 'validation_error' } });
+        await expect(globalResponse.json()).resolves.toMatchObject({ error: { code: 'validation_error' } });
     });
 
     it('should not dispatch GET batch-action paths to the conversation list handler', async () => {
@@ -256,7 +306,7 @@ describe('conversation API handler', () => {
             const response = await handleConversationApiRequest(
                 createRequest(`/api/v1/conversations/${action}?cwd=/repo`),
                 {
-                    listConversationsForPath: async () => {
+                    listConversations: async () => {
                         listCalled = true;
                         return { data: [], meta: { hasNext: false, nextCursor: null } };
                     },
@@ -499,14 +549,14 @@ describe('conversation API handler', () => {
                 expect(options).toEqual({ id: 'thread-1', source: 'codex' });
                 return {
                     blob: new Blob([original]),
-                    fileName: 'rollout-thread-1.jsonl',
+                    fileName: 'messages.jsonl',
                     mimeType: 'application/x-ndjson',
                 };
             },
         });
 
         expect(response.status).toBe(200);
-        expect(response.headers.get('Content-Disposition')).toBe("attachment; filename*=UTF-8''rollout-thread-1.jsonl");
+        expect(response.headers.get('Content-Disposition')).toBe("attachment; filename*=UTF-8''codex-thread-1.json");
         expect(response.headers.get('Content-Type')).toBe('application/x-ndjson');
         await expect(response.text()).resolves.toBe(original);
     });
@@ -524,7 +574,7 @@ describe('conversation API handler', () => {
         );
 
         expect(response.status).toBe(200);
-        expect(response.headers.get('Content-Disposition')).toBe("attachment; filename*=UTF-8''thread%201.jsonl");
+        expect(response.headers.get('Content-Disposition')).toBe("attachment; filename*=UTF-8''codex-thread-1.json");
         await expect(response.text()).resolves.toBe('');
     });
 

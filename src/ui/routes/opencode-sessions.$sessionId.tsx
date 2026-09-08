@@ -32,7 +32,7 @@ import {
 import { RouteStateResetBoundary } from '#/lib/route-state-reset';
 import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
-const OpenCodeSessionDetailErrorComponent = ({ error }: { error: Error }) => {
+const OpenCodeSessionDetailErrorComponent = ({ error }: { error: unknown }) => {
     return <RouteErrorPanel error={error} title="Failed to load OpenCode session" />;
 };
 

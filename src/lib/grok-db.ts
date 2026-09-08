@@ -13,19 +13,15 @@ import {
     resolveGrokHome,
     resolveGrokSessionsDir,
 } from './grok-exporter-types';
+import { parseGrokTranscriptEntry } from './grok-transcript-parser';
 import { getPortablePathBasename } from './portable-path';
 import {
-    asNumber,
-    asObject,
-    asString,
-    cleanExtractedText,
-    cleanInlineTitle,
     isWorkspacePathQuery,
-    type JsonValue,
     readDirectoryEntriesIfExists,
     readJsonlObjects,
     workspacePathMatchesQuery,
 } from './shared';
+import { asNumber, asObject, asString, cleanExtractedText, cleanInlineTitle, type JsonValue } from './shared-text';
 
 export { getDefaultGrokHome, resolveGrokHome, resolveGrokSessionsDir };
 
@@ -133,18 +129,6 @@ const getGrokHomeFromSessionsDir = (sessionsDir: string): string => {
     return path.basename(sessionsDir) === 'sessions' ? path.dirname(sessionsDir) : resolveGrokHome();
 };
 
-const formatJsonLike = (value: JsonValue | undefined): string | null => {
-    if (value === undefined || value === null) {
-        return null;
-    }
-
-    if (typeof value === 'string') {
-        return value;
-    }
-
-    return JSON.stringify(value, null, 2);
-};
-
 const readJsonObjectFile = async (filePath: string): Promise<Record<string, JsonValue> | null> => {
     const raw = (await Bun.file(filePath)
         .json()
@@ -169,225 +153,6 @@ const getJsonObjectList = (value: JsonValue | undefined): Record<string, JsonVal
         const object = asObject(item);
         return object ? [object] : [];
     });
-};
-
-const textFromContentValue = (value: JsonValue | undefined): string => {
-    if (typeof value === 'string') {
-        return value;
-    }
-
-    if (Array.isArray(value)) {
-        return value
-            .map((item) => {
-                if (typeof item === 'string') {
-                    return item;
-                }
-
-                const object = asObject(item);
-                if (!object) {
-                    return '';
-                }
-
-                return (
-                    asString(object.text ?? null) ??
-                    asString(object.content ?? null) ??
-                    textFromContentValue(object.content) ??
-                    ''
-                );
-            })
-            .filter(Boolean)
-            .join('\n\n');
-    }
-
-    const object = asObject(value ?? null);
-    return object ? (asString(object.text ?? null) ?? asString(object.content ?? null) ?? '') : '';
-};
-
-const unwrapGrokTextEnvelope = (text: string): string => {
-    const trimmed = text.trim();
-    const userQuery = trimmed.match(/^<user_query>\s*([\s\S]*?)\s*<\/user_query>$/u);
-    return userQuery?.[1]?.trim() ?? trimmed;
-};
-
-const isGrokSystemContextEnvelope = (text: string): boolean => {
-    const trimmed = text.trimStart();
-    return (
-        trimmed.startsWith('<user_info>') ||
-        trimmed.startsWith('<summary_request>') ||
-        trimmed.startsWith('<system-reminder>')
-    );
-};
-
-const getReasoningText = (raw: Record<string, JsonValue>): string => {
-    const summary = Array.isArray(raw.summary) ? raw.summary : [];
-    const summaryText = summary
-        .map((item) => {
-            const object = asObject(item);
-            return asString(object?.summary_text ?? null) ?? asString(object?.text ?? null) ?? '';
-        })
-        .filter(Boolean)
-        .join('\n\n');
-
-    return summaryText || asString(raw.content ?? null) || '';
-};
-
-const parseToolCallPart = (
-    raw: Record<string, JsonValue>,
-    entryId: string,
-    index: number,
-    includeRawPayloads: boolean,
-): GrokTranscriptPart | null => {
-    const toolName = asString(raw.name ?? null) ?? 'unknown';
-    const argumentsText = formatJsonLike(raw.arguments);
-    return {
-        argumentsText,
-        partId: `${entryId}:tool-call:${index}`,
-        raw: includeRawPayloads ? raw : {},
-        toolCallId: asString(raw.id ?? null),
-        toolName,
-        type: 'tool_call',
-    };
-};
-
-const parseAssistantParts = (
-    raw: Record<string, JsonValue>,
-    entryId: string,
-    includeRawPayloads: boolean,
-): GrokTranscriptPart[] => {
-    const parts: GrokTranscriptPart[] = [];
-    const text = textFromContentValue(raw.content);
-    if (text.trim()) {
-        parts.push({
-            partId: `${entryId}:text`,
-            raw: includeRawPayloads ? { content: text } : {},
-            text,
-            type: 'text',
-        });
-    }
-
-    const toolCalls = Array.isArray(raw.tool_calls) ? raw.tool_calls : [];
-    toolCalls.forEach((item, index) => {
-        const object = asObject(item);
-        const part = object ? parseToolCallPart(object, entryId, index, includeRawPayloads) : null;
-        if (part) {
-            parts.push(part);
-        }
-    });
-
-    return parts;
-};
-
-const parseTextEntryPart = (
-    raw: Record<string, JsonValue>,
-    entryId: string,
-    includeRawPayloads: boolean,
-): GrokTranscriptPart[] => {
-    const text = unwrapGrokTextEnvelope(textFromContentValue(raw.content));
-    return text
-        ? [
-              {
-                  partId: `${entryId}:text`,
-                  raw: includeRawPayloads ? raw : {},
-                  text,
-                  type: 'text',
-              },
-          ]
-        : [];
-};
-
-const parseReasoningParts = (
-    raw: Record<string, JsonValue>,
-    entryId: string,
-    includeRawPayloads: boolean,
-): GrokTranscriptPart[] => {
-    const text = getReasoningText(raw).trim();
-    return text
-        ? [
-              {
-                  partId: `${entryId}:reasoning`,
-                  raw: includeRawPayloads ? raw : {},
-                  text,
-                  type: 'reasoning',
-              },
-          ]
-        : [];
-};
-
-const parseToolResultParts = (
-    raw: Record<string, JsonValue>,
-    entryId: string,
-    includeRawPayloads: boolean,
-): GrokTranscriptPart[] => {
-    const outputText = textFromContentValue(raw.content).trim();
-    return outputText
-        ? [
-              {
-                  outputText,
-                  partId: `${entryId}:tool-result`,
-                  raw: includeRawPayloads ? raw : {},
-                  toolCallId: asString(raw.tool_call_id ?? null),
-                  type: 'tool_result',
-              },
-          ]
-        : [];
-};
-
-const getEntryRole = (type: string): string => {
-    if (type === 'system' || type === 'user' || type === 'assistant') {
-        return type;
-    }
-
-    if (type === 'reasoning') {
-        return 'assistant';
-    }
-
-    if (type === 'tool_result') {
-        return 'tool';
-    }
-
-    return 'unknown';
-};
-
-const getTranscriptEntryRole = (type: string, parts: GrokTranscriptPart[]): string => {
-    if (type === 'user' && parts.some((part) => part.type === 'text' && isGrokSystemContextEnvelope(part.text ?? ''))) {
-        return 'system';
-    }
-
-    return getEntryRole(type);
-};
-
-const parseTranscriptEntry = (
-    raw: Record<string, JsonValue>,
-    sessionId: string,
-    index: number,
-    includeRawPayloads: boolean,
-): GrokTranscriptEntry | null => {
-    const type = asString(raw.type ?? null) ?? 'unknown';
-    const entryId = asString(raw.id ?? null) ?? `${sessionId}:${index}`;
-    const parts =
-        type === 'assistant'
-            ? parseAssistantParts(raw, entryId, includeRawPayloads)
-            : type === 'reasoning'
-              ? parseReasoningParts(raw, entryId, includeRawPayloads)
-              : type === 'tool_result'
-                ? parseToolResultParts(raw, entryId, includeRawPayloads)
-                : parseTextEntryPart(raw, entryId, includeRawPayloads);
-
-    if (parts.length === 0) {
-        return null;
-    }
-
-    return {
-        createdAtMs: null,
-        entryId,
-        modelFingerprint: asString(raw.model_fingerprint ?? null),
-        modelId: asString(raw.model_id ?? null),
-        parts,
-        raw: includeRawPayloads ? raw : {},
-        role: getTranscriptEntryRole(type, parts),
-        timestamp: null,
-        type,
-    };
 };
 
 const readGrokChatHistory = async (
@@ -665,7 +430,7 @@ const readSessionDirectory = async (
         if (includeRawPayloads) {
             rawEvents.push(raw);
         }
-        const entry = parseTranscriptEntry(raw, sessionId, index, includeRawPayloads);
+        const entry = parseGrokTranscriptEntry(raw, sessionId, index, includeRawPayloads);
         index += 1;
         if (!entry) {
             continue;

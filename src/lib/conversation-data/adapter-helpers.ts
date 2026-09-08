@@ -5,12 +5,12 @@ import type {
     ConversationMessageRole,
     ConversationSource,
     ConversationToolEvidence,
-    ListConversationsForPathOptions,
+    ListConversationsOptions,
 } from './types';
 
 export const isWithinUpdatedWindow = (
     updatedAtMs: number | null | undefined,
-    options: Pick<ListConversationsForPathOptions, 'updatedAfterMs' | 'updatedBeforeMs'>,
+    options: Pick<ListConversationsOptions, 'updatedAfterMs' | 'updatedBeforeMs'>,
 ) => {
     const comparableUpdatedAtMs = updatedAtMs ?? 0;
     if (options.updatedAfterMs !== undefined && comparableUpdatedAtMs < options.updatedAfterMs) {

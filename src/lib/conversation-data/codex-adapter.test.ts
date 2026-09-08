@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createCodexBrowserFixture } from '../codex-test-helpers';
-import { getConversation, getConversationRaw, listConversationsForPath, resolveConversationRef } from './index';
+import { getConversation, getConversationRaw, listConversations, resolveConversationRef } from './index';
 
 const tempRoots: string[] = [];
 
@@ -25,7 +25,7 @@ describe('codex conversation adapter', () => {
 
     it('should list matching Codex conversations for a cwd with selected final answers', async () => {
         const fixture = await createCodexBrowserFixture(await makeTempRoot());
-        const page = await listConversationsForPath({
+        const page = await listConversations({
             cwd: fixture.threads[0]!.cwd,
             includeMessages: true,
             locations: { codexDbPath: fixture.dbPath },
@@ -102,7 +102,7 @@ describe('codex conversation adapter', () => {
         const missingThread = fixture.threads[0]!;
         await rm(missingThread.sessionFile);
 
-        const page = await listConversationsForPath({
+        const page = await listConversations({
             cwd: missingThread.cwd,
             includeMessages: true,
             locations: { codexDbPath: fixture.dbPath },

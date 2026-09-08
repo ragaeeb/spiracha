@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { getConversation, listConversationsForPath } from '.';
+import { getConversation, listConversations } from '.';
 
 type SummaryFixture = {
     id: string;
@@ -219,7 +219,7 @@ describe('antigravity conversation adapter', () => {
             },
         ]);
 
-        const page = await listConversationsForPath({
+        const page = await listConversations({
             cwd: project,
             includeMessages: true,
             locations: { antigravityRoots: [root] },
@@ -364,7 +364,7 @@ describe('antigravity conversation adapter', () => {
             },
         ]);
 
-        const page = await listConversationsForPath({
+        const page = await listConversations({
             cwd: requestedProject,
             includeMessages: true,
             locations: { antigravityRoots: [root] },
@@ -404,7 +404,7 @@ describe('antigravity conversation adapter', () => {
             { content: 'Final answer', source: 'MODEL', step_index: 1, type: 'PLANNER_RESPONSE' },
         ]);
 
-        const page = await listConversationsForPath({
+        const page = await listConversations({
             cwd: project,
             includeMessages: true,
             locations: { antigravityRoots: [root] },

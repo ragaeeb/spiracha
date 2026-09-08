@@ -1,7 +1,7 @@
 import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/codex-browser-types';
 import type { CursorBubble, CursorThreadTranscript, CursorToolCall } from '@spiracha/lib/cursor-exporter-types';
 import { getCursorTextBubblePhase, getFinalCursorAssistantTextBubbleIds } from '@spiracha/lib/cursor-transcript-phase';
-import type { JsonValue } from '@spiracha/lib/shared';
+import type { JsonValue } from '@spiracha/lib/shared-text';
 import { getThreadTranscriptStats } from './thread-transcript-stats';
 
 const toTimestamp = (value: number | null): string | null => {

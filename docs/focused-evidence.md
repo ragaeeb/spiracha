@@ -2,7 +2,7 @@
 
 Focused evidence selects compact causal episodes from a normalized conversation. Use it when a full transcript contains large tool payloads but an investigation needs only matched invocations, nearby interpretation, failures, retries, workarounds, and outcomes. Use the unchanged full-transcript export for archival fidelity.
 
-The feature uses one source-independent engine for Codex, Claude Code, Cline, Grok, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode. Source adapters only normalize events. Matching, call/result pairing, episode construction, projection, budgeting, Markdown rendering, and omission accounting are shared. The core does not assign domain meanings such as “review.” Imported Web chats are deliberately excluded: they are UI-only, in-memory imports rather than stable normalized conversations.
+The feature uses one source-independent engine for Codex, Claude Code, Cline, Grok, Grok Bot, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode. Source adapters only normalize events. Matching, call/result pairing, episode construction, projection, budgeting, Markdown rendering, and omission accounting are shared. The core does not assign domain meanings such as “review.” Imported Web chats are deliberately excluded: they are UI-only, in-memory imports rather than stable normalized conversations.
 
 ## Lens schema and bounds
 

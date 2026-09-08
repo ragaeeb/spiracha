@@ -82,7 +82,7 @@ export const Route = createFileRoute('/claude-code/$workspaceKey')({
     ),
 });
 
-function ClaudeCodeWorkspaceErrorComponent({ error }: { error: Error }) {
+function ClaudeCodeWorkspaceErrorComponent({ error }: { error: unknown }) {
     return <RouteErrorPanel error={error} title="Failed to load Claude Code workspace" />;
 }
 
@@ -229,6 +229,7 @@ function ClaudeCodeWorkspacePage() {
                 forceZipArchive={pendingExport ? pendingExport.sessionIds.length > 1 : false}
                 open={pendingExport !== null}
                 pending={exportMutation.isPending}
+                rawExport={pendingExport ? { ids: pendingExport.sessionIds, source: 'claude-code' } : undefined}
                 title={pendingExport ? `Export ${pendingExport.label}` : 'Export session'}
                 onExport={(options) => {
                     if (pendingExport) {

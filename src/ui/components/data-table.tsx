@@ -18,10 +18,11 @@ type DataTableProps<TData extends RowData> = {
     getSubRows?: (row: TData, index: number) => TData[] | undefined;
     initialSorting?: SortingState;
     onRowClick?: (row: TData) => void;
+    pageSize?: number;
     renderToolbar?: (input: { clearSelection: () => void; selectedRows: TData[] }) => ReactNode;
 };
 
-const PAGE_SIZE = 50;
+const DEFAULT_PAGE_SIZE = 50;
 
 const getSortIndicator = (value: false | 'asc' | 'desc') => {
     if (value === 'asc') {
@@ -86,6 +87,7 @@ export function DataTable<TData extends RowData>({
     getSubRows,
     initialSorting = [],
     onRowClick,
+    pageSize = DEFAULT_PAGE_SIZE,
     renderToolbar,
 }: DataTableProps<TData>) {
     const [sorting, setSorting] = useState<SortingState>(initialSorting);
@@ -171,7 +173,7 @@ export function DataTable<TData extends RowData>({
         features: dataTableFeatures,
         getRowId,
         getSubRows,
-        initialState: { pagination: { pageIndex: 0, pageSize: PAGE_SIZE } },
+        initialState: { pagination: { pageIndex: 0, pageSize } },
         onRowSelectionChange: setRowSelection,
         onSortingChange: setSorting,
         sortDescFirst: false,

@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
 import type { ThreadEvent } from './codex-browser-types';
+import { sha256Hex } from './sha256';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -25,7 +25,14 @@ export type WebChatConversationSummary = {
     title: string;
 };
 
+export type WebChatArtifact = {
+    id: string;
+    title: string;
+    content: string;
+};
+
 export type WebChatConversation = WebChatConversationSummary & {
+    artifacts: WebChatArtifact[];
     events: ThreadEvent[];
 };
 
@@ -52,6 +59,7 @@ type NormalizedMessage = {
 };
 
 type ConversationDraft = {
+    artifacts?: WebChatArtifact[];
     createdAtMs: number | null;
     messages: NormalizedMessage[];
     model: string | null;
@@ -253,7 +261,10 @@ const extractReasoning = (message: JsonRecord): string[] => {
         if (Array.isArray(content.parts)) {
             fragments.push(...content.parts.flatMap(extractPartReasoning));
         }
-        if (REASONING_TYPES.has(getBlockType(content))) {
+        if (
+            REASONING_TYPES.has(getBlockType(content)) &&
+            !(Array.isArray(content.thoughts) && content.thoughts.length > 0)
+        ) {
             fragments.push(extractReasoningBlock(content.content), ...extractReasoningValues(content.parts));
         }
     }
@@ -514,41 +525,35 @@ const getGrokToolEvents = (rawPayload: unknown): ImportedToolEvent[] => {
     return events;
 };
 
-const getQwenToolEvents = (rawPayload: unknown): ImportedToolEvent[] => {
-    const events: ImportedToolEvent[] = [];
-    let searchIndex = 0;
+const getQwenToolEvents = async (rawPayload: unknown): Promise<ImportedToolEvent[]> => {
+    const searches: { query: string; research: JsonRecord }[] = [];
     visitJsonValues(rawPayload, (value) => {
         if (!isRecord(value) || value.deep_research === undefined) {
             return;
         }
         visitJsonValues(value.deep_research, (research) => {
             const query = isRecord(research) ? asString(research.query) : null;
-            if (!query || !isRecord(research)) {
-                return;
-            }
-            const callId = `qwen-web-search:${createHash('sha256').update(query).digest('hex').slice(0, 32)}:${searchIndex}`;
-            searchIndex += 1;
-            events.push({
-                argumentsText: JSON.stringify({ query }),
-                callId,
-                kind: 'call',
-                name: 'web_search',
-                outputText: null,
-                timestamp: null,
-            });
-            const outputText = getToolResultText(research.webSites);
-            if (outputText) {
-                events.push({
-                    argumentsText: null,
-                    callId,
-                    kind: 'output',
-                    name: null,
-                    outputText,
-                    timestamp: null,
-                });
+            if (query && isRecord(research)) {
+                searches.push({ query, research });
             }
         });
     });
+    const events: ImportedToolEvent[] = [];
+    for (const [searchIndex, { query, research }] of searches.entries()) {
+        const callId = `qwen-web-search:${(await sha256Hex(query)).slice(0, 32)}:${searchIndex}`;
+        events.push({
+            argumentsText: JSON.stringify({ query }),
+            callId,
+            kind: 'call',
+            name: 'web_search',
+            outputText: null,
+            timestamp: null,
+        });
+        const outputText = getToolResultText(research.webSites);
+        if (outputText) {
+            events.push({ argumentsText: null, callId, kind: 'output', name: null, outputText, timestamp: null });
+        }
+    }
     return events;
 };
 
@@ -559,8 +564,10 @@ const getGeminiToolCalls = (rawPayload: unknown): ImportedToolEvent[] => {
         if (typeof value === 'string' && /\bresearching websites\b/i.test(value)) {
             hasResearchTrace = true;
         }
-        if (isRecord(value) && Object.keys(value).some((key) => /grounding|citation|web.?search/i.test(key))) {
-            hasResearchTrace = true;
+        if (isRecord(value)) {
+            hasResearchTrace ||=
+                Object.keys(value).some((key) => /grounding|citation|web.?search/i.test(key)) ||
+                getGeminiCitations([value]).length > 0;
         }
         if (
             Array.isArray(value) &&
@@ -597,6 +604,64 @@ const getGeminiToolCalls = (rawPayload: unknown): ImportedToolEvent[] => {
         });
     });
     return hasResearchTrace ? calls : [];
+};
+
+const getGeminiCitations = (metadata: unknown): Array<{ number: number; title: string; url: string }> => {
+    const citations = new Map<number, { number: number; title: string; url: string }>();
+    // Field 44 holds citation groups; each source pairs [favicon, URL, title] with its displayed number.
+    const groups = Array.isArray(metadata)
+        ? metadata.flatMap((entry) => (isRecord(entry) && Array.isArray(entry[44]) ? entry[44] : []))
+        : [];
+    visitJsonValues(groups, (value) => {
+        if (!Array.isArray(value) || !Array.isArray(value[0])) {
+            return;
+        }
+        const [number, url, title] = [value[1], value[0][1], value[0][2]];
+        if (
+            !Number.isSafeInteger(number) ||
+            number <= 0 ||
+            typeof url !== 'string' ||
+            !/^https?:\/\//i.test(url) ||
+            !URL.canParse(url) ||
+            typeof title !== 'string' ||
+            !title.trim()
+        ) {
+            return;
+        }
+        citations.set(number, { number, title, url });
+    });
+    return [...citations.values()].sort((left, right) => left.number - right.number);
+};
+
+const getGeminiArtifacts = (rawPayload: unknown): WebChatArtifact[] => {
+    const artifacts = new Map<string, WebChatArtifact>();
+    visitJsonValues(rawPayload, (value) => {
+        // Gemini immersive document tuples repeat the document ID at index 9; type 3 contains Markdown.
+        if (
+            !Array.isArray(value) ||
+            typeof value[0] !== 'string' ||
+            !value[0].startsWith('im_') ||
+            value[9] !== value[0] ||
+            value[10] !== 3 ||
+            typeof value[2] !== 'string' ||
+            !value[2].trim() ||
+            typeof value[4] !== 'string' ||
+            !value[4].trim()
+        ) {
+            return;
+        }
+        const citations = getGeminiCitations(value[5]).map(({ number, title, url }) => {
+            const label = title.replace(/\r?\n/g, ' ').replace(/[\\`*_[\]<>]/g, '\\$&');
+            const destination = new URL(url).href.replace(/[<>]/g, encodeURIComponent);
+            return `${number}. [${label}](<${destination}>)`;
+        });
+        const content =
+            citations.length > 0
+                ? `${value[4]}${value[4].endsWith('\n') ? '\n' : '\n\n'}## Works cited\n\n${citations.join('\n')}\n`
+                : value[4];
+        artifacts.set(value[0], { content, id: value[0], title: value[2] });
+    });
+    return [...artifacts.values()];
 };
 
 const NOVA_SEARCH_PATTERN = /^🔍\s+Searching for:\s*([\s\S]+)$/;
@@ -723,11 +788,11 @@ const addImportedToolEvents = (messages: NormalizedMessage[], toolEvents: Import
     ];
 };
 
-const getProviderToolEvents = (
+const getProviderToolEvents = async (
     root: JsonRecord,
     platform: string,
     sourceMessages: SourceMessage[],
-): ImportedToolEvent[] => {
+): Promise<ImportedToolEvent[]> => {
     const embedded = sourceMessages.flatMap(({ message, sourceOrder }) =>
         getEmbeddedToolEvents(message).map((event) => ({ ...event, sourceOrder })),
     );
@@ -735,7 +800,7 @@ const getProviderToolEvents = (
         return [...embedded, ...getGrokToolEvents(root.raw_payload)];
     }
     if (platform === 'Qwen') {
-        return [...embedded, ...getQwenToolEvents(root.raw_payload)];
+        return [...embedded, ...(await getQwenToolEvents(root.raw_payload))];
     }
     if (platform === 'Gemini') {
         return [...embedded, ...getGeminiToolCalls(root.raw_payload)];
@@ -822,7 +887,7 @@ const getMappingChain = (root: JsonRecord): Array<{ id: string; message: JsonRec
     return chain;
 };
 
-const parseMappingConversation = (root: JsonRecord, fileName: string): ConversationDraft | null => {
+const parseMappingConversation = async (root: JsonRecord, fileName: string): Promise<ConversationDraft | null> => {
     const chain = getMappingChain(root);
     if (chain.length === 0) {
         return null;
@@ -858,7 +923,7 @@ const parseMappingConversation = (root: JsonRecord, fileName: string): Conversat
     const model = [...normalizedMessages].reverse().find((message) => message.model)?.model ?? rootModel;
     const platform = inferPlatform({ ...root, model }, fileName);
     const messages = classifyAssistantPhases(
-        addImportedToolEvents(normalizedMessages, getProviderToolEvents(root, platform, sourceMessages)),
+        addImportedToolEvents(normalizedMessages, await getProviderToolEvents(root, platform, sourceMessages)),
     );
     if (messages.length === 0) {
         return null;
@@ -890,7 +955,7 @@ const extractGrokReasoning = (response: JsonRecord): string[] => {
     return uniqueStrings([...traces, ...steps]);
 };
 
-const parseGrokConversation = (root: JsonRecord): ConversationDraft | null => {
+const parseGrokConversation = async (root: JsonRecord): Promise<ConversationDraft | null> => {
     if (!isRecord(root.conversation) || !Array.isArray(root.responses)) {
         return null;
     }
@@ -924,7 +989,7 @@ const parseGrokConversation = (root: JsonRecord): ConversationDraft | null => {
         }),
     );
     const messages = classifyAssistantPhases(
-        addImportedToolEvents(normalizedMessages, getProviderToolEvents(root, 'Grok', sourceMessages)),
+        addImportedToolEvents(normalizedMessages, await getProviderToolEvents(root, 'Grok', sourceMessages)),
     );
     if (messages.length === 0) {
         return null;
@@ -940,26 +1005,25 @@ const parseGrokConversation = (root: JsonRecord): ConversationDraft | null => {
     };
 };
 
-const resolveMessageArray = (root: JsonRecord): unknown[] | null => {
-    if (Array.isArray(root.messages)) {
-        return root.messages;
+const resolveMessageArrayRoot = (root: JsonRecord): JsonRecord | null => {
+    for (const candidate of [root, root.conversation, root.data]) {
+        if (isRecord(candidate) && (Array.isArray(candidate.messages) || Array.isArray(candidate.chat_messages))) {
+            return candidate;
+        }
     }
-    if (Array.isArray(root.chat_messages)) {
-        return root.chat_messages;
-    }
-    const conversation = isRecord(root.conversation) ? root.conversation : null;
-    if (conversation && Array.isArray(conversation.messages)) {
-        return conversation.messages;
-    }
-    const data = isRecord(root.data) ? root.data : null;
-    return data && Array.isArray(data.messages) ? data.messages : null;
+    return null;
 };
 
-const parseMessageArrayConversation = (root: JsonRecord, fileName: string): ConversationDraft | null => {
-    const rawMessages = resolveMessageArray(root);
-    if (!rawMessages) {
+const parseMessageArrayConversation = async (
+    input: JsonRecord,
+    fileName: string,
+): Promise<ConversationDraft | null> => {
+    const messageRoot = resolveMessageArrayRoot(input);
+    if (!messageRoot) {
         return null;
     }
+    const root = { ...input, ...messageRoot };
+    const rawMessages = (Array.isArray(root.messages) ? root.messages : root.chat_messages) as unknown[];
     const rootModel = normalizeModel(firstString(root.model, root.model_slug, root.default_model_slug));
     const sourceMessages: SourceMessage[] = [];
     const normalizedMessages = classifyAssistantPhases(
@@ -975,7 +1039,7 @@ const parseMessageArrayConversation = (root: JsonRecord, fileName: string): Conv
     const model = [...normalizedMessages].reverse().find((message) => message.model)?.model ?? rootModel;
     const platform = inferPlatform({ ...root, model }, fileName);
     const messages = classifyAssistantPhases(
-        addImportedToolEvents(normalizedMessages, getProviderToolEvents(root, platform, sourceMessages)),
+        addImportedToolEvents(normalizedMessages, await getProviderToolEvents(root, platform, sourceMessages)),
     );
     if (messages.length === 0) {
         return null;
@@ -1039,20 +1103,34 @@ const parseCommonConversation = (root: JsonRecord, fileName: string): Conversati
     };
 };
 
-const parseConversation = (value: unknown, fileName: string): ConversationDraft | null => {
+const parseConversation = async (value: unknown, fileName: string): Promise<ConversationDraft | null> => {
     if (!isRecord(value)) {
         return null;
     }
     const parsed =
-        parseMappingConversation(value, fileName) ??
-        parseGrokConversation(value) ??
-        parseMessageArrayConversation(value, fileName) ??
+        (await parseMappingConversation(value, fileName)) ??
+        (await parseGrokConversation(value)) ??
+        (await parseMessageArrayConversation(value, fileName)) ??
         parseCommonConversation(value, fileName);
     if (parsed) {
-        return parsed;
+        const artifacts =
+            parsed.platform === 'Gemini'
+                ? getGeminiArtifacts(resolveMessageArrayRoot(value)?.raw_payload ?? value.raw_payload)
+                : [];
+        return {
+            ...parsed,
+            artifacts,
+            messages: parsed.messages.map((message) => ({
+                ...message,
+                // Some Gemini exports mislabel document sections as thoughts; retain them only in the artifact.
+                reasoning: message.reasoning.filter(
+                    (text) => !artifacts.some((artifact) => artifact.content.includes(text)),
+                ),
+            })),
+        };
     }
     for (const nested of [value.data, value.payload]) {
-        const nestedParsed = parseConversation(nested, fileName);
+        const nestedParsed = await parseConversation(nested, fileName);
         if (nestedParsed) {
             return nestedParsed;
         }
@@ -1067,26 +1145,26 @@ const isMessageLike = (value: unknown): boolean => {
     return Boolean(value.role || value.sender || (isRecord(value.author) && value.author.role));
 };
 
-const parsePayload = (value: unknown, fileName: string): ConversationDraft[] => {
+const parsePayload = async (value: unknown, fileName: string): Promise<ConversationDraft[]> => {
     if (Array.isArray(value)) {
         if (value.length > 0 && value.every(isMessageLike)) {
-            const parsed = parseMessageArrayConversation({ messages: value }, fileName);
+            const parsed = await parseMessageArrayConversation({ messages: value }, fileName);
             return parsed ? [parsed] : [];
         }
-        return value
-            .map((item) => parseConversation(item, fileName))
-            .filter((item): item is ConversationDraft => item !== null);
+        return (await Promise.all(value.map((item) => parseConversation(item, fileName)))).filter(
+            (item): item is ConversationDraft => item !== null,
+        );
     }
     if (!isRecord(value)) {
         return [];
     }
     const conversations = Array.isArray(value.conversations) ? value.conversations : null;
     if (conversations) {
-        return conversations
-            .map((item) => parseConversation(item, fileName))
-            .filter((item): item is ConversationDraft => item !== null);
+        return (await Promise.all(conversations.map((item) => parseConversation(item, fileName)))).filter(
+            (item): item is ConversationDraft => item !== null,
+        );
     }
-    const parsed = parseConversation(value, fileName);
+    const parsed = await parseConversation(value, fileName);
     return parsed ? [parsed] : [];
 };
 
@@ -1211,7 +1289,7 @@ const fallbackTitle = (draft: ConversationDraft, fileName: string): string => {
     return fileName.replace(/\.json$/i, '') || 'Imported conversation';
 };
 
-const finalizeConversation = (draft: ConversationDraft, fileName: string): WebChatConversation => {
+const finalizeConversation = async (draft: ConversationDraft, fileName: string): Promise<WebChatConversation> => {
     const events = messagesToEvents(draft.messages, draft.platform);
     const eventTimestamps = draft.messages
         .map((message) => toTimestampMs(message.timestamp))
@@ -1220,8 +1298,9 @@ const finalizeConversation = (draft: ConversationDraft, fileName: string): WebCh
     const lastActiveAtMs =
         draft.updatedAtMs ?? (eventTimestamps.length > 0 ? Math.max(...eventTimestamps) : createdAtMs);
     const identity = draft.sourceConversationId ?? JSON.stringify({ events, fileName, title: draft.title });
-    const id = createHash('sha256').update(draft.platform).update('\0').update(identity).digest('hex').slice(0, 32);
+    const id = (await sha256Hex(`${draft.platform}\0${identity}`)).slice(0, 32);
     return {
+        artifacts: draft.artifacts ?? [],
         createdAtMs,
         events,
         fileName,
@@ -1235,9 +1314,9 @@ const finalizeConversation = (draft: ConversationDraft, fileName: string): WebCh
     };
 };
 
-const parseSizedWebChatFiles = (
+const parseSizedWebChatFiles = async (
     files: WebChatFileInput[],
-): { conversations: SizedWebChatConversation[]; errors: WebChatImportError[] } => {
+): Promise<{ conversations: SizedWebChatConversation[]; errors: WebChatImportError[] }> => {
     const conversations = new Map<string, SizedWebChatConversation>();
     const errors: WebChatImportError[] = [];
     for (const file of files) {
@@ -1248,22 +1327,22 @@ const parseSizedWebChatFiles = (
             errors.push({ fileName: file.name, message: 'File is not valid JSON.' });
             continue;
         }
-        const drafts = parsePayload(value, file.name);
+        const drafts = await parsePayload(value, file.name);
         if (drafts.length === 0) {
             errors.push({ fileName: file.name, message: 'No supported web conversation was found.' });
             continue;
         }
-        const bytes = Math.ceil(Buffer.byteLength(file.content) / drafts.length);
+        const bytes = Math.ceil(new TextEncoder().encode(file.content).byteLength / drafts.length);
         for (const draft of drafts) {
-            const conversation = finalizeConversation(draft, file.name);
+            const conversation = await finalizeConversation(draft, file.name);
             conversations.set(conversation.id, { bytes, conversation });
         }
     }
     return { conversations: [...conversations.values()], errors };
 };
 
-export const parseWebChatFiles = (files: WebChatFileInput[]): WebChatParseResult => {
-    const result = parseSizedWebChatFiles(files);
+export const parseWebChatFiles = async (files: WebChatFileInput[]): Promise<WebChatParseResult> => {
+    const result = await parseSizedWebChatFiles(files);
     return { conversations: result.conversations.map(({ conversation }) => conversation), errors: result.errors };
 };
 
@@ -1290,10 +1369,14 @@ const retainImportedWebChat = (conversation: WebChatConversation, bytes: number)
     }
 };
 
-const toWebChatSummary = ({ events: _events, ...summary }: WebChatConversation): WebChatConversationSummary => summary;
+const toWebChatSummary = ({
+    artifacts: _artifacts,
+    events: _events,
+    ...summary
+}: WebChatConversation): WebChatConversationSummary => summary;
 
-export const importWebChatFiles = (files: WebChatFileInput[]): WebChatParseResult => {
-    const result = parseSizedWebChatFiles(files);
+export const importWebChatFiles = async (files: WebChatFileInput[]): Promise<WebChatParseResult> => {
+    const result = await parseSizedWebChatFiles(files);
     for (const { bytes, conversation } of result.conversations) {
         retainImportedWebChat(conversation, bytes);
     }

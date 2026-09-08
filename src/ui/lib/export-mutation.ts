@@ -3,6 +3,7 @@ import type { ExportDialogOptions, ExportLifecycleCallbacks } from '#/lib/export
 export type ExportSelectionMutationInput = Readonly<{
     ids: readonly string[];
     options: Readonly<ExportDialogOptions>;
+    raw?: boolean;
 }> &
     ExportLifecycleCallbacks;
 

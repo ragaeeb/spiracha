@@ -29,6 +29,15 @@ import {
     readAntigravityJsonlFile,
     readAntigravityTranscriptHistory,
 } from './antigravity-transcript-history';
+import type { AntigravityConversationMessage, AntigravityLogEntry } from './antigravity-transcript-normalizer';
+import {
+    cleanLogContent,
+    getAntigravityPhaseItems,
+    getString,
+    logEntryOrder,
+    logEntryRole,
+    normalizeAntigravityLogEntries,
+} from './antigravity-transcript-normalizer';
 import { getAntigravityAssistantPhase, getFinalAntigravityAssistantSequences } from './antigravity-transcript-phase';
 import { mapWithConcurrency } from './concurrency';
 import { formatModelLabel } from './model-label';
@@ -40,7 +49,7 @@ import {
     renderDocumentTitle,
     renderMetadataBlock,
     renderSection,
-} from './shared';
+} from './shared-text';
 
 type ProtoField = {
     bytes?: Uint8Array;
@@ -97,15 +106,6 @@ type TranscriptFile = {
     root: string;
     source: Exclude<AntigravityTranscriptSource, 'safe-storage' | 'trajectory'>;
     stepIndexes: Set<number>;
-};
-
-export type AntigravityConversationMessage = {
-    createdAtMs: number | null;
-    metadata: Record<string, unknown>;
-    order: number;
-    phase: 'commentary' | 'final_answer' | 'reasoning' | 'tool_call' | 'tool_output' | 'unknown';
-    role: 'assistant' | 'system' | 'tool' | 'unknown' | 'user';
-    text: string;
 };
 
 export type AntigravityConversationRenderOptions = {
@@ -1778,53 +1778,8 @@ export const renderAntigravityArtifactsMarkdown = async (
     return `${parts.join('\n').trimEnd()}\n`;
 };
 
-type AntigravityLogEntry = {
-    command?: unknown;
-    content?: unknown;
-    created_at?: unknown;
-    exit_code?: unknown;
-    model?: unknown;
-    source?: unknown;
-    status?: unknown;
-    step_index?: unknown;
-    thinking?: unknown;
-    tool_call_id?: unknown;
-    tool_calls?: unknown;
-    tool_name?: unknown;
-    type?: unknown;
-    workdir?: unknown;
-};
-
 const parseLogEntries = (content: string): AntigravityLogEntry[] => {
     return parseAntigravityJsonlText(content, (line) => JSON.parse(line) as AntigravityLogEntry).records;
-};
-
-const getString = (value: unknown): string | null => (typeof value === 'string' ? value : null);
-
-const stripTaggedBlock = (content: string, tag: string): string => {
-    return content.replace(new RegExp(`<${tag}>[\\s\\S]*?<\\/${tag}>`, 'gu'), '').trim();
-};
-
-const extractTaggedBlock = (content: string, tag: string): string | null => {
-    const match = new RegExp(`<${tag}>\\s*([\\s\\S]*?)\\s*<\\/${tag}>`, 'u').exec(content);
-    return match?.[1]?.trim() || null;
-};
-
-const cleanLogContent = (entry: AntigravityLogEntry): string => {
-    const content = getString(entry.content);
-    if (!content) {
-        return '';
-    }
-
-    const userRequest = extractTaggedBlock(content, 'USER_REQUEST');
-    if (userRequest) {
-        return userRequest;
-    }
-
-    return ['ADDITIONAL_METADATA', 'USER_SETTINGS_CHANGE']
-        .reduce((current, tag) => stripTaggedBlock(current, tag), content)
-        .replace(/<\/?USER_REQUEST>/gu, '')
-        .trim();
 };
 
 const logEntryHeading = (entry: AntigravityLogEntry): string => {
@@ -1967,20 +1922,6 @@ const renderLogEntry = (
     return renderSection(heading, parts.join('\n').trimEnd(), options.outputFormat);
 };
 
-const logEntryCreatedAtMs = (entry: AntigravityLogEntry): number | null => {
-    const timestamp = getString(entry.created_at);
-    if (!timestamp) {
-        return null;
-    }
-
-    const parsed = Date.parse(timestamp);
-    return Number.isFinite(parsed) ? parsed : null;
-};
-
-const logEntryOrder = (entry: AntigravityLogEntry, fallback: number): number => {
-    return typeof entry.step_index === 'number' && Number.isFinite(entry.step_index) ? entry.step_index : fallback;
-};
-
 const mergeLogEntries = (
     generatedEntries: AntigravityLogEntry[],
     trajectoryEntries: AntigravityTrajectoryEntry[],
@@ -2062,138 +2003,6 @@ const readConversationLogEntries = async (conversation: AntigravityConversation)
     return carryForwardLogEntryModels(mergeLogEntries(modeledGeneratedEntries, trajectoryEntries));
 };
 
-const isAssistantLogEntry = (entry: AntigravityLogEntry): boolean => {
-    return getString(entry.source) === 'MODEL' && getString(entry.type) === 'PLANNER_RESPONSE';
-};
-
-const logEntryRole = (entry: AntigravityLogEntry): AntigravityConversationMessage['role'] => {
-    const source = getString(entry.source);
-    if (source?.startsWith('USER')) {
-        return 'user';
-    }
-    if (isAssistantLogEntry(entry)) {
-        return 'assistant';
-    }
-    if (source === 'SYSTEM') {
-        return 'system';
-    }
-    if (source === 'MODEL') {
-        return 'tool';
-    }
-    return 'unknown';
-};
-
-const logEntryPhase = (
-    entry: AntigravityLogEntry,
-    sequence: number,
-    finalAssistantSequences: Set<number>,
-): AntigravityConversationMessage['phase'] => {
-    const role = logEntryRole(entry);
-    if (role === 'assistant') {
-        return getAntigravityAssistantPhase(sequence, finalAssistantSequences);
-    }
-    if (role === 'tool') {
-        return 'tool_output';
-    }
-    return 'unknown';
-};
-
-const logEntryMetadata = (entry: AntigravityLogEntry): Record<string, unknown> => ({
-    command: getString(entry.command),
-    exitCode: typeof entry.exit_code === 'number' ? entry.exit_code : null,
-    model: getString(entry.model),
-    source: getString(entry.source),
-    status: getString(entry.status),
-    toolCallId: getString(entry.tool_call_id),
-    toolName: getString(entry.tool_name),
-    type: getString(entry.type),
-    workdir: getString(entry.workdir),
-});
-
-const toolCallsText = (toolCalls: unknown): string => {
-    if (!Array.isArray(toolCalls)) {
-        return '';
-    }
-
-    return toolCalls
-        .flatMap((call) => {
-            if (!call || typeof call !== 'object') {
-                return [];
-            }
-            const { args, id, name } = call as { args?: unknown; id?: unknown; name?: unknown };
-            return [
-                JSON.stringify({
-                    args,
-                    id: typeof id === 'string' ? id : null,
-                    name: typeof name === 'string' ? name : 'unknown',
-                }),
-            ];
-        })
-        .join('\n');
-};
-
-const getAntigravityPhaseItems = (entries: AntigravityLogEntry[]) => {
-    return entries.map((entry, sequence) => {
-        const role = logEntryRole(entry);
-        return {
-            hasContent: Boolean(cleanLogContent(entry)),
-            hasToolCalls: Array.isArray(entry.tool_calls) && entry.tool_calls.length > 0,
-            role: role === 'assistant' || role === 'user' ? role : ('other' as const),
-            sequence,
-        };
-    });
-};
-
-const logEntryToMessages = (
-    entry: AntigravityLogEntry,
-    index: number,
-    finalAssistantSequences: Set<number>,
-): AntigravityConversationMessage[] => {
-    const order = logEntryOrder(entry, index);
-    const createdAtMs = logEntryCreatedAtMs(entry);
-    const role = logEntryRole(entry);
-    const phase = logEntryPhase(entry, index, finalAssistantSequences);
-    const metadata = logEntryMetadata(entry);
-    const messages: AntigravityConversationMessage[] = [];
-    const thinking = getString(entry.thinking)?.trim();
-    if (thinking && role === 'assistant') {
-        messages.push({
-            createdAtMs,
-            metadata,
-            order,
-            phase: 'reasoning',
-            role: 'assistant',
-            text: thinking,
-        });
-    }
-
-    const content = cleanLogContent(entry);
-    if (content) {
-        messages.push({
-            createdAtMs,
-            metadata,
-            order,
-            phase,
-            role,
-            text: content,
-        });
-    }
-
-    const calls = toolCallsText(entry.tool_calls);
-    if (calls) {
-        messages.push({
-            createdAtMs,
-            metadata,
-            order,
-            phase: 'tool_call',
-            role: 'tool',
-            text: calls,
-        });
-    }
-
-    return messages;
-};
-
 export const readAntigravityConversationMessages = async (
     conversation: AntigravityConversation,
 ): Promise<AntigravityConversationMessage[]> => {
@@ -2202,8 +2011,7 @@ export const readAntigravityConversationMessages = async (
     }
 
     const entries = await readConversationLogEntries(conversation);
-    const finalAssistantSequences = getFinalAntigravityAssistantSequences(getAntigravityPhaseItems(entries));
-    return entries.flatMap((entry, index) => logEntryToMessages(entry, index, finalAssistantSequences));
+    return normalizeAntigravityLogEntries(entries);
 };
 
 const renderAntigravityMetadata = (entries: MetadataEntry[], outputFormat: ExportFormat): string => {

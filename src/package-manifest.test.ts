@@ -139,6 +139,7 @@ describe('package manifest', () => {
             'Codex',
             'Claude Code',
             'Grok',
+            'Grok Bot',
             'Kiro',
             'Qoder',
             'Cursor',
@@ -168,6 +169,10 @@ describe('package manifest', () => {
             './client': {
                 import: './src/client.ts',
                 types: './src/client.ts',
+            },
+            './payload': {
+                import: './dist/payload/conversation-payload.js',
+                types: './dist/payload/conversation-payload.d.ts',
             },
             './types': {
                 import: './src/lib/conversation-data/types.ts',

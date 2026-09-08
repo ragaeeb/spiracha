@@ -13,6 +13,7 @@ import { RouteErrorPanel } from '#/components/route-error-panel';
 import { TranscriptControls } from '#/components/transcript-controls';
 import { TranscriptView } from '#/components/transcript-view';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
+import { WebChatArtifacts } from '#/components/web-chat-artifacts';
 import { formatDateTime, formatList, formatNumber } from '#/lib/formatters';
 import {
     getTranscriptDisplayState,
@@ -23,7 +24,7 @@ import {
 import { RouteStateResetBoundary } from '#/lib/route-state-reset';
 import { getThreadTranscriptStats } from '#/lib/thread-transcript-stats';
 import { useClientReady } from '#/lib/use-client-ready';
-import { webChatEventsQueryOptions, webChatQueryOptions } from '#/lib/web-chat-queries';
+import { webChatArtifactsQueryOptions, webChatEventsQueryOptions, webChatQueryOptions } from '#/lib/web-chat-queries';
 
 const buildConversationMetadata = (conversation: WebChatConversationSummary) => [
     { label: 'Parsed ID', value: <span data-mono="true">{conversation.id}</span> },
@@ -56,6 +57,7 @@ const WebChatDetailPage = () => {
         enabled: clientReady,
     });
     const events = eventsQuery.data ?? [];
+    const artifactsQuery = useQuery({ ...webChatArtifactsQueryOptions(conversationId), enabled: clientReady });
     const transcriptSearch = Route.useSearch();
     const transcriptDisplay = getTranscriptDisplayState(transcriptSearch);
     const transcriptMetadata = useMemo(() => buildTranscriptMetadata(events), [events]);
@@ -90,12 +92,15 @@ const WebChatDetailPage = () => {
             </div>
 
             <Tabs className="space-y-3" defaultValue="transcript">
-                <TabsList className="grid w-fit min-w-[20rem] grid-cols-3 rounded-full border border-[var(--border)] bg-[var(--panel)] p-1">
+                <TabsList className="grid w-fit min-w-[20rem] grid-cols-4 rounded-full border border-[var(--border)] bg-[var(--panel)] p-1">
                     <TabsTrigger className="rounded-full px-5 text-sm" value="transcript">
                         Transcript
                     </TabsTrigger>
                     <TabsTrigger className="rounded-full px-5 text-sm" value="metadata">
                         Metadata
+                    </TabsTrigger>
+                    <TabsTrigger className="rounded-full px-5 text-sm" value="artifacts">
+                        Artifacts
                     </TabsTrigger>
                     <TabsTrigger className="rounded-full px-5 text-sm" value="raw">
                         Parsed JSON
@@ -133,6 +138,16 @@ const WebChatDetailPage = () => {
                                 showUserMessages={transcriptDisplay.showUserMessages}
                             />
                         </>
+                    )}
+                </TabsContent>
+
+                <TabsContent value="artifacts">
+                    {artifactsQuery.isPending ? (
+                        <LoadingPanel description="Loading generated documents." title="Loading artifacts" />
+                    ) : artifactsQuery.isError ? (
+                        <RouteErrorPanel error={artifactsQuery.error} title="Failed to load artifacts" />
+                    ) : (
+                        <WebChatArtifacts artifacts={artifactsQuery.data} />
                     )}
                 </TabsContent>
 

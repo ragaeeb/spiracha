@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { writeFxFixture } from '../fx-test-helpers';
-import { deleteConversation, getConversation, listConversationsForPath, resolveConversationRef } from './index';
+import { deleteConversation, getConversation, listConversations, resolveConversationRef } from './index';
 
 const tempRoots: string[] = [];
 
@@ -21,7 +21,7 @@ describe('FX conversation adapter', () => {
     it('should list path-scoped FX conversations with the selected final answer', async () => {
         const fixture = await writeFxFixture(await makeTempRoot());
 
-        const page = await listConversationsForPath({
+        const page = await listConversations({
             cwd: fixture.workspacePath,
             includeMessages: true,
             locations: { fxDataDir: fixture.dataDir },

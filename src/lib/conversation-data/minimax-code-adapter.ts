@@ -5,34 +5,21 @@ import {
     listMiniMaxCodeWorkspaceGroups,
     readMiniMaxCodeSessionTranscript,
 } from '../minimax-code-db';
-import type {
-    MiniMaxCodeSessionSummary,
-    MiniMaxCodeSessionTranscript,
-    MiniMaxCodeToolCall,
-    MiniMaxCodeTranscriptMessage,
-} from '../minimax-code-exporter-types';
+import type { MiniMaxCodeSessionSummary, MiniMaxCodeSessionTranscript } from '../minimax-code-exporter-types';
 import { resolveMiniMaxCodeRuntimeDbPath, resolveMiniMaxCodeSessionsDir } from '../minimax-code-exporter-types';
-import { getMiniMaxCodeMessagePhase } from '../minimax-code-transcript-phase';
 import { runWithTranscriptLoadLimit } from '../transcript-load-limiter';
-import {
-    createConversationUiPath,
-    createDeepLinks,
-    createTextMessage,
-    finalizeMessages,
-    isWithinUpdatedWindow,
-    normalizeRole,
-} from './adapter-helpers';
+import { createConversationUiPath, createDeepLinks, isWithinUpdatedWindow } from './adapter-helpers';
 import { selectConversationMessages } from './message-selector';
+import { normalizeMiniMaxCodeTranscript } from './minimax-code-messages';
 import { getConversationPathMatch } from './path-match';
 import { createRawConversationDownload } from './raw-download';
 import type {
     ConversationAdapter,
     ConversationDetail,
-    ConversationMessage,
     ConversationPathMatch,
     DeleteConversationOptions,
     GetConversationOptions,
-    ListConversationsForPathOptions,
+    ListConversationsOptions,
 } from './types';
 
 const MINIMAX_CODE_CONVERSATION_HYDRATION_CONCURRENCY = 4;
@@ -43,108 +30,11 @@ const getSessionsDir = (options: { locations?: { minimaxCodeSessionsDir?: string
 const getRuntimeDbPath = (options: { locations?: { minimaxCodeRuntimeDbPath?: string } }, sessionsDir: string) =>
     options.locations?.minimaxCodeRuntimeDbPath ?? resolveMiniMaxCodeRuntimeDbPath(sessionsDir);
 
-const toolCallToMessages = (
-    toolCall: MiniMaxCodeToolCall,
-    message: MiniMaxCodeTranscriptMessage,
-    toolIndex: number,
-    order: number,
-    worktree: string,
-): ConversationMessage[] => {
-    const id = `${message.messageId}:tool:${toolIndex}`;
-    const metadata = { callId: toolCall.callId, status: toolCall.status, toolName: toolCall.toolName };
-    const evidence = {
-        callId: toolCall.callId,
-        command: toolCall.command,
-        durationMs: null,
-        exitCode: null,
-        name: toolCall.toolName,
-        namespace: null,
-        status: toolCall.status,
-        workdir: worktree,
-    } as const;
-    return [
-        ...createTextMessage({
-            createdAtMs: message.createdAtMs,
-            id: `${id}:call`,
-            metadata,
-            order,
-            phase: 'tool_call',
-            role: 'tool',
-            text: [toolCall.toolName, toolCall.argumentsText].filter(Boolean).join('\n'),
-            toolEvidence: {
-                ...evidence,
-                inputText: toolCall.argumentsText,
-                outputText: null,
-            },
-        }),
-        ...createTextMessage({
-            createdAtMs: message.createdAtMs,
-            id: `${id}:output`,
-            metadata,
-            order,
-            phase: 'tool_output',
-            role: 'tool',
-            text: toolCall.outputText,
-            toolEvidence: {
-                ...evidence,
-                inputText: null,
-                outputText: toolCall.outputText,
-            },
-        }),
-    ];
-};
-
-const transcriptMessageToMessages = (
-    message: MiniMaxCodeTranscriptMessage,
-    order: number,
-    worktree: string,
-): ConversationMessage[] => {
-    const metadata = {
-        finishReason: message.finishReason,
-        messageType: message.messageType,
-        thinkingDurationMs: message.thinkingDurationMs,
-    };
-    const messages: ConversationMessage[] = [
-        ...createTextMessage({
-            createdAtMs: message.createdAtMs,
-            id: `${message.messageId}:reasoning`,
-            metadata,
-            order,
-            phase: 'reasoning',
-            role: 'assistant',
-            text: message.reasoning,
-        }),
-        ...createTextMessage({
-            createdAtMs: message.createdAtMs,
-            id: message.messageId,
-            metadata,
-            order,
-            phase: getMiniMaxCodeMessagePhase(message) ?? 'unknown',
-            role: normalizeRole(message.role),
-            text: message.content,
-        }),
-    ];
-    messages.push(
-        ...message.toolCalls.flatMap((toolCall, toolIndex) =>
-            toolCallToMessages(toolCall, message, toolIndex, order, worktree),
-        ),
-    );
-    return messages;
-};
-
-const transcriptToMessages = (transcript: MiniMaxCodeSessionTranscript) => {
-    return finalizeMessages(
-        transcript.messages.flatMap((message, order) =>
-            transcriptMessageToMessages(message, order, transcript.session.worktree),
-        ),
-    );
-};
-
 const buildConversation = async (
     session: MiniMaxCodeSessionSummary,
     sessionsDir: string,
     matches: ConversationPathMatch[],
-    options: Pick<ListConversationsForPathOptions, 'includeMessages' | 'messageSelector'>,
+    options: Pick<ListConversationsOptions, 'includeMessages' | 'messageSelector'>,
     loadedTranscript: MiniMaxCodeSessionTranscript | null = null,
 ): Promise<ConversationDetail> => {
     const transcript =
@@ -160,7 +50,7 @@ const buildConversation = async (
                   },
               )
             : null);
-    const allMessages = transcript ? transcriptToMessages(transcript) : [];
+    const allMessages = transcript ? normalizeMiniMaxCodeTranscript(transcript) : [];
     const messages = options.includeMessages
         ? selectConversationMessages(allMessages, options.messageSelector ?? 'last_final_answer')
         : [];
@@ -192,7 +82,11 @@ const buildConversation = async (
     };
 };
 
-const listMiniMaxCodeConversationsForPath = async (options: ListConversationsForPathOptions) => {
+const listMiniMaxCodeConversations = async (options: ListConversationsOptions) => {
+    if (!options.cwd) {
+        return [];
+    }
+
     const sessionsDir = getSessionsDir(options);
     const groups = await listMiniMaxCodeWorkspaceGroups(sessionsDir);
     const conversations: ConversationDetail[] = [];
@@ -258,6 +152,6 @@ export const minimaxCodeConversationAdapter: ConversationAdapter = {
     deleteConversation: deleteMiniMaxCodeConversation,
     getConversation: getMiniMaxCodeConversation,
     getConversationRaw: getMiniMaxCodeConversationRaw,
-    listConversationsForPath: listMiniMaxCodeConversationsForPath,
+    listConversations: listMiniMaxCodeConversations,
     source: 'minimax-code',
 };

@@ -15,7 +15,7 @@ export const Route = createFileRoute('/antigravity/')({
     loader: ({ context }) => context.queryClient.ensureQueryData(antigravityWorkspacesQueryOptions()),
 });
 
-function AntigravityErrorComponent({ error }: { error: Error }) {
+function AntigravityErrorComponent({ error }: { error: unknown }) {
     return <RouteErrorPanel error={error} title="Failed to load Antigravity workspaces" />;
 }
 

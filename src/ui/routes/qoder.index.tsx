@@ -8,7 +8,7 @@ import { RouteErrorPanel } from '#/components/route-error-panel';
 import { qoderWorkspacesQueryOptions } from '#/lib/qoder-queries';
 import { matchesTextQuery } from '#/lib/text-filter';
 
-const QoderErrorComponent = ({ error }: { error: Error }) => {
+const QoderErrorComponent = ({ error }: { error: unknown }) => {
     return <RouteErrorPanel error={error} title="Failed to load Qoder workspaces" />;
 };
 

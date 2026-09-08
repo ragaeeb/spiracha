@@ -3,7 +3,7 @@ import { access, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { Readable, Writable } from 'node:stream';
-import { getThreadBrowseData } from './codex-browser-db';
+import { getThreadBrowseData } from './codex-browser-queries';
 import { createCodexFixture } from './codex-test-helpers';
 import {
     formatToolOutputSummary,

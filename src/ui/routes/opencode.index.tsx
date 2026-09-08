@@ -9,7 +9,7 @@ import { RouteErrorPanel } from '#/components/route-error-panel';
 import { openCodeWorkspacesQueryOptions } from '#/lib/opencode-queries';
 import { matchesTextQuery } from '#/lib/text-filter';
 
-const OpenCodeErrorComponent = ({ error }: { error: Error }) => {
+const OpenCodeErrorComponent = ({ error }: { error: unknown }) => {
     return <RouteErrorPanel error={error} title="Failed to load OpenCode workspaces" />;
 };
 

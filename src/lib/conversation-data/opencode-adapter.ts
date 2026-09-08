@@ -5,36 +5,21 @@ import {
     listOpenCodeWorkspaceGroups,
     readOpenCodeSessionTranscript,
 } from '../opencode-db';
-import type {
-    OpenCodeSessionSummary,
-    OpenCodeSessionTranscript,
-    OpenCodeTranscriptPart,
-} from '../opencode-exporter-types';
+import type { OpenCodeSessionSummary, OpenCodeSessionTranscript } from '../opencode-exporter-types';
 import { resolveOpenCodeDbPath } from '../opencode-exporter-types';
-import { splitOpenCodeThinkTaggedText } from '../opencode-think-tags';
-import { getFinalOpenCodeAssistantTextPartIds, getOpenCodeTextPartPhase } from '../opencode-transcript-phase';
-import { cleanInlineTitle } from '../shared';
+import { cleanInlineTitle } from '../shared-text';
 import { runWithTranscriptLoadLimit } from '../transcript-load-limiter';
-import {
-    createConversationUiPath,
-    createDeepLinks,
-    createTextMessage,
-    finalizeMessages,
-    isWithinUpdatedWindow,
-    normalizeAssistantPhase,
-    normalizeRole,
-    normalizeToolStatus,
-} from './adapter-helpers';
+import { createConversationUiPath, createDeepLinks } from './adapter-helpers';
 import { selectConversationMessages } from './message-selector';
+import { openCodePartsToMessages } from './opencode-message-normalizer';
 import { getConversationPathMatch } from './path-match';
 import type {
     ConversationAdapter,
     ConversationDetail,
-    ConversationMessage,
     ConversationPathMatch,
     DeleteConversationOptions,
     GetConversationOptions,
-    ListConversationsForPathOptions,
+    ListConversationsOptions,
 } from './types';
 
 const OPENCODE_CONVERSATION_HYDRATION_CONCURRENCY = 4;
@@ -42,126 +27,15 @@ const OPENCODE_CONVERSATION_HYDRATION_CONCURRENCY = 4;
 const getDbPath = (options: { locations?: { opencodeDbPath?: string } }) =>
     options.locations?.opencodeDbPath ?? resolveOpenCodeDbPath();
 
-const textPartToMessages = (
-    part: OpenCodeTranscriptPart,
-    finalTextPartIds: Set<string>,
-    order: number,
-): ConversationMessage[] => {
-    const split =
-        part.role === 'assistant'
-            ? splitOpenCodeThinkTaggedText(part.text ?? '')
-            : { reasoningBlocks: [], visibleText: part.text ?? '' };
-    return [
-        ...createTextMessage({
-            createdAtMs: part.createdAtMs,
-            id: `${part.partId}:reasoning`,
-            order,
-            phase: 'reasoning',
-            role: 'assistant',
-            text: split.reasoningBlocks.join('\n\n'),
-        }),
-        ...createTextMessage({
-            createdAtMs: part.createdAtMs,
-            id: part.partId,
-            order,
-            phase: normalizeAssistantPhase(getOpenCodeTextPartPhase(part, finalTextPartIds), 'unknown'),
-            role: normalizeRole(part.role),
-            text: split.visibleText,
-        }),
-    ];
-};
-
-const partToMessages = (
-    part: OpenCodeTranscriptPart,
-    finalTextPartIds: Set<string>,
-    order: number,
-): ConversationMessage[] => {
-    if (part.type === 'text') {
-        return textPartToMessages(part, finalTextPartIds, order);
-    }
-
-    if (part.type === 'reasoning') {
-        return createTextMessage({
-            createdAtMs: part.createdAtMs,
-            id: part.partId,
-            order,
-            phase: 'reasoning',
-            role: 'assistant',
-            text: part.text,
-        });
-    }
-
-    if (part.type === 'tool') {
-        const metadata = { callId: part.callId, status: part.status, toolName: part.toolName };
-        const toolName = part.toolName ?? 'unknown';
-        const namespace = toolName.includes('.') ? (toolName.split('.')[0] ?? null) : null;
-        const durationMs =
-            part.startTimeMs !== null &&
-            part.startTimeMs !== undefined &&
-            part.endTimeMs !== null &&
-            part.endTimeMs !== undefined
-                ? Math.max(0, part.endTimeMs - part.startTimeMs)
-                : null;
-        return [
-            ...createTextMessage({
-                createdAtMs: part.createdAtMs,
-                id: `${part.partId}:tool_call`,
-                metadata,
-                order,
-                phase: 'tool_call',
-                role: 'tool',
-                text: [part.toolName, part.argumentsText ?? part.title].filter(Boolean).join('\n'),
-                toolEvidence: {
-                    callId: part.callId ?? null,
-                    command: null,
-                    durationMs,
-                    exitCode: null,
-                    inputText: part.argumentsText ?? part.title ?? null,
-                    name: toolName,
-                    namespace,
-                    outputText: null,
-                    status: normalizeToolStatus(part.status),
-                    workdir: null,
-                },
-            }),
-            ...createTextMessage({
-                createdAtMs: part.createdAtMs,
-                id: `${part.partId}:tool_output`,
-                metadata,
-                order,
-                phase: 'tool_output',
-                role: 'tool',
-                text: part.outputText,
-                toolEvidence: {
-                    callId: part.callId ?? null,
-                    command: null,
-                    durationMs,
-                    exitCode: null,
-                    inputText: null,
-                    name: toolName,
-                    namespace,
-                    outputText: part.outputText ?? null,
-                    status: normalizeToolStatus(part.status),
-                    workdir: null,
-                },
-            }),
-        ];
-    }
-
-    return [];
-};
-
 const transcriptToMessages = (transcript: OpenCodeSessionTranscript) => {
-    const parts = transcript.messages.flatMap((message) => message.parts);
-    const finalTextPartIds = getFinalOpenCodeAssistantTextPartIds(parts);
-    return finalizeMessages(parts.flatMap((part, order) => partToMessages(part, finalTextPartIds, order)));
+    return openCodePartsToMessages(transcript.messages.flatMap((message) => message.parts));
 };
 
 const buildConversation = async (
     session: OpenCodeSessionSummary,
     dbPath: string,
     matches: ConversationPathMatch[],
-    options: Pick<ListConversationsForPathOptions, 'includeMessages' | 'messageSelector'>,
+    options: Pick<ListConversationsOptions, 'includeMessages' | 'messageSelector'>,
     loadedTranscript: OpenCodeSessionTranscript | null = null,
 ): Promise<ConversationDetail> => {
     const transcript =
@@ -205,7 +79,11 @@ const buildConversation = async (
     };
 };
 
-const listOpenCodeConversationsForPath = async (options: ListConversationsForPathOptions) => {
+const listOpenCodeConversations = async (options: ListConversationsOptions) => {
+    if (!options.cwd) {
+        return [];
+    }
+
     const dbPath = getDbPath(options);
     const groups = await listOpenCodeWorkspaceGroups(dbPath);
     const conversations: ConversationDetail[] = [];
@@ -215,9 +93,10 @@ const listOpenCodeConversationsForPath = async (options: ListConversationsForPat
         if (!match) {
             continue;
         }
-        const sessions = (await listOpenCodeSessionsForGroup(group.key, dbPath)).filter((session) =>
-            isWithinUpdatedWindow(session.lastUpdatedAtMs, options),
-        );
+        const sessions = await listOpenCodeSessionsForGroup(group.key, dbPath, {
+            updatedAfterMs: options.updatedAfterMs,
+            updatedBeforeMs: options.updatedBeforeMs,
+        });
         conversations.push(
             ...(await mapWithConcurrency(sessions, OPENCODE_CONVERSATION_HYDRATION_CONCURRENCY, (session) =>
                 buildConversation(session, dbPath, [match], options),
@@ -261,6 +140,6 @@ const deleteOpenCodeConversation = async (options: DeleteConversationOptions) =>
 export const opencodeConversationAdapter: ConversationAdapter = {
     deleteConversation: deleteOpenCodeConversation,
     getConversation: getOpenCodeConversation,
-    listConversationsForPath: listOpenCodeConversationsForPath,
+    listConversations: listOpenCodeConversations,
     source: 'opencode',
 };

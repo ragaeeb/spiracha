@@ -13,7 +13,7 @@ import type {
 } from '../claude-code-exporter-types';
 import { getClaudeCodeAssistantMessagePhase, resolveClaudeCodeProjectsDir } from '../claude-code-exporter-types';
 import { mapWithConcurrency } from '../concurrency';
-import { cleanInlineTitle } from '../shared';
+import { cleanInlineTitle } from '../shared-text';
 import { runWithTranscriptLoadLimit } from '../transcript-load-limiter';
 import {
     createConversationUiPath,
@@ -37,7 +37,7 @@ import type {
     ConversationPathMatch,
     DeleteConversationOptions,
     GetConversationOptions,
-    ListConversationsForPathOptions,
+    ListConversationsOptions,
 } from './types';
 
 const CLAUDE_CONVERSATION_HYDRATION_CONCURRENCY = 4;
@@ -157,7 +157,7 @@ const buildConversation = async (
     session: ClaudeCodeSessionSummary,
     projectsDir: string,
     matches: ConversationPathMatch[],
-    options: Pick<ListConversationsForPathOptions, 'includeMessages' | 'messageSelector'>,
+    options: Pick<ListConversationsOptions, 'includeMessages' | 'messageSelector'>,
     loadedTranscript: ClaudeCodeSessionTranscript | null = null,
 ): Promise<ConversationDetail> => {
     const transcript = options.includeMessages
@@ -201,9 +201,11 @@ const buildConversation = async (
     };
 };
 
-const listClaudeConversationsForPath = async (
-    options: ListConversationsForPathOptions,
-): Promise<ConversationDetail[]> => {
+const listClaudeConversations = async (options: ListConversationsOptions): Promise<ConversationDetail[]> => {
+    if (!options.cwd) {
+        return [];
+    }
+
     const projectsDir = getProjectsDir(options);
     const groups = await listClaudeCodeWorkspaceGroups(projectsDir);
     const conversations: ConversationDetail[] = [];
@@ -271,6 +273,6 @@ export const claudeCodeConversationAdapter: ConversationAdapter = {
     deleteConversation: deleteClaudeConversation,
     getConversation: getClaudeConversation,
     getConversationRaw: getClaudeConversationRaw,
-    listConversationsForPath: listClaudeConversationsForPath,
+    listConversations: listClaudeConversations,
     source: 'claude-code',
 };

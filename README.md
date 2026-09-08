@@ -7,7 +7,7 @@
 [![license](https://img.shields.io/npm/l/spiracha)](LICENSE.md)
 [![runtime](https://img.shields.io/badge/runtime-Bun-000000?logo=bun)](https://bun.sh)
 
-Spiracha is a Bun package with a local TanStack Start UI, a small CLI, and a direct data client for browsing and exporting agent conversation history from Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode.
+Spiracha is a Bun package with a local TanStack Start UI, a small CLI, and a direct data client for browsing and exporting agent conversation history from Codex, Claude Code, Grok, Grok Bot, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode.
 
 The legacy exporter, MCP server, and Codex plugin surfaces were removed in the 2.0 hard cut. Spiracha now exposes the UI, a stable local data API, and the API-driven CLI below; client-specific workflows such as review collection belong in the client that calls the API.
 
@@ -30,7 +30,11 @@ bun start
 
 Open the local URL printed by Vite.
 
-Spiracha requires Bun 1.4.0 or newer. Set `PORT` to choose a different port, for example `PORT=4100 bunx spiracha serve`.
+The local CLI, UI server, and `spiracha/client` require Bun 1.4.2 or newer. The `spiracha/payload` converter uses standard Web APIs and also runs in Node.js 22+, modern browsers with Web Crypto, and Cloudflare Workers. Set `PORT` to choose a different port, for example `PORT=4100 bunx spiracha serve`.
+
+## Local security
+
+Spiracha binds to loopback `127.0.0.1` and is intended for same-user local access; it does not provide remote authentication or rate limiting. Browser requests that send an `Origin` must match the server origin or another loopback spelling on the same scheme and port; `Origin: null` is rejected. Runtime cache and export directories are private owner-only directories, and symlinked or non-regular export files are rejected.
 
 ## CLI
 
@@ -44,7 +48,8 @@ Use these commands:
 
 ```bash
 spiracha serve
-spiracha list --cwd <path>
+spiracha list [--cwd <path>]
+spiracha list --source grok-bot
 spiracha get <ref>
 spiracha export <ref> [--raw] [--output <path>]
 spiracha evidence <ref> --lens <file> [--output <path>]
@@ -52,11 +57,11 @@ spiracha evidence <ref> --lens <file> [--output <path>]
 
 `<ref>` may be a Spiracha or native source link. `spiracha/client` is the public Bun SDK for scripts and applications; import it instead of shelling out to the CLI when integrating Spiracha.
 
-Install the SDK in another Bun application with `bun add spiracha`. `list` and `get` write JSON; `export` and `evidence` write Markdown to stdout unless `--output` is provided. `export --raw` writes the original source JSON/JSONL bytes and does not accept message selection. Run `spiracha --help` for filtering and pagination options.
+Install the SDK in another Bun application with `bun add spiracha`. `list` and `get` write JSON; `export` and `evidence` write Markdown to stdout unless `--output` is provided. `export --raw` writes the original source JSON/JSONL/blob bytes and does not accept message selection. Run `spiracha --help` for filtering and pagination options.
 
 ## What It Does
 
-- Browse local conversations across Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode.
+- Browse local conversations across Codex, Claude Code, Grok, Grok Bot, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode.
 - Import exported ChatGPT, Claude, Gemini, Grok, Qwen, GLM, Amazon Nova, DeepSeek, Mistral, Perplexity, and compatible web conversations by dropping JSON files onto the Web page.
 - Group each integration into workspace inventories with local search and source-specific export/delete actions where supported.
 - Search Codex projects from the app shell, with results delegated to the shareable `/codex?q=...` inventory filter.
@@ -91,6 +96,7 @@ Common read endpoints:
 ```text
 GET  /api/v1/sources
 GET  /api/v1/conversations?cwd=/absolute/project&include_messages=true
+GET  /api/v1/conversations?source=grok-bot
 POST /api/v1/conversation-query
 GET  /api/v1/conversations/:source/:id
 GET  /api/v1/conversations/:source/:id/export
@@ -106,7 +112,7 @@ The default list selector is `last_final_answer`, which keeps `fgh --collect` st
 
 Conversation lists use opaque keyset cursors ordered by update time, source, and conversation ID. Pass `meta.next_cursor` unchanged with the same filters to request the next page. The 2.0 offset cursor format is intentionally unsupported; clients must begin a fresh traversal after upgrading.
 
-List requests accept a positive `limit` up to 200, optional `updated_after_ms` and `updated_before_ms` windows, `source` filters, and `include_messages`. Message bodies are omitted unless `include_messages=true`; the list default remains `last_final_answer` when bodies are requested.
+List requests accept a positive `limit` up to 200, optional `updated_after_ms` and `updated_before_ms` windows, `source` filters, and `include_messages`. Message bodies are omitted unless `include_messages=true`; the list default remains `last_final_answer` when bodies are requested. Grok Bot inventories are roster-only even when `include_messages=true`; open a detail route for transcript messages. Workspace sources require `cwd`; global sources such as Grok Bot are listed without `cwd`. An ordinary all-source request with `cwd` never mixes in global chats.
 
 Workspace matching is lexical and performs no filesystem reads, so missing and network-mounted transcript paths cannot delay collection. Symlink aliases are intentionally not resolved; callers that require alias equivalence should pass the canonical workspace path recorded by the source.
 
@@ -166,11 +172,39 @@ Library and CLI use is quiet by default. Set `SPIRACHA_TRANSCRIPT_LOAD_LOGS=1` o
 `SPIRACHA_OPENCODE_DB_LOGS=1` only when diagnosing loader or OpenCode database timing.
 Malformed local records emit aggregated or first-sample warnings rather than one warning per record, so repeated list/detail loads do not flood stderr. Incompatible OpenCode table or column layouts fail with `OPENCODE_DB_INCOMPATIBLE` instead of appearing as empty history.
 
-The public client exposes the same operations in local and HTTP modes: source listing, path-scoped listing, detail reads, raw/Markdown/evidence/zip exports, source-owned deletes, and reference resolution.
+The public client exposes the same operations in local and HTTP modes: source listing, scoped listing, detail reads, raw/Markdown/evidence/zip exports, source-owned deletes, and reference resolution.
 
-`client.exportConversationRaw({ source, id })` returns the original source JSON/JSONL file as a `Blob`, with its native filename and MIME type. The `/raw` endpoint serves the same bytes directly with download headers. Raw exports never parse, filter, normalize, or reserialize the source file. Sources whose conversation exists only inside a shared database, or which have no standalone JSON transcript, return `null` from the client and `404` from HTTP rather than synthesizing a replacement.
+`client.exportConversationRaw({ source, id })` returns the original source JSON/JSONL/blob file as a `Blob`, with its native filename and MIME type in local mode. The HTTP `/raw` endpoint names downloads `<source>-<conversation-id>.json` while preserving the original bytes and MIME type. Raw exports never parse, filter, normalize, or reserialize the source file. Grok Bot exports the account-scoped `.blob` replica byte-for-byte. Grok Bot chat detail pages include a Raw tab for normalized chat and transcript-event JSON, and the normal export dialog supports Raw JSON, Markdown, text, and zip downloads. Local Grok Bot deletion removes the roster entry and replica only after a fail-closed process check confirms the app is stopped; an unavailable or unexpected process-check result refuses deletion. Sources whose conversation exists only inside a shared database, or which have no standalone JSON transcript, return `null` from the client and `404` from HTTP rather than synthesizing a replacement.
 
 Focused evidence is a deterministic, lossy Markdown export for qualitative DX analysis. It does not change full-transcript exports. See [Focused evidence lenses](docs/focused-evidence.md) for the complete lens schema, bounds, local and HTTP examples, UI workflow, privacy behavior, omission accounting, and performance limits.
+
+### Convert supplied JSON or JSONL
+
+`convertConversationPayload` is an in-memory SDK function for data your application already holds. Import it from `spiracha/payload` for portable conversion; this subpath ships compiled JavaScript and TypeScript declarations in the same `spiracha` package. Existing Bun callers can also use the export from `spiracha/client`. It accepts a parsed JSON object/array or the text of a JSON/JSONL export. It does not read source applications, follow file paths, contact a server, or retain imports in the Web UI.
+
+```ts
+import { convertConversationPayload } from 'spiracha/payload';
+
+const conversations = await convertConversationPayload({
+    payload: { model: 'gpt-5', messages: [{ role: 'assistant', content: 'Hello' }] },
+    messageSelector: 'all',
+});
+console.log(conversations[0].markdown);
+
+const fromFile = await convertConversationPayload({
+    payload: await uploadedFile.text(), // A browser File, or supply JSON/JSONL text directly.
+    // Supply source when an export's structure cannot uniquely identify its origin.
+    source: 'codex',
+});
+```
+
+Each result contains the detected `source`, `id`, `title`, `model` ID when available, timestamps, workspace metadata, normalized `messages`, `artifacts`, and `markdown`. With no explicit `source`, the converter tries every native payload adapter first. Exactly one native match wins; multiple native matches are ambiguous and require a source hint, even if the generic Web parser could also accept the shape. Native parser rejections are ignored during this inference pass; if no native adapter matches, the converter falls back to Web inference. Markdown uses the stable API's model labels and message selectors (`all`, `last_assistant`, `last_final_answer`). Embedded artifacts are included in Markdown and also returned separately; Gemini reports include their numbered Works cited entries. Multiple Web conversations return multiple results.
+
+The optional `fileName` supplies a Web provider hint; it is never opened. Payloads are limited to 25 MB. Invalid options, malformed JSON/JSONL, unsupported or ambiguous formats, and incomplete exports throw `ConversationPayloadError` with a machine-readable `code`. Claude Code is explicitly unsupported by this function; Claude Web exports remain supported. Sources that store content in multiple files, databases, or encrypted binary data require a self-contained decoded JSON export, including any necessary message/tool bodies.
+
+Use `artifacts[].content` for a standalone embedded report, including Gemini Works cited; `markdown` is the entire conversation plus artifacts. `createdAtMs` and `updatedAtMs` are nullable Unix epoch milliseconds on the conversation. Individual artifacts do not have timestamps. `model` is an optional string, with display labels formatted in Markdown rather than separate provider/name/version fields.
+
+The supported payload shapes and validation plan are described in [Payload conversion SDK](docs/payload-sdk-plan.md). This function does not add Web imports to the stable source registry or HTTP API.
 
 ### Codex analytics
 
@@ -184,6 +218,7 @@ The `/analytics` view can scope results to one project or all projects. It repor
 | Claude Code | `~/.claude/projects` | `SPIRACHA_CLAUDE_CODE_DATA_DIR`, `SPIRACHA_CLAUDE_CODE_PROJECTS_DIR` |
 | Cline | `~/.cline/data` (sessions below this directory) | `SPIRACHA_CLINE_DATA_DIR` |
 | Grok | `~/.grok/sessions` | `SPIRACHA_GROK_HOME`, `SPIRACHA_GROK_SESSIONS_DIR` |
+| Grok Bot | `~/Library/Application Support/Grok Bot/sand-client-persistence` | `SPIRACHA_GROK_BOT_PERSISTENCE_DIR` |
 | Kiro | `~/Library/Application Support/Kiro/User/globalStorage/kiro.kiroagent/workspace-sessions` | `SPIRACHA_KIRO_DATA_DIR`, `SPIRACHA_KIRO_WORKSPACE_SESSIONS_DIR` |
 | Qoder | `~/Library/Application Support/Qoder/User/globalStorage/state.vscdb`, `~/Library/Application Support/Qoder/User/workspaceStorage`, and `~/Library/Application Support/Qoder/SharedClientCache/cli/projects` | `SPIRACHA_QODER_USER_DIR`, `SPIRACHA_QODER_GLOBAL_STATE_DB`, `SPIRACHA_QODER_WORKSPACE_STORAGE_DIR`, `SPIRACHA_QODER_CLI_PROJECTS_DIR` |
 | Cursor | `~/Library/Application Support/Cursor/User` on macOS | `SPIRACHA_CURSOR_USER_DIR`, `SPIRACHA_CURSOR_PROJECTS_DIR` |
@@ -191,7 +226,8 @@ The `/analytics` view can scope results to one project or all projects. It repor
 | FX | `~/.fx` | `SPIRACHA_FX_DATA_DIR` |
 | MiniMax Code | `~/.minimax/v2/sessions` and `~/.minimax/v2/sqlite/runtime-state.sqlite` | `SPIRACHA_MINIMAX_CODE_DATA_DIR`, `SPIRACHA_MINIMAX_CODE_SESSIONS_DIR`, `SPIRACHA_MINIMAX_CODE_RUNTIME_DB_PATH` |
 | OpenCode | `${XDG_DATA_HOME:-~/.local/share}/opencode/opencode.db` | `SPIRACHA_OPENCODE_DATA_DIR`, `SPIRACHA_OPENCODE_DB` |
-| UI exports | OS temp directory under `spiracha-ui-exports` | `SPIRACHA_UI_EXPORT_DIR` |
+| UI cache | `~/.cache/spiracha/ui-cache` | `SPIRACHA_UI_CACHE_DIR` |
+| UI exports | `~/.cache/spiracha/ui-exports` | `SPIRACHA_UI_EXPORT_DIR` |
 
 ### Cache and export lifecycle
 
@@ -206,9 +242,9 @@ Spiracha bounds temporary disk use by age and total retained bytes. Values are n
 | `SPIRACHA_UI_EXPORT_MAX_BYTES` | `1073741824` | Total temporary export ceiling; oldest exports are pruned first. |
 | `SPIRACHA_UI_LARGE_EXPORT_THRESHOLD_BYTES` | `134217728` | Size above which a single transcript export switches to a temporary zipped download. |
 
-Claude Code, Kiro, and Cursor discovery use short-lived, bounded indexes with in-flight request coalescing and mutation invalidation. Kiro builds one validated session-ID index across execution storage, including nested layouts, instead of rescanning per session. Cursor indexes direct composer-id lookups instead of rescanning every workspace group. File identity metadata invalidates changed transcripts, source mutations invalidate affected entries immediately, and no raw source payload is persisted by these caches.
+Codex fallback session indexes and rollout rows use bounded LRU caches. Claude Code, Kiro, and Cursor discovery use short-lived, bounded indexes with in-flight request coalescing and mutation invalidation. Kiro builds one validated session-ID index across execution storage, including nested layouts, instead of rescanning per session. Cursor indexes direct composer-id lookups instead of rescanning every workspace group. File identity metadata invalidates changed transcripts, source mutations invalidate affected entries immediately, and no raw source payload is persisted by these caches.
 
-Cursor and Antigravity detail pages split metadata from large transcript/artifact documents. Codex thread metadata records whether a rollout is available, missing, or deferred; the UI can load a bounded preview, request the full transcript, or export directly. Temporary JSON cache and download files are created with private permissions and pruned by age and total bytes.
+Cursor and Antigravity detail pages split metadata from large transcript/artifact documents. Codex thread metadata records whether a rollout is available, missing, or deferred; the UI can load a bounded preview, request the full transcript, or export directly. Temporary JSON cache and download files are created with private permissions under the user cache directory (`~/.cache/spiracha/ui-cache` and `~/.cache/spiracha/ui-exports` by default) and pruned by age and total bytes.
 
 ### Qoder live ACP hydration
 
@@ -221,6 +257,12 @@ When an Antigravity conversation has a live trajectory database, Spiracha treats
 Markdown transcript exports identify this parser contract with `transcript_schema: antigravity-transcript/v2`. The UI parser retains complete tool output in its event data and export, but bounds the rendered preview to 20,000 characters so a single large operation result cannot dominate the detail page.
 
 Encrypted Antigravity transcripts use the macOS Keychain item `Antigravity Safe Storage` / `Antigravity Key` and the Electron-compatible `saltysalt` PBKDF2 derivation. Keychain access is reacquired for each protected server request; the raw secret is not stored in process-global state or returned to the browser. Non-encrypted transcripts do not require Keychain access, and other platforms report decryption as unsupported.
+
+### Codex Cloud login and analytics
+
+Codex Cloud browsing uses the local Codex-managed ChatGPT login. `SPIRACHA_CODEX_AUTH` can select its auth file, and `CODEX_BIN` selects the Codex executable. After an HTTP 401, Spiracha asks the CLI to refresh once and rereads the login; the CLI may update its managed authentication file. Each Cloud HTTP attempt has a 30-second abort deadline. Missing CLI, failed refresh, timeouts, repeated 401, and malformed inventory errors are reported without including tokens or provider response bodies.
+
+Agent-DX command metrics use conservative shell heuristics. Quoted examples, comments, and heredoc bodies do not count as executed gates or mutations; complex shell constructs can remain unclassified. Repository-after identities require recognizable Git command output. Missing CSV fields are empty cells; carriage returns are quoted and NUL bytes are rendered as printable escapes. Goal-span IDs encode an identity tuple as JSON and should be treated as opaque strings.
 
 ### Codex browser database compatibility
 
@@ -238,8 +280,8 @@ Cursor reads use a retry-aware synchronous callback that opens a fresh read hand
 
 - `/` for the Codex dashboard, `/codex` and `/codex/$project` for Codex inventory and project threads.
 - `/threads/$threadId` for Codex thread detail.
-- `/claude-code`, `/cline`, `/grok`, `/kiro`, `/qoder`, `/cursor`, `/antigravity`, `/fx`, `/minimax-code`, and `/opencode` for source inventories.
-- Source detail routes include `/claude-code-sessions/$sessionId`, `/cline-tasks/$taskId`, `/grok-sessions/$sessionId`, `/kiro-sessions/$sessionId`, `/qoder-sessions/$sessionId`, `/cursor-threads/$composerId`, `/antigravity-conversations/$conversationId`, `/fx-sessions/$sessionId`, `/minimax-code-sessions/$sessionId`, and `/opencode-sessions/$sessionId`.
+- `/claude-code`, `/cline`, `/grok`, `/grok-bot`, `/kiro`, `/qoder`, `/cursor`, `/antigravity`, `/fx`, `/minimax-code`, and `/opencode` for source inventories.
+- Source detail routes include `/claude-code-sessions/$sessionId`, `/cline-tasks/$taskId`, `/grok-sessions/$sessionId`, `/grok-bot-chats/$conversationId`, `/kiro-sessions/$sessionId`, `/qoder-sessions/$sessionId`, `/cursor-threads/$composerId`, `/antigravity-conversations/$conversationId`, `/fx-sessions/$sessionId`, `/minimax-code-sessions/$sessionId`, and `/opencode-sessions/$sessionId`.
 - `/web` for JSON imports and a searchable in-memory list of imported conversations; `/web-chats/$conversationId` for parsed transcript, metadata, and normalized JSON.
 - FX workspace and detail pages support single, selected, and workspace-wide deletion. Deletion removes the session directory plus its session-index and latest-pointer entries while preserving workspace files and global FX command history.
 - MiniMax Code workspace and detail pages support single, selected, and workspace-wide deletion. Deletion removes finalized session directories and authoritative runtime database rows while preserving generated workspace files and append-only observability logs.
@@ -267,7 +309,7 @@ Run one root test file with `bun test src/lib/shared.test.ts`. Run one UI test f
 
 `bun run test:package` launches the packaged `bin/spiracha.ts` entrypoint against an isolated fixture and checks the published UI boundary. `bun run format` applies the repository's Biome formatting and lint fixes when intentionally reformatting source.
 
-`bun start` runs the UI development server. `bun run build` emits bundled client assets and a bundled server entrypoint; `spiracha serve` runs that built output. The published package ships the built client/server output and the Bun SDK sources, not the UI source tree or Vite toolchain. Only `fflate` is a runtime dependency; the UI and build/test toolchain stays in `devDependencies`.
+`bun start` runs the UI development server. `bun run build` emits bundled client assets and a bundled server entrypoint; `spiracha serve` runs that built output. The published package ships the built client/server output, portable payload JavaScript/declarations, and the Bun SDK sources, not the UI source tree or Vite toolchain. Only `fflate` is a runtime dependency; the UI and build/test toolchain stays in `devDependencies`.
 
 Spiracha has one application boundary: the stable API, server functions, browser route tree, and UI all resolve through one manifest and one dependency graph. Vite is a development/build tool; Vitest uses its normal Node runtime.
 
@@ -281,7 +323,7 @@ TanStack Router generates `src/ui/routeTree.gen.ts` during development/build. Do
 
 Spiracha's Markdown is deterministic generation and domain parsing. Bun 1.4's `Bun.markdown` was evaluated, but it is currently unstable for this contract, so Spiracha does not depend on it.
 
-The hard-cut package keeps one `spiracha` bin, the stable `spiracha/client` and `spiracha/types` exports, and the bundled UI/server runtime. It does not restore legacy CLI aliases, an MCP server, a Codex plugin, or a separate exporter package.
+The hard-cut package keeps one `spiracha` bin, the stable `spiracha/client`, `spiracha/types`, and portable `spiracha/payload` exports, and the bundled UI/server runtime. It does not restore legacy CLI aliases, an MCP server, a Codex plugin, or a separate exporter package.
 
 ## Breaking Consequences
 
@@ -289,5 +331,7 @@ The hard-cut package keeps one `spiracha` bin, the stable `spiracha/client` and 
 - No `codex-chats`, `codex-chats-claude`, or legacy export command remains.
 - CLI export/evidence flows use the stable normalized client and do not reintroduce source-specific exporter entrypoints.
 - No MCP server or local Codex plugin remains.
+- The internal Codex browser database module was split into focused database, query, dashboard, fallback-index, and mutation modules; the former monolith is not a supported import path.
+- The former Qoder database module was split into storage, session-listing, and session-transcript modules; the former monolith is not a supported import path.
 - Programmatic consumers should call the stable local HTTP API or import `spiracha/client` from Bun rather than shelling out.
 - Normalized conversation messages now always include `toolEvidence` (`null` for non-tool messages); consumers that construct these DTOs must provide that explicit field.

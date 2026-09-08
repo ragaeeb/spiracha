@@ -18,16 +18,8 @@ import {
     resolveOpenCodeDbPath,
 } from './opencode-exporter-types';
 import { splitOpenCodeThinkTaggedText } from './opencode-think-tags';
-import {
-    asNumber,
-    asObject,
-    asString,
-    isWorkspacePathQuery,
-    type JsonValue,
-    pathExists,
-    warnParserDiagnosticOnce,
-    workspacePathMatchesQuery,
-} from './shared';
+import { isWorkspacePathQuery, pathExists, workspacePathMatchesQuery } from './shared';
+import { asNumber, asObject, asString, type JsonValue, warnParserDiagnosticOnce } from './shared-text';
 import { runWithSqliteRetry } from './sqlite-retry';
 
 export { getDefaultOpenCodeDataDir, resolveOpenCodeDbPath };
@@ -751,7 +743,11 @@ export const findOpenCodeWorkspaceGroups = (
     return groups.filter((group) => openCodeWorkspaceMatchesQuery(group, query));
 };
 
-const readSessionSummaries = (db: Database, whereSql: string, params: string[]): OpenCodeSessionSummary[] => {
+const readSessionSummaries = (
+    db: Database,
+    whereSql: string,
+    params: Array<string | number>,
+): OpenCodeSessionSummary[] => {
     const rows = db
         .query(`${getSessionSelectQuery(whereSql)} ORDER BY s.time_updated DESC, s.title ASC`)
         .all(...params) as SessionRow[];
@@ -761,6 +757,7 @@ const readSessionSummaries = (db: Database, whereSql: string, params: string[]):
 export const listOpenCodeSessionsForGroup = async (
     workspaceKey: string,
     dbPath = resolveOpenCodeDbPath(),
+    options: { updatedAfterMs?: number; updatedBeforeMs?: number } = {},
 ): Promise<OpenCodeSessionSummary[]> => {
     const selector = getWorkspaceSelector(workspaceKey);
     if (!selector || !(await pathExists(dbPath))) {
@@ -769,11 +766,21 @@ export const listOpenCodeSessionsForGroup = async (
 
     return runWithOpenCodeDbLimit('list-sessions', dbPath, () =>
         withOpenCodeReadonlyDb(dbPath, (db) => {
-            const whereSql = selector.directory
-                ? `s.project_id = ? AND s.directory = ? AND ${MAIN_SESSION_FILTER}`
-                : `s.project_id = ? AND ${MAIN_SESSION_FILTER}`;
-            const params = selector.directory ? [selector.projectId, selector.directory] : [selector.projectId];
-            return readSessionSummaries(db, whereSql, params);
+            const predicates = selector.directory
+                ? [`s.project_id = ?`, `s.directory = ?`, MAIN_SESSION_FILTER]
+                : [`s.project_id = ?`, MAIN_SESSION_FILTER];
+            const params: Array<string | number> = selector.directory
+                ? [selector.projectId, selector.directory]
+                : [selector.projectId];
+            if (options.updatedAfterMs !== undefined) {
+                predicates.push('s.time_updated >= ?');
+                params.push(options.updatedAfterMs);
+            }
+            if (options.updatedBeforeMs !== undefined) {
+                predicates.push('s.time_updated <= ?');
+                params.push(options.updatedBeforeMs);
+            }
+            return readSessionSummaries(db, predicates.join(' AND '), params);
         }),
     );
 };

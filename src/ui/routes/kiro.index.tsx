@@ -9,7 +9,7 @@ import { RouteErrorPanel } from '#/components/route-error-panel';
 import { kiroWorkspacesQueryOptions } from '#/lib/kiro-queries';
 import { matchesTextQuery } from '#/lib/text-filter';
 
-const KiroErrorComponent = ({ error }: { error: Error }) => {
+const KiroErrorComponent = ({ error }: { error: unknown }) => {
     return <RouteErrorPanel error={error} title="Failed to load Kiro workspaces" />;
 };
 

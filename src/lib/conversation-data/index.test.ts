@@ -2,12 +2,8 @@ import { describe, expect, it } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {
-    listConversationSources,
-    listConversationsForPath,
-    renderConversationMarkdown,
-    resolveConversationRef,
-} from './index';
+import { listConversationSources, listConversations, resolveConversationRef } from './index';
+import { renderConversationMarkdown } from './markdown';
 import type { ConversationMessage } from './types';
 
 const createMessage = (overrides: Partial<ConversationMessage>): ConversationMessage => ({
@@ -26,7 +22,7 @@ describe('conversation data facade', () => {
     it('should keep all-source collection resilient when integrations are not installed', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'conversation-data-empty-sources-'));
         try {
-            const page = await listConversationsForPath({
+            const page = await listConversations({
                 cwd: path.join(tempRoot, 'repo'),
                 includeMessages: true,
                 locations: {
@@ -63,7 +59,7 @@ describe('conversation data facade', () => {
         try {
             const qoderDbPath = path.join(tempRoot, 'qoder.sqlite');
             await Bun.write(qoderDbPath, 'not a sqlite database');
-            await listConversationsForPath({
+            await listConversations({
                 cwd: path.join(tempRoot, 'repo'),
                 locations: {
                     antigravityRoots: [path.join(tempRoot, 'antigravity')],
@@ -137,7 +133,7 @@ describe('conversation data facade', () => {
 
     it('should reject malformed local pagination cursors', async () => {
         await expect(
-            listConversationsForPath({
+            listConversations({
                 cursor: Buffer.from('12garbage').toString('base64url'),
                 cwd: '/repo',
                 sources: [],
@@ -145,20 +141,41 @@ describe('conversation data facade', () => {
         ).rejects.toThrow('Invalid conversation pagination cursor.');
     });
 
-    it('should return an isolated source metadata array', async () => {
+    it('should return an isolated scoped source metadata array', async () => {
         const first = await listConversationSources();
-        expect(first).toContainEqual({ label: 'Cline', source: 'cline' });
-        expect(first).toContainEqual({ label: 'MiniMax Code', source: 'minimax-code' });
-        expect(first).toContainEqual({ label: 'FX', source: 'fx' });
+        expect(first).toContainEqual({ label: 'Cline', scope: 'workspace', source: 'cline' });
+        expect(first).toContainEqual({ label: 'MiniMax Code', scope: 'workspace', source: 'minimax-code' });
+        expect(first).toContainEqual({ label: 'FX', scope: 'workspace', source: 'fx' });
+        expect(first).toContainEqual({ label: 'Grok Bot', scope: 'global', source: 'grok-bot' });
         first.splice(0, first.length);
 
         expect(await listConversationSources()).not.toEqual([]);
+    });
+
+    it('should keep global chats out of workspace-scoped collection', async () => {
+        await expect(
+            listConversations({
+                cwd: '/repo',
+                sources: ['grok-bot'],
+            }),
+        ).rejects.toThrow('global source');
+        await expect(
+            listConversations({
+                sources: ['codex'],
+            }),
+        ).rejects.toThrow('workspace source');
     });
 
     it('should resolve only exact supported UI route prefixes', async () => {
         await expect(resolveConversationRef('https://example.com/threads/thread-1')).resolves.toEqual({
             id: 'thread-1',
             source: 'codex',
+        });
+        await expect(
+            resolveConversationRef('https://example.com/grok-bot-chats/bd5bbf01-a4e1-47f8-885f-f2188cf04aab'),
+        ).resolves.toEqual({
+            id: 'bd5bbf01-a4e1-47f8-885f-f2188cf04aab',
+            source: 'grok-bot',
         });
         await expect(resolveConversationRef('https://example.com/unrelated/threads/thread-1')).resolves.toBeNull();
     });

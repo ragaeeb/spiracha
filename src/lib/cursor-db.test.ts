@@ -163,7 +163,7 @@ describe('cursor-db workspace discovery', () => {
         const originalQuery = Database.prototype.query;
         let headScanCount = 0;
         Database.prototype.query = function (this: Database, sql: string) {
-            if (sql.includes('SELECT substr(key, 14) AS id')) {
+            if (sql.includes("SELECT substr(key, length('composerData:') + 1) AS id")) {
                 headScanCount += 1;
             }
             return originalQuery.call(this, sql);
@@ -201,6 +201,7 @@ describe('cursor-db workspace discovery', () => {
                     threadsInComposerData: true,
                 },
             ],
+            composerTableHeaders: [{ bucketId: 'bucket-two', composerId: 'thread-2' }],
             headerLinks: [
                 { bucketId: 'bucket-one', composerId: 'thread-1' },
                 { bucketId: 'bucket-two', composerId: 'thread-2' },
@@ -218,11 +219,32 @@ describe('cursor-db workspace discovery', () => {
         });
         const originalQuery = Database.prototype.query;
         const hydratedComposerIds: string[] = [];
+        let legacyHeaderReadCount = 0;
+        let globalHeadScanCount = 0;
         Database.prototype.query = function (this: Database, sql: string) {
             if (sql.includes('SELECT ? AS composerId, key, value FROM cursorDiskKV')) {
                 hydratedComposerIds.push(sql);
             }
-            return originalQuery.call(this, sql);
+            if (sql.includes("key LIKE 'composerData:%'") && !sql.includes("'$.fullConversationHeadersOnly'")) {
+                globalHeadScanCount += 1;
+            }
+            const statement = originalQuery.call(this, sql);
+            if (!sql.includes('SELECT value FROM ItemTable WHERE key = ?')) {
+                return statement;
+            }
+            return new Proxy(statement, {
+                get: (target, property, receiver) => {
+                    if (property !== 'get') {
+                        return Reflect.get(target, property, receiver);
+                    }
+                    return (...parameters: unknown[]) => {
+                        if (parameters[0] === 'composer.composerHeaders') {
+                            legacyHeaderReadCount += 1;
+                        }
+                        return Reflect.apply(target.get, target, parameters);
+                    };
+                },
+            }) as typeof statement;
         } as typeof originalQuery;
 
         try {
@@ -232,6 +254,8 @@ describe('cursor-db workspace discovery', () => {
             expect(result?.group.folders).toEqual(['/Users/test/workspace/two']);
             expect(hydratedComposerIds).toHaveLength(1);
             expect(hydratedComposerIds[0]?.match(/SELECT \? AS composerId/gu)).toHaveLength(1);
+            expect(legacyHeaderReadCount).toBe(0);
+            expect(globalHeadScanCount).toBe(0);
         } finally {
             Database.prototype.query = originalQuery;
         }
@@ -426,6 +450,147 @@ describe('cursor-db workspace discovery', () => {
             ]),
         );
         expect(groups.find((group) => group.key === 'folder:/Users/test/workspace/e2e')?.threadCount ?? 0).toBe(0);
+    });
+
+    it('should identify moved root snapshots without conflating their subagents', async () => {
+        const userDir = await makeUserDir();
+        await createCursorFixture(userDir, {
+            buckets: [
+                { bucketId: 'source-root', folder: 'file:///Users/test/workspace/demo' },
+                { bucketId: 'move-a', folder: 'file:///Users/test/.cursor/worktrees/demo-a' },
+                { bucketId: 'move-b', folder: 'file:///Users/test/.cursor/worktrees/demo-b' },
+            ],
+            composerTableHeaders: [
+                { bucketId: 'source-root', composerId: 'created-root' },
+                {
+                    bucketId: 'move-a',
+                    composerId: 'moved-root',
+                    moved: true,
+                    sourceEnvironmentId: 'source-root',
+                },
+                {
+                    bucketId: 'move-b',
+                    composerId: 'latest-root',
+                    moved: true,
+                    sourceEnvironmentId: 'source-root',
+                },
+                {
+                    bucketId: 'move-a',
+                    composerId: 'real-subagent',
+                    isSubagent: true,
+                    parentComposerId: 'moved-root',
+                },
+                { bucketId: 'source-root', composerId: 'independent-copy' },
+            ],
+            threads: [
+                {
+                    bubbles: [
+                        { bubbleId: 'shared-root-prompt', text: 'Start the conductor', type: 1 },
+                        { bubbleId: 'created-answer', text: 'Moving to the first worktree.', type: 2 },
+                    ],
+                    composerId: 'created-root',
+                    createdAt: 100,
+                    lastUpdatedAt: 200,
+                    name: 'Conductor',
+                    status: 'aborted',
+                },
+                {
+                    bubbles: [
+                        { bubbleId: 'shared-root-prompt', text: 'Start the conductor', type: 1 },
+                        { bubbleId: 'moved-answer', text: 'Moving to the next worktree.', type: 2 },
+                    ],
+                    composerId: 'moved-root',
+                    createdAt: 201,
+                    lastUpdatedAt: 300,
+                    name: 'Conductor',
+                    status: 'aborted',
+                },
+                {
+                    bubbles: [
+                        { bubbleId: 'shared-root-prompt', text: 'Start the conductor', type: 1 },
+                        { bubbleId: 'latest-answer', text: 'The work is complete.', type: 2 },
+                    ],
+                    composerId: 'latest-root',
+                    createdAt: 301,
+                    lastUpdatedAt: 400,
+                    name: 'Conductor',
+                    status: 'completed',
+                },
+                {
+                    bubbles: [
+                        { bubbleId: 'shared-root-prompt', text: 'Start the conductor', type: 1 },
+                        { bubbleId: 'subagent-answer', text: 'Independent verification.', type: 2 },
+                    ],
+                    composerId: 'real-subagent',
+                    createdAt: 250,
+                    lastUpdatedAt: 275,
+                    name: 'Verifier',
+                    status: 'completed',
+                },
+                {
+                    bubbles: [
+                        { bubbleId: 'shared-root-prompt', text: 'Start the conductor', type: 1 },
+                        { bubbleId: 'copy-answer', text: 'This is an independent copy.', type: 2 },
+                    ],
+                    composerId: 'independent-copy',
+                    createdAt: 350,
+                    lastUpdatedAt: 450,
+                    name: 'Conductor copy',
+                    status: 'completed',
+                },
+            ],
+        });
+
+        const globalDb = new Database(getCursorGlobalDbPath(userDir));
+        for (const composerId of ['created-root', 'moved-root', 'latest-root']) {
+            const key = `composerData:${composerId}`;
+            const row = globalDb.query('SELECT value FROM cursorDiskKV WHERE key = ?').get(key) as { value: string };
+            const head = JSON.parse(row.value) as { fullConversationHeadersOnly: Array<Record<string, unknown>> };
+            head.fullConversationHeadersOnly.unshift({ bubbleId: `${composerId}-bootstrap`, type: 2 });
+            globalDb.run('UPDATE cursorDiskKV SET value = ? WHERE key = ?', [JSON.stringify(head), key]);
+        }
+        globalDb.close();
+
+        const older = await getCursorThreadSummaryByComposerId('moved-root', userDir, {
+            includeTranscriptDirs: false,
+        });
+        const latest = await getCursorThreadSummaryByComposerId('latest-root', userDir, {
+            includeTranscriptDirs: false,
+        });
+        const subagent = await getCursorThreadSummaryByComposerId('real-subagent', userDir, {
+            includeTranscriptDirs: false,
+        });
+        const independentCopy = await getCursorThreadSummaryByComposerId('independent-copy', userDir, {
+            includeTranscriptDirs: false,
+        });
+
+        expect(older?.thread).toEqual(
+            expect.objectContaining({
+                latestSnapshotComposerId: 'latest-root',
+                snapshotCount: 3,
+                status: 'aborted',
+            }),
+        );
+        expect(latest?.thread).toEqual(
+            expect.objectContaining({
+                latestSnapshotComposerId: 'latest-root',
+                snapshotCount: 3,
+                status: 'completed',
+            }),
+        );
+        expect(subagent?.thread).toEqual(
+            expect.objectContaining({
+                latestSnapshotComposerId: null,
+                parentComposerId: 'moved-root',
+                snapshotCount: 1,
+            }),
+        );
+        expect(independentCopy?.thread).toEqual(
+            expect.objectContaining({
+                latestSnapshotComposerId: null,
+                snapshotCount: 1,
+            }),
+        );
     });
 
     it('should match a workspace by folder basename query', async () => {
@@ -632,6 +797,24 @@ describe('cursor-db workspace discovery', () => {
         const groups = await listCursorWorkspaceGroups(userDir);
 
         expect(groups).toEqual([]);
+    });
+
+    it('should tolerate malformed global composer heads during bounded discovery', async () => {
+        const userDir = await makeUserDir();
+        await createCursorFixture(userDir, baseSpec());
+        const db = new Database(getCursorGlobalDbPath(userDir));
+        try {
+            db.run('INSERT OR REPLACE INTO cursorDiskKV (key, value) VALUES (?, ?)', [
+                'composerData:malformed-head',
+                '{broken',
+            ]);
+        } finally {
+            db.close();
+        }
+
+        const groups = await listCursorWorkspaceGroups(userDir, { updatedAfterMs: 0 });
+
+        expect(groups.map((group) => group.label)).toContain('demo');
     });
 
     it('should list threads for a workspace with bubble counts', async () => {
@@ -934,6 +1117,118 @@ describe('cursor-db transcript reads', () => {
         expect(transcript?.renderableBubbleCount).toBe(3);
     });
 
+    it.each([
+        ['Final answer', 'Final answer', 'Final answer'],
+        ['Final answer with details', 'Final answer', 'Final answer with details'],
+        ['Final answer', 'Final answer with details', 'Final answer with details'],
+    ])(
+        'should preserve unmatched progress before an overlapping final answer (%s, %s)',
+        async (stored, replayed, final) => {
+            const userDir = await makeUserDir();
+            const spec = baseSpec();
+            spec.threads[0]!.bubbles = [
+                { bubbleId: 'b1', text: 'Original request', type: 1 },
+                { bubbleId: 'b2', text: stored, type: 2 },
+            ];
+            await createCursorFixture(userDir, spec);
+            const transcriptDir = path.join(userDir, 'projects', 'demo-project', 'agent-transcripts', 'thread-1');
+            await mkdir(transcriptDir, { recursive: true });
+            await Bun.write(
+                path.join(transcriptDir, 'thread-1.jsonl'),
+                [
+                    { role: 'user', text: 'Original request' },
+                    { role: 'assistant', text: 'Inspecting the release and validation paths.' },
+                    { role: 'assistant', text: replayed },
+                ]
+                    .map(({ role, text }) => JSON.stringify({ message: { content: [{ text, type: 'text' }] }, role }))
+                    .join('\n'),
+            );
+            const transcript = await readCursorThreadTranscriptWithAgentFiles(
+                getCursorGlobalDbPath(userDir),
+                'thread-1',
+                userDir,
+            );
+            expect(transcript?.bubbles.map((bubble) => bubble.text)).toEqual([
+                'Original request',
+                'Inspecting the release and validation paths.',
+                final,
+            ]);
+            expect(transcript?.renderableBubbleCount).toBe(3);
+        },
+    );
+
+    it('should retain missing replay events beside their own turn anchors', async () => {
+        const userDir = await makeUserDir();
+        const spec = baseSpec();
+        spec.threads[0]!.bubbles = [
+            { bubbleId: 'b1', text: 'Repeated request', type: 1 },
+            { bubbleId: 'b2', text: 'Repeated answer', type: 2 },
+            { bubbleId: 'b3', text: 'Repeated request', type: 1 },
+            { bubbleId: 'b4', text: 'Repeated answer', type: 2 },
+        ];
+        await createCursorFixture(userDir, spec);
+        const transcriptDir = path.join(userDir, 'projects', 'demo-project', 'agent-transcripts', 'thread-1');
+        await mkdir(transcriptDir, { recursive: true });
+        const messages = [
+            { role: 'user', text: 'Repeated request' },
+            { role: 'assistant', text: 'Investigating first request' },
+            { role: 'assistant', text: 'Repeated answer' },
+            { role: 'user', text: 'Repeated request' },
+            { role: 'assistant', text: 'Investigating second request' },
+            { role: 'assistant', text: 'Repeated answer' },
+        ];
+        await Bun.write(
+            path.join(transcriptDir, 'thread-1.jsonl'),
+            messages
+                .map(({ role, text }) => JSON.stringify({ message: { content: [{ text, type: 'text' }] }, role }))
+                .join('\n'),
+        );
+        const transcript = await readCursorThreadTranscriptWithAgentFiles(
+            getCursorGlobalDbPath(userDir),
+            'thread-1',
+            userDir,
+        );
+        expect(transcript?.bubbles.map((bubble) => bubble.text)).toEqual(messages.map((message) => message.text));
+        expect(transcript?.renderableBubbleCount).toBe(6);
+    });
+
+    it('should retain agent tool calls that precede a SQLite final answer', async () => {
+        const userDir = await makeUserDir();
+        const spec = baseSpec();
+        spec.threads[0]!.bubbles = [
+            { bubbleId: 'b1', text: 'Original request', type: 1 },
+            { bubbleId: 'b2', text: 'Final answer', type: 2 },
+        ];
+        await createCursorFixture(userDir, spec);
+        const transcriptDir = path.join(userDir, 'projects', 'demo-project', 'agent-transcripts', 'thread-1');
+        await mkdir(transcriptDir, { recursive: true });
+        await Bun.write(
+            path.join(transcriptDir, 'thread-1.jsonl'),
+            [
+                JSON.stringify({ message: { content: [{ text: 'Original request', type: 'text' }] }, role: 'user' }),
+                JSON.stringify({
+                    message: { content: [{ input: { path: 'README.md' }, name: 'read_file', type: 'tool_use' }] },
+                    role: 'assistant',
+                }),
+                JSON.stringify({
+                    message: { content: [{ input: { path: 'README.md' }, name: 'read_file', type: 'tool_use' }] },
+                    role: 'assistant',
+                }),
+                JSON.stringify({ message: { content: [{ text: 'Final answer', type: 'text' }] }, role: 'assistant' }),
+            ].join('\n'),
+        );
+
+        const transcript = await readCursorThreadTranscriptWithAgentFiles(
+            getCursorGlobalDbPath(userDir),
+            'thread-1',
+            userDir,
+        );
+
+        expect(transcript?.bubbles.map((bubble) => bubble.text)).toEqual(['Original request', '', 'Final answer']);
+        expect(transcript?.bubbles[1]?.toolCall?.name).toBe('read_file');
+        expect(transcript?.renderableBubbleCount).toBe(3);
+    });
+
     it('should use pre-resolved transcript directories without rediscovering them', async () => {
         const userDir = await makeUserDir();
         await createCursorFixture(userDir, baseSpec());
@@ -1074,7 +1369,7 @@ describe('cursor-db transcript reads', () => {
         expect(transcript?.bubbles.map((bubble) => bubble.text)).toEqual(['Original request', 'Part one', 'Part two']);
     });
 
-    it('should treat superset agent messages as overlap when merging tail bubbles', async () => {
+    it('should preserve newer text when an agent bubble extends SQLite text', async () => {
         const userDir = await makeUserDir();
         const spec = baseSpec();
         spec.threads[0]!.bubbles = [
@@ -1106,7 +1401,7 @@ describe('cursor-db transcript reads', () => {
 
         expect(transcript?.bubbles.map((bubble) => bubble.text)).toEqual([
             'Original request',
-            'Known assistant update',
+            'Known assistant update with extra streamed text',
             'Final tail message',
         ]);
     });
@@ -1402,5 +1697,96 @@ describe('parseCursorBubble', () => {
         expect(bubble.thinking).toBe('reasoning');
         expect(bubble.toolCall?.name).toBe('run');
         expect(bubble.toolCall?.resultText).toBe('ok');
+    });
+});
+
+describe('Cursor bounded discovery', () => {
+    it('should apply inclusive lower and upper bounds to direct and grouped lookups', async () => {
+        const userDir = await makeUserDir();
+        await createCursorFixture(userDir, {
+            buckets: [
+                {
+                    bucketId: 'bounded',
+                    composerIds: ['old-thread', 'new-thread'],
+                    folder: 'file:///Users/test/workspace/bounded',
+                    threadsInComposerData: true,
+                },
+            ],
+            headerLinks: [
+                { bucketId: 'bounded', composerId: 'old-thread' },
+                { bucketId: 'bounded', composerId: 'new-thread' },
+            ],
+            threads: [
+                {
+                    bubbles: [{ bubbleId: 'old', text: 'old', type: 1 }],
+                    composerId: 'old-thread',
+                    lastUpdatedAt: 1000,
+                    name: 'Old',
+                },
+                {
+                    bubbles: [{ bubbleId: 'new', text: 'new', type: 1 }],
+                    composerId: 'new-thread',
+                    lastUpdatedAt: 2000,
+                    name: 'New',
+                },
+            ],
+        });
+        const [group] = await listCursorWorkspaceGroups(userDir);
+
+        const grouped = await listCursorThreadsForGroup(group!, userDir, {
+            includeTranscriptDirs: false,
+            updatedAfterMs: 1000,
+            updatedBeforeMs: 1000,
+        });
+        const direct = await getCursorThreadSummaryByComposerId('old-thread', userDir, {
+            includeTranscriptDirs: false,
+            updatedAfterMs: 1000,
+            updatedBeforeMs: 1000,
+        });
+
+        expect(grouped.map((thread) => thread.composerId)).toEqual(['old-thread']);
+        expect(direct?.thread.composerId).toBe('old-thread');
+    });
+
+    it('should retain upper-bound header-only threads without enumerating global heads', async () => {
+        const userDir = await makeUserDir();
+        await createCursorFixture(userDir, {
+            buckets: [
+                {
+                    bucketId: 'header-only-bucket',
+                    composerIds: ['known-thread'],
+                    folder: 'file:///Users/test/workspace/header-only',
+                    threadsInComposerData: true,
+                },
+            ],
+            headerLinks: [{ bucketId: 'header-only-bucket', composerId: 'known-thread' }],
+            threads: [
+                {
+                    bubbles: [{ bubbleId: 'known', text: 'known', type: 1 }],
+                    composerId: 'known-thread',
+                    lastUpdatedAt: 2000,
+                    name: 'Known',
+                },
+            ],
+        });
+
+        const db = new Database(getCursorGlobalDbPath(userDir));
+        const headerRow = db.query("SELECT value FROM ItemTable WHERE key = 'composer.composerHeaders'").get() as {
+            value: string;
+        };
+        const headers = JSON.parse(headerRow.value) as { allComposers: Array<Record<string, unknown>> };
+        headers.allComposers.push({
+            composerId: 'header-only-thread',
+            name: 'Header only',
+            workspaceIdentifier: { id: 'header-only-bucket' },
+        });
+        db.run("UPDATE ItemTable SET value = ? WHERE key = 'composer.composerHeaders'", [JSON.stringify(headers)]);
+        db.close();
+
+        const groups = await listCursorWorkspaceGroups(userDir, { updatedBeforeMs: 3000 });
+
+        expect(groups.find((group) => group.key === 'folder:/Users/test/workspace/header-only')).toMatchObject({
+            threadCount: 2,
+        });
     });
 });

@@ -12,7 +12,7 @@ export const Route = createFileRoute('/')({
     loader: ({ context }) => context.queryClient.ensureQueryData(dashboardQueryOptions()),
 });
 
-function DashboardErrorComponent({ error }: { error: Error }) {
+function DashboardErrorComponent({ error }: { error: unknown }) {
     return <RouteErrorPanel error={error} title="Failed to load dashboard" />;
 }
 

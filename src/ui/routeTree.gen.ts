@@ -30,6 +30,8 @@ import { Route as CursorWorkspaceKeyRouteImport } from './routes/cursor.$workspa
 import { Route as FxSessionsSessionIdRouteImport } from './routes/fx-sessions.$sessionId'
 import { Route as FxIndexRouteImport } from './routes/fx.index'
 import { Route as FxWorkspaceKeyRouteImport } from './routes/fx.$workspaceKey'
+import { Route as GrokBotChatsConversationIdRouteImport } from './routes/grok-bot-chats.$conversationId'
+import { Route as GrokBotIndexRouteImport } from './routes/grok-bot.index'
 import { Route as GrokSessionsSessionIdRouteImport } from './routes/grok-sessions.$sessionId'
 import { Route as GrokIndexRouteImport } from './routes/grok.index'
 import { Route as GrokWorkspaceKeyRouteImport } from './routes/grok.$workspaceKey'
@@ -52,8 +54,11 @@ import { Route as ApiV1ConversationQueryRouteImport } from './routes/api.v1.conv
 import { Route as ApiV1ConversationsRouteImport } from './routes/api.v1.conversations'
 import { Route as ApiV1ResolveRouteImport } from './routes/api.v1.resolve'
 import { Route as ApiV1SourcesRouteImport } from './routes/api.v1.sources'
+import { Route as CodexCloudIndexRouteImport } from './routes/codex.cloud.index'
 import { Route as ApiV1ConversationsDeleteRouteImport } from './routes/api.v1.conversations.delete'
 import { Route as ApiV1ConversationsExportRouteImport } from './routes/api.v1.conversations.export'
+import { Route as CodexCloudProjectsEnvironmentIdRouteImport } from './routes/codex.cloud.projects.$environmentId'
+import { Route as CodexCloudTasksTaskIdRouteImport } from './routes/codex.cloud.tasks.$taskId'
 import { Route as ApiV1CodexThreadsEventsRouteImport } from './routes/api.v1.codex.threads.events'
 import { Route as ApiV1ConversationsSourceIdRouteImport } from './routes/api.v1.conversations.$source.$id'
 import { Route as ApiV1ConversationsSourceIdEvidenceRouteImport } from './routes/api.v1.conversations.$source.$id.evidence'
@@ -165,6 +170,17 @@ const FxIndexRoute = FxIndexRouteImport.update({
 const FxWorkspaceKeyRoute = FxWorkspaceKeyRouteImport.update({
   id: '/fx/$workspaceKey',
   path: '/fx/$workspaceKey',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GrokBotChatsConversationIdRoute =
+  GrokBotChatsConversationIdRouteImport.update({
+    id: '/grok-bot-chats/$conversationId',
+    path: '/grok-bot-chats/$conversationId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const GrokBotIndexRoute = GrokBotIndexRouteImport.update({
+  id: '/grok-bot/',
+  path: '/grok-bot/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const GrokSessionsSessionIdRoute = GrokSessionsSessionIdRouteImport.update({
@@ -279,6 +295,11 @@ const ApiV1SourcesRoute = ApiV1SourcesRouteImport.update({
   path: '/api/v1/sources',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CodexCloudIndexRoute = CodexCloudIndexRouteImport.update({
+  id: '/codex/cloud/',
+  path: '/codex/cloud/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiV1ConversationsDeleteRoute =
   ApiV1ConversationsDeleteRouteImport.update({
     id: '/delete',
@@ -291,6 +312,17 @@ const ApiV1ConversationsExportRoute =
     path: '/export',
     getParentRoute: () => ApiV1ConversationsRoute,
   } as any)
+const CodexCloudProjectsEnvironmentIdRoute =
+  CodexCloudProjectsEnvironmentIdRouteImport.update({
+    id: '/codex/cloud/projects/$environmentId',
+    path: '/codex/cloud/projects/$environmentId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const CodexCloudTasksTaskIdRoute = CodexCloudTasksTaskIdRouteImport.update({
+  id: '/codex/cloud/tasks/$taskId',
+  path: '/codex/cloud/tasks/$taskId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiV1CodexThreadsEventsRoute = ApiV1CodexThreadsEventsRouteImport.update({
   id: '/api/v1/codex/threads/events',
   path: '/api/v1/codex/threads/events',
@@ -337,6 +369,7 @@ export interface FileRoutesByFullPath {
   '/cursor/$workspaceKey': typeof CursorWorkspaceKeyRoute
   '/fx-sessions/$sessionId': typeof FxSessionsSessionIdRoute
   '/fx/$workspaceKey': typeof FxWorkspaceKeyRoute
+  '/grok-bot-chats/$conversationId': typeof GrokBotChatsConversationIdRoute
   '/grok-sessions/$sessionId': typeof GrokSessionsSessionIdRoute
   '/grok/$workspaceKey': typeof GrokWorkspaceKeyRoute
   '/kiro-sessions/$sessionId': typeof KiroSessionsSessionIdRoute
@@ -355,6 +388,7 @@ export interface FileRoutesByFullPath {
   '/codex/': typeof CodexIndexRoute
   '/cursor/': typeof CursorIndexRoute
   '/fx/': typeof FxIndexRoute
+  '/grok-bot/': typeof GrokBotIndexRoute
   '/grok/': typeof GrokIndexRoute
   '/kiro/': typeof KiroIndexRoute
   '/minimax-code/': typeof MinimaxCodeIndexRoute
@@ -365,8 +399,11 @@ export interface FileRoutesByFullPath {
   '/api/v1/conversations': typeof ApiV1ConversationsRouteWithChildren
   '/api/v1/resolve': typeof ApiV1ResolveRoute
   '/api/v1/sources': typeof ApiV1SourcesRoute
+  '/codex/cloud/': typeof CodexCloudIndexRoute
   '/api/v1/conversations/delete': typeof ApiV1ConversationsDeleteRoute
   '/api/v1/conversations/export': typeof ApiV1ConversationsExportRoute
+  '/codex/cloud/projects/$environmentId': typeof CodexCloudProjectsEnvironmentIdRoute
+  '/codex/cloud/tasks/$taskId': typeof CodexCloudTasksTaskIdRoute
   '/api/v1/codex/threads/events': typeof ApiV1CodexThreadsEventsRoute
   '/api/v1/conversations/$source/$id': typeof ApiV1ConversationsSourceIdRouteWithChildren
   '/api/v1/conversations/$source/$id/evidence': typeof ApiV1ConversationsSourceIdEvidenceRoute
@@ -389,6 +426,7 @@ export interface FileRoutesByTo {
   '/cursor/$workspaceKey': typeof CursorWorkspaceKeyRoute
   '/fx-sessions/$sessionId': typeof FxSessionsSessionIdRoute
   '/fx/$workspaceKey': typeof FxWorkspaceKeyRoute
+  '/grok-bot-chats/$conversationId': typeof GrokBotChatsConversationIdRoute
   '/grok-sessions/$sessionId': typeof GrokSessionsSessionIdRoute
   '/grok/$workspaceKey': typeof GrokWorkspaceKeyRoute
   '/kiro-sessions/$sessionId': typeof KiroSessionsSessionIdRoute
@@ -407,6 +445,7 @@ export interface FileRoutesByTo {
   '/codex': typeof CodexIndexRoute
   '/cursor': typeof CursorIndexRoute
   '/fx': typeof FxIndexRoute
+  '/grok-bot': typeof GrokBotIndexRoute
   '/grok': typeof GrokIndexRoute
   '/kiro': typeof KiroIndexRoute
   '/minimax-code': typeof MinimaxCodeIndexRoute
@@ -417,8 +456,11 @@ export interface FileRoutesByTo {
   '/api/v1/conversations': typeof ApiV1ConversationsRouteWithChildren
   '/api/v1/resolve': typeof ApiV1ResolveRoute
   '/api/v1/sources': typeof ApiV1SourcesRoute
+  '/codex/cloud': typeof CodexCloudIndexRoute
   '/api/v1/conversations/delete': typeof ApiV1ConversationsDeleteRoute
   '/api/v1/conversations/export': typeof ApiV1ConversationsExportRoute
+  '/codex/cloud/projects/$environmentId': typeof CodexCloudProjectsEnvironmentIdRoute
+  '/codex/cloud/tasks/$taskId': typeof CodexCloudTasksTaskIdRoute
   '/api/v1/codex/threads/events': typeof ApiV1CodexThreadsEventsRoute
   '/api/v1/conversations/$source/$id': typeof ApiV1ConversationsSourceIdRouteWithChildren
   '/api/v1/conversations/$source/$id/evidence': typeof ApiV1ConversationsSourceIdEvidenceRoute
@@ -442,6 +484,7 @@ export interface FileRoutesById {
   '/cursor/$workspaceKey': typeof CursorWorkspaceKeyRoute
   '/fx-sessions/$sessionId': typeof FxSessionsSessionIdRoute
   '/fx/$workspaceKey': typeof FxWorkspaceKeyRoute
+  '/grok-bot-chats/$conversationId': typeof GrokBotChatsConversationIdRoute
   '/grok-sessions/$sessionId': typeof GrokSessionsSessionIdRoute
   '/grok/$workspaceKey': typeof GrokWorkspaceKeyRoute
   '/kiro-sessions/$sessionId': typeof KiroSessionsSessionIdRoute
@@ -460,6 +503,7 @@ export interface FileRoutesById {
   '/codex/': typeof CodexIndexRoute
   '/cursor/': typeof CursorIndexRoute
   '/fx/': typeof FxIndexRoute
+  '/grok-bot/': typeof GrokBotIndexRoute
   '/grok/': typeof GrokIndexRoute
   '/kiro/': typeof KiroIndexRoute
   '/minimax-code/': typeof MinimaxCodeIndexRoute
@@ -470,8 +514,11 @@ export interface FileRoutesById {
   '/api/v1/conversations': typeof ApiV1ConversationsRouteWithChildren
   '/api/v1/resolve': typeof ApiV1ResolveRoute
   '/api/v1/sources': typeof ApiV1SourcesRoute
+  '/codex/cloud/': typeof CodexCloudIndexRoute
   '/api/v1/conversations/delete': typeof ApiV1ConversationsDeleteRoute
   '/api/v1/conversations/export': typeof ApiV1ConversationsExportRoute
+  '/codex/cloud/projects/$environmentId': typeof CodexCloudProjectsEnvironmentIdRoute
+  '/codex/cloud/tasks/$taskId': typeof CodexCloudTasksTaskIdRoute
   '/api/v1/codex/threads/events': typeof ApiV1CodexThreadsEventsRoute
   '/api/v1/conversations/$source/$id': typeof ApiV1ConversationsSourceIdRouteWithChildren
   '/api/v1/conversations/$source/$id/evidence': typeof ApiV1ConversationsSourceIdEvidenceRoute
@@ -496,6 +543,7 @@ export interface FileRouteTypes {
     | '/cursor/$workspaceKey'
     | '/fx-sessions/$sessionId'
     | '/fx/$workspaceKey'
+    | '/grok-bot-chats/$conversationId'
     | '/grok-sessions/$sessionId'
     | '/grok/$workspaceKey'
     | '/kiro-sessions/$sessionId'
@@ -514,6 +562,7 @@ export interface FileRouteTypes {
     | '/codex/'
     | '/cursor/'
     | '/fx/'
+    | '/grok-bot/'
     | '/grok/'
     | '/kiro/'
     | '/minimax-code/'
@@ -524,8 +573,11 @@ export interface FileRouteTypes {
     | '/api/v1/conversations'
     | '/api/v1/resolve'
     | '/api/v1/sources'
+    | '/codex/cloud/'
     | '/api/v1/conversations/delete'
     | '/api/v1/conversations/export'
+    | '/codex/cloud/projects/$environmentId'
+    | '/codex/cloud/tasks/$taskId'
     | '/api/v1/codex/threads/events'
     | '/api/v1/conversations/$source/$id'
     | '/api/v1/conversations/$source/$id/evidence'
@@ -548,6 +600,7 @@ export interface FileRouteTypes {
     | '/cursor/$workspaceKey'
     | '/fx-sessions/$sessionId'
     | '/fx/$workspaceKey'
+    | '/grok-bot-chats/$conversationId'
     | '/grok-sessions/$sessionId'
     | '/grok/$workspaceKey'
     | '/kiro-sessions/$sessionId'
@@ -566,6 +619,7 @@ export interface FileRouteTypes {
     | '/codex'
     | '/cursor'
     | '/fx'
+    | '/grok-bot'
     | '/grok'
     | '/kiro'
     | '/minimax-code'
@@ -576,8 +630,11 @@ export interface FileRouteTypes {
     | '/api/v1/conversations'
     | '/api/v1/resolve'
     | '/api/v1/sources'
+    | '/codex/cloud'
     | '/api/v1/conversations/delete'
     | '/api/v1/conversations/export'
+    | '/codex/cloud/projects/$environmentId'
+    | '/codex/cloud/tasks/$taskId'
     | '/api/v1/codex/threads/events'
     | '/api/v1/conversations/$source/$id'
     | '/api/v1/conversations/$source/$id/evidence'
@@ -600,6 +657,7 @@ export interface FileRouteTypes {
     | '/cursor/$workspaceKey'
     | '/fx-sessions/$sessionId'
     | '/fx/$workspaceKey'
+    | '/grok-bot-chats/$conversationId'
     | '/grok-sessions/$sessionId'
     | '/grok/$workspaceKey'
     | '/kiro-sessions/$sessionId'
@@ -618,6 +676,7 @@ export interface FileRouteTypes {
     | '/codex/'
     | '/cursor/'
     | '/fx/'
+    | '/grok-bot/'
     | '/grok/'
     | '/kiro/'
     | '/minimax-code/'
@@ -628,8 +687,11 @@ export interface FileRouteTypes {
     | '/api/v1/conversations'
     | '/api/v1/resolve'
     | '/api/v1/sources'
+    | '/codex/cloud/'
     | '/api/v1/conversations/delete'
     | '/api/v1/conversations/export'
+    | '/codex/cloud/projects/$environmentId'
+    | '/codex/cloud/tasks/$taskId'
     | '/api/v1/codex/threads/events'
     | '/api/v1/conversations/$source/$id'
     | '/api/v1/conversations/$source/$id/evidence'
@@ -653,6 +715,7 @@ export interface RootRouteChildren {
   CursorWorkspaceKeyRoute: typeof CursorWorkspaceKeyRoute
   FxSessionsSessionIdRoute: typeof FxSessionsSessionIdRoute
   FxWorkspaceKeyRoute: typeof FxWorkspaceKeyRoute
+  GrokBotChatsConversationIdRoute: typeof GrokBotChatsConversationIdRoute
   GrokSessionsSessionIdRoute: typeof GrokSessionsSessionIdRoute
   GrokWorkspaceKeyRoute: typeof GrokWorkspaceKeyRoute
   KiroSessionsSessionIdRoute: typeof KiroSessionsSessionIdRoute
@@ -671,6 +734,7 @@ export interface RootRouteChildren {
   CodexIndexRoute: typeof CodexIndexRoute
   CursorIndexRoute: typeof CursorIndexRoute
   FxIndexRoute: typeof FxIndexRoute
+  GrokBotIndexRoute: typeof GrokBotIndexRoute
   GrokIndexRoute: typeof GrokIndexRoute
   KiroIndexRoute: typeof KiroIndexRoute
   MinimaxCodeIndexRoute: typeof MinimaxCodeIndexRoute
@@ -681,6 +745,9 @@ export interface RootRouteChildren {
   ApiV1ConversationsRoute: typeof ApiV1ConversationsRouteWithChildren
   ApiV1ResolveRoute: typeof ApiV1ResolveRoute
   ApiV1SourcesRoute: typeof ApiV1SourcesRoute
+  CodexCloudIndexRoute: typeof CodexCloudIndexRoute
+  CodexCloudProjectsEnvironmentIdRoute: typeof CodexCloudProjectsEnvironmentIdRoute
+  CodexCloudTasksTaskIdRoute: typeof CodexCloudTasksTaskIdRoute
   ApiV1CodexThreadsEventsRoute: typeof ApiV1CodexThreadsEventsRoute
 }
 
@@ -831,6 +898,20 @@ declare module '@tanstack/react-router' {
       path: '/fx/$workspaceKey'
       fullPath: '/fx/$workspaceKey'
       preLoaderRoute: typeof FxWorkspaceKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/grok-bot-chats/$conversationId': {
+      id: '/grok-bot-chats/$conversationId'
+      path: '/grok-bot-chats/$conversationId'
+      fullPath: '/grok-bot-chats/$conversationId'
+      preLoaderRoute: typeof GrokBotChatsConversationIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/grok-bot/': {
+      id: '/grok-bot/'
+      path: '/grok-bot'
+      fullPath: '/grok-bot/'
+      preLoaderRoute: typeof GrokBotIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/grok-sessions/$sessionId': {
@@ -987,6 +1068,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiV1SourcesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/codex/cloud/': {
+      id: '/codex/cloud/'
+      path: '/codex/cloud'
+      fullPath: '/codex/cloud/'
+      preLoaderRoute: typeof CodexCloudIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/v1/conversations/delete': {
       id: '/api/v1/conversations/delete'
       path: '/delete'
@@ -1000,6 +1088,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/api/v1/conversations/export'
       preLoaderRoute: typeof ApiV1ConversationsExportRouteImport
       parentRoute: typeof ApiV1ConversationsRoute
+    }
+    '/codex/cloud/projects/$environmentId': {
+      id: '/codex/cloud/projects/$environmentId'
+      path: '/codex/cloud/projects/$environmentId'
+      fullPath: '/codex/cloud/projects/$environmentId'
+      preLoaderRoute: typeof CodexCloudProjectsEnvironmentIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/codex/cloud/tasks/$taskId': {
+      id: '/codex/cloud/tasks/$taskId'
+      path: '/codex/cloud/tasks/$taskId'
+      fullPath: '/codex/cloud/tasks/$taskId'
+      preLoaderRoute: typeof CodexCloudTasksTaskIdRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/v1/codex/threads/events': {
       id: '/api/v1/codex/threads/events'
@@ -1091,6 +1193,7 @@ const rootRouteChildren: RootRouteChildren = {
   CursorWorkspaceKeyRoute: CursorWorkspaceKeyRoute,
   FxSessionsSessionIdRoute: FxSessionsSessionIdRoute,
   FxWorkspaceKeyRoute: FxWorkspaceKeyRoute,
+  GrokBotChatsConversationIdRoute: GrokBotChatsConversationIdRoute,
   GrokSessionsSessionIdRoute: GrokSessionsSessionIdRoute,
   GrokWorkspaceKeyRoute: GrokWorkspaceKeyRoute,
   KiroSessionsSessionIdRoute: KiroSessionsSessionIdRoute,
@@ -1109,6 +1212,7 @@ const rootRouteChildren: RootRouteChildren = {
   CodexIndexRoute: CodexIndexRoute,
   CursorIndexRoute: CursorIndexRoute,
   FxIndexRoute: FxIndexRoute,
+  GrokBotIndexRoute: GrokBotIndexRoute,
   GrokIndexRoute: GrokIndexRoute,
   KiroIndexRoute: KiroIndexRoute,
   MinimaxCodeIndexRoute: MinimaxCodeIndexRoute,
@@ -1119,6 +1223,9 @@ const rootRouteChildren: RootRouteChildren = {
   ApiV1ConversationsRoute: ApiV1ConversationsRouteWithChildren,
   ApiV1ResolveRoute: ApiV1ResolveRoute,
   ApiV1SourcesRoute: ApiV1SourcesRoute,
+  CodexCloudIndexRoute: CodexCloudIndexRoute,
+  CodexCloudProjectsEnvironmentIdRoute: CodexCloudProjectsEnvironmentIdRoute,
+  CodexCloudTasksTaskIdRoute: CodexCloudTasksTaskIdRoute,
   ApiV1CodexThreadsEventsRoute: ApiV1CodexThreadsEventsRoute,
 }
 export const routeTree = rootRouteImport

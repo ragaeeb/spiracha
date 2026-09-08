@@ -146,7 +146,7 @@ export const Route = createFileRoute('/antigravity-conversations/$conversationId
     validateSearch: parseThreadTranscriptSearch,
 });
 
-function AntigravityConversationDetailErrorComponent({ error }: { error: Error }) {
+function AntigravityConversationDetailErrorComponent({ error }: { error: unknown }) {
     return <RouteErrorPanel error={error} title="Failed to load Antigravity conversation" />;
 }
 

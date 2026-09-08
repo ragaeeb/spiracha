@@ -8,7 +8,7 @@ import { createCodexBrowserFixture } from '../codex-test-helpers';
 import { createCursorFixture } from '../cursor-test-helpers';
 import { createOpenCodeFixture } from '../opencode-test-helpers';
 import { deleteCursorConversation } from './cursor-adapter';
-import { deleteConversation, deleteConversations, getConversation, listConversationsForPath } from './index';
+import { deleteConversation, deleteConversations, getConversation, listConversations } from './index';
 
 const tempRoots: string[] = [];
 
@@ -308,7 +308,7 @@ describe('conversation delete adapters', () => {
         ).resolves.toEqual({ deletedFiles: [], deletedIds: [] });
 
         await expect(
-            listConversationsForPath({
+            listConversations({
                 cwd: '/repo',
                 locations: { claudeCodeProjectsDir: projectsDir },
                 sources: ['claude-code'],

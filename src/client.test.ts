@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createConversationClient, SpirachaClientError } from './client';
@@ -35,9 +35,10 @@ const conversation = {
     workspacePath: '/repo',
 } satisfies ConversationDetail;
 
-const runBunCommand = async (args: string[], cwd: string) => {
+const runBunCommand = async (args: string[], cwd: string, environment?: Record<string, string>) => {
     const proc = Bun.spawn([process.execPath, ...args], {
         cwd,
+        ...(environment ? { env: { ...process.env, ...environment } } : {}),
         stderr: 'pipe',
         stdout: 'pipe',
     });
@@ -58,7 +59,7 @@ describe('conversation client', () => {
                 requests.push(new URL(request.url).pathname);
                 return new Response(original, {
                     headers: {
-                        'Content-Disposition': "attachment; filename*=UTF-8''rollout-thread-1.jsonl",
+                        'Content-Disposition': "attachment; filename*=UTF-8''codex-thread-1.json",
                         'Content-Type': 'application/x-ndjson',
                     },
                 });
@@ -71,7 +72,7 @@ describe('conversation client', () => {
             const download = await client.exportConversationRaw({ id: 'thread-1', source: 'codex' });
 
             expect(download).not.toBeNull();
-            expect(download!.fileName).toBe('rollout-thread-1.jsonl');
+            expect(download!.fileName).toBe('codex-thread-1.json');
             expect(download!.mimeType).toBe('application/x-ndjson');
             await expect(download!.blob.text()).resolves.toBe(original);
             expect(requests).toEqual(['/api/v1/conversations/codex/thread-1/raw']);
@@ -195,6 +196,7 @@ describe('conversation client', () => {
         try {
             const packageDirectory = path.join(tempRoot, 'package');
             const consumerDirectory = path.join(tempRoot, 'consumer');
+            const bunCacheDirectory = path.join(tempRoot, 'empty-bun-cache');
             await Promise.all([mkdir(packageDirectory), mkdir(consumerDirectory)]);
             const { version } = (await Bun.file(path.join(process.cwd(), 'package.json')).json()) as {
                 version: string;
@@ -206,12 +208,32 @@ describe('conversation client', () => {
             );
             expect(packResult.stderrText).toBe('');
             expect(packResult.exitCode, packResult.stderrText).toBe(0);
+            const installedFflateDirectory = path.join(process.cwd(), 'node_modules/fflate');
+            const consumerFflateDirectory = path.join(tempRoot, 'fflate');
+            await cp(installedFflateDirectory, consumerFflateDirectory, { recursive: true });
+            const fflateManifestPath = path.join(consumerFflateDirectory, 'package.json');
+            const fflateManifest = (await Bun.file(fflateManifestPath).json()) as Record<string, unknown>;
+            delete fflateManifest.devDependencies;
+            await Bun.write(fflateManifestPath, `${JSON.stringify(fflateManifest, null, 4)}\n`);
 
             await Bun.write(
                 path.join(consumerDirectory, 'package.json'),
-                `${JSON.stringify({ dependencies: { spiracha: `file:${packagePath}` }, private: true, type: 'module' }, null, 4)}\n`,
+                `${JSON.stringify(
+                    {
+                        dependencies: {
+                            spiracha: `file:${packagePath}`,
+                        },
+                        overrides: { fflate: `file:${consumerFflateDirectory}` },
+                        private: true,
+                        type: 'module',
+                    },
+                    null,
+                    4,
+                )}\n`,
             );
-            const installResult = await runBunCommand(['install', '--offline', '--ignore-scripts'], consumerDirectory);
+            const installResult = await runBunCommand(['install', '--offline', '--ignore-scripts'], consumerDirectory, {
+                BUN_INSTALL_CACHE_DIR: bunCacheDirectory,
+            });
             expect(installResult.stderrText).not.toContain('error:');
             expect(installResult.exitCode, installResult.stderrText).toBe(0);
 
@@ -240,7 +262,9 @@ describe('conversation client', () => {
             `;
             const scriptPath = path.join(consumerDirectory, 'collect.ts');
             await Bun.write(scriptPath, script);
-            const collectResult = await runBunCommand([scriptPath], consumerDirectory);
+            const collectResult = await runBunCommand([scriptPath], consumerDirectory, {
+                BUN_INSTALL_CACHE_DIR: bunCacheDirectory,
+            });
 
             expect(collectResult.stderrText).toBe('');
             expect(collectResult.exitCode, collectResult.stderrText).toBe(0);

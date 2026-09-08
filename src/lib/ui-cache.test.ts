@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { mkdir, readdir, rm, stat, utimes } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, rm, stat, symlink, utimes } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -10,10 +10,13 @@ import {
     invalidateCacheByPrefix,
     pruneUiCacheEntries,
     setCachedJson,
+    UI_CACHE_DIR_ENV,
     withCachedJson,
 } from './ui-cache';
 
-const CACHE_DIR = path.join(os.tmpdir(), 'spiracha-ui-cache');
+let CACHE_DIR: string;
+let cacheRoot: string;
+const originalCacheDir = process.env[UI_CACHE_DIR_ENV];
 const originalCacheBypass = process.env.SPIRACHA_UI_CACHE_BYPASS;
 const CACHE_KEY_PREFIX_MAX_LENGTH = 80;
 const getCacheFilePath = (key: string) => {
@@ -24,7 +27,9 @@ const getCacheFilePath = (key: string) => {
 
 beforeEach(async () => {
     delete process.env.SPIRACHA_UI_CACHE_BYPASS;
-    await rm(CACHE_DIR, { force: true, recursive: true });
+    cacheRoot = await mkdtemp(path.join(os.tmpdir(), 'spiracha-ui-cache-test-'));
+    CACHE_DIR = path.join(cacheRoot, 'cache');
+    process.env[UI_CACHE_DIR_ENV] = CACHE_DIR;
 });
 
 afterEach(async () => {
@@ -33,7 +38,12 @@ afterEach(async () => {
     } else {
         process.env.SPIRACHA_UI_CACHE_BYPASS = originalCacheBypass;
     }
-    await rm(CACHE_DIR, { force: true, recursive: true });
+    if (originalCacheDir === undefined) {
+        delete process.env[UI_CACHE_DIR_ENV];
+    } else {
+        process.env[UI_CACHE_DIR_ENV] = originalCacheDir;
+    }
+    await rm(cacheRoot, { force: true, recursive: true });
 });
 
 describe('ui cache', () => {
@@ -58,6 +68,26 @@ describe('ui cache', () => {
         await setCachedJson('private-cache', { ok: true });
 
         expect((await stat(CACHE_DIR)).mode & 0o777).toBe(0o700);
+    });
+
+    it('should reject a configured cache directory symlink', async () => {
+        const target = path.join(cacheRoot, 'target');
+        const link = path.join(cacheRoot, 'link');
+        await rm(target, { force: true, recursive: true });
+        await rm(link, { force: true, recursive: true });
+        await mkdir(target, { mode: 0o700 });
+        await symlink(target, link);
+        process.env[UI_CACHE_DIR_ENV] = link;
+
+        try {
+            await expect(setCachedJson('unsafe-cache', { ok: true })).rejects.toThrow(
+                'Unsafe Spiracha cache directory',
+            );
+        } finally {
+            process.env[UI_CACHE_DIR_ENV] = CACHE_DIR;
+            await rm(link, { force: true, recursive: true });
+            await rm(target, { force: true, recursive: true });
+        }
     });
 
     it('should support an explicit development bypass without writing cache files', async () => {
@@ -134,7 +164,7 @@ describe('ui cache', () => {
 
     it('should not size-evict an in-progress temporary cache write', async () => {
         const activeTempPath = path.join(CACHE_DIR, 'active-write.tmp');
-        await mkdir(CACHE_DIR, { recursive: true });
+        await mkdir(CACHE_DIR, { mode: 0o700, recursive: true });
         await Bun.write(activeTempPath, 'in progress');
 
         await pruneUiCacheEntries(CACHE_DIR, Number.POSITIVE_INFINITY, 0);
@@ -144,7 +174,7 @@ describe('ui cache', () => {
 
     it('should not age-evict temporary cache writes', async () => {
         const activeTempPath = path.join(CACHE_DIR, 'old-active-write.tmp');
-        await mkdir(CACHE_DIR, { recursive: true });
+        await mkdir(CACHE_DIR, { mode: 0o700, recursive: true });
         await Bun.write(activeTempPath, 'in progress');
         const staleTime = new Date(Date.now() - 48 * 60 * 60 * 1000);
         await utimes(activeTempPath, staleTime, staleTime);
@@ -165,6 +195,7 @@ describe('ui cache', () => {
 
     it('should coalesce concurrent cache misses for the same key', async () => {
         let loadCount = 0;
+        const loaderStarted = Promise.withResolvers<void>();
         let releaseLoader: () => void = () => {};
         const loaderCanFinish = new Promise<void>((resolve) => {
             releaseLoader = resolve;
@@ -173,13 +204,13 @@ describe('ui cache', () => {
         const requests = Array.from({ length: 4 }, () =>
             withCachedJson('coalesced-entry', async () => {
                 loadCount += 1;
+                loaderStarted.resolve();
                 await loaderCanFinish;
                 return { loadedBy: loadCount };
             }),
         );
 
-        await Bun.sleep(1);
-        expect(loadCount).toBe(1);
+        await loaderStarted.promise;
         releaseLoader();
 
         await expect(Promise.all(requests)).resolves.toEqual([

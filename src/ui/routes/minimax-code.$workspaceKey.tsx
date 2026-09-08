@@ -79,7 +79,7 @@ const getDeleteTitle = (pendingDelete: PendingSessionDelete | null) => {
         : 'Delete this MiniMax Code session?';
 };
 
-const MiniMaxCodeWorkspaceErrorComponent = ({ error }: { error: Error }) => {
+const MiniMaxCodeWorkspaceErrorComponent = ({ error }: { error: unknown }) => {
     return <RouteErrorPanel error={error} title="Failed to load MiniMax Code workspace" />;
 };
 
@@ -236,6 +236,7 @@ const MiniMaxCodeWorkspacePage = () => {
                 forceZipArchive={pendingExport ? pendingExport.sessionIds.length > 1 : false}
                 open={pendingExport !== null}
                 pending={exportMutation.isPending}
+                rawExport={pendingExport ? { ids: pendingExport.sessionIds, source: 'minimax-code' } : undefined}
                 title={`Export ${pendingExport?.label ?? 'sessions'}`}
                 onExport={(options) => {
                     if (pendingExport) {

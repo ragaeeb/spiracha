@@ -17,7 +17,7 @@ import {
     renderDocumentTitle,
     renderMetadataBlock,
     renderSection,
-} from './shared';
+} from './shared-text';
 
 const TOOL_RESULT_PREVIEW_LIMIT = 4000;
 const MIN_DATE_MS = -8_640_000_000_000_000;

@@ -1,27 +1,19 @@
 import { mapWithConcurrency } from '../concurrency';
 import { deleteFxSession, listFxSessionsForGroup, listFxWorkspaceGroups, readFxSessionTranscript } from '../fx-db';
-import type { FxSessionSummary, FxSessionTranscript, FxToolCall, FxTranscriptMessage } from '../fx-exporter-types';
+import type { FxSessionSummary, FxSessionTranscript } from '../fx-exporter-types';
 import { resolveFxDataDir } from '../fx-exporter-types';
-import { getFxMessagePhase } from '../fx-transcript-phase';
 import { runWithTranscriptLoadLimit } from '../transcript-load-limiter';
-import {
-    createConversationUiPath,
-    createDeepLinks,
-    createTextMessage,
-    finalizeMessages,
-    isWithinUpdatedWindow,
-    normalizeRole,
-} from './adapter-helpers';
+import { createConversationUiPath, createDeepLinks, isWithinUpdatedWindow } from './adapter-helpers';
+import { normalizeFxTranscript } from './fx-messages';
 import { selectConversationMessages } from './message-selector';
 import { getConversationPathMatch } from './path-match';
 import type {
     ConversationAdapter,
     ConversationDetail,
-    ConversationMessage,
     ConversationPathMatch,
     DeleteConversationOptions,
     GetConversationOptions,
-    ListConversationsForPathOptions,
+    ListConversationsOptions,
 } from './types';
 
 const FX_CONVERSATION_HYDRATION_CONCURRENCY = 4;
@@ -29,83 +21,11 @@ const FX_CONVERSATION_HYDRATION_CONCURRENCY = 4;
 const getDataDir = (options: { locations?: { fxDataDir?: string } }) =>
     options.locations?.fxDataDir ?? resolveFxDataDir();
 
-const toolCallToMessages = (
-    toolCall: FxToolCall,
-    message: FxTranscriptMessage,
-    toolIndex: number,
-    order: number,
-    worktree: string,
-): ConversationMessage[] => {
-    const id = `${message.messageId}:tool:${toolIndex}`;
-    const metadata = { callId: toolCall.callId, status: toolCall.status, toolName: toolCall.toolName };
-    const evidence = {
-        callId: toolCall.callId,
-        command: toolCall.command,
-        durationMs: null,
-        exitCode: toolCall.status === 'succeeded' ? 0 : toolCall.status === 'failed' ? 1 : null,
-        name: toolCall.toolName,
-        namespace: null,
-        status: toolCall.status,
-        workdir: worktree,
-    } as const;
-    return [
-        ...createTextMessage({
-            createdAtMs: message.createdAtMs,
-            id: `${id}:call`,
-            metadata,
-            order,
-            phase: 'tool_call',
-            role: 'tool',
-            text: [toolCall.toolName, toolCall.argumentsText].filter(Boolean).join('\n'),
-            toolEvidence: { ...evidence, inputText: toolCall.argumentsText, outputText: null },
-        }),
-        ...createTextMessage({
-            createdAtMs: message.createdAtMs,
-            id: `${id}:output`,
-            metadata,
-            order,
-            phase: 'tool_output',
-            role: 'tool',
-            text: toolCall.outputText,
-            toolEvidence: { ...evidence, inputText: null, outputText: toolCall.outputText },
-        }),
-    ];
-};
-
-const transcriptMessageToMessages = (
-    message: FxTranscriptMessage,
-    order: number,
-    worktree: string,
-): ConversationMessage[] => {
-    const metadata = { finishReason: message.finishReason, messageType: message.messageType };
-    return [
-        ...createTextMessage({
-            createdAtMs: message.createdAtMs,
-            id: message.messageId,
-            metadata,
-            order,
-            phase: getFxMessagePhase(message) ?? 'unknown',
-            role: normalizeRole(message.role),
-            text: message.content,
-        }),
-        ...message.toolCalls.flatMap((toolCall, toolIndex) =>
-            toolCallToMessages(toolCall, message, toolIndex, order, worktree),
-        ),
-    ];
-};
-
-const transcriptToMessages = (transcript: FxSessionTranscript) =>
-    finalizeMessages(
-        transcript.messages.flatMap((message, order) =>
-            transcriptMessageToMessages(message, order, transcript.session.worktree),
-        ),
-    );
-
 const buildConversation = async (
     session: FxSessionSummary,
     dataDir: string,
     matches: ConversationPathMatch[],
-    options: Pick<ListConversationsForPathOptions, 'includeMessages' | 'messageSelector'>,
+    options: Pick<ListConversationsOptions, 'includeMessages' | 'messageSelector'>,
     loadedTranscript: FxSessionTranscript | null = null,
 ): Promise<ConversationDetail> => {
     const transcript =
@@ -116,7 +36,7 @@ const buildConversation = async (
                   { id: session.sessionId, integration: 'fx', operation: 'api', path: dataDir },
               )
             : null);
-    const allMessages = transcript ? transcriptToMessages(transcript) : [];
+    const allMessages = transcript ? normalizeFxTranscript(transcript) : [];
     const messages = options.includeMessages
         ? selectConversationMessages(allMessages, options.messageSelector ?? 'last_final_answer')
         : [];
@@ -143,7 +63,11 @@ const buildConversation = async (
     };
 };
 
-const listFxConversationsForPath = async (options: ListConversationsForPathOptions) => {
+const listFxConversations = async (options: ListConversationsOptions) => {
+    if (!options.cwd) {
+        return [];
+    }
+
     const dataDir = getDataDir(options);
     const groups = await listFxWorkspaceGroups(dataDir);
     const conversations: ConversationDetail[] = [];
@@ -189,6 +113,6 @@ const deleteFxConversation = async (options: DeleteConversationOptions) => {
 export const fxConversationAdapter: ConversationAdapter = {
     deleteConversation: deleteFxConversation,
     getConversation: getFxConversation,
-    listConversationsForPath: listFxConversationsForPath,
+    listConversations: listFxConversations,
     source: 'fx',
 };

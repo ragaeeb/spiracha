@@ -5,6 +5,7 @@ import { createServer } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { createCodexBrowserFixture } from './lib/codex-test-helpers';
+import { geminiResearchPayload, payloadSourceFixtures } from './lib/conversation-payload-test-helpers';
 
 type PackageManifest = {
     name: string;
@@ -153,6 +154,61 @@ const waitForServer = async (url: string): Promise<PackagedUiProbe> => {
 const readPackageManifest = async (cwd: string): Promise<PackageManifest> =>
     Bun.file(path.join(cwd, 'package.json')).json();
 
+const verifyPortablePayloadPackage = async (directory: string, cwd: string) => {
+    await Bun.write(path.join(directory, 'research-fixture.json'), JSON.stringify(geminiResearchPayload));
+    await Bun.write(
+        path.join(directory, 'portable-consumer.mjs'),
+        `import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { convertConversationPayload, ConversationPayloadError } from 'spiracha/payload';
+for (const fixture of JSON.parse(await readFile('payload-fixtures.json', 'utf8'))) {
+    const [result] = await convertConversationPayload({ payload: fixture.payload });
+    assert.equal(result.source, fixture.source);
+    assert.ok(result.markdown.includes('Consumer answer'));
+    await assert.rejects(convertConversationPayload({ payload: {}, source: fixture.source }));
+}
+const file = new File([await readFile('research-fixture.json')], 'Gemini.json');
+const [research] = await convertConversationPayload({ payload: await file.text(), fileName: file.name });
+assert.ok(research.artifacts[0].content.includes('## Works cited'));
+assert.ok(research.artifacts[0].content.includes('https://example.com/source'));
+assert.ok(research.messages.some(message => message.toolEvidence?.name === 'browse_page'));
+await assert.rejects(convertConversationPayload({ payload: 'invalid' }), error =>
+    error instanceof ConversationPayloadError && error.code === 'invalid_json');
+console.log('Portable package: all sources, research citations, and errors passed.');
+`,
+    );
+    await runCommand([process.execPath, 'portable-consumer.mjs'], directory);
+    await runCommand(['node', 'portable-consumer.mjs'], directory);
+    await Bun.write(
+        path.join(directory, 'consumer.mts'),
+        `import { convertConversationPayload, ConversationPayloadError, type ConvertedConversation } from 'spiracha/payload';
+const converted: ConvertedConversation[] = await convertConversationPayload({ payload: {} });
+const date: number | null = converted[0]!.createdAtMs;
+const error: string = new ConversationPayloadError('invalid_json', 'Invalid JSON').code;
+void [date, error];
+`,
+    );
+    await Bun.write(
+        path.join(directory, 'tsconfig.json'),
+        JSON.stringify({
+            compilerOptions: {
+                lib: ['ES2022', 'DOM'],
+                module: 'NodeNext',
+                moduleResolution: 'NodeNext',
+                noEmit: true,
+                strict: true,
+                target: 'ES2022',
+                types: [],
+            },
+            files: ['consumer.mts'],
+        }),
+    );
+    await runCommand(
+        [process.execPath, 'x', '--no-install', 'tsc', '--project', path.join(directory, 'tsconfig.json')],
+        cwd,
+    );
+};
+
 export const runPackagedUiSmokeTest = async (cwd = process.cwd()) => {
     const manifest = await readPackageManifest(cwd);
     const tempDirectory = await mkdtemp(path.join(os.tmpdir(), 'spiracha-package-smoke-'));
@@ -165,13 +221,41 @@ export const runPackagedUiSmokeTest = async (cwd = process.cwd()) => {
         await runCommand([process.execPath, 'pm', 'pack', '--destination', tempDirectory], cwd);
         await Bun.write(path.join(tempDirectory, 'package.json'), '{"name":"spiracha-smoke","private":true}\n');
         await runCommand([process.execPath, 'add', '--silent', packageTgz], tempDirectory);
+        await Bun.write(path.join(tempDirectory, 'payload-fixtures.json'), JSON.stringify(payloadSourceFixtures));
+        await verifyPortablePayloadPackage(tempDirectory, cwd);
         await runCommand(
             [
                 process.execPath,
                 '--eval',
-                `import { createConversationClient } from 'spiracha/client';
+                `import { createConversationClient, convertConversationPayload, ConversationPayloadError } from 'spiracha/client';
 const sources = await createConversationClient({ mode: 'local' }).listSources();
-if (!Array.isArray(sources) || sources.length === 0) throw new Error('Packaged Spiracha SDK returned no sources.');`,
+if (!Array.isArray(sources) || sources.length === 0) throw new Error('Packaged Spiracha SDK returned no sources.');
+for (const fixture of await Bun.file('payload-fixtures.json').json()) {
+    const [converted] = await convertConversationPayload({ payload: fixture.payload });
+    if (converted.source !== fixture.source || !converted.markdown.includes('Consumer answer')) {
+        throw new Error('Installed SDK failed for source ' + fixture.source);
+    }
+}
+const [web] = await convertConversationPayload({ payload: {
+    title: 'Consumer test', model: 'openai/gpt-5', messages: [{ role: 'assistant', content: 'Installed SDK works.' }],
+} });
+if (web.source !== 'web' || web.markdown !== '# Consumer test\\n\\n## GPT 5\\n\\nInstalled SDK works.\\n') {
+    throw new Error('Installed SDK payload conversion did not preserve normalized Markdown.');
+}
+const records = [
+    { type: 'session_meta', payload: { id: 'sdk-session', cwd: '/example', timestamp: '2026-09-07T00:00:00Z' } },
+    { type: 'response_item', payload: { type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: 'Native payload works.' }] } },
+];
+const [codex] = await convertConversationPayload({ payload: records.map((record) => JSON.stringify(record)).join('\\n') });
+if (codex.source !== 'codex' || !codex.markdown.includes('Native payload works.')) {
+    throw new Error('Installed SDK did not convert native JSONL.');
+}
+try {
+    await convertConversationPayload({ payload: {}, source: 'claude-code' });
+    throw new Error('Installed SDK accepted unsupported Claude Code.');
+} catch (error) {
+    if (!(error instanceof ConversationPayloadError) || error.code !== 'unsupported_source') throw error;
+}`,
             ],
             tempDirectory,
         );

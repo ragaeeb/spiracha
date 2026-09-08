@@ -1,4 +1,5 @@
 import { isSqliteDatabaseError } from '@spiracha/lib/sqlite-error';
+import { getMutationErrorMessage } from './mutation-error';
 
 export type ErrorPresentation = {
     description: string;
@@ -26,7 +27,7 @@ const redactLocalPaths = (message: string): string => {
         .join('');
 };
 
-export const getErrorPresentation = (error: Error, options: ErrorPresentationOptions): ErrorPresentation => {
+export const getErrorPresentation = (error: unknown, options: ErrorPresentationOptions): ErrorPresentation => {
     if (isSqliteDatabaseError(error)) {
         return {
             description: DATABASE_ERROR_DESCRIPTION,
@@ -35,8 +36,10 @@ export const getErrorPresentation = (error: Error, options: ErrorPresentationOpt
         };
     }
 
+    const fallback = 'An unexpected error occurred. Reload and try again.';
+    const message = typeof error === 'string' ? error : (getMutationErrorMessage(error, fallback) ?? fallback);
     return {
-        description: redactLocalPaths(error.message),
+        description: redactLocalPaths(message),
         isDatabaseError: false,
         title: options.fallbackTitle,
     };

@@ -360,4 +360,29 @@ describe('ThreadsTable', () => {
         expect(onExportThread).toHaveBeenCalledWith(threadEntry);
         expect(onDeleteThread).toHaveBeenCalledWith(threadEntry);
     });
+
+    it('should show up to 100 Codex project threads on one page', () => {
+        const threads = Array.from({ length: 101 }, (_, index) => ({
+            ...threadEntry,
+            thread: {
+                ...threadEntry.thread,
+                id: `thread-${index + 1}`,
+                title: `Thread ${index + 1}`,
+            },
+        }));
+
+        render(
+            <ThreadsTable
+                onDeleteThread={vi.fn()}
+                onDeleteThreads={vi.fn()}
+                onExportThread={vi.fn()}
+                onExportThreads={vi.fn()}
+                threads={threads}
+            />,
+        );
+
+        expect(screen.getByRole('link', { name: 'Thread 100' })).toBeTruthy();
+        expect(screen.queryByRole('link', { name: 'Thread 101' })).toBeNull();
+        expect(screen.getByText('Page 1 of 2')).toBeTruthy();
+    });
 });

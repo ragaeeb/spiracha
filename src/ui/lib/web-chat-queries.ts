@@ -1,5 +1,12 @@
 import { queryOptions } from '@tanstack/react-query';
-import { getWebChatEventsFn, getWebChatFn, listWebChatsFn } from './web-chat-server';
+import { getWebChatArtifactsFn, getWebChatEventsFn, getWebChatFn, listWebChatsFn } from './web-chat-server';
+
+export const webChatArtifactsQueryOptions = (conversationId: string) =>
+    queryOptions({
+        gcTime: 60_000,
+        queryFn: () => getWebChatArtifactsFn({ data: { conversationId } }),
+        queryKey: ['web-chat-artifacts', conversationId],
+    });
 
 export const webChatsQueryOptions = () =>
     queryOptions({

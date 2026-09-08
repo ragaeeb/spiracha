@@ -7,26 +7,11 @@ import {
     readGrokSessionTranscript,
     resolveGrokSessionsDir,
 } from '../grok-db';
-import type {
-    GrokSessionSummary,
-    GrokSessionTranscript,
-    GrokTranscriptEntry,
-    GrokTranscriptPart,
-} from '../grok-exporter-types';
-import { getFinalGrokAssistantTextPartIds, getGrokTextPartPhase } from '../grok-transcript-phase';
-import { cleanInlineTitle } from '../shared';
+import type { GrokSessionSummary, GrokSessionTranscript } from '../grok-exporter-types';
+import { normalizeGrokTranscriptEntries } from '../grok-transcript-parser';
+import { cleanInlineTitle } from '../shared-text';
 import { runWithTranscriptLoadLimit } from '../transcript-load-limiter';
-import {
-    createConversationUiPath,
-    createDeepLinks,
-    createTextMessage,
-    finalizeMessages,
-    getToolNamespace,
-    isWithinUpdatedWindow,
-    normalizeAssistantPhase,
-    normalizeRole,
-    normalizeToolStatus,
-} from './adapter-helpers';
+import { createConversationUiPath, createDeepLinks, isWithinUpdatedWindow } from './adapter-helpers';
 import { selectConversationMessages } from './message-selector';
 import { getConversationPathMatch } from './path-match';
 import { createRawConversationDownload } from './raw-download';
@@ -37,7 +22,7 @@ import type {
     ConversationPathMatch,
     DeleteConversationOptions,
     GetConversationOptions,
-    ListConversationsForPathOptions,
+    ListConversationsOptions,
 } from './types';
 
 const GROK_CONVERSATION_HYDRATION_CONCURRENCY = 4;
@@ -45,102 +30,14 @@ const GROK_CONVERSATION_HYDRATION_CONCURRENCY = 4;
 const getSessionsDir = (options: { locations?: { grokSessionsDir?: string } }) =>
     options.locations?.grokSessionsDir ?? resolveGrokSessionsDir();
 
-const partToMessages = (
-    entry: GrokTranscriptEntry,
-    part: GrokTranscriptPart,
-    finalTextPartIds: Set<string>,
-    order: number,
-): ConversationMessage[] => {
-    if (part.type === 'text') {
-        return createTextMessage({
-            createdAtMs: entry.createdAtMs,
-            id: part.partId,
-            model: entry.modelId ?? undefined,
-            order,
-            phase: normalizeAssistantPhase(getGrokTextPartPhase(entry, part, finalTextPartIds), 'unknown'),
-            role: normalizeRole(entry.role),
-            text: part.text,
-        });
-    }
-
-    if (part.type === 'reasoning') {
-        return createTextMessage({
-            createdAtMs: entry.createdAtMs,
-            id: part.partId,
-            order,
-            phase: 'reasoning',
-            role: 'assistant',
-            text: part.text,
-        });
-    }
-
-    if (part.type === 'tool_call') {
-        return createTextMessage({
-            createdAtMs: entry.createdAtMs,
-            id: part.partId,
-            metadata: { toolCallId: part.toolCallId, toolName: part.toolName },
-            order,
-            phase: 'tool_call',
-            role: 'tool',
-            text: [part.toolName, part.argumentsText].filter(Boolean).join('\n'),
-            toolEvidence: {
-                callId: part.toolCallId ?? null,
-                command: null,
-                durationMs: null,
-                exitCode: null,
-                inputText: part.argumentsText ?? null,
-                name: part.toolName ?? 'unknown',
-                namespace: getToolNamespace(part.toolName ?? 'unknown'),
-                outputText: null,
-                status: 'unknown',
-                workdir: null,
-            },
-        });
-    }
-
-    if (part.type === 'tool_result') {
-        return createTextMessage({
-            createdAtMs: entry.createdAtMs,
-            id: part.partId,
-            metadata: { toolCallId: part.toolCallId },
-            order,
-            phase: 'tool_output',
-            role: 'tool',
-            text: part.outputText,
-            toolEvidence: {
-                callId: part.toolCallId ?? null,
-                command: null,
-                durationMs: null,
-                exitCode: null,
-                inputText: null,
-                name: part.toolName ?? 'unknown',
-                namespace: getToolNamespace(part.toolName ?? 'unknown'),
-                outputText: part.outputText ?? null,
-                status: normalizeToolStatus(null),
-                workdir: null,
-            },
-        });
-    }
-
-    return [];
-};
-
-const transcriptToMessages = (transcript: GrokSessionTranscript): ConversationMessage[] => {
-    const finalTextPartIds = getFinalGrokAssistantTextPartIds(transcript.entries);
-    return finalizeMessages(
-        transcript.entries.flatMap((entry, entryIndex) =>
-            entry.parts.flatMap((part, partIndex) =>
-                partToMessages(entry, part, finalTextPartIds, entryIndex + partIndex),
-            ),
-        ),
-    );
-};
+const transcriptToMessages = (transcript: GrokSessionTranscript): ConversationMessage[] =>
+    normalizeGrokTranscriptEntries(transcript.entries);
 
 const buildConversation = async (
     session: GrokSessionSummary,
     sessionsDir: string,
     matches: ConversationPathMatch[],
-    options: Pick<ListConversationsForPathOptions, 'includeMessages' | 'messageSelector'>,
+    options: Pick<ListConversationsOptions, 'includeMessages' | 'messageSelector'>,
     loadedTranscript: GrokSessionTranscript | null = null,
 ): Promise<ConversationDetail> => {
     const transcript =
@@ -189,7 +86,11 @@ const buildConversation = async (
     };
 };
 
-const listGrokConversationsForPath = async (options: ListConversationsForPathOptions) => {
+const listGrokConversations = async (options: ListConversationsOptions) => {
+    if (!options.cwd) {
+        return [];
+    }
+
     const sessionsDir = getSessionsDir(options);
     const groups = await listGrokWorkspaceGroups(sessionsDir);
     const conversations: ConversationDetail[] = [];
@@ -254,6 +155,6 @@ export const grokConversationAdapter: ConversationAdapter = {
     deleteConversation: deleteGrokConversation,
     getConversation: getGrokConversation,
     getConversationRaw: getGrokConversationRaw,
-    listConversationsForPath: listGrokConversationsForPath,
+    listConversations: listGrokConversations,
     source: 'grok',
 };

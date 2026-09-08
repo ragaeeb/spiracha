@@ -5,7 +5,7 @@ import type {
     MiniMaxCodeTranscriptMessage,
 } from '@spiracha/lib/minimax-code-exporter-types';
 import { getMiniMaxCodeMessagePhase } from '@spiracha/lib/minimax-code-transcript-phase';
-import type { JsonValue } from '@spiracha/lib/shared';
+import type { JsonValue } from '@spiracha/lib/shared-text';
 import { getThreadTranscriptStats } from './thread-transcript-stats';
 
 const toTimestamp = (value: number | null): string | null => {

@@ -70,7 +70,7 @@ export const Route = createFileRoute('/claude-code-sessions/$sessionId')({
     validateSearch: parseThreadTranscriptSearch,
 });
 
-function ClaudeCodeSessionDetailErrorComponent({ error }: { error: Error }) {
+function ClaudeCodeSessionDetailErrorComponent({ error }: { error: unknown }) {
     return <RouteErrorPanel error={error} title="Failed to load Claude Code session" />;
 }
 

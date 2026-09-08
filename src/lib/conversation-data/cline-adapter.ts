@@ -8,6 +8,7 @@ import {
 } from '../cline-db';
 import type { ClineTaskSummary, ClineTaskTranscript } from '../cline-exporter-types';
 import { isSafeClineSessionId, resolveClineDataDir } from '../cline-exporter-types';
+import { normalizeClineTranscriptMessages } from '../cline-transcript-parser';
 import { mapWithConcurrency } from '../concurrency';
 import { runWithTranscriptLoadLimit } from '../transcript-load-limiter';
 import { createConversationUiPath, createDeepLinks, isWithinUpdatedWindow } from './adapter-helpers';
@@ -22,7 +23,7 @@ import type {
     ConversationPathMatch,
     DeleteConversationOptions,
     GetConversationOptions,
-    ListConversationsForPathOptions,
+    ListConversationsOptions,
 } from './types';
 
 const CLINE_CONVERSATION_HYDRATION_CONCURRENCY = 4;
@@ -31,35 +32,13 @@ const getDataDir = (options: { locations?: ConversationDataLocations }) =>
     options.locations?.clineDataDir ?? resolveClineDataDir();
 
 const transcriptToMessages = (transcript: ClineTaskTranscript): ConversationMessage[] =>
-    transcript.messages.map((message, order) => ({
-        createdAtMs: message.createdAtMs,
-        id: message.messageId,
-        metadata: {},
-        order,
-        phase: message.phase,
-        role: message.role,
-        text: message.text,
-        toolEvidence: message.tool
-            ? {
-                  callId: message.tool.callId,
-                  command: message.tool.command,
-                  durationMs: null,
-                  exitCode: null,
-                  inputText: message.tool.inputText,
-                  name: message.tool.name,
-                  namespace: null,
-                  outputText: message.tool.outputText,
-                  status: message.tool.status,
-                  workdir: message.tool.workdir,
-              }
-            : null,
-    }));
+    normalizeClineTranscriptMessages(transcript.messages);
 
 const buildConversation = async (
     task: ClineTaskSummary,
     dataDir: string,
     matches: ConversationPathMatch[],
-    options: Pick<ListConversationsForPathOptions, 'includeMessages' | 'messageSelector'>,
+    options: Pick<ListConversationsOptions, 'includeMessages' | 'messageSelector'>,
     loadedTranscript: ClineTaskTranscript | null = null,
 ): Promise<ConversationDetail> => {
     const transcript =
@@ -98,7 +77,11 @@ const buildConversation = async (
     };
 };
 
-const listClineConversationsForPath = async (options: ListConversationsForPathOptions) => {
+const listClineConversations = async (options: ListConversationsOptions) => {
+    if (!options.cwd) {
+        return [];
+    }
+
     const dataDir = getDataDir(options);
     const transcriptCache = createClineTranscriptCache(dataDir);
     const groups = await listClineWorkspaceGroups(dataDir, transcriptCache);
@@ -154,6 +137,6 @@ export const clineConversationAdapter: ConversationAdapter = {
     deleteConversation: deleteClineConversation,
     getConversation: getClineConversation,
     getConversationRaw: getClineConversationRaw,
-    listConversationsForPath: listClineConversationsForPath,
+    listConversations: listClineConversations,
     source: 'cline',
 };

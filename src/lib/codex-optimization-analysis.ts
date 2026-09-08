@@ -1,4 +1,5 @@
-import { asObject, asString, type JsonValue, readJsonlObjects } from './shared';
+import { readJsonlObjects } from './shared';
+import { asObject, asString, type JsonValue } from './shared-text';
 
 export type ThreadOptimizationSummary = {
     broadReadCalls: number;

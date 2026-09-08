@@ -32,7 +32,7 @@ import {
 import { RouteStateResetBoundary } from '#/lib/route-state-reset';
 import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
-const GrokSessionDetailErrorComponent = ({ error }: { error: Error }) => {
+const GrokSessionDetailErrorComponent = ({ error }: { error: unknown }) => {
     return <RouteErrorPanel error={error} title="Failed to load Grok session" />;
 };
 

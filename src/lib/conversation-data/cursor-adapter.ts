@@ -1,11 +1,11 @@
 import { mapWithConcurrency } from '../concurrency';
 import {
+    getCursorThreadSummaryByComposerId,
     listCursorThreadsForGroup,
     listCursorWorkspaceGroups,
     readCursorThreadTranscriptWithAgentFiles,
 } from '../cursor-db';
 import type {
-    CursorBubble,
     CursorPruneResult,
     CursorThreadSummary,
     CursorThreadTranscript,
@@ -13,28 +13,20 @@ import type {
 } from '../cursor-exporter-types';
 import { getCursorGlobalDbPath, resolveCursorUserDir } from '../cursor-exporter-types';
 import { collectCursorThreadsForDeletion, isCursorRunning, pruneCursorThreads } from '../cursor-recovery';
-import { getCursorTextBubblePhase, getFinalCursorAssistantTextBubbleIds } from '../cursor-transcript-phase';
-import { cleanInlineTitle } from '../shared';
+import { cleanInlineTitle } from '../shared-text';
 import { runWithTranscriptLoadLimit } from '../transcript-load-limiter';
-import {
-    createConversationUiPath,
-    createDeepLinks,
-    createTextMessage,
-    finalizeMessages,
-    isWithinUpdatedWindow,
-    normalizeToolStatus,
-} from './adapter-helpers';
+import { createConversationUiPath, createDeepLinks } from './adapter-helpers';
+import { cursorBubblesToMessages } from './cursor-message-normalizer';
 import { selectConversationMessages } from './message-selector';
 import { getFirstConversationPathMatch } from './path-match';
 import type {
     ConversationAdapter,
     ConversationDetail,
-    ConversationMessage,
     ConversationPathMatch,
     DeleteConversationOptions,
     DeleteConversationResult,
     GetConversationOptions,
-    ListConversationsForPathOptions,
+    ListConversationsOptions,
 } from './types';
 
 const CURSOR_CONVERSATION_HYDRATION_CONCURRENCY = 4;
@@ -42,82 +34,8 @@ const CURSOR_CONVERSATION_HYDRATION_CONCURRENCY = 4;
 const getUserDir = (options: { locations?: { cursorUserDir?: string } }) =>
     options.locations?.cursorUserDir ?? resolveCursorUserDir();
 
-const bubbleToMessages = (
-    bubble: CursorBubble,
-    finalAssistantTextBubbleIds: Set<string>,
-    order: number,
-): ConversationMessage[] => {
-    const thinking = createTextMessage({
-        createdAtMs: bubble.createdAtMs,
-        id: `${bubble.bubbleId}:thinking`,
-        order,
-        phase: 'reasoning',
-        role: 'assistant',
-        text: bubble.thinking,
-    });
-    const text = createTextMessage({
-        createdAtMs: bubble.createdAtMs,
-        id: bubble.bubbleId,
-        order,
-        phase: getCursorTextBubblePhase(bubble, finalAssistantTextBubbleIds) ?? 'unknown',
-        role: bubble.kind === 'assistant' ? 'assistant' : bubble.kind === 'user' ? 'user' : 'unknown',
-        text: bubble.text,
-    });
-    const toolCall = bubble.toolCall
-        ? createTextMessage({
-              createdAtMs: bubble.createdAtMs,
-              id: `${bubble.bubbleId}:tool_call`,
-              metadata: { callId: bubble.toolCall.callId, status: bubble.toolCall.status },
-              order,
-              phase: 'tool_call',
-              role: 'tool',
-              text: [bubble.toolCall.name, bubble.toolCall.argumentsText].filter(Boolean).join('\n'),
-              toolEvidence: {
-                  callId: bubble.toolCall.callId,
-                  command: null,
-                  durationMs: null,
-                  exitCode: null,
-                  inputText: bubble.toolCall.argumentsText,
-                  name: bubble.toolCall.name,
-                  namespace: bubble.toolCall.name.includes('.') ? (bubble.toolCall.name.split('.')[0] ?? null) : null,
-                  outputText: null,
-                  status: normalizeToolStatus(bubble.toolCall.status),
-                  workdir: null,
-              },
-          })
-        : [];
-    const toolOutput = bubble.toolCall
-        ? createTextMessage({
-              createdAtMs: bubble.createdAtMs,
-              id: `${bubble.bubbleId}:tool_output`,
-              metadata: { callId: bubble.toolCall.callId, status: bubble.toolCall.status },
-              order,
-              phase: 'tool_output',
-              role: 'tool',
-              text: bubble.toolCall.resultText,
-              toolEvidence: {
-                  callId: bubble.toolCall.callId,
-                  command: null,
-                  durationMs: null,
-                  exitCode: null,
-                  inputText: null,
-                  name: bubble.toolCall.name,
-                  namespace: bubble.toolCall.name.includes('.') ? (bubble.toolCall.name.split('.')[0] ?? null) : null,
-                  outputText: bubble.toolCall.resultText,
-                  status: normalizeToolStatus(bubble.toolCall.status),
-                  workdir: null,
-              },
-          })
-        : [];
-
-    return [...thinking, ...text, ...toolCall, ...toolOutput];
-};
-
 const transcriptToMessages = (transcript: CursorThreadTranscript) => {
-    const finalAssistantTextBubbleIds = getFinalCursorAssistantTextBubbleIds(transcript.bubbles);
-    return finalizeMessages(
-        transcript.bubbles.flatMap((bubble, order) => bubbleToMessages(bubble, finalAssistantTextBubbleIds, order)),
-    );
+    return cursorBubblesToMessages(transcript.bubbles);
 };
 
 const getWorkspacePath = (group: CursorWorkspaceGroup) => {
@@ -129,7 +47,7 @@ const buildConversation = async (
     group: CursorWorkspaceGroup,
     userDir: string,
     matches: ConversationPathMatch[],
-    options: Pick<ListConversationsForPathOptions, 'includeMessages' | 'messageSelector'>,
+    options: Pick<ListConversationsOptions, 'includeMessages' | 'messageSelector'>,
 ): Promise<ConversationDetail> => {
     const globalDbPath = getCursorGlobalDbPath(userDir);
     const transcript = options.includeMessages
@@ -173,7 +91,11 @@ const buildConversation = async (
     };
 };
 
-const listCursorConversationsForPath = async (options: ListConversationsForPathOptions) => {
+const listCursorConversations = async (options: ListConversationsOptions) => {
+    if (!options.cwd) {
+        return [];
+    }
+
     const userDir = getUserDir(options);
     const groups = await listCursorWorkspaceGroups(userDir);
     const candidates: { group: CursorWorkspaceGroup; match: ConversationPathMatch; thread: CursorThreadSummary }[] = [];
@@ -187,12 +109,10 @@ const listCursorConversationsForPath = async (options: ListConversationsForPathO
             includeBubbleStats: true,
             includeModelAttribution: true,
             includeTranscriptDirs: false,
+            updatedAfterMs: options.updatedAfterMs,
+            updatedBeforeMs: options.updatedBeforeMs,
         });
         for (const thread of threads) {
-            if (!isWithinUpdatedWindow(thread.lastUpdatedAtMs, options)) {
-                continue;
-            }
-
             candidates.push({ group, match, thread });
         }
     }
@@ -204,16 +124,12 @@ const listCursorConversationsForPath = async (options: ListConversationsForPathO
 
 const getCursorConversation = async (options: GetConversationOptions): Promise<ConversationDetail | null> => {
     const userDir = getUserDir(options);
-    const groups = await listCursorWorkspaceGroups(userDir);
-    for (const group of groups) {
-        const threads = await listCursorThreadsForGroup(group, userDir, { includeTranscriptDirs: false });
-        const thread = threads.find((entry) => entry.composerId === options.id);
-        if (thread) {
-            return buildConversation(thread, group, userDir, [], {
-                includeMessages: true,
-                messageSelector: options.messageSelector ?? 'all',
-            });
-        }
+    const direct = await getCursorThreadSummaryByComposerId(options.id, userDir, { includeTranscriptDirs: false });
+    if (direct) {
+        return buildConversation(direct.thread, direct.group, userDir, [], {
+            includeMessages: true,
+            messageSelector: options.messageSelector ?? 'all',
+        });
     }
 
     return null;
@@ -251,6 +167,6 @@ export const toCursorDeleteConversationResult = (result: CursorPruneResult): Del
 export const cursorConversationAdapter: ConversationAdapter = {
     deleteConversation: deleteCursorConversation,
     getConversation: getCursorConversation,
-    listConversationsForPath: listCursorConversationsForPath,
+    listConversations: listCursorConversations,
     source: 'cursor',
 };

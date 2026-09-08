@@ -85,7 +85,7 @@ const getDeleteTitle = (pendingDelete: PendingSessionDelete | null) => {
         : 'Delete this Kiro session?';
 };
 
-const KiroWorkspaceErrorComponent = ({ error }: { error: Error }) => {
+const KiroWorkspaceErrorComponent = ({ error }: { error: unknown }) => {
     return <RouteErrorPanel error={error} title="Failed to load Kiro workspace" />;
 };
 
@@ -243,6 +243,7 @@ const KiroWorkspacePage = () => {
                 forceZipArchive={pendingExport ? pendingExport.sessionIds.length > 1 : false}
                 open={pendingExport !== null}
                 pending={exportMutation.isPending}
+                rawExport={pendingExport ? { ids: pendingExport.sessionIds, source: 'kiro' } : undefined}
                 title={pendingExport ? `Export ${pendingExport.label}` : 'Export session'}
                 onExport={(options) => {
                     if (pendingExport) {

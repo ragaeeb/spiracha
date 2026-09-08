@@ -4,11 +4,6 @@ import path from 'node:path';
 import type { Readable, Writable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import {
-    parseCodexTranscriptRecord,
-    shouldHideCodexTranscriptText,
-    stripCodexMemoryCitationBlocks,
-} from './codex-thread-parser';
-import {
     type CodexTranscriptExportTarget,
     type CodexTranscriptRenderOptions,
     DEFAULT_CODEX_DIR,
@@ -17,24 +12,27 @@ import {
     type ToolRecord,
 } from './codex-thread-types';
 import {
+    parseCodexTranscriptRecord,
+    shouldHideCodexTranscriptText,
+    stripCodexMemoryCitationBlocks,
+} from './codex-transcript-records';
+import { createExportWriteStream, finalizeExportWriteStream, readJsonlObjects } from './shared';
+import {
     asObject,
     asString,
     cleanExtractedText,
     cleanInlineTitle,
-    createExportWriteStream,
     type ExportFormat,
-    finalizeExportWriteStream,
     formatInlineLiteral,
     formatModelLabel,
     type JsonValue,
     type MetadataEntry,
-    readJsonlObjects,
     renderCodeBlock,
     renderDocumentTitle,
     renderMetadataBlock,
     renderSection,
     stripCodexAppDirectiveLines,
-} from './shared';
+} from './shared-text';
 import { runWithTranscriptLoadLimit } from './transcript-load-limiter';
 
 export const pipeCodexExportStream = async (source: Readable, destination: Writable) => {

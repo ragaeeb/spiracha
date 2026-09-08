@@ -49,9 +49,11 @@ export const importWebChatsFn = createServerFn({ method: 'POST' })
                 throw new Error('The selected files exceed the 100 MB import limit.');
             }
             const { importWebChatFiles } = await import('@spiracha/lib/web-chat');
-            const result = importWebChatFiles(data.files);
+            const result = await importWebChatFiles(data.files);
             return {
-                conversations: result.conversations.map(({ events: _events, ...summary }) => summary),
+                conversations: result.conversations.map(
+                    ({ artifacts: _artifacts, events: _events, ...summary }) => summary,
+                ),
                 errors: result.errors,
             };
         },
@@ -77,4 +79,15 @@ export const getWebChatEventsFn = createServerFn({ method: 'GET' })
             throw new Error(`Imported web conversation not found: ${data.conversationId}`);
         }
         return conversation.events;
+    });
+
+export const getWebChatArtifactsFn = createServerFn({ method: 'GET' })
+    .validator(conversationSchema)
+    .handler(async ({ data }) => {
+        const { getImportedWebChat } = await import('@spiracha/lib/web-chat');
+        const conversation = getImportedWebChat(data.conversationId);
+        if (!conversation) {
+            throw new Error(`Imported web conversation not found: ${data.conversationId}`);
+        }
+        return conversation.artifacts;
     });

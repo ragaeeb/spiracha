@@ -89,7 +89,7 @@ export const Route = createFileRoute('/opencode/$workspaceKey')({
     ),
 });
 
-function OpenCodeWorkspaceErrorComponent({ error }: { error: Error }) {
+function OpenCodeWorkspaceErrorComponent({ error }: { error: unknown }) {
     return <RouteErrorPanel error={error} title="Failed to load OpenCode workspace" />;
 }
 

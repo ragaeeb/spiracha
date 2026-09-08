@@ -24,7 +24,7 @@ const themeInitScript = `
   })()
 `;
 
-function RootErrorComponent({ error }: { error: Error }) {
+function RootErrorComponent({ error }: { error: unknown }) {
     const presentation = getErrorPresentation(error, { fallbackTitle: 'Something went wrong' });
 
     return (
@@ -94,7 +94,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
             },
             {
                 content:
-                    'Browse local Codex, Claude Code, Grok, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode history through a compact workspace UI.',
+                    'Browse local Codex, Claude Code, Grok, Grok Bot, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode history through a compact workspace UI.',
                 name: 'description',
             },
             {

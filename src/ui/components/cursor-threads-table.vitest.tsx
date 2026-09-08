@@ -122,11 +122,14 @@ const thread: CursorThreadSummary = {
     composerId: 'thread-1',
     createdAtMs: 1_700_000_000_000,
     lastUpdatedAtMs: 1_700_000_100_000,
+    latestSnapshotComposerId: null,
     mode: 'agent',
     model: 'claude-fable-5',
     name: 'Fix the checkout flow',
     parentComposerId: null,
     reasoningEffort: 'low',
+    snapshotCount: 1,
+    status: 'completed',
     transcriptDirs: [],
     workspaceKey: 'folder:/Users/user/workspace/demo',
     workspaceLabel: 'demo',
@@ -150,6 +153,29 @@ describe('CursorThreadsTable', () => {
 
         const link = screen.getByRole('link', { name: /fix the checkout flow/i });
         expect(link.getAttribute('href')).toBe('/cursor-threads/thread-1');
+    });
+
+    it('should distinguish older moved snapshots from the latest physical record', () => {
+        render(
+            <CursorThreadsTable
+                onDeleteThread={vi.fn()}
+                onDeleteThreads={vi.fn()}
+                onExportThread={vi.fn()}
+                onExportThreads={vi.fn()}
+                threads={[
+                    {
+                        ...thread,
+                        latestSnapshotComposerId: 'thread-3',
+                        snapshotCount: 3,
+                        status: 'aborted',
+                    },
+                ]}
+            />,
+        );
+
+        const latestLink = screen.getByRole('link', { name: /older moved snapshot.*open latest/i });
+        expect(latestLink.getAttribute('href')).toBe('/cursor-threads/thread-3');
+        expect(screen.getByRole('columnheader', { name: 'Stored bubbles' })).toBeTruthy();
     });
 
     it('should allow selecting multiple threads and trigger bulk actions', () => {

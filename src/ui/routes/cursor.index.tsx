@@ -14,7 +14,7 @@ import { deleteCursorWorkspaceFn, deleteCursorWorkspacesFn, recoverCursorWorkspa
 import { getMutationErrorMessage } from '#/lib/mutation-error';
 import { matchesTextQuery } from '#/lib/text-filter';
 
-const CursorErrorComponent = ({ error }: { error: Error }) => {
+const CursorErrorComponent = ({ error }: { error: unknown }) => {
     return <RouteErrorPanel error={error} title="Failed to load Cursor workspaces" />;
 };
 

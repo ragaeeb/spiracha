@@ -1,49 +1,28 @@
 import { mapWithConcurrency } from '../concurrency';
+import type { QoderSessionSummary, QoderSessionTranscript } from '../qoder-exporter-types';
 import {
-    listQoderSessionsForGroup,
-    listQoderWorkspaceGroups,
-    readQoderSessionTranscript,
     resolveQoderCliProjectsDir,
-} from '../qoder-db';
-import type {
-    QoderSessionSummary,
-    QoderSessionTranscript,
-    QoderTranscriptEntry,
-    QoderTranscriptPart,
+    resolveQoderGlobalStateDb,
+    resolveQoderWorkspaceStorageDir,
 } from '../qoder-exporter-types';
-import { resolveQoderGlobalStateDb, resolveQoderWorkspaceStorageDir } from '../qoder-exporter-types';
-import { getFinalQoderAssistantMessageEntryIds, getQoderMessagePhase } from '../qoder-transcript-phase';
-import { cleanInlineTitle } from '../shared';
+import { readQoderSessionTranscript } from '../qoder-session-transcript';
+import { listQoderSessionsForGroup, listQoderWorkspaceGroups } from '../qoder-sessions';
+import { normalizeQoderTranscriptEntries } from '../qoder-transcript-parser';
+import { cleanInlineTitle } from '../shared-text';
 import { runWithTranscriptLoadLimit } from '../transcript-load-limiter';
-import {
-    createConversationUiPath,
-    createDeepLinks,
-    createTextMessage,
-    finalizeMessages,
-    isWithinUpdatedWindow,
-    normalizeAssistantPhase,
-    normalizeRole,
-    normalizeToolStatus,
-    toDateMs,
-} from './adapter-helpers';
+import { createConversationUiPath, createDeepLinks, isWithinUpdatedWindow } from './adapter-helpers';
 import { selectConversationMessages } from './message-selector';
 import { getConversationPathMatch } from './path-match';
 import { createRawConversationDownload } from './raw-download';
 import type {
     ConversationAdapter,
     ConversationDetail,
-    ConversationMessage,
     ConversationPathMatch,
     GetConversationOptions,
-    ListConversationsForPathOptions,
+    ListConversationsOptions,
 } from './types';
 
 const QODER_CONVERSATION_HYDRATION_CONCURRENCY = 4;
-
-const getPartString = (part: QoderTranscriptPart, key: string): string | null => {
-    const value = part.raw[key];
-    return typeof value === 'string' && value.trim() ? value : null;
-};
 
 const getQoderLocations = (options: {
     locations?: {
@@ -59,97 +38,14 @@ const getQoderLocations = (options: {
     workspaceStorageDir: options.locations?.qoderWorkspaceStorageDir ?? resolveQoderWorkspaceStorageDir(),
 });
 
-const partToMessages = (
-    entry: QoderTranscriptEntry,
-    part: QoderTranscriptPart,
-    partIndex: number,
-    finalEntryIds: Set<string>,
-): ConversationMessage[] => {
-    if (entry.entryType === 'tool_call') {
-        const toolName = getPartString(part, 'toolName') ?? 'unknown';
-        const callId = getPartString(part, 'toolCallId') ?? entry.entryId;
-        return createTextMessage({
-            createdAtMs: toDateMs(entry.timestamp),
-            id: `${entry.entryId}:${partIndex}`,
-            metadata: {
-                requestId: entry.requestId,
-                toolCallId: callId,
-                toolName,
-            },
-            order: partIndex,
-            phase: 'tool_call',
-            role: 'tool',
-            text: part.text,
-            toolEvidence: {
-                callId,
-                command: getPartString(part, 'command'),
-                durationMs: null,
-                exitCode: null,
-                inputText: part.text ?? null,
-                name: toolName,
-                namespace: toolName.includes('.') ? (toolName.split('.')[0] ?? null) : null,
-                outputText: null,
-                status: 'unknown',
-                workdir: getPartString(part, 'workdir'),
-            },
-        });
-    }
-
-    if (entry.entryType === 'tool_output') {
-        const toolName = getPartString(part, 'toolName') ?? 'unknown';
-        const callId = getPartString(part, 'toolCallId') ?? entry.entryId;
-        const status = getPartString(part, 'status');
-        return createTextMessage({
-            createdAtMs: toDateMs(entry.timestamp),
-            id: `${entry.entryId}:${partIndex}`,
-            metadata: {
-                requestId: entry.requestId,
-                toolCallId: callId,
-                toolName: getPartString(part, 'toolName'),
-            },
-            order: partIndex,
-            phase: 'tool_output',
-            role: 'tool',
-            text: part.text,
-            toolEvidence: {
-                callId,
-                command: null,
-                durationMs: null,
-                exitCode: null,
-                inputText: null,
-                name: toolName,
-                namespace: toolName.includes('.') ? (toolName.split('.')[0] ?? null) : null,
-                outputText: part.text ?? null,
-                status: normalizeToolStatus(status),
-                workdir: null,
-            },
-        });
-    }
-
-    return createTextMessage({
-        createdAtMs: toDateMs(entry.timestamp),
-        id: `${entry.entryId}:${partIndex}`,
-        order: partIndex,
-        phase: normalizeAssistantPhase(getQoderMessagePhase(entry, finalEntryIds), 'unknown'),
-        role: normalizeRole(entry.role),
-        text: part.text,
-    });
-};
-
-const transcriptToMessages = (transcript: QoderSessionTranscript) => {
-    const finalEntryIds = getFinalQoderAssistantMessageEntryIds(transcript.entries);
-    return finalizeMessages(
-        transcript.entries.flatMap((entry) =>
-            entry.parts.flatMap((part, partIndex) => partToMessages(entry, part, partIndex, finalEntryIds)),
-        ),
-    );
-};
+const transcriptToMessages = (transcript: QoderSessionTranscript) =>
+    normalizeQoderTranscriptEntries(transcript.entries);
 
 const buildConversation = async (
     session: QoderSessionSummary,
     locations: ReturnType<typeof getQoderLocations>,
     matches: ConversationPathMatch[],
-    options: Pick<ListConversationsForPathOptions, 'includeMessages' | 'messageSelector'>,
+    options: Pick<ListConversationsOptions, 'includeMessages' | 'messageSelector'>,
     loadedTranscript: QoderSessionTranscript | null = null,
 ): Promise<ConversationDetail> => {
     const transcript = options.includeMessages
@@ -221,7 +117,11 @@ const buildConversation = async (
     };
 };
 
-const listQoderConversationsForPath = async (options: ListConversationsForPathOptions) => {
+const listQoderConversations = async (options: ListConversationsOptions) => {
+    if (!options.cwd) {
+        return [];
+    }
+
     const locations = getQoderLocations(options);
     const groups = await listQoderWorkspaceGroups(locations.globalStateDb, locations.workspaceStorageDir);
     const candidates: { match: ConversationPathMatch; session: QoderSessionSummary }[] = [];
@@ -303,6 +203,6 @@ const getQoderConversationRaw = async (options: GetConversationOptions) => {
 export const qoderConversationAdapter: ConversationAdapter = {
     getConversation: getQoderConversation,
     getConversationRaw: getQoderConversationRaw,
-    listConversationsForPath: listQoderConversationsForPath,
+    listConversations: listQoderConversations,
     source: 'qoder',
 };

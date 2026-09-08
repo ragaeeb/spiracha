@@ -1210,7 +1210,6 @@ describe('antigravity db discovery', () => {
                 if (!(await Bun.file(databasePath).exists())) {
                     await Bun.write(databasePath, new Uint8Array([4, 5, 6]));
                     recreated = true;
-                    return;
                 }
                 await Bun.sleep(1);
             }

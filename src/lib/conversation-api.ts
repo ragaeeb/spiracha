@@ -12,19 +12,21 @@ import {
     type ExportConversationsZipOptions,
     type GetConversationOptions,
     getConversation,
+    getConversationListScopeError,
     getConversationRaw,
     isConversationSource,
-    type ListConversationsForPathOptions,
+    type ListConversationsOptions,
     listConversationSources,
-    listConversationsForPath,
-    renderConversationMarkdown,
+    listConversations,
     resolveConversationRef,
 } from './conversation-data';
 import { validateEvidenceLens } from './conversation-data/evidence-lens';
 import { buildEvidenceExport } from './conversation-data/evidence-markdown';
+import { renderConversationMarkdown } from './conversation-data/markdown';
 import { decodeConversationCursor } from './conversation-data/pagination';
 import { createConversationMarkdownZip } from './conversation-zip-export';
-import { getExportPlatformName } from './ui-export-archive';
+import { isAllowedLocalRequestOrigin } from './local-request-security';
+import { buildRawConversationExportFileName, getExportPlatformName } from './ui-export-archive';
 
 type ConversationApiDependencies = {
     buildEvidenceExport?: typeof buildEvidenceExport;
@@ -33,13 +35,14 @@ type ConversationApiDependencies = {
     getConversation?: typeof getConversation;
     getConversationRaw?: typeof getConversationRaw;
     listConversationSources?: typeof listConversationSources;
-    listConversationsForPath?: typeof listConversationsForPath;
+    listConversations?: typeof listConversations;
     renderConversationMarkdown?: typeof renderConversationMarkdown;
     resolveConversationRef?: typeof resolveConversationRef;
 };
 
 type ApiErrorCode =
     | 'conversation_not_found'
+    | 'origin_not_allowed'
     | 'internal_error'
     | 'method_not_allowed'
     | 'not_found'
@@ -225,18 +228,26 @@ const parseTimestampParam = (field: string, value: string | null): ParseResult<n
     return validationError ? { error: validationError } : { value: parsed };
 };
 
-const buildListOptions = (url: URL): ParseResult<ListConversationsForPathOptions> => {
-    const cwd = url.searchParams.get('cwd')?.trim();
-    if (!cwd) {
-        return { error: errorResponse('validation_error', '`cwd` is required.', 400, { field: 'cwd' }) };
+const buildListOptions = (url: URL): ParseResult<ListConversationsOptions> => {
+    const sources = parseSources(url.searchParams.get('source'));
+    if ('error' in sources) {
+        return sources;
     }
-    const cwdLengthError = validatePathLength('cwd', cwd);
-    if (cwdLengthError) {
-        return { error: cwdLengthError };
+
+    const rawCwd = url.searchParams.get('cwd');
+    const cwd = rawCwd?.trim();
+    if (rawCwd !== null && !cwd) {
+        return { error: errorResponse('validation_error', '`cwd` must not be empty.', 400, { field: 'cwd' }) };
     }
-    const cwdAbsoluteError = validateAbsoluteCwd(cwd);
-    if (cwdAbsoluteError) {
-        return { error: cwdAbsoluteError };
+    if (cwd) {
+        const cwdLengthError = validatePathLength('cwd', cwd);
+        if (cwdLengthError) {
+            return { error: cwdLengthError };
+        }
+        const cwdAbsoluteError = validateAbsoluteCwd(cwd);
+        if (cwdAbsoluteError) {
+            return { error: cwdAbsoluteError };
+        }
     }
 
     const cursor = url.searchParams.get('cursor');
@@ -245,9 +256,9 @@ const buildListOptions = (url: URL): ParseResult<ListConversationsForPathOptions
         return { error: cursorError };
     }
 
-    const sources = parseSources(url.searchParams.get('source'));
-    if ('error' in sources) {
-        return sources;
+    const scopeError = getConversationListScopeError({ cwd, sources: sources.value });
+    if (scopeError) {
+        return { error: invalidFieldResponse('source', sources.value, scopeError) };
     }
 
     const messageSelector = parseMessageSelector(url.searchParams.get('message_selector'), 'last_final_answer');
@@ -273,7 +284,7 @@ const buildListOptions = (url: URL): ParseResult<ListConversationsForPathOptions
     return {
         value: {
             cursor,
-            cwd,
+            ...(cwd ? { cwd } : {}),
             includeMessages: parseBoolean(url.searchParams.get('include_messages')),
             limit: limit.value,
             messageSelector: messageSelector.value,
@@ -296,7 +307,7 @@ const getDeps = (dependencies: ConversationApiDependencies) => ({
     getConversation: dependencies.getConversation ?? getConversation,
     getConversationRaw: dependencies.getConversationRaw ?? getConversationRaw,
     listConversationSources: dependencies.listConversationSources ?? listConversationSources,
-    listConversationsForPath: dependencies.listConversationsForPath ?? listConversationsForPath,
+    listConversations: dependencies.listConversations ?? listConversations,
     renderConversationMarkdown: dependencies.renderConversationMarkdown ?? renderConversationMarkdown,
     resolveConversationRef: dependencies.resolveConversationRef ?? resolveConversationRef,
 });
@@ -313,7 +324,7 @@ const handleListConversations = async (url: URL, dependencies: ReturnType<typeof
         return result.error;
     }
 
-    const page = await dependencies.listConversationsForPath(result.value);
+    const page = await dependencies.listConversations(result.value);
     return jsonResponse({
         data: page.data,
         meta: normalizeMeta(page.meta),
@@ -490,10 +501,12 @@ const handleRawConversation = async (
         });
     }
 
+    const fileName = buildRawConversationExportFileName(result.value.source, result.value.id);
+
     return new Response(includeBody ? download.blob : null, {
         headers: {
             'Cache-Control': 'no-store',
-            'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(download.fileName)}`,
+            'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`,
             'Content-Type': download.mimeType,
             'X-Content-Type-Options': 'nosniff',
         },
@@ -962,15 +975,19 @@ const parseJsonSources = (value: unknown): ParseResult<ConversationSource[] | 'a
     return invalidSource ? { error: invalidSourceResponse(invalidSource) } : { value: value as ConversationSource[] };
 };
 
-const parseJsonCwd = (body: Record<string, unknown>): ParseResult<string> => {
+const parseJsonCwd = (body: Record<string, unknown>): ParseResult<string | undefined> => {
     const cwdOption = getStringOption(body, 'cwd', 'cwd');
     if ('error' in cwdOption) {
         return cwdOption;
     }
 
-    const cwd = cwdOption.value?.trim();
+    if (cwdOption.value === undefined) {
+        return { value: undefined };
+    }
+
+    const cwd = cwdOption.value.trim();
     if (!cwd) {
-        return { error: errorResponse('validation_error', '`cwd` is required.', 400, { field: 'cwd' }) };
+        return { error: errorResponse('validation_error', '`cwd` must not be empty.', 400, { field: 'cwd' }) };
     }
 
     const cwdError = validatePathLength('cwd', cwd) ?? validateAbsoluteCwd(cwd);
@@ -1012,7 +1029,7 @@ const parseJsonNumberOption = (
     return validationError ? { error: validationError } : value;
 };
 
-const normalizeJsonListOptions = (body: unknown): ParseResult<ListConversationsForPathOptions> => {
+const normalizeJsonListOptions = (body: unknown): ParseResult<ListConversationsOptions> => {
     if (!isRecord(body)) {
         return { error: errorResponse('validation_error', 'Request body must be a JSON object.', 400) };
     }
@@ -1064,7 +1081,7 @@ const normalizeJsonListOptions = (body: unknown): ParseResult<ListConversationsF
     return {
         value: {
             cursor: cursor.value,
-            cwd: cwd.value,
+            ...(cwd.value === undefined ? {} : { cwd: cwd.value }),
             includeMessages: includeMessages.value,
             limit: normalizeLimit(limit.value),
             messageSelector: messageSelector.value,
@@ -1075,19 +1092,28 @@ const normalizeJsonListOptions = (body: unknown): ParseResult<ListConversationsF
     };
 };
 
-const validateListQueryOptions = (options: ListConversationsForPathOptions): Response | null => {
-    if (typeof options.cwd !== 'string' || !options.cwd.trim()) {
-        return errorResponse('validation_error', '`cwd` is required.', 400, { field: 'cwd' });
+const validateListQueryOptions = (options: ListConversationsOptions): Response | null => {
+    if (options.cwd !== undefined && !options.cwd.trim()) {
+        return errorResponse('validation_error', '`cwd` must not be empty.', 400, { field: 'cwd' });
+    }
+
+    const sourceError = validateSourceOption(options.sources);
+    if (sourceError) {
+        return sourceError;
+    }
+
+    const scopeError = getConversationListScopeError(options);
+    if (scopeError) {
+        return invalidFieldResponse('source', options.sources, scopeError);
     }
 
     return (
-        validatePathLength('cwd', options.cwd) ??
-        validateAbsoluteCwd(options.cwd) ??
+        (options.cwd === undefined ? null : validatePathLength('cwd', options.cwd)) ??
+        (options.cwd === undefined ? null : validateAbsoluteCwd(options.cwd)) ??
         validateCursor(options.cursor) ??
         validateLimit(options.limit) ??
         validateTimestamp('updated_after_ms', options.updatedAfterMs) ??
         validateTimestamp('updated_before_ms', options.updatedBeforeMs) ??
-        validateSourceOption(options.sources) ??
         validateMessageSelectorOption(options.messageSelector)
     );
 };
@@ -1111,7 +1137,7 @@ const handleConversationQuery = async (request: Request, dependencies: ReturnTyp
         return validationError;
     }
 
-    const page = await dependencies.listConversationsForPath(options);
+    const page = await dependencies.listConversations(options);
     return jsonResponse({
         data: page.data,
         meta: normalizeMeta(page.meta),
@@ -1269,6 +1295,9 @@ export const handleConversationApiRequest = async (
     dependencies: ConversationApiDependencies = {},
 ): Promise<Response> => {
     const url = new URL(request.url);
+    if (!isAllowedLocalRequestOrigin(request.url, request.headers.get('Origin'))) {
+        return errorResponse('origin_not_allowed', 'Browser Origin is not allowed for this local API.', 403);
+    }
     const segments = url.pathname.split('/').filter(Boolean);
     const parsed = parseApiSegments(segments);
 

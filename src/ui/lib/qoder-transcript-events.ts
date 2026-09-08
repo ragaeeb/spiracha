@@ -5,7 +5,7 @@ import type {
     QoderTranscriptPart,
 } from '@spiracha/lib/qoder-exporter-types';
 import { getFinalQoderAssistantMessageEntryIds, getQoderMessagePhase } from '@spiracha/lib/qoder-transcript-phase';
-import type { JsonValue } from '@spiracha/lib/shared';
+import type { JsonValue } from '@spiracha/lib/shared-text';
 import { getThreadTranscriptStats } from './thread-transcript-stats';
 
 const buildRaw = (

@@ -31,15 +31,24 @@ vi.mock('@tanstack/react-start', () => ({
     },
 }));
 
-vi.mock('@spiracha/lib/codex-browser-db', () => ({
-    deleteCodexProject: vi.fn(),
-    deleteCodexThread: vi.fn(),
-    deleteCodexThreads: vi.fn(),
-    getCodexDashboardSummary: vi.fn(),
+vi.mock('@spiracha/lib/codex-browser-queries', () => ({
     getThreadBrowseData: getThreadBrowseDataMock,
     listCodexProjects: vi.fn(),
     listProjectThreads: vi.fn(),
+}));
+
+vi.mock('@spiracha/lib/codex-database', () => ({
     resolveCodexThreadDbPath: resolveCodexThreadDbPathMock,
+}));
+
+vi.mock('@spiracha/lib/codex-dashboard', () => ({
+    getCodexDashboardSummary: vi.fn(),
+}));
+
+vi.mock('@spiracha/lib/codex-thread-mutations', () => ({
+    deleteCodexProject: vi.fn(),
+    deleteCodexThread: vi.fn(),
+    deleteCodexThreads: vi.fn(),
 }));
 
 vi.mock('@spiracha/lib/codex-browser-export', () => ({
@@ -63,6 +72,7 @@ vi.mock('@spiracha/lib/codex-thread-recovery', () => ({
 }));
 
 import {
+    exportRawThreadsFn,
     exportThreadFn,
     exportThreadsFn,
     getThreadSnapshotFn,
@@ -205,6 +215,27 @@ describe('loadThreadTranscript', () => {
                 convertToProjectRoot: true,
                 redactUsername: true,
             },
+            threadIds: ['thread-1', 'thread-2'],
+            zipArchive: true,
+        });
+    });
+
+    it('should export selected Codex rollout files as raw JSON', async () => {
+        renderCodexThreadsDownloadMock.mockResolvedValue({
+            downloadUrl: '/__exports/raw.zip',
+            fileName: 'codex-threads.zip',
+            mimeType: 'application/zip',
+            mode: 'download_url',
+        });
+
+        await exportRawThreadsFn({ data: { threadIds: ['thread-1', 'thread-2'] } });
+
+        expect(renderCodexThreadsDownloadMock).toHaveBeenCalledWith({
+            dbPath: '/tmp/state.sqlite',
+            includeCommentary: false,
+            includeMetadata: false,
+            includeTools: false,
+            outputFormat: 'json',
             threadIds: ['thread-1', 'thread-2'],
             zipArchive: true,
         });

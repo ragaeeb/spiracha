@@ -6,7 +6,7 @@ import {
     renderDocumentTitle,
     renderMetadataBlock,
     renderSection,
-} from './shared';
+} from './shared-text';
 
 const phaseLabel = (phase: ClineTaskTranscript['messages'][number]['phase'], assistantLabel: string) => {
     const labels = {

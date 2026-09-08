@@ -30,6 +30,7 @@ type ThreadTreeNode = ThreadListEntry & {
 
 const columnHelper = createDataTableColumnHelper<ThreadTreeNode>();
 const defaultSorting: SortingState = [{ desc: true, id: 'updatedAt' }];
+const CODEX_PROJECT_THREADS_PAGE_SIZE = 100;
 
 const ThreadTitleCell = ({ depth, thread }: { depth: number; thread: ThreadTreeNode }) => {
     const isSubagent = depth > 0;
@@ -213,6 +214,7 @@ export function ThreadsTable({
             getRowId={(row) => row.thread.id}
             getSubRows={(row) => row.children}
             initialSorting={defaultSorting}
+            pageSize={CODEX_PROJECT_THREADS_PAGE_SIZE}
             renderToolbar={({ clearSelection, selectedRows }) => {
                 const selectedThreadIds = selectedRows.map((row) => row.thread.id);
                 return (

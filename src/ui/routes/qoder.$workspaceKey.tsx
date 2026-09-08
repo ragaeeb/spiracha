@@ -28,7 +28,7 @@ const findWorkspaceOrThrow = (workspaces: QoderWorkspaceGroup[], workspaceKey: s
     return workspace;
 };
 
-const QoderWorkspaceErrorComponent = ({ error }: { error: Error }) => {
+const QoderWorkspaceErrorComponent = ({ error }: { error: unknown }) => {
     return <RouteErrorPanel error={error} title="Failed to load Qoder workspace" />;
 };
 
@@ -150,6 +150,7 @@ const QoderWorkspacePage = () => {
                 forceZipArchive={pendingExport ? pendingExport.sessionIds.length > 1 : false}
                 open={pendingExport !== null}
                 pending={exportMutation.isPending}
+                rawExport={pendingExport ? { ids: pendingExport.sessionIds, source: 'qoder' } : undefined}
                 title={pendingExport ? `Export ${pendingExport.label}` : 'Export session'}
                 onExport={(options) => {
                     if (pendingExport) {

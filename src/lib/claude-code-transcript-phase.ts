@@ -1,4 +1,4 @@
-import type { JsonValue } from './shared';
+import type { JsonValue } from './shared-text';
 
 export type ClaudeCodeAssistantMessagePhase = 'commentary' | 'final_answer';
 

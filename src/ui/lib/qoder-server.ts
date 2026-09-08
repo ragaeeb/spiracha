@@ -29,21 +29,22 @@ const exportSessionsSchema = z.object({
 });
 
 export const listQoderWorkspacesFn = createServerFn({ method: 'GET' }).handler(async () => {
-    const { listQoderWorkspaceGroups } = await import('@spiracha/lib/qoder-db');
+    const { listQoderWorkspaceGroups } = await import('@spiracha/lib/qoder-sessions');
     return listQoderWorkspaceGroups();
 });
 
 export const listQoderSessionsFn = createServerFn({ method: 'GET' })
     .validator(workspaceSchema)
     .handler(async ({ data }) => {
-        const { listQoderSessionsForGroup } = await import('@spiracha/lib/qoder-db');
+        const { listQoderSessionsForGroup } = await import('@spiracha/lib/qoder-sessions');
         return listQoderSessionsForGroup(data.workspaceKey);
     });
 
 const loadQoderSessionTranscript = async (sessionId: string) => {
     const { runWithTranscriptLoadLimit } = await import('@spiracha/lib/transcript-load-limiter');
-    const { readQoderSessionTranscript, resolveQoderGlobalStateDb, resolveQoderWorkspaceStorageDir } = await import(
-        '@spiracha/lib/qoder-db'
+    const { readQoderSessionTranscript } = await import('@spiracha/lib/qoder-session-transcript');
+    const { resolveQoderGlobalStateDb, resolveQoderWorkspaceStorageDir } = await import(
+        '@spiracha/lib/qoder-exporter-types'
     );
     const globalStateDb = resolveQoderGlobalStateDb();
     const workspaceStorageDir = resolveQoderWorkspaceStorageDir();

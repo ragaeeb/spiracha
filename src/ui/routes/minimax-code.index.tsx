@@ -9,7 +9,7 @@ import { RouteErrorPanel } from '#/components/route-error-panel';
 import { miniMaxCodeWorkspacesQueryOptions } from '#/lib/minimax-code-queries';
 import { matchesTextQuery } from '#/lib/text-filter';
 
-const MiniMaxCodeErrorComponent = ({ error }: { error: Error }) => {
+const MiniMaxCodeErrorComponent = ({ error }: { error: unknown }) => {
     return <RouteErrorPanel error={error} title="Failed to load MiniMax Code workspaces" />;
 };
 

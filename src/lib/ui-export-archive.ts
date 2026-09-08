@@ -1,6 +1,6 @@
 import type { ConversationSource } from './conversation-data/types';
 import { getPortablePathBasename } from './portable-path';
-import type { ExportFormat } from './shared';
+import type { ExportFormat } from './shared-text';
 
 export type ExportPlatform =
     | 'antigravity'
@@ -10,6 +10,7 @@ export type ExportPlatform =
     | 'cursor'
     | 'fx'
     | 'grok'
+    | 'grok-bot'
     | 'kiro'
     | 'minimax'
     | 'opencode'
@@ -23,6 +24,7 @@ const EXPORT_PLATFORM_BY_SOURCE: Record<ConversationSource, ExportPlatform> = {
     cursor: 'cursor',
     fx: 'fx',
     grok: 'grok',
+    'grok-bot': 'grok-bot',
     kiro: 'kiro',
     'minimax-code': 'minimax',
     opencode: 'opencode',
@@ -45,6 +47,9 @@ export const sanitizeExportFileName = (value: string) => {
         .replace(/\s+/gu, ' ')
         .trim();
 };
+
+export const buildRawConversationExportFileName = (source: ConversationSource, id: string) =>
+    `${sanitizeExportFileName(`${source}-${id}`) || 'conversation'}.json`;
 
 export const getExportPlatformName = (source: ConversationSource): ExportPlatform => EXPORT_PLATFORM_BY_SOURCE[source];
 

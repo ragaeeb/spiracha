@@ -49,7 +49,9 @@ export type CursorFixtureSpec = {
         bucketId: string;
         isSubagent?: boolean;
         isArchived?: boolean;
+        moved?: boolean;
         parentComposerId?: string;
+        sourceEnvironmentId?: string;
     }>;
     historyEntries?: Array<{ resource: string; timestamps?: number[] }>;
 };
@@ -154,6 +156,12 @@ const buildHeaderEntry = (thread: FixtureThread, bucketId: string, uriPath?: str
     workspaceIdentifier: buildWorkspaceIdentifier(bucketId, uriPath),
 });
 
+const buildAgentLocation = (link: { bucketId: string; moved?: boolean; sourceEnvironmentId?: string }) => ({
+    environment: { id: link.bucketId },
+    sourceEnvironment: link.sourceEnvironmentId ? { id: link.sourceEnvironmentId } : undefined,
+    type: link.moved ? 'worktree' : 'local',
+});
+
 const writeModernHeaders = (
     db: Database,
     links: NonNullable<CursorFixtureSpec['composerTableHeaders']>,
@@ -169,6 +177,8 @@ const writeModernHeaders = (
         }
         const header = {
             ...buildHeaderEntry(thread, link.bucketId),
+            agentLocation: buildAgentLocation(link),
+            agentLocationHistory: [{ reason: link.moved ? 'moved' : 'created' }],
             subagentInfo: link.parentComposerId
                 ? {
                       parentComposerId: link.parentComposerId,

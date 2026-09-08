@@ -8,6 +8,8 @@ import {
     runSpirachaCli,
 } from './spiracha';
 import type { ConversationClient } from '../src/client';
+import type { AgentDxAnalytics } from '../src/lib/agent-dx-analytics';
+import type { CodexAnalytics } from '../src/lib/codex-browser-types';
 
 const temporaryPaths: string[] = [];
 
@@ -16,6 +18,75 @@ afterEach(async () => {
 });
 
 describe('spiracha executable', () => {
+    it('should parse analytics export options', () => {
+        expect(
+            parseSpirachaCliArgs(['analytics', 'export', '--format', 'csv', '--project', 'spiracha', '--output', 'dx.csv']),
+        ).toEqual({
+            command: 'analytics-export',
+            format: 'csv',
+            output: 'dx.csv',
+            project: 'spiracha',
+        });
+    });
+
+    it('should export provider-neutral analytics through the CLI', async () => {
+        const stdout: Array<string | Uint8Array> = [];
+        const output = await mkdtemp(path.join(os.tmpdir(), 'spiracha-analytics-cli-'));
+        temporaryPaths.push(output);
+        const agentDx: AgentDxAnalytics = {
+            goalSpans: [],
+            schema: 'agent-dx/v1',
+            warnings: [],
+        };
+        const codexAnalytics: CodexAnalytics = {
+            agentDx,
+            modelsByTokens: [],
+            optimization: {
+                findings: [],
+                personaCandidates: [],
+                summary: {
+                    broadReadCalls: 0,
+                    externalAgentStreamBlocks: 0,
+                    externalAgentStreamBytes: 0,
+                    fullContextSpawns: 0,
+                    genericSubagentSpawns: 0,
+                    parentVisibleReasoningEvents: 0,
+                    parentVisibleSubagentToolEvents: 0,
+                    repeatedCheckCalls: 0,
+                    repeatedCommandCalls: 0,
+                    repeatedReadCalls: 0,
+                    timedOutWaits: 0,
+                    toolOutputBytes: 0,
+                    truncationBlocks: 0,
+                    truncatedOutputBytes: 0,
+                },
+            },
+            reasoningEfforts: [],
+            sources: [],
+            summary: {
+                archivedThreads: 0,
+                averageTokensPerThread: 0,
+                distinctToolNames: 0,
+                medianTokensPerThread: 0,
+                threadsWithWebSearch: 0,
+                totalProjects: 0,
+                totalThreads: 0,
+                totalTokens: 0,
+            },
+            toolUsage: [],
+        };
+
+        expect(
+            await runSpirachaCli(['analytics', 'export', '--format', 'json', '--output', path.join(output, 'dx.json')], {
+                getCodexAnalytics: async () => codexAnalytics,
+                io: { stderr: () => {}, stdout: (value) => stdout.push(value) },
+                runServer: async () => 0,
+            }),
+        ).toBe(0);
+        expect(stdout).toEqual([]);
+        expect(await Bun.file(path.join(output, 'dx.json')).text()).toBe(`${JSON.stringify(agentDx, null, 2)}\n`);
+    });
+
     it('should resolve the package root from the executable location', () => {
         expect(resolveSpirachaPackageRoot('/tmp/spiracha-package/bin')).toBe('/tmp/spiracha-package');
     });
@@ -41,6 +112,10 @@ describe('spiracha executable', () => {
             limit: 2,
             sources: ['codex', 'cline'],
         });
+        expect(parseSpirachaCliArgs(['list', '--source', 'grok-bot'])).toEqual({
+            command: 'list',
+            sources: ['grok-bot'],
+        });
     });
 
     it('should reject invalid local list and evidence options', () => {
@@ -48,6 +123,7 @@ describe('spiracha executable', () => {
         expect(() => parseSpirachaCliArgs(['list', '--cwd', '/repo', '--limit', '0'])).toThrow(
             'integer from 1 to 200',
         );
+        expect(() => parseSpirachaCliArgs(['list', '--source', 'codex'])).toThrow('workspace source');
         expect(() =>
             parseSpirachaCliArgs([
                 'evidence',

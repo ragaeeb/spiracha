@@ -131,6 +131,10 @@ const ClineWorkspacePage = () => {
                 forceZipArchive={exportTasks.length > 1}
                 open={exportTasks.length > 0}
                 pending={exportMutation.isPending}
+                rawExport={{
+                    ids: exportTasks.map((task) => task.taskId),
+                    source: 'cline',
+                }}
                 title={`Export ${exportTasks.length === 1 ? exportTasks[0]!.title : `${exportTasks.length} chats`}`}
                 onExport={(options) =>
                     exportMutation.mutate(

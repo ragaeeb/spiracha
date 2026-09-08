@@ -4,6 +4,14 @@ import * as download from '#/lib/download';
 import { SettingsProvider } from '#/lib/settings-store';
 import { ExportDialog } from './export-dialog';
 
+const { exportRawConversationsFnMock } = vi.hoisted(() => ({
+    exportRawConversationsFnMock: vi.fn(),
+}));
+
+vi.mock('#/lib/source-raw-export-server', () => ({
+    exportRawConversationsFn: exportRawConversationsFnMock,
+}));
+
 afterEach(() => {
     cleanup();
     window.localStorage.clear();
@@ -25,13 +33,13 @@ describe('ExportDialog', () => {
                 />,
             );
             fireEvent.click(screen.getByRole('combobox', { name: 'Export mode' }));
-            fireEvent.click(screen.getByText('Raw source JSON'));
+            fireEvent.click(screen.getByText('Raw JSON'));
             fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
 
             await waitFor(() =>
                 expect(downloadUrlFile).toHaveBeenCalledWith(
                     expect.any(Object),
-                    'codex-thread-1.jsonl',
+                    'codex-thread-1.json',
                     '/api/v1/conversations/codex/thread-1/raw',
                     { onStateChange: expect.any(Function) },
                 ),
@@ -56,9 +64,125 @@ describe('ExportDialog', () => {
                 />,
             );
             fireEvent.click(screen.getByRole('combobox', { name: 'Export mode' }));
-            expect(screen.queryByText('Raw source JSON')).toBeNull();
+            expect(screen.queryByText('Raw JSON')).toBeNull();
         } finally {
             HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+        }
+    });
+
+    it('should offer and download raw Grok Bot transcript JSON', async () => {
+        const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+        HTMLElement.prototype.scrollIntoView = vi.fn();
+        const downloadUrlFile = vi.spyOn(download, 'downloadUrlFileWithCancellation').mockResolvedValue(undefined);
+
+        try {
+            render(
+                <ExportDialog
+                    focusedEvidenceTarget={{ id: 'chat-1', source: 'grok-bot' }}
+                    open
+                    onExport={vi.fn()}
+                    onOpenChange={vi.fn()}
+                />,
+            );
+            fireEvent.click(screen.getByRole('combobox', { name: 'Export mode' }));
+            fireEvent.click(screen.getByText('Raw JSON'));
+            fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
+
+            await waitFor(() =>
+                expect(downloadUrlFile).toHaveBeenCalledWith(
+                    expect.any(Object),
+                    'grok-bot-chat-1.json',
+                    '/api/v1/conversations/grok-bot/chat-1/raw',
+                    { onStateChange: expect.any(Function) },
+                ),
+            );
+        } finally {
+            HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+            downloadUrlFile.mockRestore();
+        }
+    });
+
+    it('should offer raw JSON for bulk exports', () => {
+        const onExport = vi.fn();
+        const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+        HTMLElement.prototype.scrollIntoView = vi.fn();
+
+        try {
+            render(<ExportDialog open showRawJsonOption onExport={onExport} onOpenChange={vi.fn()} />);
+
+            fireEvent.click(screen.getByRole('combobox', { name: 'Export mode' }));
+
+            expect(screen.getByText('Raw JSON')).toBeTruthy();
+        } finally {
+            HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+        }
+    });
+
+    it('should submit the bulk raw JSON export callback', () => {
+        const onRawJsonExport = vi.fn();
+        const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+        HTMLElement.prototype.scrollIntoView = vi.fn();
+
+        try {
+            render(
+                <ExportDialog
+                    open
+                    onExport={vi.fn()}
+                    onOpenChange={vi.fn()}
+                    onRawJsonExport={onRawJsonExport}
+                    showRawJsonOption
+                />,
+            );
+
+            fireEvent.click(screen.getByRole('combobox', { name: 'Export mode' }));
+            fireEvent.click(screen.getByText('Raw JSON'));
+            fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
+
+            expect(onRawJsonExport).toHaveBeenCalledWith({ onDownloadStateChange: expect.any(Function) });
+        } finally {
+            HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+        }
+    });
+
+    it('should export selected source conversations as raw JSON', async () => {
+        const downloadUrlFile = vi.spyOn(download, 'downloadUrlFileWithCancellation').mockResolvedValue(undefined);
+        const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+        HTMLElement.prototype.scrollIntoView = vi.fn();
+        exportRawConversationsFnMock.mockResolvedValue({
+            downloadUrl: '/__exports/cline-raw.zip',
+            fileName: 'cline-raw.zip',
+            mimeType: 'application/zip',
+            mode: 'download_url',
+        });
+
+        try {
+            render(
+                <ExportDialog
+                    open
+                    onExport={vi.fn()}
+                    onOpenChange={vi.fn()}
+                    rawExport={{ ids: ['task-1', 'task-2'], source: 'cline' }}
+                />,
+            );
+
+            fireEvent.click(screen.getByRole('combobox', { name: 'Export mode' }));
+            fireEvent.click(screen.getByText('Raw JSON'));
+            fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
+
+            await waitFor(() =>
+                expect(exportRawConversationsFnMock).toHaveBeenCalledWith({
+                    data: { ids: ['task-1', 'task-2'], source: 'cline' },
+                }),
+            );
+            expect(downloadUrlFile).toHaveBeenCalledWith(
+                expect.any(Object),
+                'cline-raw.zip',
+                '/__exports/cline-raw.zip',
+                { onStateChange: expect.any(Function) },
+            );
+        } finally {
+            HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+            downloadUrlFile.mockRestore();
         }
     });
 

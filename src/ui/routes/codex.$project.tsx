@@ -15,6 +15,7 @@ import { projectThreadsQueryOptions } from '#/lib/codex-queries';
 import {
     deleteThreadFn,
     deleteThreadsFn,
+    exportRawThreadsFn,
     exportThreadFn,
     exportThreadsFn,
     recoverProjectThreadsFn,
@@ -85,7 +86,7 @@ export const Route = createFileRoute('/codex/$project')({
     validateSearch: parseTextQuerySearch,
 });
 
-function ProjectDetailErrorComponent({ error }: { error: Error }) {
+function ProjectDetailErrorComponent({ error }: { error: unknown }) {
     return <RouteErrorPanel error={error} title="Failed to load Codex project" />;
 }
 
@@ -171,31 +172,33 @@ function ProjectDetailPage() {
     });
 
     const exportThreadMutation = useMutation({
-        mutationFn: async ({ ids, onDownloadStateChange, options }: ExportSelectionMutationInput) => {
+        mutationFn: async ({ ids, onDownloadStateChange, options, raw }: ExportSelectionMutationInput) => {
             console.info('[spiracha:export-ui] request', {
-                outputFormat: options.outputFormat,
+                outputFormat: raw ? 'json' : options.outputFormat,
                 project,
+                raw,
                 selectedThreadCount: ids.length,
                 selectedThreadIds: ids,
                 zipArchive: options.zipArchive,
             });
 
-            const download =
-                ids.length === 1
-                    ? await exportThreadFn({
-                          data: {
-                              ...options,
-                              ...settings,
-                              threadId: ids[0]!,
-                          },
-                      })
-                    : await exportThreadsFn({
-                          data: {
-                              ...options,
-                              ...settings,
-                              threadIds: [...ids],
-                          },
-                      });
+            const download = raw
+                ? await exportRawThreadsFn({ data: { threadIds: [...ids] } })
+                : ids.length === 1
+                  ? await exportThreadFn({
+                        data: {
+                            ...options,
+                            ...settings,
+                            threadId: ids[0]!,
+                        },
+                    })
+                  : await exportThreadsFn({
+                        data: {
+                            ...options,
+                            ...settings,
+                            threadIds: [...ids],
+                        },
+                    });
 
             console.info('[spiracha:export-ui] response', {
                 downloadUrl: download.mode === 'download_url' ? download.downloadUrl : null,
@@ -387,12 +390,23 @@ function ProjectDetailPage() {
                         ? exportThreadMutation.data.skippedThreadCount
                         : undefined
                 }
+                showRawJsonOption
                 title={pendingExport ? `Export ${pendingExport.threadLabel}` : 'Export thread'}
                 onExport={(options, callbacks) => {
                     if (pendingExport) {
                         exportThreadMutation.mutate(
                             createExportSelectionMutationInput(pendingExport.threadIds, options, callbacks),
                         );
+                    }
+                }}
+                onRawJsonExport={(callbacks) => {
+                    if (pendingExport) {
+                        exportThreadMutation.mutate({
+                            ids: pendingExport.threadIds,
+                            onDownloadStateChange: callbacks.onDownloadStateChange,
+                            options: settings.exportDefaults,
+                            raw: true,
+                        });
                     }
                 }}
                 onOpenChange={(open) => {

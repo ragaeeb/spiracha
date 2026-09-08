@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { kiroConversationAdapter, normalizeKiroTranscriptPart } from './kiro-adapter';
+import { normalizeKiroTranscriptPart } from '../kiro-transcript-parser';
+import { kiroConversationAdapter } from './kiro-adapter';
 
 const tempDirs: string[] = [];
 

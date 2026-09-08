@@ -1,5 +1,4 @@
 import { mapWithConcurrency } from '../concurrency';
-import { formatModelLabel } from '../model-label';
 import { antigravityConversationAdapter } from './antigravity-adapter';
 import { claudeCodeConversationAdapter } from './claude-code-adapter';
 import { clineConversationAdapter } from './cline-adapter';
@@ -7,8 +6,8 @@ import { codexConversationAdapter } from './codex-adapter';
 import { cursorConversationAdapter } from './cursor-adapter';
 import { fxConversationAdapter } from './fx-adapter';
 import { grokConversationAdapter } from './grok-adapter';
+import { grokBotConversationAdapter } from './grok-bot-adapter';
 import { kiroConversationAdapter } from './kiro-adapter';
-import { selectConversationMessages } from './message-selector';
 import { minimaxCodeConversationAdapter } from './minimax-code-adapter';
 import { opencodeConversationAdapter } from './opencode-adapter';
 import { decodeConversationCursor, paginateConversations } from './pagination';
@@ -16,12 +15,11 @@ import { qoderConversationAdapter } from './qoder-adapter';
 import {
     CONVERSATION_SOURCES,
     type ConversationAdapter,
-    type ConversationMessage,
-    type ConversationMessageSelector,
     type ConversationPage,
     type ConversationRawDownload,
     type ConversationSource,
     type ConversationSourceInfo,
+    type ConversationSourceScope,
     type DeleteConversationItemResult,
     type DeleteConversationOptions,
     type DeleteConversationResult,
@@ -29,12 +27,14 @@ import {
     type DeleteConversationsResult,
     type GetConversationOptions,
     type GetConversationRawOptions,
-    type ListConversationsForPathOptions,
+    type ListConversationsOptions,
     type ResolvedConversationRef,
 } from './types';
 
 export { selectConversationMessages } from './message-selector';
+
 export { getConversationPathMatch, normalizeConversationPath } from './path-match';
+
 export {
     CONVERSATION_SOURCES,
     type ConversationAdapter,
@@ -54,6 +54,7 @@ export {
     type ConversationRawDownload,
     type ConversationSource,
     type ConversationSourceInfo,
+    type ConversationSourceScope,
     type ConversationToolEvidence,
     type ConversationZipDownload,
     type DeleteConversationItemResult,
@@ -68,7 +69,7 @@ export {
     type ExportConversationsZipOptions,
     type GetConversationOptions,
     type GetConversationRawOptions,
-    type ListConversationsForPathOptions,
+    type ListConversationsOptions,
     type ResolvedConversationRef,
 } from './types';
 
@@ -80,14 +81,31 @@ const SOURCE_LABELS: Record<ConversationSource, string> = {
     cursor: 'Cursor',
     fx: 'FX',
     grok: 'Grok',
+    'grok-bot': 'Grok Bot',
     kiro: 'Kiro',
     'minimax-code': 'MiniMax Code',
     opencode: 'OpenCode',
     qoder: 'Qoder',
 };
 
+const SOURCE_SCOPES: Record<ConversationSource, ConversationSourceScope> = {
+    antigravity: 'workspace',
+    'claude-code': 'workspace',
+    cline: 'workspace',
+    codex: 'workspace',
+    cursor: 'workspace',
+    fx: 'workspace',
+    grok: 'workspace',
+    'grok-bot': 'global',
+    kiro: 'workspace',
+    'minimax-code': 'workspace',
+    opencode: 'workspace',
+    qoder: 'workspace',
+};
+
 const SOURCE_INFOS: ConversationSourceInfo[] = CONVERSATION_SOURCES.map((source) => ({
     label: SOURCE_LABELS[source],
+    scope: SOURCE_SCOPES[source],
     source,
 }));
 
@@ -103,6 +121,7 @@ const ADAPTERS: Partial<Record<ConversationSource, ConversationAdapter>> = {
     cursor: cursorConversationAdapter,
     fx: fxConversationAdapter,
     grok: grokConversationAdapter,
+    'grok-bot': grokBotConversationAdapter,
     kiro: kiroConversationAdapter,
     'minimax-code': minimaxCodeConversationAdapter,
     opencode: opencodeConversationAdapter,
@@ -110,7 +129,9 @@ const ADAPTERS: Partial<Record<ConversationSource, ConversationAdapter>> = {
 };
 
 const MAX_LIMIT = 200;
+
 const DEFAULT_LIMIT = 100;
+
 const DELETE_CONCURRENCY_BY_SOURCE: Record<ConversationSource, number> = {
     antigravity: 1,
     'claude-code': 4,
@@ -119,21 +140,49 @@ const DELETE_CONCURRENCY_BY_SOURCE: Record<ConversationSource, number> = {
     cursor: 1,
     fx: 1,
     grok: 1,
+    'grok-bot': 1,
     kiro: 1,
     'minimax-code': 1,
     opencode: 2,
     qoder: 1,
 };
 
-const getEnabledSources = (sources: ListConversationsForPathOptions['sources']): ConversationSource[] => {
-    if (!sources || sources === 'all') {
-        return SOURCE_INFOS.map((sourceInfo) => sourceInfo.source);
+const getRequestedScope = (cwd: string | undefined): ConversationSourceScope =>
+    cwd === undefined ? 'global' : 'workspace';
+
+export const getConversationListScopeError = (
+    options: Pick<ListConversationsOptions, 'cwd' | 'sources'>,
+): string | null => {
+    if (!options.sources || options.sources === 'all') {
+        return null;
     }
 
-    return [...new Set(sources)];
+    const requestedScope = getRequestedScope(options.cwd);
+    const invalidSource = [...new Set(options.sources)].find((source) => SOURCE_SCOPES[source] !== requestedScope);
+    if (!invalidSource) {
+        return null;
+    }
+
+    return `${invalidSource} is a ${SOURCE_SCOPES[invalidSource]} source and cannot be listed with a ${requestedScope} scope.`;
 };
 
-const isAllSourcesRequest = (sources: ListConversationsForPathOptions['sources']) => !sources || sources === 'all';
+const getEnabledSources = (options: Pick<ListConversationsOptions, 'cwd' | 'sources'>): ConversationSource[] => {
+    const requestedScope = getRequestedScope(options.cwd);
+    if (!options.sources || options.sources === 'all') {
+        return SOURCE_INFOS.filter((sourceInfo) => sourceInfo.scope === requestedScope).map(
+            (sourceInfo) => sourceInfo.source,
+        );
+    }
+
+    const scopeError = getConversationListScopeError(options);
+    if (scopeError) {
+        throw new Error(scopeError);
+    }
+
+    return [...new Set(options.sources)];
+};
+
+const isAllSourcesRequest = (sources: ListConversationsOptions['sources']) => !sources || sources === 'all';
 
 const getAdapter = (source: ConversationSource): ConversationAdapter | null => {
     return ADAPTERS[source] ?? null;
@@ -148,8 +197,8 @@ const getLimit = (limit: number | undefined) => {
 };
 
 const filterByUpdatedAt = (
-    conversations: Awaited<ReturnType<ConversationAdapter['listConversationsForPath']>>,
-    options: Pick<ListConversationsForPathOptions, 'updatedAfterMs' | 'updatedBeforeMs'>,
+    conversations: Awaited<ReturnType<ConversationAdapter['listConversations']>>,
+    options: Pick<ListConversationsOptions, 'updatedAfterMs' | 'updatedBeforeMs'>,
 ) => {
     return conversations.filter((conversation) => {
         const updatedAtMs = conversation.updatedAtMs ?? 0;
@@ -165,9 +214,9 @@ const filterByUpdatedAt = (
 
 export const listConversationSources = async (): Promise<ConversationSourceInfo[]> => [...SOURCE_INFOS];
 
-const listSourceConversationsForPath = async (
+const listSourceConversations = async (
     source: ConversationSource,
-    options: ListConversationsForPathOptions,
+    options: ListConversationsOptions,
     ignoreSourceFailures: boolean,
     paginationCursor: string | null | undefined,
 ) => {
@@ -177,7 +226,7 @@ const listSourceConversationsForPath = async (
     }
 
     try {
-        const conversations = filterByUpdatedAt(await adapter.listConversationsForPath(options), options);
+        const conversations = filterByUpdatedAt(await adapter.listConversations(options), options);
         return options.limit === undefined
             ? conversations
             : paginateConversations(conversations, paginationCursor, options.limit).data;
@@ -193,11 +242,11 @@ const listSourceConversationsForPath = async (
     }
 };
 
-export const listConversationsForPath = async (options: ListConversationsForPathOptions): Promise<ConversationPage> => {
+export const listConversations = async (options: ListConversationsOptions): Promise<ConversationPage> => {
     const cursorKey = decodeConversationCursor(options.cursor);
     const limit = getLimit(options.limit);
     const cursorUpdatedBeforeMs = cursorKey?.updatedAtMs;
-    const collectionOptions: ListConversationsForPathOptions = {
+    const collectionOptions: ListConversationsOptions = {
         ...options,
         cursor: null,
         limit: limit + 1,
@@ -209,8 +258,8 @@ export const listConversationsForPath = async (options: ListConversationsForPath
     const ignoreSourceFailures = isAllSourcesRequest(options.sources);
     const conversations = (
         await Promise.all(
-            getEnabledSources(options.sources).map((source) =>
-                listSourceConversationsForPath(source, collectionOptions, ignoreSourceFailures, options.cursor),
+            getEnabledSources(options).map((source) =>
+                listSourceConversations(source, collectionOptions, ignoreSourceFailures, options.cursor),
             ),
         )
     ).flat();
@@ -284,6 +333,9 @@ const sourceFromSessionRoute = (segment: string): ConversationSource | null => {
     }
     if (segment === 'grok-sessions') {
         return 'grok';
+    }
+    if (segment === 'grok-bot-chats') {
+        return 'grok-bot';
     }
     if (segment === 'kiro-sessions') {
         return 'kiro';
@@ -393,38 +445,4 @@ export const resolveConversationRef = async (ref: string): Promise<ResolvedConve
     }
 
     return parseUrlRef(trimmed);
-};
-
-export const renderConversationMarkdown = (
-    conversation: {
-        messages: ConversationMessage[];
-        model?: string;
-        title: string | null;
-    },
-    options: {
-        messageSelector?: ConversationMessageSelector;
-    } = {},
-) => {
-    const selectedMessages = options.messageSelector
-        ? selectConversationMessages(conversation.messages, options.messageSelector)
-        : conversation.messages;
-    const title = conversation.title?.trim() || 'Conversation';
-    const roleLabels: Record<Exclude<ConversationMessage['role'], 'assistant'>, string> = {
-        system: 'System',
-        tool: 'Tool',
-        unknown: 'Unknown',
-        user: 'User',
-    };
-    const sections = selectedMessages.map((message) => {
-        const text = message.text.trim() || '_No message content._';
-        const roleLabel =
-            message.role === 'assistant'
-                ? formatModelLabel(message.model ?? conversation.model)
-                : roleLabels[message.role];
-        return `## ${roleLabel}\n\n${text}`;
-    });
-    if (sections.length === 0) {
-        sections.push('_No messages selected._');
-    }
-    return [`# ${title}`, ...sections].join('\n\n').trimEnd() + '\n';
 };

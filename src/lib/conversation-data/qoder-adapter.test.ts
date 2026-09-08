@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { getConversationRaw, listConversationsForPath } from '.';
+import { getConversationRaw, listConversations } from '.';
 
 const tempRoots: string[] = [];
 
@@ -109,7 +109,7 @@ describe('qoder conversation adapter', () => {
             .join('\n');
         await Bun.write(path.join(qoderCliProjectsDir, 'task-a.session.execution.jsonl'), rawTranscript);
 
-        const page = await listConversationsForPath({
+        const page = await listConversations({
             cwd: project,
             includeMessages: true,
             locations: {
@@ -173,7 +173,7 @@ describe('qoder conversation adapter', () => {
             }),
         ]);
 
-        const collectPage = await listConversationsForPath({
+        const collectPage = await listConversations({
             cwd: project,
             includeMessages: true,
             locations: {

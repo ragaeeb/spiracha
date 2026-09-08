@@ -12,10 +12,17 @@ const toUniquePathVariants = (projectPath: string) => {
     return [...new Set(variants)].sort((left, right) => right.length - left.length);
 };
 
+const toFileUri = (pathVariant: string) =>
+    pathVariant.startsWith('\\\\') ? `file://${pathVariant.slice(2).replaceAll('\\', '/')}` : `file://${pathVariant}`;
+
 const replaceExactProjectPath = (text: string, projectPath: string) => {
     let result = text;
 
     for (const variant of toUniquePathVariants(projectPath)) {
+        result = result.replaceAll(toFileUri(variant), () => variant);
+        if (/^[A-Za-z]:[\\/]/u.test(variant)) {
+            result = result.replaceAll(`file:///${variant}`, () => variant);
+        }
         const escapedVariant = escapeForRegex(variant);
         result = result.replace(new RegExp(`${escapedVariant}(?<separator>[\\\\/])`, 'gu'), '');
         result = result.replace(new RegExp(`${escapedVariant}(?=$|[^A-Za-z0-9._-])`, 'gu'), '.');

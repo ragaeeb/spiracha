@@ -17,6 +17,16 @@ describe('applyPathTransforms', () => {
         ).toBe(['Project file: src/index.ts', 'External file: ~/Desktop/notes.md'].join('\n'));
     });
 
+    it('should remove file URI schemes when converting project paths to relative paths', () => {
+        expect(
+            applyPathTransforms('file:///Users/user/workspace/spiracha/scripts/drain-format-queue.ts', {
+                convertToProjectRoot: true,
+                projectPath: '/Users/user/workspace/spiracha',
+                redactUsername: false,
+            }),
+        ).toBe('scripts/drain-format-queue.ts');
+    });
+
     it('should render the exact project root as a dot instead of an empty string', () => {
         expect(
             applyPathTransforms('/Users/user/workspace/spiracha', {
@@ -40,6 +50,29 @@ describe('applyPathTransforms', () => {
                 redactUsername: true,
             }),
         ).toBe(['Project file: src\\index.ts', 'External file: ~\\Desktop\\notes.md'].join('\n'));
+    });
+
+    it.each(['file://C:/Users/user/project', 'file:///C:/Users/user/project'])(
+        'should convert Windows drive file URIs to relative paths (%s)',
+        (rootUri) => {
+            const settings = {
+                convertToProjectRoot: true,
+                projectPath: 'C:\\Users\\user\\project',
+                redactUsername: false,
+            };
+            expect(applyPathTransforms(`${rootUri}/src/index.ts`, settings)).toBe('src/index.ts');
+            expect(applyPathTransforms(rootUri, settings)).toBe('.');
+        },
+    );
+
+    it('should remove file URI schemes for Windows UNC project paths', () => {
+        expect(
+            applyPathTransforms('file://server/share/project/src/index.ts', {
+                convertToProjectRoot: true,
+                projectPath: '\\\\server\\share\\project',
+                redactUsername: false,
+            }),
+        ).toBe('src/index.ts');
     });
 
     it('should not rewrite sibling paths that only share the project-path prefix', () => {

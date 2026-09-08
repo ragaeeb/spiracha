@@ -50,6 +50,7 @@ const integrationNavItems: readonly NavItem[] = [
     { activePrefixes: ['/cursor', '/cursor-threads'], icon: SquareTerminal, label: 'Cursor', to: '/cursor' },
     { activePrefixes: ['/fx', '/fx-sessions'], icon: Workflow, label: 'FX', to: '/fx' },
     { activePrefixes: ['/grok', '/grok-sessions'], icon: Bot, label: 'Grok', to: '/grok' },
+    { activePrefixes: ['/grok-bot', '/grok-bot-chats'], icon: Bot, label: 'Grok Bot', to: '/grok-bot' },
     {
         activePrefixes: ['/kiro', '/kiro-sessions'],
         icon: BrainCircuit,
