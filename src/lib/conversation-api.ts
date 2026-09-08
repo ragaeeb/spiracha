@@ -26,7 +26,7 @@ import { renderConversationMarkdown } from './conversation-data/markdown';
 import { decodeConversationCursor } from './conversation-data/pagination';
 import { createConversationMarkdownZip } from './conversation-zip-export';
 import { isAllowedLocalRequestOrigin } from './local-request-security';
-import { getExportPlatformName, sanitizeExportFileName } from './ui-export-archive';
+import { buildRawConversationExportFileName, getExportPlatformName } from './ui-export-archive';
 
 type ConversationApiDependencies = {
     buildEvidenceExport?: typeof buildEvidenceExport;
@@ -501,7 +501,7 @@ const handleRawConversation = async (
         });
     }
 
-    const fileName = `${sanitizeExportFileName(`${result.value.source}-${result.value.id}`) || 'conversation'}.json`;
+    const fileName = buildRawConversationExportFileName(result.value.source, result.value.id);
 
     return new Response(includeBody ? download.blob : null, {
         headers: {

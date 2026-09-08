@@ -27,6 +27,7 @@ import {
 import { requestEvidenceExport } from '#/lib/evidence-export';
 import type { ExportDialogOptions, ExportLifecycleCallbacks } from '#/lib/export-options';
 import { useSettings } from '#/lib/settings-store';
+import { exportRawConversationsFn } from '#/lib/source-raw-export-server';
 import { EvidenceLensEditor } from './evidence-lens-editor';
 
 type ExportDialogProps = {
@@ -37,6 +38,7 @@ type ExportDialogProps = {
     open: boolean;
     onRawJsonExport?: (callbacks: ExportLifecycleCallbacks) => void;
     pending?: boolean;
+    rawExport?: { ids: readonly string[]; source: ConversationSource };
     skippedThreadCount?: number;
     showCommentaryOption?: boolean;
     showRawJsonOption?: boolean;
@@ -299,6 +301,12 @@ const RAW_EXPORT_SOURCES = new Set<ConversationSource>([
     'minimax-code',
     'qoder',
 ]);
+type RawExportSource = Extract<
+    ConversationSource,
+    'antigravity' | 'claude-code' | 'cline' | 'codex' | 'grok' | 'grok-bot' | 'kiro' | 'minimax-code' | 'qoder'
+>;
+
+const isRawExportSource = (source: ConversationSource): source is RawExportSource => RAW_EXPORT_SOURCES.has(source);
 
 const ExportDialogFooter = ({
     disabled,
@@ -342,6 +350,7 @@ export function ExportDialog({
     open,
     onRawJsonExport,
     pending = false,
+    rawExport,
     skippedThreadCount = 0,
     showCommentaryOption = true,
     showRawJsonOption = false,
@@ -366,6 +375,8 @@ export function ExportDialog({
     const displayedError = exportError ?? errorMessage;
     const downloadCancellation = useDownloadCancellation();
     const zipDescriptionId = useId();
+    const hasRawJsonExport =
+        rawExport !== undefined && rawExport.ids.length > 0 && RAW_EXPORT_SOURCES.has(rawExport.source);
     const handleOpenChange = (nextOpen: boolean) => {
         if (!nextOpen) {
             submissionToken.current += 1;
@@ -446,22 +457,56 @@ export function ExportDialog({
         setSubmitted(false);
     };
 
+    const submitFocusedRawExport = async () => {
+        const { id, source } = focusedEvidenceTarget!;
+        try {
+            await downloadUrlFileWithCancellation(
+                downloadCancellation,
+                `${source}-${id}.json`,
+                `/api/v1/conversations/${source}/${encodeURIComponent(id)}/raw`,
+                { onStateChange: setDownloadState },
+            );
+        } catch (error) {
+            setExportError(error instanceof Error ? error.message : 'Raw transcript export failed.');
+        } finally {
+            submissionInProgress.current = false;
+            setSubmitted(false);
+        }
+    };
+
+    const submitBulkRawExport = async () => {
+        if (!rawExport || rawExport.ids.length === 0 || !isRawExportSource(rawExport.source)) {
+            return;
+        }
+        try {
+            const download = await exportRawConversationsFn({
+                data: { ids: [...rawExport.ids], source: rawExport.source },
+            });
+            if (download.mode === 'download') {
+                downloadTextFile(download.fileName, download.content, download.mimeType, {
+                    onStateChange: setDownloadState,
+                });
+            } else {
+                await downloadUrlFileWithCancellation(downloadCancellation, download.fileName, download.downloadUrl, {
+                    onStateChange: setDownloadState,
+                });
+            }
+        } catch (error) {
+            setExportError(error instanceof Error ? error.message : 'Raw transcript export failed.');
+        } finally {
+            submissionInProgress.current = false;
+            setSubmitted(false);
+        }
+    };
+
     const submitRawExport = async () => {
         if (focusedEvidenceTarget) {
-            const { id, source } = focusedEvidenceTarget;
-            try {
-                await downloadUrlFileWithCancellation(
-                    downloadCancellation,
-                    `${source}-${id}.json`,
-                    `/api/v1/conversations/${source}/${encodeURIComponent(id)}/raw`,
-                    { onStateChange: setDownloadState },
-                );
-            } catch (error) {
-                setExportError(error instanceof Error ? error.message : 'Raw transcript export failed.');
-            } finally {
-                submissionInProgress.current = false;
-                setSubmitted(false);
-            }
+            await submitFocusedRawExport();
+            return;
+        }
+
+        if (hasRawJsonExport) {
+            await submitBulkRawExport();
             return;
         }
 
@@ -516,7 +561,7 @@ export function ExportDialog({
                         mode={mode}
                         options={options}
                         preview={preview}
-                        showRawJsonOption={showRawJsonOption}
+                        showRawJsonOption={showRawJsonOption || hasRawJsonExport}
                         showCommentaryOption={showCommentaryOption}
                         showToolsOption={showToolsOption}
                         zipDescriptionId={zipDescriptionId}

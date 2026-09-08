@@ -3,7 +3,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { UI_EXPORT_DIR_ENV, UI_EXPORT_URL_PREFIX } from '@spiracha/lib/ui-export-files';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { renderSourceSessionDownload, renderSourceSessionsDownload } from './source-session-export-server';
+import {
+    renderRawConversationDownloads,
+    renderSourceSessionDownload,
+    renderSourceSessionsDownload,
+} from './source-session-export-server';
 
 vi.mock('@spiracha/lib/ui-export-archive', async () => {
     const actual = await vi.importActual<typeof import('@spiracha/lib/ui-export-archive')>(
@@ -23,16 +27,18 @@ vi.mock('@spiracha/lib/ui-export-zip', () => {
 
 let exportDir: string;
 let previousExportDir: string | undefined;
+let bunWriteMock: ReturnType<typeof vi.fn>;
 
 beforeEach(async () => {
     previousExportDir = process.env[UI_EXPORT_DIR_ENV];
     exportDir = await mkdtemp(path.join(os.tmpdir(), 'spiracha-source-session-export-test-'));
     process.env[UI_EXPORT_DIR_ENV] = exportDir;
+    bunWriteMock = vi.fn(async (target: string, content: string | ArrayBuffer) => {
+        const fs = await import('node:fs/promises');
+        await fs.writeFile(target, typeof content === 'string' ? content : new Uint8Array(content));
+    });
     vi.stubGlobal('Bun', {
-        write: async (target: string, content: string) => {
-            const fs = await import('node:fs/promises');
-            await fs.writeFile(target, content);
-        },
+        write: bunWriteMock,
     });
 });
 
@@ -158,5 +164,65 @@ describe('source session export server helpers', () => {
         expect(result.fileName).toBe('minimax_spiracha-2026-05-17-1712-threads-2.zip');
         const metadata = await stat(resolveDownloadPath(result.downloadUrl));
         expect(metadata.isFile()).toBe(true);
+    });
+
+    it('should preserve raw conversation bytes with source and conversation filenames', async () => {
+        const firstContent = '{"id":1}\n';
+        const secondContent = '{"id":2}\n';
+        const single = await renderRawConversationDownloads({
+            downloads: [
+                {
+                    download: {
+                        blob: new Blob([firstContent]),
+                        fileName: 'messages.jsonl',
+                        mimeType: 'application/x-ndjson',
+                    },
+                    id: 'task-1',
+                },
+            ],
+            source: 'cline',
+        });
+
+        expect(single).toEqual({
+            content: firstContent,
+            fileName: 'cline-task-1.json',
+            mimeType: 'application/x-ndjson',
+            mode: 'download',
+        });
+
+        bunWriteMock.mockClear();
+        const batch = await renderRawConversationDownloads({
+            downloads: [
+                {
+                    download: {
+                        blob: new Blob([firstContent]),
+                        fileName: 'messages.jsonl',
+                        mimeType: 'application/x-ndjson',
+                    },
+                    id: 'task-1',
+                },
+                {
+                    download: {
+                        blob: new Blob([secondContent]),
+                        fileName: 'messages.jsonl',
+                        mimeType: 'application/x-ndjson',
+                    },
+                    id: 'task-2',
+                },
+            ],
+            source: 'cline',
+        });
+
+        expect(batch.mode).toBe('download_url');
+        if (batch.mode !== 'download_url') {
+            throw new Error('expected a zip download URL');
+        }
+        expect(bunWriteMock.mock.calls.map(([target]) => path.basename(String(target)))).toEqual([
+            'cline-task-1.json',
+            'cline-task-2.json',
+        ]);
+        expect((await stat(resolveDownloadPath(batch.downloadUrl))).isFile()).toBe(true);
+        expect(new TextDecoder().decode(bunWriteMock.mock.calls[0]?.[1] as ArrayBuffer)).toBe(firstContent);
+        expect(new TextDecoder().decode(bunWriteMock.mock.calls[1]?.[1] as ArrayBuffer)).toBe(secondContent);
     });
 });

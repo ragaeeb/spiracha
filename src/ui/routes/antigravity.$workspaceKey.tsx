@@ -299,6 +299,7 @@ function AntigravityWorkspacePage() {
                 forceZipArchive={pendingExport ? pendingExport.conversationIds.length > 1 : false}
                 open={pendingExport !== null}
                 pending={exportConversationsMutation.isPending}
+                rawExport={pendingExport ? { ids: pendingExport.conversationIds, source: 'antigravity' } : undefined}
                 showCommentaryOption={pendingExport?.supportsTranscriptFilters ?? true}
                 showToolsOption={pendingExport?.supportsTranscriptFilters ?? true}
                 title={pendingExport ? `Export ${pendingExport.label}` : 'Export conversation'}

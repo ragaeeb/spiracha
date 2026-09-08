@@ -4,6 +4,14 @@ import * as download from '#/lib/download';
 import { SettingsProvider } from '#/lib/settings-store';
 import { ExportDialog } from './export-dialog';
 
+const { exportRawConversationsFnMock } = vi.hoisted(() => ({
+    exportRawConversationsFnMock: vi.fn(),
+}));
+
+vi.mock('#/lib/source-raw-export-server', () => ({
+    exportRawConversationsFn: exportRawConversationsFnMock,
+}));
+
 afterEach(() => {
     cleanup();
     window.localStorage.clear();
@@ -133,6 +141,48 @@ describe('ExportDialog', () => {
             expect(onRawJsonExport).toHaveBeenCalledWith({ onDownloadStateChange: expect.any(Function) });
         } finally {
             HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+        }
+    });
+
+    it('should export selected source conversations as raw JSON', async () => {
+        const downloadUrlFile = vi.spyOn(download, 'downloadUrlFileWithCancellation').mockResolvedValue(undefined);
+        const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+        HTMLElement.prototype.scrollIntoView = vi.fn();
+        exportRawConversationsFnMock.mockResolvedValue({
+            downloadUrl: '/__exports/cline-raw.zip',
+            fileName: 'cline-raw.zip',
+            mimeType: 'application/zip',
+            mode: 'download_url',
+        });
+
+        try {
+            render(
+                <ExportDialog
+                    open
+                    onExport={vi.fn()}
+                    onOpenChange={vi.fn()}
+                    rawExport={{ ids: ['task-1', 'task-2'], source: 'cline' }}
+                />,
+            );
+
+            fireEvent.click(screen.getByRole('combobox', { name: 'Export mode' }));
+            fireEvent.click(screen.getByText('Raw JSON'));
+            fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
+
+            await waitFor(() =>
+                expect(exportRawConversationsFnMock).toHaveBeenCalledWith({
+                    data: { ids: ['task-1', 'task-2'], source: 'cline' },
+                }),
+            );
+            expect(downloadUrlFile).toHaveBeenCalledWith(
+                expect.any(Object),
+                'cline-raw.zip',
+                '/__exports/cline-raw.zip',
+                { onStateChange: expect.any(Function) },
+            );
+        } finally {
+            HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+            downloadUrlFile.mockRestore();
         }
     });
 

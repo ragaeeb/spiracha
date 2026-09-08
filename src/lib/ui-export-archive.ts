@@ -48,6 +48,9 @@ export const sanitizeExportFileName = (value: string) => {
         .trim();
 };
 
+export const buildRawConversationExportFileName = (source: ConversationSource, id: string) =>
+    `${sanitizeExportFileName(`${source}-${id}`) || 'conversation'}.json`;
+
 export const getExportPlatformName = (source: ConversationSource): ExportPlatform => EXPORT_PLATFORM_BY_SOURCE[source];
 
 export const buildExportArchiveBaseName = (platform: ExportPlatform, baseName: string) =>
