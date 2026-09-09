@@ -253,6 +253,9 @@ export const grokBotTranscriptMetadata = (
 
     return {
         chatKind,
+        lastActivityAtMs: conversation?.roster.lastActivityAtMs,
+        replicaPersistedAtMs: transcript?.persistedAtMs,
+        rosterUpdatedAtMs: conversation?.roster.updatedAtMs,
         ...(conversation?.roster.description ? { description: conversation.roster.description } : {}),
         ...(conversation?.roster.title ? { agentTitle: conversation.roster.title } : {}),
         memberIds: conversation?.roster.memberIds ?? [],

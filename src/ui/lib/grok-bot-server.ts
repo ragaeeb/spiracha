@@ -71,9 +71,25 @@ const getMessageTitle = (message: ConversationMessage) => {
           : 'Message';
 };
 
+const exportTimestamp = (value: unknown): string | null => {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+        return null;
+    }
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date.toISOString();
+};
+
+const messageTimestampSuffix = (message: ConversationMessage, includeMetadata: boolean): string => {
+    const timestamp = includeMetadata ? exportTimestamp(message.createdAtMs) : null;
+    return timestamp ? ` — ${timestamp}` : '';
+};
+
 const renderGrokBotMessage = (
     message: ConversationMessage,
-    options: Pick<z.output<typeof exportSchema>, 'includeCommentary' | 'includeTools' | 'outputFormat'>,
+    options: Pick<
+        z.output<typeof exportSchema>,
+        'includeCommentary' | 'includeMetadata' | 'includeTools' | 'outputFormat'
+    >,
 ) => {
     if ((message.phase === 'commentary' || message.phase === 'reasoning') && !options.includeCommentary) {
         return '';
@@ -82,6 +98,7 @@ const renderGrokBotMessage = (
         return '';
     }
 
+    const suffix = messageTimestampSuffix(message, options.includeMetadata);
     const text = cleanExtractedText(message.text).trim();
     if (message.phase === 'tool_call') {
         const tool = message.toolEvidence;
@@ -93,17 +110,17 @@ const renderGrokBotMessage = (
         if (tool?.inputText?.trim()) {
             lines.push('', 'Input:', '', renderCodeBlock(tool.inputText.trim(), options.outputFormat));
         }
-        return renderSection('Tool Call', lines.join('\n'), options.outputFormat);
+        return renderSection(`Tool Call${suffix}`, lines.join('\n'), options.outputFormat);
     }
     if (message.phase === 'tool_output') {
         const outputText = message.toolEvidence?.outputText?.trim() || text;
-        return renderSection('Tool Output', outputText, options.outputFormat);
+        return renderSection(`Tool Output${suffix}`, outputText, options.outputFormat);
     }
     if (message.phase === 'reasoning') {
-        return renderSection('Reasoning', text, options.outputFormat);
+        return renderSection(`Reasoning${suffix}`, text, options.outputFormat);
     }
 
-    return renderSection(getMessageTitle(message), text, options.outputFormat);
+    return renderSection(`${getMessageTitle(message)}${suffix}`, text, options.outputFormat);
 };
 
 const renderGrokBotChat = (
@@ -125,6 +142,13 @@ const renderGrokBotChat = (
                   { key: 'exported_from', value: 'grok_bot' },
                   { key: 'conversation_id', value: conversation.id },
                   { key: 'title', value: conversation.title },
+                  { key: 'created_at', value: exportTimestamp(conversation.createdAtMs) },
+                  { key: 'last_activity_at', value: exportTimestamp(conversation.metadata.lastActivityAtMs) },
+                  { key: 'roster_updated_at', value: exportTimestamp(conversation.metadata.rosterUpdatedAtMs) },
+                  { key: 'replica_persisted_at', value: exportTimestamp(conversation.metadata.replicaPersistedAtMs) },
+                  { key: 'description', value: conversation.metadata.description },
+                  { key: 'agent_title', value: conversation.metadata.agentTitle },
+                  { key: 'attachments', value: conversation.metadata.attachments },
                   { key: 'chat_kind', value: conversation.metadata.chatKind },
                   { key: 'participants', value: getMemberNames(conversation).join(', ') },
                   { key: 'message_count', value: conversation.messages.length },

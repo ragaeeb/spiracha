@@ -1,11 +1,23 @@
-import { afterEach, expect, it } from 'bun:test';
+import { afterEach, beforeEach, expect, it, spyOn } from 'bun:test';
 import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { reconcileCursorOperations, runCursorOperation } from './cursor-operation-journal';
+import * as cursorRecovery from './cursor-recovery';
 
 const directories: string[] = [];
+let runningCheck: ReturnType<typeof spyOn<typeof cursorRecovery, 'isCursorRunning'>>;
+beforeEach(() => {
+    runningCheck = spyOn(cursorRecovery, 'isCursorRunning').mockResolvedValue(false);
+});
+const stoppedCursorFixture = `
+    import { spyOn } from 'bun:test';
+    import * as recovery from ${JSON.stringify(path.join(import.meta.dir, 'cursor-recovery.ts'))};
+    spyOn(recovery, 'isCursorRunning').mockResolvedValue(false);
+`;
+
 afterEach(async () => {
+    runningCheck.mockRestore();
     await Promise.all(directories.splice(0).map((directory) => rm(directory, { force: true, recursive: true })));
 });
 
@@ -134,7 +146,7 @@ it('should recover a child process killed after each store phase without touchin
                 crash('history');
             });
         `;
-        const child = Bun.spawn([process.execPath, '--eval', worker, userDir, phase], {
+        const child = Bun.spawn([process.execPath, '--eval', stoppedCursorFixture + worker, userDir, phase], {
             stderr: 'pipe',
             stdout: 'pipe',
         });
@@ -145,7 +157,8 @@ it('should recover a child process killed after each store phase without touchin
             [
                 process.execPath,
                 '--eval',
-                `import { listCursorWorkspaceGroups } from ${JSON.stringify(path.join(import.meta.dir, 'cursor-db.ts'))}; await listCursorWorkspaceGroups(process.argv[1]); await listCursorWorkspaceGroups(process.argv[1]);`,
+                stoppedCursorFixture +
+                    `import { listCursorWorkspaceGroups } from ${JSON.stringify(path.join(import.meta.dir, 'cursor-db.ts'))}; await listCursorWorkspaceGroups(process.argv[1]); await listCursorWorkspaceGroups(process.argv[1]);`,
                 userDir,
             ],
             { stderr: 'pipe', stdout: 'pipe' },
@@ -272,14 +285,18 @@ it('should resume a workspace merge after a child dies with its target bucket up
             process.kill(process.pid, 'SIGKILL');
         });
     `;
-    const child = Bun.spawn([process.execPath, '--eval', worker, userDir], { stderr: 'pipe', stdout: 'pipe' });
+    const child = Bun.spawn([process.execPath, '--eval', stoppedCursorFixture + worker, userDir], {
+        stderr: 'pipe',
+        stdout: 'pipe',
+    });
     await child.exited;
     expect(child.signalCode).toBe('SIGKILL');
     const restarted = Bun.spawn(
         [
             process.execPath,
             '--eval',
-            `
+            stoppedCursorFixture +
+                `
         import { listCursorWorkspaceGroups } from ${JSON.stringify(path.join(import.meta.dir, 'cursor-db.ts'))};
         import { recoverCursorWorkspaceGroup } from ${JSON.stringify(path.join(import.meta.dir, 'cursor-recovery.ts'))};
         const groups = await listCursorWorkspaceGroups(process.argv[1]);

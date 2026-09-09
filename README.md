@@ -339,3 +339,5 @@ The hard-cut package keeps one `spiracha` bin, the stable `spiracha/client`, `sp
 - Normalized conversation messages now always include `toolEvidence` (`null` for non-tool messages); consumers that construct these DTOs must provide that explicit field.
 
 Deletion recovery protocols: [Codex](docs/codex-deletion-recovery.md), [Cursor](docs/cursor-crash-recovery.md), and [Grok Bot](docs/grok-bot-deletion.md). See [concurrency](docs/concurrency.md) for cancellation, source scheduling, and server tuning.
+
+Grok Bot Markdown/text exports with metadata enabled include the roster creation date, last activity, roster update, replica save time, group description, participants, attachment names/sizes, and per-message timestamps. Dates use ISO 8601 UTC; unavailable dates are omitted. Replica save time is local persistence metadata, not conversation creation or message activity. The local replica may contain only part of the conversation history.
