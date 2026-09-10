@@ -18,7 +18,7 @@ An application installs `spiracha` as a dependency, imports `convertConversation
 
 1. Reuse source parsers and stable adapter message conversion; extract small pure entrypoints from storage wrappers where needed.
 2. Cover Web providers, Codex, Cline, Grok, Grok Bot, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode with source-specific payload modules.
-3. Export compiled JavaScript and declarations through `spiracha/payload` in the same package; keep the Bun `spiracha/client` export for existing callers. Keep the existing storage-backed client methods and HTTP routes unchanged.
+3. Export compiled JavaScript and declarations through `spiracha/payload` in the same package; keep the Bun `spiracha/client` export for existing callers. Expose the same conversion through the stable `POST /api/v1/conversation-payload` route without adding imported conversations to storage.
 4. Include embedded artifacts in the result and rendered Markdown. Gemini artifacts retain their Works cited entries and deduplicated research tool events.
 
 ## Supported input shapes

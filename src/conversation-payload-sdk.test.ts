@@ -240,6 +240,277 @@ describe('payload SDK', () => {
         expect(nested!.model).toBe(result!.model);
     });
 
+    it('should carry Claude Markdown artifacts through public payload conversion', async () => {
+        const report = '# Claude report\n\nThe report body.\n';
+        const [result] = await convertConversationPayload({
+            payload: {
+                chat_messages: [
+                    { content: [{ text: 'Question', type: 'text' }], sender: 'human', uuid: 'user' },
+                    {
+                        content: [
+                            {
+                                id: 'report',
+                                input: { file_text: report, path: '/mnt/user-data/outputs/REPORT.md' },
+                                name: 'create_file',
+                                type: 'tool_use',
+                            },
+                            { text: 'Answer', type: 'text' },
+                        ],
+                        sender: 'assistant',
+                        uuid: 'assistant',
+                    },
+                ],
+                model: 'claude-sonnet-5',
+            },
+        });
+
+        expect(result!.artifacts).toEqual([{ content: report, id: 'report', title: 'REPORT.md' }]);
+        expect(result!.markdown).toContain(`### REPORT.md\n\n${report}`);
+    });
+
+    it('should carry GLM Markdown artifacts through public payload conversion', async () => {
+        const report = '# GLM report\n\nThe report body.\n';
+        const payload = {
+            conversation_id: 'glm-sdk',
+            current_node: 'assistant',
+            default_model_slug: 'glm-5.3',
+            mapping: {
+                assistant: {
+                    children: [],
+                    message: {
+                        author: { role: 'assistant' },
+                        content: { content_type: 'text', parts: ['Answer'] },
+                        id: 'assistant-message',
+                    },
+                    parent: 'user',
+                },
+                user: {
+                    children: ['assistant'],
+                    message: {
+                        author: { role: 'user' },
+                        content: { content_type: 'text', parts: ['Question'] },
+                        id: 'user-message',
+                    },
+                    parent: null,
+                },
+            },
+            raw_payload: {
+                messages_batch: {
+                    data: {
+                        'assistant-message': {
+                            content_blocks: [
+                                {
+                                    content: [
+                                        {
+                                            function: {
+                                                arguments: JSON.stringify({
+                                                    content: report,
+                                                    filepath: '/tmp/glm-sdk/REPORT.md',
+                                                }),
+                                                name: 'Write',
+                                            },
+                                            id: 'report-call',
+                                            type: 'function',
+                                        },
+                                    ],
+                                    results: [{ status: 'completed', tool_call_id: 'report-call' }],
+                                    type: 'tool_calls',
+                                },
+                            ],
+                            role: 'assistant',
+                        },
+                    },
+                },
+            },
+            title: 'GLM SDK report',
+        };
+        const [result] = await convertConversationPayload({ payload });
+
+        expect(result!.artifacts).toEqual([{ content: report, id: 'report-call', title: 'REPORT.md' }]);
+        expect(result!.markdown).toContain(`### REPORT.md\n\n${report}`);
+    });
+
+    it('should carry Meta Markdown and JSON artifacts through public payload conversion', async () => {
+        const summary = 'Meta answer with artifact links.';
+        const report = '# Muse report\n';
+        const reportJson = '{"kind":"muse"}\n';
+        const payload = {
+            conversation_id: 'meta-sdk',
+            current_node: 'assistant',
+            default_model_slug: 'meta-ai',
+            mapping: {
+                assistant: {
+                    children: [],
+                    message: {
+                        author: { role: 'assistant' },
+                        content: { content_type: 'text', parts: [summary, report, reportJson] },
+                        id: 'assistant',
+                    },
+                    parent: 'user',
+                },
+                user: {
+                    children: ['assistant'],
+                    message: {
+                        author: { role: 'user' },
+                        content: { content_type: 'text', parts: ['Question'] },
+                        id: 'user',
+                    },
+                    parent: null,
+                },
+            },
+            raw_payload: {
+                data: {
+                    conversation: {
+                        messages: {
+                            edges: [
+                                {
+                                    node: {
+                                        content: summary,
+                                        contentRenderer: {
+                                            unified_response: {
+                                                sections: [
+                                                    {
+                                                        view_model: {
+                                                            primitive: {
+                                                                html_artifact_sandbox: {
+                                                                    file_extension: 'md',
+                                                                    title: 'REPORT',
+                                                                    uuid: 'md-id',
+                                                                },
+                                                                text: '📎 [REPORT.md](container:///mnt/data/REPORT.md)',
+                                                            },
+                                                        },
+                                                    },
+                                                    {
+                                                        view_model: {
+                                                            primitive: {
+                                                                html_artifact_sandbox: {
+                                                                    file_extension: 'json',
+                                                                    title: 'Report',
+                                                                    uuid: 'json-id',
+                                                                },
+                                                                text: '📎 [report.json](container:///mnt/data/report.json)',
+                                                            },
+                                                        },
+                                                    },
+                                                ],
+                                            },
+                                        },
+                                        id: 'assistant',
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                },
+            },
+            title: 'Muse SDK report',
+        };
+        const [result] = await convertConversationPayload({ payload });
+
+        expect(result!.metadata.platform).toBe('Meta');
+        expect(result!.artifacts).toEqual([
+            { content: report, id: 'assistant:md-id', title: 'REPORT.md' },
+            { content: reportJson, id: 'assistant:json-id', title: 'report.json' },
+        ]);
+        expect(result!.markdown).toContain(`### report.json\n\n${reportJson}`);
+    });
+
+    it('should carry Qwen Markdown artifacts through public payload conversion', async () => {
+        const report = '# Qwen SDK report\n\nCitation [[1]].\n';
+        const payload = {
+            conversation_id: 'qwen-sdk',
+            current_node: 'qwen-answer',
+            default_model_slug: 'qwen3.8-max',
+            mapping: {
+                'qwen-answer': {
+                    children: [],
+                    id: 'qwen-answer',
+                    message: {
+                        author: { name: 'Qwen', role: 'assistant' },
+                        content: { content_type: 'text', parts: [report] },
+                        id: 'qwen-answer',
+                    },
+                    parent: 'user',
+                },
+                user: {
+                    children: ['qwen-answer'],
+                    id: 'user',
+                    message: {
+                        author: { role: 'user' },
+                        content: { content_type: 'text', parts: ['Question'] },
+                        id: 'qwen-user',
+                    },
+                    parent: null,
+                },
+            },
+            raw_payload: {
+                data: {
+                    chat: {
+                        history: {
+                            currentId: 'qwen-answer',
+                            messages: {
+                                'qwen-answer': {
+                                    content: report,
+                                    content_list: [
+                                        {
+                                            content: report,
+                                            extra: {
+                                                deep_research: {
+                                                    references: {
+                                                        first: {
+                                                            index_number: 1,
+                                                            title: 'First',
+                                                            url: 'https://example.com/one',
+                                                        },
+                                                    },
+                                                },
+                                            },
+                                            phase: 'answer',
+                                            role: 'assistant',
+                                            status: 'finished',
+                                        },
+                                        {
+                                            content: '',
+                                            extra: {
+                                                deep_research: {
+                                                    md: {
+                                                        link: 'https://cdn.example.test/qwen.md',
+                                                        name: 'Qwen SDK report',
+                                                        size: report.length,
+                                                    },
+                                                },
+                                            },
+                                            phase: 'PdfMdGen',
+                                            role: 'assistant',
+                                            status: 'finished',
+                                        },
+                                    ],
+                                    id: 'qwen-answer',
+                                    role: 'assistant',
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+            title: 'Qwen SDK report',
+        };
+        const [result] = await convertConversationPayload({ payload });
+
+        expect(result!.metadata.platform).toBe('Qwen');
+        expect(result!.artifacts).toEqual([
+            {
+                content: '# Qwen SDK report\n\nCitation [[1](https://example.com/one)].\n',
+                id: 'qwen-report:qwen-answer',
+                title: 'Qwen SDK report.md',
+            },
+        ]);
+        expect(result!.markdown).toContain(
+            '### Qwen SDK report.md\n\n# Qwen SDK report\n\nCitation [[1](https://example.com/one)].\n',
+        );
+    });
+
     it('should keep artifact headings on one Markdown line while preserving raw titles', async () => {
         const payload = structuredClone(geminiResearchPayload);
         (payload.raw_payload[0] as unknown[])[2] = 'Report\n## Injected heading';

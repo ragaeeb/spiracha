@@ -102,6 +102,7 @@ GET  /api/v1/conversations/:source/:id
 GET  /api/v1/conversations/:source/:id/export
 GET  /api/v1/conversations/:source/:id/raw
 POST /api/v1/conversations/:source/:id/evidence
+POST /api/v1/conversation-payload
 DELETE /api/v1/conversations/:source/:id
 POST /api/v1/conversations/delete
 POST /api/v1/conversations/export
@@ -109,6 +110,8 @@ GET  /api/v1/resolve?ref=<url-or-deeplink>
 ```
 
 The default list selector is `last_final_answer`, which keeps `fgh --collect` style clients fast and small. Use `message_selector=all` when a client needs the full normalized thread. Claude Code and Kiro lists coalesce recognized compacted continuations under the parent conversation ID. Reading, exporting, generating focused evidence for, or deleting that parent operates on the complete lineage. A direct child-segment ID remains available as a physical-session lookup and affects only that segment.
+
+`POST /api/v1/conversation-payload` accepts `{ "payload": <JSON-or-JSONL>, "source": "<optional-source>", "file_name": "<optional-name>", "message_selector": "<optional-selector>" }` and returns the same `{ "data": ConvertedConversation[] }` shape as the in-memory SDK converter. The `artifacts` entries and their Markdown content are returned unchanged.
 
 Conversation lists use opaque keyset cursors ordered by update time, source, and conversation ID. Pass `meta.next_cursor` unchanged with the same filters to request the next page. The 2.0 offset cursor format is intentionally unsupported; clients must begin a fresh traversal after upgrading.
 
@@ -204,7 +207,7 @@ The optional `fileName` supplies a Web provider hint; it is never opened. Payloa
 
 Use `artifacts[].content` for a standalone embedded report, including Gemini Works cited; `markdown` is the entire conversation plus artifacts. `createdAtMs` and `updatedAtMs` are nullable Unix epoch milliseconds on the conversation. Individual artifacts do not have timestamps. `model` is an optional string, with display labels formatted in Markdown rather than separate provider/name/version fields.
 
-The supported payload shapes and validation plan are described in [Payload conversion SDK](docs/payload-sdk-plan.md). This function does not add Web imports to the stable source registry or HTTP API.
+The supported payload shapes and validation plan are described in [Payload conversion SDK](docs/payload-sdk-plan.md). The same conversion is available through `POST /api/v1/conversation-payload` for clients that already hold the JSON or JSONL payload but do not run the converter in process. It does not add Web imports to the stable source registry or UI import store.
 
 ### Codex analytics
 

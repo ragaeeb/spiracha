@@ -24,12 +24,15 @@ import { validateEvidenceLens } from './conversation-data/evidence-lens';
 import { buildEvidenceExport } from './conversation-data/evidence-markdown';
 import { renderConversationMarkdown } from './conversation-data/markdown';
 import { decodeConversationCursor } from './conversation-data/pagination';
+import { ConversationPayloadError, convertConversationPayload } from './conversation-payload';
+import type { ConvertConversationPayloadOptions } from './conversation-payload-types';
 import { createConversationMarkdownZip } from './conversation-zip-export';
 import { isAllowedLocalRequestOrigin } from './local-request-security';
 import { buildRawConversationExportFileName, getExportPlatformName } from './ui-export-archive';
 
 type ConversationApiDependencies = {
     buildEvidenceExport?: typeof buildEvidenceExport;
+    convertConversationPayload?: typeof convertConversationPayload;
     deleteConversation?: typeof deleteConversation;
     deleteConversations?: typeof deleteConversations;
     getConversation?: typeof getConversation;
@@ -302,6 +305,7 @@ const normalizeMeta = (meta: { hasNext: boolean; nextCursor: string | null }) =>
 
 const getDeps = (dependencies: ConversationApiDependencies) => ({
     buildEvidenceExport: dependencies.buildEvidenceExport ?? buildEvidenceExport,
+    convertConversationPayload: dependencies.convertConversationPayload ?? convertConversationPayload,
     deleteConversation: dependencies.deleteConversation ?? deleteConversation,
     deleteConversations: dependencies.deleteConversations ?? deleteConversations,
     getConversation: dependencies.getConversation ?? getConversation,
@@ -1144,6 +1148,68 @@ const handleConversationQuery = async (request: Request, dependencies: ReturnTyp
     });
 };
 
+const handleConversationPayload = async (request: Request, dependencies: ReturnType<typeof getDeps>) => {
+    let body: unknown;
+    try {
+        body = await request.json();
+    } catch {
+        return errorResponse('validation_error', 'Request body must be JSON.', 400);
+    }
+    if (!isRecord(body)) {
+        return errorResponse('validation_error', 'Request body must be a JSON object.', 400);
+    }
+
+    const allowedFields = new Set([
+        'fileName',
+        'file_name',
+        'messageSelector',
+        'message_selector',
+        'payload',
+        'source',
+    ]);
+    const unknownField = Object.keys(body).find((field) => !allowedFields.has(field));
+    if (unknownField) {
+        return invalidFieldResponse(unknownField, body[unknownField], 'Unknown request field.');
+    }
+    if (!('payload' in body)) {
+        return invalidFieldResponse('payload', undefined, '`payload` is required.');
+    }
+
+    const source = getStringOption(body, 'source', 'source');
+    if ('error' in source) {
+        return source.error;
+    }
+    const fileName = getStringOption(body, 'fileName', 'file_name');
+    if ('error' in fileName) {
+        return fileName.error;
+    }
+    const messageSelector = getStringOption(body, 'messageSelector', 'message_selector');
+    if ('error' in messageSelector) {
+        return messageSelector.error;
+    }
+    if (messageSelector.value !== undefined && !isMessageSelector(messageSelector.value)) {
+        return invalidMessageSelectorResponse(messageSelector.value);
+    }
+
+    const options: ConvertConversationPayloadOptions = {
+        ...(fileName.value === undefined ? {} : { fileName: fileName.value }),
+        ...(messageSelector.value === undefined ? {} : { messageSelector: messageSelector.value }),
+        payload: body.payload,
+        ...(source.value === undefined ? {} : { source: source.value as ConvertConversationPayloadOptions['source'] }),
+    };
+    try {
+        return jsonResponse({ data: await dependencies.convertConversationPayload(options) });
+    } catch (error) {
+        if (error instanceof ConversationPayloadError) {
+            return errorResponse('validation_error', error.message, 400, {
+                code: error.code,
+                field: 'payload',
+            });
+        }
+        throw error;
+    }
+};
+
 type ApiRouteContext = {
     action: string | undefined;
     dependencies: ReturnType<typeof getDeps>;
@@ -1235,6 +1301,12 @@ const API_ROUTES: ApiRoute[] = [
         matches: ({ source }) => !source,
         method: 'POST',
         resource: 'conversation-query',
+    },
+    {
+        handle: ({ dependencies, request }) => handleConversationPayload(request, dependencies),
+        matches: ({ source }) => !source,
+        method: 'POST',
+        resource: 'conversation-payload',
     },
 ];
 
