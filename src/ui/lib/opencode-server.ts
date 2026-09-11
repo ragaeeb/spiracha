@@ -1,3 +1,8 @@
+import { randomUUID } from 'node:crypto';
+import type {
+    DeleteOpenCodeWorkspaceResult,
+    OpenCodeWorkspaceCleanupRetryPlan,
+} from '@spiracha/lib/opencode-exporter-types';
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
 import { requireDeletedItems, runDeleteBatch } from './delete-batch';
@@ -32,6 +37,105 @@ const exportSessionsSchema = z.object({
 const deleteSessionsSchema = z.object({
     sessionIds: z.array(z.string().min(1)).min(1),
 });
+
+const cleanupRetryTargetSchema = z.object({
+    token: z.string().uuid(),
+});
+
+const deleteWorkspaceSchema = workspaceSchema.extend({
+    retry: cleanupRetryTargetSchema.optional(),
+});
+
+const deleteWorkspacesSchema = z.object({
+    retryTargets: z.array(cleanupRetryTargetSchema.nullable()).max(128).optional(),
+    workspaceKeys: z.array(z.string().min(1)).min(1).max(128),
+});
+
+const OPENCODE_CLEANUP_RETRY_TTL_MS = 5 * 60 * 1000;
+const OPENCODE_CLEANUP_RETRY_MAX = 128;
+
+type OpenCodeCleanupRetryTarget = {
+    token: string;
+};
+
+type OpenCodeWorkspaceDeleteResponse = Omit<DeleteOpenCodeWorkspaceResult, 'cleanupRetryPlan'> & {
+    retryTarget?: OpenCodeCleanupRetryTarget;
+};
+
+const openCodeCleanupRetryPlans = new Map<string, { createdAtMs: number; plan: OpenCodeWorkspaceCleanupRetryPlan }>();
+
+const purgeExpiredOpenCodeCleanupRetryPlans = (nowMs = Date.now()) => {
+    for (const [token, record] of openCodeCleanupRetryPlans) {
+        if (nowMs - record.createdAtMs >= OPENCODE_CLEANUP_RETRY_TTL_MS) {
+            openCodeCleanupRetryPlans.delete(token);
+        }
+    }
+};
+
+const registerOpenCodeCleanupRetryPlan = (plan: OpenCodeWorkspaceCleanupRetryPlan): OpenCodeCleanupRetryTarget => {
+    const nowMs = Date.now();
+    purgeExpiredOpenCodeCleanupRetryPlans(nowMs);
+    while (openCodeCleanupRetryPlans.size >= OPENCODE_CLEANUP_RETRY_MAX) {
+        const oldestToken = openCodeCleanupRetryPlans.keys().next().value;
+        if (typeof oldestToken !== 'string') {
+            break;
+        }
+        openCodeCleanupRetryPlans.delete(oldestToken);
+    }
+
+    const token = randomUUID();
+    openCodeCleanupRetryPlans.set(token, { createdAtMs: nowMs, plan });
+    return { token };
+};
+
+const consumeOpenCodeCleanupRetryPlan = (
+    target: OpenCodeCleanupRetryTarget,
+    workspaceKey: string,
+): OpenCodeWorkspaceCleanupRetryPlan => {
+    purgeExpiredOpenCodeCleanupRetryPlans();
+    const record = openCodeCleanupRetryPlans.get(target.token);
+    if (!record) {
+        throw new Error('OpenCode cleanup retry token is missing or expired.');
+    }
+    if (record.plan.workspaceKey !== workspaceKey) {
+        throw new Error('OpenCode workspace retry target does not match the workspace key.');
+    }
+
+    openCodeCleanupRetryPlans.delete(target.token);
+    return record.plan;
+};
+
+const finalizeOpenCodeWorkspaceDelete = (result: DeleteOpenCodeWorkspaceResult): OpenCodeWorkspaceDeleteResponse => {
+    const { cleanupRetryPlan: retryPlan, ...publicResult } = result;
+    if (retryPlan && result.cleanupFailures.length > 0) {
+        return { ...publicResult, retryTarget: registerOpenCodeCleanupRetryPlan(retryPlan) };
+    }
+    return publicResult;
+};
+
+const deleteOpenCodeWorkspaceWithRetry = async (
+    workspaceKey: string,
+    retryTarget?: OpenCodeCleanupRetryTarget,
+): Promise<DeleteOpenCodeWorkspaceResult> => {
+    if (retryTarget) {
+        const plan = consumeOpenCodeCleanupRetryPlan(retryTarget, workspaceKey);
+        const { deleteOpenCodeDesktopSessionStateWithResult } = await import('@spiracha/lib/opencode-db');
+        const cleanup = await deleteOpenCodeDesktopSessionStateWithResult(plan.sessionIds, undefined, plan.worktrees);
+        return {
+            cleanupFailures: cleanup.cleanupFailures,
+            ...(cleanup.cleanupFailures.length > 0 ? { cleanupRetryPlan: plan } : {}),
+            deletedProjectIds: [],
+            deletedSessionIds: [],
+            workspaceFound: true,
+            workspaceKey,
+        };
+    }
+
+    const { deleteOpenCodeWorkspace, resolveOpenCodeDbPath } = await import('@spiracha/lib/opencode-db');
+    return deleteOpenCodeWorkspace(resolveOpenCodeDbPath(), workspaceKey);
+};
+
+const toOpenCodeDeleteError = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 export const listOpenCodeWorkspacesFn = createServerFn({ method: 'GET' }).handler(async () => {
     const { listOpenCodeWorkspaceGroups } = await import('@spiracha/lib/opencode-db');
@@ -162,4 +266,55 @@ export const deleteOpenCodeSessionsFn = createServerFn({ method: 'POST' })
         return {
             deletedSessionIds: [...new Set(results.flatMap((result) => result.deletedSessionIds))],
         };
+    });
+
+export const deleteOpenCodeWorkspaceFn = createServerFn({ method: 'POST' })
+    .validator(deleteWorkspaceSchema)
+    .handler(async ({ data }) => {
+        const result = finalizeOpenCodeWorkspaceDelete(
+            await deleteOpenCodeWorkspaceWithRetry(data.workspaceKey, data.retry),
+        );
+        if (!result.workspaceFound) {
+            throw new Error(`OpenCode workspace not found: ${data.workspaceKey}`);
+        }
+        return result;
+    });
+
+export const deleteOpenCodeWorkspacesFn = createServerFn({ method: 'POST' })
+    .validator(deleteWorkspacesSchema)
+    .handler(async ({ data }) => {
+        const retryTargets = data.retryTargets ?? [];
+        if (retryTargets.length > 0 && retryTargets.length !== data.workspaceKeys.length) {
+            throw new Error('OpenCode workspace retry targets must match the workspace key count.');
+        }
+
+        const seenKeys = new Set<string>();
+        const workspaceKeys: string[] = [];
+        const normalizedRetryTargets: Array<{ token: string } | null> = [];
+        for (const [index, workspaceKey] of data.workspaceKeys.entries()) {
+            if (seenKeys.has(workspaceKey)) {
+                continue;
+            }
+            seenKeys.add(workspaceKey);
+            workspaceKeys.push(workspaceKey);
+            normalizedRetryTargets.push(retryTargets[index] ?? null);
+        }
+
+        const results: OpenCodeWorkspaceDeleteResponse[] = [];
+        const failures: Array<{ error: string; workspaceKey: string }> = [];
+        for (const [index, workspaceKey] of workspaceKeys.entries()) {
+            try {
+                const result = finalizeOpenCodeWorkspaceDelete(
+                    await deleteOpenCodeWorkspaceWithRetry(workspaceKey, normalizedRetryTargets[index] ?? undefined),
+                );
+                if (!result.workspaceFound) {
+                    throw new Error(`OpenCode workspace not found: ${workspaceKey}`);
+                }
+                results.push(result);
+            } catch (error) {
+                failures.push({ error: toOpenCodeDeleteError(error), workspaceKey });
+            }
+        }
+
+        return { failures, results };
     });

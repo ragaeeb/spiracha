@@ -1097,7 +1097,7 @@ const getClaudeArtifactCandidate = (block: unknown): ClaudeArtifactCandidate | n
     const input = isRecord(block.input) ? block.input : null;
     const path = typeof input?.path === 'string' ? input.path : null;
     const content = input && typeof input.file_text === 'string' ? input.file_text : null;
-    if (path === null || !/\.(?:md|markdown)$/i.test(path) || content === null) {
+    if (path === null || !/\.(?:md|markdown|json)$/i.test(path) || content === null) {
         return null;
     }
     return {

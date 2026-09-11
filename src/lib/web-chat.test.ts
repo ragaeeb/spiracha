@@ -652,8 +652,9 @@ describe('parseWebChatFiles', () => {
         ).toEqual(['final_answer', 'final_answer']);
     });
 
-    it('should extract Claude Markdown artifacts from selected mapping and native message branches', async () => {
+    it('should extract Claude Markdown and JSON artifacts from selected mapping and native message branches', async () => {
         const report = '# Claude report\r\n\r\nReasoning marker\r\n';
+        const jsonReport = '{\r\n  "schema_note": "preserve exact formatting",\r\n  "items": [1, 2]  \r\n}\r\n';
         const createFile = (id: string | undefined, path: string, fileText: string) => ({
             id,
             input: { description: 'Generated report', file_text: fileText, path },
@@ -661,6 +662,7 @@ describe('parseWebChatFiles', () => {
             type: 'tool_use',
         });
         const mappingFile = createFile('mapping-report', '/mnt/user-data/outputs/REPORT.md', report);
+        const mappingJsonFile = createFile('mapping-json-report', '/mnt/user-data/outputs/report.JSON', jsonReport);
         const mapping = {
             assistant: {
                 children: [],
@@ -670,7 +672,10 @@ describe('parseWebChatFiles', () => {
                         { content: 'Reasoning marker', type: 'thinking' },
                         mappingFile,
                         structuredClone(mappingFile),
+                        mappingJsonFile,
+                        structuredClone(mappingJsonFile),
                         { text: 'Claude answer', type: 'text' },
+                        createFile('misleading-suffix', '/mnt/user-data/outputs/report.json.txt', jsonReport),
                         createFile('ignored-text', '/mnt/user-data/outputs/notes.txt', 'Not Markdown'),
                     ],
                 },
@@ -704,11 +709,14 @@ describe('parseWebChatFiles', () => {
         ]);
         const mappingConversation = mappingResult.conversations[0]!;
 
-        expect(mappingConversation.artifacts).toEqual([{ content: report, id: 'mapping-report', title: 'REPORT.md' }]);
+        expect(mappingConversation.artifacts).toEqual([
+            { content: report, id: 'mapping-report', title: 'REPORT.md' },
+            { content: jsonReport, id: 'mapping-json-report', title: 'report.JSON' },
+        ]);
         expect(mappingConversation.events.filter((event) => event.kind === 'reasoning')).toMatchObject([
             { content: 'Reasoning marker' },
         ]);
-        expect(getToolCalls(mappingConversation.events)).toHaveLength(2);
+        expect(getToolCalls(mappingConversation.events)).toHaveLength(4);
 
         const nativeReport = '# Native report\n';
         const nativeFile = createFile('native-report', '/mnt/user-data/outputs/report.markdown', nativeReport);

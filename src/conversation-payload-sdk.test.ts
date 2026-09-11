@@ -240,8 +240,9 @@ describe('payload SDK', () => {
         expect(nested!.model).toBe(result!.model);
     });
 
-    it('should carry Claude Markdown artifacts through public payload conversion', async () => {
+    it('should carry Claude Markdown and JSON artifacts through public payload conversion', async () => {
         const report = '# Claude report\n\nThe report body.\n';
+        const jsonReport = '{\r\n  "schema_note": "preserve",\r\n  "items": [1, 2]  \r\n}\r\n';
         const [result] = await convertConversationPayload({
             payload: {
                 chat_messages: [
@@ -251,6 +252,12 @@ describe('payload SDK', () => {
                             {
                                 id: 'report',
                                 input: { file_text: report, path: '/mnt/user-data/outputs/REPORT.md' },
+                                name: 'create_file',
+                                type: 'tool_use',
+                            },
+                            {
+                                id: 'json-report',
+                                input: { file_text: jsonReport, path: '/mnt/user-data/outputs/report.json' },
                                 name: 'create_file',
                                 type: 'tool_use',
                             },
@@ -264,8 +271,12 @@ describe('payload SDK', () => {
             },
         });
 
-        expect(result!.artifacts).toEqual([{ content: report, id: 'report', title: 'REPORT.md' }]);
+        expect(result!.artifacts).toEqual([
+            { content: report, id: 'report', title: 'REPORT.md' },
+            { content: jsonReport, id: 'json-report', title: 'report.json' },
+        ]);
         expect(result!.markdown).toContain(`### REPORT.md\n\n${report}`);
+        expect(result!.markdown).toContain(`### report.json\n\n${jsonReport.trimEnd()}`);
     });
 
     it('should carry GLM Markdown artifacts through public payload conversion', async () => {

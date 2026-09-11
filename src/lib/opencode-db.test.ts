@@ -5,7 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import {
     deleteOpenCodeDesktopSessionState,
+    deleteOpenCodeDesktopSessionStateWithResult,
     deleteOpenCodeSession,
+    deleteOpenCodeWorkspace,
     findOpenCodeWorkspaceGroups,
     getDefaultOpenCodeDataDir,
     getOpenCodeReadDbUri,
@@ -776,6 +778,298 @@ describe('opencode db helpers', () => {
             }
         } finally {
             db.close();
+        }
+    });
+
+    it('should delete an empty OpenCode project workspace without deleting sibling data', async () => {
+        const dbPath = await makeDbPath();
+        await createOpenCodeFixture(dbPath, {
+            projects: [
+                { id: 'empty-project', worktree: '/workspace/empty' },
+                { id: 'sibling-project', worktree: '/workspace/sibling' },
+            ],
+            sessions: [
+                {
+                    id: 'sibling-session',
+                    messages: [],
+                    projectId: 'sibling-project',
+                    title: 'Sibling',
+                },
+                {
+                    id: 'child-only-session',
+                    messages: [],
+                    parentId: 'missing-parent',
+                    projectId: 'empty-project',
+                    title: 'Child only',
+                },
+            ],
+        });
+
+        const result = await deleteOpenCodeWorkspace(dbPath, 'project:empty-project');
+
+        expect(result).toMatchObject({
+            cleanupFailures: [],
+            deletedProjectIds: ['empty-project'],
+            deletedSessionIds: ['child-only-session'],
+            workspaceFound: true,
+            workspaceKey: 'project:empty-project',
+        });
+        expect(await listOpenCodeWorkspaceGroups(dbPath)).toEqual([
+            expect.objectContaining({ key: 'project:sibling-project', sessionCount: 1 }),
+        ]);
+    });
+
+    it('should delete a global directory workspace while preserving the shared global project', async () => {
+        const dbPath = await makeDbPath();
+        const targetDirectory = '/workspace/target';
+        const siblingDirectory = '/workspace/sibling';
+        await createOpenCodeFixture(dbPath, {
+            projects: [{ id: 'global', worktree: '/' }],
+            sessions: [
+                {
+                    directory: targetDirectory,
+                    id: 'target-session',
+                    messages: [],
+                    projectId: 'global',
+                    title: 'Target',
+                },
+                {
+                    directory: siblingDirectory,
+                    id: 'sibling-session',
+                    messages: [],
+                    projectId: 'global',
+                    title: 'Sibling',
+                },
+            ],
+        });
+
+        const workspaceKey = `directory:${Buffer.from(targetDirectory).toString('base64url')}`;
+        const result = await deleteOpenCodeWorkspace(dbPath, workspaceKey);
+
+        expect(result).toMatchObject({
+            cleanupFailures: [],
+            deletedProjectIds: [],
+            deletedSessionIds: ['target-session'],
+            workspaceFound: true,
+            workspaceKey,
+        });
+        expect(await listOpenCodeWorkspaceGroups(dbPath)).toEqual([
+            expect.objectContaining({ worktree: siblingDirectory }),
+        ]);
+        const db = new Database(dbPath);
+        try {
+            expect(db.query('SELECT COUNT(*) AS count FROM project WHERE id = ?').get('global')).toEqual({ count: 1 });
+        } finally {
+            db.close();
+        }
+    });
+
+    it('should reject crafted OpenCode workspace selectors before destructive work', async () => {
+        const dbPath = await createFixtureDb();
+
+        await expect(deleteOpenCodeWorkspace(dbPath, 'project:global')).rejects.toThrow(
+            'Invalid OpenCode workspace key: project:global',
+        );
+        await expect(deleteOpenCodeWorkspace(dbPath, 'directory:not-base64')).rejects.toThrow(
+            'Invalid OpenCode workspace key: directory:not-base64',
+        );
+        const invalidUtf8Key = `directory:${Buffer.from([0xff]).toString('base64url')}`;
+        await expect(deleteOpenCodeWorkspace(dbPath, invalidUtf8Key)).rejects.toThrow(
+            `Invalid OpenCode workspace key: ${invalidUtf8Key}`,
+        );
+    });
+
+    it('should preserve the global project when deleting its last session', async () => {
+        const dbPath = await makeDbPath();
+        await createOpenCodeFixture(dbPath, {
+            projects: [{ id: 'global', worktree: '/' }],
+            sessions: [
+                {
+                    directory: '/workspace/global',
+                    id: 'global-session',
+                    messages: [],
+                    projectId: 'global',
+                    title: 'Global',
+                },
+            ],
+        });
+
+        await deleteOpenCodeSession(dbPath, 'global-session');
+
+        const db = new Database(dbPath);
+        try {
+            expect(db.query('SELECT COUNT(*) AS count FROM project WHERE id = ?').get('global')).toEqual({ count: 1 });
+        } finally {
+            db.close();
+        }
+    });
+
+    it('should roll back an OpenCode workspace deletion when a row delete fails', async () => {
+        const dbPath = await createFixtureDb();
+        const db = new Database(dbPath);
+        try {
+            db.exec(`
+                CREATE TRIGGER block_session_delete
+                BEFORE DELETE ON session
+                BEGIN
+                    SELECT RAISE(ABORT, 'workspace delete blocked');
+                END;
+            `);
+        } finally {
+            db.close();
+        }
+
+        await expect(deleteOpenCodeWorkspace(dbPath, 'project:pro_demo')).rejects.toThrow('workspace delete blocked');
+
+        const verificationDb = new Database(dbPath);
+        try {
+            expect(verificationDb.query('SELECT COUNT(*) AS count FROM session').get()).toEqual({ count: 2 });
+            expect(verificationDb.query('SELECT COUNT(*) AS count FROM project WHERE id = ?').get('pro_demo')).toEqual({
+                count: 1,
+            });
+        } finally {
+            verificationDb.close();
+        }
+    });
+
+    it('should retain a retry plan when desktop cleanup fails after the database commit', async () => {
+        const dbPath = await makeDbPath();
+        const stateDir = await mkdtemp(path.join(os.tmpdir(), 'opencode-workspace-cleanup-'));
+        tempDirs.push(stateDir);
+        const previousStateDir = process.env.SPIRACHA_OPENCODE_DESKTOP_STATE_DIR;
+        process.env.SPIRACHA_OPENCODE_DESKTOP_STATE_DIR = stateDir;
+        await mkdir(path.join(stateDir, 'broken.dat'));
+        await createOpenCodeFixture(dbPath, {
+            projects: [{ id: 'cleanup-project', worktree: '/workspace/cleanup' }],
+            sessions: [
+                {
+                    id: 'cleanup-session',
+                    messages: [],
+                    projectId: 'cleanup-project',
+                    title: 'Cleanup',
+                },
+            ],
+        });
+
+        try {
+            const result = await deleteOpenCodeWorkspace(dbPath, 'project:cleanup-project');
+
+            expect(result).toMatchObject({
+                deletedProjectIds: ['cleanup-project'],
+                deletedSessionIds: ['cleanup-session'],
+                workspaceFound: true,
+                workspaceKey: 'project:cleanup-project',
+            });
+            expect(result.cleanupFailures).toEqual([
+                expect.objectContaining({ path: path.join(stateDir, 'broken.dat'), phase: 'desktop_state' }),
+            ]);
+            expect(result.cleanupRetryPlan).toEqual({
+                sessionIds: ['cleanup-session'],
+                workspaceKey: 'project:cleanup-project',
+                worktrees: ['/Users/test/workspace/demo', '/workspace/cleanup'],
+            });
+            expect(await listOpenCodeWorkspaceGroups(dbPath)).toEqual([]);
+
+            await rm(path.join(stateDir, 'broken.dat'), { recursive: true });
+            await expect(
+                deleteOpenCodeDesktopSessionStateWithResult(
+                    result.cleanupRetryPlan!.sessionIds,
+                    stateDir,
+                    result.cleanupRetryPlan!.worktrees,
+                ),
+            ).resolves.toEqual({ cleanupFailures: [], removedPaths: [] });
+        } finally {
+            if (previousStateDir === undefined) {
+                delete process.env.SPIRACHA_OPENCODE_DESKTOP_STATE_DIR;
+            } else {
+                process.env.SPIRACHA_OPENCODE_DESKTOP_STATE_DIR = previousStateDir;
+            }
+        }
+    });
+
+    it('should preserve desktop path state owned by a surviving workspace', async () => {
+        const dbPath = await makeDbPath();
+        const stateDir = await mkdtemp(path.join(os.tmpdir(), 'opencode-shared-workspace-'));
+        tempDirs.push(stateDir);
+        const previousStateDir = process.env.SPIRACHA_OPENCODE_DESKTOP_STATE_DIR;
+        process.env.SPIRACHA_OPENCODE_DESKTOP_STATE_DIR = stateDir;
+        const statePath = path.join(stateDir, 'opencode.global.dat');
+        await createOpenCodeFixture(dbPath, {
+            projects: [
+                { id: 'delete-project', worktree: '/workspace/shared' },
+                { id: 'keep-project', worktree: '/workspace/shared' },
+            ],
+            sessions: [
+                {
+                    directory: '/workspace/shared',
+                    id: 'delete-session',
+                    messages: [],
+                    projectId: 'delete-project',
+                    title: 'Delete',
+                },
+                {
+                    directory: '/workspace/shared-child',
+                    id: 'delete-child-session',
+                    messages: [],
+                    parentId: 'delete-session',
+                    projectId: 'delete-project',
+                    title: 'Delete child',
+                },
+                {
+                    directory: '/workspace/shared',
+                    id: 'keep-session',
+                    messages: [],
+                    projectId: 'keep-project',
+                    title: 'Keep',
+                },
+            ],
+        });
+        await Bun.write(
+            statePath,
+            `${JSON.stringify(
+                {
+                    notification: JSON.stringify({
+                        list: [
+                            { session: 'delete-session' },
+                            { session: 'delete-child-session' },
+                            { session: 'keep-session' },
+                        ],
+                    }),
+                    server: JSON.stringify({
+                        projects: {
+                            local: [
+                                { expanded: true, worktree: '/workspace/shared' },
+                                { expanded: true, worktree: '/workspace/shared-child' },
+                            ],
+                        },
+                    }),
+                },
+                null,
+                '\t',
+            )}\n`,
+        );
+
+        try {
+            const result = await deleteOpenCodeWorkspace(dbPath, 'project:delete-project');
+
+            expect(result.cleanupFailures).toEqual([]);
+            expect(result.cleanupRetryPlan).toBeUndefined();
+            expect(result.deletedProjectIds).toEqual(['delete-project']);
+            expect(result.deletedSessionIds).toEqual(
+                expect.arrayContaining(['delete-session', 'delete-child-session']),
+            );
+            expect(result.deletedSessionIds).toHaveLength(2);
+            const state = JSON.parse(await Bun.file(statePath).text());
+            expect(JSON.parse(state.notification).list).toEqual([{ session: 'keep-session' }]);
+            expect(JSON.parse(state.server).projects.local).toEqual([
+                { expanded: true, worktree: '/workspace/shared' },
+            ]);
+        } finally {
+            if (previousStateDir === undefined) {
+                delete process.env.SPIRACHA_OPENCODE_DESKTOP_STATE_DIR;
+            } else {
+                process.env.SPIRACHA_OPENCODE_DESKTOP_STATE_DIR = previousStateDir;
+            }
         }
     });
 
