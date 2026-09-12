@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'bun:test';
 import { convertConversationPayload } from './client';
-import { geminiResearchPayload, payloadSourceFixtures } from './lib/conversation-payload-test-helpers';
+import {
+    chatgptResearchPayload,
+    chatgptResearchReport,
+    geminiResearchPayload,
+    payloadSourceFixtures,
+} from './lib/conversation-payload-test-helpers';
 import { listImportedWebChats } from './lib/web-chat';
 
 describe('payload SDK', () => {
@@ -238,6 +243,20 @@ describe('payload SDK', () => {
         const [nested] = await convertConversationPayload({ payload: { data: payload } });
         expect(nested!.artifacts).toEqual(result!.artifacts);
         expect(nested!.model).toBe(result!.model);
+    });
+
+    it('should carry a ChatGPT Deep Research report through public payload conversion', async () => {
+        const [result] = await convertConversationPayload({ payload: chatgptResearchPayload });
+
+        expect(result!.metadata.platform).toBe('ChatGPT');
+        expect(result!.artifacts).toEqual([
+            {
+                content: chatgptResearchReport,
+                id: 'chatgpt-deep-research:report:chatgpt-report-message',
+                title: 'REPORT.md',
+            },
+        ]);
+        expect(result!.markdown).toContain(`### REPORT.md\n\n${chatgptResearchReport.trimEnd()}`);
     });
 
     it('should carry Claude Markdown and JSON artifacts through public payload conversion', async () => {

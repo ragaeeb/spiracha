@@ -1708,6 +1708,106 @@ const getDeepResearchReport = (message: JsonRecord): JsonRecord | null => {
     return isRecord(widgetState) && isRecord(widgetState.report_message) ? widgetState.report_message : null;
 };
 
+const getDeepResearchReportData = (
+    message: JsonRecord,
+    fallbackModel: string | null,
+    fallbackId: string,
+    sourceOrder: number,
+): { message: NormalizedMessage; report: JsonRecord } | null => {
+    const report = getDeepResearchReport(message);
+    if (!report) {
+        return null;
+    }
+    return {
+        message: {
+            ...normalizeMessage(report, fallbackModel, fallbackId, sourceOrder),
+            // ChatGPT report widgets may expose legacy internal labels such as gpt-5-thinking.
+            model: fallbackModel,
+        },
+        report,
+    };
+};
+
+const getChatGptArtifactCandidate = (
+    message: JsonRecord,
+    sourceId: string | undefined,
+    sourceOrder: number,
+): { artifact: WebChatArtifact; identity: string } | null => {
+    const report = getDeepResearchReport(message);
+    if (!report) {
+        return null;
+    }
+    const author = isRecord(report.author) ? report.author : null;
+    if (normalizeRole(firstString(author?.role, report.role)) !== 'assistant') {
+        return null;
+    }
+    const content = isRecord(report.content) ? report.content : null;
+    const parts = content?.parts;
+    if (firstString(content?.content_type)?.toLowerCase() !== 'text' || !Array.isArray(parts) || parts.length !== 1) {
+        return null;
+    }
+    const body = parts[0];
+    if (typeof body !== 'string') {
+        return null;
+    }
+    const reportId = firstString(report.id);
+    const messageId = firstString(message.id, message.uuid, message._id, sourceId) ?? `message-${sourceOrder}`;
+    const identity = reportId ? `report:${reportId}` : `message:${messageId}`;
+    return {
+        artifact: {
+            content: body,
+            id: `chatgpt-deep-research:${identity}`,
+            title: 'REPORT.md',
+        },
+        identity,
+    };
+};
+
+const getChatGptArtifacts = (sourceMessages: SourceMessage[]): WebChatArtifact[] => {
+    const artifacts = new Map<string, WebChatArtifact>();
+    const conflicts = new Set<string>();
+    for (const { message, sourceId, sourceOrder } of sourceMessages) {
+        const candidate = getChatGptArtifactCandidate(message, sourceId, sourceOrder);
+        if (!candidate || conflicts.has(candidate.identity)) {
+            continue;
+        }
+        const previous = artifacts.get(candidate.identity);
+        if (
+            previous &&
+            (previous.title !== candidate.artifact.title || previous.content !== candidate.artifact.content)
+        ) {
+            artifacts.delete(candidate.identity);
+            conflicts.add(candidate.identity);
+            continue;
+        }
+        artifacts.set(candidate.identity, candidate.artifact);
+    }
+    return [...artifacts.values()];
+};
+
+const getPlatformArtifacts = (
+    platform: string,
+    rawPayload: unknown,
+    sourceMessages: SourceMessage[],
+): WebChatArtifact[] | undefined => {
+    if (platform === 'Claude') {
+        return getClaudeArtifacts(sourceMessages);
+    }
+    if (platform === 'Meta') {
+        return getMetaArtifacts(rawPayload, sourceMessages);
+    }
+    if (platform === 'ChatGPT') {
+        return getChatGptArtifacts(sourceMessages);
+    }
+    if (platform === 'GLM') {
+        return getGlmArtifacts(rawPayload, sourceMessages);
+    }
+    if (platform === 'Qwen') {
+        return getQwenArtifacts(rawPayload, sourceMessages);
+    }
+    return undefined;
+};
+
 const isToolCallMessage = (message: NormalizedMessage): boolean =>
     message.role === 'assistant' && message.recipient !== null && message.recipient.toLowerCase() !== 'all';
 
@@ -1780,24 +1880,17 @@ const parseMappingConversation = async (root: JsonRecord, fileName: string): Pro
         chain.flatMap(({ id, message }, index) => {
             const sourceOrder = index * 2;
             const normalized = normalizeMessage(message, rootModel, id, sourceOrder);
-            const report = getDeepResearchReport(message);
+            const reportData = getDeepResearchReportData(
+                message,
+                normalized.model ?? rootModel,
+                `${id}-deep-research-report`,
+                sourceOrder + 1,
+            );
             sourceMessages.push({ message, sourceId: id, sourceOrder });
-            if (report) {
-                sourceMessages.push({ message: report, sourceOrder: sourceOrder + 1 });
+            if (reportData) {
+                sourceMessages.push({ message: reportData.report, sourceOrder: sourceOrder + 1 });
             }
-            const reportMessage = report
-                ? {
-                      ...normalizeMessage(
-                          report,
-                          normalized.model ?? rootModel,
-                          `${id}-deep-research-report`,
-                          sourceOrder + 1,
-                      ),
-                      // ChatGPT report widgets may expose legacy internal labels such as gpt-5-thinking.
-                      model: normalized.model ?? rootModel,
-                  }
-                : null;
-            return [normalized, reportMessage].filter((item): item is NormalizedMessage =>
+            return [normalized, reportData?.message].filter((item): item is NormalizedMessage =>
                 Boolean(item && (item.text || item.reasoning.length > 0)),
             );
         }),
@@ -1811,16 +1904,7 @@ const parseMappingConversation = async (root: JsonRecord, fileName: string): Pro
         return null;
     }
     return {
-        artifacts:
-            platform === 'Claude'
-                ? getClaudeArtifacts(sourceMessages)
-                : platform === 'Meta'
-                  ? getMetaArtifacts(root.raw_payload, sourceMessages)
-                  : platform === 'GLM'
-                    ? getGlmArtifacts(root.raw_payload, sourceMessages)
-                    : platform === 'Qwen'
-                      ? getQwenArtifacts(root.raw_payload, sourceMessages)
-                      : undefined,
+        artifacts: getPlatformArtifacts(platform, root.raw_payload, sourceMessages),
         createdAtMs: toTimestampMs(root.create_time ?? root.created_at),
         messages,
         model,
@@ -1923,9 +2007,18 @@ const parseMessageArrayConversation = async (
             if (!isRecord(value)) {
                 return [];
             }
-            sourceMessages.push({ message: value, sourceOrder: index });
-            const message = normalizeMessage(value, rootModel, `message-${index}`, index);
-            return message.text || message.reasoning.length > 0 ? [message] : [];
+            const sourceOrder = index * 2;
+            sourceMessages.push({ message: value, sourceOrder });
+            const message = normalizeMessage(value, rootModel, `message-${index}`, sourceOrder);
+            const reportData = getDeepResearchReportData(
+                value,
+                message.model ?? rootModel,
+                `message-${index}-deep-research-report`,
+                sourceOrder + 1,
+            );
+            return [message, reportData?.message].filter((item): item is NormalizedMessage =>
+                Boolean(item && (item.text || item.reasoning.length > 0)),
+            );
         }),
     );
     const model = [...normalizedMessages].reverse().find((message) => message.model)?.model ?? rootModel;
@@ -1937,14 +2030,7 @@ const parseMessageArrayConversation = async (
         return null;
     }
     return {
-        artifacts:
-            platform === 'Claude'
-                ? getClaudeArtifacts(sourceMessages)
-                : platform === 'Meta'
-                  ? getMetaArtifacts(root.raw_payload, sourceMessages)
-                  : platform === 'GLM'
-                    ? getGlmArtifacts(root.raw_payload, sourceMessages)
-                    : undefined,
+        artifacts: getPlatformArtifacts(platform, root.raw_payload, sourceMessages),
         createdAtMs: toTimestampMs(root.create_time ?? root.created_at),
         messages,
         model,

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { handleConversationApiRequest } from './conversation-api';
 import type { ConversationDetail } from './conversation-data/types';
+import { chatgptResearchPayload, chatgptResearchReport } from './conversation-payload-test-helpers';
 import type { ConvertedConversation } from './conversation-payload-types';
 
 const conversation = {
@@ -99,6 +100,31 @@ describe('conversation API handler', () => {
             source: 'web',
         });
         await expect(response.json()).resolves.toEqual({ data: convertedPayload });
+    });
+
+    it('should expose ChatGPT Deep Research artifacts through the stable API', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversation-payload', {
+                body: JSON.stringify({ file_name: 'chatgpt.json', payload: chatgptResearchPayload, source: 'web' }),
+                headers: { 'Content-Type': 'application/json' },
+                method: 'POST',
+            }),
+        );
+
+        expect(response.status).toBe(200);
+        await expect(response.json()).resolves.toMatchObject({
+            data: [
+                {
+                    artifacts: [
+                        {
+                            content: chatgptResearchReport,
+                            id: 'chatgpt-deep-research:report:chatgpt-report-message',
+                            title: 'REPORT.md',
+                        },
+                    ],
+                },
+            ],
+        });
     });
 
     it('should return payload conversion errors as stable validation responses', async () => {

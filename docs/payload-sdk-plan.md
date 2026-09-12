@@ -19,7 +19,7 @@ An application installs `spiracha` as a dependency, imports `convertConversation
 1. Reuse source parsers and stable adapter message conversion; extract small pure entrypoints from storage wrappers where needed.
 2. Cover Web providers, Codex, Cline, Grok, Grok Bot, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode with source-specific payload modules.
 3. Export compiled JavaScript and declarations through `spiracha/payload` in the same package; keep the Bun `spiracha/client` export for existing callers. Expose the same conversion through the stable `POST /api/v1/conversation-payload` route without adding imported conversations to storage.
-4. Include embedded artifacts in the result and rendered Markdown. Gemini artifacts retain their Works cited entries and deduplicated research tool events.
+4. Include embedded artifacts in the result and rendered Markdown. ChatGPT Deep Research bodies remain byte-for-byte unchanged; Gemini artifacts retain their Works cited entries and deduplicated research tool events.
 
 ## Supported input shapes
 
@@ -45,7 +45,7 @@ These are payload contracts, not new export formats. The SDK cannot recover cont
 - Tests fail before implementation, then pass for each supported source's representative exported/raw shape.
 - Compare message phases, tool evidence, model labels, and selector results with existing stable adapter normalization.
 - Negative tests cover malformed source records, ambiguous generic formats, unsupported Claude Code, invalid JSONL, invalid options, missing external data, and size limits.
-- Verify Web provider inference, multi-conversation exports, Gemini research artifacts/citations, and absence of import-store side effects.
+- Verify Web provider inference, multi-conversation exports, ChatGPT Deep Research artifact exactness, Gemini research artifacts/citations, and absence of import-store side effects.
 - Pack Spiracha, install it in a separate temporary application, and exercise `spiracha/payload` in Node.js and Bun. Typecheck a consumer without Bun types or TypeScript source dependencies. Keep the existing `spiracha/client` Bun smoke.
 - Bundle the converter for browsers while rejecting all Bun/Node imports, and execute every source plus Gemini citations and negative cases with only Web globals. Validate the release bundle in Chromium and the Workers runtime.
 - Preserve SHA-256-generated IDs when replacing Node crypto with Web Crypto; Web parser call sites await asynchronous hashing.

@@ -230,6 +230,208 @@ describe('parseWebChatFiles', () => {
         ).toEqual([]);
     });
 
+    it('should extract the selected ChatGPT Deep Research report without rewriting its body', async () => {
+        const report = '# ChatGPT report\r\n\r\nTrailing spaces stay.  \r\n';
+        const widgetState = {
+            report_message: {
+                author: { role: 'assistant' },
+                content: { content_type: 'text', parts: [report] },
+                id: 'chatgpt-report',
+                recipient: 'all',
+            },
+        };
+        const base = createMappingExport({ conversationId: 'chatgpt-artifact', model: 'gpt-6-pro', title: 'Research' });
+        const input = {
+            ...base,
+            mapping: {
+                ...base.mapping,
+                assistant: {
+                    ...base.mapping.assistant,
+                    message: {
+                        ...base.mapping.assistant.message,
+                        metadata: { chatgpt_sdk: { widget_state: JSON.stringify(widgetState) } },
+                    },
+                },
+            },
+            messages: [
+                {
+                    metadata: { chatgpt_sdk: { widget_state: JSON.stringify(widgetState) } },
+                    role: 'tool',
+                },
+            ],
+        };
+
+        const result = await parseWebChatFiles([{ content: JSON.stringify(input), name: 'chatgpt.json' }]);
+
+        expect(result.conversations[0]!.artifacts).toEqual([
+            { content: report, id: 'chatgpt-deep-research:report:chatgpt-report', title: 'REPORT.md' },
+        ]);
+    });
+
+    it('should fail closed on malformed or conflicting ChatGPT report metadata', async () => {
+        const report = '# ChatGPT report\n';
+        const widget = (body: unknown, id = 'report') => ({
+            report_message: {
+                author: { role: 'assistant' },
+                content: { content_type: 'text', parts: [body] },
+                id,
+            },
+        });
+        const parse = async (metadata: unknown) => {
+            const base = createMappingExport({
+                conversationId: 'chatgpt-safety',
+                model: 'gpt-6-pro',
+                title: 'Research',
+            });
+            return (
+                await parseWebChatFiles([
+                    {
+                        content: JSON.stringify({
+                            ...base,
+                            mapping: {
+                                ...base.mapping,
+                                assistant: {
+                                    ...base.mapping.assistant,
+                                    message: { ...base.mapping.assistant.message, metadata },
+                                },
+                            },
+                        }),
+                        name: 'chatgpt.json',
+                    },
+                ])
+            ).conversations[0]!;
+        };
+
+        expect((await parse({ chatgpt_sdk: { widget_state: '{' } })).artifacts).toEqual([]);
+        expect(
+            (
+                await parse({
+                    chatgpt_sdk: {
+                        widget_state: widget(report),
+                    },
+                })
+            ).artifacts,
+        ).toEqual([{ content: report, id: 'chatgpt-deep-research:report:report', title: 'REPORT.md' }]);
+        expect(
+            (
+                await parse({
+                    chatgpt_sdk: {
+                        widget_state: widget(report),
+                    },
+                })
+            ).artifacts,
+        ).toHaveLength(1);
+        expect(
+            (
+                await parse({
+                    chatgpt_sdk: {
+                        widget_state: {
+                            report_message: {
+                                author: { role: 'assistant' },
+                                content: { content_type: 'text', parts: [report, 'distractor'] },
+                                id: 'multi-part',
+                            },
+                        },
+                    },
+                })
+            ).artifacts,
+        ).toEqual([]);
+    });
+
+    it('should suppress conflicting ChatGPT report identities and retain selected branches only', async () => {
+        const report = (id: string, body: string, parent: string, child: string[]) => ({
+            children: child,
+            message: {
+                author: { role: 'tool' },
+                content: { content_type: 'text', parts: [] },
+                id: `${id}-tool`,
+                metadata: {
+                    chatgpt_sdk: {
+                        widget_state: {
+                            report_message: {
+                                author: { role: 'assistant' },
+                                content: { content_type: 'text', parts: [body] },
+                                id,
+                            },
+                        },
+                    },
+                },
+            },
+            parent,
+        });
+        const payload = {
+            conversation_id: 'chatgpt-conflict',
+            current_node: 'second',
+            default_model_slug: 'gpt-6-pro',
+            mapping: {
+                first: report('same-report', '# First\n', 'user', ['second']),
+                root: { children: ['user'], message: null, parent: null },
+                second: report('same-report', '# Conflicting\n', 'first', []),
+                sibling: report('sibling-report', '# Ignore sibling\n', 'user', []),
+                user: {
+                    children: ['first', 'sibling'],
+                    message: {
+                        author: { role: 'user' },
+                        content: { content_type: 'text', parts: ['Question'] },
+                        id: 'user-message',
+                    },
+                    parent: 'root',
+                },
+            },
+            title: 'ChatGPT conflict',
+        };
+
+        const result = await parseWebChatFiles([{ content: JSON.stringify(payload), name: 'chatgpt.json' }]);
+
+        expect(result.errors).toEqual([]);
+        expect(result.conversations[0]!.artifacts).toEqual([]);
+        expect(
+            result.conversations[0]!.events.some(
+                (event) => event.kind === 'message' && event.text.includes('Ignore sibling'),
+            ),
+        ).toBe(false);
+    });
+
+    it('should extract ChatGPT Deep Research artifacts from a native message array', async () => {
+        const report = '# Native ChatGPT report\n';
+        const result = await parseWebChatFiles([
+            {
+                content: JSON.stringify({
+                    messages: [
+                        {
+                            content: { content_type: 'text', parts: [] },
+                            id: 'native-tool',
+                            metadata: {
+                                chatgpt_sdk: {
+                                    widget_state: {
+                                        report_message: {
+                                            author: { role: 'assistant' },
+                                            content: { content_type: 'text', parts: [report] },
+                                            id: 'native-report',
+                                        },
+                                    },
+                                },
+                            },
+                            role: 'tool',
+                        },
+                    ],
+                    model: 'gpt-6-pro',
+                }),
+                name: 'chatgpt-native.json',
+            },
+        ]);
+
+        expect(result.errors).toEqual([]);
+        expect(result.conversations[0]!.artifacts).toEqual([
+            { content: report, id: 'chatgpt-deep-research:report:native-report', title: 'REPORT.md' },
+        ]);
+        expect(
+            result.conversations[0]!.events.some(
+                (event) => event.kind === 'message' && event.text.startsWith('# Native ChatGPT report'),
+            ),
+        ).toBe(true);
+    });
+
     it('should keep Gemini document sections out of reasoning while preserving actual thoughts', async () => {
         const section = 'Research relies on provided snapshot.\n\n## Source Ledger\nOriginal sources.';
         const content = `# Research Report\n\n${section}`;
