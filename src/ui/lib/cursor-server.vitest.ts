@@ -4,6 +4,7 @@ import type {
     CursorWorkspaceBucket,
     CursorWorkspaceGroup,
 } from '@spiracha/lib/cursor-exporter-types';
+import { parse } from 'valibot';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
@@ -42,7 +43,7 @@ const {
 
 vi.mock('@tanstack/react-start', () => ({
     createServerFn: () => {
-        let inputValidator: { parse: (value: unknown) => unknown } | undefined;
+        let inputValidator: Parameters<typeof parse>[0] | undefined;
         const serverFn = {
             handler: (callback: unknown) => {
                 const handler = callback as (args?: { data?: unknown }) => unknown;
@@ -51,11 +52,11 @@ vi.mock('@tanstack/react-start', () => ({
                         return await handler(args);
                     }
 
-                    return await handler({ ...args, data: inputValidator.parse(args?.data) });
+                    return await handler({ ...args, data: parse(inputValidator, args?.data) });
                 };
             },
-            validator: (validator: unknown) => {
-                inputValidator = validator as { parse: (value: unknown) => unknown };
+            validator: (validator: Parameters<typeof parse>[0]) => {
+                inputValidator = validator;
                 return serverFn;
             },
         };

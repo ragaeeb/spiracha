@@ -11,19 +11,21 @@ import {
 } from '@spiracha/lib/shared-text';
 import { queryOptions } from '@tanstack/react-query';
 import { createServerFn } from '@tanstack/react-start';
-import { z } from 'zod';
+import type { InferOutput } from 'valibot';
+import { boolean, object, optional, picklist, pipe, regex, string } from 'valibot';
 import { renderSourceSessionDownload } from './source-session-export-server';
 
-const conversationSchema = z.object({
-    conversationId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u),
+const conversationSchema = object({
+    conversationId: pipe(string(), regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u)),
 });
 
-const exportSchema = conversationSchema.extend({
-    includeCommentary: z.boolean().default(false),
-    includeMetadata: z.boolean().default(true),
-    includeTools: z.boolean().default(true),
-    outputFormat: z.enum(['md', 'txt']).default('md'),
-    zipArchive: z.boolean().default(false),
+const exportSchema = object({
+    conversationId: pipe(string(), regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u)),
+    includeCommentary: optional(boolean(), false),
+    includeMetadata: optional(boolean(), true),
+    includeTools: optional(boolean(), true),
+    outputFormat: optional(picklist(['md', 'txt']), 'md'),
+    zipArchive: optional(boolean(), false),
 });
 
 export type GrokBotChat = Omit<ConversationDetail, 'messages' | 'metadata'> & {
@@ -87,7 +89,7 @@ const messageTimestampSuffix = (message: ConversationMessage, includeMetadata: b
 const renderGrokBotMessage = (
     message: ConversationMessage,
     options: Pick<
-        z.output<typeof exportSchema>,
+        InferOutput<typeof exportSchema>,
         'includeCommentary' | 'includeMetadata' | 'includeTools' | 'outputFormat'
     >,
 ) => {
@@ -126,7 +128,7 @@ const renderGrokBotMessage = (
 const renderGrokBotChat = (
     conversation: GrokBotChat,
     options: Pick<
-        z.output<typeof exportSchema>,
+        InferOutput<typeof exportSchema>,
         'includeCommentary' | 'includeMetadata' | 'includeTools' | 'outputFormat'
     >,
 ) => {

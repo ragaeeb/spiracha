@@ -1,3 +1,4 @@
+import { parse as parseWithSchema } from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@tanstack/react-start', () => ({
@@ -6,8 +7,8 @@ vi.mock('@tanstack/react-start', () => ({
         const serverFn = {
             handler: (callback: (input: { data: unknown }) => unknown) => async (input?: { data: unknown }) =>
                 callback(parse && input ? { ...input, data: parse(input.data) } : (input as { data: unknown })),
-            validator: (schema: { parse: (value: unknown) => unknown }) => {
-                parse = schema.parse.bind(schema);
+            validator: (schema: Parameters<typeof parseWithSchema>[0]) => {
+                parse = (value) => parseWithSchema(schema, value);
                 return serverFn;
             },
         };
