@@ -49,7 +49,7 @@ export const handleCodexThreadEventsRequest = async (request: Request): Promise<
     const dbPath = process.env.SPIRACHA_CODEX_DB?.trim() || resolveCodexThreadDbPath();
 
     try {
-        const browseResults = getThreadBrowseDataBatch(dbPath, threadIds);
+        const browseResults = await getThreadBrowseDataBatch(dbPath, threadIds);
         return withCors(
             createCodexThreadEventResponse({
                 signal: request.signal,

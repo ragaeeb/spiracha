@@ -130,7 +130,7 @@ describe('recoverCursorWorkspaceGroup', () => {
         });
 
         try {
-            const changes = withCursorWriteTransaction(
+            const changes = await withCursorWriteTransaction(
                 globalDbPath,
                 (db) =>
                     db.run('INSERT OR REPLACE INTO ItemTable (key, value) VALUES (?, ?)', ['spiracha.retry-test', 'ok'])
@@ -177,7 +177,7 @@ describe('recoverCursorWorkspaceGroup', () => {
         const userDir = await makeUserDir('cursor-recover-missing-');
         const dbPath = path.join(userDir, 'missing', 'state.vscdb');
 
-        expect(() => withCursorWriteTransaction(dbPath, () => undefined)).toThrow();
+        await expect(withCursorWriteTransaction(dbPath, () => undefined)).rejects.toThrow();
         expect(await Bun.file(dbPath).exists()).toBe(false);
     });
 });

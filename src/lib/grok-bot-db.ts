@@ -1,7 +1,9 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { lstat, open, rename, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { createConcurrencyLimiter } from './concurrency';
+import { withFileMutationLock } from './file-mutation-lock';
 import type { GrokBotConversation, GrokBotConversationSummary } from './grok-bot-payload';
 import { parseGrokBotRosterRow, parseGrokBotTranscript } from './grok-bot-payload';
 
@@ -280,53 +282,185 @@ export const findGrokBotConversationReplicaPath = async (
     );
 };
 
-export const deleteGrokBotConversation = async (
+type GrokBotDeletionIntent = {
+    version: 1;
+    accountSlot: string;
+    conversationId: string;
+    row: string;
+    replicaIdentity: string | null;
+};
+
+const replicaIdentity = async (replicaPath: string): Promise<string | null> => {
+    if (!(await deletableBlobPath(replicaPath, 'transcript replica'))) {
+        return null;
+    }
+    const stat = await lstat(replicaPath);
+    return [stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs].join(':');
+};
+
+const readDeletionIntent = async (intentPath: string, accountSlot: string, conversationId: string) => {
+    const value = await readJsonBlob(intentPath, 'deletion intent');
+    if (value === null) {
+        return null;
+    }
+    const record = asRecord(value);
+    if (
+        record?.version !== 1 ||
+        record.accountSlot !== accountSlot ||
+        record.conversationId !== conversationId ||
+        typeof record.row !== 'string' ||
+        (record.replicaIdentity !== null && typeof record.replicaIdentity !== 'string')
+    ) {
+        throw new Error('Grok Bot deletion intent is incompatible.');
+    }
+    return record as GrokBotDeletionIntent;
+};
+
+const writeDeletionIntent = async (intentPath: string, intent: GrokBotDeletionIntent) => {
+    const contents = JSON.stringify(intent);
+    if (Buffer.byteLength(contents) > MAX_GROK_BOT_BLOB_BYTES) {
+        throw new Error('Grok Bot deletion intent exceeds the recovery size limit.');
+    }
+    const temporaryPath = `${intentPath}.${randomUUID()}.tmp`;
+    try {
+        const file = await open(temporaryPath, 'wx', 0o600);
+        try {
+            await file.writeFile(contents);
+            await file.sync();
+        } finally {
+            await file.close();
+        }
+        await rename(temporaryPath, intentPath);
+        await syncPath(path.dirname(intentPath), 'r');
+    } finally {
+        await rm(temporaryPath, { force: true });
+    }
+};
+
+const finishGrokBotDeletion = async (
     persistenceDir: string,
     conversationId: string,
-    checkGrokBotRunning: () => Promise<boolean> = isGrokBotRunning,
+    replicaPath: string,
+    intentPath: string,
+    identity: string | null,
 ) => {
-    const roster = await readRoster(persistenceDir);
-    const row = roster?.rows.find((candidate) => candidate.id === conversationId);
-    if (!roster || !row) {
-        return { deletedFiles: [], deletedIds: [] };
-    }
-
-    if (await checkGrokBotRunning()) {
-        throw new Error(
-            'Quit Grok Bot before deleting. It can rewrite chat history on exit, which can resurrect deleted chats.',
-        );
-    }
-
-    const replicaPath = getGrokBotPersistenceFilePath(
-        persistenceDir,
-        accountKey(roster.accountSlot, `transcript.replicas.${conversationId}`),
-    );
-    const existingReplicaPath = await deletableBlobPath(replicaPath, 'transcript replica');
-    await writeRosterRows(
-        roster.rosterPath,
-        roster.rosterEnvelope,
-        roster.rosterValue,
-        roster.rawRows.filter((candidate) => candidate.id !== conversationId),
-    );
-
-    if (!existingReplicaPath) {
-        return { deletedFiles: [], deletedIds: [conversationId] };
-    }
-
+    const deletedFiles: string[] = [];
+    let cleanupPath = replicaPath;
+    let cleanupPhase = 'transcript-replica';
     try {
-        await rm(existingReplicaPath);
-        return { deletedFiles: [existingReplicaPath], deletedIds: [conversationId] };
+        if (identity !== null) {
+            await rm(replicaPath);
+            deletedFiles.push(replicaPath);
+            await syncPath(persistenceDir, 'r');
+        }
+        cleanupPath = intentPath;
+        cleanupPhase = 'deletion-intent';
+        await rm(intentPath);
+        await syncPath(persistenceDir, 'r');
+        return { deletedFiles, deletedIds: [conversationId] };
     } catch (error) {
         return {
             cleanupFailures: [
                 {
-                    error: error instanceof Error ? error.message : String(error),
-                    path: existingReplicaPath,
-                    phase: 'transcript-replica',
+                    error: `${error instanceof Error ? error.message : String(error)}. Keep Grok Bot stopped and retry deletion of ${conversationId} to resume cleanup.`,
+                    path: cleanupPath,
+                    phase: cleanupPhase,
                 },
             ],
-            deletedFiles: [],
+            deletedFiles,
             deletedIds: [conversationId],
         };
     }
 };
+
+const prepareGrokBotDeletion = async (
+    persistenceDir: string,
+    conversationId: string,
+    checkGrokBotRunning: () => Promise<boolean>,
+) => {
+    let roster = await readRoster(persistenceDir);
+    if (!roster) {
+        return null;
+    }
+    const accountSlot = roster.accountSlot;
+    const digest = createHash('sha256')
+        .update(JSON.stringify([accountSlot, conversationId]))
+        .digest('hex');
+    const intentPath = path.join(persistenceDir, `.spiracha-delete-${digest}.json`);
+    const intent = await readDeletionIntent(intentPath, accountSlot, conversationId);
+    if (!intent && !roster.rows.some((row) => row.id === conversationId)) {
+        return null;
+    }
+    if (await checkGrokBotRunning()) {
+        throw new Error('Quit Grok Bot before deleting. Keep it stopped throughout deletion and recovery.');
+    }
+    roster = await readRoster(persistenceDir);
+    if (!roster || roster.accountSlot !== accountSlot) {
+        throw new Error('Grok Bot account changed during deletion.');
+    }
+    return { accountSlot, intent, intentPath, roster };
+};
+
+// Serialize roster replacements within this server; Grok Bot must remain stopped.
+const grokBotDeleteLimiter = createConcurrencyLimiter(1);
+
+const applyGrokBotDeletion = async (
+    persistenceDir: string,
+    conversationId: string,
+    checkGrokBotRunning: () => Promise<boolean>,
+) => {
+    const prepared = await prepareGrokBotDeletion(persistenceDir, conversationId, checkGrokBotRunning);
+    if (!prepared) {
+        return { deletedFiles: [], deletedIds: [] };
+    }
+    const { roster, accountSlot, intentPath } = prepared;
+    let { intent } = prepared;
+    const row = roster.rawRows.find((candidate) => candidate.id === conversationId);
+    const replicaPath = getGrokBotPersistenceFilePath(
+        persistenceDir,
+        accountKey(accountSlot, `transcript.replicas.${conversationId}`),
+    );
+    if (!intent) {
+        if (!row) {
+            return { deletedFiles: [], deletedIds: [] };
+        }
+        intent = {
+            accountSlot,
+            conversationId,
+            replicaIdentity: await replicaIdentity(replicaPath),
+            row: JSON.stringify(row),
+            version: 1,
+        };
+        await writeDeletionIntent(intentPath, intent);
+    }
+    if (row && JSON.stringify(row) !== intent.row) {
+        throw new Error('Grok Bot roster row changed since deletion began; refusing recovery.');
+    }
+    const identity = await replicaIdentity(replicaPath);
+    if (identity !== null && identity !== intent.replicaIdentity) {
+        throw new Error('Grok Bot replica changed since deletion began; refusing recovery.');
+    }
+    if (row) {
+        await writeRosterRows(
+            roster.rosterPath,
+            roster.rosterEnvelope,
+            roster.rosterValue,
+            roster.rawRows.filter((candidate) => candidate.id !== conversationId),
+        );
+    }
+    return finishGrokBotDeletion(persistenceDir, conversationId, replicaPath, intentPath, identity);
+};
+
+export const deleteGrokBotConversation = async (
+    persistenceDir: string,
+    conversationId: string,
+    checkGrokBotRunning: () => Promise<boolean> = isGrokBotRunning,
+) =>
+    grokBotDeleteLimiter(async () => {
+        if (!(await readAccountSlot(persistenceDir))) {
+            return { deletedFiles: [], deletedIds: [] };
+        }
+        return withFileMutationLock(persistenceDir, () =>
+            applyGrokBotDeletion(persistenceDir, conversationId, checkGrokBotRunning),
+        );
+    });

@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { describe, expect, it, spyOn } from 'bun:test';
+import * as fs from 'node:fs/promises';
+import { mkdtemp, readdir, rm, symlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -227,6 +228,205 @@ describe('grok bot persistence', () => {
             await expect(readGrokBotConversation(root, KIWI_ID)).rejects.toThrow('transcript replica');
         } finally {
             await rm(root, { force: true, recursive: true });
+        }
+    });
+});
+
+describe('Grok Bot deletion recovery', () => {
+    it('should retry a failed replica removal even after its roster row is gone', async () => {
+        const root = await mkdtemp(path.join(os.tmpdir(), 'grok-delete-retry-'));
+        const originalRm = fs.rm;
+        try {
+            await writeFixture(root);
+            const replica = getGrokBotPersistenceFilePath(
+                root,
+                `sand.client.slice.account.${encodeURIComponent(CURRENT_ACCOUNT_SLOT)}.transcript.replicas.${BAMBA_ID}`,
+            );
+            const remove = spyOn(fs, 'rm').mockImplementation(async (target, options) => {
+                if (target === replica) {
+                    throw new Error('replica busy');
+                }
+                return originalRm(target, options);
+            });
+            try {
+                const result = await deleteGrokBotConversation(root, BAMBA_ID, async () => false);
+                expect(result.deletedIds).toEqual([BAMBA_ID]);
+                expect(result.cleanupFailures).toHaveLength(1);
+                expect(await Bun.file(replica).exists()).toBe(true);
+            } finally {
+                remove.mockRestore();
+            }
+            expect((await readdir(root)).some((file) => file.startsWith('.spiracha-delete-'))).toBe(true);
+            await expect(deleteGrokBotConversation(root, BAMBA_ID, async () => false)).resolves.toEqual({
+                deletedFiles: [replica],
+                deletedIds: [BAMBA_ID],
+            });
+            expect((await readdir(root)).some((file) => file.startsWith('.spiracha-delete-'))).toBe(false);
+            expect((await listGrokBotConversations(root)).map((row) => row.id)).toEqual([KIWI_ID]);
+        } finally {
+            await originalRm(root, { force: true, recursive: true });
+        }
+    });
+
+    it('should preserve replica bytes and sibling rows when roster replacement fails', async () => {
+        const root = await mkdtemp(path.join(os.tmpdir(), 'grok-delete-roster-'));
+        const originalRename = fs.rename;
+        try {
+            await writeFixture(root);
+            const roster = getGrokBotPersistenceFilePath(
+                root,
+                `sand.client.slice.account.${encodeURIComponent(CURRENT_ACCOUNT_SLOT)}.roster.last-roster`,
+            );
+            const move = spyOn(fs, 'rename').mockImplementation(async (from, to) => {
+                if (to === roster) {
+                    throw new Error('roster busy');
+                }
+                return originalRename(from, to);
+            });
+            try {
+                await expect(deleteGrokBotConversation(root, BAMBA_ID, async () => false)).rejects.toThrow(
+                    'roster busy',
+                );
+            } finally {
+                move.mockRestore();
+            }
+            expect(await listGrokBotConversations(root)).toHaveLength(2);
+            expect(await readGrokBotConversation(root, BAMBA_ID)).not.toBeNull();
+            await expect(deleteGrokBotConversation(root, BAMBA_ID, async () => false)).resolves.toMatchObject({
+                deletedIds: [BAMBA_ID],
+            });
+        } finally {
+            await rm(root, { force: true, recursive: true });
+        }
+    });
+
+    for (const phase of ['intent', 'roster', 'replica']) {
+        it(`should resume after a process exits following the ${phase} phase`, async () => {
+            const root = await mkdtemp(path.join(os.tmpdir(), 'grok-delete-crash-'));
+            try {
+                await writeFixture(root);
+                const script = path.join(root, 'crash.test.ts');
+                const modulePath = path.join(import.meta.dir, 'grok-bot-db.ts');
+                await Bun.write(
+                    script,
+                    `import { test, spyOn } from 'bun:test';
+import * as fs from 'node:fs/promises';
+import { deleteGrokBotConversation } from ${JSON.stringify(modulePath)};
+const rename = fs.rename;
+const rm = fs.rm;
+spyOn(fs, 'rename').mockImplementation(async (from, to) => {
+    await rename(from, to);
+    if (${JSON.stringify(phase)} === 'intent' && String(to).includes('.spiracha-delete-')) process.exit(71);
+    if (${JSON.stringify(phase)} === 'roster' && String(to).endsWith('.blob')) process.exit(71);
+});
+spyOn(fs, 'rm').mockImplementation(async (target, options) => {
+    await rm(target, options);
+    if (${JSON.stringify(phase)} === 'replica' && String(target).endsWith('.blob')) process.exit(71);
+});
+test('crash', () => deleteGrokBotConversation(${JSON.stringify(root)}, ${JSON.stringify(BAMBA_ID)}, async () => false));
+`,
+                );
+                const child = Bun.spawn([process.execPath, 'test', script], { stderr: 'pipe', stdout: 'ignore' });
+                const errorText = new Response(child.stderr).text();
+                expect(await child.exited, await errorText).toBe(71);
+                await expect(deleteGrokBotConversation(root, BAMBA_ID, async () => false)).resolves.toMatchObject({
+                    deletedIds: [BAMBA_ID],
+                });
+                await expect(deleteGrokBotConversation(root, BAMBA_ID, async () => false)).resolves.toEqual({
+                    deletedFiles: [],
+                    deletedIds: [],
+                });
+                expect((await listGrokBotConversations(root)).map((row) => row.id)).toEqual([KIWI_ID]);
+            } finally {
+                await rm(root, { force: true, recursive: true });
+            }
+        });
+    }
+    it('should refuse replacement replicas and symlinked receipts on retry', async () => {
+        const root = await mkdtemp(path.join(os.tmpdir(), 'grok-delete-changed-'));
+        const originalRm = fs.rm;
+        try {
+            await writeFixture(root);
+            const replica = getGrokBotPersistenceFilePath(
+                root,
+                `sand.client.slice.account.${encodeURIComponent(CURRENT_ACCOUNT_SLOT)}.transcript.replicas.${BAMBA_ID}`,
+            );
+            const remove = spyOn(fs, 'rm').mockImplementation(async (target, options) => {
+                if (target === replica) {
+                    throw new Error('busy');
+                }
+                return originalRm(target, options);
+            });
+            try {
+                await deleteGrokBotConversation(root, BAMBA_ID, async () => false);
+            } finally {
+                remove.mockRestore();
+            }
+            await Bun.write(replica, 'new app data');
+            await expect(deleteGrokBotConversation(root, BAMBA_ID, async () => false)).rejects.toThrow(
+                'replica changed',
+            );
+            expect(await Bun.file(replica).text()).toBe('new app data');
+            const receipt = path.join(
+                root,
+                (await readdir(root)).find((file) => /^\.spiracha-delete-.*\.json$/u.test(file))!,
+            );
+            const saved = path.join(root, 'receipt-copy.json');
+            await fs.rename(receipt, saved);
+            await symlink(saved, receipt);
+            await expect(deleteGrokBotConversation(root, BAMBA_ID, async () => false)).rejects.toThrow('regular file');
+            expect(await Bun.file(saved).exists()).toBe(true);
+        } finally {
+            await originalRm(root, { force: true, recursive: true });
+        }
+    });
+
+    it('should re-read sibling roster changes made before the stopped-app check completes', async () => {
+        const root = await mkdtemp(path.join(os.tmpdir(), 'grok-delete-reread-'));
+        try {
+            await writeFixture(root);
+            const rosterPath = getGrokBotPersistenceFilePath(
+                root,
+                `sand.client.slice.account.${encodeURIComponent(CURRENT_ACCOUNT_SLOT)}.roster.last-roster`,
+            );
+            await deleteGrokBotConversation(root, BAMBA_ID, async () => {
+                const roster = await Bun.file(rosterPath).json();
+                roster.value.rows[0].name = 'Updated sibling';
+                await Bun.write(rosterPath, JSON.stringify(roster));
+                return false;
+            });
+            expect((await Bun.file(rosterPath).json()).value.rows[0].name).toBe('Updated sibling');
+        } finally {
+            await rm(root, { force: true, recursive: true });
+        }
+    });
+    it('should report the receipt path when only receipt cleanup remains', async () => {
+        const root = await mkdtemp(path.join(os.tmpdir(), 'grok-delete-receipt-'));
+        const originalRm = fs.rm;
+        try {
+            await writeFixture(root);
+            const remove = spyOn(fs, 'rm').mockImplementation(async (target, options) => {
+                if (String(target).endsWith('.json')) {
+                    throw new Error('receipt busy');
+                }
+                return originalRm(target, options);
+            });
+            try {
+                const result = await deleteGrokBotConversation(root, KIWI_ID, async () => false);
+                expect(result.deletedIds).toEqual([KIWI_ID]);
+                expect(result.cleanupFailures?.[0]).toMatchObject({
+                    path: expect.stringMatching(/\.spiracha-delete-.*\.json$/u),
+                    phase: 'deletion-intent',
+                });
+            } finally {
+                remove.mockRestore();
+            }
+            await expect(deleteGrokBotConversation(root, KIWI_ID, async () => false)).resolves.toEqual({
+                deletedFiles: [],
+                deletedIds: [KIWI_ID],
+            });
+        } finally {
+            await originalRm(root, { force: true, recursive: true });
         }
     });
 });

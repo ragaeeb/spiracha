@@ -102,6 +102,7 @@ GET  /api/v1/conversations/:source/:id
 GET  /api/v1/conversations/:source/:id/export
 GET  /api/v1/conversations/:source/:id/raw
 POST /api/v1/conversations/:source/:id/evidence
+POST /api/v1/conversation-payload
 DELETE /api/v1/conversations/:source/:id
 POST /api/v1/conversations/delete
 POST /api/v1/conversations/export
@@ -109,6 +110,8 @@ GET  /api/v1/resolve?ref=<url-or-deeplink>
 ```
 
 The default list selector is `last_final_answer`, which keeps `fgh --collect` style clients fast and small. Use `message_selector=all` when a client needs the full normalized thread. Claude Code and Kiro lists coalesce recognized compacted continuations under the parent conversation ID. Reading, exporting, generating focused evidence for, or deleting that parent operates on the complete lineage. A direct child-segment ID remains available as a physical-session lookup and affects only that segment.
+
+`POST /api/v1/conversation-payload` accepts `{ "payload": <JSON-or-JSONL>, "source": "<optional-source>", "file_name": "<optional-name>", "message_selector": "<optional-selector>" }` and returns the same `{ "data": ConvertedConversation[] }` shape as the in-memory SDK converter. The `artifacts` entries and their Markdown content are returned unchanged.
 
 Conversation lists use opaque keyset cursors ordered by update time, source, and conversation ID. Pass `meta.next_cursor` unchanged with the same filters to request the next page. The 2.0 offset cursor format is intentionally unsupported; clients must begin a fresh traversal after upgrading.
 
@@ -198,13 +201,13 @@ const fromFile = await convertConversationPayload({
 });
 ```
 
-Each result contains the detected `source`, `id`, `title`, `model` ID when available, timestamps, workspace metadata, normalized `messages`, `artifacts`, and `markdown`. With no explicit `source`, the converter tries every native payload adapter first. Exactly one native match wins; multiple native matches are ambiguous and require a source hint, even if the generic Web parser could also accept the shape. Native parser rejections are ignored during this inference pass; if no native adapter matches, the converter falls back to Web inference. Markdown uses the stable API's model labels and message selectors (`all`, `last_assistant`, `last_final_answer`). Embedded artifacts are included in Markdown and also returned separately; Gemini reports include their numbered Works cited entries. Multiple Web conversations return multiple results.
+Each result contains the detected `source`, `id`, `title`, `model` ID when available, timestamps, workspace metadata, normalized `messages`, `artifacts`, and `markdown`. With no explicit `source`, the converter tries every native payload adapter first. Exactly one native match wins; multiple native matches are ambiguous and require a source hint, even if the generic Web parser could also accept the shape. Native parser rejections are ignored during this inference pass; if no native adapter matches, the converter falls back to Web inference. Markdown uses the stable API's model labels and message selectors (`all`, `last_assistant`, `last_final_answer`). Embedded artifacts are included in Markdown and also returned separately; ChatGPT Deep Research reports preserve their exact report body, while Gemini reports include their numbered Works cited entries. Multiple Web conversations return multiple results.
 
 The optional `fileName` supplies a Web provider hint; it is never opened. Payloads are limited to 25 MB. Invalid options, malformed JSON/JSONL, unsupported or ambiguous formats, and incomplete exports throw `ConversationPayloadError` with a machine-readable `code`. Claude Code is explicitly unsupported by this function; Claude Web exports remain supported. Sources that store content in multiple files, databases, or encrypted binary data require a self-contained decoded JSON export, including any necessary message/tool bodies.
 
-Use `artifacts[].content` for a standalone embedded report, including Gemini Works cited; `markdown` is the entire conversation plus artifacts. `createdAtMs` and `updatedAtMs` are nullable Unix epoch milliseconds on the conversation. Individual artifacts do not have timestamps. `model` is an optional string, with display labels formatted in Markdown rather than separate provider/name/version fields.
+Use `artifacts[].content` for a standalone embedded report, including exact ChatGPT Deep Research bodies and Gemini Works cited; `markdown` is the entire conversation plus artifacts. `createdAtMs` and `updatedAtMs` are nullable Unix epoch milliseconds on the conversation. Individual artifacts do not have timestamps. `model` is an optional string, with display labels formatted in Markdown rather than separate provider/name/version fields.
 
-The supported payload shapes and validation plan are described in [Payload conversion SDK](docs/payload-sdk-plan.md). This function does not add Web imports to the stable source registry or HTTP API.
+The supported payload shapes and validation plan are described in [Payload conversion SDK](docs/payload-sdk-plan.md). The same conversion is available through `POST /api/v1/conversation-payload` for clients that already hold the JSON or JSONL payload but do not run the converter in process. It does not add Web imports to the stable source registry or UI import store.
 
 ### Codex analytics
 
@@ -274,6 +277,8 @@ UI batch Codex exports use one batch browse pass and include a versioned `spirac
 
 ### Cursor SQLite access
 
+SQLite retry boundaries return promises and use `Bun.sleep` between bounded attempts, allowing unrelated requests to progress during contention. Database callbacks remain synchronous: connections close and transactions complete or roll back before retry sleeps. Internal callers must await database reads and mutations; the synchronous helper contract has been removed.
+
 Cursor reads use a retry-aware synchronous callback that opens a fresh read handle for each attempt and closes it before retrying. Cursor mutations use a same-database `BEGIN IMMEDIATE` transaction with the shared bounded SQLite retry policy and no stacked long `busy_timeout`. Missing writable databases fail closed instead of being created. Discovery is cached per user directory, coalesces concurrent scans, and maintains a composer-id index for direct detail lookup. Recovery and deletion keep cross-database compensation and filesystem cleanup outside retry callbacks; destructive discovery uses strict readers so exhausted locks cannot be mistaken for empty data. UI mutation entrypoints still require Cursor to be closed before writing because Cursor can rewrite its history on exit. Workspace cleanup can be retried with a short-lived opaque token after the database mutation has committed.
 
 ## UI Routes
@@ -335,3 +340,7 @@ The hard-cut package keeps one `spiracha` bin, the stable `spiracha/client`, `sp
 - The former Qoder database module was split into storage, session-listing, and session-transcript modules; the former monolith is not a supported import path.
 - Programmatic consumers should call the stable local HTTP API or import `spiracha/client` from Bun rather than shelling out.
 - Normalized conversation messages now always include `toolEvidence` (`null` for non-tool messages); consumers that construct these DTOs must provide that explicit field.
+
+Deletion recovery protocols: [Codex](docs/codex-deletion-recovery.md), [Cursor](docs/cursor-crash-recovery.md), and [Grok Bot](docs/grok-bot-deletion.md). See [concurrency](docs/concurrency.md) for cancellation, source scheduling, and server tuning.
+
+Grok Bot Markdown/text exports with metadata enabled include the roster creation date, last activity, roster update, replica save time, group description, participants, attachment names/sizes, and per-message timestamps. Dates use ISO 8601 UTC; unavailable dates are omitted. Replica save time is local persistence metadata, not conversation creation or message activity. The local replica may contain only part of the conversation history.

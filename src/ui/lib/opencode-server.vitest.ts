@@ -2,7 +2,9 @@ import type { OpenCodeSessionTranscript } from '@spiracha/lib/opencode-exporter-
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
+    deleteOpenCodeDesktopSessionStateWithResultMock,
     deleteOpenCodeSessionMock,
+    deleteOpenCodeWorkspaceMock,
     listOpenCodeSessionsForGroupMock,
     listOpenCodeWorkspaceGroupsMock,
     readOpenCodeSessionTranscriptMock,
@@ -10,7 +12,9 @@ const {
     renderSourceSessionDownloadMock,
     renderSourceSessionsDownloadMock,
 } = vi.hoisted(() => ({
+    deleteOpenCodeDesktopSessionStateWithResultMock: vi.fn(),
     deleteOpenCodeSessionMock: vi.fn(),
+    deleteOpenCodeWorkspaceMock: vi.fn(),
     listOpenCodeSessionsForGroupMock: vi.fn(),
     listOpenCodeWorkspaceGroupsMock: vi.fn(),
     readOpenCodeSessionTranscriptMock: vi.fn(),
@@ -31,7 +35,9 @@ vi.mock('@tanstack/react-start', () => ({
 }));
 
 vi.mock('@spiracha/lib/opencode-db', () => ({
+    deleteOpenCodeDesktopSessionStateWithResult: deleteOpenCodeDesktopSessionStateWithResultMock,
     deleteOpenCodeSession: deleteOpenCodeSessionMock,
+    deleteOpenCodeWorkspace: deleteOpenCodeWorkspaceMock,
     listOpenCodeSessionsForGroup: listOpenCodeSessionsForGroupMock,
     listOpenCodeWorkspaceGroups: listOpenCodeWorkspaceGroupsMock,
     readOpenCodeSessionTranscript: readOpenCodeSessionTranscriptMock,
@@ -54,6 +60,8 @@ vi.mock('./source-session-export-server', () => ({
 import {
     deleteOpenCodeSessionFn,
     deleteOpenCodeSessionsFn,
+    deleteOpenCodeWorkspaceFn,
+    deleteOpenCodeWorkspacesFn,
     exportOpenCodeSessionFn,
     exportOpenCodeSessionsFn,
     getOpenCodeSessionDetailFn,
@@ -81,6 +89,14 @@ describe('OpenCode export server functions', () => {
         renderOpenCodeTranscriptMock.mockReturnValue('rendered transcript');
         renderSourceSessionDownloadMock.mockResolvedValue({ mode: 'download' });
         renderSourceSessionsDownloadMock.mockResolvedValue({ mode: 'download' });
+        deleteOpenCodeWorkspaceMock.mockImplementation(async (_dbPath: string, workspaceKey: string) => ({
+            cleanupFailures: [],
+            deletedProjectIds: [],
+            deletedSessionIds: [],
+            workspaceFound: true,
+            workspaceKey,
+        }));
+        deleteOpenCodeDesktopSessionStateWithResultMock.mockResolvedValue({ cleanupFailures: [], removedPaths: [] });
     });
 
     it('should forward every single-session export option to the renderer and download helper', async () => {
@@ -152,6 +168,96 @@ describe('OpenCode export server functions', () => {
 
         expect(listOpenCodeSessionsForGroupMock).toHaveBeenCalledWith('workspace-a');
         expect(deleteOpenCodeSessionMock).toHaveBeenCalledTimes(3);
+    });
+
+    it('should delete one OpenCode workspace without requiring sessions to exist', async () => {
+        deleteOpenCodeWorkspaceMock.mockResolvedValue({
+            cleanupFailures: [],
+            deletedProjectIds: ['empty-project'],
+            deletedSessionIds: [],
+            workspaceFound: true,
+            workspaceKey: 'project:empty-project',
+        });
+
+        await expect(
+            deleteOpenCodeWorkspaceFn({ data: { workspaceKey: 'project:empty-project' } } as never),
+        ).resolves.toEqual({
+            cleanupFailures: [],
+            deletedProjectIds: ['empty-project'],
+            deletedSessionIds: [],
+            workspaceFound: true,
+            workspaceKey: 'project:empty-project',
+        });
+        expect(deleteOpenCodeWorkspaceMock).toHaveBeenCalledWith('/tmp/opencode.db', 'project:empty-project');
+    });
+
+    it('should return ordered per-workspace results while deduplicating batch keys', async () => {
+        await expect(
+            deleteOpenCodeWorkspacesFn({
+                data: { workspaceKeys: ['project:first', 'project:first', 'directory:c2lib3BhY2Uvc2Vjb25k'] },
+            } as never),
+        ).resolves.toEqual({
+            failures: [],
+            results: [
+                expect.objectContaining({ workspaceKey: 'project:first' }),
+                expect.objectContaining({ workspaceKey: 'directory:c2lib3BhY2Uvc2Vjb25k' }),
+            ],
+        });
+        expect(deleteOpenCodeWorkspaceMock.mock.calls.map((call) => call[1])).toEqual([
+            'project:first',
+            'directory:c2lib3BhY2Uvc2Vjb25k',
+        ]);
+    });
+
+    it('should keep a workspace delete retryable after desktop cleanup fails', async () => {
+        deleteOpenCodeWorkspaceMock.mockResolvedValueOnce({
+            cleanupFailures: [{ error: 'state is busy', path: '/tmp/opencode/broken.dat', phase: 'desktop_state' }],
+            cleanupRetryPlan: {
+                sessionIds: ['session-1'],
+                workspaceKey: 'project:workspace-a',
+                worktrees: ['/workspace/a'],
+            },
+            deletedProjectIds: ['workspace-a'],
+            deletedSessionIds: ['session-1'],
+            workspaceFound: true,
+            workspaceKey: 'project:workspace-a',
+        });
+
+        const firstResponse = await deleteOpenCodeWorkspaceFn({
+            data: { workspaceKey: 'project:workspace-a' },
+        } as never);
+
+        expect(firstResponse).toMatchObject({
+            cleanupFailures: [{ error: 'state is busy', path: '/tmp/opencode/broken.dat', phase: 'desktop_state' }],
+            retryTarget: { token: expect.any(String) },
+        });
+        expect(firstResponse).not.toHaveProperty('cleanupRetryPlan');
+        if (!firstResponse.retryTarget) {
+            throw new Error('expected OpenCode cleanup retry target');
+        }
+
+        await expect(
+            deleteOpenCodeWorkspaceFn({
+                data: { retry: firstResponse.retryTarget, workspaceKey: 'project:workspace-a' },
+            } as never),
+        ).resolves.toMatchObject({ cleanupFailures: [], workspaceKey: 'project:workspace-a' });
+        expect(deleteOpenCodeDesktopSessionStateWithResultMock).toHaveBeenCalledWith(['session-1'], undefined, [
+            '/workspace/a',
+        ]);
+    });
+
+    it('should reject a missing OpenCode workspace without reporting a successful delete', async () => {
+        deleteOpenCodeWorkspaceMock.mockResolvedValue({
+            cleanupFailures: [],
+            deletedProjectIds: [],
+            deletedSessionIds: [],
+            workspaceFound: false,
+            workspaceKey: 'project:missing',
+        });
+
+        await expect(deleteOpenCodeWorkspaceFn({ data: { workspaceKey: 'project:missing' } } as never)).rejects.toThrow(
+            'OpenCode workspace not found: project:missing',
+        );
     });
 
     it('should reject missing and empty OpenCode session exports', async () => {

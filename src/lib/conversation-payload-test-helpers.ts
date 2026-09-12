@@ -142,3 +142,45 @@ export const geminiResearchPayload = {
         ],
     ],
 };
+
+export const chatgptResearchReport = '# ChatGPT research report\r\n\r\nPreserve this exact body.  \r\n';
+
+export const chatgptResearchPayload = {
+    conversation_id: 'chatgpt-research',
+    current_node: 'research',
+    default_model_slug: 'gpt-6-pro',
+    mapping: {
+        research: {
+            children: [],
+            message: {
+                author: { role: 'tool' },
+                content: { content_type: 'text', parts: [] },
+                id: 'research-tool-message',
+                metadata: {
+                    chatgpt_sdk: {
+                        widget_state: JSON.stringify({
+                            report_message: {
+                                author: { role: 'assistant' },
+                                content: { content_type: 'text', parts: [chatgptResearchReport] },
+                                id: 'chatgpt-report-message',
+                                recipient: 'all',
+                            },
+                        }),
+                    },
+                },
+            },
+            parent: 'user',
+        },
+        root: { children: ['user'], message: null, parent: null },
+        user: {
+            children: ['research'],
+            message: {
+                author: { role: 'user' },
+                content: { content_type: 'text', parts: ['Question'] },
+                id: 'user-message',
+            },
+            parent: 'root',
+        },
+    },
+    title: 'ChatGPT Research',
+};

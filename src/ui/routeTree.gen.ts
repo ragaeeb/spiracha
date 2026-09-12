@@ -50,6 +50,7 @@ import { Route as QoderWorkspaceKeyRouteImport } from './routes/qoder.$workspace
 import { Route as ThreadsThreadIdRouteImport } from './routes/threads.$threadId'
 import { Route as WebChatsConversationIdRouteImport } from './routes/web-chats.$conversationId'
 import { Route as WebIndexRouteImport } from './routes/web.index'
+import { Route as ApiV1ConversationPayloadRouteImport } from './routes/api.v1.conversation-payload'
 import { Route as ApiV1ConversationQueryRouteImport } from './routes/api.v1.conversation-query'
 import { Route as ApiV1ConversationsRouteImport } from './routes/api.v1.conversations'
 import { Route as ApiV1ResolveRouteImport } from './routes/api.v1.resolve'
@@ -275,6 +276,12 @@ const WebIndexRoute = WebIndexRouteImport.update({
   path: '/web/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiV1ConversationPayloadRoute =
+  ApiV1ConversationPayloadRouteImport.update({
+    id: '/api/v1/conversation-payload',
+    path: '/api/v1/conversation-payload',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiV1ConversationQueryRoute = ApiV1ConversationQueryRouteImport.update({
   id: '/api/v1/conversation-query',
   path: '/api/v1/conversation-query',
@@ -395,6 +402,7 @@ export interface FileRoutesByFullPath {
   '/opencode/': typeof OpencodeIndexRoute
   '/qoder/': typeof QoderIndexRoute
   '/web/': typeof WebIndexRoute
+  '/api/v1/conversation-payload': typeof ApiV1ConversationPayloadRoute
   '/api/v1/conversation-query': typeof ApiV1ConversationQueryRoute
   '/api/v1/conversations': typeof ApiV1ConversationsRouteWithChildren
   '/api/v1/resolve': typeof ApiV1ResolveRoute
@@ -452,6 +460,7 @@ export interface FileRoutesByTo {
   '/opencode': typeof OpencodeIndexRoute
   '/qoder': typeof QoderIndexRoute
   '/web': typeof WebIndexRoute
+  '/api/v1/conversation-payload': typeof ApiV1ConversationPayloadRoute
   '/api/v1/conversation-query': typeof ApiV1ConversationQueryRoute
   '/api/v1/conversations': typeof ApiV1ConversationsRouteWithChildren
   '/api/v1/resolve': typeof ApiV1ResolveRoute
@@ -510,6 +519,7 @@ export interface FileRoutesById {
   '/opencode/': typeof OpencodeIndexRoute
   '/qoder/': typeof QoderIndexRoute
   '/web/': typeof WebIndexRoute
+  '/api/v1/conversation-payload': typeof ApiV1ConversationPayloadRoute
   '/api/v1/conversation-query': typeof ApiV1ConversationQueryRoute
   '/api/v1/conversations': typeof ApiV1ConversationsRouteWithChildren
   '/api/v1/resolve': typeof ApiV1ResolveRoute
@@ -569,6 +579,7 @@ export interface FileRouteTypes {
     | '/opencode/'
     | '/qoder/'
     | '/web/'
+    | '/api/v1/conversation-payload'
     | '/api/v1/conversation-query'
     | '/api/v1/conversations'
     | '/api/v1/resolve'
@@ -626,6 +637,7 @@ export interface FileRouteTypes {
     | '/opencode'
     | '/qoder'
     | '/web'
+    | '/api/v1/conversation-payload'
     | '/api/v1/conversation-query'
     | '/api/v1/conversations'
     | '/api/v1/resolve'
@@ -683,6 +695,7 @@ export interface FileRouteTypes {
     | '/opencode/'
     | '/qoder/'
     | '/web/'
+    | '/api/v1/conversation-payload'
     | '/api/v1/conversation-query'
     | '/api/v1/conversations'
     | '/api/v1/resolve'
@@ -741,6 +754,7 @@ export interface RootRouteChildren {
   OpencodeIndexRoute: typeof OpencodeIndexRoute
   QoderIndexRoute: typeof QoderIndexRoute
   WebIndexRoute: typeof WebIndexRoute
+  ApiV1ConversationPayloadRoute: typeof ApiV1ConversationPayloadRoute
   ApiV1ConversationQueryRoute: typeof ApiV1ConversationQueryRoute
   ApiV1ConversationsRoute: typeof ApiV1ConversationsRouteWithChildren
   ApiV1ResolveRoute: typeof ApiV1ResolveRoute
@@ -1040,6 +1054,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WebIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/v1/conversation-payload': {
+      id: '/api/v1/conversation-payload'
+      path: '/api/v1/conversation-payload'
+      fullPath: '/api/v1/conversation-payload'
+      preLoaderRoute: typeof ApiV1ConversationPayloadRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/v1/conversation-query': {
       id: '/api/v1/conversation-query'
       path: '/api/v1/conversation-query'
@@ -1219,6 +1240,7 @@ const rootRouteChildren: RootRouteChildren = {
   OpencodeIndexRoute: OpencodeIndexRoute,
   QoderIndexRoute: QoderIndexRoute,
   WebIndexRoute: WebIndexRoute,
+  ApiV1ConversationPayloadRoute: ApiV1ConversationPayloadRoute,
   ApiV1ConversationQueryRoute: ApiV1ConversationQueryRoute,
   ApiV1ConversationsRoute: ApiV1ConversationsRouteWithChildren,
   ApiV1ResolveRoute: ApiV1ResolveRoute,

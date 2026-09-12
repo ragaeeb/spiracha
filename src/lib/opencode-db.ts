@@ -6,7 +6,9 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createConcurrencyLimiter, mapWithConcurrency } from './concurrency';
 import {
+    type DeleteOpenCodeWorkspaceResult,
     getDefaultOpenCodeDataDir,
+    type OpenCodeCleanupFailure,
     type OpenCodeModelInfo,
     type OpenCodePartType,
     type OpenCodeSessionSummary,
@@ -282,7 +284,7 @@ const recordValidatedOpenCodeSchema = (dbPath: string, mtimeMs: number): void =>
 
 const configureOpenCodeReadDb = (db: Database, dbPath: string): Database => {
     try {
-        db.exec('PRAGMA busy_timeout = 1000');
+        db.exec('PRAGMA busy_timeout = 0');
         db.exec('PRAGMA query_only = ON');
         const mtimeMs = Bun.file(dbPath).lastModified;
         if (validatedOpenCodeSchemaMtimes.get(dbPath) !== mtimeMs) {
@@ -311,7 +313,7 @@ export const openOpenCodeReadDb = (dbPath: string): Database => {
     }
 };
 
-const withOpenCodeReadonlyDb = <T>(dbPath: string, action: (db: Database) => T): T => {
+const withOpenCodeReadonlyDb = <T>(dbPath: string, action: (db: Database) => T): Promise<T> => {
     return runWithSqliteRetry({
         action: () => {
             const db = openOpenCodeReadDb(dbPath);
@@ -324,12 +326,26 @@ const withOpenCodeReadonlyDb = <T>(dbPath: string, action: (db: Database) => T):
     });
 };
 
-const withOpenCodeWritableDb = <T>(dbPath: string, action: (db: Database) => T): T => {
+const withOpenCodeWritableDb = <T>(dbPath: string, action: (db: Database) => T): Promise<T> => {
     return runWithSqliteRetry({
         action: () => {
-            const db = new Database(dbPath);
+            const db = new Database(dbPath, { create: false, readwrite: true });
+            let transactionStarted = false;
             try {
-                return action(db);
+                db.exec('PRAGMA busy_timeout = 0');
+                db.exec('BEGIN IMMEDIATE');
+                transactionStarted = true;
+                const result = action(db);
+                db.exec('COMMIT');
+                transactionStarted = false;
+                return result;
+            } catch (error) {
+                if (transactionStarted) {
+                    try {
+                        db.exec('ROLLBACK');
+                    } catch {}
+                }
+                throw error;
             } finally {
                 db.close();
             }
@@ -411,7 +427,7 @@ const getDirectoryWorkspaceKey = (directory: string): string =>
 const getWorkspaceSelector = (workspaceKey: string): { directory: string | null; projectId: string } | null => {
     if (workspaceKey.startsWith('project:')) {
         const projectId = workspaceKey.slice('project:'.length);
-        return projectId ? { directory: null, projectId } : null;
+        return projectId && projectId !== GLOBAL_OPENCODE_PROJECT_ID ? { directory: null, projectId } : null;
     }
 
     if (!workspaceKey.startsWith('directory:')) {
@@ -419,8 +435,19 @@ const getWorkspaceSelector = (workspaceKey: string): { directory: string | null;
     }
 
     const encodedDirectory = workspaceKey.slice('directory:'.length);
-    const directory = Buffer.from(encodedDirectory, 'base64url').toString('utf8');
-    return directory ? { directory, projectId: GLOBAL_OPENCODE_PROJECT_ID } : null;
+    if (!/^[A-Za-z0-9_-]+$/u.test(encodedDirectory)) {
+        return null;
+    }
+
+    try {
+        const bytes = Buffer.from(encodedDirectory, 'base64url');
+        const directory = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+        return directory.trim() && Buffer.from(directory).toString('base64url') === encodedDirectory
+            ? { directory, projectId: GLOBAL_OPENCODE_PROJECT_ID }
+            : null;
+    } catch {
+        return null;
+    }
 };
 
 const parseModelInfo = (value: string | null): OpenCodeModelInfo => {
@@ -803,77 +830,223 @@ const readOpenCodeSessionSummary = (db: Database, sessionId: string): OpenCodeSe
     return session;
 };
 
-const readOpenCodeSessionTreeIds = (db: Database, sessionId: string): string[] => {
+const readOpenCodeSessionIds = (db: Database, seedWhereSql: string, params: Array<string | number>): string[] => {
     const rows = db
         .query(
-            `WITH RECURSIVE session_tree(id) AS (
-                SELECT id FROM session WHERE id = ?
+            `WITH RECURSIVE session_tree(id, visited) AS (
+                SELECT id, json_array(id)
+                FROM session
+                WHERE ${seedWhereSql}
                 UNION ALL
-                SELECT child.id
+                SELECT child.id, json_insert(parent.visited, '$[#]', child.id)
                 FROM session child
                 JOIN session_tree parent ON child.parent_id = parent.id
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM json_each(parent.visited)
+                    WHERE json_each.value = child.id
+                )
             )
-            SELECT id FROM session_tree`,
+            SELECT DISTINCT id FROM session_tree`,
         )
-        .all(sessionId) as Array<{ id: string }>;
+        .all(...params) as Array<{ id: string }>;
     return rows.map((row) => row.id);
+};
+
+const readOpenCodeSessionTreeIds = (db: Database, sessionId: string): string[] =>
+    readOpenCodeSessionIds(db, 'id = ?', [sessionId]);
+
+const readOpenCodeWorkspaceSessionIds = (
+    db: Database,
+    selector: { directory: string | null; projectId: string },
+): string[] => {
+    return selector.directory
+        ? readOpenCodeSessionIds(db, 'project_id = ? AND directory = ?', [selector.projectId, selector.directory])
+        : readOpenCodeSessionIds(db, 'project_id = ?', [selector.projectId]);
 };
 
 const hasOpenCodeTable = (db: Database, tableName: string): boolean => {
     return Boolean(db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(tableName));
 };
 
-const deleteRowsBySessionId = (
-    db: Database,
-    tableName: OpenCodeOptionalSessionTable,
-    sessionIds: string[],
-    placeholders: string,
-) => {
-    if (hasOpenCodeTable(db, tableName)) {
-        db.query(`DELETE FROM ${tableName} WHERE session_id IN (${placeholders})`).run(...sessionIds);
+const OPENCODE_DELETE_SESSION_IDS_TABLE = 'spiracha_delete_session_ids';
+
+const createOpenCodeDeleteSessionIdsTable = (db: Database, sessionIds: string[]): void => {
+    db.exec(`CREATE TEMP TABLE ${OPENCODE_DELETE_SESSION_IDS_TABLE} (id TEXT PRIMARY KEY)`);
+    const insert = db.query(`INSERT INTO ${OPENCODE_DELETE_SESSION_IDS_TABLE} (id) VALUES (?)`);
+    for (const sessionId of sessionIds) {
+        insert.run(sessionId);
     }
 };
 
-const deleteOpenCodeEventRows = (db: Database, sessionIds: string[], placeholders: string) => {
+const dropOpenCodeDeleteSessionIdsTable = (db: Database): void => {
+    db.exec(`DROP TABLE IF EXISTS ${OPENCODE_DELETE_SESSION_IDS_TABLE}`);
+};
+
+const deleteRowsBySessionId = (db: Database, tableName: OpenCodeOptionalSessionTable) => {
+    if (hasOpenCodeTable(db, tableName)) {
+        db.query(
+            `DELETE FROM ${tableName}
+             WHERE session_id IN (SELECT id FROM ${OPENCODE_DELETE_SESSION_IDS_TABLE})`,
+        ).run();
+    }
+};
+
+const deleteOpenCodeEventRows = (db: Database) => {
     if (hasOpenCodeTable(db, 'event')) {
-        db.query(`DELETE FROM event WHERE aggregate_id IN (${placeholders})`).run(...sessionIds);
+        db.query(
+            `DELETE FROM event
+             WHERE aggregate_id IN (SELECT id FROM ${OPENCODE_DELETE_SESSION_IDS_TABLE})`,
+        ).run();
     }
     if (hasOpenCodeTable(db, 'event_sequence')) {
-        db.query(`DELETE FROM event_sequence WHERE aggregate_id IN (${placeholders})`).run(...sessionIds);
+        db.query(
+            `DELETE FROM event_sequence
+             WHERE aggregate_id IN (SELECT id FROM ${OPENCODE_DELETE_SESSION_IDS_TABLE})`,
+        ).run();
     }
 };
 
 const deleteEmptyOpenCodeProjects = (
     db: Database,
     projects: Array<{ projectId: string; worktree: string }>,
-): string[] => {
+): { deletedProjectIds: string[]; emptyWorktrees: string[] } => {
+    const deletedProjectIds: string[] = [];
     const emptyWorktrees: string[] = [];
     for (const project of projects) {
+        if (project.projectId === GLOBAL_OPENCODE_PROJECT_ID) {
+            continue;
+        }
+
         const remaining = db
             .query('SELECT COUNT(*) AS count FROM session WHERE project_id = ?')
             .get(project.projectId) as { count: number };
         if (remaining.count === 0) {
             db.query('DELETE FROM project WHERE id = ?').run(project.projectId);
+            deletedProjectIds.push(project.projectId);
             emptyWorktrees.push(project.worktree);
         }
     }
-    return emptyWorktrees;
+    return { deletedProjectIds, emptyWorktrees };
+};
+
+const readOpenCodeProjectRowsForDelete = (db: Database): Array<{ projectId: string; worktree: string }> => {
+    return db
+        .query(
+            `SELECT DISTINCT p.id AS projectId, p.worktree
+             FROM project p
+             JOIN session s ON s.project_id = p.id
+             JOIN ${OPENCODE_DELETE_SESSION_IDS_TABLE} ids ON ids.id = s.id`,
+        )
+        .all() as Array<{ projectId: string; worktree: string }>;
+};
+
+const mergeOpenCodeProjectRows = (
+    ...rowSets: Array<Array<{ projectId: string; worktree: string }>>
+): Array<{ projectId: string; worktree: string }> => {
+    const rows = new Map<string, { projectId: string; worktree: string }>();
+    for (const rowSet of rowSets) {
+        for (const row of rowSet) {
+            rows.set(row.projectId, row);
+        }
+    }
+    return [...rows.values()];
+};
+
+const readOpenCodeSessionDirectoriesForDelete = (db: Database): string[] => {
+    return (
+        db
+            .query(
+                `SELECT DISTINCT directory
+                 FROM session
+                 WHERE id IN (SELECT id FROM ${OPENCODE_DELETE_SESSION_IDS_TABLE})
+                   AND trim(coalesce(directory, '')) <> ''`,
+            )
+            .all() as Array<{ directory: string }>
+    ).map((row) => row.directory);
 };
 
 const deleteOpenCodeSessionRows = (
     db: Database,
     sessionIds: string[],
-    placeholders: string,
     projectRows: Array<{ projectId: string; worktree: string }>,
-): string[] => {
-    deleteOpenCodeEventRows(db, sessionIds, placeholders);
-    for (const tableName of OPENCODE_OPTIONAL_SESSION_TABLES) {
-        deleteRowsBySessionId(db, tableName, sessionIds, placeholders);
+): { deletedProjectIds: string[]; emptyWorktrees: string[] } => {
+    if (sessionIds.length === 0) {
+        return deleteEmptyOpenCodeProjects(db, projectRows);
     }
-    db.query(`DELETE FROM part WHERE session_id IN (${placeholders})`).run(...sessionIds);
-    db.query(`DELETE FROM message WHERE session_id IN (${placeholders})`).run(...sessionIds);
-    db.query(`DELETE FROM session WHERE id IN (${placeholders})`).run(...sessionIds);
-    return deleteEmptyOpenCodeProjects(db, projectRows);
+
+    createOpenCodeDeleteSessionIdsTable(db, sessionIds);
+    try {
+        const affectedProjectRows = readOpenCodeProjectRowsForDelete(db);
+        const sessionDirectories = readOpenCodeSessionDirectoriesForDelete(db);
+        deleteOpenCodeEventRows(db);
+        for (const tableName of OPENCODE_OPTIONAL_SESSION_TABLES) {
+            deleteRowsBySessionId(db, tableName);
+        }
+        db.query(
+            `DELETE FROM part
+             WHERE session_id IN (SELECT id FROM ${OPENCODE_DELETE_SESSION_IDS_TABLE})`,
+        ).run();
+        db.query(
+            `DELETE FROM message
+             WHERE session_id IN (SELECT id FROM ${OPENCODE_DELETE_SESSION_IDS_TABLE})`,
+        ).run();
+        db.query(
+            `DELETE FROM session
+             WHERE id IN (SELECT id FROM ${OPENCODE_DELETE_SESSION_IDS_TABLE})`,
+        ).run();
+        const deletion = deleteEmptyOpenCodeProjects(db, mergeOpenCodeProjectRows(projectRows, affectedProjectRows));
+        return {
+            deletedProjectIds: deletion.deletedProjectIds,
+            emptyWorktrees: [...new Set([...sessionDirectories, ...deletion.emptyWorktrees])],
+        };
+    } finally {
+        dropOpenCodeDeleteSessionIdsTable(db);
+    }
+};
+
+const getUnownedOpenCodeWorktrees = (db: Database, worktrees: string[]): string[] => {
+    return [...new Set(worktrees)].filter((worktree) => {
+        const survivingProject = db.query('SELECT 1 FROM project WHERE worktree = ? LIMIT 1').get(worktree);
+        const survivingSession = db.query('SELECT 1 FROM session WHERE directory = ? LIMIT 1').get(worktree);
+        return !survivingProject && !survivingSession;
+    });
+};
+
+type OpenCodeWorkspaceDeleteDatabaseResult = {
+    cleanupWorktrees: string[];
+    deletedProjectIds: string[];
+    deletedSessionIds: string[];
+    workspaceFound: boolean;
+};
+
+const deleteOpenCodeWorkspaceRows = (
+    db: Database,
+    selector: { directory: string | null; projectId: string },
+): OpenCodeWorkspaceDeleteDatabaseResult => {
+    const projectRow = selector.directory
+        ? null
+        : (db
+              .query('SELECT id AS projectId, worktree FROM project WHERE id = ? AND id <> ?')
+              .get(selector.projectId, GLOBAL_OPENCODE_PROJECT_ID) as { projectId: string; worktree: string } | null);
+    const sessionIds = readOpenCodeWorkspaceSessionIds(db, selector);
+    const workspaceFound = selector.directory ? sessionIds.length > 0 : projectRow !== null;
+    if (!workspaceFound) {
+        return {
+            cleanupWorktrees: [],
+            deletedProjectIds: [],
+            deletedSessionIds: [],
+            workspaceFound: false,
+        };
+    }
+
+    const deletion = deleteOpenCodeSessionRows(db, sessionIds, projectRow ? [projectRow] : []);
+    return {
+        cleanupWorktrees: getUnownedOpenCodeWorktrees(db, deletion.emptyWorktrees),
+        deletedProjectIds: deletion.deletedProjectIds,
+        deletedSessionIds: sessionIds,
+        workspaceFound: true,
+    };
 };
 
 const removeObjectKeysForSessionIds = (target: Record<string, unknown>, sessionIds: Set<string>) => {
@@ -1107,14 +1280,14 @@ const writeOpenCodeDesktopState = async (filePath: string, state: Record<string,
     }
 };
 
-export const deleteOpenCodeDesktopSessionState = async (
+export const deleteOpenCodeDesktopSessionStateWithResult = async (
     sessionIds: string[],
     stateDir = getDefaultOpenCodeDesktopStateDir(),
     worktrees: string[] = [],
-): Promise<string[]> => {
+): Promise<{ cleanupFailures: OpenCodeCleanupFailure[]; removedPaths: string[] }> => {
     return openCodeDesktopStateLimiter(async () => {
         if (!stateDir || (sessionIds.length === 0 && worktrees.length === 0) || !(await pathExists(stateDir))) {
-            return [];
+            return { cleanupFailures: [], removedPaths: [] };
         }
 
         const sessionIdSet = new Set(sessionIds);
@@ -1124,14 +1297,23 @@ export const deleteOpenCodeDesktopSessionState = async (
             fileNames = (await readdir(stateDir)).filter((fileName) => fileName.endsWith('.dat'));
         } catch (error) {
             if (isMissingFileError(error)) {
-                return [];
+                return { cleanupFailures: [], removedPaths: [] };
             }
-            throw error;
+            return {
+                cleanupFailures: [
+                    {
+                        error: error instanceof Error ? error.message : String(error),
+                        path: stateDir,
+                        phase: 'desktop_state',
+                    },
+                ],
+                removedPaths: [],
+            };
         }
         const changedFiles = await mapWithConcurrency(
             fileNames,
             DESKTOP_STATE_FILE_CONCURRENCY,
-            async (fileName): Promise<string | null> => {
+            async (fileName): Promise<{ cleanupFailure: OpenCodeCleanupFailure; filePath: string } | string | null> => {
                 const filePath = path.join(stateDir, fileName);
                 try {
                     const state = parseMutableJsonObject(await Bun.file(filePath).text());
@@ -1145,13 +1327,39 @@ export const deleteOpenCodeDesktopSessionState = async (
                     if (isMissingFileError(error)) {
                         return null;
                     }
-                    throw error;
+                    return {
+                        cleanupFailure: {
+                            error: error instanceof Error ? error.message : String(error),
+                            path: filePath,
+                            phase: 'desktop_state',
+                        },
+                        filePath,
+                    };
                 }
             },
         );
 
-        return changedFiles.filter((filePath): filePath is string => filePath !== null);
+        return {
+            cleanupFailures: changedFiles.flatMap((entry) =>
+                entry && typeof entry === 'object' ? [entry.cleanupFailure] : [],
+            ),
+            removedPaths: changedFiles.filter((entry): entry is string => typeof entry === 'string'),
+        };
     });
+};
+
+export const deleteOpenCodeDesktopSessionState = async (
+    sessionIds: string[],
+    stateDir = getDefaultOpenCodeDesktopStateDir(),
+    worktrees: string[] = [],
+): Promise<string[]> => {
+    const result = await deleteOpenCodeDesktopSessionStateWithResult(sessionIds, stateDir, worktrees);
+    if (result.cleanupFailures.length > 0) {
+        throw new Error(
+            `OpenCode desktop state cleanup failed: ${result.cleanupFailures.map((failure) => failure.error).join('; ')}`,
+        );
+    }
+    return result.removedPaths;
 };
 
 export const deleteOpenCodeSession = async (
@@ -1169,20 +1377,12 @@ export const deleteOpenCodeSession = async (
                 return { deletedSessionIds: [], emptyWorktrees: [] };
             }
 
-            const placeholders = sessionIds.map(() => '?').join(', ');
-            const projectRows = db
-                .query(
-                    `SELECT DISTINCT pr.id AS projectId, pr.worktree
-                FROM session s
-                JOIN project pr ON pr.id = s.project_id
-                WHERE s.id IN (${placeholders})`,
-                )
-                .all(...sessionIds) as Array<{ projectId: string; worktree: string }>;
-            const emptyWorktrees = db.transaction(() =>
-                deleteOpenCodeSessionRows(db, sessionIds, placeholders, projectRows),
-            )();
+            const { emptyWorktrees } = deleteOpenCodeSessionRows(db, sessionIds, []);
 
-            return { deletedSessionIds: sessionIds, emptyWorktrees };
+            return {
+                deletedSessionIds: sessionIds,
+                emptyWorktrees: getUnownedOpenCodeWorktrees(db, emptyWorktrees),
+            };
         }),
     );
 
@@ -1192,6 +1392,61 @@ export const deleteOpenCodeSession = async (
         result.emptyWorktrees,
     );
     return { deletedSessionIds: result.deletedSessionIds };
+};
+
+export const deleteOpenCodeWorkspace = async (
+    dbPath: string,
+    workspaceKey: string,
+): Promise<DeleteOpenCodeWorkspaceResult> => {
+    const selector = getWorkspaceSelector(workspaceKey);
+    if (!selector) {
+        throw new Error(`Invalid OpenCode workspace key: ${workspaceKey}`);
+    }
+    if (!(await pathExists(dbPath))) {
+        return {
+            cleanupFailures: [],
+            deletedProjectIds: [],
+            deletedSessionIds: [],
+            workspaceFound: false,
+            workspaceKey,
+        };
+    }
+
+    const result = await runWithOpenCodeDbLimit('delete-workspace', dbPath, () =>
+        withOpenCodeWritableDb(dbPath, (db) => deleteOpenCodeWorkspaceRows(db, selector)),
+    );
+
+    if (!result.workspaceFound) {
+        return {
+            cleanupFailures: [],
+            deletedProjectIds: [],
+            deletedSessionIds: [],
+            workspaceFound: false,
+            workspaceKey,
+        };
+    }
+
+    const desktopCleanup = await deleteOpenCodeDesktopSessionStateWithResult(
+        result.deletedSessionIds,
+        undefined,
+        result.cleanupWorktrees,
+    );
+    const cleanupRetryPlan =
+        desktopCleanup.cleanupFailures.length > 0
+            ? {
+                  sessionIds: result.deletedSessionIds,
+                  workspaceKey,
+                  worktrees: result.cleanupWorktrees,
+              }
+            : undefined;
+    return {
+        cleanupFailures: desktopCleanup.cleanupFailures,
+        ...(cleanupRetryPlan ? { cleanupRetryPlan } : {}),
+        deletedProjectIds: result.deletedProjectIds,
+        deletedSessionIds: result.deletedSessionIds,
+        workspaceFound: true,
+        workspaceKey,
+    };
 };
 
 const getMessageRole = (raw: Record<string, JsonValue>): string => asString(raw.role ?? null) ?? 'unknown';

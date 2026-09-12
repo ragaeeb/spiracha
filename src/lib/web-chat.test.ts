@@ -75,6 +75,139 @@ const createMappingExport = (input: {
     update_time: 1_700_000_001,
 });
 
+type TestQwenReferences = Record<string, unknown> | unknown[];
+
+const createQwenContentList = (report: string, references: TestQwenReferences, title = 'Qwen report') => [
+    {
+        content: 'Planning',
+        extra: { deep_research: { lang_code: 'en', version: 1 } },
+        phase: 'ResearchPlanning',
+        role: 'assistant',
+        status: 'finished',
+    },
+    {
+        content: '',
+        extra: {
+            deep_research: {
+                md: { link: 'https://cdn.example.test/report.md', name: title, size: report.length },
+                pdf: { link: 'https://cdn.example.test/report.pdf', name: title, size: 1 },
+                version: 1,
+            },
+        },
+        phase: 'PdfMdGen',
+        role: 'assistant',
+        status: 'finished',
+    },
+    {
+        content: report,
+        extra: { deep_research: { references } },
+        phase: 'answer',
+        role: 'assistant',
+        status: 'finished',
+    },
+];
+
+const createQwenArtifactExport = (
+    options: {
+        contentList?: unknown[];
+        includeSibling?: boolean;
+        mappingBody?: string;
+        rawCurrentId?: string;
+        references?: TestQwenReferences;
+        title?: string;
+    } = {},
+) => {
+    const report = options.mappingBody ?? '# Qwen report\n\nCitations: [[1]].\n';
+    const reportReferences = options.references ?? {
+        first: { index_number: 1, title: 'First', url: 'https://example.com/one' },
+    };
+    const title = options.title ?? 'Qwen report';
+    const answerId = 'qwen-answer';
+    const siblingId = 'qwen-sibling';
+    const answerMessage = {
+        author: { name: 'Qwen', role: 'assistant' },
+        content: { content_type: 'text', parts: [report] },
+        id: answerId,
+        role: 'assistant',
+    };
+    const siblingMessage = {
+        author: { name: 'Qwen', role: 'assistant' },
+        content: { content_type: 'text', parts: ['Sibling report [[1]].\n'] },
+        id: siblingId,
+        role: 'assistant',
+    };
+    const rawAnswer = {
+        content: '',
+        content_list: options.contentList ?? createQwenContentList(report, reportReferences, title),
+        id: answerId,
+        role: 'assistant',
+    };
+    const rawMessages = {
+        [answerId]: rawAnswer,
+        ...(options.includeSibling
+            ? {
+                  [siblingId]: {
+                      content: 'Sibling report [[1]].\n',
+                      content_list: createQwenContentList(
+                          'Sibling report [[1]].\n',
+                          reportReferences,
+                          'Sibling report',
+                      ),
+                      id: siblingId,
+                      role: 'assistant',
+                  },
+              }
+            : {}),
+    };
+    return {
+        conversation_id: 'qwen-artifact',
+        create_time: 1_700_000_000,
+        current_node: answerId,
+        default_model_slug: 'qwen3.8-max',
+        mapping: {
+            [answerId]: {
+                children: [],
+                id: answerId,
+                message: answerMessage,
+                parent: 'user',
+            },
+            ...(options.includeSibling
+                ? {
+                      [siblingId]: {
+                          children: [],
+                          id: siblingId,
+                          message: siblingMessage,
+                          parent: 'user',
+                      },
+                  }
+                : {}),
+            root: { children: ['user'], id: 'root', message: null, parent: null },
+            user: {
+                children: options.includeSibling ? [answerId, siblingId] : [answerId],
+                id: 'user',
+                message: {
+                    author: { role: 'user' },
+                    content: { content_type: 'text', parts: ['Question'] },
+                    id: 'user-message',
+                },
+                parent: 'root',
+            },
+        },
+        raw_payload: {
+            data: {
+                chat: {
+                    history: {
+                        currentId: options.rawCurrentId ?? answerId,
+                        messages: rawMessages,
+                    },
+                },
+            },
+        },
+        title: 'Qwen research',
+        update_time: 1_700_000_001,
+    };
+};
+
 describe('parseWebChatFiles', () => {
     it('should extract Gemini research artifacts once and preserve their Markdown exactly', async () => {
         const content =
@@ -95,6 +228,208 @@ describe('parseWebChatFiles', () => {
                 ])
             ).conversations[0]!.artifacts,
         ).toEqual([]);
+    });
+
+    it('should extract the selected ChatGPT Deep Research report without rewriting its body', async () => {
+        const report = '# ChatGPT report\r\n\r\nTrailing spaces stay.  \r\n';
+        const widgetState = {
+            report_message: {
+                author: { role: 'assistant' },
+                content: { content_type: 'text', parts: [report] },
+                id: 'chatgpt-report',
+                recipient: 'all',
+            },
+        };
+        const base = createMappingExport({ conversationId: 'chatgpt-artifact', model: 'gpt-6-pro', title: 'Research' });
+        const input = {
+            ...base,
+            mapping: {
+                ...base.mapping,
+                assistant: {
+                    ...base.mapping.assistant,
+                    message: {
+                        ...base.mapping.assistant.message,
+                        metadata: { chatgpt_sdk: { widget_state: JSON.stringify(widgetState) } },
+                    },
+                },
+            },
+            messages: [
+                {
+                    metadata: { chatgpt_sdk: { widget_state: JSON.stringify(widgetState) } },
+                    role: 'tool',
+                },
+            ],
+        };
+
+        const result = await parseWebChatFiles([{ content: JSON.stringify(input), name: 'chatgpt.json' }]);
+
+        expect(result.conversations[0]!.artifacts).toEqual([
+            { content: report, id: 'chatgpt-deep-research:report:chatgpt-report', title: 'REPORT.md' },
+        ]);
+    });
+
+    it('should fail closed on malformed or conflicting ChatGPT report metadata', async () => {
+        const report = '# ChatGPT report\n';
+        const widget = (body: unknown, id = 'report') => ({
+            report_message: {
+                author: { role: 'assistant' },
+                content: { content_type: 'text', parts: [body] },
+                id,
+            },
+        });
+        const parse = async (metadata: unknown) => {
+            const base = createMappingExport({
+                conversationId: 'chatgpt-safety',
+                model: 'gpt-6-pro',
+                title: 'Research',
+            });
+            return (
+                await parseWebChatFiles([
+                    {
+                        content: JSON.stringify({
+                            ...base,
+                            mapping: {
+                                ...base.mapping,
+                                assistant: {
+                                    ...base.mapping.assistant,
+                                    message: { ...base.mapping.assistant.message, metadata },
+                                },
+                            },
+                        }),
+                        name: 'chatgpt.json',
+                    },
+                ])
+            ).conversations[0]!;
+        };
+
+        expect((await parse({ chatgpt_sdk: { widget_state: '{' } })).artifacts).toEqual([]);
+        expect(
+            (
+                await parse({
+                    chatgpt_sdk: {
+                        widget_state: widget(report),
+                    },
+                })
+            ).artifacts,
+        ).toEqual([{ content: report, id: 'chatgpt-deep-research:report:report', title: 'REPORT.md' }]);
+        expect(
+            (
+                await parse({
+                    chatgpt_sdk: {
+                        widget_state: widget(report),
+                    },
+                })
+            ).artifacts,
+        ).toHaveLength(1);
+        expect(
+            (
+                await parse({
+                    chatgpt_sdk: {
+                        widget_state: {
+                            report_message: {
+                                author: { role: 'assistant' },
+                                content: { content_type: 'text', parts: [report, 'distractor'] },
+                                id: 'multi-part',
+                            },
+                        },
+                    },
+                })
+            ).artifacts,
+        ).toEqual([]);
+    });
+
+    it('should suppress conflicting ChatGPT report identities and retain selected branches only', async () => {
+        const report = (id: string, body: string, parent: string, child: string[]) => ({
+            children: child,
+            message: {
+                author: { role: 'tool' },
+                content: { content_type: 'text', parts: [] },
+                id: `${id}-tool`,
+                metadata: {
+                    chatgpt_sdk: {
+                        widget_state: {
+                            report_message: {
+                                author: { role: 'assistant' },
+                                content: { content_type: 'text', parts: [body] },
+                                id,
+                            },
+                        },
+                    },
+                },
+            },
+            parent,
+        });
+        const payload = {
+            conversation_id: 'chatgpt-conflict',
+            current_node: 'second',
+            default_model_slug: 'gpt-6-pro',
+            mapping: {
+                first: report('same-report', '# First\n', 'user', ['second']),
+                root: { children: ['user'], message: null, parent: null },
+                second: report('same-report', '# Conflicting\n', 'first', []),
+                sibling: report('sibling-report', '# Ignore sibling\n', 'user', []),
+                user: {
+                    children: ['first', 'sibling'],
+                    message: {
+                        author: { role: 'user' },
+                        content: { content_type: 'text', parts: ['Question'] },
+                        id: 'user-message',
+                    },
+                    parent: 'root',
+                },
+            },
+            title: 'ChatGPT conflict',
+        };
+
+        const result = await parseWebChatFiles([{ content: JSON.stringify(payload), name: 'chatgpt.json' }]);
+
+        expect(result.errors).toEqual([]);
+        expect(result.conversations[0]!.artifacts).toEqual([]);
+        expect(
+            result.conversations[0]!.events.some(
+                (event) => event.kind === 'message' && event.text.includes('Ignore sibling'),
+            ),
+        ).toBe(false);
+    });
+
+    it('should extract ChatGPT Deep Research artifacts from a native message array', async () => {
+        const report = '# Native ChatGPT report\n';
+        const result = await parseWebChatFiles([
+            {
+                content: JSON.stringify({
+                    messages: [
+                        {
+                            content: { content_type: 'text', parts: [] },
+                            id: 'native-tool',
+                            metadata: {
+                                chatgpt_sdk: {
+                                    widget_state: {
+                                        report_message: {
+                                            author: { role: 'assistant' },
+                                            content: { content_type: 'text', parts: [report] },
+                                            id: 'native-report',
+                                        },
+                                    },
+                                },
+                            },
+                            role: 'tool',
+                        },
+                    ],
+                    model: 'gpt-6-pro',
+                }),
+                name: 'chatgpt-native.json',
+            },
+        ]);
+
+        expect(result.errors).toEqual([]);
+        expect(result.conversations[0]!.artifacts).toEqual([
+            { content: report, id: 'chatgpt-deep-research:report:native-report', title: 'REPORT.md' },
+        ]);
+        expect(
+            result.conversations[0]!.events.some(
+                (event) => event.kind === 'message' && event.text.startsWith('# Native ChatGPT report'),
+            ),
+        ).toBe(true);
     });
 
     it('should keep Gemini document sections out of reasoning while preserving actual thoughts', async () => {
@@ -234,6 +569,114 @@ describe('parseWebChatFiles', () => {
                 .artifacts[0]!.content,
         ).toBe(body);
     });
+
+    it('should extract the selected Qwen Markdown artifact with exact citation expansion', async () => {
+        const report =
+            '# Qwen report\n\n' +
+            'Combined [[1,2]]. Repeated [[1]].\n' +
+            'Inline `[[3]]` remains literal.\n' +
+            '```md\n[[4]]\n```\n' +
+            'Malformed [[[1]] and [[1]]] remain literal.\n';
+        const references = [
+            { index_number: 1, title: 'First', url: 'https://example.com/one' },
+            { index_number: 2, title: 'Second', url: 'https://example.com/two' },
+            { index_number: 3, title: 'Inline', url: 'https://example.com/three' },
+            { index_number: 4, title: 'Fence', url: 'https://example.com/four' },
+            { index_number: 99, title: 'Ignore', url: 'not-a-url<b>' },
+        ];
+        const input = createQwenArtifactExport({ mappingBody: report, references, title: 'Qwen research artifact' });
+        const conversation = (await parseWebChatFiles([{ content: JSON.stringify(input), name: 'qwen.json' }]))
+            .conversations[0]!;
+
+        expect(conversation.platform).toBe('Qwen');
+        expect(conversation.artifacts).toEqual([
+            {
+                content:
+                    '# Qwen report\n\n' +
+                    'Combined [[1](https://example.com/one), [2](https://example.com/two)]. Repeated [[1](https://example.com/one)].\n' +
+                    'Inline `[[3]]` remains literal.\n' +
+                    '```md\n[[4]]\n```\n' +
+                    'Malformed [[[1]] and [[1]]] remain literal.\n',
+                id: 'qwen-report:qwen-answer',
+                title: 'Qwen research artifact.md',
+            },
+        ]);
+    });
+
+    it('should fail closed when Qwen report binding or cited references are ambiguous', async () => {
+        const report = '# Qwen report\n\nCitation [[1]].\n';
+        const references = {
+            first: { index_number: 1, title: 'First', url: 'https://example.com/one' },
+        };
+        const parseArtifacts = async (input: unknown) =>
+            (await parseWebChatFiles([{ content: JSON.stringify(input), name: 'qwen.json' }])).conversations[0]!
+                .artifacts;
+
+        const selected = await parseArtifacts(
+            createQwenArtifactExport({
+                includeSibling: true,
+                mappingBody: report,
+                rawCurrentId: 'qwen-sibling',
+                references,
+            }),
+        );
+        expect(selected).toEqual([
+            {
+                content: '# Qwen report\n\nCitation [[1](https://example.com/one)].\n',
+                id: 'qwen-report:qwen-answer',
+                title: 'Qwen report.md',
+            },
+        ]);
+
+        const duplicateEntries = createQwenContentList(report, references);
+        duplicateEntries.push(structuredClone(duplicateEntries[2]));
+        expect(
+            await parseArtifacts(
+                createQwenArtifactExport({ contentList: duplicateEntries, mappingBody: report, references }),
+            ),
+        ).toEqual([]);
+
+        expect(
+            await parseArtifacts({
+                ...createQwenArtifactExport({ mappingBody: report, references }),
+                raw_payload: {
+                    data: {
+                        chat: {
+                            history: {
+                                currentId: 'qwen-answer',
+                                messages: {
+                                    'qwen-answer': {
+                                        content: '',
+                                        content_list: createQwenContentList('Different body', references),
+                                        id: 'qwen-answer',
+                                        role: 'assistant',
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            }),
+        ).toEqual([]);
+
+        const conflictingReferences = {
+            ...references,
+            conflict: { index_number: 1, title: 'Conflict', url: 'https://example.com/two' },
+        };
+        expect(
+            await parseArtifacts(createQwenArtifactExport({ mappingBody: report, references: conflictingReferences })),
+        ).toEqual([]);
+
+        expect(
+            await parseArtifacts(
+                createQwenArtifactExport({
+                    mappingBody: report,
+                    references: { first: { index_number: 1, title: 'Unsafe', url: 'javascript:alert(1)' } },
+                }),
+            ),
+        ).toEqual([]);
+    });
+
     it('should infer the attached mapping export providers at runtime', async () => {
         const cases = [
             { assistantMetadata: { grok_mode: 'deepsearch' }, expected: 'Grok', model: 'Normal' },
@@ -241,6 +684,7 @@ describe('parseWebChatFiles', () => {
             { assistantMetadata: { qwen_model: 'qwen3.8-max' }, expected: 'Qwen', model: 'qwen3.8-max' },
             { expected: 'Claude', model: 'claude-sonnet-5' },
             { expected: 'ChatGPT', model: 'gpt-5-6-pro' },
+            { expected: 'Meta', model: 'meta-ai' },
         ];
 
         for (const [index, testCase] of cases.entries()) {
@@ -268,6 +712,21 @@ describe('parseWebChatFiles', () => {
                 'Answer',
             ]);
         }
+
+        const incidentalMeta = await parseWebChatFiles([
+            {
+                content: JSON.stringify(
+                    createMappingExport({
+                        assistantMetadata: { meta_note: 'Meta appears in the report text.' },
+                        conversationId: 'incidental-meta',
+                        model: 'gpt-5',
+                        title: 'ChatGPT research',
+                    }),
+                ),
+                name: 'chat.json',
+            },
+        ]);
+        expect(incidentalMeta.conversations[0]!.platform).toBe('ChatGPT');
     });
 
     it('should follow the selected mapping branch and preserve reasoning separately', async () => {
@@ -393,6 +852,470 @@ describe('parseWebChatFiles', () => {
         expect(
             result.conversations.map((conversation) => conversation.events.findLast(isAssistantMessage)?.phase),
         ).toEqual(['final_answer', 'final_answer']);
+    });
+
+    it('should extract Claude Markdown and JSON artifacts from selected mapping and native message branches', async () => {
+        const report = '# Claude report\r\n\r\nReasoning marker\r\n';
+        const jsonReport = '{\r\n  "schema_note": "preserve exact formatting",\r\n  "items": [1, 2]  \r\n}\r\n';
+        const createFile = (id: string | undefined, path: string, fileText: string) => ({
+            id,
+            input: { description: 'Generated report', file_text: fileText, path },
+            name: 'create_file',
+            type: 'tool_use',
+        });
+        const mappingFile = createFile('mapping-report', '/mnt/user-data/outputs/REPORT.md', report);
+        const mappingJsonFile = createFile('mapping-json-report', '/mnt/user-data/outputs/report.JSON', jsonReport);
+        const mapping = {
+            assistant: {
+                children: [],
+                message: {
+                    author: { role: 'assistant' },
+                    content: [
+                        { content: 'Reasoning marker', type: 'thinking' },
+                        mappingFile,
+                        structuredClone(mappingFile),
+                        mappingJsonFile,
+                        structuredClone(mappingJsonFile),
+                        { text: 'Claude answer', type: 'text' },
+                        createFile('misleading-suffix', '/mnt/user-data/outputs/report.json.txt', jsonReport),
+                        createFile('ignored-text', '/mnt/user-data/outputs/notes.txt', 'Not Markdown'),
+                    ],
+                },
+                parent: 'user',
+            },
+            user: {
+                children: ['assistant'],
+                message: { author: { role: 'user' }, content: { content_type: 'text', parts: ['Question'] } },
+                parent: null,
+            },
+        };
+        const mappingResult = await parseWebChatFiles([
+            {
+                content: JSON.stringify({
+                    conversation_id: 'claude-mapping-artifact',
+                    current_node: 'assistant',
+                    default_model_slug: 'claude-sonnet-5',
+                    mapping,
+                    raw_payload: {
+                        chat_messages: [
+                            {
+                                content: [createFile('unselected', '/mnt/user-data/outputs/unselected.md', 'Ignore')],
+                                sender: 'assistant',
+                            },
+                        ],
+                        platform: 'CLAUDE_AI',
+                    },
+                }),
+                name: 'claude-mapping.json',
+            },
+        ]);
+        const mappingConversation = mappingResult.conversations[0]!;
+
+        expect(mappingConversation.artifacts).toEqual([
+            { content: report, id: 'mapping-report', title: 'REPORT.md' },
+            { content: jsonReport, id: 'mapping-json-report', title: 'report.JSON' },
+        ]);
+        expect(mappingConversation.events.filter((event) => event.kind === 'reasoning')).toMatchObject([
+            { content: 'Reasoning marker' },
+        ]);
+        expect(getToolCalls(mappingConversation.events)).toHaveLength(4);
+
+        const nativeReport = '# Native report\n';
+        const nativeFile = createFile('native-report', '/mnt/user-data/outputs/report.markdown', nativeReport);
+        const nativeResult = await parseWebChatFiles([
+            {
+                content: JSON.stringify({
+                    chat_messages: [
+                        { content: [{ text: 'Question', type: 'text' }], sender: 'human' },
+                        {
+                            content: [
+                                nativeFile,
+                                structuredClone(nativeFile),
+                                createFile('native-report', '/mnt/user-data/outputs/report.markdown', 'Conflict'),
+                                createFile('native-revision', '/mnt/user-data/outputs/report.markdown', 'Revision'),
+                                createFile('empty-report', '/mnt/user-data/outputs/empty.md', ''),
+                                createFile(undefined, '/mnt/user-data/outputs/no-id.md', 'No ID'),
+                                createFile(undefined, '/mnt/user-data/outputs/no-id.md', 'No ID'),
+                                createFile('ignored-text', '/mnt/user-data/outputs/notes.txt', 'Not Markdown'),
+                                { text: 'Answer', type: 'text' },
+                            ],
+                            sender: 'assistant',
+                        },
+                    ],
+                    model: 'claude-sonnet-5',
+                }),
+                name: 'claude-native.json',
+            },
+        ]);
+
+        expect(nativeResult.conversations[0]!.artifacts).toEqual([
+            { content: nativeReport, id: 'native-report', title: 'report.markdown' },
+            { content: 'Conflict', id: 'native-report:2', title: 'report.markdown' },
+            { content: 'Revision', id: 'native-revision', title: 'report.markdown' },
+            { content: '', id: 'empty-report', title: 'empty.md' },
+            { content: 'No ID', id: 'claude-artifact-5', title: 'no-id.md' },
+        ]);
+    });
+
+    it('should extract selected Meta Markdown and JSON artifacts without rewriting their bodies', async () => {
+        const summary = 'Meta answer with artifact links.';
+        const report = '# Muse report\n\nArabic: رحمه الله\n';
+        const reportJson = '{\n  "kind": "muse",\n  "count": 2\n}\n';
+        const makeSection = (uuid: string, extension: string, link: string) => ({
+            view_model: {
+                primitive: {
+                    html_artifact_sandbox: { file_extension: extension, title: 'Report', uuid },
+                    text: `📎 [${link.split('/').at(-1)?.split('?')[0]}](${link})`,
+                },
+            },
+        });
+        const base = createMappingExport({ conversationId: 'meta-artifact', model: 'meta-ai', title: 'Muse report' });
+        const input = {
+            ...base,
+            mapping: {
+                ...base.mapping,
+                assistant: {
+                    ...base.mapping.assistant,
+                    message: {
+                        ...base.mapping.assistant.message,
+                        content: { content_type: 'text', parts: [summary, report, reportJson] },
+                    },
+                },
+            },
+            raw_payload: {
+                data: {
+                    conversation: {
+                        messages: {
+                            edges: [
+                                {
+                                    node: {
+                                        content: summary,
+                                        contentRenderer: {
+                                            unified_response: {
+                                                sections: [
+                                                    makeSection(
+                                                        'meta-markdown-id',
+                                                        'md',
+                                                        'container:///mnt/data/REPORT.md?download=1',
+                                                    ),
+                                                    makeSection(
+                                                        'meta-json-id',
+                                                        'json',
+                                                        'container:///mnt/data/report.json?download=1',
+                                                    ),
+                                                ],
+                                            },
+                                        },
+                                        id: 'assistant-message',
+                                    },
+                                },
+                                {
+                                    node: {
+                                        content: 'Ignore this branch',
+                                        contentRenderer: {
+                                            unified_response: {
+                                                sections: [
+                                                    makeSection(
+                                                        'unselected-id',
+                                                        'md',
+                                                        'container:///mnt/data/unselected.md',
+                                                    ),
+                                                ],
+                                            },
+                                        },
+                                        id: 'unselected-assistant',
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                },
+            },
+        };
+
+        const result = await parseWebChatFiles([{ content: JSON.stringify(input), name: 'meta.json' }]);
+
+        expect(result.conversations[0]).toMatchObject({ platform: 'Meta' });
+        expect(result.conversations[0]!.artifacts).toEqual([
+            { content: report, id: 'assistant-message:meta-markdown-id', title: 'REPORT.md' },
+            { content: reportJson, id: 'assistant-message:meta-json-id', title: 'report.json' },
+        ]);
+    });
+
+    it('should fail closed on ambiguous or conflicting Meta artifact bindings', async () => {
+        const summary = 'Meta answer with artifact links.';
+        const report = '# Muse report\n';
+        const reportJson = '{"kind":"muse"}\n';
+        const makeInput = (parts: unknown[], sections: unknown[]) => {
+            const base = createMappingExport({ conversationId: 'meta-safety', model: 'meta-ai', title: 'Muse' });
+            return {
+                ...base,
+                mapping: {
+                    ...base.mapping,
+                    assistant: {
+                        ...base.mapping.assistant,
+                        message: {
+                            ...base.mapping.assistant.message,
+                            content: { content_type: 'text', parts },
+                        },
+                    },
+                },
+                raw_payload: {
+                    data: {
+                        conversation: {
+                            messages: {
+                                edges: [
+                                    {
+                                        node: {
+                                            content: summary,
+                                            contentRenderer: { unified_response: { sections } },
+                                            id: 'assistant-message',
+                                        },
+                                    },
+                                ],
+                            },
+                        },
+                    },
+                },
+            };
+        };
+        const section = (uuid: string, extension: string, path: string) => ({
+            view_model: {
+                primitive: {
+                    html_artifact_sandbox: { file_extension: extension, title: 'Report', uuid },
+                    text: `📎 [${path.split('/').at(-1)}](container:///mnt/data/${path})`,
+                },
+            },
+        });
+        const parseArtifacts = async (input: ReturnType<typeof makeInput>) =>
+            (await parseWebChatFiles([{ content: JSON.stringify(input), name: 'meta.json' }])).conversations[0]!
+                .artifacts;
+
+        expect(
+            await parseArtifacts(
+                makeInput(
+                    [summary, report, reportJson],
+                    [section('md-id', 'md', 'REPORT.md'), section('json-id', 'md', 'report.json')],
+                ),
+            ),
+        ).toEqual([{ content: report, id: 'assistant-message:md-id', title: 'REPORT.md' }]);
+        expect(
+            await parseArtifacts(
+                makeInput(
+                    [summary, report, 'not-json'],
+                    [section('md-id', 'md', 'REPORT.md'), section('json-id', 'json', 'report.json')],
+                ),
+            ),
+        ).toEqual([{ content: report, id: 'assistant-message:md-id', title: 'REPORT.md' }]);
+        expect(
+            await parseArtifacts(
+                makeInput(
+                    [summary, '{"distractor":true}', report, reportJson],
+                    [section('md-id', 'md', 'REPORT.md'), section('json-id', 'json', 'report.json')],
+                ),
+            ),
+        ).toEqual([]);
+        expect(
+            await parseArtifacts(
+                makeInput(
+                    [summary, report, report, reportJson],
+                    [
+                        section('same-id', 'md', 'REPORT.md'),
+                        section('same-id', 'md', 'REPORT.md'),
+                        section('json-id', 'json', 'report.json'),
+                    ],
+                ),
+            ),
+        ).toEqual([
+            { content: report, id: 'assistant-message:same-id', title: 'REPORT.md' },
+            { content: reportJson, id: 'assistant-message:json-id', title: 'report.json' },
+        ]);
+        expect(
+            await parseArtifacts(
+                makeInput(
+                    [summary, report, reportJson],
+                    [
+                        section('same-id', 'md', 'REPORT.md'),
+                        section('same-id', 'md', 'REPORT.md'),
+                        section('json-id', 'json', 'report.json'),
+                    ],
+                ),
+            ),
+        ).toEqual([
+            { content: report, id: 'assistant-message:same-id', title: 'REPORT.md' },
+            { content: reportJson, id: 'assistant-message:json-id', title: 'report.json' },
+        ]);
+        expect(
+            await parseArtifacts(
+                makeInput(
+                    [summary, report, reportJson],
+                    [section('same-id', 'md', 'REPORT.md'), section('same-id', 'md', 'different.md')],
+                ),
+            ),
+        ).toEqual([]);
+        expect(
+            await parseArtifacts(
+                makeInput(
+                    [summary, report],
+                    [section('md-id', 'md', 'REPORT.md'), section('json-id', 'json', 'report.json')],
+                ),
+            ),
+        ).toEqual([]);
+    });
+
+    it('should replay the selected GLM report file operations exactly', async () => {
+        const directory = '/tmp/glm-artifact';
+        const reportPath = `${directory}/REPORT.md`;
+        const jsonPath = `${directory}/report.json`;
+        const fence = '```';
+        const toolBlock = (id: string, name: string, args: Record<string, unknown>, status = 'completed') => ({
+            content: [{ function: { arguments: JSON.stringify(args), name }, id, type: 'function' }],
+            results: [{ status, tool_call_id: id }],
+            type: 'tool_calls',
+        });
+        const appendCommand = (body: string) =>
+            `cat >> ${reportPath} << 'EOF'\n${body}\nEOF\necho "appended"; wc -c ${reportPath}`;
+        const finalHeader = '\n# 14. Appendix\n\n```json';
+        const finalCommand =
+            `cd ${directory} && jq -e . report.json > /dev/null && echo "JSON VALID" && ` +
+            `cat >> REPORT.md << 'EOF'\n${finalHeader}\nEOF\n` +
+            `cat report.json >> REPORT.md && echo '${fence}' >> REPORT.md && ` +
+            `echo "REPORT.md finalized:" && wc -c REPORT.md report.json && tail -3 REPORT.md`;
+        const reportStart = '# GLM report\n';
+        const repeatedSection = '\n# Section\nEOF marker';
+        const reportJson = '{"ok":true}\n';
+        const blocks = [
+            toolBlock('write-report', 'Write', { content: reportStart, filepath: reportPath }),
+            toolBlock('append-one', 'Bash', { command: appendCommand(repeatedSection) }),
+            toolBlock('append-two', 'Bash', { command: appendCommand(repeatedSection) }),
+            toolBlock('write-json', 'Write', { content: reportJson, filepath: jsonPath }),
+            toolBlock('append-final', 'Bash', { command: finalCommand }),
+        ];
+        const input = {
+            ...createMappingExport({ conversationId: 'glm-artifact', model: 'glm-5.3', title: 'GLM report' }),
+            raw_payload: {
+                messages_batch: {
+                    data: {
+                        'assistant-message': { content_blocks: blocks, role: 'assistant' },
+                        'unselected-message': {
+                            content_blocks: [
+                                toolBlock('unselected', 'Write', {
+                                    content: 'Ignore this branch',
+                                    filepath: reportPath,
+                                }),
+                            ],
+                            role: 'assistant',
+                        },
+                    },
+                },
+            },
+        };
+        const mappingResult = await parseWebChatFiles([{ content: JSON.stringify(input), name: 'glm-mapping.json' }]);
+        const expected = `${reportStart}${repeatedSection}\n${repeatedSection}\n${finalHeader}\n${reportJson}${fence}\n`;
+
+        expect(mappingResult.conversations[0]!.artifacts).toEqual([
+            { content: expected, id: 'write-report', title: 'REPORT.md' },
+        ]);
+
+        const nativeResult = await parseWebChatFiles([
+            {
+                content: JSON.stringify({
+                    messages: [
+                        { content: 'Question', id: 'user-message', role: 'user' },
+                        { content: 'Answer', id: 'assistant-message', role: 'assistant' },
+                    ],
+                    model: 'glm-5.3',
+                    raw_payload: input.raw_payload,
+                    title: 'GLM native wrapper',
+                }),
+                name: 'glm-native.json',
+            },
+        ]);
+        expect(nativeResult.conversations[0]!.artifacts).toEqual(mappingResult.conversations[0]!.artifacts);
+    });
+
+    it('should fail closed on unsupported or incomplete GLM report mutations', async () => {
+        const directory = '/tmp/glm-safety';
+        const reportPath = `${directory}/REPORT.md`;
+        const reportStart = '# GLM report\n';
+        const fence = '```';
+        const toolBlock = (id: string, name: string, args: Record<string, unknown>, status = 'completed') => ({
+            content: [{ function: { arguments: JSON.stringify(args), name }, id, type: 'function' }],
+            results: [{ status, tool_call_id: id }],
+            type: 'tool_calls',
+        });
+        const parseArtifacts = async (blocks: unknown[]) => {
+            const payload = {
+                ...createMappingExport({ conversationId: `glm-${blocks.length}`, model: 'glm-5.3', title: 'GLM' }),
+                raw_payload: {
+                    messages_batch: {
+                        data: {
+                            'assistant-message': { content_blocks: blocks, role: 'assistant' },
+                        },
+                    },
+                },
+            };
+            return (await parseWebChatFiles([{ content: JSON.stringify(payload), name: 'glm.json' }])).conversations[0]!
+                .artifacts;
+        };
+        const write = (id: string, content = reportStart, path = reportPath, status = 'completed') =>
+            toolBlock(id, 'Write', { content, filepath: path }, status);
+        const append = (id: string, command: string, status = 'completed') =>
+            toolBlock(id, 'Bash', { command }, status);
+        const validAppend = `cat >> ${reportPath} << 'EOF'\n\n# Section\nEOF marker\nEOF\necho "appended"; wc -c ${reportPath}`;
+
+        expect(
+            await parseArtifacts([write('write'), append('near-match', `${validAppend}; rm ${reportPath}`)]),
+        ).toEqual([]);
+        expect(
+            await parseArtifacts([
+                write('write'),
+                append(
+                    'unquoted',
+                    `cat >> ${reportPath} << EOF\n\n# Section\nEOF\necho "appended"; wc -c ${reportPath}`,
+                ),
+            ]),
+        ).toEqual([]);
+        expect(
+            await parseArtifacts([
+                write('write'),
+                append(
+                    'final-missing-json',
+                    `cd ${directory} && jq -e . report.json > /dev/null && echo "JSON VALID" && cat >> REPORT.md << 'EOF'\n\n# Appendix\nEOF\n` +
+                        `cat report.json >> REPORT.md && echo '${fence}' >> REPORT.md && echo "REPORT.md finalized:" && ` +
+                        `wc -c REPORT.md report.json && tail -3 REPORT.md`,
+                ),
+            ]),
+        ).toEqual([]);
+        expect(await parseArtifacts([write('failed-write', reportStart, reportPath, 'error')])).toEqual([]);
+        expect(
+            await parseArtifacts([
+                write('write'),
+                append('append', validAppend),
+                write('overwrite', '# Overwritten\n'),
+            ]),
+        ).toEqual([{ content: '# Overwritten\n', id: 'write', title: 'REPORT.md' }]);
+        expect(
+            await parseArtifacts([write('write'), append('duplicate', validAppend), append('duplicate', validAppend)]),
+        ).toEqual([{ content: `${reportStart}\n# Section\nEOF marker\n`, id: 'write', title: 'REPORT.md' }]);
+        expect(
+            await parseArtifacts([
+                write('write'),
+                append('conflict', validAppend),
+                append('conflict', validAppend.replace('appended', 'different')),
+            ]),
+        ).toEqual([]);
+        expect(
+            await parseArtifacts([
+                {
+                    content: [
+                        { function: { arguments: 'not json', name: 'Write' }, id: 'malformed', type: 'function' },
+                    ],
+                    results: [{ status: 'completed', tool_call_id: 'malformed' }],
+                    type: 'tool_calls',
+                },
+            ]),
+        ).toEqual([]);
     });
 
     it('should split arrays of conversations and parse generic GLM role-content messages', async () => {

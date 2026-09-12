@@ -24,6 +24,7 @@ const removedDependencies = [
     '@modelcontextprotocol/sdk',
     '@tanstack/match-sorter-utils',
     '@tanstack/react-devtools',
+    '@tanstack/react-query-devtools',
     '@tanstack/react-router-devtools',
     '@tanstack/router-plugin',
     'iconv-lite',
@@ -48,6 +49,7 @@ const requiredDevelopmentDependencies = [
     '@vitest/coverage-v8',
     'jsdom',
     'typescript',
+    'valibot',
     'vitest',
 ] as const;
 
@@ -122,6 +124,13 @@ describe('package manifest', () => {
         expect(manifest.scripts?.typecheck).toBe('bunx tsc --noEmit');
         expect(manifest.scripts?.['typecheck:root']).toBeUndefined();
         expect(manifest.scripts?.['typecheck:ui']).toBeUndefined();
+    });
+
+    it('should use Valibot for application validation', async () => {
+        const manifest = await readPackageManifest();
+
+        expect(manifest.devDependencies?.zod).toBeUndefined();
+        expect(manifest.devDependencies?.valibot).toBeDefined();
     });
 
     it('should require the packed bunx smoke test before publishing', async () => {
