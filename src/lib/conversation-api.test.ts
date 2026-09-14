@@ -267,6 +267,25 @@ describe('conversation API handler', () => {
         });
     });
 
+    it('should accept Command Code as a stable workspace source', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations?cwd=/repo&source=command-code&include_messages=true'),
+            {
+                listConversations: async (options) => {
+                    expect(options).toMatchObject({
+                        cwd: '/repo',
+                        includeMessages: true,
+                        sources: ['command-code'],
+                    });
+                    return { data: [], meta: { hasNext: false, nextCursor: null } };
+                },
+            },
+        );
+
+        expect(response.status).toBe(200);
+        await expect(response.json()).resolves.toMatchObject({ data: [] });
+    });
+
     it('should query conversations for a cwd with the last final answer selector', async () => {
         const response = await handleConversationApiRequest(
             createRequest('/api/v1/conversations?cwd=/repo&include_messages=true&message_selector=last_final_answer'),

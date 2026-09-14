@@ -7,7 +7,7 @@
 [![license](https://img.shields.io/npm/l/spiracha)](LICENSE.md)
 [![runtime](https://img.shields.io/badge/runtime-Bun-000000?logo=bun)](https://bun.sh)
 
-Spiracha is a Bun package with a local TanStack Start UI, a small CLI, and a direct data client for browsing and exporting agent conversation history from Codex, Claude Code, Grok, Grok Bot, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode.
+Spiracha is a Bun package with a local TanStack Start UI, a small CLI, and a direct data client for browsing and exporting agent conversation history from Codex, Claude Code, Command Code, Grok, Grok Bot, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode.
 
 The legacy exporter, MCP server, and Codex plugin surfaces were removed in the 2.0 hard cut. Spiracha now exposes the UI, a stable local data API, and the API-driven CLI below; client-specific workflows such as review collection belong in the client that calls the API.
 
@@ -61,7 +61,7 @@ Install the SDK in another Bun application with `bun add spiracha`. `list` and `
 
 ## What It Does
 
-- Browse local conversations across Codex, Claude Code, Grok, Grok Bot, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode.
+- Browse local conversations across Codex, Claude Code, Command Code, Grok, Grok Bot, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode.
 - Import exported ChatGPT, Claude, Gemini, Grok, Qwen, GLM, Amazon Nova, DeepSeek, Mistral, Perplexity, and compatible web conversations by dropping JSON files onto the Web page.
 - Group each integration into workspace inventories with local search and source-specific export/delete actions where supported.
 - Search Codex projects from the app shell, with results delegated to the shareable `/codex?q=...` inventory filter.
@@ -228,6 +228,7 @@ The `/analytics` view can scope results to one project or all projects. It repor
 | Antigravity | `~/.gemini/antigravity-ide`, `~/.gemini/antigravity-cli`, and `~/.gemini/antigravity` | `SPIRACHA_ANTIGRAVITY_DIRS`, `SPIRACHA_ANTIGRAVITY_DIR` |
 | FX | `~/.fx` | `SPIRACHA_FX_DATA_DIR` |
 | MiniMax Code | `~/.minimax/v2/sessions` and `~/.minimax/v2/sqlite/runtime-state.sqlite` | `SPIRACHA_MINIMAX_CODE_DATA_DIR`, `SPIRACHA_MINIMAX_CODE_SESSIONS_DIR`, `SPIRACHA_MINIMAX_CODE_RUNTIME_DB_PATH` |
+| Command Code | `~/.commandcode/projects` | `SPIRACHA_COMMAND_CODE_DIR`, `SPIRACHA_COMMAND_CODE_PROJECTS_DIR` |
 | OpenCode | `${XDG_DATA_HOME:-~/.local/share}/opencode/opencode.db` | `SPIRACHA_OPENCODE_DATA_DIR`, `SPIRACHA_OPENCODE_DB` |
 | UI cache | `~/.cache/spiracha/ui-cache` | `SPIRACHA_UI_CACHE_DIR` |
 | UI exports | `~/.cache/spiracha/ui-exports` | `SPIRACHA_UI_EXPORT_DIR` |
@@ -285,8 +286,8 @@ Cursor reads use a retry-aware synchronous callback that opens a fresh read hand
 
 - `/` for the Codex dashboard, `/codex` and `/codex/$project` for Codex inventory and project threads.
 - `/threads/$threadId` for Codex thread detail.
-- `/claude-code`, `/cline`, `/grok`, `/grok-bot`, `/kiro`, `/qoder`, `/cursor`, `/antigravity`, `/fx`, `/minimax-code`, and `/opencode` for source inventories.
-- Source detail routes include `/claude-code-sessions/$sessionId`, `/cline-tasks/$taskId`, `/grok-sessions/$sessionId`, `/grok-bot-chats/$conversationId`, `/kiro-sessions/$sessionId`, `/qoder-sessions/$sessionId`, `/cursor-threads/$composerId`, `/antigravity-conversations/$conversationId`, `/fx-sessions/$sessionId`, `/minimax-code-sessions/$sessionId`, and `/opencode-sessions/$sessionId`.
+- `/claude-code`, `/command-code`, `/cline`, `/grok`, `/grok-bot`, `/kiro`, `/qoder`, `/cursor`, `/antigravity`, `/fx`, `/minimax-code`, and `/opencode` for source inventories.
+- Source detail routes include `/claude-code-sessions/$sessionId`, `/command-code-sessions/$sessionId`, `/cline-tasks/$taskId`, `/grok-sessions/$sessionId`, `/grok-bot-chats/$conversationId`, `/kiro-sessions/$sessionId`, `/qoder-sessions/$sessionId`, `/cursor-threads/$composerId`, `/antigravity-conversations/$conversationId`, `/fx-sessions/$sessionId`, `/minimax-code-sessions/$sessionId`, and `/opencode-sessions/$sessionId`.
 - `/web` for JSON imports and a searchable in-memory list of imported conversations; `/web-chats/$conversationId` for parsed transcript, metadata, and normalized JSON.
 - FX workspace and detail pages support single, selected, and workspace-wide deletion. Deletion removes the session directory plus its session-index and latest-pointer entries while preserving workspace files and global FX command history.
 - MiniMax Code workspace and detail pages support single, selected, and workspace-wide deletion. Deletion removes finalized session directories and authoritative runtime database rows while preserving generated workspace files and append-only observability logs.

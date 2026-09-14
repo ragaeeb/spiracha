@@ -6,6 +6,7 @@ export type ExportPlatform =
     | 'antigravity'
     | 'claude'
     | 'cline'
+    | 'command-code'
     | 'codex'
     | 'cursor'
     | 'fx'
@@ -21,6 +22,7 @@ const EXPORT_PLATFORM_BY_SOURCE: Record<ConversationSource, ExportPlatform> = {
     'claude-code': 'claude',
     cline: 'cline',
     codex: 'codex',
+    'command-code': 'command-code',
     cursor: 'cursor',
     fx: 'fx',
     grok: 'grok',

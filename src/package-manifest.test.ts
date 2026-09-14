@@ -147,6 +147,7 @@ describe('package manifest', () => {
         const sourceLabels = [
             'Codex',
             'Claude Code',
+            'Command Code',
             'Grok',
             'Grok Bot',
             'Kiro',

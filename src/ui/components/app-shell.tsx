@@ -45,6 +45,12 @@ const integrationNavItems: readonly NavItem[] = [
         label: 'Claude Code',
         to: '/claude-code',
     },
+    {
+        activePrefixes: ['/command-code', '/command-code-sessions'],
+        icon: Code2,
+        label: 'Command Code',
+        to: '/command-code',
+    },
     { activePrefixes: ['/cline', '/cline-tasks'], icon: Bot, label: 'Cline', to: '/cline' },
     { activePrefixes: ['/codex', '/threads'], icon: FolderOpen, label: 'Codex', to: '/codex' },
     { activePrefixes: ['/cursor', '/cursor-threads'], icon: SquareTerminal, label: 'Cursor', to: '/cursor' },

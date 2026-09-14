@@ -1,0 +1,41 @@
+import type { ConversationMessage } from './conversation-data/types';
+
+export type CommandCodeWorkspaceGroup = {
+    assistantMessageCount: number;
+    key: string;
+    label: string;
+    lastActiveAtMs: number | null;
+    messageCount: number;
+    sessionCount: number;
+    toolCallCount: number;
+    toolOutputCount: number;
+    userMessageCount: number;
+    worktree: string;
+};
+
+export type CommandCodeSessionSummary = {
+    assistantMessageCount: number;
+    createdAtMs: number | null;
+    cwd: string;
+    filePath: string;
+    lastActiveAtMs: number | null;
+    messageCount: number;
+    model: string | null;
+    modelLabel: string | null;
+    recordCount: number;
+    renderableMessageCount: number;
+    sessionId: string;
+    title: string;
+    toolCallCount: number;
+    toolOutputCount: number;
+    userMessageCount: number;
+    workspaceKey: string;
+    workspaceLabel: string;
+    worktree: string;
+};
+
+export type CommandCodeSessionTranscript = {
+    messages: ConversationMessage[];
+    rawRecords: Record<string, unknown>[];
+    session: CommandCodeSessionSummary;
+};

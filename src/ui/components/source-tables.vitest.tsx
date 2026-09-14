@@ -107,6 +107,8 @@ import { ClaudeCodeSessionsTable } from './claude-code-sessions-table';
 import { ClaudeCodeWorkspacesTable } from './claude-code-workspaces-table';
 import { ClineTasksTable } from './cline-tasks-table';
 import { ClineWorkspacesTable } from './cline-workspaces-table';
+import { CommandCodeSessionsTable } from './command-code-sessions-table';
+import { CommandCodeWorkspacesTable } from './command-code-workspaces-table';
 import { GrokSessionsTable } from './grok-sessions-table';
 import { GrokWorkspacesTable } from './grok-workspaces-table';
 import { KiroSessionsTable } from './kiro-sessions-table';
@@ -376,6 +378,22 @@ describe('source workspace tables', () => {
                 },
             },
             {
+                Component: CommandCodeWorkspacesTable,
+                path: '/command-code/command-code-key',
+                row: {
+                    assistantMessageCount: 3,
+                    key: 'command-code-key',
+                    label: 'Command Code workspace',
+                    lastActiveAtMs: 1_700_000_000_000,
+                    messageCount: 20,
+                    sessionCount: 2,
+                    toolCallCount: 3,
+                    toolOutputCount: 3,
+                    userMessageCount: 2,
+                    worktree: '/workspace/command-code',
+                },
+            },
+            {
                 Component: QoderWorkspacesTable,
                 path: '/qoder/qoder-key',
                 row: {
@@ -397,5 +415,41 @@ describe('source workspace tables', () => {
             expect(screen.getByText(row.worktree)).toBeTruthy();
             unmount();
         }
+    });
+
+    it('should render Command Code session metadata and navigation', () => {
+        render(
+            <CommandCodeSessionsTable
+                sessions={[
+                    {
+                        assistantMessageCount: 1,
+                        createdAtMs: 1_700_000_000_000,
+                        cwd: '/workspace/command-code',
+                        filePath: '/tmp/session.jsonl',
+                        lastActiveAtMs: 1_700_000_000_100,
+                        messageCount: 2,
+                        model: 'z-ai/glm-5.3-flash',
+                        modelLabel: null,
+                        recordCount: 3,
+                        renderableMessageCount: 2,
+                        sessionId: 'command-code-session',
+                        title: 'Command Code review',
+                        toolCallCount: 1,
+                        toolOutputCount: 1,
+                        userMessageCount: 1,
+                        workspaceKey: 'command-code-key',
+                        workspaceLabel: 'Command Code workspace',
+                        worktree: '/workspace/command-code',
+                    },
+                ]}
+            />,
+        );
+
+        expect(screen.getByRole('link', { name: /Command Code review/i }).getAttribute('href')).toBe(
+            '/command-code-sessions/command-code-session',
+        );
+        expect(screen.getByText('unknown')).toBeTruthy();
+        expect(screen.getByText('2')).toBeTruthy();
+        expect(screen.getByText('1')).toBeTruthy();
     });
 });

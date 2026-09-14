@@ -24,6 +24,9 @@ import { Route as ClineIndexRouteImport } from './routes/cline.index'
 import { Route as ClineWorkspaceKeyRouteImport } from './routes/cline.$workspaceKey'
 import { Route as CodexIndexRouteImport } from './routes/codex.index'
 import { Route as CodexProjectRouteImport } from './routes/codex.$project'
+import { Route as CommandCodeSessionsSessionIdRouteImport } from './routes/command-code-sessions.$sessionId'
+import { Route as CommandCodeIndexRouteImport } from './routes/command-code.index'
+import { Route as CommandCodeWorkspaceKeyRouteImport } from './routes/command-code.$workspaceKey'
 import { Route as CursorThreadsComposerIdRouteImport } from './routes/cursor-threads.$composerId'
 import { Route as CursorIndexRouteImport } from './routes/cursor.index'
 import { Route as CursorWorkspaceKeyRouteImport } from './routes/cursor.$workspaceKey'
@@ -141,6 +144,22 @@ const CodexIndexRoute = CodexIndexRouteImport.update({
 const CodexProjectRoute = CodexProjectRouteImport.update({
   id: '/codex/$project',
   path: '/codex/$project',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CommandCodeSessionsSessionIdRoute =
+  CommandCodeSessionsSessionIdRouteImport.update({
+    id: '/command-code-sessions/$sessionId',
+    path: '/command-code-sessions/$sessionId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const CommandCodeIndexRoute = CommandCodeIndexRouteImport.update({
+  id: '/command-code/',
+  path: '/command-code/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CommandCodeWorkspaceKeyRoute = CommandCodeWorkspaceKeyRouteImport.update({
+  id: '/command-code/$workspaceKey',
+  path: '/command-code/$workspaceKey',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CursorThreadsComposerIdRoute = CursorThreadsComposerIdRouteImport.update({
@@ -372,6 +391,8 @@ export interface FileRoutesByFullPath {
   '/cline-tasks/$taskId': typeof ClineTasksTaskIdRoute
   '/cline/$workspaceKey': typeof ClineWorkspaceKeyRoute
   '/codex/$project': typeof CodexProjectRoute
+  '/command-code-sessions/$sessionId': typeof CommandCodeSessionsSessionIdRoute
+  '/command-code/$workspaceKey': typeof CommandCodeWorkspaceKeyRoute
   '/cursor-threads/$composerId': typeof CursorThreadsComposerIdRoute
   '/cursor/$workspaceKey': typeof CursorWorkspaceKeyRoute
   '/fx-sessions/$sessionId': typeof FxSessionsSessionIdRoute
@@ -393,6 +414,7 @@ export interface FileRoutesByFullPath {
   '/claude-code/': typeof ClaudeCodeIndexRoute
   '/cline/': typeof ClineIndexRoute
   '/codex/': typeof CodexIndexRoute
+  '/command-code/': typeof CommandCodeIndexRoute
   '/cursor/': typeof CursorIndexRoute
   '/fx/': typeof FxIndexRoute
   '/grok-bot/': typeof GrokBotIndexRoute
@@ -430,6 +452,8 @@ export interface FileRoutesByTo {
   '/cline-tasks/$taskId': typeof ClineTasksTaskIdRoute
   '/cline/$workspaceKey': typeof ClineWorkspaceKeyRoute
   '/codex/$project': typeof CodexProjectRoute
+  '/command-code-sessions/$sessionId': typeof CommandCodeSessionsSessionIdRoute
+  '/command-code/$workspaceKey': typeof CommandCodeWorkspaceKeyRoute
   '/cursor-threads/$composerId': typeof CursorThreadsComposerIdRoute
   '/cursor/$workspaceKey': typeof CursorWorkspaceKeyRoute
   '/fx-sessions/$sessionId': typeof FxSessionsSessionIdRoute
@@ -451,6 +475,7 @@ export interface FileRoutesByTo {
   '/claude-code': typeof ClaudeCodeIndexRoute
   '/cline': typeof ClineIndexRoute
   '/codex': typeof CodexIndexRoute
+  '/command-code': typeof CommandCodeIndexRoute
   '/cursor': typeof CursorIndexRoute
   '/fx': typeof FxIndexRoute
   '/grok-bot': typeof GrokBotIndexRoute
@@ -489,6 +514,8 @@ export interface FileRoutesById {
   '/cline-tasks/$taskId': typeof ClineTasksTaskIdRoute
   '/cline/$workspaceKey': typeof ClineWorkspaceKeyRoute
   '/codex/$project': typeof CodexProjectRoute
+  '/command-code-sessions/$sessionId': typeof CommandCodeSessionsSessionIdRoute
+  '/command-code/$workspaceKey': typeof CommandCodeWorkspaceKeyRoute
   '/cursor-threads/$composerId': typeof CursorThreadsComposerIdRoute
   '/cursor/$workspaceKey': typeof CursorWorkspaceKeyRoute
   '/fx-sessions/$sessionId': typeof FxSessionsSessionIdRoute
@@ -510,6 +537,7 @@ export interface FileRoutesById {
   '/claude-code/': typeof ClaudeCodeIndexRoute
   '/cline/': typeof ClineIndexRoute
   '/codex/': typeof CodexIndexRoute
+  '/command-code/': typeof CommandCodeIndexRoute
   '/cursor/': typeof CursorIndexRoute
   '/fx/': typeof FxIndexRoute
   '/grok-bot/': typeof GrokBotIndexRoute
@@ -549,6 +577,8 @@ export interface FileRouteTypes {
     | '/cline-tasks/$taskId'
     | '/cline/$workspaceKey'
     | '/codex/$project'
+    | '/command-code-sessions/$sessionId'
+    | '/command-code/$workspaceKey'
     | '/cursor-threads/$composerId'
     | '/cursor/$workspaceKey'
     | '/fx-sessions/$sessionId'
@@ -570,6 +600,7 @@ export interface FileRouteTypes {
     | '/claude-code/'
     | '/cline/'
     | '/codex/'
+    | '/command-code/'
     | '/cursor/'
     | '/fx/'
     | '/grok-bot/'
@@ -607,6 +638,8 @@ export interface FileRouteTypes {
     | '/cline-tasks/$taskId'
     | '/cline/$workspaceKey'
     | '/codex/$project'
+    | '/command-code-sessions/$sessionId'
+    | '/command-code/$workspaceKey'
     | '/cursor-threads/$composerId'
     | '/cursor/$workspaceKey'
     | '/fx-sessions/$sessionId'
@@ -628,6 +661,7 @@ export interface FileRouteTypes {
     | '/claude-code'
     | '/cline'
     | '/codex'
+    | '/command-code'
     | '/cursor'
     | '/fx'
     | '/grok-bot'
@@ -665,6 +699,8 @@ export interface FileRouteTypes {
     | '/cline-tasks/$taskId'
     | '/cline/$workspaceKey'
     | '/codex/$project'
+    | '/command-code-sessions/$sessionId'
+    | '/command-code/$workspaceKey'
     | '/cursor-threads/$composerId'
     | '/cursor/$workspaceKey'
     | '/fx-sessions/$sessionId'
@@ -686,6 +722,7 @@ export interface FileRouteTypes {
     | '/claude-code/'
     | '/cline/'
     | '/codex/'
+    | '/command-code/'
     | '/cursor/'
     | '/fx/'
     | '/grok-bot/'
@@ -724,6 +761,8 @@ export interface RootRouteChildren {
   ClineTasksTaskIdRoute: typeof ClineTasksTaskIdRoute
   ClineWorkspaceKeyRoute: typeof ClineWorkspaceKeyRoute
   CodexProjectRoute: typeof CodexProjectRoute
+  CommandCodeSessionsSessionIdRoute: typeof CommandCodeSessionsSessionIdRoute
+  CommandCodeWorkspaceKeyRoute: typeof CommandCodeWorkspaceKeyRoute
   CursorThreadsComposerIdRoute: typeof CursorThreadsComposerIdRoute
   CursorWorkspaceKeyRoute: typeof CursorWorkspaceKeyRoute
   FxSessionsSessionIdRoute: typeof FxSessionsSessionIdRoute
@@ -745,6 +784,7 @@ export interface RootRouteChildren {
   ClaudeCodeIndexRoute: typeof ClaudeCodeIndexRoute
   ClineIndexRoute: typeof ClineIndexRoute
   CodexIndexRoute: typeof CodexIndexRoute
+  CommandCodeIndexRoute: typeof CommandCodeIndexRoute
   CursorIndexRoute: typeof CursorIndexRoute
   FxIndexRoute: typeof FxIndexRoute
   GrokBotIndexRoute: typeof GrokBotIndexRoute
@@ -870,6 +910,27 @@ declare module '@tanstack/react-router' {
       path: '/codex/$project'
       fullPath: '/codex/$project'
       preLoaderRoute: typeof CodexProjectRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/command-code-sessions/$sessionId': {
+      id: '/command-code-sessions/$sessionId'
+      path: '/command-code-sessions/$sessionId'
+      fullPath: '/command-code-sessions/$sessionId'
+      preLoaderRoute: typeof CommandCodeSessionsSessionIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/command-code/': {
+      id: '/command-code/'
+      path: '/command-code'
+      fullPath: '/command-code/'
+      preLoaderRoute: typeof CommandCodeIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/command-code/$workspaceKey': {
+      id: '/command-code/$workspaceKey'
+      path: '/command-code/$workspaceKey'
+      fullPath: '/command-code/$workspaceKey'
+      preLoaderRoute: typeof CommandCodeWorkspaceKeyRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/cursor-threads/$composerId': {
@@ -1210,6 +1271,8 @@ const rootRouteChildren: RootRouteChildren = {
   ClineTasksTaskIdRoute: ClineTasksTaskIdRoute,
   ClineWorkspaceKeyRoute: ClineWorkspaceKeyRoute,
   CodexProjectRoute: CodexProjectRoute,
+  CommandCodeSessionsSessionIdRoute: CommandCodeSessionsSessionIdRoute,
+  CommandCodeWorkspaceKeyRoute: CommandCodeWorkspaceKeyRoute,
   CursorThreadsComposerIdRoute: CursorThreadsComposerIdRoute,
   CursorWorkspaceKeyRoute: CursorWorkspaceKeyRoute,
   FxSessionsSessionIdRoute: FxSessionsSessionIdRoute,
@@ -1231,6 +1294,7 @@ const rootRouteChildren: RootRouteChildren = {
   ClaudeCodeIndexRoute: ClaudeCodeIndexRoute,
   ClineIndexRoute: ClineIndexRoute,
   CodexIndexRoute: CodexIndexRoute,
+  CommandCodeIndexRoute: CommandCodeIndexRoute,
   CursorIndexRoute: CursorIndexRoute,
   FxIndexRoute: FxIndexRoute,
   GrokBotIndexRoute: GrokBotIndexRoute,

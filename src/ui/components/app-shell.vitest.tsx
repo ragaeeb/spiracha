@@ -76,6 +76,7 @@ describe('AppShell', () => {
         for (const integration of [
             'Antigravity',
             'Claude Code',
+            'Command Code',
             'Cline',
             'Codex',
             'Cursor',
@@ -106,6 +107,7 @@ describe('AppShell', () => {
             'Settings',
             'Antigravity',
             'Claude Code',
+            'Command Code',
             'Cline',
             'Codex',
             'Cursor',
@@ -167,6 +169,18 @@ describe('AppShell', () => {
         );
 
         expect(screen.getByRole('link', { name: 'Claude Code' }).className).toContain('bg-[var(--accent-muted)]');
+    });
+
+    it('should keep Command Code active on standalone session detail routes', () => {
+        useRouterStateMock.mockReturnValue('/command-code-sessions/session-1');
+
+        render(
+            <AppShell>
+                <div>Content area</div>
+            </AppShell>,
+        );
+
+        expect(screen.getByRole('link', { name: 'Command Code' }).className).toContain('bg-[var(--accent-muted)]');
     });
 
     it('should keep Kiro active on standalone session detail routes', () => {

@@ -3,6 +3,7 @@ import { antigravityConversationAdapter } from './antigravity-adapter';
 import { claudeCodeConversationAdapter } from './claude-code-adapter';
 import { clineConversationAdapter } from './cline-adapter';
 import { codexConversationAdapter } from './codex-adapter';
+import { commandCodeConversationAdapter } from './command-code-adapter';
 import { cursorConversationAdapter } from './cursor-adapter';
 import { fxConversationAdapter } from './fx-adapter';
 import { grokConversationAdapter } from './grok-adapter';
@@ -78,6 +79,7 @@ const SOURCE_LABELS: Record<ConversationSource, string> = {
     'claude-code': 'Claude Code',
     cline: 'Cline',
     codex: 'Codex',
+    'command-code': 'Command Code',
     cursor: 'Cursor',
     fx: 'FX',
     grok: 'Grok',
@@ -93,6 +95,7 @@ const SOURCE_SCOPES: Record<ConversationSource, ConversationSourceScope> = {
     'claude-code': 'workspace',
     cline: 'workspace',
     codex: 'workspace',
+    'command-code': 'workspace',
     cursor: 'workspace',
     fx: 'workspace',
     grok: 'workspace',
@@ -118,6 +121,7 @@ const ADAPTERS: Partial<Record<ConversationSource, ConversationAdapter>> = {
     'claude-code': claudeCodeConversationAdapter,
     cline: clineConversationAdapter,
     codex: codexConversationAdapter,
+    'command-code': commandCodeConversationAdapter,
     cursor: cursorConversationAdapter,
     fx: fxConversationAdapter,
     grok: grokConversationAdapter,
@@ -137,6 +141,7 @@ const DELETE_CONCURRENCY_BY_SOURCE: Record<ConversationSource, number> = {
     'claude-code': 4,
     cline: 1,
     codex: 1,
+    'command-code': 1,
     cursor: 1,
     fx: 1,
     grok: 1,
@@ -327,6 +332,9 @@ export const deleteConversations = async (
 const sourceFromSessionRoute = (segment: string): ConversationSource | null => {
     if (segment === 'claude-code-sessions') {
         return 'claude-code';
+    }
+    if (segment === 'command-code-sessions') {
+        return 'command-code';
     }
     if (segment === 'cline-tasks') {
         return 'cline';

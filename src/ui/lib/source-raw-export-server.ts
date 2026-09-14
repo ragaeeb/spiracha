@@ -6,6 +6,7 @@ const rawSourceValues = [
     'claude-code',
     'cline',
     'codex',
+    'command-code',
     'grok',
     'grok-bot',
     'kiro',

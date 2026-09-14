@@ -40,6 +40,7 @@ describe('ui export archive helpers', () => {
             'minimax_project-2026-05-17-1712-threads-2',
         );
         expect(getExportPlatformName('minimax-code')).toBe('minimax');
+        expect(getExportPlatformName('command-code')).toBe('command-code');
     });
 
     it('should name batch archives from the project, latest conversation time, and selected thread count', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { listConversationSources, listConversations, resolveConversationRef } from './index';
@@ -30,6 +30,7 @@ describe('conversation data facade', () => {
                     claudeCodeProjectsDir: path.join(tempRoot, 'claude'),
                     clineDataDir: path.join(tempRoot, 'cline'),
                     codexDbPath: path.join(tempRoot, 'missing-codex.sqlite'),
+                    commandCodeProjectsDir: path.join(tempRoot, 'command-code'),
                     cursorUserDir: path.join(tempRoot, 'cursor'),
                     fxDataDir: path.join(tempRoot, 'fx'),
                     grokSessionsDir: path.join(tempRoot, 'grok', 'sessions'),
@@ -66,6 +67,7 @@ describe('conversation data facade', () => {
                     claudeCodeProjectsDir: path.join(tempRoot, 'claude'),
                     clineDataDir: path.join(tempRoot, 'cline'),
                     codexDbPath: path.join(tempRoot, 'missing-codex.sqlite'),
+                    commandCodeProjectsDir: path.join(tempRoot, 'command-code'),
                     cursorUserDir: path.join(tempRoot, 'cursor'),
                     fxDataDir: path.join(tempRoot, 'fx'),
                     grokSessionsDir: path.join(tempRoot, 'grok', 'sessions'),
@@ -145,6 +147,7 @@ describe('conversation data facade', () => {
         const first = await listConversationSources();
         expect(first).toContainEqual({ label: 'Cline', scope: 'workspace', source: 'cline' });
         expect(first).toContainEqual({ label: 'MiniMax Code', scope: 'workspace', source: 'minimax-code' });
+        expect(first).toContainEqual({ label: 'Command Code', scope: 'workspace', source: 'command-code' });
         expect(first).toContainEqual({ label: 'FX', scope: 'workspace', source: 'fx' });
         expect(first).toContainEqual({ label: 'Grok Bot', scope: 'global', source: 'grok-bot' });
         first.splice(0, first.length);
@@ -177,6 +180,72 @@ describe('conversation data facade', () => {
             id: 'bd5bbf01-a4e1-47f8-885f-f2188cf04aab',
             source: 'grok-bot',
         });
+        await expect(resolveConversationRef('https://example.com/command-code-sessions/session-1')).resolves.toEqual({
+            id: 'session-1',
+            source: 'command-code',
+        });
         await expect(resolveConversationRef('https://example.com/unrelated/threads/thread-1')).resolves.toBeNull();
+    });
+
+    it('should expose Command Code through the stable conversation facade', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'conversation-data-command-code-'));
+        const projectsDir = path.join(tempRoot, 'command-code');
+        const sessionId = 'command-code-session';
+        try {
+            const projectDir = path.join(projectsDir, 'project');
+            await mkdir(projectDir, { recursive: true });
+            await Bun.write(
+                path.join(projectDir, `${sessionId}.jsonl`),
+                `${[
+                    { cwd: '/repo', id: sessionId, timestamp: '2026-09-14T10:00:00Z', type: 'session', version: 3 },
+                    {
+                        id: 'user-1',
+                        message: {
+                            content: [{ text: 'Review', type: 'text' }],
+                            meta: { source: 'user' },
+                            role: 'user',
+                        },
+                        parentId: null,
+                        timestamp: '2026-09-14T10:00:01Z',
+                        type: 'message',
+                    },
+                    {
+                        id: 'assistant-1',
+                        message: {
+                            content: [{ text: 'Stable API result', type: 'text' }],
+                            meta: { source: 'model' },
+                            role: 'assistant',
+                        },
+                        model: 'z-ai/glm-5.3-flash',
+                        parentId: 'user-1',
+                        timestamp: '2026-09-14T10:00:02Z',
+                        type: 'message',
+                    },
+                ]
+                    .map((record) => JSON.stringify(record))
+                    .join('\n')}\n`,
+            );
+
+            const page = await listConversations({
+                cwd: '/repo',
+                includeMessages: true,
+                locations: { commandCodeProjectsDir: projectsDir },
+                messageSelector: 'last_final_answer',
+                sources: ['command-code'],
+            });
+
+            expect(page.data).toHaveLength(1);
+            expect(page.data[0]).toMatchObject({
+                id: sessionId,
+                model: 'z-ai/glm-5.3-flash',
+                source: 'command-code',
+                workspacePath: '/repo',
+            });
+            expect(page.data[0]?.messages).toEqual([
+                expect.objectContaining({ phase: 'final_answer', text: 'Stable API result' }),
+            ]);
+        } finally {
+            await rm(tempRoot, { force: true, recursive: true });
+        }
     });
 });

@@ -295,6 +295,7 @@ const RAW_EXPORT_SOURCES = new Set<ConversationSource>([
     'claude-code',
     'cline',
     'codex',
+    'command-code',
     'grok',
     'grok-bot',
     'kiro',
@@ -303,7 +304,16 @@ const RAW_EXPORT_SOURCES = new Set<ConversationSource>([
 ]);
 type RawExportSource = Extract<
     ConversationSource,
-    'antigravity' | 'claude-code' | 'cline' | 'codex' | 'grok' | 'grok-bot' | 'kiro' | 'minimax-code' | 'qoder'
+    | 'antigravity'
+    | 'claude-code'
+    | 'cline'
+    | 'codex'
+    | 'command-code'
+    | 'grok'
+    | 'grok-bot'
+    | 'kiro'
+    | 'minimax-code'
+    | 'qoder'
 >;
 
 const isRawExportSource = (source: ConversationSource): source is RawExportSource => RAW_EXPORT_SOURCES.has(source);

@@ -167,6 +167,7 @@ describe('conversation client', () => {
                     claudeCodeProjectsDir: path.join(tempRoot, 'claude'),
                     clineDataDir: path.join(tempRoot, 'cline'),
                     codexDbPath: path.join(tempRoot, 'missing-codex.sqlite'),
+                    commandCodeProjectsDir: path.join(tempRoot, 'command-code'),
                     cursorUserDir: path.join(tempRoot, 'cursor'),
                     kiroWorkspaceSessionsDir: path.join(tempRoot, 'kiro'),
                     opencodeDbPath: path.join(tempRoot, 'missing-opencode.sqlite'),
@@ -318,6 +319,28 @@ describe('conversation client', () => {
                 meta: { hasNext: true, nextCursor: 'cursor-2' },
             });
             expect(requestedUrls).toHaveLength(1);
+        } finally {
+            server.stop(true);
+        }
+    });
+
+    it('should serialize Command Code as a supported HTTP source', async () => {
+        const server = Bun.serve({
+            fetch(request) {
+                const url = new URL(request.url);
+                expect(url.pathname).toBe('/api/v1/conversations');
+                expect(url.searchParams.get('source')).toBe('command-code');
+                return Response.json({ data: [], meta: { has_next: false, next_cursor: null } });
+            },
+            port: 0,
+        });
+
+        try {
+            const client = createConversationClient({ baseUrl: `http://127.0.0.1:${server.port}`, mode: 'http' });
+            await expect(client.listConversations({ cwd: '/repo', sources: ['command-code'] })).resolves.toEqual({
+                data: [],
+                meta: { hasNext: false, nextCursor: null },
+            });
         } finally {
             server.stop(true);
         }

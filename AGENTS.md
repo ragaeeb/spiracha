@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This repo is a Bun-first local app for importing web conversations and browsing, exporting, and exposing agent conversation history from Codex, Claude Code, Cline, Grok, Grok Bot, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode.
+This repo is a Bun-first local app for importing web conversations and browsing, exporting, and exposing agent conversation history from Codex, Claude Code, Command Code, Cline, Grok, Grok Bot, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode.
 
 The legacy exporter, MCP server, and Codex plugin were removed in the 2.0 hard cut. Do not add bridge commands, compatibility aliases, or deprecated entrypoints back. The current CLI is an API-driven thin client; new application workflows should import the stable `spiracha/client` Bun SDK instead of shelling out.
 
@@ -99,6 +99,7 @@ Codex browser/export modules:
 
 Source-specific browser/export modules:
 - `src/lib/claude-code-db.ts`, `src/lib/claude-code-exporter-types.ts`, `src/lib/claude-code-transcript-phase.ts`, `src/lib/claude-code-transcript.ts`
+- `src/lib/command-code-db.ts`, `src/lib/command-code-exporter-types.ts`
 - `src/lib/cline-db.ts`, `src/lib/cline-exporter-types.ts`, `src/lib/cline-transcript.ts`
 - `src/lib/grok-db.ts`, `src/lib/grok-exporter-types.ts`, `src/lib/grok-transcript-phase.ts`, `src/lib/grok-transcript.ts`
 - `src/lib/grok-bot-db.ts`, `src/lib/conversation-data/grok-bot-adapter.ts`
@@ -135,7 +136,7 @@ UI source tree:
 - `src/ui/`
   - TanStack Start browser UI
   - API routes live under `src/ui/routes/api.v1.*.ts`
-  - source routes include `/threads/$threadId`, `/claude-code-sessions/$sessionId`, `/cline-tasks/$taskId`, `/grok-sessions/$sessionId`, `/grok-bot-chats/$conversationId`, `/kiro-sessions/$sessionId`, `/qoder-sessions/$sessionId`, `/cursor-threads/$composerId`, `/antigravity-conversations/$conversationId`, `/fx-sessions/$sessionId`, `/minimax-code-sessions/$sessionId`, and `/opencode-sessions/$sessionId`
+  - source routes include `/threads/$threadId`, `/claude-code-sessions/$sessionId`, `/command-code-sessions/$sessionId`, `/cline-tasks/$taskId`, `/grok-sessions/$sessionId`, `/grok-bot-chats/$conversationId`, `/kiro-sessions/$sessionId`, `/qoder-sessions/$sessionId`, `/cursor-threads/$composerId`, `/antigravity-conversations/$conversationId`, `/fx-sessions/$sessionId`, `/minimax-code-sessions/$sessionId`, and `/opencode-sessions/$sessionId`
   - Web import routes are `/web` and `/web-chats/$conversationId`; imported conversations use server functions and remain in bounded process memory
   - Cursor and Antigravity detail routes load large transcript/artifact bodies through post-hydration server queries; Codex exposes deferred loading for oversized rollouts
 
