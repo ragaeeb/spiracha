@@ -1,4 +1,5 @@
 import type { ConversationMessage } from './conversation-data/types';
+import type { ExportFormat } from './shared-text';
 
 export type CommandCodeWorkspaceGroup = {
     assistantMessageCount: number;
@@ -38,4 +39,16 @@ export type CommandCodeSessionTranscript = {
     messages: ConversationMessage[];
     rawRecords: Record<string, unknown>[];
     session: CommandCodeSessionSummary;
+};
+
+export type DeleteCommandCodeSessionResult = {
+    deletedFiles: string[];
+    deletedSessionIds: string[];
+};
+
+export type CommandCodeExportOptions = {
+    includeCommentary: boolean;
+    includeMetadata: boolean;
+    includeTools: boolean;
+    outputFormat: ExportFormat;
 };

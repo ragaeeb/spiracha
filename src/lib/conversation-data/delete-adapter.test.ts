@@ -78,6 +78,23 @@ const writeKiroSession = async (sessionsDir: string, workspacePath: string, sess
     return { executionPath, sessionPath };
 };
 
+const writeCommandCodeSession = async (projectsDir: string, workspacePath: string, sessionId: string) => {
+    const projectDir = path.join(projectsDir, 'users-rhaq-workspace-harfbench');
+    const sessionPath = path.join(projectDir, `${sessionId}.jsonl`);
+    await mkdir(projectDir, { recursive: true });
+    await writeJsonl(sessionPath, [
+        { cwd: workspacePath, id: sessionId, type: 'session' },
+        {
+            id: `${sessionId}-message`,
+            message: { content: [{ text: `Delete ${sessionId}`, type: 'text' }], role: 'user' },
+            parentId: null,
+            timestamp: '2026-06-01T10:00:00.000Z',
+            type: 'message',
+        },
+    ]);
+    return sessionPath;
+};
+
 const createOpenCodeDb = async () => {
     const dbPath = path.join(await makeTempRoot('conversation-delete-opencode-'), 'opencode.db');
     await createOpenCodeFixture(dbPath, {
@@ -204,6 +221,58 @@ describe('conversation delete adapters', () => {
         expect(result?.deletedFiles.sort()).toEqual([executionPath, sessionPath].sort());
         expect(await Bun.file(sessionPath).exists()).toBe(false);
         expect(await Bun.file(executionPath).exists()).toBe(false);
+    });
+
+    it('should delete Command Code conversations and sidecars through the stable facade', async () => {
+        const projectsDir = await makeTempRoot('conversation-delete-command-code-');
+        const workspacePath = '/repo';
+        const deletedIds = ['command-code-delete-one', 'command-code-delete-two'];
+        const deletedPaths = await Promise.all(
+            deletedIds.map((sessionId) => writeCommandCodeSession(projectsDir, workspacePath, sessionId)),
+        );
+        const siblingPath = await writeCommandCodeSession(projectsDir, workspacePath, 'command-code-keep');
+        const sidecarPaths = deletedPaths.flatMap((sessionPath) => [
+            sessionPath.replace(/\.jsonl$/u, '.meta.json'),
+            sessionPath.replace(/\.jsonl$/u, '.checkpoints.jsonl'),
+        ]);
+        await Promise.all(sidecarPaths.map((filePath) => Bun.write(filePath, '{}')));
+
+        const result = await deleteConversations({
+            ids: deletedIds,
+            locations: { commandCodeProjectsDir: projectsDir },
+            source: 'command-code',
+        });
+
+        expect(result).toEqual({
+            deletedFiles: deletedIds.flatMap((_id, index) => [
+                deletedPaths[index]!,
+                sidecarPaths[index * 2]!,
+                sidecarPaths[index * 2 + 1]!,
+            ]),
+            deletedIds,
+            missingIds: [],
+            results: deletedIds.map((id, index) => ({
+                deleted: true,
+                deletedFiles: [deletedPaths[index]!, sidecarPaths[index * 2]!, sidecarPaths[index * 2 + 1]!],
+                deletedIds: [id],
+                id,
+            })),
+        });
+        expect(await Bun.file(siblingPath).exists()).toBe(true);
+        await expect(
+            getConversation({
+                id: deletedIds[0]!,
+                locations: { commandCodeProjectsDir: projectsDir },
+                source: 'command-code',
+            }),
+        ).resolves.toBeNull();
+        await expect(
+            getConversation({
+                id: 'command-code-keep',
+                locations: { commandCodeProjectsDir: projectsDir },
+                source: 'command-code',
+            }),
+        ).resolves.not.toBeNull();
     });
 
     it('should delete Cursor threads through the stable facade using an exact composer id', async () => {

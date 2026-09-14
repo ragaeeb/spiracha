@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
+    deleteCommandCodeSession,
     listCommandCodeSessionSummaries,
     listCommandCodeWorkspaceGroups,
     readCommandCodeSessionTranscript,
@@ -222,6 +223,109 @@ describe('Command Code filesystem reader', () => {
             { sessionCount: 1, worktree: firstCwd },
             { sessionCount: 1, worktree: secondCwd },
         ]);
+    });
+
+    it('should delete a session and its matching sidecars without deleting sibling sessions', async () => {
+        const root = await makeRoot();
+        const cwd = '/workspace/project';
+        const sessionId = 'delete-session';
+        const siblingId = 'keep-session';
+        const sessionPath = await writeSession(
+            root,
+            'project-a',
+            sessionId,
+            makeLinearRecords(sessionId, cwd, [
+                messageRecord(
+                    'delete-message',
+                    null,
+                    'user',
+                    [{ text: 'Delete me', type: 'text' }],
+                    '2026-09-14T10:00:00Z',
+                ),
+            ]),
+        );
+        const siblingPath = await writeSession(
+            root,
+            'project-a',
+            siblingId,
+            makeLinearRecords(siblingId, cwd, [
+                messageRecord(
+                    'keep-message',
+                    null,
+                    'user',
+                    [{ text: 'Keep me', type: 'text' }],
+                    '2026-09-14T11:00:00Z',
+                ),
+            ]),
+        );
+        const metadataPath = sessionPath.replace(/\.jsonl$/u, '.meta.json');
+        const checkpointsPath = sessionPath.replace(/\.jsonl$/u, '.checkpoints.jsonl');
+        await Bun.write(metadataPath, JSON.stringify({ title: 'Delete me' }));
+        await Bun.write(checkpointsPath, JSON.stringify({ checkpoint: true }));
+
+        await expect(deleteCommandCodeSession(root, sessionId)).resolves.toEqual({
+            deletedFiles: [sessionPath, metadataPath, checkpointsPath],
+            deletedSessionIds: [sessionId],
+        });
+        expect(await Bun.file(sessionPath).exists()).toBe(false);
+        expect(await Bun.file(metadataPath).exists()).toBe(false);
+        expect(await Bun.file(checkpointsPath).exists()).toBe(false);
+        expect(await Bun.file(siblingPath).exists()).toBe(true);
+        await expect(deleteCommandCodeSession(root, '../delete-session')).resolves.toEqual({
+            deletedFiles: [],
+            deletedSessionIds: [],
+        });
+    });
+
+    it('should delete every identical copy of a session', async () => {
+        const root = await makeRoot();
+        const sessionId = 'duplicate-session';
+        const records = makeLinearRecords(sessionId, '/workspace/project', [
+            messageRecord(
+                'duplicate-message',
+                null,
+                'user',
+                [{ text: 'Delete every copy', type: 'text' }],
+                '2026-09-14T10:00:00Z',
+            ),
+        ]);
+        const firstPath = await writeSession(root, 'project-a', sessionId, records);
+        const secondPath = await writeSession(root, 'project-b', sessionId, records);
+
+        await expect(deleteCommandCodeSession(root, sessionId)).resolves.toEqual({
+            deletedFiles: [firstPath, secondPath],
+            deletedSessionIds: [sessionId],
+        });
+        expect(await Bun.file(firstPath).exists()).toBe(false);
+        expect(await Bun.file(secondPath).exists()).toBe(false);
+    });
+
+    it('should fail closed when a matching sidecar is unsafe', async () => {
+        const root = await makeRoot();
+        const sessionId = 'unsafe-sidecar-session';
+        const sessionPath = await writeSession(
+            root,
+            'project-a',
+            sessionId,
+            makeLinearRecords(sessionId, '/workspace/project', [
+                messageRecord(
+                    'unsafe-sidecar-message',
+                    null,
+                    'user',
+                    [{ text: 'Keep me safe', type: 'text' }],
+                    '2026-09-14T10:00:00Z',
+                ),
+            ]),
+        );
+        const metadataPath = sessionPath.replace(/\.jsonl$/u, '.meta.json');
+        const outsidePath = path.join(root, 'outside.json');
+        await Bun.write(outsidePath, '{}');
+        await symlink(outsidePath, metadataPath);
+
+        await expect(deleteCommandCodeSession(root, sessionId)).rejects.toThrow('Unsafe Command Code session file');
+        expect(await Bun.file(sessionPath).exists()).toBe(true);
+        expect(await Bun.file(metadataPath).exists()).toBe(true);
+        expect(await Bun.file(outsidePath).exists()).toBe(true);
     });
 
     it('should fail closed for malformed, mismatched, non-linear, and conflicting sessions', async () => {

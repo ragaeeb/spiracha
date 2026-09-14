@@ -1,9 +1,11 @@
+import { lstat, unlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type {
     CommandCodeSessionSummary,
     CommandCodeSessionTranscript,
     CommandCodeWorkspaceGroup,
+    DeleteCommandCodeSessionResult,
 } from './command-code-exporter-types';
 import { mapWithConcurrency } from './concurrency';
 import {
@@ -521,6 +523,36 @@ const parseCommandCodeSession = (rawText: string, filePath: string, fileId: stri
 
 const fileIdFromPath = (filePath: string): string => path.basename(filePath, '.jsonl');
 
+const lstatCommandCodeFileIfPresent = async (filePath: string) => {
+    return lstat(filePath).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') {
+            return null;
+        }
+        throw error;
+    });
+};
+
+const assertSafeCommandCodeFile = (filePath: string, metadata: Awaited<ReturnType<typeof lstat>>) => {
+    if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1) {
+        throw new Error(`Unsafe Command Code session file: ${filePath}`);
+    }
+};
+
+const unlinkCommandCodeFileIfPresent = async (filePath: string): Promise<boolean> => {
+    const metadata = await lstatCommandCodeFileIfPresent(filePath);
+    if (!metadata) {
+        return false;
+    }
+    assertSafeCommandCodeFile(filePath, metadata);
+    await unlink(filePath);
+    return true;
+};
+
+const commandCodeSessionSidecars = (sessionPath: string): string[] => {
+    const basePath = sessionPath.slice(0, -'.jsonl'.length);
+    return [sessionPath, `${basePath}.meta.json`, `${basePath}.checkpoints.jsonl`];
+};
+
 const listCommandCodeSessionFiles = async (projectsDir: string): Promise<string[]> => {
     const projectEntries = (await readDirectoryEntriesIfExists(projectsDir))
         .filter((entry) => entry.isDirectory())
@@ -592,6 +624,28 @@ const readAllCommandCodeSessions = async (projectsDir: string): Promise<ParsedCo
     );
 };
 
+const readCommandCodeSessionCopies = async (
+    projectsDir: string,
+    sessionId: string,
+): Promise<ParsedCommandCodeSession[]> => {
+    const files = await listCommandCodeSessionFiles(projectsDir);
+    const sessions = await mapWithConcurrency(files, COMMAND_CODE_DISCOVERY_CONCURRENCY, async (filePath) =>
+        readCommandCodeSessionFile(filePath),
+    );
+    const matchingSessions = sessions.filter(
+        (session): session is ParsedCommandCodeSession => session?.session.sessionId === sessionId,
+    );
+    for (const session of matchingSessions.slice(1)) {
+        const first = matchingSessions[0]!;
+        if (first.rawText !== session.rawText) {
+            throw new Error(
+                `Command Code session ${sessionId} has conflicting copies in ${first.session.filePath} and ${session.session.filePath}.`,
+            );
+        }
+    }
+    return matchingSessions;
+};
+
 const sortSessions = (left: CommandCodeSessionSummary, right: CommandCodeSessionSummary) => {
     return (right.lastActiveAtMs ?? 0) - (left.lastActiveAtMs ?? 0) || left.sessionId.localeCompare(right.sessionId);
 };
@@ -650,4 +704,35 @@ export const readCommandCodeSessionTranscript = async (
 ): Promise<CommandCodeSessionTranscript | null> => {
     const sessions = await readAllCommandCodeSessions(projectsDir);
     return sessions.find((session) => session.session.sessionId === sessionId) ?? null;
+};
+
+export const deleteCommandCodeSession = async (
+    projectsDir: string,
+    sessionId: string,
+): Promise<DeleteCommandCodeSessionResult> => {
+    const sessions = await readCommandCodeSessionCopies(projectsDir, sessionId);
+    if (sessions.length === 0) {
+        return { deletedFiles: [], deletedSessionIds: [] };
+    }
+
+    const sessionFiles = [
+        ...new Set(sessions.flatMap((session) => commandCodeSessionSidecars(session.session.filePath))),
+    ];
+    for (const filePath of sessionFiles) {
+        const metadata = await lstatCommandCodeFileIfPresent(filePath);
+        if (metadata) {
+            assertSafeCommandCodeFile(filePath, metadata);
+        }
+    }
+
+    const deletedFiles: string[] = [];
+    for (const filePath of sessionFiles) {
+        if (await unlinkCommandCodeFileIfPresent(filePath)) {
+            deletedFiles.push(filePath);
+        }
+    }
+    return {
+        deletedFiles,
+        deletedSessionIds: deletedFiles.length > 0 ? [sessionId] : [],
+    };
 };

@@ -1,5 +1,6 @@
 import path from 'node:path';
 import {
+    deleteCommandCodeSession,
     listCommandCodeSessionSummaries,
     readCommandCodeSessionTranscript,
     resolveCommandCodeProjectsDir,
@@ -12,6 +13,7 @@ import type {
     ConversationAdapter,
     ConversationDetail,
     ConversationPathMatch,
+    DeleteConversationOptions,
     GetConversationOptions,
     GetConversationRawOptions,
     ListConversationsOptions,
@@ -110,7 +112,16 @@ const getCommandCodeConversationRaw = async (options: GetConversationRawOptions)
     };
 };
 
+const deleteCommandCodeConversation = async (options: DeleteConversationOptions) => {
+    const result = await deleteCommandCodeSession(getProjectsDir(options), options.id);
+    return {
+        deletedFiles: result.deletedFiles,
+        deletedIds: result.deletedSessionIds,
+    };
+};
+
 export const commandCodeConversationAdapter: ConversationAdapter = {
+    deleteConversation: deleteCommandCodeConversation,
     getConversation: getCommandCodeConversation,
     getConversationRaw: getCommandCodeConversationRaw,
     listConversations: listCommandCodeConversations,

@@ -264,6 +264,62 @@ describe('source session tables', () => {
         });
     }
 
+    it('should select Command Code sessions and export from the toolbar or row menu', () => {
+        const onDeleteSession = vi.fn();
+        const onDeleteSessions = vi.fn();
+        const onExportSession = vi.fn();
+        const onExportSessions = vi.fn();
+        const session = {
+            assistantMessageCount: 1,
+            createdAtMs: 1_700_000_000_000,
+            cwd: '/workspace/command-code',
+            filePath: '/tmp/command-code/session.jsonl',
+            lastActiveAtMs: 1_700_000_000_100,
+            messageCount: 2,
+            model: 'z-ai/glm-5.3-flash',
+            modelLabel: 'GLM 5.3 Flash',
+            recordCount: 3,
+            renderableMessageCount: 2,
+            sessionId: 'command-code-session',
+            title: 'Command Code review',
+            toolCallCount: 1,
+            toolOutputCount: 1,
+            userMessageCount: 1,
+            workspaceKey: 'command-code-key',
+            workspaceLabel: 'Command Code workspace',
+            worktree: '/workspace/command-code',
+        };
+        const secondSession = {
+            ...session,
+            sessionId: 'command-code-session-2',
+            title: 'Command Code follow-up',
+        };
+
+        render(
+            <CommandCodeSessionsTable
+                onDeleteSession={onDeleteSession}
+                onDeleteSessions={onDeleteSessions}
+                onExportSession={onExportSession}
+                onExportSessions={onExportSessions}
+                sessions={[session, secondSession]}
+            />,
+        );
+
+        fireEvent.click(screen.getByRole('checkbox', { name: 'Select row command-code-session' }));
+        fireEvent.click(screen.getByRole('checkbox', { name: 'Select row command-code-session-2' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Export selected sessions' }));
+        expect(onExportSessions).toHaveBeenCalledWith(['command-code-session', 'command-code-session-2']);
+        fireEvent.click(screen.getByRole('button', { name: 'Delete selected sessions' }));
+        expect(onDeleteSessions).toHaveBeenCalledWith(['command-code-session', 'command-code-session-2']);
+
+        fireEvent.click(screen.getByRole('button', { name: 'Actions for Command Code review' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Export session' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Actions for Command Code review' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Delete session' }));
+        expect(onExportSession).toHaveBeenCalledWith(session);
+        expect(onDeleteSession).toHaveBeenCalledWith(session);
+    });
+
     it('should render Claude Code sub-agents as nested rows beneath their parent', () => {
         const parent = {
             ...sessionSpecs[1]!.session,
@@ -420,6 +476,10 @@ describe('source workspace tables', () => {
     it('should render Command Code session metadata and navigation', () => {
         render(
             <CommandCodeSessionsTable
+                onDeleteSession={vi.fn()}
+                onDeleteSessions={vi.fn()}
+                onExportSession={vi.fn()}
+                onExportSessions={vi.fn()}
                 sessions={[
                     {
                         assistantMessageCount: 1,
