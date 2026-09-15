@@ -95,6 +95,14 @@ const diagnosticFingerprint = (text: string) => {
     return lines.join('\n');
 };
 
+/**
+ * Lossily projects untrusted text using a shared per-export diagnostic/omission
+ * state. Opaque payloads and repeated diagnostics become markers; bounded JSON
+ * sampling and head/tail truncation reduce other text without first parsing huge JSON.
+ * The state is mutated and should not be reused across unrelated exports. Marker
+ * returns are not individually guaranteed to fit maximum; the final renderer owns
+ * the total Markdown budget. This is not a general secret-redaction function.
+ */
 export const projectEvidenceText = (text: string, maximum: number, state: EvidenceProjectionState): string => {
     if (!text) {
         return '';
