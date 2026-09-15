@@ -1,38 +1,10 @@
+import { SOURCE_CATALOG } from './conversation-data/source-catalog';
 import type { ConversationSource } from './conversation-data/types';
 import { getNumericMaximum } from './numeric-range';
 import { getPortablePathBasename } from './portable-path';
 import type { ExportFormat } from './shared-text';
 
-export type ExportPlatform =
-    | 'antigravity'
-    | 'claude'
-    | 'cline'
-    | 'command-code'
-    | 'codex'
-    | 'cursor'
-    | 'fx'
-    | 'grok'
-    | 'grok-bot'
-    | 'kiro'
-    | 'minimax'
-    | 'opencode'
-    | 'qoder';
-
-const EXPORT_PLATFORM_BY_SOURCE: Record<ConversationSource, ExportPlatform> = {
-    antigravity: 'antigravity',
-    'claude-code': 'claude',
-    cline: 'cline',
-    codex: 'codex',
-    'command-code': 'command-code',
-    cursor: 'cursor',
-    fx: 'fx',
-    grok: 'grok',
-    'grok-bot': 'grok-bot',
-    kiro: 'kiro',
-    'minimax-code': 'minimax',
-    opencode: 'opencode',
-    qoder: 'qoder',
-};
+export type ExportPlatform = (typeof SOURCE_CATALOG)[ConversationSource]['exportPlatform'];
 
 type BatchExportNameEntry = {
     cwd: string | null;
@@ -53,10 +25,38 @@ export const sanitizeExportFileName = (value: string) => {
     return /^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/iu.test(sanitized) ? `_${sanitized}` : sanitized;
 };
 
-export const buildRawConversationExportFileName = (source: ConversationSource, id: string) =>
-    `${sanitizeExportFileName(`${source}-${id}`) || 'conversation'}.json`;
+export const buildRawConversationExportFileName = (
+    source: ConversationSource,
+    id: string,
+    originalFileName: string,
+) => {
+    const original = sanitizeExportFileName(getPortablePathBasename(originalFileName));
+    return original || `${sanitizeExportFileName(`${source}-${id}`) || 'conversation'}.bin`;
+};
 
-export const getExportPlatformName = (source: ConversationSource): ExportPlatform => EXPORT_PLATFORM_BY_SOURCE[source];
+const splitExportFileName = (fileName: string) => {
+    const dot = fileName.lastIndexOf('.');
+    return dot > 0
+        ? { base: fileName.slice(0, dot), extension: fileName.slice(dot) }
+        : { base: fileName, extension: '' };
+};
+
+export const resolveUniqueRawExportFileName = (fileName: string, usedCounts: Map<string, number>) => {
+    const key = (value: string) => value.normalize('NFC').toLowerCase();
+    const { base, extension } = splitExportFileName(fileName);
+    let count = (usedCounts.get(key(fileName)) ?? 0) + 1;
+    let candidate = count === 1 ? fileName : `${base}-${count}${extension}`;
+    while (usedCounts.has(key(candidate))) {
+        count += 1;
+        candidate = `${base}-${count}${extension}`;
+    }
+    usedCounts.set(key(fileName), count);
+    usedCounts.set(key(candidate), Math.max(usedCounts.get(key(candidate)) ?? 0, 1));
+    return candidate;
+};
+
+export const getExportPlatformName = (source: ConversationSource): ExportPlatform =>
+    SOURCE_CATALOG[source].exportPlatform;
 
 const truncateExportName = (value: string, maxBytes: number): string => {
     const encoder = new TextEncoder();

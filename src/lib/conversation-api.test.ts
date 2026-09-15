@@ -737,9 +737,26 @@ describe('conversation API handler', () => {
         });
 
         expect(response.status).toBe(200);
-        expect(response.headers.get('Content-Disposition')).toBe("attachment; filename*=UTF-8''codex-thread-1.json");
+        expect(response.headers.get('Content-Disposition')).toBe("attachment; filename*=UTF-8''messages.jsonl");
         expect(response.headers.get('Content-Type')).toBe('application/x-ndjson');
         await expect(response.text()).resolves.toBe(original);
+    });
+
+    it('should preserve binary raw bytes and the native blob extension over HTTP', async () => {
+        const original = new Uint8Array([0, 255, 192, 65, 13, 10]);
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/grok-bot/chat-1/raw'),
+            {
+                getConversationRaw: async () => ({
+                    blob: new Blob([original]),
+                    fileName: '../replica.blob',
+                    mimeType: 'application/json',
+                }),
+            },
+        );
+        expect(response.status).toBe(200);
+        expect(response.headers.get('Content-Disposition')).toBe("attachment; filename*=UTF-8''replica.blob");
+        expect(new Uint8Array(await response.arrayBuffer())).toEqual(original);
     });
 
     it('should expose raw transcript headers without sending a body to HEAD probes', async () => {
@@ -755,7 +772,7 @@ describe('conversation API handler', () => {
         );
 
         expect(response.status).toBe(200);
-        expect(response.headers.get('Content-Disposition')).toBe("attachment; filename*=UTF-8''codex-thread-1.json");
+        expect(response.headers.get('Content-Disposition')).toBe("attachment; filename*=UTF-8''thread%201.jsonl");
         await expect(response.text()).resolves.toBe('');
     });
 

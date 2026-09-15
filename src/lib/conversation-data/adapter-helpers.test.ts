@@ -29,8 +29,8 @@ describe('conversation adapter helpers', () => {
     it('should encode conversation ids in portable and UI deep links', () => {
         const id = 'session/with spaces?#';
 
-        expect(createConversationUiPath('grok-sessions', id)).toBe('/grok-sessions/session%2Fwith%20spaces%3F%23');
-        expect(createDeepLinks('grok', id, createConversationUiPath('grok-sessions', id))).toEqual({
+        expect(createConversationUiPath('grok', id)).toBe('/grok-sessions/session%2Fwith%20spaces%3F%23');
+        expect(createDeepLinks('grok', id, createConversationUiPath('grok', id))).toEqual({
             native: null,
             spiracha: 'spiracha://conversation/grok/session%2Fwith%20spaces%3F%23',
             ui: '/grok-sessions/session%2Fwith%20spaces%3F%23',

@@ -18,10 +18,16 @@ afterEach(() => {
 });
 
 describe('ExportDialog', () => {
-    it('should download raw source JSON directly from the stable API', async () => {
+    it('should download raw source bytes with the adapter filename', async () => {
         const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
         HTMLElement.prototype.scrollIntoView = vi.fn();
-        const downloadUrlFile = vi.spyOn(download, 'downloadUrlFileWithCancellation').mockResolvedValue(undefined);
+        const downloadRaw = vi.spyOn(download, 'downloadRawBase64File').mockImplementation(() => undefined);
+        exportRawConversationsFnMock.mockResolvedValue({
+            contentBase64: 'AP/AQQ0K',
+            fileName: 'messages.jsonl',
+            mimeType: 'application/json',
+            mode: 'download_base64',
+        });
 
         try {
             render(
@@ -37,16 +43,16 @@ describe('ExportDialog', () => {
             fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
 
             await waitFor(() =>
-                expect(downloadUrlFile).toHaveBeenCalledWith(
-                    expect.any(Object),
-                    'codex-thread-1.json',
-                    '/api/v1/conversations/codex/thread-1/raw',
-                    { onStateChange: expect.any(Function) },
-                ),
+                expect(downloadRaw).toHaveBeenCalledWith('messages.jsonl', 'AP/AQQ0K', 'application/json', {
+                    onStateChange: expect.any(Function),
+                }),
             );
+            expect(exportRawConversationsFnMock).toHaveBeenCalledWith({
+                data: { ids: ['thread-1'], source: 'codex' },
+            });
         } finally {
             HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
-            downloadUrlFile.mockRestore();
+            downloadRaw.mockRestore();
         }
     });
 
@@ -70,10 +76,16 @@ describe('ExportDialog', () => {
         }
     });
 
-    it('should offer and download raw Grok Bot transcript JSON', async () => {
+    it('should offer and download original Grok Bot blob bytes', async () => {
         const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
         HTMLElement.prototype.scrollIntoView = vi.fn();
-        const downloadUrlFile = vi.spyOn(download, 'downloadUrlFileWithCancellation').mockResolvedValue(undefined);
+        const downloadRaw = vi.spyOn(download, 'downloadRawBase64File').mockImplementation(() => undefined);
+        exportRawConversationsFnMock.mockResolvedValue({
+            contentBase64: 'AP/AQQ0K',
+            fileName: 'replica.blob',
+            mimeType: 'application/json',
+            mode: 'download_base64',
+        });
 
         try {
             render(
@@ -89,16 +101,16 @@ describe('ExportDialog', () => {
             fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
 
             await waitFor(() =>
-                expect(downloadUrlFile).toHaveBeenCalledWith(
-                    expect.any(Object),
-                    'grok-bot-chat-1.json',
-                    '/api/v1/conversations/grok-bot/chat-1/raw',
-                    { onStateChange: expect.any(Function) },
-                ),
+                expect(downloadRaw).toHaveBeenCalledWith('replica.blob', 'AP/AQQ0K', 'application/json', {
+                    onStateChange: expect.any(Function),
+                }),
             );
+            expect(exportRawConversationsFnMock).toHaveBeenCalledWith({
+                data: { ids: ['chat-1'], source: 'grok-bot' },
+            });
         } finally {
             HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
-            downloadUrlFile.mockRestore();
+            downloadRaw.mockRestore();
         }
     });
 

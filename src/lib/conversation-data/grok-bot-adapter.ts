@@ -42,11 +42,7 @@ const buildConversation = (
 
     return {
         createdAtMs: conversation.roster.createdAtMs,
-        deepLinks: createDeepLinks(
-            'grok-bot',
-            conversation.id,
-            createConversationUiPath('grok-bot-chats', conversation.id),
-        ),
+        deepLinks: createDeepLinks('grok-bot', conversation.id, createConversationUiPath('grok-bot', conversation.id)),
         id: conversation.id,
         matches: [],
         messageCount: transcript ? allMessages.length : null,
@@ -96,10 +92,10 @@ const getGrokBotConversationRaw = async (options: GetConversationOptions) => {
 const deleteGrokBotConversationById = async (options: DeleteConversationOptions) =>
     deleteGrokBotConversation(getPersistenceDir(options), options.id);
 
-export const grokBotConversationAdapter: ConversationAdapter = {
+export const grokBotConversationAdapter = {
     deleteConversation: deleteGrokBotConversationById,
     getConversation: getGrokBotConversation,
     getConversationRaw: getGrokBotConversationRaw,
     listConversations: listGrokBotConversations,
     source: 'grok-bot',
-};
+} satisfies ConversationAdapter<'grok-bot'>;

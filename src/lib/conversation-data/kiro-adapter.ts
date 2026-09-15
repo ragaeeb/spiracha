@@ -55,11 +55,7 @@ const buildConversation = async (
 
     return {
         createdAtMs: session.createdAtMs,
-        deepLinks: createDeepLinks(
-            'kiro',
-            session.sessionId,
-            createConversationUiPath('kiro-sessions', session.sessionId),
-        ),
+        deepLinks: createDeepLinks('kiro', session.sessionId, createConversationUiPath('kiro', session.sessionId)),
         id: session.sessionId,
         matches,
         ...(model ? { model } : {}),
@@ -141,10 +137,10 @@ const deleteKiroConversation = async (options: DeleteConversationOptions) => {
     };
 };
 
-export const kiroConversationAdapter: ConversationAdapter = {
+export const kiroConversationAdapter = {
     deleteConversation: deleteKiroConversation,
     getConversation: getKiroConversation,
     getConversationRaw: getKiroConversationRaw,
     listConversations: listKiroConversations,
     source: 'kiro',
-};
+} satisfies ConversationAdapter<'kiro'>;

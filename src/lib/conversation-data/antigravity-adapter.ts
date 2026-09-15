@@ -95,7 +95,7 @@ const buildConversation = async (
         deepLinks: createDeepLinks(
             'antigravity',
             conversation.conversationId,
-            createConversationUiPath('antigravity-conversations', conversation.conversationId),
+            createConversationUiPath('antigravity', conversation.conversationId),
         ),
         id: conversation.conversationId,
         matches,
@@ -200,10 +200,10 @@ const deleteAntigravityConversationById = async (options: DeleteConversationOpti
     };
 };
 
-export const antigravityConversationAdapter: ConversationAdapter = {
+export const antigravityConversationAdapter = {
     deleteConversation: deleteAntigravityConversationById,
     getConversation: getAntigravityConversation,
     getConversationRaw: getAntigravityConversationRaw,
     listConversations: listAntigravityConversations,
     source: 'antigravity',
-};
+} satisfies ConversationAdapter<'antigravity'>;

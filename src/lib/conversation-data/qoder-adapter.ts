@@ -84,11 +84,7 @@ const buildConversation = async (
 
     return {
         createdAtMs: session.createdAtMs,
-        deepLinks: createDeepLinks(
-            'qoder',
-            session.sessionId,
-            createConversationUiPath('qoder-sessions', session.sessionId),
-        ),
+        deepLinks: createDeepLinks('qoder', session.sessionId, createConversationUiPath('qoder', session.sessionId)),
         id: session.sessionId,
         matches,
         ...(session.model ? { model: session.model } : {}),
@@ -200,9 +196,9 @@ const getQoderConversationRaw = async (options: GetConversationOptions) => {
     return filePath ? createRawConversationDownload(filePath) : null;
 };
 
-export const qoderConversationAdapter: ConversationAdapter = {
+export const qoderConversationAdapter = {
     getConversation: getQoderConversation,
     getConversationRaw: getQoderConversationRaw,
     listConversations: listQoderConversations,
     source: 'qoder',
-};
+} satisfies ConversationAdapter<'qoder'>;

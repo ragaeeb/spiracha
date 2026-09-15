@@ -1,20 +1,10 @@
+import { SOURCE_CATALOG } from '@spiracha/lib/conversation-data/source-catalog';
+import { CONVERSATION_SOURCES } from '@spiracha/lib/conversation-data/types';
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router';
-import {
-    BarChart3,
-    Bot,
-    BrainCircuit,
-    Code2,
-    FolderOpen,
-    Globe2,
-    LayoutDashboard,
-    Search,
-    Settings2,
-    Sparkles,
-    SquareTerminal,
-    Workflow,
-} from 'lucide-react';
+import { BarChart3, Globe2, LayoutDashboard, Search, Settings2 } from 'lucide-react';
 import { type FormEvent, type PropsWithChildren, useEffect, useState } from 'react';
 import { packageMetadata } from '#/lib/package-metadata';
+import { SOURCE_ICONS } from '#/lib/source-icons';
 import { cn } from '#/lib/utils';
 import { ThemeToggle } from './theme-toggle';
 import { Separator } from './ui/separator';
@@ -33,51 +23,16 @@ const nonIntegrationNavItems: readonly NavItem[] = [
 ] as const;
 
 const integrationNavItems: readonly NavItem[] = [
-    {
-        activePrefixes: ['/antigravity', '/antigravity-conversations'],
-        icon: Sparkles,
-        label: 'Antigravity',
-        to: '/antigravity',
-    },
-    {
-        activePrefixes: ['/claude-code', '/claude-code-sessions'],
-        icon: Bot,
-        label: 'Claude Code',
-        to: '/claude-code',
-    },
-    {
-        activePrefixes: ['/command-code', '/command-code-sessions'],
-        icon: Code2,
-        label: 'Command Code',
-        to: '/command-code',
-    },
-    { activePrefixes: ['/cline', '/cline-tasks'], icon: Bot, label: 'Cline', to: '/cline' },
-    { activePrefixes: ['/codex', '/threads'], icon: FolderOpen, label: 'Codex', to: '/codex' },
-    { activePrefixes: ['/cursor', '/cursor-threads'], icon: SquareTerminal, label: 'Cursor', to: '/cursor' },
-    { activePrefixes: ['/fx', '/fx-sessions'], icon: Workflow, label: 'FX', to: '/fx' },
-    { activePrefixes: ['/grok', '/grok-sessions'], icon: Bot, label: 'Grok', to: '/grok' },
-    { activePrefixes: ['/grok-bot', '/grok-bot-chats'], icon: Bot, label: 'Grok Bot', to: '/grok-bot' },
-    {
-        activePrefixes: ['/kiro', '/kiro-sessions'],
-        icon: BrainCircuit,
-        label: 'Kiro',
-        to: '/kiro',
-    },
-    {
-        activePrefixes: ['/minimax-code', '/minimax-code-sessions'],
-        icon: BrainCircuit,
-        label: 'MiniMax Code',
-        to: '/minimax-code',
-    },
-    {
-        activePrefixes: ['/opencode', '/opencode-sessions'],
-        icon: Code2,
-        label: 'OpenCode',
-        to: '/opencode',
-    },
-    { activePrefixes: ['/qoder', '/qoder-sessions'], icon: Workflow, label: 'Qoder', to: '/qoder' },
+    ...CONVERSATION_SOURCES.map((source) => SOURCE_CATALOG[source])
+        .sort((left, right) => left.navigationOrder - right.navigationOrder)
+        .map((descriptor) => ({
+            activePrefixes: [descriptor.inventoryPath, `/${descriptor.detailRouteSegment}`],
+            icon: SOURCE_ICONS[descriptor.source],
+            label: descriptor.label,
+            to: descriptor.inventoryPath,
+        })),
     { activePrefixes: ['/web', '/web-chats'], icon: Globe2, label: 'Web', to: '/web' },
-] as const;
+];
 
 const isNavItemActive = (pathname: string, item: NavItem) => {
     const prefixes = item.activePrefixes ?? [item.to];

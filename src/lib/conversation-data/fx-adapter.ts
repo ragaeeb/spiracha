@@ -42,7 +42,7 @@ const buildConversation = async (
         : [];
     return {
         createdAtMs: session.createdAtMs,
-        deepLinks: createDeepLinks('fx', session.sessionId, createConversationUiPath('fx-sessions', session.sessionId)),
+        deepLinks: createDeepLinks('fx', session.sessionId, createConversationUiPath('fx', session.sessionId)),
         id: session.sessionId,
         matches,
         ...(session.currentModelId ? { model: session.currentModelId } : {}),
@@ -110,9 +110,9 @@ const deleteFxConversation = async (options: DeleteConversationOptions) => {
     return { deletedFiles: result.deletedFiles, deletedIds: result.deletedSessionIds };
 };
 
-export const fxConversationAdapter: ConversationAdapter = {
+export const fxConversationAdapter = {
     deleteConversation: deleteFxConversation,
     getConversation: getFxConversation,
     listConversations: listFxConversations,
     source: 'fx',
-};
+} satisfies ConversationAdapter<'fx'>;

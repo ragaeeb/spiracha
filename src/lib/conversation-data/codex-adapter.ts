@@ -74,7 +74,7 @@ const buildCodexConversation = async (
         deepLinks: createDeepLinks(
             'codex',
             thread.id,
-            createConversationUiPath('threads', thread.id),
+            createConversationUiPath('codex', thread.id),
             `codex://threads/${encodeURIComponent(thread.id)}`,
         ),
         id: thread.id,
@@ -178,10 +178,10 @@ const deleteCodexConversation = async (options: DeleteConversationOptions) => {
     };
 };
 
-export const codexConversationAdapter: ConversationAdapter = {
+export const codexConversationAdapter = {
     deleteConversation: deleteCodexConversation,
     getConversation: getCodexConversation,
     getConversationRaw: getCodexConversationRaw,
     listConversations: listCodexConversations,
     source: 'codex',
-};
+} satisfies ConversationAdapter<'codex'>;

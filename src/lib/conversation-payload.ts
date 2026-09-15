@@ -14,6 +14,7 @@ import { parseMiniMaxCodePayload } from './conversation-payload-minimax-code';
 import { parseOpenCodePayload } from './conversation-payload-opencode';
 import { parseQoderPayload } from './conversation-payload-qoder';
 import type {
+    ConversationPayloadParserRegistry,
     ConvertConversationPayloadOptions,
     ConvertedConversation,
     PayloadConversationDraft,
@@ -62,7 +63,7 @@ const nativeParsers = {
     'minimax-code': parseMiniMaxCodePayload,
     opencode: parseOpenCodePayload,
     qoder: parseQoderPayload,
-};
+} satisfies ConversationPayloadParserRegistry;
 
 /**
  * Resolves parser ownership without I/O. A parser returns null for a shape it does

@@ -1,3 +1,4 @@
+import { SOURCE_CATALOG } from './source-catalog';
 import type {
     ConversationDeepLinks,
     ConversationMessage,
@@ -72,8 +73,8 @@ export const createDeepLinks = (
     ui: uiPath,
 });
 
-export const createConversationUiPath = (routeSegment: string, id: string) =>
-    `/${routeSegment}/${encodeURIComponent(id)}`;
+export const createConversationUiPath = (source: ConversationSource, id: string) =>
+    `/${SOURCE_CATALOG[source].detailRouteSegment}/${encodeURIComponent(id)}`;
 
 export const normalizeRole = (role: string | null | undefined): ConversationMessageRole => {
     if (role === 'assistant' || role === 'system' || role === 'tool' || role === 'user') {

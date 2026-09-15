@@ -37,3 +37,13 @@ export type PayloadConversationDraft = {
     messages: ConversationMessage[];
     artifacts?: ConversationPayloadArtifact[];
 };
+
+export type ConversationPayloadParser = (
+    value: unknown,
+    sourceHint?: ConversationPayloadSource,
+) => PayloadConversationDraft[] | null;
+
+export type ConversationPayloadParserRegistry = Record<
+    Exclude<ConversationPayloadSource, 'web'>,
+    ConversationPayloadParser
+>;

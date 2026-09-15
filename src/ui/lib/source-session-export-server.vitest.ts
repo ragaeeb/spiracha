@@ -184,10 +184,10 @@ describe('source session export server helpers', () => {
         });
 
         expect(single).toEqual({
-            content: firstContent,
-            fileName: 'cline-task-1.json',
+            contentBase64: Buffer.from(firstContent).toString('base64'),
+            fileName: 'messages.jsonl',
             mimeType: 'application/x-ndjson',
-            mode: 'download',
+            mode: 'download_base64',
         });
 
         bunWriteMock.mockClear();
@@ -218,8 +218,8 @@ describe('source session export server helpers', () => {
             throw new Error('expected a zip download URL');
         }
         expect(bunWriteMock.mock.calls.map(([target]) => path.basename(String(target)))).toEqual([
-            'cline-task-1.json',
-            'cline-task-2.json',
+            'messages.jsonl',
+            'messages-2.jsonl',
         ]);
         expect((await stat(resolveDownloadPath(batch.downloadUrl))).isFile()).toBe(true);
         expect(new TextDecoder().decode(bunWriteMock.mock.calls[0]?.[1] as ArrayBuffer)).toBe(firstContent);

@@ -19,6 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '#
 import {
     cancelActiveDownloads,
     type DownloadLifecycleState,
+    downloadRawBase64File,
     downloadTextFile,
     downloadUrlFileWithCancellation,
     resetActiveDownloads,
@@ -467,33 +468,19 @@ export function ExportDialog({
         setSubmitted(false);
     };
 
-    const submitFocusedRawExport = async () => {
-        const { id, source } = focusedEvidenceTarget!;
-        try {
-            await downloadUrlFileWithCancellation(
-                downloadCancellation,
-                `${source}-${id}.json`,
-                `/api/v1/conversations/${source}/${encodeURIComponent(id)}/raw`,
-                { onStateChange: setDownloadState },
-            );
-        } catch (error) {
-            setExportError(error instanceof Error ? error.message : 'Raw transcript export failed.');
-        } finally {
-            submissionInProgress.current = false;
-            setSubmitted(false);
-        }
-    };
-
     const submitBulkRawExport = async () => {
-        if (!rawExport || rawExport.ids.length === 0 || !isRawExportSource(rawExport.source)) {
-            return;
-        }
+        const target = focusedEvidenceTarget
+            ? { ids: [focusedEvidenceTarget.id], source: focusedEvidenceTarget.source }
+            : rawExport;
         try {
+            if (!target || target.ids.length === 0 || !isRawExportSource(target.source)) {
+                throw new Error('Original raw export is unavailable for this selection.');
+            }
             const download = await exportRawConversationsFn({
-                data: { ids: [...rawExport.ids], source: rawExport.source },
+                data: { ids: [...target.ids], source: target.source },
             });
-            if (download.mode === 'download') {
-                downloadTextFile(download.fileName, download.content, download.mimeType, {
+            if (download.mode === 'download_base64') {
+                downloadRawBase64File(download.fileName, download.contentBase64, download.mimeType, {
                     onStateChange: setDownloadState,
                 });
             } else {
@@ -510,12 +497,7 @@ export function ExportDialog({
     };
 
     const submitRawExport = async () => {
-        if (focusedEvidenceTarget) {
-            await submitFocusedRawExport();
-            return;
-        }
-
-        if (hasRawJsonExport) {
+        if (focusedEvidenceTarget || hasRawJsonExport) {
             await submitBulkRawExport();
             return;
         }

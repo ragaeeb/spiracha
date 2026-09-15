@@ -3,6 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { ConversationRawDownload, ConversationSource } from '@spiracha/lib/conversation-data/types';
+import type { RawInlineDownload } from '@spiracha/lib/raw-export-contract';
 import { resolveUiRuntimeConfig } from '@spiracha/lib/runtime-config';
 import type { ExportPlatform } from '@spiracha/lib/ui-export-archive';
 import {
@@ -13,6 +14,7 @@ import {
     getExportMimeType,
     getExportPlatformName,
     resolveUniqueExportFileBaseName,
+    resolveUniqueRawExportFileName,
     sanitizeExportFileName,
 } from '@spiracha/lib/ui-export-archive';
 import { buildUiExportDownloadUrl, ensureUiExportDir } from '@spiracha/lib/ui-export-files';
@@ -60,30 +62,32 @@ type RawConversationExportEntry = {
 
 type RawConversationExportOptions = {
     downloads: RawConversationExportEntry[];
+    largeExportThresholdBytes?: number;
     source: ConversationSource;
 };
 
-const rawConversationExportBaseName = (source: ConversationSource, id: string) =>
-    buildRawConversationExportFileName(source, id).slice(0, -'.json'.length);
-
-export const renderRawConversationDownloads = async ({ downloads, source }: RawConversationExportOptions) => {
+export const renderRawConversationDownloads = async ({
+    downloads,
+    largeExportThresholdBytes = resolveUiRuntimeConfig().largeExportThresholdBytes,
+    source,
+}: RawConversationExportOptions) => {
     if (downloads.length === 0) {
         throw new Error('No raw conversations selected for export');
     }
 
-    if (downloads.length === 1) {
+    if (downloads.length === 1 && downloads[0]!.download.blob.size <= largeExportThresholdBytes) {
         const entry = downloads[0]!;
         return {
-            content: await entry.download.blob.text(),
-            fileName: buildRawConversationExportFileName(source, entry.id),
+            contentBase64: Buffer.from(await entry.download.blob.arrayBuffer()).toString('base64'),
+            fileName: buildRawConversationExportFileName(source, entry.id, entry.download.fileName),
             mimeType: entry.download.mimeType,
-            mode: 'download' as const,
-        };
+            mode: 'download_base64',
+        } satisfies RawInlineDownload;
     }
 
     const archiveBaseName = buildExportArchiveBaseName(
         getExportPlatformName(source),
-        `raw-json-threads-${downloads.length}`,
+        `raw-threads-${downloads.length}`,
     );
     const exportDir = await ensureUiExportDir();
     const workspaceDir = await mkdtemp(path.join(os.tmpdir(), `${archiveBaseName}-`));
@@ -92,11 +96,11 @@ export const renderRawConversationDownloads = async ({ downloads, source }: RawC
 
     try {
         for (const entry of downloads) {
-            const fileBaseName = resolveUniqueExportFileBaseName(
-                rawConversationExportBaseName(source, entry.id),
+            const fileName = resolveUniqueRawExportFileName(
+                buildRawConversationExportFileName(source, entry.id, entry.download.fileName),
                 usedBaseNames,
             );
-            await Bun.write(path.join(workspaceDir, `${fileBaseName}.json`), await entry.download.blob.arrayBuffer());
+            await Bun.write(path.join(workspaceDir, fileName), await entry.download.blob.arrayBuffer());
         }
 
         await zipExportDirectory(workspaceDir, zipPath);

@@ -282,10 +282,12 @@ export type ResolvedConversationRef = {
  * The collector may suppress list errors in all-source mode; explicit calls retain
  * source failures. Parent/continuation semantics belong to the concrete adapter.
  */
-export type ConversationAdapter = {
+export type ConversationAdapter<S extends ConversationSource = ConversationSource> = {
     deleteConversation?: (options: DeleteConversationOptions) => Promise<DeleteConversationResult>;
     getConversation: (options: GetConversationOptions) => Promise<ConversationDetail | null>;
     getConversationRaw?: (options: GetConversationRawOptions) => Promise<ConversationRawDownload | null>;
     listConversations: (options: ListConversationsOptions) => Promise<ConversationDetail[]>;
-    source: ConversationSource;
+    source: S;
 };
+
+export type ConversationAdapterRegistry = { [S in ConversationSource]: ConversationAdapter<S> };

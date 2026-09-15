@@ -573,7 +573,7 @@ const handleRawConversation = async (
         });
     }
 
-    const fileName = buildRawConversationExportFileName(result.value.source, result.value.id);
+    const fileName = buildRawConversationExportFileName(result.value.source, result.value.id, download.fileName);
 
     return new Response(includeBody ? download.blob : null, {
         headers: {

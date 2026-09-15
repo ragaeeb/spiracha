@@ -13,9 +13,11 @@ import { minimaxCodeConversationAdapter } from './minimax-code-adapter';
 import { opencodeConversationAdapter } from './opencode-adapter';
 import { decodeConversationCursor, paginateConversations } from './pagination';
 import { qoderConversationAdapter } from './qoder-adapter';
+import { SOURCE_CATALOG, sourceFromDetailRouteSegment } from './source-catalog';
 import {
     CONVERSATION_SOURCES,
     type ConversationAdapter,
+    type ConversationAdapterRegistry,
     type ConversationPage,
     type ConversationRawDownload,
     type ConversationSource,
@@ -39,6 +41,7 @@ export { getConversationPathMatch, normalizeConversationPath } from './path-matc
 export {
     CONVERSATION_SOURCES,
     type ConversationAdapter,
+    type ConversationAdapterRegistry,
     type ConversationDataLocations,
     type ConversationDeepLinks,
     type ConversationDetail,
@@ -74,41 +77,9 @@ export {
     type ResolvedConversationRef,
 } from './types';
 
-const SOURCE_LABELS: Record<ConversationSource, string> = {
-    antigravity: 'Antigravity',
-    'claude-code': 'Claude Code',
-    cline: 'Cline',
-    codex: 'Codex',
-    'command-code': 'Command Code',
-    cursor: 'Cursor',
-    fx: 'FX',
-    grok: 'Grok',
-    'grok-bot': 'Grok Bot',
-    kiro: 'Kiro',
-    'minimax-code': 'MiniMax Code',
-    opencode: 'OpenCode',
-    qoder: 'Qoder',
-};
-
-const SOURCE_SCOPES: Record<ConversationSource, ConversationSourceScope> = {
-    antigravity: 'workspace',
-    'claude-code': 'workspace',
-    cline: 'workspace',
-    codex: 'workspace',
-    'command-code': 'workspace',
-    cursor: 'workspace',
-    fx: 'workspace',
-    grok: 'workspace',
-    'grok-bot': 'global',
-    kiro: 'workspace',
-    'minimax-code': 'workspace',
-    opencode: 'workspace',
-    qoder: 'workspace',
-};
-
 const SOURCE_INFOS: ConversationSourceInfo[] = CONVERSATION_SOURCES.map((source) => ({
-    label: SOURCE_LABELS[source],
-    scope: SOURCE_SCOPES[source],
+    label: SOURCE_CATALOG[source].label,
+    scope: SOURCE_CATALOG[source].scope,
     source,
 }));
 
@@ -116,7 +87,7 @@ export const isConversationSource = (value: unknown): value is ConversationSourc
     return typeof value === 'string' && (CONVERSATION_SOURCES as readonly string[]).includes(value);
 };
 
-const ADAPTERS: Partial<Record<ConversationSource, ConversationAdapter>> = {
+const ADAPTERS = {
     antigravity: antigravityConversationAdapter,
     'claude-code': claudeCodeConversationAdapter,
     cline: clineConversationAdapter,
@@ -130,7 +101,7 @@ const ADAPTERS: Partial<Record<ConversationSource, ConversationAdapter>> = {
     'minimax-code': minimaxCodeConversationAdapter,
     opencode: opencodeConversationAdapter,
     qoder: qoderConversationAdapter,
-};
+} satisfies ConversationAdapterRegistry;
 
 const MAX_LIMIT = 200;
 
@@ -163,12 +134,14 @@ export const getConversationListScopeError = (
     }
 
     const requestedScope = getRequestedScope(options.cwd);
-    const invalidSource = [...new Set(options.sources)].find((source) => SOURCE_SCOPES[source] !== requestedScope);
+    const invalidSource = [...new Set(options.sources)].find(
+        (source) => SOURCE_CATALOG[source].scope !== requestedScope,
+    );
     if (!invalidSource) {
         return null;
     }
 
-    return `${invalidSource} is a ${SOURCE_SCOPES[invalidSource]} source and cannot be listed with a ${requestedScope} scope.`;
+    return `${invalidSource} is a ${SOURCE_CATALOG[invalidSource].scope} source and cannot be listed with a ${requestedScope} scope.`;
 };
 
 const getEnabledSources = (options: Pick<ListConversationsOptions, 'cwd' | 'sources'>): ConversationSource[] => {
@@ -189,9 +162,7 @@ const getEnabledSources = (options: Pick<ListConversationsOptions, 'cwd' | 'sour
 
 const isAllSourcesRequest = (sources: ListConversationsOptions['sources']) => !sources || sources === 'all';
 
-const getAdapter = (source: ConversationSource): ConversationAdapter | null => {
-    return ADAPTERS[source] ?? null;
-};
+const getAdapter = (source: ConversationSource): ConversationAdapter => ADAPTERS[source];
 
 const getLimit = (limit: number | undefined) => {
     if (!limit || limit <= 0) {
@@ -232,10 +203,6 @@ const listSourceConversations = async (
     paginationCursor: string | null | undefined,
 ) => {
     const adapter = getAdapter(source);
-    if (!adapter) {
-        return [];
-    }
-
     try {
         const conversations = filterByUpdatedAt(await adapter.listConversations(options), options);
         return options.limit === undefined
@@ -280,26 +247,26 @@ export const listConversations = async (options: ListConversationsOptions): Prom
 };
 
 export const getConversation = async (options: GetConversationOptions) => {
-    return getAdapter(options.source)?.getConversation(options) ?? null;
+    return getAdapter(options.source).getConversation(options);
 };
 
 export const getConversationRaw = async (
     options: GetConversationRawOptions,
 ): Promise<ConversationRawDownload | null> => {
-    return (await getAdapter(options.source)?.getConversationRaw?.(options)) ?? null;
+    return (await getAdapter(options.source).getConversationRaw?.(options)) ?? null;
 };
 
 export const deleteConversation = async (
     options: DeleteConversationOptions,
 ): Promise<DeleteConversationResult | null> => {
-    return (await getAdapter(options.source)?.deleteConversation?.(options)) ?? null;
+    return (await getAdapter(options.source).deleteConversation?.(options)) ?? null;
 };
 
 export const deleteConversations = async (
     options: DeleteConversationsOptions,
 ): Promise<DeleteConversationsResult | null> => {
     const adapter = getAdapter(options.source);
-    if (!adapter?.deleteConversation) {
+    if (!adapter.deleteConversation) {
         return null;
     }
     const deleteAdapterConversation = adapter.deleteConversation;
@@ -336,46 +303,6 @@ export const deleteConversations = async (
     };
 };
 
-const sourceFromSessionRoute = (segment: string): ConversationSource | null => {
-    if (segment === 'claude-code-sessions') {
-        return 'claude-code';
-    }
-    if (segment === 'command-code-sessions') {
-        return 'command-code';
-    }
-    if (segment === 'cline-tasks') {
-        return 'cline';
-    }
-    if (segment === 'grok-sessions') {
-        return 'grok';
-    }
-    if (segment === 'grok-bot-chats') {
-        return 'grok-bot';
-    }
-    if (segment === 'kiro-sessions') {
-        return 'kiro';
-    }
-    if (segment === 'qoder-sessions') {
-        return 'qoder';
-    }
-    if (segment === 'cursor-threads') {
-        return 'cursor';
-    }
-    if (segment === 'fx-sessions') {
-        return 'fx';
-    }
-    if (segment === 'antigravity-conversations') {
-        return 'antigravity';
-    }
-    if (segment === 'opencode-sessions') {
-        return 'opencode';
-    }
-    if (segment === 'minimax-code-sessions') {
-        return 'minimax-code';
-    }
-    return null;
-};
-
 const decodeRefId = (value: string | undefined): string | null => {
     if (!value) {
         return null;
@@ -394,17 +321,12 @@ const refFromPathSegmentAt = (segments: string[], index: number): ResolvedConver
     const next = segments[index + 1];
     const nextNext = segments[index + 2];
 
-    if (segment === 'threads') {
-        const id = decodeRefId(next);
-        return id ? { id, source: 'codex' } : null;
-    }
-
     if (segment === 'conversations' && isConversationSource(next)) {
         const id = decodeRefId(nextNext);
         return id ? { id, source: next } : null;
     }
 
-    const source = segment ? sourceFromSessionRoute(segment) : null;
+    const source = segment ? sourceFromDetailRouteSegment(segment) : null;
     if (!source) {
         return null;
     }

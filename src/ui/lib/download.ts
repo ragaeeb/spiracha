@@ -1,3 +1,4 @@
+import { decodeRawDownloadBase64 } from '@spiracha/lib/raw-export-contract';
 import { useEffect, useRef } from 'react';
 
 type DownloadLogger = Pick<Console, 'error' | 'info' | 'warn'>;
@@ -21,7 +22,7 @@ export class DownloadAvailabilityError extends Error {
     }
 }
 
-type DownloadTextOptions = {
+type DownloadInlineOptions = {
     createObjectUrl?: (blob: Blob) => string;
     documentRef?: Document;
     logger?: DownloadLogger;
@@ -353,8 +354,30 @@ export const downloadTextFile = (
     fileName: string,
     content: string,
     mimeType: string,
+    options: DownloadInlineOptions = {},
+) => downloadBlobFile(fileName, new Blob([content], { type: mimeType }), options);
+
+export const downloadRawBase64File = (
+    fileName: string,
+    contentBase64: string,
+    mimeType: string,
+    options: DownloadInlineOptions = {},
+) => {
+    let bytes: Uint8Array<ArrayBuffer>;
+    try {
+        bytes = decodeRawDownloadBase64(contentBase64);
+    } catch (error) {
+        options.onStateChange?.('failed');
+        throw error;
+    }
+    downloadBlobFile(fileName, new Blob([bytes], { type: mimeType }), options);
+};
+
+const downloadBlobFile = (
+    fileName: string,
+    blob: Blob,
     {
-        createObjectUrl = (blob) => URL.createObjectURL(blob),
+        createObjectUrl = (object) => URL.createObjectURL(object),
         documentRef = document,
         logger = console,
         onStateChange,
@@ -363,18 +386,17 @@ export const downloadTextFile = (
         schedule = (callback, delayMs) => {
             window.setTimeout(callback, delayMs);
         },
-    }: DownloadTextOptions = {},
+    }: DownloadInlineOptions = {},
 ) => {
     logDownloadEvent(logger, 'info', 'inline_start', {
         fileName,
-        mimeType,
-        sizeBytes: content.length,
+        mimeType: blob.type,
+        sizeBytes: blob.size,
     });
 
     let objectUrl: string | undefined;
     let revocationScheduled = false;
     try {
-        const blob = new Blob([content], { type: mimeType });
         const url = createObjectUrl(blob);
         objectUrl = url;
         onStateChange?.('ready');
@@ -385,8 +407,8 @@ export const downloadTextFile = (
 
         logDownloadEvent(logger, 'info', 'inline_triggered', {
             fileName,
-            mimeType,
-            sizeBytes: content.length,
+            mimeType: blob.type,
+            sizeBytes: blob.size,
         });
     } catch (error) {
         onStateChange?.('failed');

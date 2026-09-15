@@ -33,7 +33,7 @@ const buildConversation = (
     deepLinks: createDeepLinks(
         'command-code',
         summary.sessionId,
-        createConversationUiPath('command-code-sessions', summary.sessionId),
+        createConversationUiPath('command-code', summary.sessionId),
     ),
     id: summary.sessionId,
     matches,
@@ -121,10 +121,10 @@ const deleteCommandCodeConversation = async (options: DeleteConversationOptions)
     };
 };
 
-export const commandCodeConversationAdapter: ConversationAdapter = {
+export const commandCodeConversationAdapter = {
     deleteConversation: deleteCommandCodeConversation,
     getConversation: getCommandCodeConversation,
     getConversationRaw: getCommandCodeConversationRaw,
     listConversations: listCommandCodeConversations,
     source: 'command-code',
-};
+} satisfies ConversationAdapter<'command-code'>;

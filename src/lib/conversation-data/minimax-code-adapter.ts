@@ -59,7 +59,7 @@ const buildConversation = async (
         deepLinks: createDeepLinks(
             'minimax-code',
             session.sessionId,
-            createConversationUiPath('minimax-code-sessions', session.sessionId),
+            createConversationUiPath('minimax-code', session.sessionId),
         ),
         id: session.sessionId,
         matches,
@@ -148,10 +148,10 @@ const deleteMiniMaxCodeConversation = async (options: DeleteConversationOptions)
     };
 };
 
-export const minimaxCodeConversationAdapter: ConversationAdapter = {
+export const minimaxCodeConversationAdapter = {
     deleteConversation: deleteMiniMaxCodeConversation,
     getConversation: getMiniMaxCodeConversation,
     getConversationRaw: getMiniMaxCodeConversationRaw,
     listConversations: listMiniMaxCodeConversations,
     source: 'minimax-code',
-};
+} satisfies ConversationAdapter<'minimax-code'>;

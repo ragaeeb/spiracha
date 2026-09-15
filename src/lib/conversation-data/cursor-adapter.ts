@@ -68,11 +68,7 @@ const buildConversation = async (
 
     return {
         createdAtMs: thread.createdAtMs,
-        deepLinks: createDeepLinks(
-            'cursor',
-            thread.composerId,
-            createConversationUiPath('cursor-threads', thread.composerId),
-        ),
+        deepLinks: createDeepLinks('cursor', thread.composerId, createConversationUiPath('cursor', thread.composerId)),
         id: thread.composerId,
         matches,
         ...(thread.model ? { model: thread.model } : {}),
@@ -164,9 +160,9 @@ export const toCursorDeleteConversationResult = (result: CursorPruneResult): Del
     deletedIds: result.composerIds,
 });
 
-export const cursorConversationAdapter: ConversationAdapter = {
+export const cursorConversationAdapter = {
     deleteConversation: deleteCursorConversation,
     getConversation: getCursorConversation,
     listConversations: listCursorConversations,
     source: 'cursor',
-};
+} satisfies ConversationAdapter<'cursor'>;

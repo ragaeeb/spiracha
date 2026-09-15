@@ -179,7 +179,7 @@ const buildConversation = async (
         deepLinks: createDeepLinks(
             'claude-code',
             session.sessionId,
-            createConversationUiPath('claude-code-sessions', session.sessionId),
+            createConversationUiPath('claude-code', session.sessionId),
         ),
         id: session.sessionId,
         matches,
@@ -269,10 +269,10 @@ const deleteClaudeConversation = async (options: DeleteConversationOptions) => {
     };
 };
 
-export const claudeCodeConversationAdapter: ConversationAdapter = {
+export const claudeCodeConversationAdapter = {
     deleteConversation: deleteClaudeConversation,
     getConversation: getClaudeConversation,
     getConversationRaw: getClaudeConversationRaw,
     listConversations: listClaudeConversations,
     source: 'claude-code',
-};
+} satisfies ConversationAdapter<'claude-code'>;
