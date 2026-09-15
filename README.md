@@ -81,7 +81,7 @@ Open `/web` and drop one or more JSON exports. Spiracha parses mapping-based Cha
 
 Unsupported or malformed files return per-file errors while valid files in the same import remain available. Web conversation detail pages expose the normalized transcript, metadata, transcript controls, and Parsed JSON; they do not export or delete the original source file.
 
-Each file is limited to 25 MB, with at most 20 files and 100 MB per import. Spiracha retains up to 128 MB of the most recent normalized conversations in server memory and evicts the oldest entries first; imports disappear when evicted or when the Spiracha server stops. Each detail route uses a generated opaque ID and keeps the original provider conversation ID separately when one is present. Web imports are a UI workflow and are not added to the stable data API, CLI, or stable source registry.
+Each file is limited to 25 MB, with at most 20 files and 100 MB per import. Spiracha retains normalized conversations in server memory using a 128 MiB input-byte accounting budget, not an exact JavaScript heap limit, and evicts the oldest retained entries first; imports disappear when evicted or when the Spiracha server stops. See [Web import behavior](docs/web-imports.md) for identity, limits, and fidelity. Each detail route uses a generated opaque ID and keeps the original provider conversation ID separately when one is present. Web imports are a UI workflow and are not added to the stable data API, CLI, or stable source registry.
 
 ## Stable Data API
 
