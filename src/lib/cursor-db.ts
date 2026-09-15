@@ -2423,6 +2423,14 @@ export const readCursorThreadTranscript = (
     });
 };
 
+/**
+ * Combines the database transcript with discovered agent transcript files and chat
+ * store model metadata. Agent files can supply a transcript when the database is
+ * absent; otherwise the source-specific tail merge preserves known ordering.
+ * Database headers can omit stored bubbles whose order cannot be established;
+ * omittedBubbleCount is diagnostic, not permission to guess their order. A result
+ * is normalized merged content, not a single raw source file or complete snapshot.
+ */
 export const readCursorThreadTranscriptWithAgentFiles = async (
     globalDbPath: string,
     composerId: string,
