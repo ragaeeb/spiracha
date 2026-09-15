@@ -1317,6 +1317,14 @@ const applyTranscriptPayloadPolicy = async (
     return totalFileSizeBytes > options.maxRawPayloadFileSizeBytes ? omitTranscriptRawPayloads(transcript) : transcript;
 };
 
+/**
+ * Reads a physical session or, for the recognized lineage parent, the coalesced
+ * compaction lineage. A direct child ID deliberately returns only that segment;
+ * retain list-returned parent IDs when a complete lineage is required.
+ * Optional raw-payload omission changes retained raw fields, not the selected
+ * lineage. The size threshold covers all chosen physical files; a failed stat is
+ * conservatively treated as exceeding the threshold. Missing source/session is null.
+ */
 export const readClaudeCodeSessionTranscript = async (
     projectsDir: string,
     sessionId: string,
