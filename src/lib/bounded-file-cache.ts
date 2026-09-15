@@ -92,7 +92,7 @@ export const createBoundedFileCache = <T>({ maxBytes, maxEntries }: BoundedFileC
             invalidate(filePath);
         }
 
-        const inFlightKey = `${filePath}\0${fingerprint}`;
+        const inFlightKey = `${filePath}\0${fingerprint}\0${invalidationGeneration}`;
         const pending = inFlight.get(inFlightKey);
         if (pending) {
             return pending;
