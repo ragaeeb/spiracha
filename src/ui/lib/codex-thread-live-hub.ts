@@ -62,6 +62,13 @@ const parseTranscriptChange = (data: string) => {
     return null;
 };
 
+/**
+ * Multiplexes connected worker ports onto one EventSource for the sorted unique
+ * subscribed thread set. Changing that set replaces the stream; stale source
+ * callbacks are ignored. Heartbeats renew a ten-minute client lease, and disconnect
+ * or lease expiry removes the port and its subscription. The caller owns port
+ * connection/heartbeat/disconnect messages; this is not a durable event queue.
+ */
 export const createCodexThreadLiveHub = ({
     createEventSource: openEventSource = (url) => new EventSource(url),
     createStreamUrl: buildStreamUrl = createCodexThreadLiveStreamUrl,
