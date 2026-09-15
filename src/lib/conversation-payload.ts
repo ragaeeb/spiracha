@@ -224,6 +224,16 @@ const finalizePayload = async (
     return { ...conversation, markdown };
 };
 
+/**
+ * Converts only supplied JSON-compatible data or JSON/JSONL text; performs no source
+ * storage I/O and does not retain a Web UI import. Limits input text and serialized
+ * parsed data to 25 MiB of UTF-8. Native inference requires exactly one match before
+ * Web fallback; use an explicit supported source to disambiguate a known format.
+ * Returns one result per parsed conversation. Selection filters messages, not
+ * embedded artifacts; generated fallback IDs depend on serialized input and index.
+ * @throws {ConversationPayloadError} Invalid input/JSON, unsupported source/format,
+ * ambiguous native matches, or a malformed claimed payload.
+ */
 export const convertConversationPayload = async (
     options: ConvertConversationPayloadOptions,
 ): Promise<ConvertedConversation[]> => {
