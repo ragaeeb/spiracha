@@ -68,6 +68,14 @@ export const decodeConversationCursor = (cursor: string | null | undefined): Con
     return { id: parsed[3], source: parsed[2] as ConversationSource, updatedAtMs: parsed[1] as number };
 };
 
+/**
+ * Pages a copy ordered by normalized updatedAtMs descending, then source and ID
+ * ascending. Unknown/non-finite times become zero; finite times are floored and
+ * clamped non-negative. Uses one lookahead record and an opaque versioned cursor.
+ * The cursor contains a sort boundary, not a frozen snapshot or filter identity;
+ * callers must preserve query filters and tolerate concurrent source mutations.
+ * @throws Invalid cursor or non-positive/non-safe-integer limit.
+ */
 export const paginateConversations = (
     conversations: ConversationDetail[],
     cursor: string | null | undefined,
