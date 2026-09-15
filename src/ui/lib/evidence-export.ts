@@ -25,12 +25,16 @@ export const requestEvidenceExport = async (
             method: 'POST',
         },
     );
-    let body: { data?: ConversationEvidenceExport; error?: { message?: string } };
+    let parsed: unknown;
     try {
-        body = (await response.json()) as typeof body;
+        parsed = await response.json();
     } catch {
         throw new Error(`Focused evidence request returned invalid JSON (${response.status}).`);
     }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error(`Focused evidence request returned an invalid response envelope (${response.status}).`);
+    }
+    const body = parsed as { data?: ConversationEvidenceExport; error?: { message?: string } };
     if (!response.ok) {
         throw new Error(body.error?.message || `Focused evidence request failed (${response.status}).`);
     }
