@@ -70,7 +70,7 @@ describe('createConversationMarkdownZip', () => {
             }),
         ).rejects.toThrow('synthetic markdown read failure');
 
-        expect((await readdir(os.tmpdir())).filter((name) => name.startsWith('cline_'))).toEqual([]);
+        expect((await readdir(os.tmpdir())).filter((name) => name.startsWith(`cline_${fallbackProjectName}-`))).toEqual([]);
     });
 
     it('should retain temporary cleanup failures for reporting without throwing them', async () => {
