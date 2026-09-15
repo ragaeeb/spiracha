@@ -1,393 +1,281 @@
 [
-  {
-    "id": "PATCH-01",
-    "commit": "34fca89ad277535702f6a093b6df61069ae86cf9",
-    "title": "Fail-closed coverage reports and exact thresholds",
-    "subject": "test(coverage): reject invalid reports and enforce exact thresholds",
-    "findings": [
-      "TG-001",
-      "TG-002",
-      "TG-003"
-    ],
-    "dependencies": [],
-    "files": [
-      "src/coverage-check.ts",
-      "src/coverage-check.validation.test.ts"
-    ],
-    "targeted_commands": [
-      "bun test src/coverage-check.test.ts src/coverage-check.validation.test.ts"
-    ],
-    "validation": "coverage-before.jsonl and coverage-after.jsonl show deterministic before/after behavior; the independent Node LCOV group passed 22 assertions. Actual Bun/Vitest-generated LCOV compatibility remains unexecuted.",
-    "drift_notes": "Reapply around summarizeLcovReport, parseLcovBlock and the CLI threshold comparison. Preserve upstream exclusion policy unless deliberately changed. Test the real generated LCOV before tightening grammar further."
-  },
-  {
-    "id": "PATCH-02",
-    "commit": "798d9c04389391eaec50141dce67fdc0954505ee",
-    "title": "Hostile-origin and loopback alias matrix",
-    "subject": "test(security): cover hostile origins and loopback alias boundaries",
-    "findings": [
-      "TG-006"
-    ],
-    "dependencies": [],
-    "files": [
-      "src/lib/local-request-security.matrix.test.ts"
-    ],
-    "targeted_commands": [
-      "bun test src/lib/local-request-security.test.ts src/lib/local-request-security.matrix.test.ts"
-    ],
-    "validation": "The independent Node origin group passed 29 assertions. The new Bun suite itself was not run.",
-    "drift_notes": "Keep the current same-user loopback policy. Port the matrix to current helper names and preserve allowed default-port normalization. Do not introduce CORS wildcard exceptions."
-  },
-  {
-    "id": "PATCH-03",
-    "commit": "f731cdf06970bae1928a7a00a2d597c81d15e199",
-    "title": "Real private-directory filesystem tests",
-    "subject": "test(storage): cover private directory permission and symlink contracts",
-    "findings": [
-      "TG-015"
-    ],
-    "dependencies": [],
-    "files": [
-      "src/lib/private-runtime-directory.test.ts"
-    ],
-    "targeted_commands": [
-      "bun test src/lib/private-runtime-directory.test.ts"
-    ],
-    "validation": "Independent Node filesystem checks passed 10 assertions against actual temporary directories. Bun execution and Windows ACL behavior remain unverified.",
-    "drift_notes": "Rebase assertions onto current create/assert helper signatures. Do not follow/chmod the symlink target to make the test pass. A change to ancestor trust requires the separate TG-054 design."
-  },
-  {
-    "id": "PATCH-04",
-    "commit": "212405267abb617580aa1279c6a37ab306f97e88",
-    "title": "HTTP client envelopes, error codes and download contracts",
-    "subject": "test(client): validate HTTP envelopes and archive response contracts",
-    "findings": [
-      "TG-012",
-      "TG-013",
-      "TG-031",
-      "TG-032"
-    ],
-    "dependencies": [],
-    "files": [
-      "src/client.http-boundaries.test.ts",
-      "src/client.ts"
-    ],
-    "targeted_commands": [
-      "bun test src/client.test.ts src/client.http-boundaries.test.ts"
-    ],
-    "validation": "Source syntax was checked, but client tests could not execute without Bun/SQLite/fflate and installed dependencies. Do not interpret this as a passing HTTP integration run.",
-    "drift_notes": "Locate readJsonEnvelope, requireData and fetchZipOrNull. Preserve typed conversation_not_found/unsupported domain behavior and deployment prefixes. MIME strictness is intentional; nested DTO validation remains TG-052."
-  },
-  {
-    "id": "PATCH-05",
-    "commit": "c115a87e7e7c6baa56af63619a5fad04a1a3fad7",
-    "title": "API boundaries and fail-closed batch semantics",
-    "subject": "test(api): cover method matrices and fail-closed batch contracts",
-    "findings": [
-      "TG-007",
-      "TG-008",
-      "TG-009",
-      "TG-014",
-      "TG-030"
-    ],
-    "dependencies": [],
-    "files": [
-      "src/lib/conversation-api.boundaries.test.ts"
-    ],
-    "targeted_commands": [
-      "bun test src/lib/conversation-api.test.ts src/lib/conversation-api.boundaries.test.ts"
-    ],
-    "validation": "Parse checks passed. Bun/API tests were not executed. The original payload chunked-size tests already exist and remain unchanged.",
-    "drift_notes": "Keep current dependency injection and API error codes. Update route tables for upstream added routes instead of deleting failing entries. Avoid claiming logs are redacted merely because response bodies are generic."
-  },
-  {
-    "id": "PATCH-06",
-    "commit": "6a2632c994d307a189197369a97c2514ab94e2b3",
-    "title": "Cache invalidation generation and boundary regressions",
-    "subject": "test(cache): prevent stale in-flight reuse after invalidation",
-    "findings": [
-      "TG-004",
-      "TG-034"
-    ],
-    "dependencies": [],
-    "files": [
-      "src/lib/bounded-file-cache.boundaries.test.ts",
-      "src/lib/bounded-file-cache.ts"
-    ],
-    "targeted_commands": [
-      "bun test src/lib/bounded-file-cache.test.ts src/lib/bounded-file-cache.boundaries.test.ts"
-    ],
-    "validation": "cache-before.jsonl reproduces stale reuse; cache-after.jsonl records fresh completion before old release. Independent Node cache group passed 22 assertions; limited TS semantic subset includes the production cache.",
-    "drift_notes": "Preserve upstream generation/eviction logic and change only the in-flight identity needed to separate invalidated work. Never loosen the regression to wait for the old load before making the fresh call."
-  },
-  {
-    "id": "PATCH-07",
-    "commit": "c0c1b2c84e7d2eadc0f9ef9e4face6511d814048",
-    "title": "Deterministic keyset traversal invariants",
-    "subject": "test(pagination): cover multi-page traversal and malformed key boundaries",
-    "findings": [
-      "TG-033"
-    ],
-    "dependencies": [],
-    "files": [
-      "src/lib/conversation-data/pagination.boundaries.test.ts"
-    ],
-    "targeted_commands": [
-      "bun test src/lib/conversation-data/pagination.test.ts src/lib/conversation-data/pagination.boundaries.test.ts"
-    ],
-    "validation": "The Node pagination group, including later cursor invariants, passed 379 assertions; the production module passed the limited semantic typecheck. Canonical Bun suite not run.",
-    "drift_notes": "Adapt source registration dynamically using CONVERSATION_SOURCES.length. Keep the stable comparator/removed-anchor expectations explicit if upstream changes pagination contracts."
-  },
-  {
-    "id": "PATCH-08",
-    "commit": "c8fbf25d9d50e2b9c64bfbc03c5437779829f88b",
-    "title": "Exact normalized Markdown contracts",
-    "subject": "test(markdown): add exact normalized export contract coverage",
-    "findings": [
-      "TG-019"
-    ],
-    "dependencies": [],
-    "files": [
-      "src/lib/conversation-data/markdown.test.ts"
-    ],
-    "targeted_commands": [
-      "bun test src/lib/conversation-data/markdown.test.ts src/lib/conversation-data/message-selector.test.ts"
-    ],
-    "validation": "Independent Node Markdown group passed 6 assertions and the production renderer passed the limited TS subset. Bun suite unexecuted.",
-    "drift_notes": "Map fixtures to current ConversationDetail/Message types while retaining exact output. Upstream intentional formatting changes need a documented contract update, not blanket snapshot acceptance."
-  },
-  {
-    "id": "PATCH-09",
-    "commit": "f1b61aeb3cf65e3d3c69e93a5e85885ab2e2bb2d",
-    "title": "ZIP archive content integrity and fixture cleanup isolation",
-    "subject": "test(export): verify ZIP content integrity and isolate cleanup assertions",
-    "findings": [
-      "TG-018",
-      "TG-035"
-    ],
-    "dependencies": [],
-    "files": [
-      "src/lib/conversation-zip-export.integrity.test.ts",
-      "src/lib/conversation-zip-export.test.ts"
-    ],
-    "targeted_commands": [
-      "bun test src/lib/conversation-zip-export.test.ts src/lib/conversation-zip-export.integrity.test.ts"
-    ],
-    "validation": "Syntax checks passed. Real ZIP tests require Bun and fflate and were not run here; there is no invented CRC/content result.",
-    "drift_notes": "Locate filename resolver/archive exports on drift; preserve its existing algorithm unless the new body assertions prove a bug. Keep temporary-prefix ownership local to each test, not global /tmp emptiness."
-  },
-  {
-    "id": "PATCH-10",
-    "commit": "a058ae93566b71fc4f1d768d988b26b69c7cb913",
-    "title": "Evidence export UI helper validation",
-    "subject": "test(ui): validate evidence export request and response boundaries",
-    "findings": [
-      "TG-022"
-    ],
-    "dependencies": [],
-    "files": [
-      "src/ui/lib/evidence-export.ts",
-      "src/ui/lib/evidence-export.vitest.ts"
-    ],
-    "targeted_commands": [
-      "bunx vitest run --config vitest.config.ts src/ui/lib/evidence-export.vitest.ts"
-    ],
-    "validation": "Independent Node evidence checks passed 12 assertions; limited TS subset includes the production helper. Vitest was not available.",
-    "drift_notes": "Reapply near the response.json call without weakening shared lens validation. Nested data validation remains a separate compatibility decision."
-  },
-  {
-    "id": "PATCH-11",
-    "commit": "94adca182f4a202fe7cc4c61a208e50a6e7df32e",
-    "title": "Live route ceilings, signal propagation and test isolation",
-    "subject": "test(ui): enforce live route limits origin denial and cancellation wiring",
-    "findings": [
-      "TG-023",
-      "TG-024"
-    ],
-    "dependencies": [],
-    "files": [
-      "src/ui/lib/codex-thread-events-route.vitest.ts"
-    ],
-    "targeted_commands": [
-      "bunx vitest run --config vitest.config.ts src/ui/lib/codex-thread-events-route.vitest.ts"
-    ],
-    "validation": "Syntax checked; Vitest/route execution blocked. Signal-forwarding assertions are not evidence of actual socket-resource cleanup.",
-    "drift_notes": "Extend current route test rather than creating a second competing mock graph. Preserve current dynamic import/module mocking conventions and environment restoration across cases."
-  },
-  {
-    "id": "PATCH-12",
-    "commit": "afea335bb34aabeab30fea5d0446dd67c3928e5a",
-    "title": "Import preparation extraction and partial read success",
-    "subject": "test(ui): isolate import preparation and preserve readable files in partial failures",
-    "findings": [
-      "TG-020",
-      "TG-021"
-    ],
-    "dependencies": [],
-    "files": [
-      "src/ui/lib/web-chat-import.ts",
-      "src/ui/lib/web-chat-import.vitest.ts",
-      "src/ui/lib/web-chat-limits.ts",
-      "src/ui/lib/web-chat-server.ts",
-      "src/ui/routes/web.index.tsx"
-    ],
-    "targeted_commands": [
-      "bunx vitest run --config vitest.config.ts src/ui/lib/web-chat-import.vitest.ts src/ui/lib/web-chat-server.vitest.ts"
-    ],
-    "validation": "Independent Node import group passed 10 assertions against the real helper. The eight-module typecheck includes limits, not the import helper’s transitive Bun-dependent graph. Vitest and full project typecheck remain unrun.",
-    "drift_notes": "Do not edit routeTree.gen.ts. Keep limits synchronized via the shared module and preserve user-facing size messages. Review any upstream route changes so partial errors still stay on the list page rather than silently navigating."
-  },
-  {
-    "id": "PATCH-13",
-    "commit": "424c8444518962b66ad8a3524ab6f63f8a6d64fa",
-    "title": "Loopback live URL contract tests",
-    "subject": "test(ui): cover loopback stream URL encoding and protocol boundaries",
-    "findings": [
-      "TG-036"
-    ],
-    "dependencies": [],
-    "files": [
-      "src/ui/lib/codex-thread-live-url.vitest.ts"
-    ],
-    "targeted_commands": [
-      "bunx vitest run --config vitest.config.ts src/ui/lib/codex-thread-live-url.vitest.ts"
-    ],
-    "validation": "Independent Node isolation/live-URL group passed 59 combined assertions; limited TS subset includes this production module. Vitest unexecuted.",
-    "drift_notes": "Adapt current builder parameter names while preserving exact URL semantics. Origin authorization is a separate helper and must not be bypassed to accommodate a URL test."
-  },
-  {
-    "id": "PATCH-14",
-    "commit": "3b8ed0fa89bec037f1ab07bd24a5b4de0f477d15",
-    "title": "Fixture-backed public SDK to API to storage integration",
-    "subject": "test(integration): exercise HTTP SDK against real Codex fixture storage",
-    "findings": [
-      "TG-008",
-      "TG-010",
-      "TG-011"
-    ],
-    "dependencies": [],
-    "files": [
-      "src/client.storage-integration.test.ts"
-    ],
-    "targeted_commands": [
-      "bun test src/client.storage-integration.test.ts"
-    ],
-    "validation": "Source syntax checked only. This integration requires Bun SQLite/fflate and was not executed. Assertions compare real paths rather than claiming a simulated integration passed.",
-    "drift_notes": "Preserve actual registry calls rather than replacing them with static DTO mocks. Update fixture field names on drift. Add new source coverage via TG-043 instead of overstating this Codex-only test."
-  },
-  {
-    "id": "PATCH-15",
-    "commit": "0ca65aecc1a247c5adf4634a294c8efa87d239d8",
-    "title": "Strict runtime environment for app subprocess fixtures",
-    "subject": "test(isolation): keep app smoke processes away from developer data and credentials",
-    "findings": [
-      "TG-005"
-    ],
-    "dependencies": [],
-    "files": [
-      "src/lib/isolated-runtime-test-helpers.test.ts",
-      "src/lib/isolated-runtime-test-helpers.ts",
-      "src/package-smoke.test.ts",
-      "src/package-smoke.ts"
-    ],
-    "targeted_commands": [
-      "bun test src/lib/isolated-runtime-test-helpers.test.ts src/package-smoke.test.ts",
-      "bun run test:package"
-    ],
-    "validation": "Independent Node isolation/live-URL group passed 59 combined assertions. The helper passed the limited semantic typecheck. Actual package smoke is blocked by toolchain and missing original bin/spiracha.ts.",
-    "drift_notes": "Update SOURCE_PATHS for any newly documented source overrides; keep a whitelist, not a blacklist. Upstream existing environment helpers can absorb these assertions. PATCH-16 depends on this export. The helper intentionally does not create directories."
-  },
-  {
-    "id": "PATCH-16",
-    "commit": "7f32f5ca330830ce0065612429fc0dcce8687876",
-    "title": "Isolated compiled-app browser workflow harness",
-    "subject": "test(e2e): add isolated production browser import export and safety journeys",
-    "findings": [
-      "TG-025",
-      "TG-026",
-      "TG-027",
-      "TG-028"
-    ],
-    "dependencies": [
-      "PATCH-15"
-    ],
-    "files": [
-      "testing/e2e/README.md",
-      "testing/e2e/app-server.ts",
-      "testing/e2e/codex-export.e2e.ts",
-      "testing/e2e/fixtures.ts",
-      "testing/e2e/playwright.config.ts",
-      "testing/e2e/server.ts",
-      "testing/e2e/tsconfig.json",
-      "testing/e2e/web-import.e2e.ts"
-    ],
-    "targeted_commands": [
-      "bunx tsc --noEmit --project testing/e2e/tsconfig.json",
-      "bun run build",
-      "bunx playwright test --config testing/e2e/playwright.config.ts"
-    ],
-    "validation": "Browser config/spec syntax was checked; no browser was installed or launched. @playwright/test was intentionally not added to package.json/bun.lock offline. Read testing/e2e/README.md for root dependency resolution and browser install.",
-    "drift_notes": "Requires PATCH-15 first. Keep startup fixture environment before app imports, loopback-only requests and safe teardown. On selector drift inspect actual accessible labels; never replace real storage/app with mocks or reuse an existing developer server."
-  },
-  {
-    "id": "PATCH-17",
-    "commit": "666e85119ad5686d06294bcba33dd3d06a9d8263",
-    "title": "Compiled payload in browser and module Worker",
-    "subject": "test(e2e): exercise compiled payload SDK in browsers and module workers",
-    "findings": [
-      "TG-029"
-    ],
-    "dependencies": [
-      "PATCH-15",
-      "PATCH-16"
-    ],
-    "files": [
-      "testing/e2e/README.md",
-      "testing/e2e/payload-portability.e2e.ts"
-    ],
-    "targeted_commands": [
-      "bun run build:payload",
-      "bunx playwright test --config testing/e2e/playwright.config.ts testing/e2e/payload-portability.e2e.ts"
-    ],
-    "validation": "Browser/Worker execution unrun. The independent Node group passed 73 payload assertions on source-transpiled production modules, which is useful but NOT compiled browser/package portability evidence.",
-    "drift_notes": "Requires PATCH-16, which requires PATCH-15. Keep imports pointed at dist rather than source; confirm source fixtures still cover the 12 portable sources. A real Cloudflare consumer remains TG-071."
-  },
-  {
-    "id": "PATCH-18",
-    "commit": "bdbb2ed0edfadb5f1d897f0bd81e5f410e0ec48b",
-    "title": "Cursor encode/decode legal-boundary agreement",
-    "subject": "test(pagination): make generated cursors round-trip at supported ID and timestamp boundaries",
-    "findings": [
-      "TG-016",
-      "TG-017"
-    ],
-    "dependencies": [],
-    "files": [
-      "src/lib/conversation-data/pagination.cursor-roundtrip.test.ts",
-      "src/lib/conversation-data/pagination.ts"
-    ],
-    "targeted_commands": [
-      "bun test src/lib/conversation-data/pagination.test.ts src/lib/conversation-data/pagination.cursor-roundtrip.test.ts"
-    ],
-    "validation": "pagination-before.jsonl and pagination-after.jsonl capture three before/after cases. Independent Node pagination group passed 379 combined assertions; production module included in limited TS subset. Bun tests unexecuted.",
-    "drift_notes": "Independent of PATCH-07. Align with the current API ID bound on drift rather than blindly keeping a magic number. Preserve a finite cap; review actual server/proxy URL limits and intentional ordering for corrupt timestamps."
-  },
-  {
-    "id": "PATCH-19",
-    "commit": "2a76daa258bd2380e2b391e78fd412585fb2626d",
-    "title": "Minimal generated-output ignore rules",
-    "subject": "test(tooling): exclude generated dependencies coverage and browser evidence from commits",
-    "findings": [
-      "TG-037"
-    ],
-    "dependencies": [],
-    "files": [
-      ".gitignore"
-    ],
-    "targeted_commands": [
-      "git check-ignore node_modules/example dist/example coverage/example playwright-report/index.html test-results/example .DS_Store"
-    ],
-    "validation": "Git whitespace checks passed. Selective patch application and ignore checks are captured in delivery validation evidence.",
-    "drift_notes": "If upstream already has .gitignore, merge only missing patterns instead of replacing it. This patch is optional and does not affect runtime behavior."
-  }
+    {
+        "commit": "34fca89ad277535702f6a093b6df61069ae86cf9",
+        "dependencies": [],
+        "drift_notes": "Reapply around summarizeLcovReport, parseLcovBlock and the CLI threshold comparison. Preserve upstream exclusion policy unless deliberately changed. Test the real generated LCOV before tightening grammar further.",
+        "files": ["src/coverage-check.ts", "src/coverage-check.validation.test.ts"],
+        "findings": ["TG-001", "TG-002", "TG-003"],
+        "id": "PATCH-01",
+        "subject": "test(coverage): reject invalid reports and enforce exact thresholds",
+        "targeted_commands": ["bun test src/coverage-check.test.ts src/coverage-check.validation.test.ts"],
+        "title": "Fail-closed coverage reports and exact thresholds",
+        "validation": "coverage-before.jsonl and coverage-after.jsonl show deterministic before/after behavior; the independent Node LCOV group passed 22 assertions. Actual Bun/Vitest-generated LCOV compatibility remains unexecuted."
+    },
+    {
+        "commit": "798d9c04389391eaec50141dce67fdc0954505ee",
+        "dependencies": [],
+        "drift_notes": "Keep the current same-user loopback policy. Port the matrix to current helper names and preserve allowed default-port normalization. Do not introduce CORS wildcard exceptions.",
+        "files": ["src/lib/local-request-security.matrix.test.ts"],
+        "findings": ["TG-006"],
+        "id": "PATCH-02",
+        "subject": "test(security): cover hostile origins and loopback alias boundaries",
+        "targeted_commands": [
+            "bun test src/lib/local-request-security.test.ts src/lib/local-request-security.matrix.test.ts"
+        ],
+        "title": "Hostile-origin and loopback alias matrix",
+        "validation": "The independent Node origin group passed 29 assertions. The new Bun suite itself was not run."
+    },
+    {
+        "commit": "f731cdf06970bae1928a7a00a2d597c81d15e199",
+        "dependencies": [],
+        "drift_notes": "Rebase assertions onto current create/assert helper signatures. Do not follow/chmod the symlink target to make the test pass. A change to ancestor trust requires the separate TG-054 design.",
+        "files": ["src/lib/private-runtime-directory.test.ts"],
+        "findings": ["TG-015"],
+        "id": "PATCH-03",
+        "subject": "test(storage): cover private directory permission and symlink contracts",
+        "targeted_commands": ["bun test src/lib/private-runtime-directory.test.ts"],
+        "title": "Real private-directory filesystem tests",
+        "validation": "Independent Node filesystem checks passed 10 assertions against actual temporary directories. Bun execution and Windows ACL behavior remain unverified."
+    },
+    {
+        "commit": "212405267abb617580aa1279c6a37ab306f97e88",
+        "dependencies": [],
+        "drift_notes": "Locate readJsonEnvelope, requireData and fetchZipOrNull. Preserve typed conversation_not_found/unsupported domain behavior and deployment prefixes. MIME strictness is intentional; nested DTO validation remains TG-052.",
+        "files": ["src/client.http-boundaries.test.ts", "src/client.ts"],
+        "findings": ["TG-012", "TG-013", "TG-031", "TG-032"],
+        "id": "PATCH-04",
+        "subject": "test(client): validate HTTP envelopes and archive response contracts",
+        "targeted_commands": ["bun test src/client.test.ts src/client.http-boundaries.test.ts"],
+        "title": "HTTP client envelopes, error codes and download contracts",
+        "validation": "Source syntax was checked, but client tests could not execute without Bun/SQLite/fflate and installed dependencies. Do not interpret this as a passing HTTP integration run."
+    },
+    {
+        "commit": "c115a87e7e7c6baa56af63619a5fad04a1a3fad7",
+        "dependencies": [],
+        "drift_notes": "Keep current dependency injection and API error codes. Update route tables for upstream added routes instead of deleting failing entries. Avoid claiming logs are redacted merely because response bodies are generic.",
+        "files": ["src/lib/conversation-api.boundaries.test.ts"],
+        "findings": ["TG-007", "TG-008", "TG-009", "TG-014", "TG-030"],
+        "id": "PATCH-05",
+        "subject": "test(api): cover method matrices and fail-closed batch contracts",
+        "targeted_commands": ["bun test src/lib/conversation-api.test.ts src/lib/conversation-api.boundaries.test.ts"],
+        "title": "API boundaries and fail-closed batch semantics",
+        "validation": "Parse checks passed. Bun/API tests were not executed. The original payload chunked-size tests already exist and remain unchanged."
+    },
+    {
+        "commit": "6a2632c994d307a189197369a97c2514ab94e2b3",
+        "dependencies": [],
+        "drift_notes": "Preserve upstream generation/eviction logic and change only the in-flight identity needed to separate invalidated work. Never loosen the regression to wait for the old load before making the fresh call.",
+        "files": ["src/lib/bounded-file-cache.boundaries.test.ts", "src/lib/bounded-file-cache.ts"],
+        "findings": ["TG-004", "TG-034"],
+        "id": "PATCH-06",
+        "subject": "test(cache): prevent stale in-flight reuse after invalidation",
+        "targeted_commands": [
+            "bun test src/lib/bounded-file-cache.test.ts src/lib/bounded-file-cache.boundaries.test.ts"
+        ],
+        "title": "Cache invalidation generation and boundary regressions",
+        "validation": "cache-before.jsonl reproduces stale reuse; cache-after.jsonl records fresh completion before old release. Independent Node cache group passed 22 assertions; limited TS semantic subset includes the production cache."
+    },
+    {
+        "commit": "c0c1b2c84e7d2eadc0f9ef9e4face6511d814048",
+        "dependencies": [],
+        "drift_notes": "Adapt source registration dynamically using CONVERSATION_SOURCES.length. Keep the stable comparator/removed-anchor expectations explicit if upstream changes pagination contracts.",
+        "files": ["src/lib/conversation-data/pagination.boundaries.test.ts"],
+        "findings": ["TG-033"],
+        "id": "PATCH-07",
+        "subject": "test(pagination): cover multi-page traversal and malformed key boundaries",
+        "targeted_commands": [
+            "bun test src/lib/conversation-data/pagination.test.ts src/lib/conversation-data/pagination.boundaries.test.ts"
+        ],
+        "title": "Deterministic keyset traversal invariants",
+        "validation": "The Node pagination group, including later cursor invariants, passed 379 assertions; the production module passed the limited semantic typecheck. Canonical Bun suite not run."
+    },
+    {
+        "commit": "c8fbf25d9d50e2b9c64bfbc03c5437779829f88b",
+        "dependencies": [],
+        "drift_notes": "Map fixtures to current ConversationDetail/Message types while retaining exact output. Upstream intentional formatting changes need a documented contract update, not blanket snapshot acceptance.",
+        "files": ["src/lib/conversation-data/markdown.test.ts"],
+        "findings": ["TG-019"],
+        "id": "PATCH-08",
+        "subject": "test(markdown): add exact normalized export contract coverage",
+        "targeted_commands": [
+            "bun test src/lib/conversation-data/markdown.test.ts src/lib/conversation-data/message-selector.test.ts"
+        ],
+        "title": "Exact normalized Markdown contracts",
+        "validation": "Independent Node Markdown group passed 6 assertions and the production renderer passed the limited TS subset. Bun suite unexecuted."
+    },
+    {
+        "commit": "f1b61aeb3cf65e3d3c69e93a5e85885ab2e2bb2d",
+        "dependencies": [],
+        "drift_notes": "Locate filename resolver/archive exports on drift; preserve its existing algorithm unless the new body assertions prove a bug. Keep temporary-prefix ownership local to each test, not global /tmp emptiness.",
+        "files": ["src/lib/conversation-zip-export.integrity.test.ts", "src/lib/conversation-zip-export.test.ts"],
+        "findings": ["TG-018", "TG-035"],
+        "id": "PATCH-09",
+        "subject": "test(export): verify ZIP content integrity and isolate cleanup assertions",
+        "targeted_commands": [
+            "bun test src/lib/conversation-zip-export.test.ts src/lib/conversation-zip-export.integrity.test.ts"
+        ],
+        "title": "ZIP archive content integrity and fixture cleanup isolation",
+        "validation": "Syntax checks passed. Real ZIP tests require Bun and fflate and were not run here; there is no invented CRC/content result."
+    },
+    {
+        "commit": "a058ae93566b71fc4f1d768d988b26b69c7cb913",
+        "dependencies": [],
+        "drift_notes": "Reapply near the response.json call without weakening shared lens validation. Nested data validation remains a separate compatibility decision.",
+        "files": ["src/ui/lib/evidence-export.ts", "src/ui/lib/evidence-export.vitest.ts"],
+        "findings": ["TG-022"],
+        "id": "PATCH-10",
+        "subject": "test(ui): validate evidence export request and response boundaries",
+        "targeted_commands": ["bunx vitest run --config vitest.config.ts src/ui/lib/evidence-export.vitest.ts"],
+        "title": "Evidence export UI helper validation",
+        "validation": "Independent Node evidence checks passed 12 assertions; limited TS subset includes the production helper. Vitest was not available."
+    },
+    {
+        "commit": "94adca182f4a202fe7cc4c61a208e50a6e7df32e",
+        "dependencies": [],
+        "drift_notes": "Extend current route test rather than creating a second competing mock graph. Preserve current dynamic import/module mocking conventions and environment restoration across cases.",
+        "files": ["src/ui/lib/codex-thread-events-route.vitest.ts"],
+        "findings": ["TG-023", "TG-024"],
+        "id": "PATCH-11",
+        "subject": "test(ui): enforce live route limits origin denial and cancellation wiring",
+        "targeted_commands": [
+            "bunx vitest run --config vitest.config.ts src/ui/lib/codex-thread-events-route.vitest.ts"
+        ],
+        "title": "Live route ceilings, signal propagation and test isolation",
+        "validation": "Syntax checked; Vitest/route execution blocked. Signal-forwarding assertions are not evidence of actual socket-resource cleanup."
+    },
+    {
+        "commit": "afea335bb34aabeab30fea5d0446dd67c3928e5a",
+        "dependencies": [],
+        "drift_notes": "Do not edit routeTree.gen.ts. Keep limits synchronized via the shared module and preserve user-facing size messages. Review any upstream route changes so partial errors still stay on the list page rather than silently navigating.",
+        "files": [
+            "src/ui/lib/web-chat-import.ts",
+            "src/ui/lib/web-chat-import.vitest.ts",
+            "src/ui/lib/web-chat-limits.ts",
+            "src/ui/lib/web-chat-server.ts",
+            "src/ui/routes/web.index.tsx"
+        ],
+        "findings": ["TG-020", "TG-021"],
+        "id": "PATCH-12",
+        "subject": "test(ui): isolate import preparation and preserve readable files in partial failures",
+        "targeted_commands": [
+            "bunx vitest run --config vitest.config.ts src/ui/lib/web-chat-import.vitest.ts src/ui/lib/web-chat-server.vitest.ts"
+        ],
+        "title": "Import preparation extraction and partial read success",
+        "validation": "Independent Node import group passed 10 assertions against the real helper. The eight-module typecheck includes limits, not the import helper’s transitive Bun-dependent graph. Vitest and full project typecheck remain unrun."
+    },
+    {
+        "commit": "424c8444518962b66ad8a3524ab6f63f8a6d64fa",
+        "dependencies": [],
+        "drift_notes": "Adapt current builder parameter names while preserving exact URL semantics. Origin authorization is a separate helper and must not be bypassed to accommodate a URL test.",
+        "files": ["src/ui/lib/codex-thread-live-url.vitest.ts"],
+        "findings": ["TG-036"],
+        "id": "PATCH-13",
+        "subject": "test(ui): cover loopback stream URL encoding and protocol boundaries",
+        "targeted_commands": ["bunx vitest run --config vitest.config.ts src/ui/lib/codex-thread-live-url.vitest.ts"],
+        "title": "Loopback live URL contract tests",
+        "validation": "Independent Node isolation/live-URL group passed 59 combined assertions; limited TS subset includes this production module. Vitest unexecuted."
+    },
+    {
+        "commit": "3b8ed0fa89bec037f1ab07bd24a5b4de0f477d15",
+        "dependencies": [],
+        "drift_notes": "Preserve actual registry calls rather than replacing them with static DTO mocks. Update fixture field names on drift. Add new source coverage via TG-043 instead of overstating this Codex-only test.",
+        "files": ["src/client.storage-integration.test.ts"],
+        "findings": ["TG-008", "TG-010", "TG-011"],
+        "id": "PATCH-14",
+        "subject": "test(integration): exercise HTTP SDK against real Codex fixture storage",
+        "targeted_commands": ["bun test src/client.storage-integration.test.ts"],
+        "title": "Fixture-backed public SDK to API to storage integration",
+        "validation": "Source syntax checked only. This integration requires Bun SQLite/fflate and was not executed. Assertions compare real paths rather than claiming a simulated integration passed."
+    },
+    {
+        "commit": "0ca65aecc1a247c5adf4634a294c8efa87d239d8",
+        "dependencies": [],
+        "drift_notes": "Update SOURCE_PATHS for any newly documented source overrides; keep a whitelist, not a blacklist. Upstream existing environment helpers can absorb these assertions. PATCH-16 depends on this export. The helper intentionally does not create directories.",
+        "files": [
+            "src/lib/isolated-runtime-test-helpers.test.ts",
+            "src/lib/isolated-runtime-test-helpers.ts",
+            "src/package-smoke.test.ts",
+            "src/package-smoke.ts"
+        ],
+        "findings": ["TG-005"],
+        "id": "PATCH-15",
+        "subject": "test(isolation): keep app smoke processes away from developer data and credentials",
+        "targeted_commands": [
+            "bun test src/lib/isolated-runtime-test-helpers.test.ts src/package-smoke.test.ts",
+            "bun run test:package"
+        ],
+        "title": "Strict runtime environment for app subprocess fixtures",
+        "validation": "Independent Node isolation/live-URL group passed 59 combined assertions. The helper passed the limited semantic typecheck. Actual package smoke is blocked by toolchain and missing original bin/spiracha.ts."
+    },
+    {
+        "commit": "7f32f5ca330830ce0065612429fc0dcce8687876",
+        "dependencies": ["PATCH-15"],
+        "drift_notes": "Requires PATCH-15 first. Keep startup fixture environment before app imports, loopback-only requests and safe teardown. On selector drift inspect actual accessible labels; never replace real storage/app with mocks or reuse an existing developer server.",
+        "files": [
+            "testing/e2e/README.md",
+            "testing/e2e/app-server.ts",
+            "testing/e2e/codex-export.e2e.ts",
+            "testing/e2e/fixtures.ts",
+            "testing/e2e/playwright.config.ts",
+            "testing/e2e/server.ts",
+            "testing/e2e/tsconfig.json",
+            "testing/e2e/web-import.e2e.ts"
+        ],
+        "findings": ["TG-025", "TG-026", "TG-027", "TG-028"],
+        "id": "PATCH-16",
+        "subject": "test(e2e): add isolated production browser import export and safety journeys",
+        "targeted_commands": [
+            "bunx tsc --noEmit --project testing/e2e/tsconfig.json",
+            "bun run build",
+            "bunx playwright test --config testing/e2e/playwright.config.ts"
+        ],
+        "title": "Isolated compiled-app browser workflow harness",
+        "validation": "Browser config/spec syntax was checked; no browser was installed or launched. @playwright/test was intentionally not added to package.json/bun.lock offline. Read testing/e2e/README.md for root dependency resolution and browser install."
+    },
+    {
+        "commit": "666e85119ad5686d06294bcba33dd3d06a9d8263",
+        "dependencies": ["PATCH-15", "PATCH-16"],
+        "drift_notes": "Requires PATCH-16, which requires PATCH-15. Keep imports pointed at dist rather than source; confirm source fixtures still cover the 12 portable sources. A real Cloudflare consumer remains TG-071.",
+        "files": ["testing/e2e/README.md", "testing/e2e/payload-portability.e2e.ts"],
+        "findings": ["TG-029"],
+        "id": "PATCH-17",
+        "subject": "test(e2e): exercise compiled payload SDK in browsers and module workers",
+        "targeted_commands": [
+            "bun run build:payload",
+            "bunx playwright test --config testing/e2e/playwright.config.ts testing/e2e/payload-portability.e2e.ts"
+        ],
+        "title": "Compiled payload in browser and module Worker",
+        "validation": "Browser/Worker execution unrun. The independent Node group passed 73 payload assertions on source-transpiled production modules, which is useful but NOT compiled browser/package portability evidence."
+    },
+    {
+        "commit": "bdbb2ed0edfadb5f1d897f0bd81e5f410e0ec48b",
+        "dependencies": [],
+        "drift_notes": "Independent of PATCH-07. Align with the current API ID bound on drift rather than blindly keeping a magic number. Preserve a finite cap; review actual server/proxy URL limits and intentional ordering for corrupt timestamps.",
+        "files": [
+            "src/lib/conversation-data/pagination.cursor-roundtrip.test.ts",
+            "src/lib/conversation-data/pagination.ts"
+        ],
+        "findings": ["TG-016", "TG-017"],
+        "id": "PATCH-18",
+        "subject": "test(pagination): make generated cursors round-trip at supported ID and timestamp boundaries",
+        "targeted_commands": [
+            "bun test src/lib/conversation-data/pagination.test.ts src/lib/conversation-data/pagination.cursor-roundtrip.test.ts"
+        ],
+        "title": "Cursor encode/decode legal-boundary agreement",
+        "validation": "pagination-before.jsonl and pagination-after.jsonl capture three before/after cases. Independent Node pagination group passed 379 combined assertions; production module included in limited TS subset. Bun tests unexecuted."
+    },
+    {
+        "commit": "2a76daa258bd2380e2b391e78fd412585fb2626d",
+        "dependencies": [],
+        "drift_notes": "If upstream already has .gitignore, merge only missing patterns instead of replacing it. This patch is optional and does not affect runtime behavior.",
+        "files": [".gitignore"],
+        "findings": ["TG-037"],
+        "id": "PATCH-19",
+        "subject": "test(tooling): exclude generated dependencies coverage and browser evidence from commits",
+        "targeted_commands": [
+            "git check-ignore node_modules/example dist/example coverage/example playwright-report/index.html test-results/example .DS_Store"
+        ],
+        "title": "Minimal generated-output ignore rules",
+        "validation": "Git whitespace checks passed. Selective patch application and ignore checks are captured in delivery validation evidence."
+    }
 ]

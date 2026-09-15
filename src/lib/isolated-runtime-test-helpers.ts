@@ -45,7 +45,9 @@ export const buildIsolatedRuntimeEnv = (environment: NodeJS.ProcessEnv, root: st
         XDG_DATA_HOME: path.join(root, 'data'),
     };
     for (const key of ['PATH', 'SystemRoot', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'PATHEXT']) {
-        if (environment[key] !== undefined) isolated[key] = environment[key];
+        if (environment[key] !== undefined) {
+            isolated[key] = environment[key];
+        }
     }
     for (const [key, relative] of Object.entries(SOURCE_PATHS)) {
         isolated[key] = path.join(root, relative);

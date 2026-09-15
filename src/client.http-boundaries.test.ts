@@ -68,7 +68,9 @@ describe('HTTP client response boundaries', () => {
             () => Response.json({ error: { code: 'method_not_allowed' } }, { status: 405 }),
             async (client) => {
                 await expect(client.deleteConversation(target)).rejects.toMatchObject({ status: 405 });
-                await expect(client.deleteConversations({ ids: [target.id], source: target.source })).rejects.toMatchObject({
+                await expect(
+                    client.deleteConversations({ ids: [target.id], source: target.source }),
+                ).rejects.toMatchObject({
                     status: 405,
                 });
             },
@@ -94,7 +96,8 @@ describe('HTTP client response boundaries', () => {
             () =>
                 new Response(bytes, {
                     headers: {
-                        'Content-Disposition': 'attachment; filename="fallback.json"; filename*=UTF-8\'\'%E4%BC%9A.json',
+                        'Content-Disposition':
+                            'attachment; filename="fallback.json"; filename*=UTF-8\'\'%E4%BC%9A.json',
                         'Content-Type': 'application/x-ndjson; charset=utf-8',
                     },
                 }),

@@ -21,7 +21,11 @@ const cursor = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('
 describe('pagination edge cases and traversal invariants', () => {
     it('should traverse every tied key exactly once at several page sizes without mutating input', () => {
         const entries = Array.from({ length: 97 }, (_, index) =>
-            item(`id-${String(index).padStart(3, '0')}`, 100 - (index % 7), CONVERSATION_SOURCES[index % CONVERSATION_SOURCES.length]),
+            item(
+                `id-${String(index).padStart(3, '0')}`,
+                100 - (index % 7),
+                CONVERSATION_SOURCES[index % CONVERSATION_SOURCES.length],
+            ),
         ).reverse();
         const original = entries.map(({ id }) => id);
         const expected = paginateConversations(entries, null, entries.length).data.map(
@@ -64,7 +68,11 @@ describe('pagination edge cases and traversal invariants', () => {
 
     it('should normalize absent, nonfinite and negative timestamps consistently', () => {
         const entries = [
-            item('e', Number.NaN), item('d', Number.POSITIVE_INFINITY), item('c', -1), item('b', null), item('a', 1.9),
+            item('e', Number.NaN),
+            item('d', Number.POSITIVE_INFINITY),
+            item('c', -1),
+            item('b', null),
+            item('a', 1.9),
         ];
         const page = paginateConversations(entries, null, 5);
         expect(page.data.map(({ id }) => id)).toEqual(['a', 'b', 'c', 'd', 'e']);
@@ -82,10 +90,18 @@ describe('pagination edge cases and traversal invariants', () => {
 
     it('should reject malformed cursor tuples without guessing a key', () => {
         for (const value of [
-            {}, [], [1, 42, 'codex'], [1, 42, 'codex', 'id', 'extra'],
-            [2, 42, 'codex', 'id'], [1, -1, 'codex', 'id'], [1, 1.5, 'codex', 'id'],
-            [1, Number.MAX_SAFE_INTEGER + 1, 'codex', 'id'], [1, 42, 'web', 'id'],
-            [1, 42, 'codex', ''], [1, 42, 'codex', 'a\0b'], [1, 42, 'codex', 42],
+            {},
+            [],
+            [1, 42, 'codex'],
+            [1, 42, 'codex', 'id', 'extra'],
+            [2, 42, 'codex', 'id'],
+            [1, -1, 'codex', 'id'],
+            [1, 1.5, 'codex', 'id'],
+            [1, Number.MAX_SAFE_INTEGER + 1, 'codex', 'id'],
+            [1, 42, 'web', 'id'],
+            [1, 42, 'codex', ''],
+            [1, 42, 'codex', 'a\0b'],
+            [1, 42, 'codex', 42],
         ]) {
             expect(() => decodeConversationCursor(cursor(value))).toThrow(/cursor/u);
         }

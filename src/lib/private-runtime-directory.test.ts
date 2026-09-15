@@ -26,13 +26,16 @@ describe('private runtime directories', () => {
         }
     });
 
-    it.skipIf(process.platform === 'win32')('should repair permissive modes on an existing owned directory', async () => {
-        const target = path.join(await temporaryRoot(), 'cache');
-        await mkdir(target);
-        await chmod(target, 0o777);
-        await assertPrivateRuntimeDirectorySafe(target, 'cache');
-        expect((await lstat(target)).mode & 0o777).toBe(0o700);
-    });
+    it.skipIf(process.platform === 'win32')(
+        'should repair permissive modes on an existing owned directory',
+        async () => {
+            const target = path.join(await temporaryRoot(), 'cache');
+            await mkdir(target);
+            await chmod(target, 0o777);
+            await assertPrivateRuntimeDirectorySafe(target, 'cache');
+            expect((await lstat(target)).mode & 0o777).toBe(0o700);
+        },
+    );
 
     it('should reject a regular file without replacing or modifying its contents', async () => {
         const target = path.join(await temporaryRoot(), 'not-a-directory');

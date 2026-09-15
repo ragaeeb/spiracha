@@ -21,7 +21,7 @@ describe('normalized Markdown export contract', () => {
         );
         expect(renderConversationMarkdown({ messages, title: '   ' })).toBe(
             '# Conversation\n\n## System\n\nsystem body\n\n## User\n\nuser body\n\n' +
-            '## Assistant\n\nassistant body\n\n## Tool\n\ntool body\n\n## Unknown\n\nunknown body\n',
+                '## Assistant\n\nassistant body\n\n## Tool\n\ntool body\n\n## Unknown\n\nunknown body\n',
         );
     });
 

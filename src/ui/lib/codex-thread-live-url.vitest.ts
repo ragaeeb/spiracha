@@ -24,8 +24,9 @@ describe('live stream URL construction', () => {
 
     it('should leave input IDs unchanged and retain an empty selection for route-side validation', () => {
         const ids = Object.freeze(['one', 'two']);
-        expect(new URL(createCodexThreadLiveStreamUrl(ids, 'http://localhost')).searchParams.getAll('threadId'))
-            .toEqual(['one', 'two']);
+        expect(
+            new URL(createCodexThreadLiveStreamUrl(ids, 'http://localhost')).searchParams.getAll('threadId'),
+        ).toEqual(['one', 'two']);
         expect(new URL(createCodexThreadLiveStreamUrl([], 'http://localhost')).search).toBe('');
     });
 });

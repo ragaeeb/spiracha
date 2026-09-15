@@ -12,19 +12,21 @@ describe('coverage report integrity', () => {
         },
     );
 
-    it.each([
-        ['LF:10', 'LH:NaN'],
-        ['LF:10', 'LH:Infinity'],
-        ['LF:10', 'LH:-1'],
-        ['LF:10', 'LH:1.5'],
-        ['LF:10', 'LH:11'],
-        ['LF:10'],
-        ['LH:10'],
-        ['LF:10', 'LH:10', 'LH:0'],
-        ['LF:9007199254740992', 'LH:1'],
-        ['LF:10', 'LH:10', 'FNF:1'],
-        ['LF:10', 'LH:10', 'FNF:1', 'FNH:2'],
-    ].map((counts) => [counts]))('should reject malformed or impossible LCOV counts: %j', (counts) => {
+    it.each(
+        [
+            ['LF:10', 'LH:NaN'],
+            ['LF:10', 'LH:Infinity'],
+            ['LF:10', 'LH:-1'],
+            ['LF:10', 'LH:1.5'],
+            ['LF:10', 'LH:11'],
+            ['LF:10'],
+            ['LH:10'],
+            ['LF:10', 'LH:10', 'LH:0'],
+            ['LF:9007199254740992', 'LH:1'],
+            ['LF:10', 'LH:10', 'FNF:1'],
+            ['LF:10', 'LH:10', 'FNF:1', 'FNH:2'],
+        ].map((counts) => [counts]),
+    )('should reject malformed or impossible LCOV counts: %j', (counts) => {
         expect(() => summarizeLcovReport('root', report(counts))).toThrow(/LCOV/u);
     });
 
@@ -38,9 +40,9 @@ describe('coverage report integrity', () => {
     });
 
     it('should reject reports containing only excluded files', () => {
-        expect(() =>
-            summarizeLcovReport('ui', report(['LF:10', 'LH:10'], 'src/ui/components/ui/dialog.tsx')),
-        ).toThrow(/measurable/u);
+        expect(() => summarizeLcovReport('ui', report(['LF:10', 'LH:10'], 'src/ui/components/ui/dialog.tsx'))).toThrow(
+            /measurable/u,
+        );
     });
 
     it('should apply UI exclusions to Windows paths as well as POSIX paths', () => {

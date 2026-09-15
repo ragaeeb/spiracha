@@ -24,7 +24,9 @@ describe('generated pagination cursor round trips', () => {
             const entries = [item(id, 100), item('last', 0)];
             const first = paginateConversations(entries, null, 1);
             expect(decodeConversationCursor(first.meta.nextCursor)?.id).toBe(id);
-            expect(paginateConversations(entries, first.meta.nextCursor, 1).data.map((entry) => entry.id)).toEqual(['last']);
+            expect(paginateConversations(entries, first.meta.nextCursor, 1).data.map((entry) => entry.id)).toEqual([
+                'last',
+            ]);
         },
     );
 

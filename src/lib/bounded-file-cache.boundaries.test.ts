@@ -18,7 +18,9 @@ afterEach(async () => {
 
 const deferred = <T>() => {
     let resolve!: (value: T) => void;
-    const promise = new Promise<T>((done) => { resolve = done; });
+    const promise = new Promise<T>((done) => {
+        resolve = done;
+    });
     return { promise, resolve };
 };
 
@@ -39,12 +41,14 @@ describe('bounded cache failure and invalidation boundaries', () => {
             const newRead = cache.read(file, freshLoader);
             let timeout: ReturnType<typeof setTimeout> | undefined;
             try {
-                expect(await Promise.race([
-                    newRead,
-                    new Promise<never>((_resolve, reject) => {
-                        timeout = setTimeout(() => reject(new Error('Fresh read joined the stale load')), 2000);
-                    }),
-                ])).toBe('fresh');
+                expect(
+                    await Promise.race([
+                        newRead,
+                        new Promise<never>((_resolve, reject) => {
+                            timeout = setTimeout(() => reject(new Error('Fresh read joined the stale load')), 2000);
+                        }),
+                    ]),
+                ).toBe('fresh');
             } finally {
                 clearTimeout(timeout);
                 oldResult.resolve('stale');
@@ -60,7 +64,11 @@ describe('bounded cache failure and invalidation boundaries', () => {
         const file = await makeFile();
         const cache = createBoundedFileCache<string>({ maxBytes: 1024, maxEntries: 4 });
         const failure = new Error('transient read failure');
-        await expect(cache.read(file, async () => { throw failure; })).rejects.toBe(failure);
+        await expect(
+            cache.read(file, async () => {
+                throw failure;
+            }),
+        ).rejects.toBe(failure);
         expect(await cache.read(file, async () => 'recovered')).toBe('recovered');
     });
 

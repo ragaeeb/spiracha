@@ -29,7 +29,11 @@ describe('conversation archive content integrity', () => {
         expect(names).toHaveLength(titles.length);
         expect(new Set(names.map((name) => name.normalize('NFC').toLowerCase())).size).toBe(titles.length);
         expect(names.every((name) => !name.includes('/') && !name.includes('\\') && !name.includes('..'))).toBe(true);
-        expect(Object.values(archive).map((bytes) => strFromU8(bytes)).sort()).toEqual(contents.toSorted());
+        expect(
+            Object.values(archive)
+                .map((bytes) => strFromU8(bytes))
+                .sort(),
+        ).toEqual(contents.toSorted());
     });
 
     it('should return a readable archive after removing its own temporary artifacts', async () => {
@@ -45,22 +49,28 @@ describe('conversation archive content integrity', () => {
     });
 
     it('should reject an empty export selection', async () => {
-        await expect(createConversationMarkdownZip({
-            entries: [],
-            fallbackProjectName: 'empty',
-            platform: 'codex',
-        })).rejects.toThrow('No conversations selected');
+        await expect(
+            createConversationMarkdownZip({
+                entries: [],
+                fallbackProjectName: 'empty',
+                platform: 'codex',
+            }),
+        ).rejects.toThrow('No conversations selected');
     });
 
     it('should report both cleanup failures in artifact order even when they reject differently', async () => {
         const calls: string[] = [];
-        const failures = await cleanupConversationZipArtifacts('/fixture/workspace', '/fixture/archive.zip', async (target) => {
-            calls.push(String(target));
-            if (String(target).endsWith('.zip')) {
-                return Promise.reject('archive failure');
-            }
-            throw new Error('workspace failure');
-        });
+        const failures = await cleanupConversationZipArtifacts(
+            '/fixture/workspace',
+            '/fixture/archive.zip',
+            async (target) => {
+                calls.push(String(target));
+                if (String(target).endsWith('.zip')) {
+                    return Promise.reject('archive failure');
+                }
+                throw new Error('workspace failure');
+            },
+        );
         expect(calls.toSorted()).toEqual(['/fixture/archive.zip', '/fixture/workspace']);
         expect(failures).toEqual([
             { error: 'workspace failure', path: '/fixture/workspace' },

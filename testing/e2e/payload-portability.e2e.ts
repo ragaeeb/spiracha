@@ -6,7 +6,10 @@ import { expect, test } from './fixtures';
 const payloadRoot = path.resolve('dist/payload');
 
 for (const fixture of payloadSourceFixtures) {
-    test(`should convert ${fixture.source} in a browser and Worker without Node or Bun globals`, async ({ context, page }) => {
+    test(`should convert ${fixture.source} in a browser and Worker without Node or Bun globals`, async ({
+        context,
+        page,
+    }) => {
         await context.route('**/audit-payload/**', async (route) => {
             const relative = new URL(route.request().url()).pathname.slice('/audit-payload/'.length);
             const target = path.resolve(payloadRoot, relative);
@@ -16,10 +19,12 @@ for (const fixture of payloadSourceFixtures) {
             }
             await route.fulfill({ body: await readFile(target), contentType: 'text/javascript' });
         });
-        await context.route('**/audit-payload-page', (route) => route.fulfill({
-            body: '<!doctype html><title>Portable SDK test</title>',
-            contentType: 'text/html',
-        }));
+        await context.route('**/audit-payload-page', (route) =>
+            route.fulfill({
+                body: '<!doctype html><title>Portable SDK test</title>',
+                contentType: 'text/html',
+            }),
+        );
         await page.goto('/audit-payload-page');
         const result = await page.evaluate(async (input) => {
             const moduleUrl = new URL('/audit-payload/conversation-payload.js', location.href).href;

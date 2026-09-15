@@ -2,7 +2,7 @@ import type { WebChatFileInput, WebChatImportError } from '@spiracha/lib/web-cha
 import { MAX_WEB_CHAT_FILE_BYTES, MAX_WEB_CHAT_FILES, MAX_WEB_CHAT_IMPORT_BYTES } from './web-chat-limits';
 
 type ImportFile = Pick<File, 'name' | 'size' | 'text'>;
-type ReadResult = { error: WebChatImportError; file?: never; } | { error?: never; file: WebChatFileInput; };
+type ReadResult = { error: WebChatImportError; file?: never } | { error?: never; file: WebChatFileInput };
 
 const readImportFile = async (file: ImportFile): Promise<ReadResult> => {
     if (file.size > MAX_WEB_CHAT_FILE_BYTES) {
@@ -26,8 +26,11 @@ export const readImportFiles = async (files: readonly ImportFile[]) => {
     const errors: WebChatImportError[] = [];
     const payload: WebChatFileInput[] = [];
     for (const result of results) {
-        if (result.error) errors.push(result.error);
-        else payload.push(result.file);
+        if (result.error) {
+            errors.push(result.error);
+        } else {
+            payload.push(result.file);
+        }
     }
     return { errors, payload };
 };

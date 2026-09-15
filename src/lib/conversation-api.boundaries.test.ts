@@ -104,7 +104,7 @@ describe('stable API contract boundaries', () => {
     });
 
     it('should return an atomic error rather than a partial ZIP when a requested conversation is missing', async () => {
-        const getConversation = mock(async ({ id }: { id: string; }) => (id === 'missing' ? null : detail(id)));
+        const getConversation = mock(async ({ id }: { id: string }) => (id === 'missing' ? null : detail(id)));
         const response = await handleConversationApiRequest(
             post('export', { ids: ['present', 'missing', 'also-present'], source: 'codex' }),
             { getConversation },
@@ -156,7 +156,11 @@ describe('stable API contract boundaries', () => {
         try {
             const response = await handleConversationApiRequest(
                 new Request('http://localhost:3000/api/v1/conversations/codex/one'),
-                { getConversation: async () => { throw new Error('secret-token=/private/account/fixture'); } },
+                {
+                    getConversation: async () => {
+                        throw new Error('secret-token=/private/account/fixture');
+                    },
+                },
             );
             expect(response.status).toBe(500);
             const body = await response.text();

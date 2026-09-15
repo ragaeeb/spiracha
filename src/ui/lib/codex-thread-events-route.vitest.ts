@@ -128,21 +128,27 @@ describe('Codex thread events route', () => {
         expect(mocks.createCodexThreadEventResponse).not.toHaveBeenCalled();
     });
 
-    it.each(['https://evil.example', 'null', 'http://localhost:4000'])('should deny origin %s before opening storage', async (origin) => {
-        const response = await handleCodexThreadEventsRequest(new Request(
-            'http://127.0.0.1:3000/api/v1/codex/threads/events?threadId=one',
-            { headers: { Origin: origin } },
-        ));
-        expect(response.status).toBe(403);
-        expect(response.headers.has('Access-Control-Allow-Origin')).toBe(false);
-        expect(mocks.resolveCodexThreadDbPath).not.toHaveBeenCalled();
-        expect(mocks.getThreadBrowseDataBatch).not.toHaveBeenCalled();
-        expect(mocks.createCodexThreadEventResponse).not.toHaveBeenCalled();
-    });
+    it.each(['https://evil.example', 'null', 'http://localhost:4000'])(
+        'should deny origin %s before opening storage',
+        async (origin) => {
+            const response = await handleCodexThreadEventsRequest(
+                new Request('http://127.0.0.1:3000/api/v1/codex/threads/events?threadId=one', {
+                    headers: { Origin: origin },
+                }),
+            );
+            expect(response.status).toBe(403);
+            expect(response.headers.has('Access-Control-Allow-Origin')).toBe(false);
+            expect(mocks.resolveCodexThreadDbPath).not.toHaveBeenCalled();
+            expect(mocks.getThreadBrowseDataBatch).not.toHaveBeenCalled();
+            expect(mocks.createCodexThreadEventResponse).not.toHaveBeenCalled();
+        },
+    );
 
     it('should reject 65 unique subscriptions before opening storage', async () => {
         const url = new URL('http://localhost:3000/api/v1/codex/threads/events');
-        for (let index = 0; index < 65; index += 1) url.searchParams.append('threadId', `thread-${index}`);
+        for (let index = 0; index < 65; index += 1) {
+            url.searchParams.append('threadId', `thread-${index}`);
+        }
         const response = await handleCodexThreadEventsRequest(new Request(url));
         expect(response.status).toBe(400);
         expect(mocks.getThreadBrowseDataBatch).not.toHaveBeenCalled();
@@ -156,10 +162,14 @@ describe('Codex thread events route', () => {
             url.searchParams.append('threadId', id);
         }
         url.searchParams.append('threadId', '   ');
-        mocks.getThreadBrowseDataBatch.mockReturnValue(ids.map((threadId) => ({
-            data: { thread: { rollout_path: `/tmp/${threadId}.jsonl` } },
-            source: 'database', status: 'found', threadId,
-        })));
+        mocks.getThreadBrowseDataBatch.mockReturnValue(
+            ids.map((threadId) => ({
+                data: { thread: { rollout_path: `/tmp/${threadId}.jsonl` } },
+                source: 'database',
+                status: 'found',
+                threadId,
+            })),
+        );
         const response = await handleCodexThreadEventsRequest(new Request(url));
         expect(response.status).toBe(200);
         expect(mocks.getThreadBrowseDataBatch).toHaveBeenCalledExactlyOnceWith('/tmp/codex.sqlite', ids);
@@ -167,10 +177,14 @@ describe('Codex thread events route', () => {
 
     it('should use the explicit database override and forward the request cancellation signal', async () => {
         vi.stubEnv('SPIRACHA_CODEX_DB', ' /tmp/isolated.sqlite ');
-        mocks.getThreadBrowseDataBatch.mockReturnValue([{
-            data: { thread: { rollout_path: '/tmp/one.jsonl' } },
-            source: 'database', status: 'found', threadId: 'one',
-        }]);
+        mocks.getThreadBrowseDataBatch.mockReturnValue([
+            {
+                data: { thread: { rollout_path: '/tmp/one.jsonl' } },
+                source: 'database',
+                status: 'found',
+                threadId: 'one',
+            },
+        ]);
         const controller = new AbortController();
         const request = new Request('http://localhost:3000/api/v1/codex/threads/events?threadId=one', {
             signal: controller.signal,
@@ -178,9 +192,11 @@ describe('Codex thread events route', () => {
         await handleCodexThreadEventsRequest(request);
         expect(mocks.resolveCodexThreadDbPath).not.toHaveBeenCalled();
         expect(mocks.getThreadBrowseDataBatch).toHaveBeenCalledWith('/tmp/isolated.sqlite', ['one']);
-        expect(mocks.createCodexThreadEventResponse).toHaveBeenCalledWith(expect.objectContaining({
-            signal: request.signal,
-        }));
+        expect(mocks.createCodexThreadEventResponse).toHaveBeenCalledWith(
+            expect.objectContaining({
+                signal: request.signal,
+            }),
+        );
         controller.abort();
         expect(request.signal.aborted).toBe(true);
     });

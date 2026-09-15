@@ -9,8 +9,9 @@ const jsonFetch = (body: unknown, status = 200) =>
 describe('focused evidence HTTP boundaries', () => {
     it('should reject an invalid lens before making a network request', async () => {
         const fetchImpl = jsonFetch({ data: {} });
-        await expect(requestEvidenceExport(target, { ...DEFAULT_EVIDENCE_LENS, anchors: [] }, fetchImpl))
-            .rejects.toThrow('lens.anchors');
+        await expect(
+            requestEvidenceExport(target, { ...DEFAULT_EVIDENCE_LENS, anchors: [] }, fetchImpl),
+        ).rejects.toThrow('lens.anchors');
         expect(fetchImpl).not.toHaveBeenCalled();
     });
 
@@ -32,29 +33,39 @@ describe('focused evidence HTTP boundaries', () => {
     });
 
     it.each([null, [], 'unexpected', 42])('should reject a malformed envelope: %j', async (body) => {
-        await expect(requestEvidenceExport(target, DEFAULT_EVIDENCE_LENS, jsonFetch(body)))
-            .rejects.toThrow('invalid response envelope (200)');
+        await expect(requestEvidenceExport(target, DEFAULT_EVIDENCE_LENS, jsonFetch(body))).rejects.toThrow(
+            'invalid response envelope (200)',
+        );
     });
 
     it('should describe a non-JSON upstream response', async () => {
-        const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response('<html>proxy error</html>', {
-            status: 502,
-        }));
-        await expect(requestEvidenceExport(target, DEFAULT_EVIDENCE_LENS, fetchImpl))
-            .rejects.toThrow('invalid JSON (502)');
+        const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+            new Response('<html>proxy error</html>', {
+                status: 502,
+            }),
+        );
+        await expect(requestEvidenceExport(target, DEFAULT_EVIDENCE_LENS, fetchImpl)).rejects.toThrow(
+            'invalid JSON (502)',
+        );
     });
 
     it('should preserve an API error message and provide a status fallback', async () => {
-        await expect(requestEvidenceExport(target, DEFAULT_EVIDENCE_LENS,
-            jsonFetch({ error: { message: 'Conversation unavailable' } }, 404)))
-            .rejects.toThrow('Conversation unavailable');
-        await expect(requestEvidenceExport(target, DEFAULT_EVIDENCE_LENS, jsonFetch({}, 503)))
-            .rejects.toThrow('Focused evidence request failed (503)');
+        await expect(
+            requestEvidenceExport(
+                target,
+                DEFAULT_EVIDENCE_LENS,
+                jsonFetch({ error: { message: 'Conversation unavailable' } }, 404),
+            ),
+        ).rejects.toThrow('Conversation unavailable');
+        await expect(requestEvidenceExport(target, DEFAULT_EVIDENCE_LENS, jsonFetch({}, 503))).rejects.toThrow(
+            'Focused evidence request failed (503)',
+        );
     });
 
     it.each([{}, { data: null }])('should reject a successful response without export data: %j', async (body) => {
-        await expect(requestEvidenceExport(target, DEFAULT_EVIDENCE_LENS, jsonFetch(body)))
-            .rejects.toThrow('did not include export data');
+        await expect(requestEvidenceExport(target, DEFAULT_EVIDENCE_LENS, jsonFetch(body))).rejects.toThrow(
+            'did not include export data',
+        );
     });
 
     it('should propagate a fetch failure without returning invented export data', async () => {
