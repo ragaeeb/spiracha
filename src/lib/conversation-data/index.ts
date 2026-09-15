@@ -452,6 +452,12 @@ const parseUrlRef = (ref: string): ResolvedConversationRef | null => {
     return refFromPathSegments(url.pathname.split('/').filter(Boolean));
 };
 
+/**
+ * Parses supported absolute UI/API/deep-link shapes into a source and ID without
+ * fetching the URL or proving that a conversation exists. Host identity is not an
+ * authorization check here. Bare IDs, relative URLs, and unsupported path shapes
+ * return null; callers must separately retrieve/validate the resolved conversation.
+ */
 export const resolveConversationRef = async (ref: string): Promise<ResolvedConversationRef | null> => {
     const trimmed = ref.trim();
     if (!trimmed) {
