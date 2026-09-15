@@ -170,6 +170,14 @@ const omissionMarkdown = (state: ReturnType<typeof createEvidenceProjectionState
     ].join('\n');
 };
 
+/**
+ * Builds lossy focused Markdown plus structured omission metadata from a normalized
+ * conversation and a validated lens. Determinism requires the same conversation,
+ * lens, renderer version, and generatedAt; omission of generatedAt uses current time.
+ * Enforces the total budget including headings and the omission ledger, removing
+ * whole sections as needed. Throws if even the remaining framing cannot fit.
+ * Approximate tokens are ceil(Markdown characters / 4), not tokenizer accounting.
+ */
 export const buildEvidenceExport = (
     conversation: ConversationDetail,
     lens: EvidenceLens,
