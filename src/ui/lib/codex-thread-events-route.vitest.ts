@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => {
     class TestCodexThreadNotFoundError extends Error {
@@ -31,8 +31,13 @@ import { handleCodexThreadEventsRequest } from '../routes/api.v1.codex.threads.e
 
 describe('Codex thread events route', () => {
     beforeEach(() => {
-        vi.clearAllMocks();
+        vi.resetAllMocks();
+        vi.stubEnv('SPIRACHA_CODEX_DB', '');
+        mocks.resolveCodexThreadDbPath.mockReturnValue('/tmp/codex.sqlite');
+        mocks.createCodexThreadEventResponse.mockImplementation(() => new Response('stream'));
     });
+
+    afterEach(() => vi.unstubAllEnvs());
 
     it('should allow the intentional localhost to 127.0.0.1 loopback stream and return CORS headers', async () => {
         const response = await handleCodexThreadEventsRequest(
@@ -121,5 +126,62 @@ describe('Codex thread events route', () => {
             ),
         ).rejects.toBe(failure);
         expect(mocks.createCodexThreadEventResponse).not.toHaveBeenCalled();
+    });
+
+    it.each(['https://evil.example', 'null', 'http://localhost:4000'])('should deny origin %s before opening storage', async (origin) => {
+        const response = await handleCodexThreadEventsRequest(new Request(
+            'http://127.0.0.1:3000/api/v1/codex/threads/events?threadId=one',
+            { headers: { Origin: origin } },
+        ));
+        expect(response.status).toBe(403);
+        expect(response.headers.has('Access-Control-Allow-Origin')).toBe(false);
+        expect(mocks.resolveCodexThreadDbPath).not.toHaveBeenCalled();
+        expect(mocks.getThreadBrowseDataBatch).not.toHaveBeenCalled();
+        expect(mocks.createCodexThreadEventResponse).not.toHaveBeenCalled();
+    });
+
+    it('should reject 65 unique subscriptions before opening storage', async () => {
+        const url = new URL('http://localhost:3000/api/v1/codex/threads/events');
+        for (let index = 0; index < 65; index += 1) url.searchParams.append('threadId', `thread-${index}`);
+        const response = await handleCodexThreadEventsRequest(new Request(url));
+        expect(response.status).toBe(400);
+        expect(mocks.getThreadBrowseDataBatch).not.toHaveBeenCalled();
+    });
+
+    it('should allow 64 unique subscriptions and deduplicate before enforcing the limit', async () => {
+        const url = new URL('http://localhost:3000/api/v1/codex/threads/events');
+        const ids = Array.from({ length: 64 }, (_, index) => `thread-${index}`);
+        for (const id of ids) {
+            url.searchParams.append('threadId', ` ${id} `);
+            url.searchParams.append('threadId', id);
+        }
+        url.searchParams.append('threadId', '   ');
+        mocks.getThreadBrowseDataBatch.mockReturnValue(ids.map((threadId) => ({
+            data: { thread: { rollout_path: `/tmp/${threadId}.jsonl` } },
+            source: 'database', status: 'found', threadId,
+        })));
+        const response = await handleCodexThreadEventsRequest(new Request(url));
+        expect(response.status).toBe(200);
+        expect(mocks.getThreadBrowseDataBatch).toHaveBeenCalledExactlyOnceWith('/tmp/codex.sqlite', ids);
+    });
+
+    it('should use the explicit database override and forward the request cancellation signal', async () => {
+        vi.stubEnv('SPIRACHA_CODEX_DB', ' /tmp/isolated.sqlite ');
+        mocks.getThreadBrowseDataBatch.mockReturnValue([{
+            data: { thread: { rollout_path: '/tmp/one.jsonl' } },
+            source: 'database', status: 'found', threadId: 'one',
+        }]);
+        const controller = new AbortController();
+        const request = new Request('http://localhost:3000/api/v1/codex/threads/events?threadId=one', {
+            signal: controller.signal,
+        });
+        await handleCodexThreadEventsRequest(request);
+        expect(mocks.resolveCodexThreadDbPath).not.toHaveBeenCalled();
+        expect(mocks.getThreadBrowseDataBatch).toHaveBeenCalledWith('/tmp/isolated.sqlite', ['one']);
+        expect(mocks.createCodexThreadEventResponse).toHaveBeenCalledWith(expect.objectContaining({
+            signal: request.signal,
+        }));
+        controller.abort();
+        expect(request.signal.aborted).toBe(true);
     });
 });
