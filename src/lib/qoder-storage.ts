@@ -173,11 +173,11 @@ const readGlobalRows = async (globalStateDb = resolveQoderGlobalStateDb()): Prom
     }
 
     try {
-        return runWithSqliteRetry({
+        return await runWithSqliteRetry({
             action: () => {
                 const db = new Database(globalStateDb, { readonly: true, strict: true });
                 try {
-                    db.exec('PRAGMA busy_timeout = 1000');
+                    db.exec('PRAGMA busy_timeout = 0');
                     return db
                         .query(
                             "select key, value from ItemTable where key like 'lingma.chat.localHistory.%.quest' or key = 'aicoding.questTaskListSnapshot' or key in ('aicoding.modelConfigs.cache.assistant', 'aicoding.modelConfigs.cache.quest')",

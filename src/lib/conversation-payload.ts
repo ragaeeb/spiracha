@@ -173,6 +173,9 @@ const validateOptions = (options: ConvertConversationPayloadOptions) => {
     if ((options.source as string) === 'claude-code') {
         throw new ConversationPayloadError('unsupported_source', 'Claude Code payload conversion is not supported.');
     }
+    if ((options.source as string) === 'command-code') {
+        throw new ConversationPayloadError('unsupported_source', 'Command Code payload conversion is not supported.');
+    }
     if (
         options.source !== undefined &&
         options.source !== 'web' &&

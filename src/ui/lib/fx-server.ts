@@ -1,23 +1,23 @@
 import { createServerFn } from '@tanstack/react-start';
-import { z } from 'zod';
+import { array, boolean, minLength, object, optional, picklist, pipe, string } from 'valibot';
 import { requireDeletedItems, runDeleteBatch } from './delete-batch';
 import { renderSourceSessionDownload, renderSourceSessionsDownload } from './source-session-export-server';
 
-const workspaceSchema = z.object({ workspaceKey: z.string().min(1) });
-const sessionSchema = z.object({ sessionId: z.string().min(1) });
+const workspaceSchema = object({ workspaceKey: pipe(string(), minLength(1)) });
+const sessionSchema = object({ sessionId: pipe(string(), minLength(1)) });
 const exportOptionsSchema = {
-    includeCommentary: z.boolean().default(true),
-    includeMetadata: z.boolean().default(true),
-    includeTools: z.boolean().default(true),
-    outputFormat: z.enum(['md', 'txt']).default('md'),
-    zipArchive: z.boolean().default(false),
+    includeCommentary: optional(boolean(), true),
+    includeMetadata: optional(boolean(), true),
+    includeTools: optional(boolean(), true),
+    outputFormat: optional(picklist(['md', 'txt']), 'md'),
+    zipArchive: optional(boolean(), false),
 };
-const exportSessionSchema = z.object({ ...exportOptionsSchema, sessionId: z.string().min(1) });
-const exportSessionsSchema = z.object({
+const exportSessionSchema = object({ ...exportOptionsSchema, sessionId: pipe(string(), minLength(1)) });
+const exportSessionsSchema = object({
     ...exportOptionsSchema,
-    sessionIds: z.array(z.string().min(1)).min(1),
+    sessionIds: pipe(array(pipe(string(), minLength(1))), minLength(1)),
 });
-const deleteSessionsSchema = z.object({ sessionIds: z.array(z.string().min(1)).min(1) });
+const deleteSessionsSchema = object({ sessionIds: pipe(array(pipe(string(), minLength(1))), minLength(1)) });
 
 export const listFxWorkspacesFn = createServerFn({ method: 'GET' }).handler(async () => {
     const { listFxWorkspaceGroups } = await import('@spiracha/lib/fx-db');

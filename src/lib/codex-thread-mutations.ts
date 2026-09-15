@@ -20,6 +20,13 @@ import {
     withSqliteTransaction,
     withWritableDb,
 } from './codex-database';
+import {
+    type CodexDeletionIntent,
+    completeCodexDeletionIntent,
+    readCodexDeletionIntents,
+    withCodexDeletionLock,
+    writeCodexDeletionIntent,
+} from './codex-deletion-journal';
 import type { SessionIndexEntry } from './codex-fallback-index';
 import {
     findSessionFileByThreadId,
@@ -201,7 +208,7 @@ const getSessionFilesForThreadIds = (dbPath: string, threadIds: string[]) => {
 };
 
 const validateSessionFileDeletionTargets = async (dbPath: string, threadIds: string[]): Promise<void> => {
-    const dbSessionFiles = withReadonlyDb(dbPath, (db) =>
+    const dbSessionFiles = await withReadonlyDb(dbPath, (db) =>
         getThreadDeleteTargets(db, threadIds).map((target) => target.rollout_path),
     );
     await assertSafeCodexRolloutPaths(dbPath, [...dbSessionFiles, ...getSessionFilesForThreadIds(dbPath, threadIds)]);
@@ -388,7 +395,7 @@ const deleteSessionIndexEntriesForThreads = async (
           ])
         : [];
     const removedThreadIds = await removeSessionIndexEntries(codexDir, threadIds);
-    const localThreadCatalogThreadIds = removeLocalThreadCatalogEntries(dbPath, threadIds);
+    const localThreadCatalogThreadIds = await removeLocalThreadCatalogEntries(dbPath, threadIds);
     const globalStateResults = await Promise.all(
         ['.codex-global-state.json', '.codex-global-state.json.bak'].map((fileName) =>
             removeCodexGlobalStateThreadReferencesFromFile(path.join(codexDir, fileName), threadIds),
@@ -426,9 +433,9 @@ const buildDeleteThreadsResult = (
         ...sessionIndexResult.globalStateThreadIds,
     ]),
 });
-export const reconcileCodexSessionIndex = (dbPath: string): CodexSessionIndexReconciliation => {
+export const reconcileCodexSessionIndex = async (dbPath: string): Promise<CodexSessionIndexReconciliation> => {
     const codexDir = resolveCodexDirFromDbPath(dbPath);
-    const existingThreadIds = withReadonlyDb(dbPath, (db) => readDbThreadIds(db));
+    const existingThreadIds = await withReadonlyDb(dbPath, (db) => readDbThreadIds(db));
     const sessionFilesByThreadId = getSessionFilesByThreadId(path.join(codexDir, 'sessions'));
     const staleEntries = readSessionIndexEntries(codexDir).filter(
         (entry) => !existingThreadIds.has(entry.id) && !sessionFilesByThreadId.has(entry.id),
@@ -440,97 +447,132 @@ export const reconcileCodexSessionIndex = (dbPath: string): CodexSessionIndexRec
     };
 };
 
-export const deleteCodexThread = async (
-    dbPath: string,
-    threadId: string,
-    options: DeleteThreadOptions = {},
-): Promise<DeleteThreadsResult> => {
-    const threadIds = [threadId];
-    if (options.deleteSessionFiles) {
+const applyDeletionIntent = async (intent: CodexDeletionIntent): Promise<DeleteThreadsResult> => {
+    const { dbPath, threadIds, rolloutPaths, deleteSessionFiles } = intent;
+    if (deleteSessionFiles) {
+        await assertSafeCodexRolloutPaths(dbPath, rolloutPaths);
         await validateSessionFileDeletionTargets(dbPath, threadIds);
     }
-    const result = withWritableDb(dbPath, (db) => {
-        return deleteThreadIds(db, dbPath, threadIds);
-    });
-
     try {
-        const sessionIndexResult = await deleteSessionIndexEntriesForThreads(
+        const result = await withWritableDb(dbPath, (db) => deleteThreadIds(db, dbPath, threadIds));
+        const cleanup = await deleteSessionIndexEntriesForThreads(
             dbPath,
             threadIds,
-            result.deletedRolloutPaths,
-            Boolean(options.deleteSessionFiles),
+            [...rolloutPaths, ...result.deletedRolloutPaths],
+            deleteSessionFiles,
         );
-
-        return buildDeleteThreadsResult(sessionIndexResult, options.deleteSessionFiles, result.deletedThreadIds);
+        return buildDeleteThreadsResult(cleanup, deleteSessionFiles, result.deletedThreadIds);
     } finally {
         await invalidateCodexUiCaches();
     }
 };
 
-export const deleteCodexThreads = async (
+const reconcileDeletionIntents = async (dbPath: string, dryRun: boolean) => {
+    const reports: Array<{
+        intentPath: string;
+        threadIds: string[];
+        status: 'pending' | 'completed' | 'failed';
+        error?: string;
+    }> = [];
+    for (const { intentPath, intent, error } of await readCodexDeletionIntents(dbPath)) {
+        if (!intent) {
+            reports.push({ error, intentPath, status: 'failed', threadIds: [] });
+            continue;
+        }
+        if (dryRun) {
+            reports.push({ intentPath, status: 'pending', threadIds: intent.threadIds });
+            continue;
+        }
+        try {
+            await applyDeletionIntent(intent);
+            await completeCodexDeletionIntent(intentPath);
+            reports.push({ intentPath, status: 'completed', threadIds: intent.threadIds });
+        } catch (error) {
+            reports.push({
+                error: error instanceof Error ? error.message : String(error),
+                intentPath,
+                status: 'failed',
+                threadIds: intent.threadIds,
+            });
+        }
+    }
+    return { dryRun, reports };
+};
+
+export const reconcileCodexDeletions = (dbPath: string, options: { dryRun?: boolean } = {}) =>
+    options.dryRun === false
+        ? withCodexDeletionLock(dbPath, () => reconcileDeletionIntents(dbPath, false))
+        : reconcileDeletionIntents(dbPath, true);
+
+export const deleteCodexThread = (dbPath: string, threadId: string, options: DeleteThreadOptions = {}) =>
+    deleteCodexThreads(dbPath, [threadId], options);
+
+const deleteThreadsWithLock = async (
     dbPath: string,
     threadIds: string[],
     options: DeleteThreadOptions = {},
 ): Promise<DeleteThreadsResult> => {
+    const recovery = await reconcileDeletionIntents(dbPath, false);
+    const failed = recovery.reports.find((report) => report.status === 'failed');
+    if (failed) {
+        throw new Error(`Codex deletion reconciliation failed (${failed.intentPath}): ${failed.error}`);
+    }
     const uniqueThreadIds = uniqueValues(threadIds);
-    if (options.deleteSessionFiles) {
+    const deleteSessionFiles = Boolean(options.deleteSessionFiles);
+    if (deleteSessionFiles) {
         await validateSessionFileDeletionTargets(dbPath, uniqueThreadIds);
     }
-    const result = withWritableDb(dbPath, (db) => {
-        return deleteThreadIds(db, dbPath, uniqueThreadIds);
-    });
-
+    const rolloutPaths = deleteSessionFiles
+        ? await withReadonlyDb(dbPath, (db) =>
+              getThreadDeleteTargets(db, uniqueThreadIds).map((target) =>
+                  resolveCodexRolloutPath(dbPath, target.rollout_path),
+              ),
+          )
+        : [];
+    if (deleteSessionFiles) {
+        rolloutPaths.push(...getSessionFilesForThreadIds(dbPath, uniqueThreadIds));
+    }
+    const intent: CodexDeletionIntent = {
+        dbPath: path.resolve(dbPath),
+        deleteSessionFiles,
+        rolloutPaths: uniqueValues(rolloutPaths),
+        threadIds: uniqueThreadIds,
+        version: 1,
+    };
+    const intentPath = await writeCodexDeletionIntent(intent);
     try {
-        const sessionIndexResult = await deleteSessionIndexEntriesForThreads(
-            dbPath,
-            uniqueThreadIds,
-            result.deletedRolloutPaths,
-            Boolean(options.deleteSessionFiles),
+        const result = await applyDeletionIntent(intent);
+        await completeCodexDeletionIntent(intentPath);
+        return result;
+    } catch (error) {
+        throw new Error(
+            `Codex deletion incomplete; pending intent ${intentPath}: ${error instanceof Error ? error.message : String(error)}`,
+            { cause: error },
         );
-
-        return buildDeleteThreadsResult(sessionIndexResult, options.deleteSessionFiles, result.deletedThreadIds);
-    } finally {
-        await invalidateCodexUiCaches();
     }
 };
+
+export const deleteCodexThreads = (dbPath: string, threadIds: string[], options: DeleteThreadOptions = {}) =>
+    withCodexDeletionLock(dbPath, () => deleteThreadsWithLock(dbPath, threadIds, options));
 
 export const deleteCodexProject = async (
     dbPath: string,
     projectName: string,
     options: DeleteProjectOptions = {},
 ): Promise<DeleteProjectResult> => {
-    const existingThreadIds = withReadonlyDb(dbPath, (db) => readDbThreadIds(db));
+    const existingThreadIds = await withReadonlyDb(dbPath, (db) => readDbThreadIds(db));
     const fallbackThreadIds = listFallbackThreadIdsForProject(dbPath, existingThreadIds, projectName);
-    const projectThreadIds = withReadonlyDb(dbPath, (db) =>
+    const projectThreadIds = await withReadonlyDb(dbPath, (db) =>
         (
             db.query(`SELECT id FROM threads WHERE ${PROJECT_CWD_FILTER}`).all(projectName) as Array<{
                 id: string;
             }>
         ).map(({ id }) => id),
     );
-    const allThreadIds = [...projectThreadIds, ...fallbackThreadIds];
-    if (options.deleteSessionFiles) {
-        await validateSessionFileDeletionTargets(dbPath, allThreadIds);
-    }
-    const result = withWritableDb(dbPath, (db) => {
-        return deleteThreadIds(db, dbPath, allThreadIds);
-    });
-
-    try {
-        const sessionIndexResult = await deleteSessionIndexEntriesForThreads(
-            dbPath,
-            [...result.deletedThreadIds, ...fallbackThreadIds],
-            result.deletedRolloutPaths,
-            Boolean(options.deleteSessionFiles),
-        );
-
-        return {
-            projectName,
-            ...buildDeleteThreadsResult(sessionIndexResult, options.deleteSessionFiles, result.deletedThreadIds),
-        };
-    } finally {
-        await invalidateCodexUiCaches();
-    }
+    return {
+        projectName,
+        ...(await deleteCodexThreads(dbPath, [...projectThreadIds, ...fallbackThreadIds], options)),
+    };
 };
 
 export const invalidateCodexUiCaches = async () => {

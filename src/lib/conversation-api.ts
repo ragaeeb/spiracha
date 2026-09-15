@@ -24,12 +24,15 @@ import { validateEvidenceLens } from './conversation-data/evidence-lens';
 import { buildEvidenceExport } from './conversation-data/evidence-markdown';
 import { renderConversationMarkdown } from './conversation-data/markdown';
 import { decodeConversationCursor } from './conversation-data/pagination';
+import { ConversationPayloadError, convertConversationPayload } from './conversation-payload';
+import type { ConvertConversationPayloadOptions } from './conversation-payload-types';
 import { createConversationMarkdownZip } from './conversation-zip-export';
 import { isAllowedLocalRequestOrigin } from './local-request-security';
 import { buildRawConversationExportFileName, getExportPlatformName } from './ui-export-archive';
 
 type ConversationApiDependencies = {
     buildEvidenceExport?: typeof buildEvidenceExport;
+    convertConversationPayload?: typeof convertConversationPayload;
     deleteConversation?: typeof deleteConversation;
     deleteConversations?: typeof deleteConversations;
     getConversation?: typeof getConversation;
@@ -56,6 +59,74 @@ const MAX_ID_LENGTH = 2048;
 const MAX_LIMIT = 200;
 const MAX_PATH_LENGTH = 4096;
 const MAX_TIMESTAMP_MS = 9_999_999_999_999;
+const MAX_CONVERSATION_PAYLOAD_REQUEST_BYTES = 64 * 1024 * 1024;
+
+class ConversationPayloadRequestTooLargeError extends Error {
+    constructor() {
+        super(`Conversation payload requests must be smaller than ${MAX_CONVERSATION_PAYLOAD_REQUEST_BYTES} bytes.`);
+        this.name = 'ConversationPayloadRequestTooLargeError';
+    }
+}
+
+const readConversationPayloadJson = async (request: Request): Promise<unknown> => {
+    const contentLength = Number(request.headers.get('content-length'));
+    if (Number.isFinite(contentLength) && contentLength > MAX_CONVERSATION_PAYLOAD_REQUEST_BYTES) {
+        throw new ConversationPayloadRequestTooLargeError();
+    }
+
+    if (!request.body) {
+        return JSON.parse(await request.text());
+    }
+
+    const reader = request.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let byteLength = 0;
+    let completed = false;
+    try {
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) {
+                completed = true;
+                break;
+            }
+            byteLength += value.byteLength;
+            if (byteLength > MAX_CONVERSATION_PAYLOAD_REQUEST_BYTES) {
+                throw new ConversationPayloadRequestTooLargeError();
+            }
+            chunks.push(value);
+        }
+    } finally {
+        if (!completed) {
+            await reader.cancel().catch(() => undefined);
+        }
+        reader.releaseLock();
+    }
+
+    const bytes = new Uint8Array(byteLength);
+    let offset = 0;
+    for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.byteLength;
+    }
+    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+};
+
+const parseConversationPayloadRequest = async (request: Request): Promise<ParseResult<unknown>> => {
+    try {
+        return { value: await readConversationPayloadJson(request) };
+    } catch (error) {
+        if (error instanceof ConversationPayloadRequestTooLargeError) {
+            return {
+                error: errorResponse('validation_error', error.message, 413, {
+                    field: 'payload',
+                    maxBytes: MAX_CONVERSATION_PAYLOAD_REQUEST_BYTES,
+                    reason: 'request_too_large',
+                }),
+            };
+        }
+        return { error: errorResponse('validation_error', 'Request body must be JSON.', 400) };
+    }
+};
 
 const jsonResponse = (body: unknown, status = 200, headers: HeadersInit = {}) =>
     Response.json(body, {
@@ -302,6 +373,7 @@ const normalizeMeta = (meta: { hasNext: boolean; nextCursor: string | null }) =>
 
 const getDeps = (dependencies: ConversationApiDependencies) => ({
     buildEvidenceExport: dependencies.buildEvidenceExport ?? buildEvidenceExport,
+    convertConversationPayload: dependencies.convertConversationPayload ?? convertConversationPayload,
     deleteConversation: dependencies.deleteConversation ?? deleteConversation,
     deleteConversations: dependencies.deleteConversations ?? deleteConversations,
     getConversation: dependencies.getConversation ?? getConversation,
@@ -1144,6 +1216,67 @@ const handleConversationQuery = async (request: Request, dependencies: ReturnTyp
     });
 };
 
+const handleConversationPayload = async (request: Request, dependencies: ReturnType<typeof getDeps>) => {
+    const parsedRequest = await parseConversationPayloadRequest(request);
+    if ('error' in parsedRequest) {
+        return parsedRequest.error;
+    }
+    const body = parsedRequest.value;
+    if (!isRecord(body)) {
+        return errorResponse('validation_error', 'Request body must be a JSON object.', 400);
+    }
+
+    const allowedFields = new Set([
+        'fileName',
+        'file_name',
+        'messageSelector',
+        'message_selector',
+        'payload',
+        'source',
+    ]);
+    const unknownField = Object.keys(body).find((field) => !allowedFields.has(field));
+    if (unknownField) {
+        return invalidFieldResponse(unknownField, body[unknownField], 'Unknown request field.');
+    }
+    if (!('payload' in body)) {
+        return invalidFieldResponse('payload', undefined, '`payload` is required.');
+    }
+
+    const source = getStringOption(body, 'source', 'source');
+    if ('error' in source) {
+        return source.error;
+    }
+    const fileName = getStringOption(body, 'fileName', 'file_name');
+    if ('error' in fileName) {
+        return fileName.error;
+    }
+    const messageSelector = getStringOption(body, 'messageSelector', 'message_selector');
+    if ('error' in messageSelector) {
+        return messageSelector.error;
+    }
+    if (messageSelector.value !== undefined && !isMessageSelector(messageSelector.value)) {
+        return invalidMessageSelectorResponse(messageSelector.value);
+    }
+
+    const options: ConvertConversationPayloadOptions = {
+        ...(fileName.value === undefined ? {} : { fileName: fileName.value }),
+        ...(messageSelector.value === undefined ? {} : { messageSelector: messageSelector.value }),
+        payload: body.payload,
+        ...(source.value === undefined ? {} : { source: source.value as ConvertConversationPayloadOptions['source'] }),
+    };
+    try {
+        return jsonResponse({ data: await dependencies.convertConversationPayload(options) });
+    } catch (error) {
+        if (error instanceof ConversationPayloadError) {
+            return errorResponse('validation_error', error.message, 400, {
+                code: error.code,
+                field: 'payload',
+            });
+        }
+        throw error;
+    }
+};
+
 type ApiRouteContext = {
     action: string | undefined;
     dependencies: ReturnType<typeof getDeps>;
@@ -1235,6 +1368,12 @@ const API_ROUTES: ApiRoute[] = [
         matches: ({ source }) => !source,
         method: 'POST',
         resource: 'conversation-query',
+    },
+    {
+        handle: ({ dependencies, request }) => handleConversationPayload(request, dependencies),
+        matches: ({ source }) => !source,
+        method: 'POST',
+        resource: 'conversation-payload',
     },
 ];
 

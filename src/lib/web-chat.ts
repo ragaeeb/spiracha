@@ -81,7 +81,15 @@ type ImportedToolEvent = {
 
 type SourceMessage = {
     message: JsonRecord;
+    sourceId?: string;
     sourceOrder: number;
+};
+
+type ClaudeArtifactCandidate = {
+    content: string;
+    id: string | null;
+    path: string;
+    title: string;
 };
 
 const isRecord = (value: unknown): value is JsonRecord =>
@@ -303,6 +311,7 @@ const PLATFORM_HINTS: ReadonlyArray<readonly [RegExp, string]> = [
     [/grok|\bxai\b/i, 'Grok'],
     [/qwen/i, 'Qwen'],
     [/\bglm\b|zhipu/i, 'GLM'],
+    [/\bmeta(?:[\W_]+ai)\b|\bmuse(?:[\W_]+spark)?\b/i, 'Meta'],
     [/chatgpt|openai|(^|[^a-z])(gpt|o[1345])(?:[-_.\d]|$)/i, 'ChatGPT'],
     [/deepseek/i, 'DeepSeek'],
     [/mistral/i, 'Mistral'],
@@ -557,6 +566,248 @@ const getQwenToolEvents = async (rawPayload: unknown): Promise<ImportedToolEvent
     return events;
 };
 
+type QwenCitationMatch = {
+    end: number;
+    numbers: number[];
+    start: number;
+};
+
+type QwenReferences = JsonRecord | unknown[];
+
+const getQwenRawMessage = (rawPayload: unknown, messageId: string): JsonRecord | null => {
+    const data = isRecord(rawPayload) && isRecord(rawPayload.data) ? rawPayload.data : null;
+    const chat = data && isRecord(data.chat) ? data.chat : null;
+    const history = chat && isRecord(chat.history) ? chat.history : null;
+    const messages = history && isRecord(history.messages) ? history.messages : null;
+    const message = messages?.[messageId];
+    return isRecord(message) && firstString(message.id) === messageId ? message : null;
+};
+
+const getQwenReportBody = (message: JsonRecord): string | null => {
+    const content = isRecord(message.content) ? message.content : null;
+    const parts = content && Array.isArray(content.parts) ? content.parts : null;
+    return parts?.length === 1 && typeof parts[0] === 'string' ? parts[0] : null;
+};
+
+const getQwenAnswerReferences = (entry: JsonRecord): QwenReferences | null => {
+    const extra = isRecord(entry.extra) ? entry.extra : null;
+    const research = extra && isRecord(extra.deep_research) ? extra.deep_research : null;
+    return research && (Array.isArray(research.references) || isRecord(research.references))
+        ? research.references
+        : null;
+};
+
+const getQwenAnswerEntry = (rawMessage: JsonRecord, body: string): JsonRecord | null => {
+    const entries = Array.isArray(rawMessage.content_list) ? rawMessage.content_list : [];
+    const candidates = entries.filter((entry): entry is JsonRecord => {
+        if (!isRecord(entry) || entry.phase !== 'answer' || entry.status !== 'finished' || entry.role !== 'assistant') {
+            return false;
+        }
+        return entry.content === body && getQwenAnswerReferences(entry) !== null;
+    });
+    return candidates.length === 1 ? candidates[0]! : null;
+};
+
+const getQwenMarkdownTitle = (rawMessage: JsonRecord): string | null => {
+    const entries = Array.isArray(rawMessage.content_list) ? rawMessage.content_list : [];
+    const names = uniqueStrings(
+        entries.flatMap((entry) => {
+            if (
+                !isRecord(entry) ||
+                entry.phase !== 'PdfMdGen' ||
+                entry.status !== 'finished' ||
+                entry.role !== 'assistant'
+            ) {
+                return [];
+            }
+            const extra = isRecord(entry.extra) ? entry.extra : null;
+            const research = extra && isRecord(extra.deep_research) ? extra.deep_research : null;
+            const markdown = research && isRecord(research.md) ? research.md : null;
+            return [firstString(markdown?.name)];
+        }),
+    );
+    if (names.length > 1) {
+        return null;
+    }
+    const name = names[0];
+    if (!name) {
+        return 'Research report.md';
+    }
+    return /\.(?:md|markdown)$/i.test(name) ? name : `${name}.md`;
+};
+
+const isSafeQwenReferenceUrl = (value: unknown): value is string => {
+    if (typeof value !== 'string' || !/^https?:\/\//i.test(value) || !URL.canParse(value)) {
+        return false;
+    }
+    return ![...value].some((character) => {
+        const codePoint = character.codePointAt(0) ?? 0;
+        return codePoint <= 0x20 || codePoint === 0x7f || '()[]<>`"\\'.includes(character);
+    });
+};
+
+const getQwenReferenceIndex = (reference: JsonRecord): number | null => {
+    const index = reference.index_number;
+    return typeof index === 'number' && Number.isSafeInteger(index) && index > 0 ? index : null;
+};
+
+const getQwenCitedUrls = (references: QwenReferences, citedNumbers: Set<number>): Map<number, string> | null => {
+    const urlsByNumber = new Map<number, Set<string>>();
+    const referenceValues = Array.isArray(references) ? references : Object.values(references);
+    for (const reference of referenceValues) {
+        if (!isRecord(reference)) {
+            continue;
+        }
+        const index = getQwenReferenceIndex(reference);
+        if (index === null || !citedNumbers.has(index)) {
+            continue;
+        }
+        if (!isSafeQwenReferenceUrl(reference.url)) {
+            return null;
+        }
+        const urls = urlsByNumber.get(index) ?? new Set<string>();
+        urls.add(reference.url);
+        urlsByNumber.set(index, urls);
+    }
+    const citedUrls = new Map<number, string>();
+    for (const number of citedNumbers) {
+        const urls = urlsByNumber.get(number);
+        if (urls?.size !== 1) {
+            return null;
+        }
+        citedUrls.set(number, urls.values().next().value!);
+    }
+    return citedUrls;
+};
+
+type QwenCodeState = {
+    fenceChar: '`' | '~' | null;
+    fenceLength: number;
+    inlineDelimiterLength: number;
+};
+
+const getQwenDelimiterRun = (body: string, index: number): number => {
+    const delimiter = body[index];
+    if (delimiter !== '`' && delimiter !== '~') {
+        return 0;
+    }
+    let runLength = 1;
+    while (body[index + runLength] === delimiter) {
+        runLength += 1;
+    }
+    return runLength;
+};
+
+const updateQwenCodeState = (body: string, index: number, runLength: number, state: QwenCodeState): QwenCodeState => {
+    const delimiter = body[index] as '`' | '~';
+    const lineStart = body.lastIndexOf('\n', index - 1) + 1;
+    const isFence = runLength >= 3 && /^[ \t]{0,3}$/u.test(body.slice(lineStart, index));
+    if (state.fenceChar) {
+        return isFence && delimiter === state.fenceChar && runLength >= state.fenceLength
+            ? { fenceChar: null, fenceLength: 0, inlineDelimiterLength: 0 }
+            : state;
+    }
+    if (isFence && state.inlineDelimiterLength === 0) {
+        return { fenceChar: delimiter, fenceLength: runLength, inlineDelimiterLength: 0 };
+    }
+    if (delimiter === '`' && runLength < 3) {
+        return {
+            fenceChar: null,
+            fenceLength: 0,
+            inlineDelimiterLength:
+                state.inlineDelimiterLength === runLength ? 0 : state.inlineDelimiterLength || runLength,
+        };
+    }
+    return state;
+};
+
+const getQwenCitationAt = (body: string, index: number): QwenCitationMatch | null => {
+    if (!body.startsWith('[[', index) || (index > 0 && body[index - 1] === '[')) {
+        return null;
+    }
+    const close = body.indexOf(']]', index + 2);
+    if (close === -1 || (close + 2 < body.length && body[close + 2] === ']')) {
+        return null;
+    }
+    const rawNumbers = body.slice(index + 2, close);
+    if (!/^\d+(?:,\d+)*$/u.test(rawNumbers)) {
+        return null;
+    }
+    const numbers = rawNumbers.split(',').map(Number);
+    return numbers.every((number) => Number.isSafeInteger(number) && number > 0)
+        ? { end: close + 2, numbers, start: index }
+        : null;
+};
+
+const getQwenCitationMatches = (body: string): QwenCitationMatch[] => {
+    const matches: QwenCitationMatch[] = [];
+    let state: QwenCodeState = { fenceChar: null, fenceLength: 0, inlineDelimiterLength: 0 };
+    for (let index = 0; index < body.length; ) {
+        const runLength = getQwenDelimiterRun(body, index);
+        if (runLength > 0) {
+            state = updateQwenCodeState(body, index, runLength, state);
+            index += runLength;
+            continue;
+        }
+        const match = !state.fenceChar && state.inlineDelimiterLength === 0 ? getQwenCitationAt(body, index) : null;
+        if (match) {
+            matches.push(match);
+            index = match.end;
+            continue;
+        }
+        index += 1;
+    }
+    return matches;
+};
+
+const expandQwenCitations = (body: string, references: QwenReferences): string | null => {
+    const matches = getQwenCitationMatches(body);
+    if (matches.length === 0) {
+        return body;
+    }
+    const citedNumbers = new Set(matches.flatMap((match) => match.numbers));
+    const citedUrls = getQwenCitedUrls(references, citedNumbers);
+    if (!citedUrls) {
+        return null;
+    }
+    let cursor = 0;
+    let expanded = '';
+    for (const match of matches) {
+        expanded += body.slice(cursor, match.start);
+        expanded += `[${match.numbers.map((number) => `[${number}](${citedUrls.get(number)!})`).join(', ')}]`;
+        cursor = match.end;
+    }
+    return expanded + body.slice(cursor);
+};
+
+const getQwenArtifactForMessage = (
+    rawPayload: unknown,
+    message: JsonRecord,
+    sourceId: string | undefined,
+): WebChatArtifact | null => {
+    const author = isRecord(message.author) ? message.author : null;
+    const role = normalizeRole(firstString(author?.role, message.role, message.sender));
+    if (role !== 'assistant' || !sourceId) {
+        return null;
+    }
+    const body = getQwenReportBody(message);
+    const rawMessage = getQwenRawMessage(rawPayload, sourceId);
+    if (body === null || !rawMessage || normalizeRole(rawMessage.role) !== 'assistant') {
+        return null;
+    }
+    const answer = getQwenAnswerEntry(rawMessage, body);
+    const references = answer && getQwenAnswerReferences(answer);
+    const content = references ? expandQwenCitations(body, references) : null;
+    const title = answer ? getQwenMarkdownTitle(rawMessage) : null;
+    return content !== null && title !== null ? { content, id: `qwen-report:${sourceId}`, title } : null;
+};
+
+const getQwenArtifacts = (rawPayload: unknown, sourceMessages: SourceMessage[]): WebChatArtifact[] =>
+    sourceMessages.flatMap(({ message, sourceId }) => {
+        const artifact = getQwenArtifactForMessage(rawPayload, message, sourceId);
+        return artifact ? [artifact] : [];
+    });
+
 const getGeminiToolCalls = (rawPayload: unknown): ImportedToolEvent[] => {
     const calls: ImportedToolEvent[] = [];
     let hasResearchTrace = false;
@@ -662,6 +913,1038 @@ const getGeminiArtifacts = (rawPayload: unknown): WebChatArtifact[] => {
         artifacts.set(value[0], { content, id: value[0], title: value[2] });
     });
     return [...artifacts.values()];
+};
+
+type MetaArtifactSlot = {
+    extension: string | null;
+    id: string | null;
+    title: string | null;
+    valid: boolean;
+};
+
+const getMetaArtifactLink = (value: unknown): { label: string; path: string } | null => {
+    if (typeof value !== 'string') {
+        return null;
+    }
+    const match = value.match(/\[([^\]]+)\]\(([^)\s]+)\)/u);
+    if (!match) {
+        return null;
+    }
+    try {
+        return { label: match[1]!, path: new URL(match[2]!).pathname };
+    } catch {
+        return null;
+    }
+};
+
+const getMetaFileExtension = (value: string | null): string | null => {
+    if (!value?.includes('.')) {
+        return null;
+    }
+    return value.split('.').at(-1)?.toLowerCase() ?? null;
+};
+
+const getMetaArtifactSlots = (rawMessage: JsonRecord): MetaArtifactSlot[] => {
+    const renderer = isRecord(rawMessage.contentRenderer) ? rawMessage.contentRenderer : null;
+    const response = renderer && isRecord(renderer.unified_response) ? renderer.unified_response : null;
+    const sections = response && Array.isArray(response.sections) ? response.sections : [];
+    return sections.flatMap((section) => {
+        const primitive =
+            isRecord(section) && isRecord(section.view_model) && isRecord(section.view_model.primitive)
+                ? section.view_model.primitive
+                : null;
+        const sandbox = primitive && isRecord(primitive.html_artifact_sandbox) ? primitive.html_artifact_sandbox : null;
+        if (!sandbox) {
+            return [];
+        }
+        const extension = firstString(sandbox.file_extension)?.replace(/^\./u, '').toLowerCase() ?? null;
+        const link = getMetaArtifactLink(primitive?.text);
+        const pathTitle = link?.path.split(/[\\/]/u).at(-1) ?? null;
+        const labelTitle = link?.label.split(/[\\/]/u).at(-1) ?? null;
+        const title = pathTitle?.includes('.') ? pathTitle : labelTitle;
+        const linkedExtensions = [getMetaFileExtension(pathTitle), getMetaFileExtension(labelTitle)].filter(
+            (value): value is string => value !== null,
+        );
+        return [
+            {
+                extension,
+                id: firstString(sandbox.uuid, sandbox.asset_id, sandbox.clippy_file_id),
+                title,
+                valid: Boolean(
+                    extension &&
+                        title &&
+                        linkedExtensions.length > 0 &&
+                        linkedExtensions.every((value) => value === extension),
+                ),
+            },
+        ];
+    });
+};
+
+const getMetaRawMessage = (rawPayload: unknown, messageId: string): JsonRecord | null => {
+    const data = isRecord(rawPayload) && isRecord(rawPayload.data) ? rawPayload.data : null;
+    const conversation = data && isRecord(data.conversation) ? data.conversation : null;
+    const messages = conversation && isRecord(conversation.messages) ? conversation.messages : null;
+    const edges = messages && Array.isArray(messages.edges) ? messages.edges : [];
+    return (
+        edges
+            .map((edge) => (isRecord(edge) && isRecord(edge.node) ? edge.node : null))
+            .find((message) => message !== null && firstString(message.id) === messageId) ?? null
+    );
+};
+
+const getMetaContentParts = (message: JsonRecord): string[] | null => {
+    const content = isRecord(message.content) ? message.content : null;
+    const parts = content && Array.isArray(content.parts) ? content.parts : null;
+    return parts && parts.length > 0 && parts.every((part) => typeof part === 'string') ? (parts as string[]) : null;
+};
+
+const isValidMetaArtifactBody = (body: string, extension: string | null): boolean => {
+    if (extension !== 'json') {
+        return true;
+    }
+    try {
+        JSON.parse(body);
+        return true;
+    } catch {
+        return false;
+    }
+};
+
+const dedupeMetaArtifactSlots = (slots: MetaArtifactSlot[]): MetaArtifactSlot[] | null => {
+    const byId = new Map<string, MetaArtifactSlot>();
+    const unique: MetaArtifactSlot[] = [];
+    for (const slot of slots) {
+        if (!slot.id) {
+            unique.push(slot);
+            continue;
+        }
+        const previous = byId.get(slot.id);
+        if (previous) {
+            if (
+                previous.extension !== slot.extension ||
+                previous.title !== slot.title ||
+                previous.valid !== slot.valid
+            ) {
+                return null;
+            }
+            continue;
+        }
+        byId.set(slot.id, slot);
+        unique.push(slot);
+    }
+    return unique;
+};
+
+const bindMetaArtifacts = (parts: string[], slots: MetaArtifactSlot[], messageId: string): WebChatArtifact[] => {
+    const bindings = new Map<string, WebChatArtifact>();
+    for (const [index, slot] of slots.entries()) {
+        if (!slot.valid || !slot.title) {
+            continue;
+        }
+        const body = parts[index + 1]!;
+        if (!isValidMetaArtifactBody(body, slot.extension)) {
+            continue;
+        }
+        const id = `${messageId}:${slot.id ?? `part-${index + 1}`}`;
+        const artifact = { content: body, id, title: slot.title };
+        const previous = bindings.get(id);
+        if (!previous) {
+            bindings.set(id, artifact);
+            continue;
+        }
+        if (previous.title !== artifact.title || previous.content !== artifact.content) {
+            return [];
+        }
+    }
+    return [...bindings.values()];
+};
+
+const getMetaArtifactsForMessage = (rawPayload: unknown, message: JsonRecord): WebChatArtifact[] => {
+    const messageId = firstString(message.id, message.uuid, message._id);
+    const parts = getMetaContentParts(message);
+    const rawMessage = messageId ? getMetaRawMessage(rawPayload, messageId) : null;
+    if (!messageId || !rawMessage || !parts) {
+        return [];
+    }
+    // Meta places exact artifact bodies after the visible answer; the raw node proves the selected message and slot count.
+    if (rawMessage.content !== parts[0]) {
+        return [];
+    }
+    const slots = getMetaArtifactSlots(rawMessage);
+    if (slots.length === 0 || parts.length !== slots.length + 1) {
+        const uniqueSlots = dedupeMetaArtifactSlots(slots);
+        if (!uniqueSlots || parts.length !== uniqueSlots.length + 1) {
+            return [];
+        }
+        return bindMetaArtifacts(parts, uniqueSlots, messageId);
+    }
+    return bindMetaArtifacts(parts, slots, messageId);
+};
+
+const getMetaArtifacts = (rawPayload: unknown, sourceMessages: SourceMessage[]): WebChatArtifact[] =>
+    sourceMessages.flatMap(({ message }) => {
+        const author = isRecord(message.author) ? message.author : null;
+        const role = normalizeRole(firstString(author?.role, message.role, message.sender));
+        return role === 'assistant' ? getMetaArtifactsForMessage(rawPayload, message) : [];
+    });
+
+const getClaudeContentBlocks = (message: JsonRecord): unknown[] => {
+    if (Array.isArray(message.content)) {
+        return message.content;
+    }
+    return isRecord(message.content) && Array.isArray(message.content.parts) ? message.content.parts : [];
+};
+
+const getClaudeArtifactCandidate = (block: unknown): ClaudeArtifactCandidate | null => {
+    if (!isRecord(block) || getBlockType(block) !== 'tool_use') {
+        return null;
+    }
+    if (firstString(block.name)?.toLowerCase() !== 'create_file') {
+        return null;
+    }
+    const input = isRecord(block.input) ? block.input : null;
+    const path = typeof input?.path === 'string' ? input.path : null;
+    const content = input && typeof input.file_text === 'string' ? input.file_text : null;
+    if (path === null || !/\.(?:md|markdown|json)$/i.test(path) || content === null) {
+        return null;
+    }
+    return {
+        content,
+        id: asString(block.id),
+        path,
+        title: path.split(/[\\/]/u).at(-1) || path,
+    };
+};
+
+const isSameClaudeArtifact = (
+    candidate: ClaudeArtifactCandidate,
+    existing: { artifact: WebChatArtifact; id: string | null; path: string },
+): boolean =>
+    existing.id === candidate.id &&
+    existing.path === candidate.path &&
+    existing.artifact.title === candidate.title &&
+    existing.artifact.content === candidate.content;
+
+const getClaudeArtifacts = (sourceMessages: SourceMessage[]): WebChatArtifact[] => {
+    const candidates: Array<{
+        artifact: WebChatArtifact;
+        id: string | null;
+        path: string;
+    }> = [];
+    const usedIds = new Set<string>();
+    const nextArtifactId = (baseId: string): string => {
+        let id = baseId;
+        let suffix = 2;
+        while (usedIds.has(id)) {
+            id = `${baseId}:${suffix}`;
+            suffix += 1;
+        }
+        usedIds.add(id);
+        return id;
+    };
+
+    for (const { message } of sourceMessages) {
+        const blocks = getClaudeContentBlocks(message);
+        for (const block of blocks) {
+            const candidate = getClaudeArtifactCandidate(block);
+            if (!candidate) {
+                continue;
+            }
+            // ponytail: O(n²) duplicate scan is bounded by the few file artifacts in a chat export.
+            if (candidates.some((existing) => isSameClaudeArtifact(candidate, existing))) {
+                continue;
+            }
+            const artifactId = nextArtifactId(candidate.id ?? `claude-artifact-${candidates.length + 1}`);
+            candidates.push({
+                artifact: { content: candidate.content, id: artifactId, title: candidate.title },
+                id: candidate.id,
+                path: candidate.path,
+            });
+        }
+    }
+    return candidates.map(({ artifact }) => artifact);
+};
+
+type GlmFileMutation =
+    | {
+          content: string;
+          kind: 'write';
+          path: string;
+      }
+    | {
+          content: string;
+          kind: 'append';
+          path: string;
+      }
+    | {
+          kind: 'copy';
+          path: string;
+          sourcePath: string;
+      }
+    | {
+          kind: 'replace';
+          newContent: string;
+          oldContent: string;
+          path: string;
+      };
+
+type GlmFileOperation = GlmFileMutation & {
+    callId: string | null;
+    succeeded: boolean;
+};
+
+type GlmToolInvocation = {
+    args: JsonRecord | null;
+    functionName: string;
+    id: string | null;
+    succeeded: boolean | null;
+};
+
+const getGlmBatchMessages = (rawPayload: unknown): Array<{ id: string; message: JsonRecord }> => {
+    if (!isRecord(rawPayload) || !isRecord(rawPayload.messages_batch)) {
+        return [];
+    }
+    const data = rawPayload.messages_batch.data;
+    if (Array.isArray(data)) {
+        return data.flatMap((value, index) =>
+            isRecord(value) ? [{ id: firstString(value.id) ?? `message-${index}`, message: value }] : [],
+        );
+    }
+    if (!isRecord(data)) {
+        return [];
+    }
+    return Object.entries(data).flatMap(([id, value]) => (isRecord(value) ? [{ id, message: value }] : []));
+};
+
+type GlmToolCall = {
+    args: JsonRecord | null;
+    argsText: string | null;
+    functionName: string;
+    id: string | null;
+};
+
+const parseGlmArguments = (value: unknown): JsonRecord | null => {
+    if (typeof value !== 'string' || !value) {
+        return null;
+    }
+    try {
+        const parsed = JSON.parse(value);
+        return isRecord(parsed) ? parsed : null;
+    } catch {
+        return null;
+    }
+};
+
+const getGlmToolBlocks = (message: JsonRecord): JsonRecord[] =>
+    Array.isArray(message.content_blocks)
+        ? message.content_blocks.filter(
+              (block): block is JsonRecord => isRecord(block) && getBlockType(block) === 'tool_calls',
+          )
+        : [];
+
+const getGlmToolCall = (value: unknown): GlmToolCall | null => {
+    if (!isRecord(value) || !isRecord(value.function)) {
+        return null;
+    }
+    const functionName = firstString(value.function.name);
+    if (!functionName) {
+        return null;
+    }
+    const argsText = typeof value.function.arguments === 'string' ? value.function.arguments : null;
+    return {
+        args: parseGlmArguments(argsText),
+        argsText,
+        functionName: functionName.toLowerCase(),
+        id: firstString(value.id),
+    };
+};
+
+const getGlmToolCalls = (block: JsonRecord): GlmToolCall[] =>
+    Array.isArray(block.content)
+        ? block.content.flatMap((value) => {
+              const call = getGlmToolCall(value);
+              return call ? [call] : [];
+          })
+        : [];
+
+const getGlmResultStatuses = (block: JsonRecord): Array<{ id: string; succeeded: boolean }> =>
+    Array.isArray(block.results)
+        ? block.results.flatMap((value) => {
+              if (!isRecord(value)) {
+                  return [];
+              }
+              const id = firstString(value.tool_call_id, value.id);
+              return id
+                  ? [
+                        {
+                            id,
+                            succeeded: asString(value.status)?.toLowerCase() === 'completed' && value.is_error !== true,
+                        },
+                    ]
+                  : [];
+          })
+        : [];
+
+const dedupeGlmToolCalls = (
+    calls: GlmToolCall[],
+    resultStatuses: Map<string, boolean>,
+    invalid: boolean,
+): GlmToolInvocation[] | null => {
+    const uniqueCalls = new Map<string, GlmToolCall>();
+    const invocations: GlmToolInvocation[] = [];
+    for (const call of calls) {
+        if (!call.id) {
+            invocations.push({ args: call.args, functionName: call.functionName, id: null, succeeded: null });
+            continue;
+        }
+        const previous = uniqueCalls.get(call.id);
+        if (previous) {
+            if (previous.functionName !== call.functionName || previous.argsText !== call.argsText) {
+                invalid = true;
+            }
+            continue;
+        }
+        uniqueCalls.set(call.id, call);
+        invocations.push({
+            args: call.args,
+            functionName: call.functionName,
+            id: call.id,
+            succeeded: resultStatuses.get(call.id) ?? null,
+        });
+    }
+    return invalid ? null : invocations;
+};
+
+const getGlmToolInvocations = (rawPayload: unknown, sourceMessages: SourceMessage[]): GlmToolInvocation[] | null => {
+    const sourceIds = new Set(
+        sourceMessages
+            .flatMap(({ message, sourceId }) => [sourceId, firstString(message.id, message.uuid, message._id)])
+            .filter((id): id is string => Boolean(id)),
+    );
+    const allBatchMessages = getGlmBatchMessages(rawPayload);
+    if (sourceIds.size === 0 && allBatchMessages.length > 1) {
+        return null;
+    }
+    const batchMessages = allBatchMessages.filter(({ id, message }) => {
+        const messageId = firstString(message.id);
+        return sourceIds.size === 0 || sourceIds.has(id) || (messageId !== null && sourceIds.has(messageId));
+    });
+    const blocks = batchMessages.flatMap(({ message }) => getGlmToolBlocks(message));
+    const resultStatuses = new Map<string, boolean>();
+    let invalid = false;
+    for (const block of blocks) {
+        for (const { id, succeeded } of getGlmResultStatuses(block)) {
+            const previous = resultStatuses.get(id);
+            if (previous !== undefined && previous !== succeeded) {
+                invalid = true;
+            }
+            resultStatuses.set(id, succeeded);
+        }
+    }
+    return dedupeGlmToolCalls(blocks.flatMap(getGlmToolCalls), resultStatuses, invalid);
+};
+
+const resolveGlmPath = (directory: string | null, path: string): string =>
+    path.startsWith('/') || !directory ? path : `${directory.replace(/\/+$/u, '')}/${path}`;
+
+const isGlmShellPath = (value: string): boolean => Boolean(value) && !/[;&|<>()"'`$\\]/u.test(value);
+
+const parseGlmPathList = (value: string): string[] | null => {
+    const paths = value.trim().split(/\s+/u);
+    return paths.length > 0 && paths.every(isGlmShellPath) ? paths : null;
+};
+
+const skipGlmShellWhitespace = (value: string, start: number): number => {
+    let index = start;
+    while (/\s/u.test(value[index] ?? '')) {
+        index += 1;
+    }
+    return index;
+};
+
+type GlmShellWord = { end: number; value: string };
+
+const parseGlmSingleQuotedSegment = (value: string, start: number): GlmShellWord | null => {
+    const end = value.indexOf("'", start + 1);
+    return end === -1 ? null : { end: end + 1, value: value.slice(start + 1, end) };
+};
+
+const parseGlmDoubleQuotedSegment = (value: string, start: number): GlmShellWord | null => {
+    let index = start + 1;
+    let word = '';
+    while (index < value.length) {
+        const character = value[index]!;
+        if (character === '"') {
+            return { end: index + 1, value: word };
+        }
+        if (character !== '\\') {
+            word += character;
+            index += 1;
+            continue;
+        }
+        const escaped = value[index + 1];
+        if (!escaped || !'\\"$`\n'.includes(escaped)) {
+            return null;
+        }
+        if (escaped !== '\n') {
+            word += escaped;
+        }
+        index += 2;
+    }
+    return null;
+};
+
+const parseGlmShellSegment = (value: string, start: number): GlmShellWord | null => {
+    const character = value[start]!;
+    if (character === "'") {
+        return parseGlmSingleQuotedSegment(value, start);
+    }
+    if (character === '"') {
+        return parseGlmDoubleQuotedSegment(value, start);
+    }
+    if (character === '\\') {
+        const escaped = value[start + 1];
+        return escaped ? { end: start + 2, value: escaped } : null;
+    }
+    return '&|<>()$`'.includes(character) ? null : { end: start + 1, value: character };
+};
+
+const parseGlmShellWord = (value: string, start: number): GlmShellWord | null => {
+    let index = start;
+    let word = '';
+    let consumed = false;
+    while (index < value.length && !/\s|;/u.test(value[index]!)) {
+        consumed = true;
+        const segment = parseGlmShellSegment(value, index);
+        if (!segment) {
+            return null;
+        }
+        word += segment.value;
+        index = segment.end;
+    }
+    return consumed ? { end: index, value: word } : null;
+};
+
+const GLM_PRINTF_ESCAPES: Readonly<Record<string, string>> = {
+    '\\': '\\',
+    b: '\b',
+    f: '\f',
+    n: '\n',
+    r: '\r',
+    t: '\t',
+    v: '\v',
+};
+
+const decodeGlmPrintfFormat = (value: string): string | null => {
+    let decoded = '';
+    for (let index = 0; index < value.length; index += 1) {
+        if (value[index] !== '\\') {
+            decoded += value[index];
+            continue;
+        }
+        const escaped = value[index + 1];
+        if (!escaped) {
+            return null;
+        }
+        const replacement = GLM_PRINTF_ESCAPES[escaped];
+        if (replacement === undefined) {
+            return null;
+        }
+        decoded += replacement;
+        index += 1;
+    }
+    return decoded.includes('%') ? null : decoded;
+};
+
+const parseGlmPrintfCommand = (value: string, start: number): { content: string; nextIndex: number } | null => {
+    if (!value.startsWith('printf ', start)) {
+        return null;
+    }
+    const word = parseGlmShellWord(value, skipGlmShellWhitespace(value, start + 'printf '.length));
+    if (!word) {
+        return null;
+    }
+    const separator = skipGlmShellWhitespace(value, word.end);
+    if (value[separator] !== ';') {
+        return null;
+    }
+    const content = decodeGlmPrintfFormat(word.value);
+    return content === null ? null : { content, nextIndex: separator + 1 };
+};
+
+const isGlmReadOnlyPythonScript = (script: string): boolean =>
+    script.length > 0 &&
+    !script.includes('"') &&
+    !script.includes('`') &&
+    !script.replaceAll('$OUT', '').includes('$') &&
+    !/\b(?:unlink|remove|rename|mkdir|rmdir|truncate|write|replace|move|copy)\b/i.test(script);
+
+const isGlmReadOnlyAssemblySuffix = (value: string): boolean => {
+    const match = value.match(
+        /^echo "assembled" && python3 -c "([\s\S]+)" && wc -c "\$OUT\/REPORT\.md" "\$OUT\/report\.json"$/u,
+    );
+    if (!match) {
+        return false;
+    }
+    return isGlmReadOnlyPythonScript(match[1]!);
+};
+
+const parseGlmCompoundAssembly = (command: string): GlmFileMutation[] | null => {
+    const match = command.match(
+        /^cd (\S+) && OUT=(\S+) && cat ([^>]+?) > "\$OUT\/report\.json" && \{ ([\s\S]+) \} > "\$OUT\/REPORT\.md" && ([\s\S]+)$/u,
+    );
+    if (!match || !isGlmShellPath(match[1]!) || !isGlmShellPath(match[2]!) || !isGlmReadOnlyAssemblySuffix(match[5]!)) {
+        return null;
+    }
+    const directory = match[1]!;
+    const outputDirectory = resolveGlmPath(directory, match[2]!).replace(/\/+$/u, '');
+    const jsonPath = `${outputDirectory}/report.json`;
+    const reportPath = `${outputDirectory}/REPORT.md`;
+    const jsonSources = parseGlmPathList(match[3]!);
+    if (!jsonSources) {
+        return null;
+    }
+
+    const body = match[4]!;
+    const firstSeparator = body.indexOf(';');
+    if (!body.startsWith('cat ') || firstSeparator === -1) {
+        return null;
+    }
+    const markdownSources = parseGlmPathList(body.slice('cat '.length, firstSeparator));
+    if (!markdownSources) {
+        return null;
+    }
+    let index = skipGlmShellWhitespace(body, firstSeparator + 1);
+    const prefix = parseGlmPrintfCommand(body, index);
+    if (!prefix) {
+        return null;
+    }
+    index = skipGlmShellWhitespace(body, prefix.nextIndex);
+    const jsonCat = 'cat "$OUT/report.json";';
+    if (!body.startsWith(jsonCat, index)) {
+        return null;
+    }
+    index = skipGlmShellWhitespace(body, index + jsonCat.length);
+    const suffix = parseGlmPrintfCommand(body, index);
+    if (!suffix || skipGlmShellWhitespace(body, suffix.nextIndex) !== body.length) {
+        return null;
+    }
+
+    return [
+        { content: '', kind: 'write', path: jsonPath },
+        ...jsonSources.map((sourcePath) => ({
+            kind: 'copy' as const,
+            path: jsonPath,
+            sourcePath: resolveGlmPath(directory, sourcePath),
+        })),
+        { content: '', kind: 'write', path: reportPath },
+        ...markdownSources.map((sourcePath) => ({
+            kind: 'copy' as const,
+            path: reportPath,
+            sourcePath: resolveGlmPath(directory, sourcePath),
+        })),
+        { content: prefix.content, kind: 'append', path: reportPath },
+        { kind: 'copy' as const, path: reportPath, sourcePath: jsonPath },
+        { content: suffix.content, kind: 'append', path: reportPath },
+    ];
+};
+
+const parseGlmHeredoc = (
+    command: string,
+    directory: string | null,
+): { content: string; path: string; pathToken: string; suffix: string } | null => {
+    const prefix = command.match(/^cat >> (\S+) << 'EOF'\n/u);
+    if (!prefix) {
+        return null;
+    }
+    const rest = command.slice(prefix[0].length);
+    const delimiter = rest.match(/(?:^|\n)EOF\n/u);
+    if (!delimiter || delimiter.index === undefined) {
+        return null;
+    }
+    const separatorLength = delimiter[0].startsWith('\n') ? 1 : 0;
+    const bodyEnd = delimiter.index;
+    const suffixStart = bodyEnd + separatorLength + 'EOF\n'.length;
+    return {
+        content: `${rest.slice(0, bodyEnd)}${separatorLength > 0 ? '\n' : ''}`,
+        path: resolveGlmPath(directory, prefix[1]!),
+        pathToken: prefix[1]!,
+        suffix: rest.slice(suffixStart),
+    };
+};
+
+const parseGlmJsonConcatenation = (command: string): GlmFileMutation[] | null => {
+    const match = command.match(
+        /^cd (\S+) && cat ([^>]+?) > ("?)([^\s"]+\/report\.json)\3 && python3 -c "([\s\S]+)"$/u,
+    );
+    if (!match || !isGlmShellPath(match[1]!) || !isGlmShellPath(match[4]!) || !isGlmReadOnlyPythonScript(match[5]!)) {
+        return null;
+    }
+    const sources = parseGlmPathList(match[2]!);
+    if (!sources) {
+        return null;
+    }
+    const directory = match[1]!;
+    const path = resolveGlmPath(directory, match[4]!);
+    return [
+        { content: '', kind: 'write', path },
+        ...sources.map((sourcePath) => ({
+            kind: 'copy' as const,
+            path,
+            sourcePath: resolveGlmPath(directory, sourcePath),
+        })),
+    ];
+};
+
+const parseGlmBashOperations = (
+    command: string,
+): {
+    ignoreOnFailure?: boolean;
+    operations: GlmFileMutation[];
+    unsupported: boolean;
+} => {
+    const jsonConcatenation = parseGlmJsonConcatenation(command);
+    if (jsonConcatenation) {
+        return { ignoreOnFailure: true, operations: jsonConcatenation, unsupported: false };
+    }
+    const compoundAssembly = parseGlmCompoundAssembly(command);
+    if (compoundAssembly) {
+        return { operations: compoundAssembly, unsupported: false };
+    }
+    const finalPrefix = command.match(/^cd (\S+) && jq -e \. (\S+) > \/dev\/null && echo "JSON VALID" && /u);
+    if (finalPrefix) {
+        const directory = finalPrefix[1]!;
+        const jsonToken = finalPrefix[2]!;
+        const heredoc = parseGlmHeredoc(command.slice(finalPrefix[0].length), directory);
+        if (!heredoc) {
+            return { operations: [], unsupported: true };
+        }
+        const closingFence = '```';
+        const expectedSuffix =
+            `cat ${jsonToken} >> ${heredoc.pathToken} && echo '${closingFence}' >> ${heredoc.pathToken} && ` +
+            `echo "REPORT.md finalized:" && wc -c ${heredoc.pathToken} ${jsonToken} && tail -3 ${heredoc.pathToken}`;
+        if (heredoc.suffix !== expectedSuffix) {
+            return { operations: [], unsupported: true };
+        }
+        return {
+            operations: [
+                { content: heredoc.content, kind: 'append', path: heredoc.path },
+                {
+                    kind: 'copy',
+                    path: heredoc.path,
+                    sourcePath: resolveGlmPath(directory, jsonToken),
+                },
+                { content: '```\n', kind: 'append', path: heredoc.path },
+            ],
+            unsupported: false,
+        };
+    }
+
+    const heredoc = parseGlmHeredoc(command, null);
+    if (heredoc) {
+        if (!/\breport\.(?:md|markdown|json)\b/i.test(heredoc.pathToken)) {
+            return { operations: [], unsupported: false };
+        }
+        const suffix = heredoc.suffix.match(/^echo "[^"]*"; wc -c (\S+)$/u);
+        if (!suffix || suffix[1] !== heredoc.pathToken) {
+            return { operations: [], unsupported: true };
+        }
+        return {
+            operations: [{ content: heredoc.content, kind: 'append', path: heredoc.path }],
+            unsupported: false,
+        };
+    }
+
+    return {
+        operations: [],
+        unsupported:
+            /(?:>>|>)\s*["']?(?:[^\s;/"']*[/\\])*report\.(?:md|markdown|json)\b["']?/i.test(command) ||
+            /\b(?:rm|mv|cp|tee|sed)\b[^\n;]*\breport\.(?:md|markdown|json)\b/i.test(command),
+    };
+};
+
+type GlmInvocationOperations = { operations: GlmFileOperation[]; unsupported: boolean };
+
+const getGlmWriteOperations = (invocation: GlmToolInvocation, succeeded: boolean): GlmInvocationOperations => {
+    const path = typeof invocation.args?.filepath === 'string' ? invocation.args.filepath : null;
+    const content = typeof invocation.args?.content === 'string' ? invocation.args.content : null;
+    return path !== null && content !== null
+        ? { operations: [{ callId: invocation.id, content, kind: 'write', path, succeeded }], unsupported: false }
+        : { operations: [], unsupported: true };
+};
+
+const getGlmEditOperations = (invocation: GlmToolInvocation, succeeded: boolean): GlmInvocationOperations => {
+    const path = typeof invocation.args?.filepath === 'string' ? invocation.args.filepath : null;
+    const edits =
+        invocation.functionName === 'edit'
+            ? [invocation.args]
+            : Array.isArray(invocation.args?.edits)
+              ? invocation.args.edits
+              : [];
+    const replacements = edits.map((edit) => {
+        if (!isRecord(edit)) {
+            return null;
+        }
+        const oldContent = typeof edit.old_str === 'string' ? edit.old_str : null;
+        const newContent = typeof edit.new_str === 'string' ? edit.new_str : null;
+        return path !== null && oldContent !== null && newContent !== null
+            ? { callId: invocation.id, kind: 'replace' as const, newContent, oldContent, path, succeeded }
+            : null;
+    });
+    return path !== null && replacements.length > 0 && replacements.every((operation) => operation !== null)
+        ? { operations: replacements, unsupported: false }
+        : { operations: [], unsupported: true };
+};
+
+const getGlmInvocationOperations = (invocation: GlmToolInvocation): GlmInvocationOperations => {
+    const succeeded = invocation.succeeded === true;
+    if (invocation.functionName === 'write') {
+        return getGlmWriteOperations(invocation, succeeded);
+    }
+    if (invocation.functionName === 'edit' || invocation.functionName === 'multiedit') {
+        return getGlmEditOperations(invocation, succeeded);
+    }
+    if (invocation.functionName !== 'bash') {
+        return { operations: [], unsupported: false };
+    }
+    const command = typeof invocation.args?.command === 'string' ? invocation.args.command : null;
+    if (command === null) {
+        return { operations: [], unsupported: true };
+    }
+    const parsed = parseGlmBashOperations(command);
+    return {
+        operations:
+            parsed.ignoreOnFailure && !succeeded
+                ? []
+                : parsed.operations.map((operation) => ({ ...operation, callId: invocation.id, succeeded })),
+        unsupported: parsed.unsupported && succeeded,
+    };
+};
+
+const getGlmFileOperations = (invocations: GlmToolInvocation[]): GlmFileOperation[] | null => {
+    const operations: GlmFileOperation[] = [];
+    for (const invocation of invocations) {
+        const parsed = getGlmInvocationOperations(invocation);
+        if (parsed.unsupported) {
+            return null;
+        }
+        operations.push(...parsed.operations);
+    }
+    return operations;
+};
+
+const getGlmReportPaths = (operations: GlmFileOperation[]) => {
+    const reportPaths = new Set<string>();
+    const dependencyPaths = new Set<string>();
+    const isMarkdownPath = (path: string) => /\.(?:md|markdown)$/i.test(path);
+    for (const operation of operations) {
+        if (operation.kind === 'copy') {
+            dependencyPaths.add(operation.sourcePath);
+            if (isMarkdownPath(operation.path)) {
+                reportPaths.add(operation.path);
+            }
+        } else if (operation.kind === 'replace') {
+            dependencyPaths.add(operation.path);
+        } else if (operation.kind === 'append' && isMarkdownPath(operation.path)) {
+            reportPaths.add(operation.path);
+        } else if (
+            operation.kind === 'write' &&
+            /^report\.(?:md|markdown)$/i.test(operation.path.split(/[\\/]/u).at(-1) ?? '')
+        ) {
+            reportPaths.add(operation.path);
+        }
+    }
+    return { dependencyPaths, reportPaths };
+};
+
+const applyGlmWriteOperation = (
+    operation: Extract<GlmFileOperation, { kind: 'write' }>,
+    files: Map<string, string>,
+    artifactIds: Map<string, string>,
+    reportPaths: Set<string>,
+    dependencyPaths: Set<string>,
+): boolean => {
+    if (!operation.succeeded) {
+        return !reportPaths.has(operation.path) && !dependencyPaths.has(operation.path);
+    }
+    files.set(operation.path, operation.content);
+    if (reportPaths.has(operation.path) && !artifactIds.has(operation.path)) {
+        artifactIds.set(operation.path, operation.callId ?? `glm-artifact-${artifactIds.size + 1}`);
+    }
+    return true;
+};
+
+const applyGlmReplaceOperation = (
+    operation: Extract<GlmFileOperation, { kind: 'replace' }>,
+    files: Map<string, string>,
+    reportPaths: Set<string>,
+    dependencyPaths: Set<string>,
+): boolean => {
+    if (!operation.succeeded) {
+        return !reportPaths.has(operation.path) && !dependencyPaths.has(operation.path);
+    }
+    const current = files.get(operation.path);
+    if (current === undefined) {
+        return false;
+    }
+    const firstIndex = current.indexOf(operation.oldContent);
+    if (firstIndex === -1 || firstIndex !== current.lastIndexOf(operation.oldContent)) {
+        return false;
+    }
+    files.set(
+        operation.path,
+        `${current.slice(0, firstIndex)}${operation.newContent}${current.slice(firstIndex + operation.oldContent.length)}`,
+    );
+    return true;
+};
+
+const applyGlmFileOperation = (
+    operation: GlmFileOperation,
+    files: Map<string, string>,
+    artifactIds: Map<string, string>,
+    reportPaths: Set<string>,
+    dependencyPaths: Set<string>,
+): boolean => {
+    if (operation.kind === 'write') {
+        return applyGlmWriteOperation(operation, files, artifactIds, reportPaths, dependencyPaths);
+    }
+    if (operation.kind === 'replace') {
+        return applyGlmReplaceOperation(operation, files, reportPaths, dependencyPaths);
+    }
+    if (!operation.succeeded || !files.has(operation.path)) {
+        return false;
+    }
+    if (operation.kind === 'append') {
+        files.set(operation.path, `${files.get(operation.path)!}${operation.content}`);
+        return true;
+    }
+    const content = files.get(operation.sourcePath);
+    if (content === undefined) {
+        return false;
+    }
+    files.set(operation.path, `${files.get(operation.path)!}${content}`);
+    return true;
+};
+
+const replayGlmFileOperations = (
+    operations: GlmFileOperation[],
+    reportPaths: Set<string>,
+    dependencyPaths: Set<string>,
+) => {
+    const files = new Map<string, string>();
+    const artifactIds = new Map<string, string>();
+    for (const operation of operations) {
+        if (!applyGlmFileOperation(operation, files, artifactIds, reportPaths, dependencyPaths)) {
+            return null;
+        }
+    }
+    return { artifactIds, files };
+};
+
+const getGlmPythonPath = (script: string, name: 'REPORT_JSON' | 'REPORT_MD'): string | null => {
+    const match = script.match(new RegExp(`^${name} = Path\\(["']([^"']+)["']\\)$`, 'mu'));
+    return match?.[1] ?? null;
+};
+
+const getGlmJsonExtractorArtifact = (
+    invocation: GlmToolInvocation,
+    files: Map<string, string>,
+    reportPaths: Set<string>,
+): WebChatArtifact | null => {
+    if (invocation.functionName !== 'bash' || invocation.succeeded !== true) {
+        return null;
+    }
+    const command = typeof invocation.args?.command === 'string' ? invocation.args.command : null;
+    const scriptPath = command?.match(/^python3 (\S+)$/u)?.[1] ?? null;
+    const script = scriptPath ? files.get(scriptPath) : null;
+    if (!scriptPath || !isGlmShellPath(scriptPath) || !script) {
+        return null;
+    }
+    const markdownPath = getGlmPythonPath(script, 'REPORT_MD');
+    const jsonPath = getGlmPythonPath(script, 'REPORT_JSON');
+    if (
+        !markdownPath ||
+        !jsonPath ||
+        markdownPath === jsonPath ||
+        !reportPaths.has(markdownPath) ||
+        !/\.json$/iu.test(jsonPath) ||
+        !script.includes('re.compile') ||
+        !script.includes('```json') ||
+        !script.includes('matches = pattern.findall(text)') ||
+        !script.includes('json_str = matches[-1].strip()') ||
+        !script.includes('parsed = json.loads(json_str)') ||
+        !script.includes('REPORT_JSON.write_text(json.dumps(parsed, ensure_ascii=False, indent=2), encoding="utf-8")')
+    ) {
+        return null;
+    }
+    const markdown = files.get(markdownPath);
+    const jsonBlock = markdown ? [...markdown.matchAll(/```json\s*\n([\s\S]*?)\n```/gu)].at(-1)?.[1]?.trim() : null;
+    if (!jsonBlock) {
+        return null;
+    }
+    let value: unknown;
+    try {
+        value = JSON.parse(jsonBlock);
+    } catch {
+        return null;
+    }
+    return {
+        content: JSON.stringify(value, null, 2),
+        id: invocation.id ?? `glm-artifact:${jsonPath}`,
+        title: jsonPath.split(/[\\/]/u).at(-1) || jsonPath,
+    };
+};
+
+const getGlmJsonExtractorArtifacts = (
+    invocations: GlmToolInvocation[],
+    files: Map<string, string>,
+    reportPaths: Set<string>,
+): WebChatArtifact[] | null => {
+    const artifacts = new Map<string, WebChatArtifact>();
+    for (const invocation of invocations) {
+        const artifact = getGlmJsonExtractorArtifact(invocation, files, reportPaths);
+        if (!artifact) {
+            continue;
+        }
+        const previous = artifacts.get(artifact.title);
+        if (previous && (previous.content !== artifact.content || previous.id !== artifact.id)) {
+            return null;
+        }
+        artifacts.set(artifact.title, artifact);
+    }
+    return [...artifacts.values()];
+};
+
+const getGlmArtifacts = (rawPayload: unknown, sourceMessages: SourceMessage[]): WebChatArtifact[] => {
+    const invocations = getGlmToolInvocations(rawPayload, sourceMessages);
+    const operations = invocations ? getGlmFileOperations(invocations) : null;
+    if (!invocations || !operations) {
+        return [];
+    }
+    const { dependencyPaths, reportPaths } = getGlmReportPaths(operations);
+    if (reportPaths.size === 0) {
+        return [];
+    }
+    const replayed = replayGlmFileOperations(operations, reportPaths, dependencyPaths);
+    if (!replayed) {
+        return [];
+    }
+    const artifacts = [...reportPaths]
+        .map((path, index) => {
+            const content = replayed.files.get(path);
+            if (content === undefined) {
+                return null;
+            }
+            return {
+                content,
+                id: replayed.artifactIds.get(path) ?? `glm-artifact-${index + 1}`,
+                title: path.split(/[\\/]/u).at(-1) || path,
+            } satisfies WebChatArtifact;
+        })
+        .filter((artifact): artifact is WebChatArtifact => artifact !== null);
+    const extractedJson = getGlmJsonExtractorArtifacts(invocations, replayed.files, reportPaths);
+    return extractedJson ? [...artifacts, ...extractedJson] : [];
 };
 
 const NOVA_SEARCH_PATTERN = /^🔍\s+Searching for:\s*([\s\S]+)$/;
@@ -826,6 +2109,106 @@ const getDeepResearchReport = (message: JsonRecord): JsonRecord | null => {
     return isRecord(widgetState) && isRecord(widgetState.report_message) ? widgetState.report_message : null;
 };
 
+const getDeepResearchReportData = (
+    message: JsonRecord,
+    fallbackModel: string | null,
+    fallbackId: string,
+    sourceOrder: number,
+): { message: NormalizedMessage; report: JsonRecord } | null => {
+    const report = getDeepResearchReport(message);
+    if (!report) {
+        return null;
+    }
+    return {
+        message: {
+            ...normalizeMessage(report, fallbackModel, fallbackId, sourceOrder),
+            // ChatGPT report widgets may expose legacy internal labels such as gpt-5-thinking.
+            model: fallbackModel,
+        },
+        report,
+    };
+};
+
+const getChatGptArtifactCandidate = (
+    message: JsonRecord,
+    sourceId: string | undefined,
+    sourceOrder: number,
+): { artifact: WebChatArtifact; identity: string } | null => {
+    const report = getDeepResearchReport(message);
+    if (!report) {
+        return null;
+    }
+    const author = isRecord(report.author) ? report.author : null;
+    if (normalizeRole(firstString(author?.role, report.role)) !== 'assistant') {
+        return null;
+    }
+    const content = isRecord(report.content) ? report.content : null;
+    const parts = content?.parts;
+    if (firstString(content?.content_type)?.toLowerCase() !== 'text' || !Array.isArray(parts) || parts.length !== 1) {
+        return null;
+    }
+    const body = parts[0];
+    if (typeof body !== 'string') {
+        return null;
+    }
+    const reportId = firstString(report.id);
+    const messageId = firstString(message.id, message.uuid, message._id, sourceId) ?? `message-${sourceOrder}`;
+    const identity = reportId ? `report:${reportId}` : `message:${messageId}`;
+    return {
+        artifact: {
+            content: body,
+            id: `chatgpt-deep-research:${identity}`,
+            title: 'REPORT.md',
+        },
+        identity,
+    };
+};
+
+const getChatGptArtifacts = (sourceMessages: SourceMessage[]): WebChatArtifact[] => {
+    const artifacts = new Map<string, WebChatArtifact>();
+    const conflicts = new Set<string>();
+    for (const { message, sourceId, sourceOrder } of sourceMessages) {
+        const candidate = getChatGptArtifactCandidate(message, sourceId, sourceOrder);
+        if (!candidate || conflicts.has(candidate.identity)) {
+            continue;
+        }
+        const previous = artifacts.get(candidate.identity);
+        if (
+            previous &&
+            (previous.title !== candidate.artifact.title || previous.content !== candidate.artifact.content)
+        ) {
+            artifacts.delete(candidate.identity);
+            conflicts.add(candidate.identity);
+            continue;
+        }
+        artifacts.set(candidate.identity, candidate.artifact);
+    }
+    return [...artifacts.values()];
+};
+
+const getPlatformArtifacts = (
+    platform: string,
+    rawPayload: unknown,
+    sourceMessages: SourceMessage[],
+): WebChatArtifact[] | undefined => {
+    if (platform === 'Claude') {
+        return getClaudeArtifacts(sourceMessages);
+    }
+    if (platform === 'Meta') {
+        return getMetaArtifacts(rawPayload, sourceMessages);
+    }
+    if (platform === 'ChatGPT') {
+        return getChatGptArtifacts(sourceMessages);
+    }
+    if (platform === 'GLM') {
+        return getGlmArtifacts(rawPayload, sourceMessages);
+    }
+    if (platform === 'Qwen') {
+        return getQwenArtifacts(rawPayload, sourceMessages);
+    }
+    return undefined;
+};
+
 const isToolCallMessage = (message: NormalizedMessage): boolean =>
     message.role === 'assistant' && message.recipient !== null && message.recipient.toLowerCase() !== 'all';
 
@@ -898,24 +2281,17 @@ const parseMappingConversation = async (root: JsonRecord, fileName: string): Pro
         chain.flatMap(({ id, message }, index) => {
             const sourceOrder = index * 2;
             const normalized = normalizeMessage(message, rootModel, id, sourceOrder);
-            const report = getDeepResearchReport(message);
-            sourceMessages.push({ message, sourceOrder });
-            if (report) {
-                sourceMessages.push({ message: report, sourceOrder: sourceOrder + 1 });
+            const reportData = getDeepResearchReportData(
+                message,
+                normalized.model ?? rootModel,
+                `${id}-deep-research-report`,
+                sourceOrder + 1,
+            );
+            sourceMessages.push({ message, sourceId: id, sourceOrder });
+            if (reportData) {
+                sourceMessages.push({ message: reportData.report, sourceOrder: sourceOrder + 1 });
             }
-            const reportMessage = report
-                ? {
-                      ...normalizeMessage(
-                          report,
-                          normalized.model ?? rootModel,
-                          `${id}-deep-research-report`,
-                          sourceOrder + 1,
-                      ),
-                      // ChatGPT report widgets may expose legacy internal labels such as gpt-5-thinking.
-                      model: normalized.model ?? rootModel,
-                  }
-                : null;
-            return [normalized, reportMessage].filter((item): item is NormalizedMessage =>
+            return [normalized, reportData?.message].filter((item): item is NormalizedMessage =>
                 Boolean(item && (item.text || item.reasoning.length > 0)),
             );
         }),
@@ -929,6 +2305,7 @@ const parseMappingConversation = async (root: JsonRecord, fileName: string): Pro
         return null;
     }
     return {
+        artifacts: getPlatformArtifacts(platform, root.raw_payload, sourceMessages),
         createdAtMs: toTimestampMs(root.create_time ?? root.created_at),
         messages,
         model,
@@ -1031,9 +2408,21 @@ const parseMessageArrayConversation = async (
             if (!isRecord(value)) {
                 return [];
             }
-            sourceMessages.push({ message: value, sourceOrder: index });
-            const message = normalizeMessage(value, rootModel, `message-${index}`, index);
-            return message.text || message.reasoning.length > 0 ? [message] : [];
+            const sourceOrder = index * 2;
+            sourceMessages.push({ message: value, sourceOrder });
+            const message = normalizeMessage(value, rootModel, `message-${index}`, sourceOrder);
+            const reportData = getDeepResearchReportData(
+                value,
+                message.model ?? rootModel,
+                `message-${index}-deep-research-report`,
+                sourceOrder + 1,
+            );
+            if (reportData) {
+                sourceMessages.push({ message: reportData.report, sourceOrder: sourceOrder + 1 });
+            }
+            return [message, reportData?.message].filter((item): item is NormalizedMessage =>
+                Boolean(item && (item.text || item.reasoning.length > 0)),
+            );
         }),
     );
     const model = [...normalizedMessages].reverse().find((message) => message.model)?.model ?? rootModel;
@@ -1045,6 +2434,7 @@ const parseMessageArrayConversation = async (
         return null;
     }
     return {
+        artifacts: getPlatformArtifacts(platform, root.raw_payload, sourceMessages),
         createdAtMs: toTimestampMs(root.create_time ?? root.created_at),
         messages,
         model,
@@ -1114,18 +2504,24 @@ const parseConversation = async (value: unknown, fileName: string): Promise<Conv
         parseCommonConversation(value, fileName);
     if (parsed) {
         const artifacts =
-            parsed.platform === 'Gemini'
+            parsed.artifacts ??
+            (parsed.platform === 'Gemini'
                 ? getGeminiArtifacts(resolveMessageArrayRoot(value)?.raw_payload ?? value.raw_payload)
-                : [];
+                : parsed.platform === 'GLM'
+                  ? getGlmArtifacts(resolveMessageArrayRoot(value)?.raw_payload ?? value.raw_payload, [])
+                  : []);
         return {
             ...parsed,
             artifacts,
             messages: parsed.messages.map((message) => ({
                 ...message,
                 // Some Gemini exports mislabel document sections as thoughts; retain them only in the artifact.
-                reasoning: message.reasoning.filter(
-                    (text) => !artifacts.some((artifact) => artifact.content.includes(text)),
-                ),
+                reasoning:
+                    parsed.platform === 'Gemini'
+                        ? message.reasoning.filter(
+                              (text) => !artifacts.some((artifact) => artifact.content.includes(text)),
+                          )
+                        : message.reasoning,
             })),
         };
     }

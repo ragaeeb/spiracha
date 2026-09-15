@@ -19,6 +19,9 @@ export const formatModelLabel = (value: string | null | undefined): string => {
             if (lower === 'gpt') {
                 return 'GPT';
             }
+            if (lower === 'glm') {
+                return 'GLM';
+            }
             if (/^[a-z]\d$/u.test(lower)) {
                 return lower.toUpperCase();
             }

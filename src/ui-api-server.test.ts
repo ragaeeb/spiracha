@@ -5,6 +5,7 @@ import path from 'node:path';
 import { createConversationClient } from './client';
 import { createCodexBrowserFixture } from './lib/codex-test-helpers';
 import type { EvidenceLens } from './lib/conversation-data/types';
+import { geminiResearchPayload } from './lib/conversation-payload-test-helpers';
 
 const SERVER_TIMEOUT_MS = 60_000;
 const tempRoots: string[] = [];
@@ -149,6 +150,26 @@ describe('UI API server routes', () => {
                         },
                     ],
                     source: 'codex',
+                });
+
+                const payloadResponse = await fetchWithTimeout(`http://127.0.0.1:${port}/api/v1/conversation-payload`, {
+                    body: JSON.stringify({ file_name: 'Gemini.json', payload: geminiResearchPayload }),
+                    headers: { 'Content-Type': 'application/json' },
+                    method: 'POST',
+                });
+                expect(payloadResponse.status).toBe(200);
+                await expect(payloadResponse.json()).resolves.toMatchObject({
+                    data: [
+                        {
+                            artifacts: [
+                                {
+                                    content: expect.stringContaining(
+                                        '## Works cited\n\n1. [Source](<https://example.com/source>)',
+                                    ),
+                                },
+                            ],
+                        },
+                    ],
                 });
 
                 const evidenceResponse = await fetchWithTimeout(

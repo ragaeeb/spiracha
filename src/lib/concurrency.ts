@@ -36,43 +36,71 @@ export const mapWithConcurrency = async <T, TResult>(
     return results;
 };
 
+export type ConcurrencyOptions = {
+    signal?: AbortSignal;
+    /** Deadline includes time spent queued. Active work retains its slot until settlement. */
+    timeoutMs?: number;
+};
+
 export const createConcurrencyLimiter = (limit: number) => {
-    const requestedLimit = Number.isFinite(limit) ? Math.floor(limit) : 1;
-    const workerLimit = Math.max(1, requestedLimit);
-    const queue: Array<() => void> = [];
+    const workerLimit = Math.max(1, Number.isFinite(limit) ? Math.floor(limit) : 1);
+    const queue = new Set<() => void>();
     let activeCount = 0;
 
     const drain = () => {
-        if (activeCount >= workerLimit) {
-            return;
-        }
-
-        const next = queue.shift();
-        if (next) {
+        while (activeCount < workerLimit && queue.size > 0) {
+            const next = queue.values().next().value!;
+            queue.delete(next);
             next();
         }
     };
 
-    return async <T>(task: () => Promise<T>): Promise<T> => {
-        await new Promise<void>((resolve) => {
+    return async <T>(task: (signal: AbortSignal) => Promise<T>, options: ConcurrencyOptions = {}): Promise<T> => {
+        if (
+            options.timeoutMs !== undefined &&
+            (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 0 || options.timeoutMs > 2_147_483_647)
+        ) {
+            throw new RangeError('timeoutMs must be an integer between 0 and 2147483647.');
+        }
+        options.signal?.throwIfAborted();
+        const controller = new AbortController();
+        const { signal } = controller;
+        return new Promise<T>((resolve, reject) => {
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            const cleanup = () => {
+                clearTimeout(timer);
+                options.signal?.removeEventListener('abort', abort);
+            };
+            const cancel = (reason: unknown) => {
+                queue.delete(start);
+                controller.abort(reason);
+                cleanup();
+                reject(signal.reason);
+            };
+            const abort = () => cancel(options.signal?.reason);
             const start = () => {
                 activeCount += 1;
-                resolve();
+                void Promise.resolve()
+                    .then(() => {
+                        signal.throwIfAborted();
+                        return task(signal);
+                    })
+                    .then(resolve, reject)
+                    .finally(() => {
+                        cleanup();
+                        activeCount -= 1;
+                        drain();
+                    });
             };
-
-            if (activeCount < workerLimit) {
-                start();
-                return;
+            options.signal?.addEventListener('abort', abort, { once: true });
+            if (options.timeoutMs !== undefined) {
+                timer = setTimeout(
+                    () => cancel(new DOMException('Task deadline exceeded.', 'TimeoutError')),
+                    options.timeoutMs,
+                );
             }
-
-            queue.push(start);
-        });
-
-        try {
-            return await task();
-        } finally {
-            activeCount -= 1;
+            queue.add(start);
             drain();
-        }
+        });
     };
 };

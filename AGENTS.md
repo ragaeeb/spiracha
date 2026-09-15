@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This repo is a Bun-first local app for importing web conversations and browsing, exporting, and exposing agent conversation history from Codex, Claude Code, Cline, Grok, Grok Bot, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode.
+This repo is a Bun-first local app for importing web conversations and browsing, exporting, and exposing agent conversation history from Codex, Claude Code, Command Code, Cline, Grok, Grok Bot, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode.
 
 The legacy exporter, MCP server, and Codex plugin were removed in the 2.0 hard cut. Do not add bridge commands, compatibility aliases, or deprecated entrypoints back. The current CLI is an API-driven thin client; new application workflows should import the stable `spiracha/client` Bun SDK instead of shelling out.
 
@@ -94,9 +94,12 @@ Codex browser/export modules:
   - structural cleanup of Codex Desktop recent/sidebar references and deleted-thread write-block flags
 - `src/lib/codex-thread-recovery.ts`
   - Codex project recovery helpers
+- `src/lib/codex-deletion-journal.ts`, `src/lib/cursor-operation-journal.ts`
+  - durable deletion/recovery intents and restart reconciliation; see `docs/codex-deletion-recovery.md` and `docs/cursor-crash-recovery.md`
 
 Source-specific browser/export modules:
 - `src/lib/claude-code-db.ts`, `src/lib/claude-code-exporter-types.ts`, `src/lib/claude-code-transcript-phase.ts`, `src/lib/claude-code-transcript.ts`
+- `src/lib/command-code-db.ts`, `src/lib/command-code-exporter-types.ts`
 - `src/lib/cline-db.ts`, `src/lib/cline-exporter-types.ts`, `src/lib/cline-transcript.ts`
 - `src/lib/grok-db.ts`, `src/lib/grok-exporter-types.ts`, `src/lib/grok-transcript-phase.ts`, `src/lib/grok-transcript.ts`
 - `src/lib/grok-bot-db.ts`, `src/lib/conversation-data/grok-bot-adapter.ts`
@@ -118,7 +121,8 @@ Shared utilities:
 - `src/lib/conversation-data/markdown.ts` (portable normalized Markdown rendering)
 - `src/lib/codex-transcript-records.ts`, `src/lib/codex-cloud-transcript.ts` (portable Codex normalization)
 - `src/lib/sqlite-error.ts`
-- `src/lib/sqlite-retry.ts`
+- `src/lib/sqlite-retry.ts` (async backoff; database callbacks remain synchronous)
+- `src/lib/file-mutation-lock.ts` (cross-process SQLite lock for source-file mutations)
 - `src/lib/ui-cache.ts`
 - `src/lib/ui-export-archive.ts`
 - `src/lib/ui-export-files.ts`
@@ -132,7 +136,7 @@ UI source tree:
 - `src/ui/`
   - TanStack Start browser UI
   - API routes live under `src/ui/routes/api.v1.*.ts`
-  - source routes include `/threads/$threadId`, `/claude-code-sessions/$sessionId`, `/cline-tasks/$taskId`, `/grok-sessions/$sessionId`, `/grok-bot-chats/$conversationId`, `/kiro-sessions/$sessionId`, `/qoder-sessions/$sessionId`, `/cursor-threads/$composerId`, `/antigravity-conversations/$conversationId`, `/fx-sessions/$sessionId`, `/minimax-code-sessions/$sessionId`, and `/opencode-sessions/$sessionId`
+  - source routes include `/threads/$threadId`, `/claude-code-sessions/$sessionId`, `/command-code-sessions/$sessionId`, `/cline-tasks/$taskId`, `/grok-sessions/$sessionId`, `/grok-bot-chats/$conversationId`, `/kiro-sessions/$sessionId`, `/qoder-sessions/$sessionId`, `/cursor-threads/$composerId`, `/antigravity-conversations/$conversationId`, `/fx-sessions/$sessionId`, `/minimax-code-sessions/$sessionId`, and `/opencode-sessions/$sessionId`
   - Web import routes are `/web` and `/web-chats/$conversationId`; imported conversations use server functions and remain in bounded process memory
   - Cursor and Antigravity detail routes load large transcript/artifact bodies through post-hydration server queries; Codex exposes deferred loading for oversized rollouts
 
@@ -175,7 +179,7 @@ Defaults:
 - `delete_session_files` is accepted for single-delete query strings and batch-delete JSON; Cursor uses it to keep or remove transcript directories
 - Web imports are intentionally UI-only: they are not members of `CONVERSATION_SOURCES` and are not exposed through the stable API or CLI
 - Supplied payload conversion is separately exposed through `spiracha/payload` and the Bun `spiracha/client`; it reuses Web and native normalization without adding imported conversations to the stable source registry. Claude Code payload conversion is unsupported.
-- Grok Bot is a global source backed by the installed macOS app's account-scoped persistence directory. List reads the validated roster only, detail reads one exact replica, and raw export returns the original `.blob` bytes. Local deletion removes the selected original roster row and replica after a fail-closed process check; keep the app stopped throughout deletion. The check is not an atomic writer lock, and partial replica cleanup is reported separately.
+- Grok Bot is a global source backed by the installed macOS app's account-scoped persistence directory. List reads the validated roster only, detail reads one exact replica, and raw export returns the original `.blob` bytes. Local deletion removes the selected original roster row and replica after a fail-closed process check; keep the app stopped throughout deletion. The check is not an atomic writer lock, and partial replica cleanup is reported separately and retried through a durable account/conversation receipt; see `docs/grok-bot-deletion.md`.
 
 Do not bake review semantics into Spiracha. A client such as `fgh --collect` decides that a selected assistant message is a review and chooses where to save it.
 

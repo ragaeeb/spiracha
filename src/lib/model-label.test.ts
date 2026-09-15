@@ -7,6 +7,7 @@ describe('model label formatting', () => {
         expect(formatModelLabel('claude-3-7-sonnet')).toBe('Claude 3.7 Sonnet');
         expect(formatModelLabel('gpt-5.4-mini')).toBe('GPT 5.4 Mini');
         expect(formatModelLabel('o3-mini')).toBe('O3 Mini');
+        expect(formatModelLabel('z-ai/glm-5.3-flash')).toBe('GLM 5.3 Flash');
     });
 
     it('should normalize mixed separators without changing numeric versions', () => {

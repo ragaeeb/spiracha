@@ -31,6 +31,27 @@ export type OpenCodeWorkspaceGroup = {
     worktree: string;
 };
 
+export type OpenCodeCleanupFailure = {
+    error: string;
+    path?: string;
+    phase: 'desktop_state';
+};
+
+export type OpenCodeWorkspaceCleanupRetryPlan = {
+    sessionIds: string[];
+    workspaceKey: string;
+    worktrees: string[];
+};
+
+export type DeleteOpenCodeWorkspaceResult = {
+    cleanupFailures: OpenCodeCleanupFailure[];
+    cleanupRetryPlan?: OpenCodeWorkspaceCleanupRetryPlan;
+    deletedProjectIds: string[];
+    deletedSessionIds: string[];
+    workspaceFound: boolean;
+    workspaceKey: string;
+};
+
 export type OpenCodeModelInfo = {
     id: string | null;
     providerID: string | null;

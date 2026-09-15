@@ -13,3 +13,12 @@ it('should preview the artifact and download its unchanged Markdown', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Download Markdown' }));
     expect(downloadTextFile).toHaveBeenCalledWith('artifact-1.md', content, 'text/markdown;charset=utf-8');
 });
+
+it('should present and download JSON artifacts with their JSON extension', () => {
+    const content = '{"kind":"muse"}\n';
+    render(<WebChatArtifacts artifacts={[{ content, id: 'json-report', title: 'report.json' }]} />);
+    expect(screen.getByText(/\{"kind":"muse"\}/).textContent).toBe(content);
+    expect(screen.getByText('Generated artifact · JSON')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Download JSON' }));
+    expect(downloadTextFile).toHaveBeenCalledWith('artifact-1.json', content, 'application/json;charset=utf-8');
+});

@@ -1,6 +1,6 @@
 import type { ConversationMessage, ConversationMessageSelector, ConversationSource } from './conversation-data/types';
 
-export type ConversationPayloadSource = Exclude<ConversationSource, 'claude-code'> | 'web';
+export type ConversationPayloadSource = Exclude<ConversationSource, 'claude-code' | 'command-code'> | 'web';
 
 export type ConversationPayloadArtifact = { id: string; title: string; content: string };
 

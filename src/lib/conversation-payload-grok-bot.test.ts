@@ -10,9 +10,11 @@ describe('parseGrokBotPayload', () => {
                 description: 'Software Engineering',
                 id: 'chat-1',
                 isGroup: true,
+                lastActivityAtMs: 21,
                 memberIds: ['kiwi'],
                 name: 'Bamba Dev Team',
                 title: 'Team',
+                updatedAtMs: 20,
             },
             rosterRows: [{ id: 'kiwi', name: 'Kiwi' }],
             schemaVersion: 1,
@@ -47,8 +49,11 @@ describe('parseGrokBotPayload', () => {
         expect(draft?.metadata).toMatchObject({
             chatKind: 'group',
             description: 'Software Engineering',
+            lastActivityAtMs: 21,
             memberIds: ['kiwi'],
             members: [{ id: 'kiwi', name: 'Kiwi' }],
+            replicaPersistedAtMs: 22,
+            rosterUpdatedAtMs: 20,
             sourceEntryKinds: ['message', 'send-message', 'event'],
         });
     });

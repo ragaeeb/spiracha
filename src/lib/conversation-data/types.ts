@@ -1,6 +1,7 @@
 export const CONVERSATION_SOURCES = [
     'cline',
     'codex',
+    'command-code',
     'claude-code',
     'grok',
     'kiro',
@@ -174,6 +175,7 @@ export type ConversationDataLocations = {
     antigravityRoots?: string[];
     claudeCodeProjectsDir?: string;
     clineDataDir?: string;
+    commandCodeProjectsDir?: string;
     codexDbPath?: string;
     cursorUserDir?: string;
     fxDataDir?: string;

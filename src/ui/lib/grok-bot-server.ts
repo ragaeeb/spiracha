@@ -11,19 +11,21 @@ import {
 } from '@spiracha/lib/shared-text';
 import { queryOptions } from '@tanstack/react-query';
 import { createServerFn } from '@tanstack/react-start';
-import { z } from 'zod';
+import type { InferOutput } from 'valibot';
+import { boolean, object, optional, picklist, pipe, regex, string } from 'valibot';
 import { renderSourceSessionDownload } from './source-session-export-server';
 
-const conversationSchema = z.object({
-    conversationId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u),
+const conversationSchema = object({
+    conversationId: pipe(string(), regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u)),
 });
 
-const exportSchema = conversationSchema.extend({
-    includeCommentary: z.boolean().default(false),
-    includeMetadata: z.boolean().default(true),
-    includeTools: z.boolean().default(true),
-    outputFormat: z.enum(['md', 'txt']).default('md'),
-    zipArchive: z.boolean().default(false),
+const exportSchema = object({
+    conversationId: pipe(string(), regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u)),
+    includeCommentary: optional(boolean(), false),
+    includeMetadata: optional(boolean(), true),
+    includeTools: optional(boolean(), true),
+    outputFormat: optional(picklist(['md', 'txt']), 'md'),
+    zipArchive: optional(boolean(), false),
 });
 
 export type GrokBotChat = Omit<ConversationDetail, 'messages' | 'metadata'> & {
@@ -71,9 +73,25 @@ const getMessageTitle = (message: ConversationMessage) => {
           : 'Message';
 };
 
+const exportTimestamp = (value: unknown): string | null => {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+        return null;
+    }
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date.toISOString();
+};
+
+const messageTimestampSuffix = (message: ConversationMessage, includeMetadata: boolean): string => {
+    const timestamp = includeMetadata ? exportTimestamp(message.createdAtMs) : null;
+    return timestamp ? ` — ${timestamp}` : '';
+};
+
 const renderGrokBotMessage = (
     message: ConversationMessage,
-    options: Pick<z.output<typeof exportSchema>, 'includeCommentary' | 'includeTools' | 'outputFormat'>,
+    options: Pick<
+        InferOutput<typeof exportSchema>,
+        'includeCommentary' | 'includeMetadata' | 'includeTools' | 'outputFormat'
+    >,
 ) => {
     if ((message.phase === 'commentary' || message.phase === 'reasoning') && !options.includeCommentary) {
         return '';
@@ -82,6 +100,7 @@ const renderGrokBotMessage = (
         return '';
     }
 
+    const suffix = messageTimestampSuffix(message, options.includeMetadata);
     const text = cleanExtractedText(message.text).trim();
     if (message.phase === 'tool_call') {
         const tool = message.toolEvidence;
@@ -93,23 +112,23 @@ const renderGrokBotMessage = (
         if (tool?.inputText?.trim()) {
             lines.push('', 'Input:', '', renderCodeBlock(tool.inputText.trim(), options.outputFormat));
         }
-        return renderSection('Tool Call', lines.join('\n'), options.outputFormat);
+        return renderSection(`Tool Call${suffix}`, lines.join('\n'), options.outputFormat);
     }
     if (message.phase === 'tool_output') {
         const outputText = message.toolEvidence?.outputText?.trim() || text;
-        return renderSection('Tool Output', outputText, options.outputFormat);
+        return renderSection(`Tool Output${suffix}`, outputText, options.outputFormat);
     }
     if (message.phase === 'reasoning') {
-        return renderSection('Reasoning', text, options.outputFormat);
+        return renderSection(`Reasoning${suffix}`, text, options.outputFormat);
     }
 
-    return renderSection(getMessageTitle(message), text, options.outputFormat);
+    return renderSection(`${getMessageTitle(message)}${suffix}`, text, options.outputFormat);
 };
 
 const renderGrokBotChat = (
     conversation: GrokBotChat,
     options: Pick<
-        z.output<typeof exportSchema>,
+        InferOutput<typeof exportSchema>,
         'includeCommentary' | 'includeMetadata' | 'includeTools' | 'outputFormat'
     >,
 ) => {
@@ -125,6 +144,13 @@ const renderGrokBotChat = (
                   { key: 'exported_from', value: 'grok_bot' },
                   { key: 'conversation_id', value: conversation.id },
                   { key: 'title', value: conversation.title },
+                  { key: 'created_at', value: exportTimestamp(conversation.createdAtMs) },
+                  { key: 'last_activity_at', value: exportTimestamp(conversation.metadata.lastActivityAtMs) },
+                  { key: 'roster_updated_at', value: exportTimestamp(conversation.metadata.rosterUpdatedAtMs) },
+                  { key: 'replica_persisted_at', value: exportTimestamp(conversation.metadata.replicaPersistedAtMs) },
+                  { key: 'description', value: conversation.metadata.description },
+                  { key: 'agent_title', value: conversation.metadata.agentTitle },
+                  { key: 'attachments', value: conversation.metadata.attachments },
                   { key: 'chat_kind', value: conversation.metadata.chatKind },
                   { key: 'participants', value: getMemberNames(conversation).join(', ') },
                   { key: 'message_count', value: conversation.messages.length },
@@ -189,6 +215,11 @@ export const deleteGrokBotChatFn = createServerFn({ method: 'POST' })
         const result = await deleteConversation({ id: data.conversationId, source: 'grok-bot' });
         if (!result || result.deletedIds.length === 0) {
             throw new Error(`Grok Bot chat not found: ${data.conversationId}`);
+        }
+        if (result.cleanupFailures?.length) {
+            throw new Error(
+                `Roster entry removed; cleanup remains. Keep Grok Bot stopped and retry: ${result.cleanupFailures.map((failure) => failure.error).join('; ')}`,
+            );
         }
         return result;
     });

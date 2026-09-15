@@ -92,11 +92,16 @@ const chat = (): ConversationDetail => ({
         }),
     ],
     metadata: {
+        attachments: [{ byteSize: 123, fileName: 'notes.md' }],
         chatKind: 'group',
+        description: 'Working on the app',
+        lastActivityAtMs: 1_700_000_000_050,
         members: [
             { id: 'kiwi', name: 'Kiwi' },
             { id: 'safiyyah', name: 'Safiyyah' },
         ],
+        replicaPersistedAtMs: 1_700_000_000_100,
+        rosterUpdatedAtMs: 1_700_000_000_075,
     },
     source: 'grok-bot',
     title: 'Bamba Dev Team',
@@ -140,6 +145,13 @@ describe('Grok Bot server operations', () => {
         expect(exportRequest.content).toContain('Thinking note');
         expect(exportRequest.content).toContain('Tool Call');
         expect(exportRequest.content).toContain('Bamba Dev Team');
+        expect(exportRequest.content).toContain('created_at: "2023-11-14T22:13:20.000Z"');
+        expect(exportRequest.content).toContain('last_activity_at: "2023-11-14T22:13:20.050Z"');
+        expect(exportRequest.content).toContain('roster_updated_at: "2023-11-14T22:13:20.075Z"');
+        expect(exportRequest.content).toContain('replica_persisted_at: "2023-11-14T22:13:20.100Z"');
+        expect(exportRequest.content).toContain('Working on the app');
+        expect(exportRequest.content).toContain('notes.md');
+        expect(exportRequest.content).toContain('## Kiwi — 2023-11-14T22:13:20.000Z');
 
         await expect(deleteGrokBotChatFn({ data: { conversationId: 'chat-id' } } as never)).resolves.toEqual({
             deletedFiles: ['/tmp/chat.blob'],
@@ -163,6 +175,8 @@ describe('Grok Bot server operations', () => {
         expect(exportRequest.content).not.toContain('Thinking note');
         expect(exportRequest.content).not.toContain('Tool Call');
         expect(exportRequest.content).toContain('Question');
+        expect(exportRequest.content).not.toContain('2023-11-14');
+        expect(exportRequest.content).not.toContain('Working on the app');
 
         getConversationMock.mockResolvedValueOnce(null);
         await expect(getGrokBotChatFn({ data: { conversationId: 'missing' } } as never)).rejects.toThrow(
@@ -172,5 +186,37 @@ describe('Grok Bot server operations', () => {
         await expect(deleteGrokBotChatFn({ data: { conversationId: 'missing' } } as never)).rejects.toThrow(
             'Grok Bot chat not found: missing',
         );
+    });
+    it('should report residual deletion cleanup so the dialog can retry', async () => {
+        deleteConversationMock.mockResolvedValue({
+            cleanupFailures: [{ error: 'replica busy', path: '/fixture/replica.blob', phase: 'transcript-replica' }],
+            deletedFiles: [],
+            deletedIds: ['chat-id'],
+        });
+        await expect(deleteGrokBotChatFn({ data: { conversationId: 'chat-id' } } as never)).rejects.toThrow(
+            'Roster entry removed; cleanup remains. Keep Grok Bot stopped and retry: replica busy',
+        );
+    });
+    it('should omit unknown and invalid dates while preserving text export timestamps', async () => {
+        const conversation = chat();
+        conversation.createdAtMs = null;
+        conversation.metadata = { chatKind: 'group', replicaPersistedAtMs: 1e20 };
+        conversation.messages = [message({ createdAtMs: null }), message({ createdAtMs: 0 })];
+        getConversationMock.mockResolvedValue(conversation);
+        await exportGrokBotChatFn({
+            data: {
+                conversationId: 'chat-id',
+                includeCommentary: false,
+                includeMetadata: true,
+                includeTools: false,
+                outputFormat: 'txt',
+                zipArchive: false,
+            },
+        } as never);
+        const content = renderSourceSessionDownloadMock.mock.calls[0]?.[0].content;
+        expect(content).not.toContain('created_at:');
+        expect(content).not.toContain('replica_persisted_at:');
+        expect(content).toContain('Assistant — 1970-01-01T00:00:00.000Z');
+        expect(content).not.toContain('Invalid Date');
     });
 });

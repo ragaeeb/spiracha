@@ -1,23 +1,29 @@
 import { CLINE_SESSION_ID_PATTERN } from '@spiracha/lib/cline-exporter-types';
 import { createServerFn } from '@tanstack/react-start';
-import { z } from 'zod';
+import { array, boolean, minLength, object, optional, picklist, pipe, regex, string } from 'valibot';
 import { requireDeletedItems, runDeleteBatch } from './delete-batch';
 import { renderSourceSessionDownload, renderSourceSessionsDownload } from './source-session-export-server';
 
-const workspaceSchema = z.object({ workspaceKey: z.string().min(1) });
-const taskSchema = z.object({ taskId: z.string().regex(CLINE_SESSION_ID_PATTERN) });
-const exportTaskSchema = z.object({
-    includeCommentary: z.boolean().default(true),
-    includeMetadata: z.boolean().default(true),
-    includeTools: z.boolean().default(true),
-    outputFormat: z.enum(['md', 'txt']).default('md'),
-    taskId: z.string().regex(CLINE_SESSION_ID_PATTERN),
-    zipArchive: z.boolean().default(false),
+const workspaceSchema = object({ workspaceKey: pipe(string(), minLength(1)) });
+const taskSchema = object({ taskId: pipe(string(), regex(CLINE_SESSION_ID_PATTERN)) });
+const exportTaskSchema = object({
+    includeCommentary: optional(boolean(), true),
+    includeMetadata: optional(boolean(), true),
+    includeTools: optional(boolean(), true),
+    outputFormat: optional(picklist(['md', 'txt']), 'md'),
+    taskId: pipe(string(), regex(CLINE_SESSION_ID_PATTERN)),
+    zipArchive: optional(boolean(), false),
 });
-const exportTasksSchema = exportTaskSchema.omit({ taskId: true, zipArchive: true }).extend({
-    taskIds: z.array(z.string().regex(CLINE_SESSION_ID_PATTERN)).min(1),
+const exportTasksSchema = object({
+    includeCommentary: optional(boolean(), true),
+    includeMetadata: optional(boolean(), true),
+    includeTools: optional(boolean(), true),
+    outputFormat: optional(picklist(['md', 'txt']), 'md'),
+    taskIds: pipe(array(pipe(string(), regex(CLINE_SESSION_ID_PATTERN))), minLength(1)),
 });
-const deleteTasksSchema = z.object({ taskIds: z.array(z.string().regex(CLINE_SESSION_ID_PATTERN)).min(1) });
+const deleteTasksSchema = object({
+    taskIds: pipe(array(pipe(string(), regex(CLINE_SESSION_ID_PATTERN))), minLength(1)),
+});
 
 export const listClineWorkspacesFn = createServerFn({ method: 'GET' }).handler(async () => {
     const { listClineWorkspaceGroups } = await import('@spiracha/lib/cline-db');

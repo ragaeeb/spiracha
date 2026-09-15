@@ -1,36 +1,36 @@
 import { createServerFn } from '@tanstack/react-start';
-import { z } from 'zod';
+import { array, boolean, minLength, object, optional, picklist, pipe, string } from 'valibot';
 import { runDeleteBatch } from './delete-batch';
 import { renderSourceSessionDownload, renderSourceSessionsDownload } from './source-session-export-server';
 
-const workspaceSchema = z.object({
-    workspaceKey: z.string().min(1),
+const workspaceSchema = object({
+    workspaceKey: pipe(string(), minLength(1)),
 });
 
-const sessionSchema = z.object({
-    sessionId: z.string().min(1),
+const sessionSchema = object({
+    sessionId: pipe(string(), minLength(1)),
 });
 
-const exportSessionSchema = z.object({
-    includeCommentary: z.boolean().default(true),
-    includeMetadata: z.boolean().default(true),
-    includeTools: z.boolean().default(true),
-    outputFormat: z.enum(['md', 'txt']).default('md'),
-    sessionId: z.string().min(1),
-    zipArchive: z.boolean().default(false),
+const exportSessionSchema = object({
+    includeCommentary: optional(boolean(), true),
+    includeMetadata: optional(boolean(), true),
+    includeTools: optional(boolean(), true),
+    outputFormat: optional(picklist(['md', 'txt']), 'md'),
+    sessionId: pipe(string(), minLength(1)),
+    zipArchive: optional(boolean(), false),
 });
 
-const exportSessionsSchema = z.object({
-    includeCommentary: z.boolean().default(true),
-    includeMetadata: z.boolean().default(true),
-    includeTools: z.boolean().default(true),
-    outputFormat: z.enum(['md', 'txt']).default('md'),
-    sessionIds: z.array(z.string().min(1)).min(1),
-    zipArchive: z.boolean().default(true),
+const exportSessionsSchema = object({
+    includeCommentary: optional(boolean(), true),
+    includeMetadata: optional(boolean(), true),
+    includeTools: optional(boolean(), true),
+    outputFormat: optional(picklist(['md', 'txt']), 'md'),
+    sessionIds: pipe(array(pipe(string(), minLength(1))), minLength(1)),
+    zipArchive: optional(boolean(), true),
 });
 
-const deleteSessionsSchema = z.object({
-    sessionIds: z.array(z.string().min(1)).min(1),
+const deleteSessionsSchema = object({
+    sessionIds: pipe(array(pipe(string(), minLength(1))), minLength(1)),
 });
 
 export const listGrokWorkspacesFn = createServerFn({ method: 'GET' }).handler(async () => {

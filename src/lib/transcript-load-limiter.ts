@@ -9,6 +9,7 @@ export type TranscriptLoadIntegration =
     | 'claude-code'
     | 'cline'
     | 'codex'
+    | 'command-code'
     | 'cursor'
     | 'fx'
     | 'grok'

@@ -433,7 +433,7 @@ export const getUserVisibleThreadFilter = (db: Database) => {
     return "NOT (thread_source = 'subagent' AND source LIKE '%guardian%')";
 };
 
-export const withReadonlyDb = <T>(dbPath: string, callback: (db: Database) => T): T => {
+export const withReadonlyDb = <T>(dbPath: string, callback: (db: Database) => T): Promise<T> => {
     return runWithSqliteRetry({
         action: () => {
             const db = openReadonlyDb(dbPath);
@@ -458,7 +458,7 @@ export const withReadonlyDb = <T>(dbPath: string, callback: (db: Database) => T)
     });
 };
 
-export const withWritableDb = <T>(dbPath: string, callback: (db: Database) => T): T => {
+export const withWritableDb = <T>(dbPath: string, callback: (db: Database) => T): Promise<T> => {
     return runWithSqliteRetry({
         action: () => {
             const db = openWritableDb(dbPath, SQLITE_BUSY_TIMEOUT_MS);
@@ -507,7 +507,7 @@ export const resolveCodexThreadDbPath = () => {
     throw new Error(`Unable to open Codex thread database. Tried: ${candidates.join(', ')}`);
 };
 
-export const readThreads = (dbPath: string, projectName: string | null = null): ThreadRow[] => {
+export const readThreads = (dbPath: string, projectName: string | null = null): Promise<ThreadRow[]> => {
     return withReadonlyDb(dbPath, (db) => {
         const filters = [getUserVisibleThreadFilter(db)];
         if (projectName) {
@@ -546,16 +546,36 @@ export const hasRegularFile = (filePath: string) => {
 export const resolveCodexRolloutPath = (dbPath: string, rolloutPath: string) =>
     path.isAbsolute(rolloutPath) ? rolloutPath : path.join(resolveCodexDirFromDbPath(dbPath), rolloutPath);
 
+const canonicalizeMissingPath = async (filePath: string): Promise<string> => {
+    try {
+        return await realpath(filePath);
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+            throw error;
+        }
+        const parent = path.dirname(filePath);
+        if (parent === filePath) {
+            throw error;
+        }
+        return path.join(await canonicalizeMissingPath(parent), path.basename(filePath));
+    }
+};
+
 export const assertSafeCodexRolloutPaths = async (dbPath: string, rolloutPaths: string[]): Promise<void> => {
     const codexDir = path.resolve(resolveCodexDirFromDbPath(dbPath));
-    const canonicalCodexDir = await realpath(codexDir).catch(() => codexDir);
+    const canonicalCodexDir = await canonicalizeMissingPath(codexDir);
 
     await Promise.all(
         rolloutPaths.map(async (rolloutPath) => {
             const resolvedPath = path.resolve(resolveCodexRolloutPath(dbPath, rolloutPath));
-            const canonicalPath = await realpath(resolvedPath).catch(() => resolvedPath);
+            const canonicalPath = await canonicalizeMissingPath(resolvedPath);
             const relativePath = path.relative(canonicalCodexDir, canonicalPath);
-            if (!relativePath || relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath)) {
+            if (
+                !relativePath ||
+                relativePath === '..' ||
+                relativePath.startsWith(`..${path.sep}`) ||
+                path.isAbsolute(relativePath)
+            ) {
                 throw new Error(`Unsafe Codex rollout path: ${rolloutPath}`);
             }
         }),
@@ -655,7 +675,7 @@ const applyThreadHierarchyEdges = (
     }
 };
 
-export const getThreadHierarchyById = (dbPath: string, threadIds: string[]) => {
+export const getThreadHierarchyById = async (dbPath: string, threadIds: string[]) => {
     const hierarchyById = new Map<string, ThreadListEntry['hierarchy']>(
         threadIds.map((threadId) => [threadId, { childThreadCount: 0, parentThreadId: null }]),
     );

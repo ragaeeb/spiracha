@@ -198,6 +198,46 @@ const createRecoveryFixture = async (tempRoot: string): Promise<RecoveryFixture>
 };
 
 describe('codex thread recovery', () => {
+    it('should not read or rewrite shared state while another process holds the deletion lock', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-recovery-lock-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createRecoveryFixture(tempRoot);
+        const originalIndex = await Bun.file(fixture.sessionIndexPath).text();
+        const globalStatePath = path.join(fixture.codexDir, '.codex-global-state.json');
+        const originalGlobalState = await Bun.file(globalStatePath).text();
+        const child = Bun.spawn(
+            [
+                process.execPath,
+                '-e',
+                `
+            import { withCodexDeletionLock } from './src/lib/codex-deletion-journal.ts';
+            await withCodexDeletionLock(Bun.argv.at(-1), async () => {
+                console.log('locked');
+                await Bun.sleep(10000);
+            });
+        `,
+                fixture.dbPath,
+            ],
+            { stderr: 'pipe', stdout: 'pipe' },
+        );
+        try {
+            const reader = child.stdout.getReader();
+            const ready = await reader.read();
+            reader.releaseLock();
+            expect(new TextDecoder().decode(ready.value)).toContain('locked');
+            await expect(recoverCodexProjectThreads(fixture.dbPath, 'recover-me')).rejects.toThrow(
+                'SQLite operation failed',
+            );
+            expect(await Bun.file(fixture.sessionIndexPath).text()).toBe(originalIndex);
+            expect(await Bun.file(globalStatePath).text()).toBe(originalGlobalState);
+            expect((await readdir(fixture.codexDir)).filter((file) => file.includes('.bak-recover-'))).toEqual([]);
+        } finally {
+            child.kill();
+            await child.exited;
+        }
+        expect((await recoverCodexProjectThreads(fixture.dbPath, 'recover-me')).topLevelThreadsFound).toBe(1);
+    });
+
     it('should retain only the newest recovery backups for each state file', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-recovery-retention-test-'));
         tempPaths.push(tempRoot);

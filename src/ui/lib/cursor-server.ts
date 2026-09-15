@@ -8,33 +8,45 @@ import type {
 } from '@spiracha/lib/cursor-exporter-types';
 import { isSafeCursorComposerId } from '@spiracha/lib/cursor-id';
 import { createServerFn } from '@tanstack/react-start';
-import { z } from 'zod';
+import {
+    array,
+    boolean,
+    check,
+    maxLength,
+    minLength,
+    nullable,
+    object,
+    optional,
+    picklist,
+    pipe,
+    string,
+    uuid,
+} from 'valibot';
 import { renderSourceSessionDownload, renderSourceSessionsDownload } from './source-session-export-server';
 
-const composerIdSchema = z.string().refine(isSafeCursorComposerId, {
-    message: 'Invalid Cursor composer id.',
-});
+const composerIdSchema = pipe(string(), check(isSafeCursorComposerId, 'Invalid Cursor composer id.'));
 
-const cleanupRetryTargetSchema = z.object({
-    token: z.string().uuid(),
+const cleanupRetryTargetSchema = object({
+    token: pipe(string(), uuid()),
 });
 
 const CURSOR_CLEANUP_RETRY_TTL_MS = 5 * 60 * 1000;
 const CURSOR_CLEANUP_RETRY_MAX = 128;
 
-const workspaceSchema = z.object({
-    workspaceKey: z.string().min(1),
+const workspaceSchema = object({
+    workspaceKey: pipe(string(), minLength(1)),
 });
 
-const deleteWorkspaceSchema = workspaceSchema.extend({
-    deleteSessionFiles: z.boolean().default(true),
-    retry: cleanupRetryTargetSchema.optional(),
+const deleteWorkspaceSchema = object({
+    deleteSessionFiles: optional(boolean(), true),
+    retry: optional(cleanupRetryTargetSchema),
+    workspaceKey: pipe(string(), minLength(1)),
 });
 
-const workspacesSchema = z.object({
-    deleteSessionFiles: z.boolean().default(true),
-    retryTargets: z.array(cleanupRetryTargetSchema.nullable()).max(CURSOR_CLEANUP_RETRY_MAX).optional(),
-    workspaceKeys: z.array(z.string().min(1)).min(1).max(CURSOR_CLEANUP_RETRY_MAX),
+const workspacesSchema = object({
+    deleteSessionFiles: optional(boolean(), true),
+    retryTargets: optional(pipe(array(nullable(cleanupRetryTargetSchema)), maxLength(CURSOR_CLEANUP_RETRY_MAX))),
+    workspaceKeys: pipe(array(pipe(string(), minLength(1))), minLength(1), maxLength(CURSOR_CLEANUP_RETRY_MAX)),
 });
 
 // Keep filesystem retry paths server-side; clients receive only bounded, opaque, single-use tokens.
@@ -128,36 +140,36 @@ const finalizeCursorPruneResult = (result: CursorPruneResult): CursorPruneResult
     return result;
 };
 
-const threadSchema = z.object({
+const threadSchema = object({
     composerId: composerIdSchema,
 });
 
-const recoverSchema = z.object({
-    apply: z.boolean().default(false),
-    workspaceKey: z.string().min(1),
+const recoverSchema = object({
+    apply: optional(boolean(), false),
+    workspaceKey: pipe(string(), minLength(1)),
 });
 
-const exportSchema = z.object({
+const exportSchema = object({
     composerId: composerIdSchema,
-    includeCommentary: z.boolean().default(true),
-    includeMetadata: z.boolean().default(true),
-    includeTools: z.boolean().default(true),
-    outputFormat: z.enum(['md', 'txt']).default('md'),
-    zipArchive: z.boolean().default(false),
+    includeCommentary: optional(boolean(), true),
+    includeMetadata: optional(boolean(), true),
+    includeTools: optional(boolean(), true),
+    outputFormat: optional(picklist(['md', 'txt']), 'md'),
+    zipArchive: optional(boolean(), false),
 });
 
-const exportThreadsSchema = z.object({
-    composerIds: z.array(composerIdSchema).min(1),
-    includeCommentary: z.boolean().default(true),
-    includeMetadata: z.boolean().default(true),
-    includeTools: z.boolean().default(true),
-    outputFormat: z.enum(['md', 'txt']).default('md'),
-    zipArchive: z.boolean().default(true),
+const exportThreadsSchema = object({
+    composerIds: pipe(array(composerIdSchema), minLength(1)),
+    includeCommentary: optional(boolean(), true),
+    includeMetadata: optional(boolean(), true),
+    includeTools: optional(boolean(), true),
+    outputFormat: optional(picklist(['md', 'txt']), 'md'),
+    zipArchive: optional(boolean(), true),
 });
 
-const deleteThreadsSchema = z.object({
-    composerIds: z.array(composerIdSchema).min(1),
-    deleteSessionFiles: z.boolean().default(true),
+const deleteThreadsSchema = object({
+    composerIds: pipe(array(composerIdSchema), minLength(1)),
+    deleteSessionFiles: optional(boolean(), true),
 });
 
 const ensureCursorClosedForWrite = async () => {
@@ -200,6 +212,13 @@ const isCursorSafetyError = (error: unknown): boolean =>
     error instanceof Error && error.message.startsWith('Unsafe Cursor');
 
 const deleteCursorWorkspaceGroup = async (group: CursorWorkspaceGroup, deleteSessionFiles: boolean) => {
+    const { runCursorWorkspaceDeletion } = await import('@spiracha/lib/cursor-recovery');
+    return runCursorWorkspaceDeletion(group, deleteSessionFiles, () =>
+        executeCursorWorkspaceDeletion(group, deleteSessionFiles),
+    );
+};
+
+const executeCursorWorkspaceDeletion = async (group: CursorWorkspaceGroup, deleteSessionFiles: boolean) => {
     const { listCursorThreadsForGroup } = await import('@spiracha/lib/cursor-db');
     const {
         collectCursorThreadsForDeletion,

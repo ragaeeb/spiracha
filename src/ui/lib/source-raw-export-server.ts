@@ -1,11 +1,12 @@
 import { createServerFn } from '@tanstack/react-start';
-import { z } from 'zod';
+import { array, minLength, object, picklist, pipe, string } from 'valibot';
 
 const rawSourceValues = [
     'antigravity',
     'claude-code',
     'cline',
     'codex',
+    'command-code',
     'grok',
     'grok-bot',
     'kiro',
@@ -13,9 +14,9 @@ const rawSourceValues = [
     'qoder',
 ] as const;
 
-const exportRawConversationsSchema = z.object({
-    ids: z.array(z.string().min(1)).min(1),
-    source: z.enum(rawSourceValues),
+const exportRawConversationsSchema = object({
+    ids: pipe(array(pipe(string(), minLength(1))), minLength(1)),
+    source: picklist(rawSourceValues),
 });
 
 export const exportRawConversationsFn = createServerFn({ method: 'POST' })

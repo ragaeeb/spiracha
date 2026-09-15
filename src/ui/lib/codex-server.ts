@@ -1,70 +1,71 @@
 import type { ParsedCodexTranscript } from '@spiracha/lib/codex-browser-types';
 import { createServerFn } from '@tanstack/react-start';
-import { z } from 'zod';
+import type { InferOutput } from 'valibot';
+import { array, boolean, minLength, nullable, object, optional, picklist, pipe, string } from 'valibot';
 
-const projectSchema = z.object({
-    project: z.string().min(1),
+const projectSchema = object({
+    project: pipe(string(), minLength(1)),
 });
 
-const deleteProjectSchema = z.object({
-    deleteSessionFiles: z.boolean().default(false),
-    project: z.string().min(1),
+const deleteProjectSchema = object({
+    deleteSessionFiles: optional(boolean(), false),
+    project: pipe(string(), minLength(1)),
 });
 
-const threadSchema = z.object({
-    threadId: z.string().min(1),
+const threadSchema = object({
+    threadId: pipe(string(), minLength(1)),
 });
 
-const transcriptFiltersSchema = z.object({
-    showCommentary: z.boolean(),
-    showExtraEvents: z.boolean(),
-    showToolCalls: z.boolean(),
-    showUserMessages: z.boolean(),
+const transcriptFiltersSchema = object({
+    showCommentary: boolean(),
+    showExtraEvents: boolean(),
+    showToolCalls: boolean(),
+    showUserMessages: boolean(),
 });
 
-const threadPreviewSchema = z.object({
-    filters: transcriptFiltersSchema.optional(),
-    threadId: z.string().min(1),
+const threadPreviewSchema = object({
+    filters: optional(transcriptFiltersSchema),
+    threadId: pipe(string(), minLength(1)),
 });
 
-const deleteThreadSchema = z.object({
-    deleteSessionFiles: z.boolean().default(false),
-    threadId: z.string().min(1),
+const deleteThreadSchema = object({
+    deleteSessionFiles: optional(boolean(), false),
+    threadId: pipe(string(), minLength(1)),
 });
 
-const deleteThreadsSchema = z.object({
-    deleteSessionFiles: z.boolean().default(false),
-    threadIds: z.array(z.string().min(1)).min(1),
+const deleteThreadsSchema = object({
+    deleteSessionFiles: optional(boolean(), false),
+    threadIds: pipe(array(pipe(string(), minLength(1))), minLength(1)),
 });
 
-const analyticsSchema = z.object({
-    project: z.string().min(1).nullable(),
+const analyticsSchema = object({
+    project: nullable(pipe(string(), minLength(1))),
 });
 
-const exportSchema = z.object({
-    convertToProjectRoot: z.boolean(),
-    includeCommentary: z.boolean(),
-    includeMetadata: z.boolean(),
-    includeTools: z.boolean(),
-    outputFormat: z.enum(['md', 'txt']),
-    redactUsername: z.boolean(),
-    threadId: z.string().min(1),
-    zipArchive: z.boolean().default(false),
+const exportSchema = object({
+    convertToProjectRoot: boolean(),
+    includeCommentary: boolean(),
+    includeMetadata: boolean(),
+    includeTools: boolean(),
+    outputFormat: picklist(['md', 'txt']),
+    redactUsername: boolean(),
+    threadId: pipe(string(), minLength(1)),
+    zipArchive: optional(boolean(), false),
 });
 
-const exportThreadsSchema = z.object({
-    convertToProjectRoot: z.boolean(),
-    includeCommentary: z.boolean(),
-    includeMetadata: z.boolean(),
-    includeTools: z.boolean(),
-    outputFormat: z.enum(['md', 'txt']),
-    redactUsername: z.boolean(),
-    threadIds: z.array(z.string().min(1)).min(1),
-    zipArchive: z.boolean().default(true),
+const exportThreadsSchema = object({
+    convertToProjectRoot: boolean(),
+    includeCommentary: boolean(),
+    includeMetadata: boolean(),
+    includeTools: boolean(),
+    outputFormat: picklist(['md', 'txt']),
+    redactUsername: boolean(),
+    threadIds: pipe(array(pipe(string(), minLength(1))), minLength(1)),
+    zipArchive: optional(boolean(), true),
 });
 
-const exportRawThreadsSchema = z.object({
-    threadIds: z.array(z.string().min(1)).min(1),
+const exportRawThreadsSchema = object({
+    threadIds: pipe(array(pipe(string(), minLength(1))), minLength(1)),
 });
 
 const getDbPath = async () => {
@@ -117,7 +118,7 @@ export const getThreadSnapshotFn = createServerFn({ method: 'GET' })
         logCodexThreadLoad('snapshot_start', {
             threadId: data.threadId,
         });
-        const browseData = getThreadBrowseData(dbPath, data.threadId);
+        const browseData = await getThreadBrowseData(dbPath, data.threadId);
         const transcript: ParsedCodexTranscript | null = null;
         let rollout: Awaited<ReturnType<typeof getThreadRolloutLoadState>>;
 
@@ -166,7 +167,7 @@ export const getThreadSnapshotFn = createServerFn({ method: 'GET' })
 
 export const loadThreadTranscriptPreview = async (
     threadId: string,
-    filters?: z.infer<typeof transcriptFiltersSchema>,
+    filters?: InferOutput<typeof transcriptFiltersSchema>,
 ) => {
     const startedAt = Date.now();
     const [{ getThreadBrowseData }, { getCachedThreadTranscriptPreview }] = await Promise.all([
@@ -174,7 +175,7 @@ export const loadThreadTranscriptPreview = async (
         import('@spiracha/lib/codex-thread-cache'),
     ]);
     const dbPath = await getDbPath();
-    const browseData = getThreadBrowseData(dbPath, threadId);
+    const browseData = await getThreadBrowseData(dbPath, threadId);
     logCodexThreadLoad('preview_start', {
         rolloutPath: browseData.thread.rollout_path,
         threadId,
@@ -197,7 +198,7 @@ export const loadThreadTranscript = async (threadId: string) => {
         import('@spiracha/lib/codex-thread-cache'),
     ]);
     const dbPath = await getDbPath();
-    const browseData = getThreadBrowseData(dbPath, threadId);
+    const browseData = await getThreadBrowseData(dbPath, threadId);
     const startedAt = Date.now();
     logCodexThreadLoad('full_start', {
         rolloutPath: browseData.thread.rollout_path,

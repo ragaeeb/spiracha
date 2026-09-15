@@ -515,7 +515,7 @@ describe('codex browser db', () => {
         await rm(`${dbPath}-wal`, { force: true });
         await rm(`${dbPath}-shm`, { force: true });
 
-        const row = withReadonlyDb(dbPath, (db) => {
+        const row = await withReadonlyDb(dbPath, (db) => {
             return db.query('SELECT COUNT(*) AS count FROM threads').get() as { count: number };
         });
 
@@ -661,7 +661,7 @@ describe('codex browser db', () => {
         const projectThreads = await listProjectThreads(fixture.dbPath, 'spiracha', {
             includeTranscriptStats: false,
         });
-        const scopedThreads = listScopedThreads(fixture.dbPath, 'spiracha');
+        const scopedThreads = await listScopedThreads(fixture.dbPath, 'spiracha');
         const projects = await listCodexProjects(fixture.dbPath);
         const dashboard = await getCodexDashboardSummary(fixture.dbPath);
 
@@ -801,8 +801,8 @@ describe('codex browser db', () => {
         const threads = await listProjectThreads(fixture.dbPath, 'spiracha');
         const projects = await listCodexProjects(fixture.dbPath);
         const dashboard = await getCodexDashboardSummary(fixture.dbPath);
-        const fallbackDetails = getThreadBrowseData(fixture.dbPath, fallbackThreadId);
-        const scopedThreads = listScopedThreads(fixture.dbPath, 'spiracha');
+        const fallbackDetails = await getThreadBrowseData(fixture.dbPath, fallbackThreadId);
+        const scopedThreads = await listScopedThreads(fixture.dbPath, 'spiracha');
 
         expect(threads.map((thread) => thread.thread.id)).toContain(fallbackThreadId);
         expect(threads[0]).toMatchObject({
@@ -968,7 +968,7 @@ describe('codex browser db', () => {
         const threads = await listProjectThreads(fixture.dbPath, 'spiracha', { includeTranscriptStats: false });
 
         expect(threads.map((thread) => thread.thread.id)).not.toContain(fallbackThreadId);
-        expect(() => getThreadBrowseData(fixture.dbPath, fallbackThreadId)).toThrow('Thread not found');
+        await expect(getThreadBrowseData(fixture.dbPath, fallbackThreadId)).rejects.toThrow('Thread not found');
     });
 
     it('should summarize fallback projects without parsing large irrelevant rollout records', async () => {
@@ -1169,7 +1169,7 @@ describe('codex browser db', () => {
         db.close();
 
         const threads = await listProjectThreads(fixture.dbPath, 'spiracha');
-        const threadDetails = getThreadBrowseData(fixture.dbPath, fixture.threads[0]!.threadId);
+        const threadDetails = await getThreadBrowseData(fixture.dbPath, fixture.threads[0]!.threadId);
 
         expect(threads).toHaveLength(2);
         expect(threads.map((thread) => thread.thread.id)).toEqual([
@@ -1206,7 +1206,7 @@ describe('codex browser db', () => {
         db.close();
 
         try {
-            getThreadBrowseData(fixture.dbPath, fixture.threadId);
+            await getThreadBrowseData(fixture.dbPath, fixture.threadId);
             throw new Error('expected schema compatibility failure');
         } catch (error) {
             expect(error).toBeInstanceOf(CodexDbCompatibilityError);
@@ -1240,11 +1240,11 @@ describe('codex browser db', () => {
         );
         db.close();
 
-        expect(() => getThreadBrowseData(fixture.dbPath, fixture.threads[0]!.threadId)).toThrow(
+        await expect(getThreadBrowseData(fixture.dbPath, fixture.threads[0]!.threadId)).rejects.toThrow(
             CodexDbCompatibilityError,
         );
         try {
-            getThreadBrowseData(fixture.dbPath, fixture.threads[0]!.threadId);
+            await getThreadBrowseData(fixture.dbPath, fixture.threads[0]!.threadId);
             throw new Error('expected invalid dynamic-tool fields');
         } catch (error) {
             expect(error).toMatchObject({
@@ -1279,7 +1279,7 @@ describe('codex browser db', () => {
         db.close();
 
         try {
-            getThreadBrowseData(fixture.dbPath, fixture.threads[0]!.threadId);
+            await getThreadBrowseData(fixture.dbPath, fixture.threads[0]!.threadId);
             throw new Error('expected invalid goal fields');
         } catch (error) {
             expect(error).toMatchObject({
@@ -1305,7 +1305,7 @@ describe('codex browser db', () => {
         db.close();
 
         try {
-            getThreadBrowseDataBatch(fixture.dbPath, [42 as unknown as string]);
+            await getThreadBrowseDataBatch(fixture.dbPath, [42 as unknown as string]);
             throw new Error('expected invalid spawn-edge fields');
         } catch (error) {
             expect(error).toMatchObject({
@@ -1333,7 +1333,7 @@ describe('codex browser db', () => {
             ...Array.from({ length: 1_000 }, (_, index) => `missing-${index}`),
         ];
 
-        const results = getThreadBrowseDataBatch(fixture.dbPath, ids);
+        const results = await getThreadBrowseDataBatch(fixture.dbPath, ids);
 
         expect(results).toHaveLength(ids.length);
         expect(results.slice(0, 4).map((result) => [result.threadId, result.status, result.source])).toEqual([
@@ -1362,7 +1362,7 @@ describe('codex browser db', () => {
             childThreadId,
         ];
 
-        const results = getThreadBrowseDataBatch(fixture.dbPath, ids);
+        const results = await getThreadBrowseDataBatch(fixture.dbPath, ids);
 
         expect(results.map((result) => result.threadId)).toEqual(ids);
         expect(results[0]?.data?.relations.childEdges).toEqual([
@@ -1383,7 +1383,7 @@ describe('codex browser db', () => {
         const listedThread = (await listProjectThreads(fixture.dbPath, 'spiracha')).find(
             (thread) => thread.thread.id === fixture.threads[0]!.threadId,
         );
-        const detail = getThreadBrowseData(fixture.dbPath, fixture.threads[0]!.threadId);
+        const detail = await getThreadBrowseData(fixture.dbPath, fixture.threads[0]!.threadId);
 
         expect(listedThread?.thread.title).toBe('Implement thread hierarchy');
         expect(detail.thread.title).toBe('Implement thread hierarchy');
@@ -1401,7 +1401,9 @@ describe('codex browser db', () => {
         );
         await utimes(sessionIndexPath, fixedTime, fixedTime);
 
-        expect(getThreadBrowseData(fixture.dbPath, fixture.threads[0]!.threadId).thread.title).toBe('Alpha title');
+        expect((await getThreadBrowseData(fixture.dbPath, fixture.threads[0]!.threadId)).thread.title).toBe(
+            'Alpha title',
+        );
 
         await Bun.write(
             sessionIndexPath,
@@ -1409,7 +1411,9 @@ describe('codex browser db', () => {
         );
         await utimes(sessionIndexPath, fixedTime, fixedTime);
 
-        expect(getThreadBrowseData(fixture.dbPath, fixture.threads[0]!.threadId).thread.title).toBe('Bravo title');
+        expect((await getThreadBrowseData(fixture.dbPath, fixture.threads[0]!.threadId)).thread.title).toBe(
+            'Bravo title',
+        );
     });
 
     it('should retain every model used by a project thread instead of only the final database model', async () => {
@@ -1458,7 +1462,7 @@ describe('codex browser db', () => {
         const listedThreads = await listProjectThreads(fixture.dbPath, 'spiracha');
         const listedThread = listedThreads.find((entry) => entry.thread.id === threadId);
         const anonymousThread = listedThreads.find((entry) => entry.thread.id === anonymousThreadId);
-        const detail = getThreadBrowseData(fixture.dbPath, threadId);
+        const detail = await getThreadBrowseData(fixture.dbPath, threadId);
 
         expect(listedThread?.thread.title).toBe('Halley (subagent)');
         expect(listedThread?.thread.preview).toBe('Agent path: /root/code_review');
@@ -1473,7 +1477,7 @@ describe('codex browser db', () => {
         tempPaths.push(tempRoot);
         const fixture = await createMinimalBrowseSchemaFixture(tempRoot);
 
-        const threadDetails = getThreadBrowseData(fixture.dbPath, fixture.threadId);
+        const threadDetails = await getThreadBrowseData(fixture.dbPath, fixture.threadId);
 
         expect(threadDetails.dynamicTools).toEqual([]);
         expect(threadDetails.goals).toEqual([]);
@@ -1846,7 +1850,7 @@ describe('codex browser db', () => {
         const initialSessionIndex = await Bun.file(sessionIndexPath).text();
         const initialHistoryCounts = readPaginatedHistoryCounts(historyPath, [indexedThreadId, staleThreadId]);
 
-        const result = reconcileCodexSessionIndex(fixture.dbPath);
+        const result = await reconcileCodexSessionIndex(fixture.dbPath);
 
         expect(result).toEqual({
             dryRun: true,
@@ -1978,8 +1982,8 @@ describe('codex browser db', () => {
         expect(result.deletedThreadIds).toEqual([threadId]);
         expect(result.deletedSessionFiles).toEqual([]);
         expect(await Bun.file(sessionFile).exists()).toBe(true);
-        expect(() => getThreadBrowseData(fixture.dbPath, threadId)).toThrow('Thread not found');
-        expect(() => getThreadBrowseData(fixture.dbPath, threadId)).toThrow(CodexThreadNotFoundError);
+        await expect(getThreadBrowseData(fixture.dbPath, threadId)).rejects.toThrow('Thread not found');
+        await expect(getThreadBrowseData(fixture.dbPath, threadId)).rejects.toThrow(CodexThreadNotFoundError);
     });
 
     it('should remove stale Codex Desktop references when the database row is already gone', async () => {
@@ -2195,7 +2199,7 @@ describe('codex browser db', () => {
                 updated_at: '2026-06-14T01:58:34.149424Z',
             })}\n`,
         );
-        expect(() => getThreadBrowseData(fixture.dbPath, fallbackThreadId)).toThrow('Thread not found');
+        await expect(getThreadBrowseData(fixture.dbPath, fallbackThreadId)).rejects.toThrow('Thread not found');
     });
 
     it('should delete all threads that match a derived project basename', async () => {
@@ -2357,11 +2361,11 @@ describe('codex browser db', () => {
         tempPaths.push(tempRoot);
         const fixture = await createMinimalBrowseSchemaFixture(tempRoot);
 
-        expect(() =>
+        await expect(
             withReadonlyDb(fixture.dbPath, async () => {
                 return 'nope';
             }),
-        ).toThrow('Database callbacks must be synchronous');
+        ).rejects.toThrow('Database callbacks must be synchronous');
     });
 
     it('should delete very large projects without exceeding SQLite parameter limits', async () => {

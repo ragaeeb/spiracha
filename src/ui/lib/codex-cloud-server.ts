@@ -1,21 +1,21 @@
 import { createServerFn } from '@tanstack/react-start';
-import { z } from 'zod';
+import { boolean, minLength, object, optional, picklist, pipe, string } from 'valibot';
 
-const projectSchema = z.object({
-    projectId: z.string().min(1),
+const projectSchema = object({
+    projectId: pipe(string(), minLength(1)),
 });
 
-const taskSchema = z.object({
-    taskId: z.string().min(1),
+const taskSchema = object({
+    taskId: pipe(string(), minLength(1)),
 });
 
-const exportSchema = z.object({
-    includeCommentary: z.boolean(),
-    includeMetadata: z.boolean(),
-    includeTools: z.boolean(),
-    outputFormat: z.enum(['md', 'txt']),
-    taskId: z.string().min(1),
-    zipArchive: z.boolean().default(false),
+const exportSchema = object({
+    includeCommentary: boolean(),
+    includeMetadata: boolean(),
+    includeTools: boolean(),
+    outputFormat: picklist(['md', 'txt']),
+    taskId: pipe(string(), minLength(1)),
+    zipArchive: optional(boolean(), false),
 });
 
 const getCodexCloudClient = async () => {

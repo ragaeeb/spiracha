@@ -3,7 +3,8 @@ import type { AntigravityConversation } from '@spiracha/lib/antigravity-exporter
 import type { AntigravityDecryptionCapability } from '@spiracha/lib/antigravity-keychain';
 import { buildConversationExportBaseName } from '@spiracha/lib/ui-export-archive';
 import { createServerFn } from '@tanstack/react-start';
-import { z } from 'zod';
+import type { InferInput } from 'valibot';
+import { array, boolean, minLength, object, optional, parse, picklist, pipe, string } from 'valibot';
 import {
     canExportAntigravityConversation,
     hasEncryptedAntigravityConversation,
@@ -11,34 +12,34 @@ import {
 } from './antigravity-conversation-state';
 import { runDeleteBatch } from './delete-batch';
 
-const workspaceSchema = z.object({
-    workspaceKey: z.string().min(1),
+const workspaceSchema = object({
+    workspaceKey: pipe(string(), minLength(1)),
 });
 
-const conversationSchema = z.object({
-    conversationId: z.string().min(1),
+const conversationSchema = object({
+    conversationId: pipe(string(), minLength(1)),
 });
 
-const exportSchema = z.object({
-    conversationId: z.string().min(1),
-    includeCommentary: z.boolean().default(false),
-    includeMetadata: z.boolean().default(true),
-    includeTools: z.boolean().default(true),
-    outputFormat: z.enum(['md', 'txt']).default('md'),
-    zipArchive: z.boolean().default(false),
+const exportSchema = object({
+    conversationId: pipe(string(), minLength(1)),
+    includeCommentary: optional(boolean(), false),
+    includeMetadata: optional(boolean(), true),
+    includeTools: optional(boolean(), true),
+    outputFormat: optional(picklist(['md', 'txt']), 'md'),
+    zipArchive: optional(boolean(), false),
 });
 
-const exportConversationsSchema = z.object({
-    conversationIds: z.array(z.string().min(1)).min(1),
-    includeCommentary: z.boolean().default(false),
-    includeMetadata: z.boolean().default(true),
-    includeTools: z.boolean().default(true),
-    outputFormat: z.enum(['md', 'txt']).default('md'),
-    zipArchive: z.boolean().default(true),
+const exportConversationsSchema = object({
+    conversationIds: pipe(array(pipe(string(), minLength(1))), minLength(1)),
+    includeCommentary: optional(boolean(), false),
+    includeMetadata: optional(boolean(), true),
+    includeTools: optional(boolean(), true),
+    outputFormat: optional(picklist(['md', 'txt']), 'md'),
+    zipArchive: optional(boolean(), true),
 });
 
-const deleteConversationsSchema = z.object({
-    conversationIds: z.array(z.string().min(1)).min(1),
+const deleteConversationsSchema = object({
+    conversationIds: pipe(array(pipe(string(), minLength(1))), minLength(1)),
 });
 
 export { AntigravityDecryptionCapabilityError };
@@ -325,8 +326,8 @@ export const exportAntigravityConversationFn = createServerFn({ method: 'POST' }
         });
     });
 
-export const exportAntigravityConversations = async (input: z.input<typeof exportConversationsSchema>) => {
-    const data = exportConversationsSchema.parse(input);
+export const exportAntigravityConversations = async (input: InferInput<typeof exportConversationsSchema>) => {
+    const data = parse(exportConversationsSchema, input);
     const { renderSourceSessionsDownload } = await import('./source-session-export-server');
     const { listAntigravityConversations } = await import('@spiracha/lib/antigravity-db');
     const { resolveAntigravityProjectNames } = await import('@spiracha/lib/antigravity-projects');

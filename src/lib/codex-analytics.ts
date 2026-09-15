@@ -301,8 +301,8 @@ export const computeCodexAnalyticsFromThreads = async (
 };
 
 export const getCodexAnalytics = async (input: CodexAnalyticsInput): Promise<CodexAnalytics> => {
-    const threads = listScopedThreads(input.dbPath, input.project);
-    const threadRelations = getThreadRelationsBatch(
+    const threads = await listScopedThreads(input.dbPath, input.project);
+    const threadRelations = await getThreadRelationsBatch(
         input.dbPath,
         threads.map((thread) => thread.id),
     );

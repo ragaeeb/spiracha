@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'bun:test';
 import { createContext, runInContext } from 'node:vm';
 import { convertConversationPayload } from './conversation-payload';
-import { geminiResearchPayload, payloadSourceFixtures } from './conversation-payload-test-helpers';
+import {
+    chatgptResearchPayload,
+    chatgptResearchReport,
+    geminiResearchPayload,
+    payloadSourceFixtures,
+} from './conversation-payload-test-helpers';
 
 describe('portable payload conversion', () => {
     it('should bundle and convert every source using only Web runtime APIs', async () => {
@@ -43,6 +48,14 @@ describe('portable payload conversion', () => {
             '# Findings\n\nEvidence [cite: 1]\n\n## Works cited\n\n1. [Source](<https://example.com/source>)\n',
         );
         expect(research!.messages.some((message) => message.toolEvidence?.name === 'browse_page')).toBe(true);
+        const [chatgpt] = await portableConvert({ payload: JSON.stringify(chatgptResearchPayload) });
+        expect(chatgpt!.artifacts).toEqual([
+            {
+                content: chatgptResearchReport,
+                id: 'chatgpt-deep-research:report:chatgpt-report-message',
+                title: 'REPORT.md',
+            },
+        ]);
         await expect(portableConvert({ payload: 'invalid JSON' })).rejects.toMatchObject({ code: 'invalid_json' });
         await expect(portableConvert({ payload: {}, source: 'claude-code' as never })).rejects.toMatchObject({
             code: 'unsupported_source',

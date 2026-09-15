@@ -1,9 +1,10 @@
-import { Database } from 'bun:sqlite';
+import type { Database } from 'bun:sqlite';
 import { copyFile, readdir, rm, utimes } from 'node:fs/promises';
 import path from 'node:path';
 import type { RecoverProjectThreadsResult } from './codex-browser-types';
+import { resolveCodexDirFromDbPath, withReadonlyDb, withWritableDb } from './codex-database';
+import { withCodexDeletionLock } from './codex-deletion-journal';
 import { getPortablePathBasename } from './portable-path';
-import { runWithSqliteRetry } from './sqlite-retry';
 
 type RecoveryThreadRow = {
     cwd: string;
@@ -37,11 +38,6 @@ const backupFile = async (filePath: string, label: string) => {
         backups.slice(RECOVERY_BACKUP_RETENTION_COUNT).map((entry) => rm(path.join(directory, entry), { force: true })),
     );
     return backupPath;
-};
-
-const resolveCodexDirFromDbPath = (dbPath: string) => {
-    const dbDir = path.dirname(dbPath);
-    return path.basename(dbDir) === 'sqlite' ? path.dirname(dbDir) : dbDir;
 };
 
 const assertRequiredStatePath = async (filePath: string) => {
@@ -170,10 +166,7 @@ const touchRolloutFiles = async (codexDir: string, rolloutPaths: string[]) => {
     return touched;
 };
 
-export const recoverCodexProjectThreads = async (
-    dbPath: string,
-    projectName: string,
-): Promise<RecoverProjectThreadsResult> => {
+const recoverProjectWithLock = async (dbPath: string, projectName: string): Promise<RecoverProjectThreadsResult> => {
     const codexDir = resolveCodexDirFromDbPath(dbPath);
     const globalStatePath = path.join(codexDir, '.codex-global-state.json');
     const sessionIndexPath = path.join(codexDir, 'session_index.jsonl');
@@ -189,41 +182,32 @@ export const recoverCodexProjectThreads = async (
     };
 
     const globalState = await readGlobalState(globalStatePath);
-    const db = runWithSqliteRetry({
-        action: () => {
-            const opened = new Database(dbPath);
-            opened.exec('PRAGMA busy_timeout = 5000');
-            return opened;
-        },
-    });
+    const topLevelThreads = await withReadonlyDb(dbPath, (db) => getProjectTopLevelThreads(db, projectName));
+    const projectCwds = [...new Set(topLevelThreads.map((thread) => thread.cwd))];
+    const rootUpdateResult = updateGlobalRoots(globalState, projectCwds);
+    const threadIds = topLevelThreads.map((thread) => thread.id);
+    const rolloutPaths = topLevelThreads.map((thread) => thread.rollout_path);
+    const sessionIndexRefresh = await prepareSessionIndexRefresh(sessionIndexPath, threadIds);
 
-    try {
-        const topLevelThreads = getProjectTopLevelThreads(db, projectName);
-        const projectCwds = [...new Set(topLevelThreads.map((thread) => thread.cwd))];
-        const rootUpdateResult = updateGlobalRoots(globalState, projectCwds);
-        const threadIds = topLevelThreads.map((thread) => thread.id);
-        const rolloutPaths = topLevelThreads.map((thread) => thread.rollout_path);
-        const sessionIndexRefresh = await prepareSessionIndexRefresh(sessionIndexPath, threadIds);
-
-        await writeGlobalState(globalStatePath, rootUpdateResult.state);
-        const threadDbRowsUpdated = refreshThreadRows(db, threadIds);
-        if (sessionIndexRefresh.content !== null) {
-            await Bun.write(sessionIndexPath, sessionIndexRefresh.content);
-        }
-        const rolloutFilesTouched = await touchRolloutFiles(codexDir, rolloutPaths);
-
-        return {
-            backups,
-            projectName,
-            projectRootsAdded: rootUpdateResult.projectRootsAdded,
-            resolvedCwds: projectCwds,
-            rolloutFilesTouched,
-            savedRootsAdded: rootUpdateResult.savedRootsAdded,
-            sessionIndexRowsUpdated: sessionIndexRefresh.updated,
-            threadDbRowsUpdated,
-            topLevelThreadsFound: threadIds.length,
-        };
-    } finally {
-        db.close();
+    await writeGlobalState(globalStatePath, rootUpdateResult.state);
+    const threadDbRowsUpdated = await withWritableDb(dbPath, (db) => refreshThreadRows(db, threadIds));
+    if (sessionIndexRefresh.content !== null) {
+        await Bun.write(sessionIndexPath, sessionIndexRefresh.content);
     }
+    const rolloutFilesTouched = await touchRolloutFiles(codexDir, rolloutPaths);
+
+    return {
+        backups,
+        projectName,
+        projectRootsAdded: rootUpdateResult.projectRootsAdded,
+        resolvedCwds: projectCwds,
+        rolloutFilesTouched,
+        savedRootsAdded: rootUpdateResult.savedRootsAdded,
+        sessionIndexRowsUpdated: sessionIndexRefresh.updated,
+        threadDbRowsUpdated,
+        topLevelThreadsFound: threadIds.length,
+    };
 };
+
+export const recoverCodexProjectThreads = (dbPath: string, projectName: string): Promise<RecoverProjectThreadsResult> =>
+    withCodexDeletionLock(dbPath, () => recoverProjectWithLock(dbPath, projectName));

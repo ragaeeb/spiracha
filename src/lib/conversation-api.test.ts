@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'bun:test';
 import { handleConversationApiRequest } from './conversation-api';
 import type { ConversationDetail } from './conversation-data/types';
+import { chatgptResearchPayload, chatgptResearchReport } from './conversation-payload-test-helpers';
+import type { ConvertedConversation } from './conversation-payload-types';
 
 const conversation = {
     createdAtMs: 1,
@@ -51,9 +53,169 @@ const validLens = {
     name: 'Review evidence',
 };
 
+const convertedPayload = [
+    {
+        artifacts: [{ content: '# Findings\n', id: 'report', title: 'Research report' }],
+        createdAtMs: null,
+        id: 'payload-1',
+        markdown: '# Findings\n',
+        messages: [],
+        metadata: {},
+        source: 'web',
+        title: 'Research report',
+        updatedAtMs: null,
+        workspacePath: null,
+    },
+] satisfies ConvertedConversation[];
+
 const createRequest = (path: string, init?: RequestInit) => new Request(`http://localhost:3000${path}`, init);
 
 describe('conversation API handler', () => {
+    it('should convert supplied payloads through the stable API and preserve artifacts', async () => {
+        let receivedOptions: unknown;
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversation-payload', {
+                body: JSON.stringify({
+                    file_name: 'Gemini.json',
+                    message_selector: 'all',
+                    payload: { messages: [{ content: 'Research complete.', role: 'assistant' }] },
+                    source: 'web',
+                }),
+                headers: { 'Content-Type': 'application/json' },
+                method: 'POST',
+            }),
+            {
+                convertConversationPayload: async (options) => {
+                    receivedOptions = options;
+                    return convertedPayload;
+                },
+            },
+        );
+
+        expect(response.status).toBe(200);
+        expect(receivedOptions).toEqual({
+            fileName: 'Gemini.json',
+            messageSelector: 'all',
+            payload: { messages: [{ content: 'Research complete.', role: 'assistant' }] },
+            source: 'web',
+        });
+        await expect(response.json()).resolves.toEqual({ data: convertedPayload });
+    });
+
+    it('should expose ChatGPT Deep Research artifacts through the stable API', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversation-payload', {
+                body: JSON.stringify({ file_name: 'chatgpt.json', payload: chatgptResearchPayload, source: 'web' }),
+                headers: { 'Content-Type': 'application/json' },
+                method: 'POST',
+            }),
+        );
+
+        expect(response.status).toBe(200);
+        await expect(response.json()).resolves.toMatchObject({
+            data: [
+                {
+                    artifacts: [
+                        {
+                            content: chatgptResearchReport,
+                            id: 'chatgpt-deep-research:report:chatgpt-report-message',
+                            title: 'REPORT.md',
+                        },
+                    ],
+                },
+            ],
+        });
+    });
+
+    it('should return payload conversion errors as stable validation responses', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversation-payload', {
+                body: JSON.stringify({ payload: { invalid: true }, source: 'made-up' }),
+                headers: { 'Content-Type': 'application/json' },
+                method: 'POST',
+            }),
+        );
+
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toMatchObject({
+            error: {
+                code: 'validation_error',
+                details: { code: 'unsupported_source', field: 'payload' },
+            },
+        });
+    });
+
+    it('should reject an oversized payload request before conversion', async () => {
+        let converted = false;
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversation-payload', {
+                body: '{}',
+                headers: {
+                    'Content-Length': String(64 * 1024 * 1024 + 1),
+                    'Content-Type': 'application/json',
+                },
+                method: 'POST',
+            }),
+            {
+                convertConversationPayload: async () => {
+                    converted = true;
+                    return [];
+                },
+            },
+        );
+
+        expect(response.status).toBe(413);
+        expect(converted).toBe(false);
+        await expect(response.json()).resolves.toMatchObject({
+            error: {
+                code: 'validation_error',
+                details: { field: 'payload', reason: 'request_too_large' },
+            },
+        });
+    });
+
+    it('should enforce the payload limit for a chunked request without Content-Length', async () => {
+        let chunkCount = 0;
+        let cancelled = false;
+        const body = new ReadableStream<Uint8Array>({
+            cancel: () => {
+                cancelled = true;
+            },
+            pull: (controller) => {
+                chunkCount += 1;
+                controller.enqueue(new Uint8Array(1024 * 1024));
+            },
+        });
+        let converted = false;
+
+        const response = await handleConversationApiRequest(
+            new Request('http://localhost:3000/api/v1/conversation-payload', {
+                body,
+                duplex: 'half',
+                headers: { 'Content-Type': 'application/json' },
+                method: 'POST',
+            } as RequestInit & { duplex: 'half' }),
+            {
+                convertConversationPayload: async () => {
+                    converted = true;
+                    return [];
+                },
+            },
+        );
+
+        expect(response.status).toBe(413);
+        expect(chunkCount).toBeLessThanOrEqual(65);
+        expect(cancelled).toBe(true);
+        expect(converted).toBe(false);
+    });
+
+    it('should reject unsupported methods for the payload endpoint', async () => {
+        const response = await handleConversationApiRequest(createRequest('/api/v1/conversation-payload'));
+
+        expect(response.status).toBe(405);
+        expect(response.headers.get('Allow')).toBe('POST');
+    });
+
     it('should reject cross-origin requests before loading conversations', async () => {
         let loaded = false;
         const response = await handleConversationApiRequest(
@@ -167,6 +329,25 @@ describe('conversation API handler', () => {
         await expect(response.json()).resolves.toEqual({
             data: [{ label: 'Codex', scope: 'workspace', source: 'codex' }],
         });
+    });
+
+    it('should accept Command Code as a stable workspace source', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations?cwd=/repo&source=command-code&include_messages=true'),
+            {
+                listConversations: async (options) => {
+                    expect(options).toMatchObject({
+                        cwd: '/repo',
+                        includeMessages: true,
+                        sources: ['command-code'],
+                    });
+                    return { data: [], meta: { hasNext: false, nextCursor: null } };
+                },
+            },
+        );
+
+        expect(response.status).toBe(200);
+        await expect(response.json()).resolves.toMatchObject({ data: [] });
     });
 
     it('should query conversations for a cwd with the last final answer selector', async () => {
