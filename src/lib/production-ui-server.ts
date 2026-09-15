@@ -14,8 +14,9 @@ type ProductionUiFetchOptions = {
 };
 
 const withLocalSecurityHeaders = (response: Response) => {
-    response.headers.set('X-Content-Type-Options', 'nosniff');
-    return response;
+    const headers = new Headers(response.headers);
+    headers.set('X-Content-Type-Options', 'nosniff');
+    return new Response(response.body, { headers, status: response.status, statusText: response.statusText });
 };
 
 export const resolveClientAssetPath = (clientDirectory: string, pathname: string): string | null => {

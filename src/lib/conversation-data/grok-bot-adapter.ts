@@ -8,6 +8,7 @@ import {
 } from '../grok-bot-db';
 import type { GrokBotConversation, GrokBotConversationSummary } from '../grok-bot-payload';
 import { grokBotTranscriptMetadata, normalizeGrokBotTranscript } from '../grok-bot-payload';
+import { getNumericMaximum } from '../numeric-range';
 import { createConversationUiPath, createDeepLinks } from './adapter-helpers';
 import { selectConversationMessages } from './message-selector';
 import type {
@@ -23,7 +24,7 @@ const getPersistenceDir = (options: { locations?: { grokBotPersistenceDir?: stri
 
 const latestTimestamp = (values: Array<number | null>) => {
     const timestamps = values.filter((value): value is number => value !== null);
-    return timestamps.length > 0 ? Math.max(...timestamps) : null;
+    return timestamps.length > 0 ? getNumericMaximum(timestamps) : null;
 };
 
 const buildConversation = (

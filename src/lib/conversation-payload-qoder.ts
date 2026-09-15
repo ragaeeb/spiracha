@@ -1,4 +1,5 @@
 import type { ConversationPayloadSource, PayloadConversationDraft } from './conversation-payload-types';
+import { getNumericMaximum, getNumericMinimum } from './numeric-range';
 import type { QoderAcpSessionUpdate } from './qoder-acp-client';
 import {
     normalizeQoderModelLabel,
@@ -206,10 +207,10 @@ const getQoderDraftTimes = (envelope: Record<string, unknown>, messages: Payload
     return {
         createdAtMs:
             parseTimestampMs(envelope.createdAt ?? envelope.created_at ?? envelope.createTime) ??
-            (times.length > 0 ? Math.min(...times) : null),
+            (times.length > 0 ? getNumericMinimum(times) : null),
         updatedAtMs:
             parseTimestampMs(envelope.updatedAt ?? envelope.updated_at ?? envelope.lastActiveAt) ??
-            (times.length > 0 ? Math.max(...times) : null),
+            (times.length > 0 ? getNumericMaximum(times) : null),
     };
 };
 

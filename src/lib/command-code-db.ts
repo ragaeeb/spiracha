@@ -21,6 +21,7 @@ import {
 import { getConversationPathMatch } from './conversation-data/path-match';
 import type { ConversationMessage } from './conversation-data/types';
 import { withFileMutationLock } from './file-mutation-lock';
+import { getNumericMaximum, getNumericMinimum } from './numeric-range';
 import { getPortablePathBasename } from './portable-path';
 import { readDirectoryEntriesIfExists } from './shared';
 import { asBoolean, asObject, asString, cleanInlineTitle, formatModelLabel, type JsonValue } from './shared-text';
@@ -451,12 +452,12 @@ const recordsToMessages = (records: CommandCodeRecord[]): ConversationMessage[] 
 
 const maxTimestamp = (values: Array<number | null>): number | null => {
     const finiteValues = values.filter((value): value is number => value !== null && Number.isFinite(value));
-    return finiteValues.length > 0 ? Math.max(...finiteValues) : null;
+    return finiteValues.length > 0 ? getNumericMaximum(finiteValues) : null;
 };
 
 const minTimestamp = (values: Array<number | null>): number | null => {
     const finiteValues = values.filter((value): value is number => value !== null && Number.isFinite(value));
-    return finiteValues.length > 0 ? Math.min(...finiteValues) : null;
+    return finiteValues.length > 0 ? getNumericMinimum(finiteValues) : null;
 };
 
 export const createCommandCodeWorkspaceKey = (cwd: string): string => {

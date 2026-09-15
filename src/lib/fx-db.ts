@@ -274,18 +274,28 @@ const listFilesRecursively = async (root: string): Promise<string[]> => {
     return files;
 };
 
-const removeSessionFromIndex = async (indexPath: string, sessionId: string): Promise<void> => {
+const prepareSessionIndexRemoval = async (indexPath: string, sessionId: string) => {
     if (!(await Bun.file(indexPath).exists())) {
-        return;
+        return null;
     }
     const root = await readJsonObject(indexPath);
     if (!root || !Array.isArray(root.sessions)) {
         throw new Error(`Invalid FX session index: ${indexPath}`);
     }
     const sessions = root.sessions.filter((value) => asString(asObject(value)?.id ?? null) !== sessionId);
-    const tempPath = `${indexPath}.${randomUUID()}.tmp`;
-    await Bun.write(tempPath, `${JSON.stringify({ ...root, sessions }, null, 2)}\n`);
-    await rename(tempPath, indexPath);
+    return { content: `${JSON.stringify({ ...root, sessions }, null, 2)}\n`, indexPath };
+};
+
+const writeSessionIndexRemoval = async (
+    update: NonNullable<Awaited<ReturnType<typeof prepareSessionIndexRemoval>>>,
+) => {
+    const tempPath = `${update.indexPath}.${randomUUID()}.tmp`;
+    try {
+        await Bun.write(tempPath, update.content);
+        await rename(tempPath, update.indexPath);
+    } finally {
+        await rm(tempPath, { force: true });
+    }
 };
 
 const removeLatestReferences = async (sessionsDir: string, sessionId: string): Promise<string[]> => {
@@ -320,14 +330,17 @@ export const deleteFxSession = async (
         if (!(await Bun.file(path.join(sessionDir, 'session.json')).exists())) {
             return { deletedFiles: [], deletedSessionIds: [] };
         }
+        const indexUpdates = (
+            await Promise.all([
+                prepareSessionIndexRemoval(path.join(sessionsDir, 'index.json'), sessionId),
+                prepareSessionIndexRemoval(path.join(sessionsDir, 'relationship-migration-index.json'), sessionId),
+            ])
+        ).filter((update) => update !== null);
         const deletedFiles = await listFilesRecursively(sessionDir);
         const quarantineDir = path.join(sessionsDir, `.spiracha-delete-${sessionId}-${randomUUID()}`);
         await rename(sessionDir, quarantineDir);
         try {
-            await Promise.all([
-                removeSessionFromIndex(path.join(sessionsDir, 'index.json'), sessionId),
-                removeSessionFromIndex(path.join(sessionsDir, 'relationship-migration-index.json'), sessionId),
-            ]);
+            await mapWithConcurrency(indexUpdates, 1, writeSessionIndexRemoval);
             deletedFiles.push(...(await removeLatestReferences(sessionsDir, sessionId)));
             await rm(quarantineDir, { force: true, recursive: true });
         } catch (error) {

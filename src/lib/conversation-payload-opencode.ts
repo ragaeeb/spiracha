@@ -1,6 +1,7 @@
 import { openCodePartsToMessages } from './conversation-data/opencode-message-normalizer';
 import type { ConversationMessage } from './conversation-data/types';
 import type { ConversationPayloadSource, PayloadConversationDraft } from './conversation-payload-types';
+import { getNumericMaximum, getNumericMinimum } from './numeric-range';
 import type {
     OpenCodeModelInfo,
     OpenCodePartType,
@@ -341,8 +342,8 @@ const conversationTimes = (
     messages: OpenCodeTranscriptMessage[],
 ): { createdAtMs: number | null; updatedAtMs: number | null } => {
     const timestamps = messages.map((message) => message.createdAtMs).filter(Number.isFinite);
-    const firstTimestamp = timestamps.length > 0 ? Math.min(...timestamps) : null;
-    const lastTimestamp = timestamps.length > 0 ? Math.max(...timestamps) : null;
+    const firstTimestamp = timestamps.length > 0 ? getNumericMinimum(timestamps) : null;
+    const lastTimestamp = timestamps.length > 0 ? getNumericMaximum(timestamps) : null;
     return {
         createdAtMs:
             timeValue(record.createdAtMs ?? record.timeCreated ?? record.createdAt) ??

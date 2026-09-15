@@ -1,4 +1,5 @@
 import type { ThreadEvent } from './codex-browser-types';
+import { getNumericMaximum, getNumericMinimum } from './numeric-range';
 import { sha256Hex } from './sha256';
 
 type JsonRecord = Record<string, unknown>;
@@ -113,14 +114,19 @@ const firstString = (...values: unknown[]): string | null => {
     return null;
 };
 
+const normalizeNumericTimestamp = (value: number): number | null => {
+    const milliseconds = value < 10_000_000_000 ? value * 1000 : value;
+    return Number.isFinite(milliseconds) && Math.abs(milliseconds) <= 8_640_000_000_000_000 ? milliseconds : null;
+};
+
 const toTimestampMs = (value: unknown): number | null => {
     if (typeof value === 'number' && Number.isFinite(value)) {
-        return value < 10_000_000_000 ? value * 1000 : value;
+        return normalizeNumericTimestamp(value);
     }
     if (typeof value === 'string') {
         const numeric = Number(value);
         if (Number.isFinite(numeric) && value.trim()) {
-            return numeric < 10_000_000_000 ? numeric * 1000 : numeric;
+            return normalizeNumericTimestamp(numeric);
         }
         const parsed = Date.parse(value);
         return Number.isNaN(parsed) ? null : parsed;
@@ -418,18 +424,16 @@ const getEmbeddedToolEvents = (message: JsonRecord): ImportedToolEvent[] => {
         }
         if (getBlockType(block) === 'tool_result') {
             const outputText = getToolResultText(block.content);
-            return outputText
-                ? [
-                      {
-                          argumentsText: null,
-                          callId: firstString(block.tool_use_id, block.id),
-                          kind: 'output',
-                          name: null,
-                          outputText,
-                          timestamp,
-                      } satisfies ImportedToolEvent,
-                  ]
-                : [];
+            return [
+                {
+                    argumentsText: null,
+                    callId: firstString(block.tool_use_id, block.id),
+                    kind: 'output',
+                    name: null,
+                    outputText,
+                    timestamp,
+                } satisfies ImportedToolEvent,
+            ];
         }
         if (getBlockType(block) !== 'tool_use') {
             return [];
@@ -847,7 +851,7 @@ const getGeminiToolCalls = (rawPayload: unknown): ImportedToolEvent[] => {
         }
         calls.push({
             argumentsText: JSON.stringify({ url: value }),
-            callId: null,
+            callId: `gemini-browse:${value}`,
             kind: 'call',
             name: 'browse_page',
             outputText: null,
@@ -2034,10 +2038,12 @@ const addImportedToolEvents = (messages: NormalizedMessage[], toolEvents: Import
     const toolMessages = toolEvents.flatMap((event) => {
         const text = event.kind === 'call' ? event.argumentsText : event.outputText;
         const key = `${event.kind}\0${event.callId ?? ''}\0${event.name ?? ''}\0${text ?? ''}`;
-        if (seen.has(key)) {
+        if (event.callId && seen.has(key)) {
             return [];
         }
-        seen.add(key);
+        if (event.callId) {
+            seen.add(key);
+        }
         return [
             {
                 id: event.callId,
@@ -2599,10 +2605,12 @@ const TOOL_LABEL_KEYS = ['query', 'q', 'url', 'ref_id', 'path', 'resource_name',
 
 const getToolArgumentLabel = (value: unknown): string | null => {
     const pending = [value];
-    while (pending.length > 0) {
-        const current = pending.shift();
+    for (let index = 0; index < pending.length; index += 1) {
+        const current = pending[index];
         if (Array.isArray(current)) {
-            pending.push(...current);
+            for (const item of current) {
+                pending.push(item);
+            }
             continue;
         }
         if (!isRecord(current)) {
@@ -2614,13 +2622,15 @@ const getToolArgumentLabel = (value: unknown): string | null => {
                 return label;
             }
         }
-        pending.push(...Object.values(current));
+        for (const item of Object.values(current)) {
+            pending.push(item);
+        }
     }
     return null;
 };
 
 const buildToolEvent = (message: NormalizedMessage, platform: string, sequence: number): ThreadEvent | null => {
-    if (!message.text) {
+    if (!message.text && message.role !== 'tool') {
         return null;
     }
     const raw = { messageId: message.id, platform, source: 'web_import' };
@@ -2690,9 +2700,9 @@ const finalizeConversation = async (draft: ConversationDraft, fileName: string):
     const eventTimestamps = draft.messages
         .map((message) => toTimestampMs(message.timestamp))
         .filter((value): value is number => value !== null);
-    const createdAtMs = draft.createdAtMs ?? (eventTimestamps.length > 0 ? Math.min(...eventTimestamps) : null);
+    const createdAtMs = draft.createdAtMs ?? (eventTimestamps.length > 0 ? getNumericMinimum(eventTimestamps) : null);
     const lastActiveAtMs =
-        draft.updatedAtMs ?? (eventTimestamps.length > 0 ? Math.max(...eventTimestamps) : createdAtMs);
+        draft.updatedAtMs ?? (eventTimestamps.length > 0 ? getNumericMaximum(eventTimestamps) : createdAtMs);
     const identity = draft.sourceConversationId ?? JSON.stringify({ events, fileName, title: draft.title });
     const id = (await sha256Hex(`${draft.platform}\0${identity}`)).slice(0, 32);
     return {

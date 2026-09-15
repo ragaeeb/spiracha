@@ -1,5 +1,4 @@
-import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -56,17 +55,22 @@ export const cleanupConversationZipArtifacts = async (
     zipPath: string,
     remove: typeof rm = rm,
 ): Promise<ConversationZipCleanupFailure[]> => {
-    const results = await Promise.allSettled([
-        remove(workspaceDir, { force: true, recursive: true }),
-        remove(zipPath, { force: true }),
-    ]);
-    const paths = [workspaceDir, zipPath];
+    const resolvedWorkspace = path.resolve(workspaceDir);
+    const resolvedZip = path.resolve(zipPath);
+    const zipInsideWorkspace = resolvedZip.startsWith(`${resolvedWorkspace}${path.sep}`);
+    const jobs = zipInsideWorkspace
+        ? [{ options: { force: true, recursive: true } as const, target: workspaceDir }]
+        : [
+              { options: { force: true, recursive: true } as const, target: workspaceDir },
+              { options: { force: true } as const, target: zipPath },
+          ];
+    const results = await Promise.allSettled(jobs.map((job) => remove(job.target, job.options)));
     return results.flatMap((result, index) =>
         result.status === 'rejected'
             ? [
                   {
                       error: result.reason instanceof Error ? result.reason.message : String(result.reason),
-                      path: paths[index]!,
+                      path: jobs[index]!.target,
                   },
               ]
             : [],
@@ -98,17 +102,19 @@ export const createConversationMarkdownZip = async ({
     const safeBaseName = buildBatchExportBaseName(entries, fallbackProjectName);
     const archiveBaseName = buildExportArchiveBaseName(platform, safeBaseName);
     const workspaceDir = await mkdtemp(path.join(os.tmpdir(), `${archiveBaseName}-`));
-    const zipPath = path.join(os.tmpdir(), `${archiveBaseName}-${randomUUID()}.zip`);
+    const entriesDir = path.join(workspaceDir, 'entries');
+    const zipPath = path.join(workspaceDir, 'archive.zip');
     const usedBaseNames = new Map<string, number>();
 
     try {
+        await mkdir(entriesDir, { mode: 0o700 });
         for (const entry of entries) {
             const entryBaseName = toSafeFileBaseName(entry.title, entry.fallbackBaseName);
             const fileBaseNameForEntry = resolveUniqueExportFileBaseName(entryBaseName, usedBaseNames);
-            await Bun.write(path.join(workspaceDir, `${fileBaseNameForEntry}.md`), entry.markdown);
+            await Bun.write(path.join(entriesDir, `${fileBaseNameForEntry}.md`), entry.markdown);
         }
 
-        await zipExportDirectory(workspaceDir, zipPath);
+        await zipExportDirectory(entriesDir, zipPath);
         return {
             blob: new Blob([await Bun.file(zipPath).arrayBuffer()], { type: 'application/zip' }),
             fileName: `${archiveBaseName}.zip`,

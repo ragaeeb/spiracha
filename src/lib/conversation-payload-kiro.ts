@@ -6,6 +6,7 @@ import {
     parseKiroExecutionEntries,
     parseKiroHistoryEntry,
 } from './kiro-transcript-parser';
+import { getNumericMaximum, getNumericMinimum } from './numeric-range';
 import type { JsonValue } from './shared-text';
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -156,11 +157,11 @@ const getKiroTimes = (envelope: Record<string, unknown>, messages: PayloadConver
     return {
         createdAtMs:
             parseTimestampMs(envelope.dateCreated ?? envelope.createdAt ?? envelope.created_at) ??
-            (times.length > 0 ? Math.min(...times) : null),
+            (times.length > 0 ? getNumericMinimum(times) : null),
         updatedAtMs:
             parseTimestampMs(
                 envelope.updatedAt ?? envelope.updated_at ?? envelope.lastActiveAt ?? envelope.last_active_at,
-            ) ?? (times.length > 0 ? Math.max(...times) : null),
+            ) ?? (times.length > 0 ? getNumericMaximum(times) : null),
     };
 };
 

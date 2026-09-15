@@ -6,6 +6,7 @@ import type {
     ConversationPayloadSource,
     PayloadConversationDraft,
 } from './conversation-payload-types';
+import { getNumericMaximum, getNumericMinimum } from './numeric-range';
 
 type AntigravityPayloadEntry = {
     command: string | null;
@@ -287,8 +288,8 @@ const conversationMetadata = (
     workspacePath: string | null;
 } => {
     const timestamps = entryTimestamps(entries);
-    const firstTimestamp = timestamps.length > 0 ? Math.min(...timestamps) : null;
-    const lastTimestamp = timestamps.length > 0 ? Math.max(...timestamps) : null;
+    const firstTimestamp = timestamps.length > 0 ? getNumericMinimum(timestamps) : null;
+    const lastTimestamp = timestamps.length > 0 ? getNumericMaximum(timestamps) : null;
     return {
         createdAtMs: timeValue(record.createdAtMs ?? record.created_at) ?? firstTimestamp,
         id: stringValue(record.conversationId ?? record.id)?.trim() || null,

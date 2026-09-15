@@ -128,9 +128,12 @@ const triggerAnchorDownload = (documentRef: Document, href: string, fileName: st
     const link = documentRef.createElement('a');
     link.href = href;
     link.download = fileName;
-    documentRef.body.append(link);
-    link.click();
-    link.remove();
+    try {
+        documentRef.body.append(link);
+        link.click();
+    } finally {
+        link.remove();
+    }
 };
 
 const isReadyStatus = (status: number) => {
@@ -368,13 +371,17 @@ export const downloadTextFile = (
         sizeBytes: content.length,
     });
 
+    let objectUrl: string | undefined;
+    let revocationScheduled = false;
     try {
         const blob = new Blob([content], { type: mimeType });
         const url = createObjectUrl(blob);
+        objectUrl = url;
         onStateChange?.('ready');
         onStateChange?.('downloading');
         triggerAnchorDownload(documentRef, url, fileName);
         schedule(() => revokeObjectUrl(url), revokeDelayMs);
+        revocationScheduled = true;
 
         logDownloadEvent(logger, 'info', 'inline_triggered', {
             fileName,
@@ -384,5 +391,9 @@ export const downloadTextFile = (
     } catch (error) {
         onStateChange?.('failed');
         throw error;
+    } finally {
+        if (objectUrl !== undefined && !revocationScheduled) {
+            revokeObjectUrl(objectUrl);
+        }
     }
 };

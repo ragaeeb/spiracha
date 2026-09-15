@@ -256,7 +256,8 @@ const listSourceConversations = async (
 export const listConversations = async (options: ListConversationsOptions): Promise<ConversationPage> => {
     const cursorKey = decodeConversationCursor(options.cursor);
     const limit = getLimit(options.limit);
-    const cursorUpdatedBeforeMs = cursorKey?.updatedAtMs;
+    // Cursor keys floor timestamps; retain the whole bucket before applying source/id tie-breakers.
+    const cursorUpdatedBeforeMs = cursorKey ? cursorKey.updatedAtMs + 1 : undefined;
     const collectionOptions: ListConversationsOptions = {
         ...options,
         cursor: null,
@@ -417,7 +418,7 @@ const refFromPathSegments = (segments: string[]): ResolvedConversationRef | null
         segments[0] === 'api' &&
         segments[1] === 'v1' &&
         segments[2] === 'conversations' &&
-        (segments.length === 5 || (segments.length === 6 && (segments[5] === 'export' || segments[5] === 'evidence')))
+        (segments.length === 5 || (segments.length === 6 && ['export', 'evidence', 'raw'].includes(segments[5]!)))
     ) {
         return refFromPathSegmentAt(segments, 2);
     }

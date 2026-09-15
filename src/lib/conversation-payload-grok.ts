@@ -1,5 +1,6 @@
 import type { ConversationPayloadSource, PayloadConversationDraft } from './conversation-payload-types';
 import { normalizeGrokTranscriptEntries, parseGrokTranscriptEntry } from './grok-transcript-parser';
+import { getNumericMaximum, getNumericMinimum } from './numeric-range';
 import type { JsonValue } from './shared-text';
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -120,11 +121,11 @@ const getGrokTimes = (envelope: Record<string, unknown>, messages: PayloadConver
     return {
         createdAtMs:
             parseTimestampMs(envelope.created_at ?? envelope.createdAt) ??
-            (times.length > 0 ? Math.min(...times) : null),
+            (times.length > 0 ? getNumericMinimum(times) : null),
         updatedAtMs:
             parseTimestampMs(
                 envelope.last_active_at ?? envelope.lastActiveAt ?? envelope.updated_at ?? envelope.updatedAt,
-            ) ?? (times.length > 0 ? Math.max(...times) : null),
+            ) ?? (times.length > 0 ? getNumericMaximum(times) : null),
     };
 };
 

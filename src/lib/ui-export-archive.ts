@@ -43,11 +43,13 @@ type ConversationExportNameEntry = BatchExportNameEntry & {
 };
 
 export const sanitizeExportFileName = (value: string) => {
-    return value
+    const sanitized = value
         .replace(/[<>:"/\\|?*\u0000-\u001f]/gu, ' ')
         .replace(/\.\.+/gu, ' ')
         .replace(/\s+/gu, ' ')
-        .trim();
+        .trim()
+        .replace(/[. ]+$/gu, '');
+    return /^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/iu.test(sanitized) ? `_${sanitized}` : sanitized;
 };
 
 export const buildRawConversationExportFileName = (source: ConversationSource, id: string) =>
@@ -55,8 +57,23 @@ export const buildRawConversationExportFileName = (source: ConversationSource, i
 
 export const getExportPlatformName = (source: ConversationSource): ExportPlatform => EXPORT_PLATFORM_BY_SOURCE[source];
 
+const truncateExportName = (value: string, maxBytes: number): string => {
+    const encoder = new TextEncoder();
+    let bytes = 0;
+    let result = '';
+    for (const character of value) {
+        const characterBytes = encoder.encode(character).byteLength;
+        if (bytes + characterBytes > maxBytes) {
+            break;
+        }
+        bytes += characterBytes;
+        result += character;
+    }
+    return result;
+};
+
 export const buildExportArchiveBaseName = (platform: ExportPlatform, baseName: string) =>
-    `${platform}_${sanitizeExportFileName(baseName) || 'export'}`;
+    truncateExportName(`${platform}_${sanitizeExportFileName(baseName) || 'export'}`, 150);
 
 export const getExportMimeType = (outputFormat: ExportFormat) => {
     return outputFormat === 'md' ? 'text/markdown; charset=utf-8' : 'text/plain; charset=utf-8';
@@ -89,7 +106,10 @@ const formatBatchExportDate = (value: number) => {
 };
 
 const resolveExportProjectName = (cwd: string | null, fallbackProjectName: string) => {
-    return sanitizeExportFileName(getPortablePathBasename(cwd ?? '') || fallbackProjectName) || 'threads';
+    return truncateExportName(
+        sanitizeExportFileName(getPortablePathBasename(cwd ?? '') || fallbackProjectName) || 'threads',
+        80,
+    );
 };
 
 export const buildConversationExportBaseName = (

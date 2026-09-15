@@ -31,10 +31,8 @@ const getNormalizedPathMatch = (requested: string, candidate: string): Conversat
         };
     }
 
-    if (
-        (requested === '/' && candidate !== '/' && candidate.startsWith('/')) ||
-        candidate.startsWith(`${requested}/`)
-    ) {
+    const descendantPrefix = requested.endsWith('/') ? requested : `${requested}/`;
+    if (candidate.startsWith(descendantPrefix)) {
         return {
             candidatePath: candidate,
             kind: 'descendant',

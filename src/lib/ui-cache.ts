@@ -238,7 +238,8 @@ export const withCachedJson = async <T>(key: string, loader: () => Promise<T>): 
     if (resolveUiRuntimeConfig().cacheBypass) {
         return loader();
     }
-    const inFlight = inFlightCacheLoads.get(key);
+    const inFlightKey = `${getUiCacheDir()}\0${cacheInvalidationGeneration}\0${key}`;
+    const inFlight = inFlightCacheLoads.get(inFlightKey);
     if (inFlight) {
         return (await inFlight) as T;
     }
@@ -256,13 +257,13 @@ export const withCachedJson = async <T>(key: string, loader: () => Promise<T>): 
         }
         return value;
     })();
-    inFlightCacheLoads.set(key, load);
+    inFlightCacheLoads.set(inFlightKey, load);
 
     try {
         return await load;
     } finally {
-        if (inFlightCacheLoads.get(key) === load) {
-            inFlightCacheLoads.delete(key);
+        if (inFlightCacheLoads.get(inFlightKey) === load) {
+            inFlightCacheLoads.delete(inFlightKey);
         }
     }
 };
