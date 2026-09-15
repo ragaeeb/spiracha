@@ -2,9 +2,9 @@ import type { WebChatConversationSummary, WebChatFileInput, WebChatImportError }
 import { createServerFn } from '@tanstack/react-start';
 import { array, check, maxLength, minLength, object, pipe, string } from 'valibot';
 
-export const MAX_WEB_CHAT_FILES = 20;
-export const MAX_WEB_CHAT_FILE_BYTES = 25 * 1024 * 1024;
-export const MAX_WEB_CHAT_IMPORT_BYTES = 100 * 1024 * 1024;
+import { MAX_WEB_CHAT_FILE_BYTES, MAX_WEB_CHAT_FILES, MAX_WEB_CHAT_IMPORT_BYTES } from './web-chat-limits';
+
+export { MAX_WEB_CHAT_FILE_BYTES, MAX_WEB_CHAT_FILES, MAX_WEB_CHAT_IMPORT_BYTES } from './web-chat-limits';
 
 const getTotalBytes = (files: WebChatFileInput[]): number =>
     files.reduce((total, file) => total + Buffer.byteLength(file.content), 0);

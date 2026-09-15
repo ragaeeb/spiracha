@@ -10,31 +10,8 @@ import { WebChatDropzone } from '#/components/web-chat-dropzone';
 import { WebConversationsTable } from '#/components/web-conversations-table';
 import { matchesTextQuery } from '#/lib/text-filter';
 import { webChatsQueryOptions } from '#/lib/web-chat-queries';
-import {
-    importWebChatsFn,
-    MAX_WEB_CHAT_FILE_BYTES,
-    MAX_WEB_CHAT_FILES,
-    MAX_WEB_CHAT_IMPORT_BYTES,
-} from '#/lib/web-chat-server';
-
-const readImportFiles = async (files: File[]) => {
-    if (files.length > MAX_WEB_CHAT_FILES) {
-        throw new Error(`Import at most ${MAX_WEB_CHAT_FILES} files at once.`);
-    }
-    if (files.reduce((total, file) => total + file.size, 0) > MAX_WEB_CHAT_IMPORT_BYTES) {
-        throw new Error('The selected files exceed the 100 MB import limit.');
-    }
-    const errors: WebChatImportError[] = files
-        .filter((file) => file.size > MAX_WEB_CHAT_FILE_BYTES)
-        .map((file) => ({ fileName: file.name, message: 'File exceeds the 25 MB limit.' }));
-    const accepted = files.filter((file) => file.size <= MAX_WEB_CHAT_FILE_BYTES);
-    const payload = await Promise.all(accepted.map(async (file) => ({ content: await file.text(), name: file.name })));
-    return { errors, payload };
-};
-
-const dedupeImportErrors = (errors: WebChatImportError[]): WebChatImportError[] => [
-    ...new Map(errors.map((error) => [`${error.fileName}\0${error.message}`, error])).values(),
-];
+import { dedupeImportErrors, readImportFiles } from '#/lib/web-chat-import';
+import { importWebChatsFn } from '#/lib/web-chat-server';
 
 const WebPage = () => {
     const navigate = useNavigate({ from: Route.fullPath });
