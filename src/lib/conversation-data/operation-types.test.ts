@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { isRejectedExceptionReason, serializeSourceOperation, validateOperationCapability } from './operation-types';
-import { SOURCE_READ_BINDINGS } from './source-bindings.server';
+import { SOURCE_MUTATION_BINDINGS, SOURCE_READ_BINDINGS } from './source-bindings.server';
 import { SOURCE_CATALOG } from './source-catalog';
 import { CONVERSATION_SOURCES } from './types';
 
@@ -33,6 +33,8 @@ describe('source operation declarations', () => {
             expect(Object.hasOwn(binding.original_raw, 'handler')).toBe(
                 SOURCE_CATALOG[source].capabilities.original_raw.state === 'supported',
             );
+            expect(typeof SOURCE_MUTATION_BINDINGS[source].delete.handler).toBe('function');
+            expect(typeof SOURCE_MUTATION_BINDINGS[source].batch_delete.handler).toBe('function');
         }
     });
 });

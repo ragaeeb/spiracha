@@ -20,6 +20,7 @@ import {
     listConversations,
     OriginalRepresentationUnavailableError,
     resolveConversationRef,
+    SourceMutationConflictError,
     UnsupportedSourceOperationError,
 } from './conversation-data';
 import { validateEvidenceLens } from './conversation-data/evidence-lens';
@@ -50,6 +51,7 @@ type ApiErrorCode =
     | 'origin_not_allowed'
     | 'internal_error'
     | 'method_not_allowed'
+    | 'mutation_conflict'
     | 'not_found'
     | 'original_representation_unavailable'
     | 'unsupported_operation'
@@ -665,6 +667,14 @@ const handleExportEvidence = async (
     });
 };
 
+const mutationConflictResponse = (error: SourceMutationConflictError) =>
+    errorResponse('mutation_conflict', error.message, 409, {
+        id: error.id,
+        reason_code: error.reasonCode,
+        source: error.source,
+        ...error.details,
+    });
+
 const handleDeleteConversation = async (
     source: string | undefined,
     id: string | undefined,
@@ -676,26 +686,33 @@ const handleDeleteConversation = async (
         return result.error;
     }
 
-    const deleteResult = await dependencies.deleteConversation(result.value);
-    if (!deleteResult) {
-        return errorResponse(
-            'unsupported_operation',
-            `Deleting ${result.value.source} conversations is not supported by the stable API.`,
-            405,
-            {
+    try {
+        const deleteResult = await dependencies.deleteConversation(result.value);
+        if (!deleteResult) {
+            return errorResponse(
+                'unsupported_operation',
+                `Deleting ${result.value.source} conversations is not supported by the stable API.`,
+                405,
+                {
+                    source: result.value.source,
+                },
+            );
+        }
+
+        if (deleteResult.deletedIds.length === 0) {
+            return errorResponse('conversation_not_found', 'No conversation exists for that source and id.', 404, {
+                id: result.value.id,
                 source: result.value.source,
-            },
-        );
-    }
+            });
+        }
 
-    if (deleteResult.deletedIds.length === 0) {
-        return errorResponse('conversation_not_found', 'No conversation exists for that source and id.', 404, {
-            id: result.value.id,
-            source: result.value.source,
-        });
+        return jsonResponse({ data: deleteResult });
+    } catch (error) {
+        if (error instanceof SourceMutationConflictError) {
+            return mutationConflictResponse(error);
+        }
+        throw error;
     }
-
-    return jsonResponse({ data: deleteResult });
 };
 
 const parseJsonBody = async (request: Request): Promise<ParseResult<Record<string, unknown>>> => {
@@ -865,26 +882,34 @@ const handleDeleteConversations = async (request: Request, dependencies: ReturnT
         ...(deleteSessionFiles.value === undefined ? {} : { deleteSessionFiles: deleteSessionFiles.value }),
     };
 
-    const deleteResult = await dependencies.deleteConversations(deleteOptions);
-    if (!deleteResult) {
-        return errorResponse(
-            'unsupported_operation',
-            `Deleting ${result.value.source} conversations is not supported by the stable API.`,
-            405,
-            {
+    try {
+        const deleteResult = await dependencies.deleteConversations(deleteOptions);
+        if (!deleteResult) {
+            return errorResponse(
+                'unsupported_operation',
+                `Deleting ${result.value.source} conversations is not supported by the stable API.`,
+                405,
+                {
+                    source: result.value.source,
+                },
+            );
+        }
+
+        const hasNonMissingOutcome = deleteResult.outcomes?.some((outcome) => outcome.status !== 'missing') ?? false;
+        if (deleteResult.deletedIds.length === 0 && !hasNonMissingOutcome) {
+            return errorResponse('conversation_not_found', 'No conversations exist for that source and id set.', 404, {
+                ids: result.value.ids,
                 source: result.value.source,
-            },
-        );
-    }
+            });
+        }
 
-    if (deleteResult.deletedIds.length === 0) {
-        return errorResponse('conversation_not_found', 'No conversations exist for that source and id set.', 404, {
-            ids: result.value.ids,
-            source: result.value.source,
-        });
+        return jsonResponse({ data: deleteResult });
+    } catch (error) {
+        if (error instanceof SourceMutationConflictError) {
+            return mutationConflictResponse(error);
+        }
+        throw error;
     }
-
-    return jsonResponse({ data: deleteResult });
 };
 
 const getConversationZipEntry = (conversation: ConversationDetail, markdown: string) => ({

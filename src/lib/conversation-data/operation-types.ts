@@ -100,7 +100,32 @@ export class OriginalRepresentationUnavailableError extends Error {
     }
 }
 
+export type PublicMutationError = {
+    code: string;
+    details?: Record<string, string>;
+    message: string;
+    operation: 'delete';
+    retryable: boolean;
+};
+
+export class SourceMutationConflictError extends Error {
+    readonly details: Record<string, string>;
+    readonly id: string;
+    readonly reasonCode: string;
+    readonly source: string;
+
+    constructor(source: string, id: string, reason: string, reasonCode: string, details: Record<string, string> = {}) {
+        super(reason);
+        this.name = 'SourceMutationConflictError';
+        this.details = details;
+        this.id = id;
+        this.reasonCode = reasonCode;
+        this.source = source;
+    }
+}
+
 export type SourceReaderOwned = Supported<{ owner: 'source_reader' }>;
+export type SourceMutatorOwned = Supported<{ owner: 'source_mutator' }>;
 
 export const SOURCE_READER_OWNED = {
     state: 'supported',
@@ -116,6 +141,16 @@ export type RequiredReadCapabilities = typeof REQUIRED_READ_CAPABILITIES;
 
 export const NATIVE_FILE_RAW_CAPABILITY = {
     original_raw: SOURCE_READER_OWNED,
+} as const;
+
+export const SOURCE_MUTATOR_OWNED = {
+    state: 'supported',
+    value: { owner: 'source_mutator' },
+} as const satisfies SourceMutatorOwned;
+
+export const DELETE_CAPABILITIES = {
+    batch_delete: SOURCE_MUTATOR_OWNED,
+    delete: SOURCE_MUTATOR_OWNED,
 } as const;
 
 export const OPENCODE_ORIGINAL_RAW_EXCEPTION = {

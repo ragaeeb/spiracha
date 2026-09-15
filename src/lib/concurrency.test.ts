@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { createConcurrencyLimiter, mapWithConcurrency } from './concurrency';
+import { createConcurrencyLimiter, mapSettledWithConcurrency, mapWithConcurrency } from './concurrency';
 
 describe('mapWithConcurrency', () => {
     it('should preserve result order while limiting concurrent work', async () => {
@@ -52,6 +52,47 @@ describe('mapWithConcurrency', () => {
 
         expect(started).toEqual([1, 2]);
         expect(inFlightWorkFinished).toBe(true);
+    });
+});
+
+describe('mapSettledWithConcurrency', () => {
+    it('should keep sibling results when a mapper rejects', async () => {
+        const started: number[] = [];
+        const results = await mapSettledWithConcurrency([1, 2, 3], 2, async (value) => {
+            started.push(value);
+            if (value === 2) {
+                throw new Error('mapper failed');
+            }
+            await Bun.sleep(1);
+            return value * 2;
+        });
+
+        expect(started.sort()).toEqual([1, 2, 3]);
+        expect(results).toEqual([
+            { status: 'fulfilled', value: 2 },
+            { reason: expect.any(Error), status: 'rejected' },
+            { status: 'fulfilled', value: 6 },
+        ]);
+    });
+
+    it('should cancel only unstarted work after abort', async () => {
+        const controller = new AbortController();
+        const started: number[] = [];
+        const results = await mapSettledWithConcurrency(
+            [1, 2, 3],
+            1,
+            async (value) => {
+                started.push(value);
+                if (value === 1) {
+                    controller.abort();
+                }
+                return value;
+            },
+            controller.signal,
+        );
+
+        expect(started).toEqual([1]);
+        expect(results.map((result) => result.status)).toEqual(['fulfilled', 'cancelled', 'cancelled']);
     });
 });
 

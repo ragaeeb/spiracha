@@ -27,6 +27,29 @@ type SourceReadBindings<S extends ConversationSource> = {
     source: S;
 };
 
+type SourceMutationBindings<S extends ConversationSource> = {
+    batch_delete: CapabilityBinding<
+        SourceCapabilities<S>['batch_delete'],
+        NonNullable<ConversationAdapter<S>['deleteConversation']>
+    >;
+    delete: CapabilityBinding<
+        SourceCapabilities<S>['delete'],
+        NonNullable<ConversationAdapter<S>['deleteConversation']>
+    >;
+    source: S;
+};
+
+const requireDeleteHandler = <S extends ConversationSource>(
+    adapter: ConversationAdapter<S>,
+): NonNullable<ConversationAdapter<S>['deleteConversation']> => {
+    if (!adapter.deleteConversation) {
+        throw new Error(`${adapter.source} declared delete support without a handler.`);
+    }
+    return adapter.deleteConversation;
+};
+
+const bindMutation = <S extends ConversationSource, B extends SourceMutationBindings<S>>(binding: B): B => binding;
+
 const bindSource = <S extends ConversationSource, B extends SourceReadBindings<S>>(binding: B): B => binding;
 
 const requireRawHandler = <S extends ConversationSource>(
@@ -118,3 +141,26 @@ export const SOURCE_READ_BINDINGS = {
         source: 'qoder',
     }),
 } satisfies { [S in ConversationSource]: SourceReadBindings<S> };
+
+const bindDelete = <S extends ConversationSource>(adapter: ConversationAdapter<S>) =>
+    bindMutation({
+        batch_delete: { handler: requireDeleteHandler(adapter) },
+        delete: { handler: requireDeleteHandler(adapter) },
+        source: adapter.source,
+    });
+
+export const SOURCE_MUTATION_BINDINGS = {
+    antigravity: bindDelete(antigravityConversationAdapter),
+    'claude-code': bindDelete(claudeCodeConversationAdapter),
+    cline: bindDelete(clineConversationAdapter),
+    codex: bindDelete(codexConversationAdapter),
+    'command-code': bindDelete(commandCodeConversationAdapter),
+    cursor: bindDelete(cursorConversationAdapter),
+    fx: bindDelete(fxConversationAdapter),
+    grok: bindDelete(grokConversationAdapter),
+    'grok-bot': bindDelete(grokBotConversationAdapter),
+    kiro: bindDelete(kiroConversationAdapter),
+    'minimax-code': bindDelete(minimaxCodeConversationAdapter),
+    opencode: bindDelete(opencodeConversationAdapter),
+    qoder: bindDelete(qoderConversationAdapter),
+} satisfies { [S in ConversationSource]: SourceMutationBindings<S> };

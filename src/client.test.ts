@@ -461,10 +461,18 @@ describe('conversation client', () => {
 
                 return Response.json({
                     data: {
+                        affectedIds: ['session-1', 'session-2'],
                         deletedFiles: ['/tmp/opencode.db'],
                         deletedIds: ['session-1', 'session-2'],
                         missingIds: [],
+                        outcomes: [],
+                        request: {
+                            duplicateCount: 0,
+                            ids: ['session-1', 'session-2'],
+                            uniqueIds: ['session-1', 'session-2'],
+                        },
                         results: [],
+                        summary: { cancelled: 0, cleanupPending: 0, deleted: 2, failed: 0, missing: 0 },
                     },
                 });
             },
@@ -484,10 +492,18 @@ describe('conversation client', () => {
                     source: 'opencode',
                 }),
             ).resolves.toEqual({
+                affectedIds: ['session-1', 'session-2'],
                 deletedFiles: ['/tmp/opencode.db'],
                 deletedIds: ['session-1', 'session-2'],
                 missingIds: [],
+                outcomes: [],
+                request: {
+                    duplicateCount: 0,
+                    ids: ['session-1', 'session-2'],
+                    uniqueIds: ['session-1', 'session-2'],
+                },
                 results: [],
+                summary: { cancelled: 0, cleanupPending: 0, deleted: 2, failed: 0, missing: 0 },
             });
             expect(requests).toEqual([
                 {

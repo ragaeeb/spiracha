@@ -1,4 +1,5 @@
 import {
+    DELETE_CAPABILITIES,
     NATIVE_FILE_RAW_CAPABILITY,
     OPENCODE_ORIGINAL_RAW_EXCEPTION,
     REQUIRED_READ_CAPABILITIES,
@@ -14,11 +15,13 @@ export type SourceWorkspaceRoute = {
 const nativeFileCapabilities = {
     ...REQUIRED_READ_CAPABILITIES,
     ...NATIVE_FILE_RAW_CAPABILITY,
+    ...DELETE_CAPABILITIES,
 } as const;
 
 const openCodeCapabilities = {
     ...REQUIRED_READ_CAPABILITIES,
     ...OPENCODE_ORIGINAL_RAW_EXCEPTION,
+    ...DELETE_CAPABILITIES,
 } as const;
 
 type SourceCapabilitiesFor<S extends ConversationSource> = S extends 'opencode'

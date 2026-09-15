@@ -129,7 +129,8 @@ describe('portable source catalog', () => {
             expect(capabilities.list.state).toBe('supported');
             expect(capabilities.detail.state).toBe('supported');
             expect(capabilities.original_raw.state).toBe(expectedOriginalRaw[source]);
-            expect(capabilities).not.toHaveProperty('delete');
+            expect(capabilities.delete.state).toBe('supported');
+            expect(capabilities.batch_delete.state).toBe('supported');
             if (capabilities.original_raw.state === 'unsupported') {
                 const [evidence] = capabilities.original_raw.evidence;
                 expect(capabilities.original_raw.reasonCode).toBe('no_native_conversation_file');

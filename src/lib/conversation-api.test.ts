@@ -324,6 +324,8 @@ describe('conversation API handler', () => {
                     inventoryPath: '/codex',
                     label: 'Codex',
                     operations: {
+                        batch_delete: { owner: 'source_mutator', state: 'supported' },
+                        delete: { owner: 'source_mutator', state: 'supported' },
                         detail: { owner: 'source_reader', state: 'supported' },
                         list: { owner: 'source_reader', state: 'supported' },
                         original_raw: { owner: 'source_reader', state: 'supported' },
@@ -343,6 +345,8 @@ describe('conversation API handler', () => {
                     inventoryPath: '/codex',
                     label: 'Codex',
                     operations: {
+                        batch_delete: { owner: 'source_mutator', state: 'supported' },
+                        delete: { owner: 'source_mutator', state: 'supported' },
                         detail: { owner: 'source_reader', state: 'supported' },
                         list: { owner: 'source_reader', state: 'supported' },
                         original_raw: { owner: 'source_reader', state: 'supported' },
@@ -388,7 +392,10 @@ describe('conversation API handler', () => {
             owner: 'source_reader',
             state: 'supported',
         });
-        expect(body.data.find((entry) => entry.source === 'qoder')?.operations).not.toHaveProperty('delete');
+        expect(body.data.find((entry) => entry.source === 'qoder')?.operations.delete).toEqual({
+            owner: 'source_mutator',
+            state: 'supported',
+        });
     });
 
     it('should accept Command Code as a stable workspace source', async () => {
@@ -947,9 +954,31 @@ describe('conversation API handler', () => {
                         source: 'opencode',
                     });
                     return {
+                        affectedIds: ['session-1', 'session-2'],
                         deletedFiles: ['/tmp/opencode.db'],
                         deletedIds: ['session-1', 'session-2'],
                         missingIds: [],
+                        outcomes: [
+                            {
+                                affectedIds: ['session-1'],
+                                coveredBy: null,
+                                deletedFiles: ['/tmp/opencode.db'],
+                                id: 'session-1',
+                                status: 'deleted' as const,
+                            },
+                            {
+                                affectedIds: ['session-2'],
+                                coveredBy: null,
+                                deletedFiles: [],
+                                id: 'session-2',
+                                status: 'deleted' as const,
+                            },
+                        ],
+                        request: {
+                            duplicateCount: 0,
+                            ids: ['session-1', 'session-2'],
+                            uniqueIds: ['session-1', 'session-2'],
+                        },
                         results: [
                             {
                                 deleted: true,
@@ -964,6 +993,7 @@ describe('conversation API handler', () => {
                                 id: 'session-2',
                             },
                         ],
+                        summary: { cancelled: 0, cleanupPending: 0, deleted: 2, failed: 0, missing: 0 },
                     };
                 },
             },
@@ -987,7 +1017,16 @@ describe('conversation API handler', () => {
             {
                 deleteConversations: async (options) => {
                     expect(options).toEqual({ deleteSessionFiles: false, ids: ['thread-1'], source: 'cursor' });
-                    return { deletedFiles: [], deletedIds: [], missingIds: ['thread-1'], results: [] };
+                    return {
+                        affectedIds: [],
+                        deletedFiles: [],
+                        deletedIds: [],
+                        missingIds: ['thread-1'],
+                        outcomes: [{ affectedIds: [], deletedFiles: [], id: 'thread-1', status: 'missing' as const }],
+                        request: { duplicateCount: 0, ids: ['thread-1'], uniqueIds: ['thread-1'] },
+                        results: [],
+                        summary: { cancelled: 0, cleanupPending: 0, deleted: 0, failed: 0, missing: 1 },
+                    };
                 },
             },
         );
@@ -1074,7 +1113,16 @@ describe('conversation API handler', () => {
             {
                 deleteConversations: async () => {
                     called = true;
-                    return { deletedFiles: [], deletedIds: [], missingIds: [], results: [] };
+                    return {
+                        affectedIds: [],
+                        deletedFiles: [],
+                        deletedIds: [],
+                        missingIds: [],
+                        outcomes: [],
+                        request: { duplicateCount: 0, ids: [], uniqueIds: [] },
+                        results: [],
+                        summary: { cancelled: 0, cleanupPending: 0, deleted: 0, failed: 0, missing: 0 },
+                    };
                 },
             },
         );

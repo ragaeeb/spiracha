@@ -22,15 +22,16 @@ import { asObject, asString, cleanExtractedText, cleanInlineTitle, type JsonValu
 import { runWithSqliteRetry } from './sqlite-retry';
 
 const WORKSPACE_KEY_PREFIX = 'workspace:';
-const LOCAL_HISTORY_KEY_PATTERN = /^lingma\.chat\.localHistory\.(.+)\.quest$/u;
+export const QODER_LOCAL_HISTORY_KEY_PATTERN = /^lingma\.chat\.localHistory\.(.+)\.quest$/u;
+export const QODER_TASK_SNAPSHOT_KEY = 'aicoding.questTaskListSnapshot';
 const MODEL_CONFIG_KEYS = ['aicoding.modelConfigs.cache.assistant', 'aicoding.modelConfigs.cache.quest'] as const;
 
-type ItemTableRow = {
+export type QoderItemTableRow = {
     key: string;
     value: string;
 };
 
-type QoderHistoryEntry = {
+export type QoderHistoryEntry = {
     historyKey: string;
     id: string;
     raw: Record<string, JsonValue>;
@@ -41,7 +42,7 @@ type QoderHistoryEntry = {
     workspaceStorageId: string;
 };
 
-type QoderTaskEntry = {
+export type QoderTaskEntry = {
     agentClass: string | null;
     createdAtMs: number | null;
     executionMode: string | null;
@@ -164,30 +165,36 @@ export const isUnavailableQoderGlobalStateError = (error: unknown): boolean => {
     );
 };
 
-const readGlobalRows = async (globalStateDb = resolveQoderGlobalStateDb()): Promise<ItemTableRow[]> => {
-    const isDatabaseFile = await stat(globalStateDb)
+const QODER_ITEM_TABLE_QUERY =
+    "select key, value from ItemTable where key like 'lingma.chat.localHistory.%.quest' or key = 'aicoding.questTaskListSnapshot' or key in ('aicoding.modelConfigs.cache.assistant', 'aicoding.modelConfigs.cache.quest')";
+
+export const isQoderGlobalStateDatabase = async (globalStateDb: string): Promise<boolean> => {
+    return await stat(globalStateDb)
         .then((metadata) => metadata.isFile())
         .catch(() => false);
-    if (!isDatabaseFile) {
+};
+
+export const readQoderItemTableRows = async (globalStateDb: string): Promise<QoderItemTableRow[]> => {
+    return await runWithSqliteRetry({
+        action: () => {
+            const db = new Database(globalStateDb, { readonly: true, strict: true });
+            try {
+                db.exec('PRAGMA busy_timeout = 0');
+                return db.query(QODER_ITEM_TABLE_QUERY).all() as QoderItemTableRow[];
+            } finally {
+                db.close();
+            }
+        },
+    });
+};
+
+const readGlobalRows = async (globalStateDb = resolveQoderGlobalStateDb()): Promise<QoderItemTableRow[]> => {
+    if (!(await isQoderGlobalStateDatabase(globalStateDb))) {
         return [];
     }
 
     try {
-        return await runWithSqliteRetry({
-            action: () => {
-                const db = new Database(globalStateDb, { readonly: true, strict: true });
-                try {
-                    db.exec('PRAGMA busy_timeout = 0');
-                    return db
-                        .query(
-                            "select key, value from ItemTable where key like 'lingma.chat.localHistory.%.quest' or key = 'aicoding.questTaskListSnapshot' or key in ('aicoding.modelConfigs.cache.assistant', 'aicoding.modelConfigs.cache.quest')",
-                        )
-                        .all() as ItemTableRow[];
-                } finally {
-                    db.close();
-                }
-            },
-        });
+        return await readQoderItemTableRows(globalStateDb);
     } catch (error) {
         if (isUnavailableQoderGlobalStateError(error)) {
             return [];
@@ -196,11 +203,11 @@ const readGlobalRows = async (globalStateDb = resolveQoderGlobalStateDb()): Prom
     }
 };
 
-const parseHistoryRows = (rows: ItemTableRow[]): QoderHistoryEntry[] => {
+export const parseLocalHistoryRows = (rows: QoderItemTableRow[]): QoderHistoryEntry[] => {
     const histories: QoderHistoryEntry[] = [];
 
     for (const row of rows) {
-        const match = LOCAL_HISTORY_KEY_PATTERN.exec(row.key);
+        const match = QODER_LOCAL_HISTORY_KEY_PATTERN.exec(row.key);
         if (!match) {
             continue;
         }
@@ -352,8 +359,8 @@ const parseFolderTasks = (folder: string, value: JsonValue): QoderTaskEntry[] =>
     });
 };
 
-const parseTaskSnapshotRows = (rows: ItemTableRow[]): QoderTaskEntry[] => {
-    const snapshotRow = rows.find((row) => row.key === 'aicoding.questTaskListSnapshot');
+export const parseTaskSnapshotRows = (rows: QoderItemTableRow[]): QoderTaskEntry[] => {
+    const snapshotRow = rows.find((row) => row.key === QODER_TASK_SNAPSHOT_KEY);
     const snapshot = asJsonObject(snapshotRow ? parseJsonValue(snapshotRow.value) : null);
     const folders = asObject(snapshot?.folders ?? null);
     if (!folders) {
@@ -368,7 +375,7 @@ const getConfiguredModelName = (value: JsonValue): string | null => {
     return getStringValue(config ?? {}, ['key', 'name', 'model', 'modelId']);
 };
 
-const parseDefaultModelConfig = (rows: ItemTableRow[], key: (typeof MODEL_CONFIG_KEYS)[number]): string | null => {
+const parseDefaultModelConfig = (rows: QoderItemTableRow[], key: (typeof MODEL_CONFIG_KEYS)[number]): string | null => {
     const row = rows.find((item) => item.key === key);
     const configs = row ? parseJsonValue(row.value) : null;
     if (!Array.isArray(configs)) {
@@ -392,7 +399,7 @@ const parseDefaultModelConfig = (rows: ItemTableRow[], key: (typeof MODEL_CONFIG
     return normalizeQoderModelLabel(getConfiguredModelName(selected ?? null));
 };
 
-const parseModelConfigState = (rows: ItemTableRow[]): QoderModelConfigState => ({
+const parseModelConfigState = (rows: QoderItemTableRow[]): QoderModelConfigState => ({
     assistantDefaultModel: parseDefaultModelConfig(rows, 'aicoding.modelConfigs.cache.assistant'),
     questDefaultModel: parseDefaultModelConfig(rows, 'aicoding.modelConfigs.cache.quest'),
 });
@@ -512,7 +519,7 @@ const createTaskOnlyRecords = (tasks: QoderTaskEntry[], usedTaskIds: Set<string>
     });
 };
 
-const groupRecords = (histories: QoderHistoryEntry[], tasks: QoderTaskEntry[]): QoderSessionRecord[] => {
+export const groupQoderRecords = (histories: QoderHistoryEntry[], tasks: QoderTaskEntry[]): QoderSessionRecord[] => {
     const tasksBySessionId = buildTasksBySessionId(tasks);
     const usedTaskIds = new Set<string>();
     const records = [...groupHistoriesBySessionId(histories).entries()].map(([sessionId, sessionHistories]) => {
@@ -527,7 +534,7 @@ const groupRecords = (histories: QoderHistoryEntry[], tasks: QoderTaskEntry[]): 
     return [...records, ...createTaskOnlyRecords(tasks, usedTaskIds)];
 };
 
-const listWorkspaceStorageIds = async (workspaceStorageDir: string): Promise<string[]> => {
+export const listQoderWorkspaceStorageIds = async (workspaceStorageDir: string): Promise<string[]> => {
     const entries = await readdir(workspaceStorageDir, { withFileTypes: true }).catch(() => []);
     return entries
         .filter((entry) => entry.isDirectory())
@@ -535,7 +542,7 @@ const listWorkspaceStorageIds = async (workspaceStorageDir: string): Promise<str
         .sort();
 };
 
-const getStateDirectoryCandidates = (sessionId: string): string[] => {
+export const listQoderStateDirectoryCandidates = (sessionId: string): string[] => {
     const candidates = [sessionId];
     if (sessionId.endsWith('.session.execution')) {
         candidates.push(sessionId.replace(/\.session\.execution$/u, ''));
@@ -546,7 +553,7 @@ const getStateDirectoryCandidates = (sessionId: string): string[] => {
     return [...new Set(candidates)];
 };
 
-const locateStatePath = async (
+export const locateQoderStatePath = async (
     workspaceStorageDir: string,
     workspaceStorageIds: string[],
     record: QoderSessionRecord,
@@ -556,7 +563,7 @@ const locateStatePath = async (
         : workspaceStorageIds;
 
     for (const workspaceStorageId of storageIds) {
-        for (const directoryName of getStateDirectoryCandidates(record.sessionId)) {
+        for (const directoryName of listQoderStateDirectoryCandidates(record.sessionId)) {
             const statePath = path.join(
                 workspaceStorageDir,
                 workspaceStorageId,
@@ -585,7 +592,7 @@ export const readQoderStateData = async (
     workspaceStorageIds: string[],
     record: QoderSessionRecord,
 ): Promise<QoderStateData> => {
-    const located = await locateStatePath(workspaceStorageDir, workspaceStorageIds, record);
+    const located = await locateQoderStatePath(workspaceStorageDir, workspaceStorageIds, record);
     if (!located.statePath) {
         return {
             fileOperationCount: 0,
@@ -739,11 +746,11 @@ export const loadQoderRecords = async (
 ): Promise<QoderDataRecords> => {
     const [rows, workspaceStorageIds] = await Promise.all([
         readGlobalRows(globalStateDb),
-        listWorkspaceStorageIds(workspaceStorageDir),
+        listQoderWorkspaceStorageIds(workspaceStorageDir),
     ]);
     return {
         modelConfig: parseModelConfigState(rows),
-        records: groupRecords(parseHistoryRows(rows), parseTaskSnapshotRows(rows)),
+        records: groupQoderRecords(parseLocalHistoryRows(rows), parseTaskSnapshotRows(rows)),
         workspaceStorageIds,
     };
 };

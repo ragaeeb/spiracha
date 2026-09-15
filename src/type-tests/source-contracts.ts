@@ -1,10 +1,14 @@
 import type { Capability, CapabilityBinding } from '../lib/conversation-data/capability';
-import { NATIVE_FILE_RAW_CAPABILITY, REQUIRED_READ_CAPABILITIES } from '../lib/conversation-data/operation-types';
+import {
+    DELETE_CAPABILITIES,
+    NATIVE_FILE_RAW_CAPABILITY,
+    REQUIRED_READ_CAPABILITIES,
+} from '../lib/conversation-data/operation-types';
 import type { SourceCatalog, SourceDescriptor } from '../lib/conversation-data/source-catalog';
 import type { ConversationAdapter, ConversationAdapterRegistry } from '../lib/conversation-data/types';
 import type { ConversationPayloadParserRegistry } from '../lib/conversation-payload-types';
 
-const capabilities = { ...REQUIRED_READ_CAPABILITIES, ...NATIVE_FILE_RAW_CAPABILITY };
+const capabilities = { ...REQUIRED_READ_CAPABILITIES, ...NATIVE_FILE_RAW_CAPABILITY, ...DELETE_CAPABILITIES };
 
 declare const missingRoute: Omit<SourceDescriptor<'codex'>, 'detailRouteSegment'>;
 declare const missingCapabilities: Omit<SourceDescriptor<'codex'>, 'capabilities'>;
@@ -93,6 +97,9 @@ type IndexedOpenCodeRaw = Catalog['opencode']['capabilities']['original_raw'];
 type WidenedRaw = Capability<{ owner: 'source_reader' }>;
 type CatalogRawHandler = () => Promise<null>;
 
+type IndexedCodexDelete = Catalog['codex']['capabilities']['delete'];
+type CatalogDeleteHandler = () => Promise<{ deletedFiles: string[]; deletedIds: string[] }>;
+
 // @ts-expect-error Literal supported original_raw requires a handler.
 export const rejectsMissingIndexedRawHandler: CapabilityBinding<IndexedCodexRaw, CatalogRawHandler> = {};
 export const widenedCapabilityAllowsMissingHandler: CapabilityBinding<WidenedRaw, CatalogRawHandler> = {};
@@ -100,4 +107,9 @@ export const acceptsOpenCodeRawException: CapabilityBinding<IndexedOpenCodeRaw, 
 export const rejectsOpenCodeRawHandler: CapabilityBinding<IndexedOpenCodeRaw, CatalogRawHandler> = {
     // @ts-expect-error Unsupported original_raw cannot bind a handler.
     handler: async () => null,
+};
+// @ts-expect-error Literal supported delete requires a handler.
+export const rejectsMissingIndexedDeleteHandler: CapabilityBinding<IndexedCodexDelete, CatalogDeleteHandler> = {};
+export const acceptsIndexedDeleteHandler: CapabilityBinding<IndexedCodexDelete, CatalogDeleteHandler> = {
+    handler: async () => ({ deletedFiles: [], deletedIds: [] }),
 };

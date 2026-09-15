@@ -43,6 +43,69 @@ export const mapWithConcurrency = async <T, TResult>(
     return results;
 };
 
+export type SettledMapResult<T> =
+    | { status: 'fulfilled'; value: T }
+    | { status: 'rejected'; reason: unknown }
+    | { status: 'cancelled' };
+
+/**
+ * Maps with bounded admission and returns every slot in input order. Mapper
+ * rejection does not discard sibling results. Abort stops new admissions, awaits
+ * started work, and labels only unstarted slots cancelled.
+ */
+export const mapSettledWithConcurrency = async <T, TResult>(
+    values: T[],
+    limit: number,
+    mapper: (value: T, index: number) => Promise<TResult>,
+    signal?: AbortSignal,
+): Promise<Array<SettledMapResult<TResult>>> => {
+    const results = new Array<SettledMapResult<TResult>>(values.length);
+    if (values.length === 0) {
+        return results;
+    }
+    if (signal?.aborted) {
+        return values.map(() => ({ status: 'cancelled' as const }));
+    }
+
+    const requestedLimit = Number.isFinite(limit) ? Math.floor(limit) : 1;
+    const workerLimit = Math.max(1, requestedLimit);
+    let nextIndex = 0;
+    let admitting = true;
+    const stopAdmitting = () => {
+        admitting = false;
+    };
+    signal?.addEventListener('abort', stopAdmitting, { once: true });
+
+    const worker = async () => {
+        while (admitting) {
+            const currentIndex = nextIndex;
+            if (currentIndex >= values.length) {
+                return;
+            }
+            nextIndex += 1;
+            try {
+                results[currentIndex] = {
+                    status: 'fulfilled',
+                    value: await mapper(values[currentIndex]!, currentIndex),
+                };
+            } catch (reason) {
+                results[currentIndex] = { reason, status: 'rejected' };
+            }
+        }
+    };
+
+    try {
+        await Promise.all(Array.from({ length: Math.min(workerLimit, values.length) }, () => worker()));
+    } finally {
+        signal?.removeEventListener('abort', stopAdmitting);
+    }
+
+    for (let index = 0; index < results.length; index += 1) {
+        results[index] ??= { status: 'cancelled' };
+    }
+    return results;
+};
+
 export type ConcurrencyOptions = {
     signal?: AbortSignal;
     /** Deadline includes time spent queued. Active work retains its slot until settlement. */

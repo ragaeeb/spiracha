@@ -1,4 +1,3 @@
-import { mapWithConcurrency } from '../concurrency';
 import { antigravityConversationAdapter } from './antigravity-adapter';
 import { claudeCodeConversationAdapter } from './claude-code-adapter';
 import { clineConversationAdapter } from './cline-adapter';
@@ -10,6 +9,7 @@ import { grokConversationAdapter } from './grok-adapter';
 import { grokBotConversationAdapter } from './grok-bot-adapter';
 import { kiroConversationAdapter } from './kiro-adapter';
 import { minimaxCodeConversationAdapter } from './minimax-code-adapter';
+import { settleDeleteBatch } from './mutation-executor';
 import { opencodeConversationAdapter } from './opencode-adapter';
 import { UnsupportedSourceOperationError } from './operation-types';
 import { decodeConversationCursor, paginateConversations } from './pagination';
@@ -24,7 +24,6 @@ import {
     type ConversationSource,
     type ConversationSourceInfo,
     type ConversationSourceScope,
-    type DeleteConversationItemResult,
     type DeleteConversationOptions,
     type DeleteConversationResult,
     type DeleteConversationsOptions,
@@ -38,6 +37,8 @@ import {
 export { selectConversationMessages } from './message-selector';
 export {
     OriginalRepresentationUnavailableError,
+    type PublicMutationError,
+    SourceMutationConflictError,
     UnsupportedSourceOperationError,
 } from './operation-types';
 export { getConversationPathMatch, normalizeConversationPath } from './path-match';
@@ -67,11 +68,14 @@ export {
     type ConversationSourceScope,
     type ConversationToolEvidence,
     type ConversationZipDownload,
+    type DeleteBatchRequestMetadata,
+    type DeleteBatchSummary,
     type DeleteConversationItemResult,
     type DeleteConversationOptions,
     type DeleteConversationResult,
     type DeleteConversationsOptions,
     type DeleteConversationsResult,
+    type DeleteOutcome,
     type EvidenceAnchor,
     type EvidenceLens,
     type EvidenceOmissionStats,
@@ -274,7 +278,11 @@ export const getConversationRaw = async (
 export const deleteConversation = async (
     options: DeleteConversationOptions,
 ): Promise<DeleteConversationResult | null> => {
-    return (await getAdapter(options.source).deleteConversation?.(options)) ?? null;
+    const handler = getAdapter(options.source).deleteConversation;
+    if (!handler) {
+        throw new Error(`${options.source} declared delete support without a handler.`);
+    }
+    return handler(options);
 };
 
 export const deleteConversations = async (
@@ -282,40 +290,22 @@ export const deleteConversations = async (
 ): Promise<DeleteConversationsResult | null> => {
     const adapter = getAdapter(options.source);
     if (!adapter.deleteConversation) {
-        return null;
+        throw new Error(`${options.source} declared delete support without a handler.`);
     }
     const deleteAdapterConversation = adapter.deleteConversation;
 
-    const rawResults = await mapWithConcurrency(
-        options.ids,
-        DELETE_CONCURRENCY_BY_SOURCE[options.source],
-        async (id) => ({
-            id,
-            result: await deleteAdapterConversation({
+    return settleDeleteBatch({
+        concurrency: DELETE_CONCURRENCY_BY_SOURCE[options.source],
+        deleteOne: (id) =>
+            deleteAdapterConversation({
                 deleteSessionFiles: options.deleteSessionFiles,
                 id,
                 locations: options.locations,
                 source: options.source,
             }),
-        }),
-    );
-    const deletedIdSet = new Set(rawResults.flatMap(({ result }) => result.deletedIds));
-    const results: DeleteConversationItemResult[] = rawResults.map(({ id, result }) => ({
-        ...(result.cleanupFailures?.length ? { cleanupFailures: result.cleanupFailures } : {}),
-        deleted: result.deletedIds.length > 0 || deletedIdSet.has(id),
-        deletedFiles: result.deletedFiles,
-        deletedIds: result.deletedIds,
-        id,
-    }));
-    const cleanupFailures = results.flatMap((result) => result.cleanupFailures ?? []);
-
-    return {
-        ...(cleanupFailures.length > 0 ? { cleanupFailures } : {}),
-        deletedFiles: [...new Set(results.flatMap((result) => result.deletedFiles))],
-        deletedIds: [...deletedIdSet],
-        missingIds: results.filter((result) => !result.deleted).map((result) => result.id),
-        results,
-    };
+        ids: options.ids,
+        signal: options.signal,
+    });
 };
 
 const decodeRefId = (value: string | undefined): string | null => {

@@ -1,4 +1,4 @@
-import type { SerializedSourceOperation } from './operation-types';
+import type { PublicMutationError, SerializedSourceOperation } from './operation-types';
 
 export const CONVERSATION_SOURCES = [
     'cline',
@@ -131,6 +131,8 @@ export type ConversationSourceInfo = {
     inventoryPath: string;
     label: string;
     operations: {
+        batch_delete: SerializedSourceOperation;
+        delete: SerializedSourceOperation;
         detail: SerializedSourceOperation;
         list: SerializedSourceOperation;
         original_raw: SerializedSourceOperation;
@@ -233,6 +235,7 @@ export type DeleteConversationResult = {
     cleanupFailures?: ConversationCleanupFailure[];
     deletedFiles: string[];
     deletedIds: string[];
+    receiptId?: string;
 };
 
 export type ConversationCleanupFailure = {
@@ -249,6 +252,7 @@ export type ConversationIdSetOptions = {
 
 export type DeleteConversationsOptions = ConversationIdSetOptions & {
     deleteSessionFiles?: boolean;
+    signal?: AbortSignal;
 };
 
 export type DeleteConversationItemResult = DeleteConversationResult & {
@@ -256,9 +260,49 @@ export type DeleteConversationItemResult = DeleteConversationResult & {
     id: string;
 };
 
+export type DeleteOutcome =
+    | { affectedIds: string[]; coveredBy: string | null; deletedFiles: string[]; id: string; status: 'deleted' }
+    | { affectedIds: []; deletedFiles: []; id: string; status: 'missing' }
+    | {
+          affectedIds: string[];
+          deletedFiles: string[];
+          failures: ConversationCleanupFailure[];
+          id: string;
+          receiptId: string;
+          status: 'cleanup_pending';
+      }
+    | {
+          affectedIds: string[];
+          deletedFiles: string[];
+          effect: 'none' | 'partial' | 'unknown';
+          error: PublicMutationError;
+          id: string;
+          receiptId: string | null;
+          status: 'failed';
+      }
+    | { affectedIds: []; deletedFiles: []; id: string; status: 'cancelled' };
+
+export type DeleteBatchRequestMetadata = {
+    duplicateCount: number;
+    ids: string[];
+    uniqueIds: string[];
+};
+
+export type DeleteBatchSummary = {
+    cancelled: number;
+    cleanupPending: number;
+    deleted: number;
+    failed: number;
+    missing: number;
+};
+
 export type DeleteConversationsResult = DeleteConversationResult & {
+    affectedIds: string[];
     missingIds: string[];
+    outcomes: DeleteOutcome[];
+    request: DeleteBatchRequestMetadata;
     results: DeleteConversationItemResult[];
+    summary: DeleteBatchSummary;
 };
 
 export type ExportConversationsZipOptions = ConversationIdSetOptions & {

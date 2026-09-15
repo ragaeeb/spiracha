@@ -1,7 +1,7 @@
 import type { QoderSessionSummary } from '@spiracha/lib/qoder-exporter-types';
 import { Link } from '@tanstack/react-router';
 import type { SortingState } from '@tanstack/react-table';
-import { Download, MoreHorizontal } from 'lucide-react';
+import { Download, MoreHorizontal, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
 import { SelectionActionsToolbar } from '#/components/selection-actions-toolbar';
@@ -16,6 +16,8 @@ import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatDateTime, formatNumber } from '#/lib/formatters';
 
 type QoderSessionsTableProps = {
+    onDeleteSession: (session: QoderSessionSummary) => void;
+    onDeleteSessions: (sessionIds: string[]) => void;
     onExportSession: (session: QoderSessionSummary) => void;
     onExportSessions: (sessionIds: string[]) => void;
     sessions: QoderSessionSummary[];
@@ -24,7 +26,10 @@ type QoderSessionsTableProps = {
 const columnHelper = createDataTableColumnHelper<QoderSessionSummary>();
 const defaultSorting: SortingState = [{ desc: true, id: 'lastActive' }];
 
-const columns = (onExportSession: (session: QoderSessionSummary) => void) =>
+const columns = (
+    onDeleteSession: (session: QoderSessionSummary) => void,
+    onExportSession: (session: QoderSessionSummary) => void,
+) =>
     [
         columnHelper.accessor('title', {
             cell: (info) => (
@@ -95,6 +100,10 @@ const columns = (onExportSession: (session: QoderSessionSummary) => void) =>
                             <Download className="mr-2 size-4" />
                             Export session
                         </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => onDeleteSession(info.row.original)}>
+                            <Trash2 className="mr-2 size-4" />
+                            Delete session
+                        </DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>
             ),
@@ -104,8 +113,14 @@ const columns = (onExportSession: (session: QoderSessionSummary) => void) =>
         }),
     ] as const;
 
-export const QoderSessionsTable = ({ onExportSession, onExportSessions, sessions }: QoderSessionsTableProps) => {
-    const tableColumns = useMemo(() => columns(onExportSession), [onExportSession]);
+export const QoderSessionsTable = ({
+    onDeleteSession,
+    onDeleteSessions,
+    onExportSession,
+    onExportSessions,
+    sessions,
+}: QoderSessionsTableProps) => {
+    const tableColumns = useMemo(() => columns(onDeleteSession, onExportSession), [onDeleteSession, onExportSession]);
 
     return (
         <DataTable
@@ -124,6 +139,7 @@ export const QoderSessionsTable = ({ onExportSession, onExportSessions, sessions
                         exportDisabled={hasEmptySelection}
                         itemLabel="session"
                         selectedCount={selectedRows.length}
+                        onDeleteSelected={() => onDeleteSessions(selectedSessionIds)}
                         onExportSelected={() => onExportSessions(selectedSessionIds)}
                     />
                 );

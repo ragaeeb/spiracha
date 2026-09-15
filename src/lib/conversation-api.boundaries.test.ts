@@ -89,10 +89,17 @@ describe('stable API contract boundaries', () => {
 
     it('should trim and deduplicate batch IDs while preserving their first requested order', async () => {
         const deleteConversations = mock(async () => ({
+            affectedIds: ['two', 'one'],
             deletedFiles: [],
             deletedIds: ['two', 'one'],
             missingIds: [],
+            outcomes: [
+                { affectedIds: ['two'], coveredBy: null, deletedFiles: [], id: 'two', status: 'deleted' as const },
+                { affectedIds: ['one'], coveredBy: null, deletedFiles: [], id: 'one', status: 'deleted' as const },
+            ],
+            request: { duplicateCount: 0, ids: ['two', 'one'], uniqueIds: ['two', 'one'] },
             results: [],
+            summary: { cancelled: 0, cleanupPending: 0, deleted: 2, failed: 0, missing: 0 },
         }));
         const response = await handleConversationApiRequest(
             post('delete', { ids: [' two ', 'one', 'two', ' one '], source: 'codex' }),
@@ -120,14 +127,27 @@ describe('stable API contract boundaries', () => {
 
     it('should preserve partial delete success and cleanup failures in a successful response', async () => {
         const result = {
+            affectedIds: ['present'],
             cleanupFailures: [{ error: 'fixture cleanup failed', phase: 'files' }],
             deletedFiles: [],
             deletedIds: ['present'],
             missingIds: ['missing'],
+            outcomes: [
+                {
+                    affectedIds: ['present'],
+                    coveredBy: null,
+                    deletedFiles: [],
+                    id: 'present',
+                    status: 'deleted' as const,
+                },
+                { affectedIds: [] as [], deletedFiles: [] as [], id: 'missing', status: 'missing' as const },
+            ],
+            request: { duplicateCount: 0, ids: ['present', 'missing'], uniqueIds: ['present', 'missing'] },
             results: [
                 { deleted: true, deletedFiles: [], deletedIds: ['present'], id: 'present' },
                 { deleted: false, deletedFiles: [], deletedIds: [], id: 'missing' },
             ],
+            summary: { cancelled: 0, cleanupPending: 0, deleted: 1, failed: 0, missing: 1 },
         };
         const response = await handleConversationApiRequest(
             post('delete', { ids: ['present', 'missing'], source: 'codex' }),
@@ -135,6 +155,43 @@ describe('stable API contract boundaries', () => {
         );
         expect(response.status).toBe(200);
         expect(await response.json()).toEqual({ data: result });
+    });
+
+    it('should return settled batch delete outcomes when a later item throws', async () => {
+        const { settleDeleteBatch } = await import('./conversation-data/mutation-executor');
+        const response = await handleConversationApiRequest(post('delete', { ids: ['ok', 'boom'], source: 'codex' }), {
+            deleteConversations: (options) =>
+                settleDeleteBatch({
+                    concurrency: 1,
+                    deleteOne: async (id) => {
+                        if (id === 'boom') {
+                            throw new Error('secret-token=/private/store');
+                        }
+                        return { deletedFiles: [], deletedIds: [id] };
+                    },
+                    ids: options.ids,
+                }),
+        });
+
+        expect(response.status).toBe(200);
+        const body = await response.json();
+        expect(body).toMatchObject({
+            data: {
+                deletedIds: ['ok'],
+                missingIds: [],
+                summary: { cancelled: 0, cleanupPending: 0, deleted: 1, failed: 1, missing: 0 },
+            },
+        });
+        expect(JSON.stringify(body)).not.toContain('secret-token');
+        expect(body.data.outcomes).toEqual([
+            expect.objectContaining({ id: 'ok', status: 'deleted' }),
+            expect.objectContaining({
+                effect: 'unknown',
+                error: expect.objectContaining({ code: 'internal_error', message: 'Conversation delete failed.' }),
+                id: 'boom',
+                status: 'failed',
+            }),
+        ]);
     });
 
     it('should reject malformed UTF-8 payload bytes before invoking conversion', async () => {

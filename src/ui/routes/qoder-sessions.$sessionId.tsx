@@ -1,10 +1,11 @@
 import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/codex-browser-types';
 import type { QoderSessionTranscript } from '@spiracha/lib/qoder-exporter-types';
-import { useMutation, useSuspenseQuery } from '@tanstack/react-query';
+import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
-import { Download } from 'lucide-react';
+import { Download, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Breadcrumbs } from '#/components/breadcrumbs';
+import { DeleteConfirmDialog } from '#/components/delete-confirm-dialog';
 import { ExportDialog } from '#/components/export-dialog';
 import { JsonPanel } from '#/components/json-panel';
 import { LoadingPanel } from '#/components/loading-panel';
@@ -19,8 +20,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
 import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import type { ExportDialogOptions } from '#/lib/export-options';
 import { formatDateTime, formatList, formatNumber } from '#/lib/formatters';
-import { qoderSessionDetailQueryOptions } from '#/lib/qoder-queries';
-import { exportQoderSessionFn } from '#/lib/qoder-server';
+import { qoderSessionDetailQueryOptions, qoderWorkspacesQueryOptions } from '#/lib/qoder-queries';
+import { deleteQoderSessionFn, exportQoderSessionFn } from '#/lib/qoder-server';
 import { getQoderThreadTranscriptStats, qoderTranscriptToThreadEvents } from '#/lib/qoder-transcript-events';
 import {
     getTranscriptDisplayState,
@@ -29,6 +30,7 @@ import {
     withThreadTranscriptSearch,
 } from '#/lib/route-search';
 import { RouteStateResetBoundary } from '#/lib/route-state-reset';
+import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
 const QoderSessionDetailErrorComponent = ({ error }: { error: unknown }) => {
     return <RouteErrorPanel error={error} title="Failed to load Qoder session" />;
@@ -96,9 +98,11 @@ const QoderRawPanels = ({ detail, events }: { detail: QoderSessionTranscript; ev
 const QoderSessionDetailPage = () => {
     const downloadCancellation = useDownloadCancellation();
     const navigate = useNavigate({ from: Route.fullPath });
+    const queryClient = useQueryClient();
     const transcriptSearch = Route.useSearch();
     const transcriptDisplay = getTranscriptDisplayState(transcriptSearch);
     const detail = useSuspenseQuery(qoderSessionDetailQueryOptions(Route.useParams().sessionId)).data;
+    const [deleteOpen, setDeleteOpen] = useState(false);
     const [pendingExport, setPendingExport] = useState(false);
     const { showCommentary, showExtraEvents, showRawJson, showToolCalls, showUserMessages } = transcriptDisplay;
     const updateTranscriptDisplay = (patch: Partial<ThreadTranscriptSearch>) => {
@@ -134,20 +138,46 @@ const QoderSessionDetailPage = () => {
             setPendingExport(false);
         },
     });
+    const deleteMutation = useMutation({
+        mutationFn: () => deleteQoderSessionFn({ data: { sessionId: detail.session.sessionId } }),
+        onSuccess: async () => {
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ['qoder-workspaces'] }),
+                queryClient.invalidateQueries({ queryKey: ['qoder-sessions', detail.session.workspaceKey] }),
+                queryClient.invalidateQueries({ queryKey: ['qoder-session', detail.session.sessionId] }),
+            ]);
+            const workspaces = await queryClient.fetchQuery(qoderWorkspacesQueryOptions());
+            if (shouldNavigateToSourceIndexAfterDelete(workspaces, detail.session.workspaceKey, (item) => item.key)) {
+                await navigate({ to: '/qoder' });
+                return;
+            }
+            await navigate({ params: { workspaceKey: detail.session.workspaceKey }, to: '/qoder/$workspaceKey' });
+        },
+    });
 
     return (
         <div className="space-y-4">
             <PageHeader
                 actions={
-                    <Button
-                        className="rounded-full"
-                        type="button"
-                        variant="outline"
-                        onClick={() => setPendingExport(true)}
-                    >
-                        <Download className="mr-2 size-4" />
-                        Export
-                    </Button>
+                    <>
+                        <Button
+                            className="rounded-full"
+                            type="button"
+                            variant="outline"
+                            onClick={() => setPendingExport(true)}
+                        >
+                            <Download className="mr-2 size-4" />
+                            Export
+                        </Button>
+                        <Button
+                            className="rounded-full border-[var(--destructive)]/20 text-[var(--destructive)]"
+                            type="button"
+                            variant="outline"
+                            onClick={() => setDeleteOpen(true)}
+                        >
+                            <Trash2 className="mr-2 size-4" /> Delete
+                        </Button>
+                    </>
                 }
                 breadcrumb={
                     <Breadcrumbs
@@ -256,6 +286,20 @@ const QoderSessionDetailPage = () => {
                     setPendingExport(open);
                     if (!open) {
                         exportSessionMutation.reset();
+                    }
+                }}
+            />
+            <DeleteConfirmDialog
+                confirmLabel={deleteMutation.isPending ? 'Deleting...' : 'Delete session'}
+                description={`Permanently delete "${detail.session.title}". This removes matching local-history records, owned task references, and captured state or CLI files. Workspace source files and the shared Qoder database file are preserved.`}
+                errorMessage={deleteMutation.isError ? (deleteMutation.error as Error).message : null}
+                open={deleteOpen}
+                title="Delete this Qoder session?"
+                onConfirm={() => deleteMutation.mutate()}
+                onOpenChange={(open) => {
+                    setDeleteOpen(open);
+                    if (!open) {
+                        deleteMutation.reset();
                     }
                 }}
             />
