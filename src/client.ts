@@ -562,6 +562,15 @@ const makeHttpClient = (options: HttpConversationClientOptions): ConversationCli
     };
 };
 
+/**
+ * Creates the Bun-only stable conversation client; omitted mode means local storage.
+ * HTTP mode still uses this Bun entrypoint and expects a server root baseUrl, not
+ * a URL already ending in /api/v1. It rejects local location overrides.
+ * In local mode, call-specific locations replace factory locations rather than
+ * merging individual fields. Missing/unsupported operations can return null;
+ * thrown transport/storage errors are not uniformly SpirachaClientError instances.
+ * See docs/client-reference.md for per-method return values and mode differences.
+ */
 export const createConversationClient = (options: CreateConversationClientOptions = {}): ConversationClient => {
     return options.mode === 'http' ? makeHttpClient(options) : makeLocalClient(options);
 };
