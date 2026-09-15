@@ -192,6 +192,7 @@ const FxWorkspacePage = () => {
                 forceZipArchive={pendingExport ? pendingExport.sessionIds.length > 1 : false}
                 open={pendingExport !== null}
                 pending={exportMutation.isPending}
+                rawExport={pendingExport ? { ids: pendingExport.sessionIds, source: 'fx' } : undefined}
                 title={`Export ${pendingExport?.label ?? 'sessions'}`}
                 onExport={(options) =>
                     pendingExport &&

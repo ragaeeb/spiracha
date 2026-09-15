@@ -1,3 +1,5 @@
+import type { SerializedSourceOperation } from './operation-types';
+
 export const CONVERSATION_SOURCES = [
     'cline',
     'codex',
@@ -124,7 +126,15 @@ export type ConversationPathMatch = {
 };
 
 export type ConversationSourceInfo = {
+    detailRouteSegment: string;
+    exportPlatform: string;
+    inventoryPath: string;
     label: string;
+    operations: {
+        detail: SerializedSourceOperation;
+        list: SerializedSourceOperation;
+        original_raw: SerializedSourceOperation;
+    };
     scope: ConversationSourceScope;
     source: ConversationSource;
 };
@@ -265,7 +275,7 @@ export type ConversationZipDownload = {
 export type ConversationRawDownload = {
     blob: Blob;
     fileName: string;
-    mimeType: 'application/json' | 'application/x-ndjson';
+    mimeType: 'application/json' | 'application/octet-stream' | 'application/x-ndjson' | 'application/zip';
 };
 
 export type ResolvedConversationRef = {

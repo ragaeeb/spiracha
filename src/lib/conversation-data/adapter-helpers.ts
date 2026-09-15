@@ -110,8 +110,8 @@ export const createTextMessage = (input: {
     text: string | null | undefined;
     toolEvidence?: ConversationToolEvidence | null;
 }): ConversationMessage[] => {
-    const text = input.text?.trim();
-    if (!text) {
+    const text = input.text ?? '';
+    if (!text && !input.toolEvidence) {
         return [];
     }
 
@@ -124,7 +124,7 @@ export const createTextMessage = (input: {
             order: input.order,
             phase: input.phase,
             role: input.role,
-            text,
+            text: input.text ?? '',
             toolEvidence: input.toolEvidence ?? null,
         },
     ];

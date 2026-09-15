@@ -1,9 +1,13 @@
 import type { Capability, CapabilityBinding } from '../lib/conversation-data/capability';
+import { NATIVE_FILE_RAW_CAPABILITY, REQUIRED_READ_CAPABILITIES } from '../lib/conversation-data/operation-types';
 import type { SourceCatalog, SourceDescriptor } from '../lib/conversation-data/source-catalog';
 import type { ConversationAdapter, ConversationAdapterRegistry } from '../lib/conversation-data/types';
 import type { ConversationPayloadParserRegistry } from '../lib/conversation-payload-types';
 
+const capabilities = { ...REQUIRED_READ_CAPABILITIES, ...NATIVE_FILE_RAW_CAPABILITY };
+
 declare const missingRoute: Omit<SourceDescriptor<'codex'>, 'detailRouteSegment'>;
+declare const missingCapabilities: Omit<SourceDescriptor<'codex'>, 'capabilities'>;
 declare const missingCatalogSource: Omit<SourceCatalog, 'codex'>;
 declare const missingAdapterSource: Omit<ConversationAdapterRegistry, 'codex'>;
 declare const wrongSourceAdapter: ConversationAdapter<'grok'>;
@@ -12,6 +16,8 @@ declare const missingParserSource: Omit<ConversationPayloadParserRegistry, 'code
 
 // @ts-expect-error Every descriptor must bind a detail route.
 export const rejectsMissingRoute: SourceDescriptor<'codex'> = missingRoute;
+// @ts-expect-error Every descriptor must declare operations.
+export const rejectsMissingCapabilities: SourceDescriptor<'codex'> = missingCapabilities;
 // @ts-expect-error A source ID requires an identity/route descriptor.
 export const rejectsMissingCatalogSource: SourceCatalog = missingCatalogSource;
 // @ts-expect-error An adapter registry cannot omit any source.
@@ -45,6 +51,7 @@ export const acceptsUnsupported: CapabilityBinding<UnsupportedRaw, RawHandler> =
 export const acceptsInapplicable: CapabilityBinding<InapplicableRaw, RawHandler> = {};
 
 export const acceptsWorkspaceRoute: SourceDescriptor<'codex'> = {
+    capabilities,
     detailRouteSegment: 'threads',
     exportPlatform: 'codex',
     inventoryPath: '/codex',
@@ -57,6 +64,7 @@ export const acceptsWorkspaceRoute: SourceDescriptor<'codex'> = {
 
 // @ts-expect-error Workspace sources require a workspace route.
 export const rejectsMissingWorkspaceRoute: SourceDescriptor<'codex'> = {
+    capabilities,
     detailRouteSegment: 'threads',
     exportPlatform: 'codex',
     inventoryPath: '/codex',
@@ -67,6 +75,7 @@ export const rejectsMissingWorkspaceRoute: SourceDescriptor<'codex'> = {
 };
 
 export const rejectsGrokBotWorkspace: SourceDescriptor<'grok-bot'> = {
+    capabilities,
     detailRouteSegment: 'grok-bot-chats',
     exportPlatform: 'grok-bot',
     inventoryPath: '/grok-bot',
@@ -76,4 +85,19 @@ export const rejectsGrokBotWorkspace: SourceDescriptor<'grok-bot'> = {
     source: 'grok-bot',
     // @ts-expect-error Grok Bot cannot acquire a fake workspace route.
     workspaceRoute: { parameterName: 'workspaceKey', pathTemplate: '/grok-bot/$workspaceKey' },
+};
+
+type Catalog = typeof import('../lib/conversation-data/source-catalog').SOURCE_CATALOG;
+type IndexedCodexRaw = Catalog['codex']['capabilities']['original_raw'];
+type IndexedOpenCodeRaw = Catalog['opencode']['capabilities']['original_raw'];
+type WidenedRaw = Capability<{ owner: 'source_reader' }>;
+type CatalogRawHandler = () => Promise<null>;
+
+// @ts-expect-error Literal supported original_raw requires a handler.
+export const rejectsMissingIndexedRawHandler: CapabilityBinding<IndexedCodexRaw, CatalogRawHandler> = {};
+export const widenedCapabilityAllowsMissingHandler: CapabilityBinding<WidenedRaw, CatalogRawHandler> = {};
+export const acceptsOpenCodeRawException: CapabilityBinding<IndexedOpenCodeRaw, CatalogRawHandler> = {};
+export const rejectsOpenCodeRawHandler: CapabilityBinding<IndexedOpenCodeRaw, CatalogRawHandler> = {
+    // @ts-expect-error Unsupported original_raw cannot bind a handler.
+    handler: async () => null,
 };

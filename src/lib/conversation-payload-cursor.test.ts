@@ -75,6 +75,7 @@ describe('parseCursorPayload', () => {
             { phase: 'unknown', role: 'user', text: 'Fix this' },
             { phase: 'final_answer', role: 'assistant', text: 'Done.' },
             { phase: 'tool_call', role: 'tool', text: 'read\n{"path":"src/index.ts"}' },
+            { phase: 'tool_output', role: 'tool', text: '' },
         ]);
         expect(parseCursorPayload({ content: 'ambiguous', role: 'user' })).toBeNull();
         expect(

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { handleConversationApiRequest } from './conversation-api';
-import type { ConversationDetail } from './conversation-data/types';
+import { OriginalRepresentationUnavailableError } from './conversation-data';
+import type { ConversationDetail, ConversationSourceInfo } from './conversation-data/types';
 import { chatgptResearchPayload, chatgptResearchReport } from './conversation-payload-test-helpers';
 import type { ConvertedConversation } from './conversation-payload-types';
 
@@ -318,17 +319,76 @@ describe('conversation API handler', () => {
         const response = await handleConversationApiRequest(createRequest('/api/v1/sources'), {
             listConversationSources: async () => [
                 {
+                    detailRouteSegment: 'threads',
+                    exportPlatform: 'codex',
+                    inventoryPath: '/codex',
                     label: 'Codex',
+                    operations: {
+                        detail: { owner: 'source_reader', state: 'supported' },
+                        list: { owner: 'source_reader', state: 'supported' },
+                        original_raw: { owner: 'source_reader', state: 'supported' },
+                    },
                     scope: 'workspace',
                     source: 'codex',
-                },
+                } satisfies ConversationSourceInfo,
             ],
         });
 
         expect(response.status).toBe(200);
         await expect(response.json()).resolves.toEqual({
-            data: [{ label: 'Codex', scope: 'workspace', source: 'codex' }],
+            data: [
+                {
+                    detailRouteSegment: 'threads',
+                    exportPlatform: 'codex',
+                    inventoryPath: '/codex',
+                    label: 'Codex',
+                    operations: {
+                        detail: { owner: 'source_reader', state: 'supported' },
+                        list: { owner: 'source_reader', state: 'supported' },
+                        original_raw: { owner: 'source_reader', state: 'supported' },
+                    },
+                    scope: 'workspace',
+                    source: 'codex',
+                },
+            ],
+            meta: { schema_version: 1 },
         });
+    });
+
+    it('should publish declared source operations without inventing exceptions', async () => {
+        const response = await handleConversationApiRequest(createRequest('/api/v1/sources'));
+        const body = (await response.json()) as {
+            data: ConversationSourceInfo[];
+            meta: { schema_version: number };
+        };
+
+        expect(response.status).toBe(200);
+        expect(body.meta).toEqual({ schema_version: 1 });
+        expect(body.data.map((entry) => entry.source).sort()).toEqual([
+            'antigravity',
+            'claude-code',
+            'cline',
+            'codex',
+            'command-code',
+            'cursor',
+            'fx',
+            'grok',
+            'grok-bot',
+            'kiro',
+            'minimax-code',
+            'opencode',
+            'qoder',
+        ]);
+        expect(body.data.find((entry) => entry.source === 'opencode')?.operations.original_raw).toEqual({
+            reason: 'OpenCode stores conversations in shared relational tables with no standalone native conversation file.',
+            reasonCode: 'no_native_conversation_file',
+            state: 'unsupported',
+        });
+        expect(body.data.find((entry) => entry.source === 'cursor')?.operations.original_raw).toEqual({
+            owner: 'source_reader',
+            state: 'supported',
+        });
+        expect(body.data.find((entry) => entry.source === 'qoder')?.operations).not.toHaveProperty('delete');
     });
 
     it('should accept Command Code as a stable workspace source', async () => {
@@ -790,6 +850,43 @@ describe('conversation API handler', () => {
 
         expect(response.status).toBe(400);
         expect(loaded).toBe(false);
+    });
+
+    it('should reject OpenCode raw as an unsupported operation before source I/O', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/opencode/session-1/raw'),
+        );
+
+        expect(response.status).toBe(422);
+        await expect(response.json()).resolves.toMatchObject({
+            error: {
+                code: 'unsupported_operation',
+                details: {
+                    operation: 'original_raw',
+                    reason_code: 'no_native_conversation_file',
+                    source: 'opencode',
+                },
+            },
+        });
+    });
+
+    it('should distinguish missing native files from a missing conversation', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/cursor/thread-1/raw'),
+            {
+                getConversationRaw: async () => {
+                    throw new OriginalRepresentationUnavailableError('cursor', 'thread-1');
+                },
+            },
+        );
+
+        expect(response.status).toBe(409);
+        await expect(response.json()).resolves.toMatchObject({
+            error: {
+                code: 'original_representation_unavailable',
+                details: { id: 'thread-1', source: 'cursor' },
+            },
+        });
     });
 
     it('should delete supported conversations through the public API', async () => {

@@ -1,6 +1,7 @@
 import { mapWithConcurrency } from '../concurrency';
 import {
     getCursorThreadSummaryByComposerId,
+    listCursorNativeTranscriptFiles,
     listCursorThreadsForGroup,
     listCursorWorkspaceGroups,
     readCursorThreadTranscriptWithAgentFiles,
@@ -18,7 +19,9 @@ import { runWithTranscriptLoadLimit } from '../transcript-load-limiter';
 import { createConversationUiPath, createDeepLinks } from './adapter-helpers';
 import { cursorBubblesToMessages } from './cursor-message-normalizer';
 import { selectConversationMessages } from './message-selector';
+import { OriginalRepresentationUnavailableError } from './operation-types';
 import { getFirstConversationPathMatch } from './path-match';
+import { createNativeRawDownload } from './raw-download';
 import type {
     ConversationAdapter,
     ConversationDetail,
@@ -26,6 +29,7 @@ import type {
     DeleteConversationOptions,
     DeleteConversationResult,
     GetConversationOptions,
+    GetConversationRawOptions,
     ListConversationsOptions,
 } from './types';
 
@@ -131,6 +135,20 @@ const getCursorConversation = async (options: GetConversationOptions): Promise<C
     return null;
 };
 
+const getCursorConversationRaw = async (options: GetConversationRawOptions) => {
+    const userDir = getUserDir(options);
+    const files = await listCursorNativeTranscriptFiles(options.id, userDir);
+    if (files.length > 0) {
+        return createNativeRawDownload(files, `${options.id}-agent-transcripts.zip`);
+    }
+
+    const direct = await getCursorThreadSummaryByComposerId(options.id, userDir, { includeTranscriptDirs: false });
+    if (direct) {
+        throw new OriginalRepresentationUnavailableError(options.source, options.id);
+    }
+    return null;
+};
+
 export const deleteCursorConversation = async (
     options: DeleteConversationOptions,
     checkCursorRunning: () => Promise<boolean> = isCursorRunning,
@@ -163,6 +181,7 @@ export const toCursorDeleteConversationResult = (result: CursorPruneResult): Del
 export const cursorConversationAdapter = {
     deleteConversation: deleteCursorConversation,
     getConversation: getCursorConversation,
+    getConversationRaw: getCursorConversationRaw,
     listConversations: listCursorConversations,
     source: 'cursor',
 } satisfies ConversationAdapter<'cursor'>;

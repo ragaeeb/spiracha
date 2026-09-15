@@ -5,6 +5,7 @@ const ROOT = path.resolve(import.meta.dir, '../../..');
 
 const ENTRYPOINTS = [
     'src/lib/conversation-data/capability.ts',
+    'src/lib/conversation-data/operation-types.ts',
     'src/lib/conversation-data/source-catalog.ts',
     'src/lib/conversation-payload-types.ts',
     'src/lib/conversation-payload.ts',

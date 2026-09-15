@@ -1,4 +1,5 @@
 import { DEFAULT_EVIDENCE_LENS } from '@spiracha/lib/conversation-data/evidence-lens';
+import { isSupportedOriginalRawSource } from '@spiracha/lib/conversation-data/source-catalog';
 import type {
     ConversationEvidenceExport,
     ConversationSource,
@@ -232,7 +233,7 @@ const ExportModeContent = ({
                         <SelectItem value="full">Full transcript</SelectItem>
                         {focusedEvidenceTarget ? <SelectItem value="focused">Focused evidence</SelectItem> : null}
                         {showRawJsonOption ||
-                        (focusedEvidenceTarget && RAW_EXPORT_SOURCES.has(focusedEvidenceTarget.source)) ? (
+                        (focusedEvidenceTarget && isRawExportSource(focusedEvidenceTarget.source)) ? (
                             <SelectItem value="raw">Raw JSON</SelectItem>
                         ) : null}
                     </SelectContent>
@@ -291,33 +292,7 @@ type ExportDialogFooterProps = {
 
 type ExportMode = 'focused' | 'full' | 'raw';
 
-const RAW_EXPORT_SOURCES = new Set<ConversationSource>([
-    'antigravity',
-    'claude-code',
-    'cline',
-    'codex',
-    'command-code',
-    'grok',
-    'grok-bot',
-    'kiro',
-    'minimax-code',
-    'qoder',
-]);
-type RawExportSource = Extract<
-    ConversationSource,
-    | 'antigravity'
-    | 'claude-code'
-    | 'cline'
-    | 'codex'
-    | 'command-code'
-    | 'grok'
-    | 'grok-bot'
-    | 'kiro'
-    | 'minimax-code'
-    | 'qoder'
->;
-
-const isRawExportSource = (source: ConversationSource): source is RawExportSource => RAW_EXPORT_SOURCES.has(source);
+const isRawExportSource = (source: ConversationSource) => isSupportedOriginalRawSource(source);
 
 const ExportDialogFooter = ({
     disabled,
@@ -386,8 +361,7 @@ export function ExportDialog({
     const displayedError = exportError ?? errorMessage;
     const downloadCancellation = useDownloadCancellation();
     const zipDescriptionId = useId();
-    const hasRawJsonExport =
-        rawExport !== undefined && rawExport.ids.length > 0 && RAW_EXPORT_SOURCES.has(rawExport.source);
+    const hasRawJsonExport = rawExport !== undefined && rawExport.ids.length > 0 && isRawExportSource(rawExport.source);
     const handleOpenChange = (nextOpen: boolean) => {
         if (!nextOpen) {
             submissionToken.current += 1;

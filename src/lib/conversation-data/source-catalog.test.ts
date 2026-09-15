@@ -105,4 +105,40 @@ describe('portable source catalog', () => {
         expect(sourceFromDetailRouteSegment('cloud')).toBeNull();
         expect(sourceFromDetailRouteSegment('unknown')).toBeNull();
     });
+
+    it('should declare required reads and reviewed original-raw states independently of adapters', async () => {
+        const expectedOriginalRaw = {
+            antigravity: 'supported',
+            'claude-code': 'supported',
+            cline: 'supported',
+            codex: 'supported',
+            'command-code': 'supported',
+            cursor: 'supported',
+            fx: 'supported',
+            grok: 'supported',
+            'grok-bot': 'supported',
+            kiro: 'supported',
+            'minimax-code': 'supported',
+            opencode: 'unsupported',
+            qoder: 'supported',
+        } satisfies Record<ConversationSource, 'supported' | 'unsupported'>;
+        const repoRoot = new URL('../../..', import.meta.url);
+
+        for (const source of CONVERSATION_SOURCES) {
+            const capabilities = SOURCE_CATALOG[source].capabilities;
+            expect(capabilities.list.state).toBe('supported');
+            expect(capabilities.detail.state).toBe('supported');
+            expect(capabilities.original_raw.state).toBe(expectedOriginalRaw[source]);
+            expect(capabilities).not.toHaveProperty('delete');
+            if (capabilities.original_raw.state === 'unsupported') {
+                const [evidence] = capabilities.original_raw.evidence;
+                expect(capabilities.original_raw.reasonCode).toBe('no_native_conversation_file');
+                expect(await Bun.file(new URL(evidence!.path, repoRoot)).exists()).toBe(true);
+                const testSource = await Bun.file(
+                    new URL('src/lib/conversation-data/opencode-adapter.test.ts', repoRoot),
+                ).text();
+                expect(testSource).toContain(evidence!.testId);
+            }
+        }
+    });
 });

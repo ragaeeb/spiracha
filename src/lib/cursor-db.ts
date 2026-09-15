@@ -2171,6 +2171,19 @@ const listCursorAgentTranscriptFiles = async (transcriptDir: string, composerId:
     return [...files].sort();
 };
 
+export const listCursorNativeTranscriptFiles = async (
+    composerId: string,
+    userDir = resolveCursorUserDir(),
+): Promise<string[]> => {
+    const files = new Set<string>();
+    for (const transcriptDir of [...(await findCursorTranscriptDirs(composerId, userDir))].sort()) {
+        for (const file of await listCursorAgentTranscriptFiles(transcriptDir, composerId)) {
+            files.add(file);
+        }
+    }
+    return [...files].sort();
+};
+
 type CursorAgentTranscript = {
     bubbles: CursorBubble[];
     bytes: number;

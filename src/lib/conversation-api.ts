@@ -18,7 +18,9 @@ import {
     type ListConversationsOptions,
     listConversationSources,
     listConversations,
+    OriginalRepresentationUnavailableError,
     resolveConversationRef,
+    UnsupportedSourceOperationError,
 } from './conversation-data';
 import { validateEvidenceLens } from './conversation-data/evidence-lens';
 import { buildEvidenceExport } from './conversation-data/evidence-markdown';
@@ -49,6 +51,7 @@ type ApiErrorCode =
     | 'internal_error'
     | 'method_not_allowed'
     | 'not_found'
+    | 'original_representation_unavailable'
     | 'unsupported_operation'
     | 'validation_error';
 type ParseResult<T> = { error: Response } | { value: T };
@@ -387,6 +390,7 @@ const getDeps = (dependencies: ConversationApiDependencies) => ({
 const handleSources = async (dependencies: ReturnType<typeof getDeps>) => {
     return jsonResponse({
         data: await dependencies.listConversationSources(),
+        meta: { schema_version: 1 },
     });
 };
 
@@ -565,24 +569,41 @@ const handleRawConversation = async (
     if (url.search) {
         return errorResponse('validation_error', 'Raw transcript exports do not accept query parameters.', 400);
     }
-    const download = await dependencies.getConversationRaw({ id: result.value.id, source: result.value.source });
-    if (!download) {
-        return errorResponse('conversation_not_found', 'No raw transcript exists for that source and id.', 404, {
-            id: result.value.id,
-            source: result.value.source,
+    try {
+        const download = await dependencies.getConversationRaw({ id: result.value.id, source: result.value.source });
+        if (!download) {
+            return errorResponse('conversation_not_found', 'No raw transcript exists for that source and id.', 404, {
+                id: result.value.id,
+                source: result.value.source,
+            });
+        }
+
+        const fileName = buildRawConversationExportFileName(result.value.source, result.value.id, download.fileName);
+
+        return new Response(includeBody ? download.blob : null, {
+            headers: {
+                'Cache-Control': 'no-store',
+                'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+                'Content-Type': download.mimeType,
+                'X-Content-Type-Options': 'nosniff',
+            },
         });
+    } catch (error) {
+        if (error instanceof UnsupportedSourceOperationError) {
+            return errorResponse('unsupported_operation', error.message, 422, {
+                operation: error.operation,
+                reason_code: error.reasonCode,
+                source: error.source,
+            });
+        }
+        if (error instanceof OriginalRepresentationUnavailableError) {
+            return errorResponse('original_representation_unavailable', error.message, 409, {
+                id: error.id,
+                source: error.source,
+            });
+        }
+        throw error;
     }
-
-    const fileName = buildRawConversationExportFileName(result.value.source, result.value.id, download.fileName);
-
-    return new Response(includeBody ? download.blob : null, {
-        headers: {
-            'Cache-Control': 'no-store',
-            'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`,
-            'Content-Type': download.mimeType,
-            'X-Content-Type-Options': 'nosniff',
-        },
-    });
 };
 
 const handleExportEvidence = async (

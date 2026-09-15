@@ -1,18 +1,27 @@
 import { mapWithConcurrency } from '../concurrency';
-import { deleteFxSession, listFxSessionsForGroup, listFxWorkspaceGroups, readFxSessionTranscript } from '../fx-db';
+import {
+    deleteFxSession,
+    listFxNativeSessionAssets,
+    listFxSessionsForGroup,
+    listFxWorkspaceGroups,
+    readFxSessionTranscript,
+} from '../fx-db';
 import type { FxSessionSummary, FxSessionTranscript } from '../fx-exporter-types';
 import { resolveFxDataDir } from '../fx-exporter-types';
 import { runWithTranscriptLoadLimit } from '../transcript-load-limiter';
 import { createConversationUiPath, createDeepLinks, isWithinUpdatedWindow } from './adapter-helpers';
 import { normalizeFxTranscript } from './fx-messages';
 import { selectConversationMessages } from './message-selector';
+import { OriginalRepresentationUnavailableError } from './operation-types';
 import { getConversationPathMatch } from './path-match';
+import { createNativeRawDownload } from './raw-download';
 import type {
     ConversationAdapter,
     ConversationDetail,
     ConversationPathMatch,
     DeleteConversationOptions,
     GetConversationOptions,
+    GetConversationRawOptions,
     ListConversationsOptions,
 } from './types';
 
@@ -105,6 +114,17 @@ const getFxConversation = async (options: GetConversationOptions): Promise<Conve
         : null;
 };
 
+const getFxConversationRaw = async (options: GetConversationRawOptions) => {
+    const assets = await listFxNativeSessionAssets(getDataDir(options), options.id);
+    if (!assets) {
+        return null;
+    }
+    if (assets.missingReferenced.length > 0) {
+        throw new OriginalRepresentationUnavailableError(options.source, options.id);
+    }
+    return createNativeRawDownload(assets.files, `${options.id}-session-assets.zip`);
+};
+
 const deleteFxConversation = async (options: DeleteConversationOptions) => {
     const result = await deleteFxSession(getDataDir(options), options.id);
     return { deletedFiles: result.deletedFiles, deletedIds: result.deletedSessionIds };
@@ -113,6 +133,7 @@ const deleteFxConversation = async (options: DeleteConversationOptions) => {
 export const fxConversationAdapter = {
     deleteConversation: deleteFxConversation,
     getConversation: getFxConversation,
+    getConversationRaw: getFxConversationRaw,
     listConversations: listFxConversations,
     source: 'fx',
 } satisfies ConversationAdapter<'fx'>;

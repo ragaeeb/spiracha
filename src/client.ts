@@ -336,8 +336,13 @@ const fetchRawOrNull = async (url: URL): Promise<ConversationRawDownload | null>
     }
 
     await assertOkResponse(response);
-    const mimeType = response.headers.get('Content-Type')?.split(';')[0];
-    if (mimeType !== 'application/json' && mimeType !== 'application/x-ndjson') {
+    const mimeType = response.headers.get('Content-Type')?.split(';')[0]?.trim().toLowerCase();
+    if (
+        mimeType !== 'application/json' &&
+        mimeType !== 'application/octet-stream' &&
+        mimeType !== 'application/x-ndjson' &&
+        mimeType !== 'application/zip'
+    ) {
         throw new SpirachaClientError(
             `Spiracha API returned an unsupported raw transcript type: ${mimeType ?? 'none'}.`,
         );

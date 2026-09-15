@@ -335,6 +335,7 @@ const CursorWorkspacePage = () => {
                 forceZipArchive={pendingExport ? pendingExport.composerIds.length > 1 : false}
                 open={pendingExport !== null}
                 pending={exportMutation.isPending}
+                rawExport={pendingExport ? { ids: pendingExport.composerIds, source: 'cursor' } : undefined}
                 title={pendingExport ? `Export ${pendingExport.label}` : 'Export thread'}
                 onExport={(options) => {
                     if (pendingExport) {

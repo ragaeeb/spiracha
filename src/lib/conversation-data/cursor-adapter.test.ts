@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { unzipSync } from 'fflate';
 import type { CursorPruneResult } from '../cursor-exporter-types';
 import { createCursorFixture } from '../cursor-test-helpers';
 import {
@@ -9,6 +10,7 @@ import {
     deleteCursorConversation,
     toCursorDeleteConversationResult,
 } from './cursor-adapter';
+import { OriginalRepresentationUnavailableError } from './operation-types';
 
 const tempDirs: string[] = [];
 
@@ -155,5 +157,52 @@ describe('cursorConversationAdapter', () => {
         expect(conversations[0]?.matches[0]?.kind).toBe('exact');
         expect(conversations[0]?.messages).toEqual([]);
         expect(excluded).toEqual([]);
+    });
+
+    it('should export discovered agent transcript JSONL files and never the shared database', async () => {
+        const userDir = await mkdtemp(path.join(os.tmpdir(), 'cursor-adapter-raw-'));
+        tempDirs.push(userDir);
+        await createCursorFixture(userDir, {
+            buckets: [{ bucketId: 'bucket-1', composerIds: ['thread-1'], folder: 'file:///repo' }],
+            headerLinks: [{ bucketId: 'bucket-1', composerId: 'thread-1', uriPath: '/repo' }],
+            threads: [{ bubbles: [{ bubbleId: 'u1', text: 'Hello', type: 1 }], composerId: 'thread-1' }],
+        });
+        const transcriptDir = path.join(userDir, 'projects', 'demo-project', 'agent-transcripts', 'thread-1');
+        await mkdir(transcriptDir, { recursive: true });
+        const preferred = path.join(transcriptDir, 'thread-1.jsonl');
+        const replica = path.join(transcriptDir, 'replica.jsonl');
+        await Bun.write(preferred, '{"role":"user"}\n');
+        await Bun.write(replica, '{"role":"assistant"}\n');
+
+        const download = await cursorConversationAdapter.getConversationRaw!({
+            id: 'thread-1',
+            locations: { cursorUserDir: userDir },
+            source: 'cursor',
+        });
+        const members = unzipSync(new Uint8Array(await download!.blob.arrayBuffer()));
+
+        expect(download?.mimeType).toBe('application/zip');
+        expect(Object.keys(members).sort()).toEqual(['replica.jsonl', 'thread-1.jsonl']);
+        expect(Buffer.from(members['thread-1.jsonl']!).toString()).toBe('{"role":"user"}\n');
+        expect(Buffer.from(members['replica.jsonl']!).toString()).toBe('{"role":"assistant"}\n');
+        expect(Object.keys(members).some((name) => name.endsWith('.vscdb'))).toBe(false);
+    });
+
+    it('should report DB-only Cursor conversations as original representation unavailable', async () => {
+        const userDir = await mkdtemp(path.join(os.tmpdir(), 'cursor-adapter-raw-db-'));
+        tempDirs.push(userDir);
+        await createCursorFixture(userDir, {
+            buckets: [{ bucketId: 'bucket-1', composerIds: ['thread-1'], folder: 'file:///repo' }],
+            headerLinks: [{ bucketId: 'bucket-1', composerId: 'thread-1', uriPath: '/repo' }],
+            threads: [{ bubbles: [{ bubbleId: 'u1', text: 'Hello', type: 1 }], composerId: 'thread-1' }],
+        });
+
+        await expect(
+            cursorConversationAdapter.getConversationRaw!({
+                id: 'thread-1',
+                locations: { cursorUserDir: userDir },
+                source: 'cursor',
+            }),
+        ).rejects.toBeInstanceOf(OriginalRepresentationUnavailableError);
     });
 });

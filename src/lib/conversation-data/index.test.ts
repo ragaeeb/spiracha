@@ -145,11 +145,17 @@ describe('conversation data facade', () => {
 
     it('should return an isolated scoped source metadata array', async () => {
         const first = await listConversationSources();
-        expect(first).toContainEqual({ label: 'Cline', scope: 'workspace', source: 'cline' });
-        expect(first).toContainEqual({ label: 'MiniMax Code', scope: 'workspace', source: 'minimax-code' });
-        expect(first).toContainEqual({ label: 'Command Code', scope: 'workspace', source: 'command-code' });
-        expect(first).toContainEqual({ label: 'FX', scope: 'workspace', source: 'fx' });
-        expect(first).toContainEqual({ label: 'Grok Bot', scope: 'global', source: 'grok-bot' });
+        expect(first).toContainEqual(expect.objectContaining({ label: 'Cline', scope: 'workspace', source: 'cline' }));
+        expect(first).toContainEqual(
+            expect.objectContaining({ label: 'MiniMax Code', scope: 'workspace', source: 'minimax-code' }),
+        );
+        expect(first).toContainEqual(
+            expect.objectContaining({ label: 'Command Code', scope: 'workspace', source: 'command-code' }),
+        );
+        expect(first).toContainEqual(expect.objectContaining({ label: 'FX', scope: 'workspace', source: 'fx' }));
+        expect(first).toContainEqual(
+            expect.objectContaining({ label: 'Grok Bot', scope: 'global', source: 'grok-bot' }),
+        );
         first.splice(0, first.length);
 
         expect(await listConversationSources()).not.toEqual([]);

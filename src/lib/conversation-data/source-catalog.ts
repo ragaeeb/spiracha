@@ -1,11 +1,32 @@
-import { CONVERSATION_SOURCES, type ConversationSource } from './types';
+import {
+    NATIVE_FILE_RAW_CAPABILITY,
+    OPENCODE_ORIGINAL_RAW_EXCEPTION,
+    REQUIRED_READ_CAPABILITIES,
+    serializeSourceOperations,
+} from './operation-types';
+import { CONVERSATION_SOURCES, type ConversationSource, type ConversationSourceInfo } from './types';
 
 export type SourceWorkspaceRoute = {
     parameterName: string;
     pathTemplate: `/${string}/$${string}`;
 };
 
+const nativeFileCapabilities = {
+    ...REQUIRED_READ_CAPABILITIES,
+    ...NATIVE_FILE_RAW_CAPABILITY,
+} as const;
+
+const openCodeCapabilities = {
+    ...REQUIRED_READ_CAPABILITIES,
+    ...OPENCODE_ORIGINAL_RAW_EXCEPTION,
+} as const;
+
+type SourceCapabilitiesFor<S extends ConversationSource> = S extends 'opencode'
+    ? typeof openCodeCapabilities
+    : typeof nativeFileCapabilities;
+
 type SourceDescriptorBase<S extends ConversationSource> = {
+    capabilities: SourceCapabilitiesFor<S>;
     detailRouteSegment: string;
     exportPlatform: string;
     inventoryPath: `/${S}`;
@@ -25,9 +46,10 @@ const workspaceKeyRoute = (source: Exclude<ConversationSource, 'codex' | 'grok-b
     pathTemplate: `/${source}/$workspaceKey`,
 });
 
-// Identity only. Capability decisions are introduced operation by operation, not inferred from missing methods.
+// Identity plus declared operations. Undeclared operations are absent, not unsupported.
 export const SOURCE_CATALOG = {
     antigravity: {
+        capabilities: nativeFileCapabilities,
         detailRouteSegment: 'antigravity-conversations',
         exportPlatform: 'antigravity',
         inventoryPath: '/antigravity',
@@ -38,6 +60,7 @@ export const SOURCE_CATALOG = {
         workspaceRoute: workspaceKeyRoute('antigravity'),
     },
     'claude-code': {
+        capabilities: nativeFileCapabilities,
         detailRouteSegment: 'claude-code-sessions',
         exportPlatform: 'claude',
         inventoryPath: '/claude-code',
@@ -48,6 +71,7 @@ export const SOURCE_CATALOG = {
         workspaceRoute: workspaceKeyRoute('claude-code'),
     },
     cline: {
+        capabilities: nativeFileCapabilities,
         detailRouteSegment: 'cline-tasks',
         exportPlatform: 'cline',
         inventoryPath: '/cline',
@@ -58,6 +82,7 @@ export const SOURCE_CATALOG = {
         workspaceRoute: workspaceKeyRoute('cline'),
     },
     codex: {
+        capabilities: nativeFileCapabilities,
         detailRouteSegment: 'threads',
         exportPlatform: 'codex',
         inventoryPath: '/codex',
@@ -71,6 +96,7 @@ export const SOURCE_CATALOG = {
         },
     },
     'command-code': {
+        capabilities: nativeFileCapabilities,
         detailRouteSegment: 'command-code-sessions',
         exportPlatform: 'command-code',
         inventoryPath: '/command-code',
@@ -81,6 +107,7 @@ export const SOURCE_CATALOG = {
         workspaceRoute: workspaceKeyRoute('command-code'),
     },
     cursor: {
+        capabilities: nativeFileCapabilities,
         detailRouteSegment: 'cursor-threads',
         exportPlatform: 'cursor',
         inventoryPath: '/cursor',
@@ -91,6 +118,7 @@ export const SOURCE_CATALOG = {
         workspaceRoute: workspaceKeyRoute('cursor'),
     },
     fx: {
+        capabilities: nativeFileCapabilities,
         detailRouteSegment: 'fx-sessions',
         exportPlatform: 'fx',
         inventoryPath: '/fx',
@@ -101,6 +129,7 @@ export const SOURCE_CATALOG = {
         workspaceRoute: workspaceKeyRoute('fx'),
     },
     grok: {
+        capabilities: nativeFileCapabilities,
         detailRouteSegment: 'grok-sessions',
         exportPlatform: 'grok',
         inventoryPath: '/grok',
@@ -111,6 +140,7 @@ export const SOURCE_CATALOG = {
         workspaceRoute: workspaceKeyRoute('grok'),
     },
     'grok-bot': {
+        capabilities: nativeFileCapabilities,
         detailRouteSegment: 'grok-bot-chats',
         exportPlatform: 'grok-bot',
         inventoryPath: '/grok-bot',
@@ -120,6 +150,7 @@ export const SOURCE_CATALOG = {
         source: 'grok-bot',
     },
     kiro: {
+        capabilities: nativeFileCapabilities,
         detailRouteSegment: 'kiro-sessions',
         exportPlatform: 'kiro',
         inventoryPath: '/kiro',
@@ -130,6 +161,7 @@ export const SOURCE_CATALOG = {
         workspaceRoute: workspaceKeyRoute('kiro'),
     },
     'minimax-code': {
+        capabilities: nativeFileCapabilities,
         detailRouteSegment: 'minimax-code-sessions',
         exportPlatform: 'minimax',
         inventoryPath: '/minimax-code',
@@ -140,6 +172,7 @@ export const SOURCE_CATALOG = {
         workspaceRoute: workspaceKeyRoute('minimax-code'),
     },
     opencode: {
+        capabilities: openCodeCapabilities,
         detailRouteSegment: 'opencode-sessions',
         exportPlatform: 'opencode',
         inventoryPath: '/opencode',
@@ -150,6 +183,7 @@ export const SOURCE_CATALOG = {
         workspaceRoute: workspaceKeyRoute('opencode'),
     },
     qoder: {
+        capabilities: nativeFileCapabilities,
         detailRouteSegment: 'qoder-sessions',
         exportPlatform: 'qoder',
         inventoryPath: '/qoder',
@@ -163,3 +197,19 @@ export const SOURCE_CATALOG = {
 
 export const sourceFromDetailRouteSegment = (segment: string): ConversationSource | null =>
     CONVERSATION_SOURCES.find((source) => SOURCE_CATALOG[source].detailRouteSegment === segment) ?? null;
+
+export const isSupportedOriginalRawSource = (source: ConversationSource): boolean =>
+    SOURCE_CATALOG[source].capabilities.original_raw.state === 'supported';
+
+export const serializeConversationSourceInfo = (source: ConversationSource): ConversationSourceInfo => {
+    const descriptor = SOURCE_CATALOG[source];
+    return {
+        detailRouteSegment: descriptor.detailRouteSegment,
+        exportPlatform: descriptor.exportPlatform,
+        inventoryPath: descriptor.inventoryPath,
+        label: descriptor.label,
+        operations: serializeSourceOperations(descriptor.capabilities),
+        scope: descriptor.scope,
+        source,
+    };
+};

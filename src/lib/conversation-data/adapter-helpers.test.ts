@@ -55,4 +55,62 @@ describe('conversation adapter helpers', () => {
 
         expect(message).not.toHaveProperty('model');
     });
+
+    it('should keep untrimmed bodies and empty observed tool outputs', () => {
+        const [padded] = createTextMessage({
+            createdAtMs: 10,
+            id: 'u0',
+            order: 0,
+            phase: 'unknown',
+            role: 'user',
+            text: '  keep leading\r\nline two  \n',
+        });
+        const [emptyOutput] = createTextMessage({
+            createdAtMs: null,
+            id: 'to4',
+            order: 4,
+            phase: 'tool_output',
+            role: 'tool',
+            text: '',
+            toolEvidence: {
+                callId: 'call-1',
+                command: null,
+                durationMs: 0,
+                exitCode: 0,
+                inputText: null,
+                name: 'exec',
+                namespace: 'functions',
+                outputText: '',
+                status: 'succeeded',
+                workdir: null,
+            },
+        });
+
+        expect(padded?.text).toBe('  keep leading\r\nline two  \n');
+        expect(emptyOutput).toMatchObject({
+            id: 'to4',
+            text: '',
+            toolEvidence: { durationMs: 0, exitCode: 0, outputText: '', status: 'succeeded' },
+        });
+        expect(
+            createTextMessage({
+                createdAtMs: null,
+                id: 'skip',
+                order: 1,
+                phase: 'unknown',
+                role: 'unknown',
+                text: '',
+            }),
+        ).toEqual([]);
+        expect(
+            createTextMessage({
+                createdAtMs: null,
+                id: 'skip-null',
+                order: 1,
+                phase: 'unknown',
+                role: 'unknown',
+                text: null,
+            }),
+        ).toEqual([]);
+    });
 });

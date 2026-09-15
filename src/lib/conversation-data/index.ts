@@ -11,9 +11,10 @@ import { grokBotConversationAdapter } from './grok-bot-adapter';
 import { kiroConversationAdapter } from './kiro-adapter';
 import { minimaxCodeConversationAdapter } from './minimax-code-adapter';
 import { opencodeConversationAdapter } from './opencode-adapter';
+import { UnsupportedSourceOperationError } from './operation-types';
 import { decodeConversationCursor, paginateConversations } from './pagination';
 import { qoderConversationAdapter } from './qoder-adapter';
-import { SOURCE_CATALOG, sourceFromDetailRouteSegment } from './source-catalog';
+import { SOURCE_CATALOG, serializeConversationSourceInfo, sourceFromDetailRouteSegment } from './source-catalog';
 import {
     CONVERSATION_SOURCES,
     type ConversationAdapter,
@@ -35,8 +36,13 @@ import {
 } from './types';
 
 export { selectConversationMessages } from './message-selector';
-
+export {
+    OriginalRepresentationUnavailableError,
+    UnsupportedSourceOperationError,
+} from './operation-types';
 export { getConversationPathMatch, normalizeConversationPath } from './path-match';
+
+export { isSupportedOriginalRawSource, serializeConversationSourceInfo } from './source-catalog';
 
 export {
     CONVERSATION_SOURCES,
@@ -77,11 +83,7 @@ export {
     type ResolvedConversationRef,
 } from './types';
 
-const SOURCE_INFOS: ConversationSourceInfo[] = CONVERSATION_SOURCES.map((source) => ({
-    label: SOURCE_CATALOG[source].label,
-    scope: SOURCE_CATALOG[source].scope,
-    source,
-}));
+const SOURCE_INFOS: ConversationSourceInfo[] = CONVERSATION_SOURCES.map(serializeConversationSourceInfo);
 
 export const isConversationSource = (value: unknown): value is ConversationSource => {
     return typeof value === 'string' && (CONVERSATION_SOURCES as readonly string[]).includes(value);
@@ -253,7 +255,20 @@ export const getConversation = async (options: GetConversationOptions) => {
 export const getConversationRaw = async (
     options: GetConversationRawOptions,
 ): Promise<ConversationRawDownload | null> => {
-    return (await getAdapter(options.source).getConversationRaw?.(options)) ?? null;
+    const capability = SOURCE_CATALOG[options.source].capabilities.original_raw;
+    if (capability.state !== 'supported') {
+        throw new UnsupportedSourceOperationError(
+            options.source,
+            'original_raw',
+            capability.reason,
+            capability.reasonCode,
+        );
+    }
+    const handler = getAdapter(options.source).getConversationRaw;
+    if (!handler) {
+        throw new Error(`${options.source} declared original_raw support without a handler.`);
+    }
+    return handler(options);
 };
 
 export const deleteConversation = async (
