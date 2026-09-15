@@ -8,22 +8,25 @@ import { createCodexBrowserFixture } from './lib/codex-test-helpers';
 import { handleConversationApiRequest } from './lib/conversation-api';
 import { getConversation, getConversationRaw, listConversations } from './lib/conversation-data';
 
-const withFixture = async (check: (input: {
-    fixture: Awaited<ReturnType<typeof createCodexBrowserFixture>>;
-    http: ReturnType<typeof createConversationClient>;
-    local: ReturnType<typeof createConversationClient>;
-}) => Promise<void>) => {
+const withFixture = async (
+    check: (input: {
+        fixture: Awaited<ReturnType<typeof createCodexBrowserFixture>>;
+        http: ReturnType<typeof createConversationClient>;
+        local: ReturnType<typeof createConversationClient>;
+    }) => Promise<void>,
+) => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'spiracha-http-storage-'));
     let server: ReturnType<typeof Bun.serve> | undefined;
     try {
         const fixture = await createCodexBrowserFixture(root);
         const locations = { codexDbPath: fixture.dbPath };
         server = Bun.serve({
-            fetch: (request) => handleConversationApiRequest(request, {
-                getConversation: (options) => getConversation({ ...options, locations }),
-                getConversationRaw: (options) => getConversationRaw({ ...options, locations }),
-                listConversations: (options) => listConversations({ ...options, locations }),
-            }),
+            fetch: (request) =>
+                handleConversationApiRequest(request, {
+                    getConversation: (options) => getConversation({ ...options, locations }),
+                    getConversationRaw: (options) => getConversationRaw({ ...options, locations }),
+                    listConversations: (options) => listConversations({ ...options, locations }),
+                }),
             hostname: '127.0.0.1',
             port: 0,
         });
@@ -59,7 +62,9 @@ describe('HTTP SDK through the real API and Codex storage', () => {
             for (const messageSelector of ['all', 'last_assistant', 'last_final_answer'] as const) {
                 const target = { id: fixture.threads[0].threadId, messageSelector, source: 'codex' as const };
                 expect(await http.getConversation(target)).toEqual(await local.getConversation(target));
-                expect(await http.exportConversationMarkdown(target)).toBe(await local.exportConversationMarkdown(target));
+                expect(await http.exportConversationMarkdown(target)).toBe(
+                    await local.exportConversationMarkdown(target),
+                );
             }
         });
     });
@@ -70,8 +75,9 @@ describe('HTTP SDK through the real API and Codex storage', () => {
             const result = await http.exportConversationRaw({ id: thread.threadId, source: 'codex' });
             expect(result).not.toBeNull();
             expect(result!.mimeType).toBe('application/x-ndjson');
-            expect(new Uint8Array(await result!.blob.arrayBuffer()))
-                .toEqual(new Uint8Array(await Bun.file(thread.sessionFile).arrayBuffer()));
+            expect(new Uint8Array(await result!.blob.arrayBuffer())).toEqual(
+                new Uint8Array(await Bun.file(thread.sessionFile).arrayBuffer()),
+            );
         });
     });
 
@@ -81,10 +87,22 @@ describe('HTTP SDK through the real API and Codex storage', () => {
             const archive = await http.exportConversationsZip({ ids, messageSelector: 'all', source: 'codex' });
             expect(archive).not.toBeNull();
             const unpacked = unzipSync(new Uint8Array(await archive!.blob.arrayBuffer()));
-            const expected = await Promise.all(ids.map((id) => local.exportConversationMarkdown({
-                id, messageSelector: 'all', source: 'codex',
-            })));
-            expect(Object.values(unpacked).map((bytes) => strFromU8(bytes)).toSorted()).toEqual(expected.toSorted());
+            const expected = await Promise.all(
+                ids.map(async (id) => {
+                    const markdown = await local.exportConversationMarkdown({
+                        id,
+                        messageSelector: 'all',
+                        source: 'codex',
+                    });
+                    expect(markdown).not.toBeNull();
+                    return markdown as string;
+                }),
+            );
+            expect(
+                Object.values(unpacked)
+                    .map((bytes) => strFromU8(bytes))
+                    .toSorted(),
+            ).toEqual(expected.toSorted());
             expect(await http.exportConversationsZip({ ids: [...ids, 'missing-thread'], source: 'codex' })).toBeNull();
         });
     });

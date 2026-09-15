@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import { stat } from 'node:fs/promises';
 import path from 'node:path';
 import { CONVERSATION_SOURCES } from './lib/conversation-data/types';
 
@@ -72,7 +73,11 @@ describe('documentation drift checks', () => {
 
             for (const link of links) {
                 const resolved = resolveLocalLink(link.file, link.target);
-                const fileExists = await Bun.file(resolved).exists();
+                const fileExists =
+                    (await Bun.file(resolved).exists()) ||
+                    (await stat(resolved)
+                        .then(() => true)
+                        .catch(() => false));
                 if (!fileExists) {
                     brokenLinks.push({
                         file: path.relative(process.cwd(), link.file),
