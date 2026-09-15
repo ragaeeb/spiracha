@@ -1,8 +1,8 @@
 import { CONVERSATION_SOURCES, type ConversationDetail, type ConversationPage, type ConversationSource } from './types';
 
 const CURSOR_VERSION = 1;
-const CURSOR_MAX_ENCODED_CHARACTERS = 2_048;
-const CURSOR_MAX_ID_CHARACTERS = 1_024;
+const CURSOR_MAX_ENCODED_CHARACTERS = 18_000;
+const CURSOR_MAX_ID_CHARACTERS = 2_048;
 
 export type ConversationCursorKey = {
     id: string;
@@ -16,13 +16,16 @@ const invalidCursor = (): never => {
 
 const compareStrings = (left: string, right: string) => (left < right ? -1 : left > right ? 1 : 0);
 
+// A 2048-character ID can expand sixfold in JSON before base64 encoding.
+const normalizeTimestamp = (value: number | null): number => {
+    const integer = value === null ? 0 : Math.floor(value);
+    return Number.isSafeInteger(integer) ? Math.max(0, integer) : 0;
+};
+
 const toCursorKey = (conversation: ConversationDetail): ConversationCursorKey => ({
     id: conversation.id,
     source: conversation.source,
-    updatedAtMs:
-        conversation.updatedAtMs !== null && Number.isFinite(conversation.updatedAtMs)
-            ? Math.max(0, Math.floor(conversation.updatedAtMs))
-            : 0,
+    updatedAtMs: normalizeTimestamp(conversation.updatedAtMs),
 });
 
 const compareCursorKeys = (left: ConversationCursorKey, right: ConversationCursorKey) =>
