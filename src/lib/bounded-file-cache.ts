@@ -14,6 +14,15 @@ type CacheEntry<T> = {
 const getFingerprint = (metadata: NonNullable<Awaited<ReturnType<typeof stat>>>, salt: string): string =>
     `${metadata.dev}:${metadata.ino}:${metadata.size}:${metadata.mtimeMs}:${metadata.ctimeMs}:${salt}`;
 
+/**
+ * Creates a fingerprint-keyed LRU cache budgeted by source file bytes, not decoded
+ * value heap size. Coalesces concurrent loads of the same path/fingerprint; missing
+ * or non-file inputs return null and oversized entries are returned without retention.
+ * Invalidation prevents stale in-flight results from being retained but does not
+ * cancel loaders or prevent their existing callers from receiving those results.
+ * Fingerprinting before loading is not an immutable read snapshot; callers needing
+ * stable content must add source-specific identity/copy validation.
+ */
 export const createBoundedFileCache = <T>({ maxBytes, maxEntries }: BoundedFileCacheOptions) => {
     if (!Number.isSafeInteger(maxBytes) || maxBytes < 0 || !Number.isSafeInteger(maxEntries) || maxEntries < 0) {
         throw new Error('Bounded file cache limits must be non-negative safe integers.');
