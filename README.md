@@ -207,7 +207,7 @@ The optional `fileName` supplies a Web provider hint; it is never opened. Payloa
 
 Use `artifacts[].content` for a standalone embedded report, including exact ChatGPT Deep Research bodies and Gemini Works cited; `markdown` is the entire conversation plus artifacts. `createdAtMs` and `updatedAtMs` are nullable Unix epoch milliseconds on the conversation. Individual artifacts do not have timestamps. `model` is an optional string, with display labels formatted in Markdown rather than separate provider/name/version fields.
 
-The supported payload shapes and validation plan are described in [Payload conversion SDK](docs/payload-sdk-plan.md). The same conversion is available through `POST /api/v1/conversation-payload` for clients that already hold the JSON or JSONL payload but do not run the converter in process. It does not add Web imports to the stable source registry or UI import store.
+See [Payload conversion reference](docs/payload-reference.md) for current support, error codes, size checks, identity, and artifact behavior. The [payload SDK design and validation plan](docs/payload-sdk-plan.md) records supported shapes and design background. The same conversion is available through `POST /api/v1/conversation-payload` for clients that already hold the JSON or JSONL payload but do not run the converter in process. It does not add Web imports to the stable source registry or UI import store.
 
 ### Codex analytics
 
