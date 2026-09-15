@@ -11,6 +11,8 @@ Spiracha is a Bun package with a local TanStack Start UI, a small CLI, and a dir
 
 The legacy exporter, MCP server, and Codex plugin surfaces were removed in the 2.0 hard cut. Spiracha now exposes the UI, a stable local data API, and the API-driven CLI below; client-specific workflows such as review collection belong in the client that calls the API.
 
+See the [documentation index](docs/README.md) for API/client references, configuration, privacy, recovery, and contributor guides.
+
 ## Quick Start
 
 To run the packaged app:
