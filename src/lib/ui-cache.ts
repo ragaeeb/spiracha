@@ -226,6 +226,14 @@ export const setCachedJson = async <T>(key: string, value: T) => {
     }
 };
 
+/**
+ * Loads versioned JSON cache data or coalesces a loader for this key, unless bypass
+ * is enabled. Callers own key completeness: include source locations, relevant
+ * options, and data fingerprints; this helper does not sanitize or scope values.
+ * Successful reads refresh mtime (idle-age retention). Pruning is opportunistic,
+ * and invalidation suppresses stale future writes without canceling active callers.
+ * Bypass skips cache reads/writes but does not erase existing entries.
+ */
 export const withCachedJson = async <T>(key: string, loader: () => Promise<T>): Promise<T> => {
     if (resolveUiRuntimeConfig().cacheBypass) {
         return loader();
