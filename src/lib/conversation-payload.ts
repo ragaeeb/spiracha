@@ -63,6 +63,13 @@ const nativeParsers = {
     qoder: parseQoderPayload,
 };
 
+/**
+ * Resolves parser ownership without I/O. A parser returns null for a shape it does
+ * not claim and may throw for malformed data it does claim. Explicit-source calls
+ * expose that parser's error; automatic inference suppresses candidate rejections,
+ * rejects multiple successful native matches, then falls back to Web only when no
+ * native parser succeeds. Keep registry changes aligned with payload source types.
+ */
 const parsePayloadDrafts = async (
     value: unknown,
     options: ConvertConversationPayloadOptions,
