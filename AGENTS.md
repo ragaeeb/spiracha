@@ -156,9 +156,10 @@ The local UI server exposes:
 - `GET /api/v1/sources`
 - `GET /api/v1/conversations[?cwd=<absolute-path>][&source=...]`
 - `POST /api/v1/conversation-query`
+- `POST /api/v1/conversation-payload`
 - `GET /api/v1/conversations/:source/:id`
 - `GET /api/v1/conversations/:source/:id/export`
-- `GET /api/v1/conversations/:source/:id/raw`
+- `GET /api/v1/conversations/:source/:id/raw` (also supports `HEAD`)
 - `POST /api/v1/conversations/:source/:id/evidence`
 - `DELETE /api/v1/conversations/:source/:id`
 - `POST /api/v1/conversations/delete`
