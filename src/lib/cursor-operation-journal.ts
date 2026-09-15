@@ -91,6 +91,14 @@ export const runCursorOperation = async <T>(
     });
 };
 
+/**
+ * Reconciles a versioned operation journal under the source lock. An intent record
+ * invokes replay and is marked committed before journal cleanup; an already
+ * committed record needs cleanup only. Replay must validate source identities and
+ * safely resume previously authorized effects rather than start an unrelated delete.
+ * An active nested operation skips reconciliation. Unsupported/unresolved records
+ * remain errors; do not delete a journal simply to make discovery succeed.
+ */
 export const reconcileCursorOperations = async (
     userDir: string,
     replay: (intent: unknown) => Promise<void>,
