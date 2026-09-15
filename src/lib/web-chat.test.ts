@@ -603,6 +603,32 @@ describe('parseWebChatFiles', () => {
         ]);
     });
 
+    it('should preserve Qwen citations inside tilde and longer backtick fences', async () => {
+        const report =
+            'Outside [[1]].\n' + '~~~md\n[[2]]\n~~~\n' + '````md\n[[3]]\n```\n[[4]]\n````\n' + 'After [[5]].\n';
+        const references = [1, 2, 3, 4, 5].map((index) => ({
+            index_number: index,
+            title: `Reference ${index}`,
+            url: `https://example.com/${index}`,
+        }));
+        const input = createQwenArtifactExport({ mappingBody: report, references });
+
+        await expect(
+            (await parseWebChatFiles([{ content: JSON.stringify(input), name: 'qwen.json' }])).conversations[0]!
+                .artifacts,
+        ).toEqual([
+            {
+                content:
+                    'Outside [[1](https://example.com/1)].\n' +
+                    '~~~md\n[[2]]\n~~~\n' +
+                    '````md\n[[3]]\n```\n[[4]]\n````\n' +
+                    'After [[5](https://example.com/5)].\n',
+                id: 'qwen-report:qwen-answer',
+                title: 'Qwen report.md',
+            },
+        ]);
+    });
+
     it('should fail closed when Qwen report binding or cited references are ambiguous', async () => {
         const report = '# Qwen report\n\nCitation [[1]].\n';
         const references = {
@@ -1232,6 +1258,84 @@ describe('parseWebChatFiles', () => {
             },
         ]);
         expect(nativeResult.conversations[0]!.artifacts).toEqual(mappingResult.conversations[0]!.artifacts);
+    });
+
+    it('should bind GLM tool events to a selected mapping node when raw message ids differ', async () => {
+        const reportPath = '/tmp/glm-selected/REPORT.md';
+        const input = {
+            ...createMappingExport({ conversationId: 'glm-selected', model: 'glm-5.3', title: 'GLM selected' }),
+            mapping: {
+                ...createMappingExport({ conversationId: 'glm-selected', model: 'glm-5.3', title: 'GLM selected' })
+                    .mapping,
+                assistant: {
+                    ...createMappingExport({ conversationId: 'glm-selected', model: 'glm-5.3', title: 'GLM selected' })
+                        .mapping.assistant,
+                    message: {
+                        ...createMappingExport({
+                            conversationId: 'glm-selected',
+                            model: 'glm-5.3',
+                            title: 'GLM selected',
+                        }).mapping.assistant.message,
+                        id: undefined,
+                    },
+                },
+            },
+            raw_payload: {
+                messages_batch: {
+                    data: {
+                        assistant: {
+                            content_blocks: [
+                                {
+                                    content: [
+                                        {
+                                            function: {
+                                                arguments: JSON.stringify({
+                                                    content: '# Selected\n',
+                                                    filepath: reportPath,
+                                                }),
+                                                name: 'Write',
+                                            },
+                                            id: 'selected-write',
+                                            type: 'function',
+                                        },
+                                    ],
+                                    results: [{ status: 'completed', tool_call_id: 'selected-write' }],
+                                    type: 'tool_calls',
+                                },
+                            ],
+                            role: 'assistant',
+                        },
+                        unrelated: {
+                            content_blocks: [
+                                {
+                                    content: [
+                                        {
+                                            function: {
+                                                arguments: JSON.stringify({
+                                                    content: '# Unselected\n',
+                                                    filepath: reportPath,
+                                                }),
+                                                name: 'Write',
+                                            },
+                                            id: 'unselected-write',
+                                            type: 'function',
+                                        },
+                                    ],
+                                    results: [{ status: 'completed', tool_call_id: 'unselected-write' }],
+                                    type: 'tool_calls',
+                                },
+                            ],
+                            role: 'assistant',
+                        },
+                    },
+                },
+            },
+        };
+        const result = await parseWebChatFiles([{ content: JSON.stringify(input), name: 'glm-selected.json' }]);
+
+        expect(result.conversations[0]!.artifacts).toEqual([
+            { content: '# Selected\n', id: 'selected-write', title: 'REPORT.md' },
+        ]);
     });
 
     it('should fail closed on unsupported or incomplete GLM report mutations', async () => {

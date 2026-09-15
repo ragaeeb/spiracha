@@ -145,6 +145,70 @@ describe('conversation API handler', () => {
         });
     });
 
+    it('should reject an oversized payload request before conversion', async () => {
+        let converted = false;
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversation-payload', {
+                body: '{}',
+                headers: {
+                    'Content-Length': String(64 * 1024 * 1024 + 1),
+                    'Content-Type': 'application/json',
+                },
+                method: 'POST',
+            }),
+            {
+                convertConversationPayload: async () => {
+                    converted = true;
+                    return [];
+                },
+            },
+        );
+
+        expect(response.status).toBe(413);
+        expect(converted).toBe(false);
+        await expect(response.json()).resolves.toMatchObject({
+            error: {
+                code: 'validation_error',
+                details: { field: 'payload', reason: 'request_too_large' },
+            },
+        });
+    });
+
+    it('should enforce the payload limit for a chunked request without Content-Length', async () => {
+        let chunkCount = 0;
+        let cancelled = false;
+        const body = new ReadableStream<Uint8Array>({
+            cancel: () => {
+                cancelled = true;
+            },
+            pull: (controller) => {
+                chunkCount += 1;
+                controller.enqueue(new Uint8Array(1024 * 1024));
+            },
+        });
+        let converted = false;
+
+        const response = await handleConversationApiRequest(
+            new Request('http://localhost:3000/api/v1/conversation-payload', {
+                body,
+                duplex: 'half',
+                headers: { 'Content-Type': 'application/json' },
+                method: 'POST',
+            } as RequestInit & { duplex: 'half' }),
+            {
+                convertConversationPayload: async () => {
+                    converted = true;
+                    return [];
+                },
+            },
+        );
+
+        expect(response.status).toBe(413);
+        expect(chunkCount).toBeLessThanOrEqual(65);
+        expect(cancelled).toBe(true);
+        expect(converted).toBe(false);
+    });
+
     it('should reject unsupported methods for the payload endpoint', async () => {
         const response = await handleConversationApiRequest(createRequest('/api/v1/conversation-payload'));
 

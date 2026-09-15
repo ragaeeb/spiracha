@@ -40,6 +40,27 @@ it('should retain failed intent, replay it on restart, and reconcile idempotentl
     expect(replayed).toEqual([operation]);
 });
 
+it('should persist the exact serialized intent that passed the size check', async () => {
+    const userDir = await mkdtemp(path.join(os.tmpdir(), 'cursor-journal-bytes-'));
+    directories.push(userDir);
+    let serializationCount = 0;
+    const operation = {
+        toJSON: () => ({ call: ++serializationCount }),
+    };
+
+    await expect(
+        runCursorOperation(userDir, operation, async () => {
+            throw new Error('interrupted');
+        }),
+    ).rejects.toThrow('interrupted');
+
+    expect(JSON.parse(await Bun.file(path.join(userDir, '.spiracha-cursor-operation.json')).text())).toEqual({
+        intent: { call: 1 },
+        state: 'intent',
+        version: 1,
+    });
+});
+
 it('should reject concurrent writers and leave unresolved intent available', async () => {
     const userDir = await mkdtemp(path.join(os.tmpdir(), 'cursor-journal-lock-'));
     directories.push(userDir);

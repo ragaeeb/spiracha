@@ -45,7 +45,7 @@ const writeIntent = async (
         0o600,
     );
     try {
-        await handle.writeFile(JSON.stringify({ intent, state, version: 1 }));
+        await handle.writeFile(contents);
         await handle.sync();
     } finally {
         await handle.close();

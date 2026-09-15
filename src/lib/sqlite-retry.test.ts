@@ -38,6 +38,25 @@ describe('sqlite retry helpers', () => {
         expect(delays).toEqual([10, 20]);
     });
 
+    it('should retry retryable asynchronous action failures', async () => {
+        let attempts = 0;
+
+        await expect(
+            runWithSqliteRetry({
+                action: async () => {
+                    attempts += 1;
+                    if (attempts < 2) {
+                        throw new Error('database is locked');
+                    }
+                    return 'ok';
+                },
+                delaysMs: [0],
+                sleep: async () => {},
+            }),
+        ).resolves.toBe('ok');
+        expect(attempts).toBe(2);
+    });
+
     it('should report retry details before sleeping', async () => {
         const retries: Array<{ attempt: number; delayMs: number; error: unknown }> = [];
         let attempts = 0;

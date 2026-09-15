@@ -681,30 +681,39 @@ const getQwenCitedUrls = (references: QwenReferences, citedNumbers: Set<number>)
 };
 
 type QwenCodeState = {
-    fenced: boolean;
+    fenceChar: '`' | '~' | null;
+    fenceLength: number;
     inlineDelimiterLength: number;
 };
 
-const getQwenBacktickRun = (body: string, index: number): number => {
-    if (body[index] !== '`') {
+const getQwenDelimiterRun = (body: string, index: number): number => {
+    const delimiter = body[index];
+    if (delimiter !== '`' && delimiter !== '~') {
         return 0;
     }
     let runLength = 1;
-    while (body[index + runLength] === '`') {
+    while (body[index + runLength] === delimiter) {
         runLength += 1;
     }
     return runLength;
 };
 
 const updateQwenCodeState = (body: string, index: number, runLength: number, state: QwenCodeState): QwenCodeState => {
+    const delimiter = body[index] as '`' | '~';
     const lineStart = body.lastIndexOf('\n', index - 1) + 1;
     const isFence = runLength >= 3 && /^[ \t]{0,3}$/u.test(body.slice(lineStart, index));
-    if (isFence && state.inlineDelimiterLength === 0) {
-        return { fenced: !state.fenced, inlineDelimiterLength: 0 };
+    if (state.fenceChar) {
+        return isFence && delimiter === state.fenceChar && runLength >= state.fenceLength
+            ? { fenceChar: null, fenceLength: 0, inlineDelimiterLength: 0 }
+            : state;
     }
-    if (!state.fenced && runLength < 3) {
+    if (isFence && state.inlineDelimiterLength === 0) {
+        return { fenceChar: delimiter, fenceLength: runLength, inlineDelimiterLength: 0 };
+    }
+    if (delimiter === '`' && runLength < 3) {
         return {
-            fenced: false,
+            fenceChar: null,
+            fenceLength: 0,
             inlineDelimiterLength:
                 state.inlineDelimiterLength === runLength ? 0 : state.inlineDelimiterLength || runLength,
         };
@@ -732,15 +741,15 @@ const getQwenCitationAt = (body: string, index: number): QwenCitationMatch | nul
 
 const getQwenCitationMatches = (body: string): QwenCitationMatch[] => {
     const matches: QwenCitationMatch[] = [];
-    let state: QwenCodeState = { fenced: false, inlineDelimiterLength: 0 };
+    let state: QwenCodeState = { fenceChar: null, fenceLength: 0, inlineDelimiterLength: 0 };
     for (let index = 0; index < body.length; ) {
-        const runLength = getQwenBacktickRun(body, index);
+        const runLength = getQwenDelimiterRun(body, index);
         if (runLength > 0) {
             state = updateQwenCodeState(body, index, runLength, state);
             index += runLength;
             continue;
         }
-        const match = !state.fenced && state.inlineDelimiterLength === 0 ? getQwenCitationAt(body, index) : null;
+        const match = !state.fenceChar && state.inlineDelimiterLength === 0 ? getQwenCitationAt(body, index) : null;
         if (match) {
             matches.push(match);
             index = match.end;
@@ -1304,10 +1313,14 @@ const dedupeGlmToolCalls = (
 const getGlmToolInvocations = (rawPayload: unknown, sourceMessages: SourceMessage[]): GlmToolInvocation[] | null => {
     const sourceIds = new Set(
         sourceMessages
-            .map(({ message }) => firstString(message.id, message.uuid, message._id))
+            .flatMap(({ message, sourceId }) => [sourceId, firstString(message.id, message.uuid, message._id)])
             .filter((id): id is string => Boolean(id)),
     );
-    const batchMessages = getGlmBatchMessages(rawPayload).filter(({ id, message }) => {
+    const allBatchMessages = getGlmBatchMessages(rawPayload);
+    if (sourceIds.size === 0 && allBatchMessages.length > 1) {
+        return null;
+    }
+    const batchMessages = allBatchMessages.filter(({ id, message }) => {
         const messageId = firstString(message.id);
         return sourceIds.size === 0 || sourceIds.has(id) || (messageId !== null && sourceIds.has(messageId));
     });
@@ -2016,6 +2029,9 @@ const parseMessageArrayConversation = async (
                 `message-${index}-deep-research-report`,
                 sourceOrder + 1,
             );
+            if (reportData) {
+                sourceMessages.push({ message: reportData.report, sourceOrder: sourceOrder + 1 });
+            }
             return [message, reportData?.message].filter((item): item is NormalizedMessage =>
                 Boolean(item && (item.text || item.reasoning.length > 0)),
             );

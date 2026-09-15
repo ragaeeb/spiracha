@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { lstat, unlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -18,6 +19,7 @@ import {
     toDateMs,
 } from './conversation-data/adapter-helpers';
 import type { ConversationMessage } from './conversation-data/types';
+import { withFileMutationLock } from './file-mutation-lock';
 import { getPortablePathBasename } from './portable-path';
 import { readDirectoryEntriesIfExists } from './shared';
 import { asBoolean, asObject, asString, cleanInlineTitle, formatModelLabel, type JsonValue } from './shared-text';
@@ -57,7 +59,12 @@ type CommandCodeRecord = {
 };
 
 type ParsedCommandCodeSession = CommandCodeSessionTranscript & {
-    rawText: string;
+    rawHash: string;
+};
+
+type ParsedCommandCodeSummary = {
+    rawHash: string;
+    session: CommandCodeSessionSummary;
 };
 
 const isNonBlankString = (value: JsonValue | undefined): value is string => {
@@ -492,7 +499,12 @@ const buildSessionSummary = (
     };
 };
 
-const parseCommandCodeSession = (rawText: string, filePath: string, fileId: string): ParsedCommandCodeSession => {
+const parseCommandCodeSession = (
+    rawText: string,
+    filePath: string,
+    fileId: string,
+    rawHash: string,
+): ParsedCommandCodeSession => {
     const rawRecords: Record<string, JsonValue>[] = [];
     for (const [index, line] of rawText.split(/\r?\n/u).entries()) {
         if (!line.trim()) {
@@ -515,8 +527,8 @@ const parseCommandCodeSession = (rawText: string, filePath: string, fileId: stri
     const messages = recordsToMessages(parsed.records);
     return {
         messages,
+        rawHash,
         rawRecords,
-        rawText,
         session: buildSessionSummary(fileId, filePath, parsed.cwd, parsed.header, parsed.records, messages),
     };
 };
@@ -548,12 +560,7 @@ const unlinkCommandCodeFileIfPresent = async (filePath: string): Promise<boolean
     return true;
 };
 
-const commandCodeSessionSidecars = (sessionPath: string): string[] => {
-    const basePath = sessionPath.slice(0, -'.jsonl'.length);
-    return [sessionPath, `${basePath}.meta.json`, `${basePath}.checkpoints.jsonl`];
-};
-
-const listCommandCodeSessionFiles = async (projectsDir: string): Promise<string[]> => {
+const listCommandCodeSessionFiles = async (projectsDir: string, sessionId?: string): Promise<string[]> => {
     const projectEntries = (await readDirectoryEntriesIfExists(projectsDir))
         .filter((entry) => entry.isDirectory())
         .sort((left, right) => left.name.localeCompare(right.name));
@@ -564,7 +571,12 @@ const listCommandCodeSessionFiles = async (projectsDir: string): Promise<string[
             left.name.localeCompare(right.name),
         );
         for (const entry of entries) {
-            if (entry.isFile() && entry.name.endsWith('.jsonl') && !entry.name.endsWith('.checkpoints.jsonl')) {
+            if (
+                entry.isFile() &&
+                entry.name.endsWith('.jsonl') &&
+                !entry.name.endsWith('.checkpoints.jsonl') &&
+                (sessionId === undefined || entry.name === `${sessionId}.jsonl`)
+            ) {
                 files.push(path.join(projectDir, entry.name));
             }
         }
@@ -572,17 +584,57 @@ const listCommandCodeSessionFiles = async (projectsDir: string): Promise<string[
     return files;
 };
 
-const readCommandCodeSessionFile = async (filePath: string): Promise<ParsedCommandCodeSession | null> => {
+const readCommandCodeFileBytes = async (filePath: string): Promise<Uint8Array | null> => {
     const file = Bun.file(filePath);
     if (!(await file.exists())) {
         return null;
     }
 
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    if (bytes.byteLength > MAX_COMMAND_CODE_FILE_SIZE_BYTES) {
+    if (file.size > MAX_COMMAND_CODE_FILE_SIZE_BYTES) {
         throw new Error(
             `Command Code session file is larger than ${MAX_COMMAND_CODE_FILE_SIZE_BYTES} bytes: ${filePath}`,
         );
+    }
+
+    const reader = file.stream().getReader();
+    const chunks: Uint8Array[] = [];
+    let byteLength = 0;
+    let completed = false;
+    try {
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) {
+                completed = true;
+                break;
+            }
+            byteLength += value.byteLength;
+            if (byteLength > MAX_COMMAND_CODE_FILE_SIZE_BYTES) {
+                throw new Error(
+                    `Command Code session file is larger than ${MAX_COMMAND_CODE_FILE_SIZE_BYTES} bytes: ${filePath}`,
+                );
+            }
+            chunks.push(value);
+        }
+    } finally {
+        if (!completed) {
+            await reader.cancel().catch(() => undefined);
+        }
+        reader.releaseLock();
+    }
+
+    const bytes = new Uint8Array(byteLength);
+    let offset = 0;
+    for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.byteLength;
+    }
+    return bytes;
+};
+
+const readCommandCodeSessionFile = async (filePath: string): Promise<ParsedCommandCodeSession | null> => {
+    const bytes = await readCommandCodeFileBytes(filePath);
+    if (!bytes) {
+        return null;
     }
 
     let rawText: string;
@@ -592,7 +644,12 @@ const readCommandCodeSessionFile = async (filePath: string): Promise<ParsedComma
         throw new Error(`Command Code session file is not valid UTF-8: ${filePath}`);
     }
 
-    return parseCommandCodeSession(rawText, filePath, fileIdFromPath(filePath));
+    return parseCommandCodeSession(
+        rawText,
+        filePath,
+        fileIdFromPath(filePath),
+        createHash('sha256').update(bytes).digest('hex'),
+    );
 };
 
 const resolveDuplicateSessions = (sessions: ParsedCommandCodeSession[]): ParsedCommandCodeSession[] => {
@@ -605,7 +662,7 @@ const resolveDuplicateSessions = (sessions: ParsedCommandCodeSession[]): ParsedC
             byId.set(session.session.sessionId, session);
             continue;
         }
-        if (previous.rawText !== session.rawText) {
+        if (previous.rawHash !== session.rawHash) {
             throw new Error(
                 `Command Code session ${session.session.sessionId} has conflicting copies in ${previous.session.filePath} and ${session.session.filePath}.`,
             );
@@ -614,8 +671,34 @@ const resolveDuplicateSessions = (sessions: ParsedCommandCodeSession[]): ParsedC
     return [...byId.values()];
 };
 
-const readAllCommandCodeSessions = async (projectsDir: string): Promise<ParsedCommandCodeSession[]> => {
+const readAllCommandCodeSessionSummaries = async (projectsDir: string): Promise<CommandCodeSessionSummary[]> => {
     const files = await listCommandCodeSessionFiles(projectsDir);
+    const summaries = await mapWithConcurrency(files, COMMAND_CODE_DISCOVERY_CONCURRENCY, async (filePath) => {
+        const session = await readCommandCodeSessionFile(filePath);
+        return session
+            ? ({ rawHash: session.rawHash, session: session.session } satisfies ParsedCommandCodeSummary)
+            : null;
+    });
+    const byId = new Map<string, ParsedCommandCodeSummary>();
+    for (const summary of summaries
+        .filter((value): value is ParsedCommandCodeSummary => value !== null)
+        .sort((left, right) => left.session.filePath.localeCompare(right.session.filePath))) {
+        const previous = byId.get(summary.session.sessionId);
+        if (previous && previous.rawHash !== summary.rawHash) {
+            throw new Error(
+                `Command Code session ${summary.session.sessionId} has conflicting copies in ${previous.session.filePath} and ${summary.session.filePath}.`,
+            );
+        }
+        byId.set(summary.session.sessionId, previous ?? summary);
+    }
+    return [...byId.values()].map(({ session }) => session);
+};
+
+const readCommandCodeSessionCopies = async (
+    projectsDir: string,
+    sessionId: string,
+): Promise<ParsedCommandCodeSession[]> => {
+    const files = await listCommandCodeSessionFiles(projectsDir, sessionId);
     const sessions = await mapWithConcurrency(files, COMMAND_CODE_DISCOVERY_CONCURRENCY, async (filePath) =>
         readCommandCodeSessionFile(filePath),
     );
@@ -624,26 +707,30 @@ const readAllCommandCodeSessions = async (projectsDir: string): Promise<ParsedCo
     );
 };
 
-const readCommandCodeSessionCopies = async (
-    projectsDir: string,
-    sessionId: string,
-): Promise<ParsedCommandCodeSession[]> => {
-    const files = await listCommandCodeSessionFiles(projectsDir);
-    const sessions = await mapWithConcurrency(files, COMMAND_CODE_DISCOVERY_CONCURRENCY, async (filePath) =>
-        readCommandCodeSessionFile(filePath),
-    );
-    const matchingSessions = sessions.filter(
-        (session): session is ParsedCommandCodeSession => session?.session.sessionId === sessionId,
-    );
-    for (const session of matchingSessions.slice(1)) {
-        const first = matchingSessions[0]!;
-        if (first.rawText !== session.rawText) {
-            throw new Error(
-                `Command Code session ${sessionId} has conflicting copies in ${first.session.filePath} and ${session.session.filePath}.`,
-            );
+const isSafeCommandCodeSessionId = (sessionId: string): boolean =>
+    sessionId.length > 0 && path.basename(sessionId) === sessionId;
+
+const listCommandCodeSessionCleanupFiles = async (projectsDir: string, sessionId: string): Promise<string[]> => {
+    if (!isSafeCommandCodeSessionId(sessionId)) {
+        return [];
+    }
+    const targetNames = new Set([`${sessionId}.jsonl`, `${sessionId}.meta.json`, `${sessionId}.checkpoints.jsonl`]);
+    const projectEntries = (await readDirectoryEntriesIfExists(projectsDir))
+        .filter((entry) => entry.isDirectory())
+        .sort((left, right) => left.name.localeCompare(right.name));
+    const sessionBases: string[] = [];
+    for (const projectEntry of projectEntries) {
+        const projectDir = path.join(projectsDir, projectEntry.name);
+        const entries = await readDirectoryEntriesIfExists(projectDir);
+        if (entries.some((entry) => targetNames.has(entry.name))) {
+            sessionBases.push(path.join(projectDir, sessionId));
         }
     }
-    return matchingSessions;
+    return sessionBases.flatMap((basePath) => [
+        `${basePath}.meta.json`,
+        `${basePath}.checkpoints.jsonl`,
+        `${basePath}.jsonl`,
+    ]);
 };
 
 const sortSessions = (left: CommandCodeSessionSummary, right: CommandCodeSessionSummary) => {
@@ -653,8 +740,7 @@ const sortSessions = (left: CommandCodeSessionSummary, right: CommandCodeSession
 export const listCommandCodeSessionSummaries = async (
     projectsDir = resolveCommandCodeProjectsDir(),
 ): Promise<CommandCodeSessionSummary[]> => {
-    const sessions = await readAllCommandCodeSessions(projectsDir);
-    return sessions.map((session) => session.session).sort(sortSessions);
+    return (await readAllCommandCodeSessionSummaries(projectsDir)).sort(sortSessions);
 };
 
 export const listCommandCodeSessionSummariesForWorkspace = async (
@@ -684,7 +770,12 @@ export const listCommandCodeWorkspaceGroups = async (
             worktree: session.worktree,
         };
         group.assistantMessageCount += session.assistantMessageCount;
-        group.lastActiveAtMs = Math.max(group.lastActiveAtMs ?? 0, session.lastActiveAtMs ?? 0) || null;
+        if (session.lastActiveAtMs !== null) {
+            group.lastActiveAtMs =
+                group.lastActiveAtMs === null
+                    ? session.lastActiveAtMs
+                    : Math.max(group.lastActiveAtMs, session.lastActiveAtMs);
+        }
         group.messageCount += session.messageCount;
         group.sessionCount += 1;
         group.toolCallCount += session.toolCallCount;
@@ -702,37 +793,46 @@ export const readCommandCodeSessionTranscript = async (
     projectsDir: string,
     sessionId: string,
 ): Promise<CommandCodeSessionTranscript | null> => {
-    const sessions = await readAllCommandCodeSessions(projectsDir);
-    return sessions.find((session) => session.session.sessionId === sessionId) ?? null;
+    return (await readCommandCodeSessionCopies(projectsDir, sessionId))[0] ?? null;
+};
+
+export const readCommandCodeSessionTranscriptAtPath = async (
+    filePath: string,
+): Promise<CommandCodeSessionTranscript | null> => {
+    const session = await readCommandCodeSessionFile(filePath);
+    return session ? { messages: session.messages, rawRecords: session.rawRecords, session: session.session } : null;
 };
 
 export const deleteCommandCodeSession = async (
     projectsDir: string,
     sessionId: string,
 ): Promise<DeleteCommandCodeSessionResult> => {
-    const sessions = await readCommandCodeSessionCopies(projectsDir, sessionId);
-    if (sessions.length === 0) {
+    if (!(await lstatCommandCodeFileIfPresent(projectsDir))) {
         return { deletedFiles: [], deletedSessionIds: [] };
     }
 
-    const sessionFiles = [
-        ...new Set(sessions.flatMap((session) => commandCodeSessionSidecars(session.session.filePath))),
-    ];
-    for (const filePath of sessionFiles) {
-        const metadata = await lstatCommandCodeFileIfPresent(filePath);
-        if (metadata) {
-            assertSafeCommandCodeFile(filePath, metadata);
+    return withFileMutationLock(projectsDir, async () => {
+        const sessionFiles = await listCommandCodeSessionCleanupFiles(projectsDir, sessionId);
+        if (sessionFiles.length === 0) {
+            return { deletedFiles: [], deletedSessionIds: [] };
         }
-    }
 
-    const deletedFiles: string[] = [];
-    for (const filePath of sessionFiles) {
-        if (await unlinkCommandCodeFileIfPresent(filePath)) {
-            deletedFiles.push(filePath);
+        for (const filePath of sessionFiles) {
+            const metadata = await lstatCommandCodeFileIfPresent(filePath);
+            if (metadata) {
+                assertSafeCommandCodeFile(filePath, metadata);
+            }
         }
-    }
-    return {
-        deletedFiles,
-        deletedSessionIds: deletedFiles.length > 0 ? [sessionId] : [],
-    };
+
+        const deletedFiles: string[] = [];
+        for (const filePath of sessionFiles) {
+            if (await unlinkCommandCodeFileIfPresent(filePath)) {
+                deletedFiles.push(filePath);
+            }
+        }
+        return {
+            deletedFiles,
+            deletedSessionIds: deletedFiles.length > 0 ? [sessionId] : [],
+        };
+    });
 };

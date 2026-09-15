@@ -3,6 +3,7 @@ import {
     deleteCommandCodeSession,
     listCommandCodeSessionSummaries,
     readCommandCodeSessionTranscript,
+    readCommandCodeSessionTranscriptAtPath,
     resolveCommandCodeProjectsDir,
 } from '../command-code-db';
 import type { CommandCodeSessionSummary } from '../command-code-exporter-types';
@@ -67,7 +68,7 @@ const listCommandCodeConversations = async (options: ListConversationsOptions) =
             if (!match) {
                 continue;
             }
-            const transcript = await readCommandCodeSessionTranscript(projectsDir, summary.sessionId);
+            const transcript = await readCommandCodeSessionTranscriptAtPath(summary.filePath);
             if (!transcript) {
                 continue;
             }

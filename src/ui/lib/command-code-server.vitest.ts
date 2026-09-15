@@ -206,6 +206,25 @@ describe('Command Code server functions', () => {
         expect(deleteSessionMock).toHaveBeenNthCalledWith(3, '/tmp/command-code/projects', 'session-2');
     });
 
+    it('should serialize batch deletion and reject any missing requested session', async () => {
+        let active = 0;
+        let maximumActive = 0;
+        deleteSessionMock.mockImplementation(async (_projectsDir: string, sessionId: string) => {
+            active += 1;
+            maximumActive = Math.max(maximumActive, active);
+            await Promise.resolve();
+            active -= 1;
+            return sessionId === 'missing'
+                ? { deletedFiles: [], deletedSessionIds: [] }
+                : { deletedFiles: [`/tmp/${sessionId}.jsonl`], deletedSessionIds: [sessionId] };
+        });
+
+        await expect(
+            deleteCommandCodeSessionsFn({ data: { sessionIds: [summary.sessionId, 'missing'] } } as never),
+        ).rejects.toThrow('Command Code sessions not found: missing');
+        expect(maximumActive).toBe(1);
+    });
+
     it('should serialize a transcript detail and reject missing sessions', async () => {
         await expect(
             getCommandCodeSessionDetailFn({ data: { sessionId: summary.sessionId } } as never),

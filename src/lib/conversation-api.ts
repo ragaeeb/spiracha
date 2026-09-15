@@ -59,6 +59,74 @@ const MAX_ID_LENGTH = 2048;
 const MAX_LIMIT = 200;
 const MAX_PATH_LENGTH = 4096;
 const MAX_TIMESTAMP_MS = 9_999_999_999_999;
+const MAX_CONVERSATION_PAYLOAD_REQUEST_BYTES = 64 * 1024 * 1024;
+
+class ConversationPayloadRequestTooLargeError extends Error {
+    constructor() {
+        super(`Conversation payload requests must be smaller than ${MAX_CONVERSATION_PAYLOAD_REQUEST_BYTES} bytes.`);
+        this.name = 'ConversationPayloadRequestTooLargeError';
+    }
+}
+
+const readConversationPayloadJson = async (request: Request): Promise<unknown> => {
+    const contentLength = Number(request.headers.get('content-length'));
+    if (Number.isFinite(contentLength) && contentLength > MAX_CONVERSATION_PAYLOAD_REQUEST_BYTES) {
+        throw new ConversationPayloadRequestTooLargeError();
+    }
+
+    if (!request.body) {
+        return JSON.parse(await request.text());
+    }
+
+    const reader = request.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let byteLength = 0;
+    let completed = false;
+    try {
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) {
+                completed = true;
+                break;
+            }
+            byteLength += value.byteLength;
+            if (byteLength > MAX_CONVERSATION_PAYLOAD_REQUEST_BYTES) {
+                throw new ConversationPayloadRequestTooLargeError();
+            }
+            chunks.push(value);
+        }
+    } finally {
+        if (!completed) {
+            await reader.cancel().catch(() => undefined);
+        }
+        reader.releaseLock();
+    }
+
+    const bytes = new Uint8Array(byteLength);
+    let offset = 0;
+    for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.byteLength;
+    }
+    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+};
+
+const parseConversationPayloadRequest = async (request: Request): Promise<ParseResult<unknown>> => {
+    try {
+        return { value: await readConversationPayloadJson(request) };
+    } catch (error) {
+        if (error instanceof ConversationPayloadRequestTooLargeError) {
+            return {
+                error: errorResponse('validation_error', error.message, 413, {
+                    field: 'payload',
+                    maxBytes: MAX_CONVERSATION_PAYLOAD_REQUEST_BYTES,
+                    reason: 'request_too_large',
+                }),
+            };
+        }
+        return { error: errorResponse('validation_error', 'Request body must be JSON.', 400) };
+    }
+};
 
 const jsonResponse = (body: unknown, status = 200, headers: HeadersInit = {}) =>
     Response.json(body, {
@@ -1149,12 +1217,11 @@ const handleConversationQuery = async (request: Request, dependencies: ReturnTyp
 };
 
 const handleConversationPayload = async (request: Request, dependencies: ReturnType<typeof getDeps>) => {
-    let body: unknown;
-    try {
-        body = await request.json();
-    } catch {
-        return errorResponse('validation_error', 'Request body must be JSON.', 400);
+    const parsedRequest = await parseConversationPayloadRequest(request);
+    if ('error' in parsedRequest) {
+        return parsedRequest.error;
     }
+    const body = parsedRequest.value;
     if (!isRecord(body)) {
         return errorResponse('validation_error', 'Request body must be a JSON object.', 400);
     }

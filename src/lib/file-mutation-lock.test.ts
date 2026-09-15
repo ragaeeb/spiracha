@@ -64,6 +64,29 @@ it('should release the transaction and handles when its action rejects', async (
     }
 });
 
+it('should preserve the action error when lock cleanup also fails', async () => {
+    const root = await fixture();
+    const actionError = new TypeError('action failed first');
+    const closeError = new Error('lock close failed');
+    const originalClose = Database.prototype.close;
+    const close = spyOn(Database.prototype, 'close').mockImplementationOnce(function (this: Database) {
+        originalClose.call(this);
+        throw closeError;
+    });
+
+    try {
+        await expect(
+            withFileMutationLock(root, async () => {
+                throw actionError;
+            }),
+        ).rejects.toBe(actionError);
+        expect((actionError as Error & { cleanupErrors?: unknown[] }).cleanupErrors).toEqual([closeError]);
+    } finally {
+        close.mockRestore();
+    }
+    await expect(withFileMutationLock(root, async () => 'recovered')).resolves.toBe('recovered');
+});
+
 it.each(['file', 'symlink'])('should reject an unsafe %s directory without running its action', async (kind) => {
     const root = await fixture();
     const unsafe = path.join(root, 'unsafe');

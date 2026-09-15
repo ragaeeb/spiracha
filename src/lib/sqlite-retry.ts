@@ -30,7 +30,7 @@ export const runWithSqliteRetry = async <T>({
 
     while (true) {
         try {
-            return action();
+            return await action();
         } catch (error) {
             if (!shouldRetrySqliteError(error, attempt, delaysMs)) {
                 if (isRetryableSqliteError(error)) {

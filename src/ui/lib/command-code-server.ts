@@ -2,7 +2,7 @@ import type { CommandCodeSessionTranscript } from '@spiracha/lib/command-code-ex
 import type { ConversationMessage } from '@spiracha/lib/conversation-data/types';
 import type { JsonValue } from '@spiracha/lib/shared-text';
 import { createServerFn } from '@tanstack/react-start';
-import { array, boolean, minLength, object, optional, picklist, pipe, regex, string } from 'valibot';
+import { array, boolean, maxLength, minLength, object, optional, picklist, pipe, regex, string } from 'valibot';
 import { requireDeletedItems, runDeleteBatch } from './delete-batch';
 
 type SerializableCommandCodeTranscript = Omit<CommandCodeSessionTranscript, 'messages' | 'rawRecords'> & {
@@ -23,16 +23,16 @@ const workspaceSchema = object({
     workspaceKey: pipe(string(), minLength(1)),
 });
 
-const sessionSchema = object({
-    sessionId: pipe(string(), minLength(1), regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/u)),
-});
+const sessionIdSchema = pipe(string(), minLength(1), maxLength(256), regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/u));
+
+const sessionSchema = object({ sessionId: sessionIdSchema });
 
 const exportSessionSchema = object({
     includeCommentary: optional(boolean(), true),
     includeMetadata: optional(boolean(), true),
     includeTools: optional(boolean(), true),
     outputFormat: optional(picklist(['md', 'txt']), 'md'),
-    sessionId: pipe(string(), minLength(1), regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/u)),
+    sessionId: sessionIdSchema,
     zipArchive: optional(boolean(), false),
 });
 
@@ -41,13 +41,21 @@ const exportSessionsSchema = object({
     includeMetadata: optional(boolean(), true),
     includeTools: optional(boolean(), true),
     outputFormat: optional(picklist(['md', 'txt']), 'md'),
-    sessionIds: pipe(array(pipe(string(), minLength(1))), minLength(1)),
+    sessionIds: pipe(array(sessionIdSchema), minLength(1), maxLength(200)),
     zipArchive: optional(boolean(), true),
 });
 
 const deleteSessionsSchema = object({
-    sessionIds: pipe(array(pipe(string(), minLength(1))), minLength(1)),
+    sessionIds: pipe(array(sessionIdSchema), minLength(1), maxLength(200)),
 });
+
+const requireAllCommandCodeSessions = (requestedIds: string[], deletedIds: string[]): void => {
+    const deleted = new Set(deletedIds);
+    const missing = [...new Set(requestedIds)].filter((sessionId) => !deleted.has(sessionId));
+    if (missing.length > 0) {
+        throw new Error(`Command Code sessions not found: ${missing.join(', ')}`);
+    }
+};
 
 export const listCommandCodeWorkspacesFn = createServerFn({ method: 'GET' }).handler(async () => {
     const { listCommandCodeWorkspaceGroups } = await import('@spiracha/lib/command-code-db');
@@ -174,16 +182,15 @@ export const deleteCommandCodeSessionsFn = createServerFn({ method: 'POST' })
             '@spiracha/lib/command-code-db'
         );
         const projectsDir = resolveCommandCodeProjectsDir();
-        const results = await runDeleteBatch(data.sessionIds, (sessionId) =>
-            deleteCommandCodeSession(projectsDir, sessionId),
+        const results = await runDeleteBatch(
+            data.sessionIds,
+            (sessionId) => deleteCommandCodeSession(projectsDir, sessionId),
+            { concurrency: 1 },
         );
-        requireDeletedItems(
-            results.flatMap((result) => result.deletedSessionIds),
-            'Command Code sessions',
-            'batch',
-        );
+        const deletedSessionIds = [...new Set(results.flatMap((result) => result.deletedSessionIds))];
+        requireAllCommandCodeSessions(data.sessionIds, deletedSessionIds);
         return {
             deletedFiles: [...new Set(results.flatMap((result) => result.deletedFiles))],
-            deletedSessionIds: [...new Set(results.flatMap((result) => result.deletedSessionIds))],
+            deletedSessionIds,
         };
     });

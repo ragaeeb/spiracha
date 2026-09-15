@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createConcurrencyLimiter, mapWithConcurrency } from './concurrency';
+import { withFileMutationLock } from './file-mutation-lock';
 import {
     type DeleteOpenCodeWorkspaceResult,
     getDefaultOpenCodeDataDir,
@@ -1280,6 +1281,36 @@ const writeOpenCodeDesktopState = async (filePath: string, state: Record<string,
     }
 };
 
+const updateOpenCodeDesktopStateFile = async (
+    stateDir: string,
+    fileName: string,
+    sessionIds: Set<string>,
+    worktrees: Set<string>,
+): Promise<{ cleanupFailure: OpenCodeCleanupFailure; filePath: string } | string | null> => {
+    const filePath = path.join(stateDir, fileName);
+    try {
+        const state = parseMutableJsonObject(await Bun.file(filePath).text());
+        if (!state || !cleanOpenCodeDesktopStateObject(state, sessionIds, worktrees)) {
+            return null;
+        }
+
+        await writeOpenCodeDesktopState(filePath, state);
+        return filePath;
+    } catch (error) {
+        if (isMissingFileError(error)) {
+            return null;
+        }
+        return {
+            cleanupFailure: {
+                error: error instanceof Error ? error.message : String(error),
+                path: filePath,
+                phase: 'desktop_state',
+            },
+            filePath,
+        };
+    }
+};
+
 export const deleteOpenCodeDesktopSessionStateWithResult = async (
     sessionIds: string[],
     stateDir = getDefaultOpenCodeDesktopStateDir(),
@@ -1290,61 +1321,38 @@ export const deleteOpenCodeDesktopSessionStateWithResult = async (
             return { cleanupFailures: [], removedPaths: [] };
         }
 
-        const sessionIdSet = new Set(sessionIds);
-        const worktreeSet = new Set(worktrees);
-        let fileNames: string[];
-        try {
-            fileNames = (await readdir(stateDir)).filter((fileName) => fileName.endsWith('.dat'));
-        } catch (error) {
-            if (isMissingFileError(error)) {
-                return { cleanupFailures: [], removedPaths: [] };
-            }
-            return {
-                cleanupFailures: [
-                    {
-                        error: error instanceof Error ? error.message : String(error),
-                        path: stateDir,
-                        phase: 'desktop_state',
-                    },
-                ],
-                removedPaths: [],
-            };
-        }
-        const changedFiles = await mapWithConcurrency(
-            fileNames,
-            DESKTOP_STATE_FILE_CONCURRENCY,
-            async (fileName): Promise<{ cleanupFailure: OpenCodeCleanupFailure; filePath: string } | string | null> => {
-                const filePath = path.join(stateDir, fileName);
-                try {
-                    const state = parseMutableJsonObject(await Bun.file(filePath).text());
-                    if (!state || !cleanOpenCodeDesktopStateObject(state, sessionIdSet, worktreeSet)) {
-                        return null;
-                    }
-
-                    await writeOpenCodeDesktopState(filePath, state);
-                    return filePath;
-                } catch (error) {
-                    if (isMissingFileError(error)) {
-                        return null;
-                    }
-                    return {
-                        cleanupFailure: {
+        return withFileMutationLock(stateDir, async () => {
+            const sessionIdSet = new Set(sessionIds);
+            const worktreeSet = new Set(worktrees);
+            let fileNames: string[];
+            try {
+                fileNames = (await readdir(stateDir)).filter((fileName) => fileName.endsWith('.dat'));
+            } catch (error) {
+                if (isMissingFileError(error)) {
+                    return { cleanupFailures: [], removedPaths: [] };
+                }
+                return {
+                    cleanupFailures: [
+                        {
                             error: error instanceof Error ? error.message : String(error),
-                            path: filePath,
+                            path: stateDir,
                             phase: 'desktop_state',
                         },
-                        filePath,
-                    };
-                }
-            },
-        );
+                    ],
+                    removedPaths: [],
+                };
+            }
+            const changedFiles = await mapWithConcurrency(fileNames, DESKTOP_STATE_FILE_CONCURRENCY, (fileName) =>
+                updateOpenCodeDesktopStateFile(stateDir, fileName, sessionIdSet, worktreeSet),
+            );
 
-        return {
-            cleanupFailures: changedFiles.flatMap((entry) =>
-                entry && typeof entry === 'object' ? [entry.cleanupFailure] : [],
-            ),
-            removedPaths: changedFiles.filter((entry): entry is string => typeof entry === 'string'),
-        };
+            return {
+                cleanupFailures: changedFiles.flatMap((entry) =>
+                    entry && typeof entry === 'object' ? [entry.cleanupFailure] : [],
+                ),
+                removedPaths: changedFiles.filter((entry): entry is string => typeof entry === 'string'),
+            };
+        });
     });
 };
 

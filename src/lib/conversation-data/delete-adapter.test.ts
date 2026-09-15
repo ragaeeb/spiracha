@@ -245,15 +245,15 @@ describe('conversation delete adapters', () => {
 
         expect(result).toEqual({
             deletedFiles: deletedIds.flatMap((_id, index) => [
-                deletedPaths[index]!,
                 sidecarPaths[index * 2]!,
                 sidecarPaths[index * 2 + 1]!,
+                deletedPaths[index]!,
             ]),
             deletedIds,
             missingIds: [],
             results: deletedIds.map((id, index) => ({
                 deleted: true,
-                deletedFiles: [deletedPaths[index]!, sidecarPaths[index * 2]!, sidecarPaths[index * 2 + 1]!],
+                deletedFiles: [sidecarPaths[index * 2]!, sidecarPaths[index * 2 + 1]!, deletedPaths[index]!],
                 deletedIds: [id],
                 id,
             })),

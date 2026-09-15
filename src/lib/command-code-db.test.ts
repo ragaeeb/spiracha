@@ -187,6 +187,43 @@ describe('Command Code filesystem reader', () => {
         });
     });
 
+    it('should read a targeted session without parsing unrelated malformed files', async () => {
+        const root = await makeRoot();
+        const sessionId = 'targeted-session';
+        const sessionPath = await writeSession(
+            root,
+            'target',
+            sessionId,
+            makeLinearRecords(sessionId, '/workspace/target', [
+                messageRecord(
+                    'target-message',
+                    null,
+                    'user',
+                    [{ text: 'Target', type: 'text' }],
+                    '2026-09-14T10:00:00Z',
+                ),
+            ]),
+        );
+        const brokenDirectory = path.join(root, 'broken');
+        await mkdir(brokenDirectory, { recursive: true });
+        await Bun.write(path.join(brokenDirectory, 'unrelated.jsonl'), '{not json\n');
+
+        await expect(readCommandCodeSessionTranscript(root, sessionId)).resolves.toMatchObject({
+            session: { filePath: sessionPath, sessionId },
+        });
+    });
+
+    it('should reject an oversized targeted session before reading its contents', async () => {
+        const root = await makeRoot();
+        const sessionPath = path.join(root, 'target', 'oversized-session.jsonl');
+        await mkdir(path.dirname(sessionPath), { recursive: true });
+        await Bun.write(sessionPath, new Uint8Array(25 * 1024 * 1024 + 1));
+
+        await expect(readCommandCodeSessionTranscript(root, 'oversized-session')).rejects.toThrow(
+            'larger than 26214400 bytes',
+        );
+    });
+
     it('should group sessions by exact recorded cwd and ignore bookkeeping files', async () => {
         const root = await makeRoot();
         const firstId = 'session-one';
@@ -222,6 +259,25 @@ describe('Command Code filesystem reader', () => {
         expect(groups.map(({ worktree, sessionCount }) => ({ sessionCount, worktree }))).toEqual([
             { sessionCount: 1, worktree: firstCwd },
             { sessionCount: 1, worktree: secondCwd },
+        ]);
+    });
+
+    it('should preserve an epoch-zero workspace timestamp', async () => {
+        const root = await makeRoot();
+        const sessionId = 'epoch-zero';
+        await writeSession(root, 'epoch', sessionId, [
+            sessionRecord(sessionId, '/workspace/epoch', '1970-01-01T00:00:00.000Z'),
+            messageRecord(
+                'epoch-message',
+                null,
+                'user',
+                [{ text: 'Epoch zero', type: 'text' }],
+                '1970-01-01T00:00:00.000Z',
+            ),
+        ]);
+
+        await expect(listCommandCodeWorkspaceGroups(root)).resolves.toEqual([
+            expect.objectContaining({ lastActiveAtMs: 0, worktree: '/workspace/epoch' }),
         ]);
     });
 
@@ -264,7 +320,7 @@ describe('Command Code filesystem reader', () => {
         await Bun.write(checkpointsPath, JSON.stringify({ checkpoint: true }));
 
         await expect(deleteCommandCodeSession(root, sessionId)).resolves.toEqual({
-            deletedFiles: [sessionPath, metadataPath, checkpointsPath],
+            deletedFiles: [metadataPath, checkpointsPath, sessionPath],
             deletedSessionIds: [sessionId],
         });
         expect(await Bun.file(sessionPath).exists()).toBe(false);
@@ -298,6 +354,31 @@ describe('Command Code filesystem reader', () => {
         });
         expect(await Bun.file(firstPath).exists()).toBe(false);
         expect(await Bun.file(secondPath).exists()).toBe(false);
+    });
+
+    it('should delete a malformed target and recover sidecars after the main file is gone', async () => {
+        const root = await makeRoot();
+        const sessionId = 'recoverable-delete';
+        const directory = path.join(root, 'project');
+        await mkdir(directory, { recursive: true });
+        const sessionPath = path.join(directory, `${sessionId}.jsonl`);
+        const metadataPath = path.join(directory, `${sessionId}.meta.json`);
+        const checkpointsPath = path.join(directory, `${sessionId}.checkpoints.jsonl`);
+        await Bun.write(sessionPath, '{not json\n');
+        await Bun.write(metadataPath, '{"title":"Delete me"}');
+        await Bun.write(checkpointsPath, '{"checkpoint":true}');
+
+        await expect(deleteCommandCodeSession(root, sessionId)).resolves.toEqual({
+            deletedFiles: [metadataPath, checkpointsPath, sessionPath],
+            deletedSessionIds: [sessionId],
+        });
+
+        await Bun.write(metadataPath, '{"retry":true}');
+        await expect(deleteCommandCodeSession(root, sessionId)).resolves.toEqual({
+            deletedFiles: [metadataPath],
+            deletedSessionIds: [sessionId],
+        });
+        expect(await Bun.file(sessionPath).exists()).toBe(false);
     });
 
     it('should fail closed when a matching sidecar is unsafe', async () => {
