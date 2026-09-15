@@ -1,3 +1,10 @@
+/**
+ * Maps with bounded admission and returns results in input order. On a worker
+ * failure, stops admitting new items, waits for already admitted work to settle,
+ * then throws a rejected worker's error. Completed side effects are not rolled back;
+ * this is not cancellation of running callbacks or a transactional batch primitive.
+ * Empty input returns []; the concurrency limit is normalized to at least one.
+ */
 export const mapWithConcurrency = async <T, TResult>(
     values: T[],
     limit: number,
