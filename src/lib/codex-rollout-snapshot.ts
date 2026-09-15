@@ -171,6 +171,14 @@ const runSourceOperation = async <T>(
     }
 };
 
+/**
+ * Attempts one stable rollout copy using source identity, byte length, and content
+ * hashes before/after copying. Returns snapshot identities for caller checks;
+ * source mutation and unreadable/missing/content failures remain distinguishable.
+ * This helper does not retry or own the destination's complete lifecycle. Callers
+ * must retry only according to their export policy and remove failed snapshots.
+ * Successful validation is not a lock against future source changes.
+ */
 export const copyStableCodexRollout = async (
     {
         attempt,
