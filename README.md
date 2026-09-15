@@ -127,7 +127,7 @@ Example:
 curl 'http://localhost:3000/api/v1/conversations?cwd=/Users/me/workspace/fgh&include_messages=true'
 ```
 
-Response envelope:
+Abbreviated response envelope (required nullable fields and message identity/order metadata are omitted for readability; see `ConversationDetail` and `ConversationMessage` in `src/lib/conversation-data/types.ts` for the complete contract):
 
 ```json
 {
