@@ -11,7 +11,7 @@ copy the data. Use absolute paths to avoid working-directory surprises.
 | --- | --- |
 | Claude Code | `SPIRACHA_CLAUDE_CODE_PROJECTS_DIR` directly; otherwise append `projects` to `SPIRACHA_CLAUDE_CODE_DATA_DIR` > `SPIRACHA_CLAUDE_CODE_DIR` > `SPIRACHA_CLAUDE_HOME` > `~/.claude`. |
 | Cline | `SPIRACHA_CLINE_DATA_DIR` > `~/.cline/data`. |
-| Command Code | `SPIRACHA_COMMAND_CODE_PROJECTS_DIR`; otherwise `projects` under `SPIRACHA_COMMAND_CODE_DIR` > `~/.commandcode`. |
+| Command Code | `SPIRACHA_COMMAND_CODE_PROJECTS_DIR`; otherwise `projects` under `SPIRACHA_COMMAND_CODE_DIR` > `~/.commandcode`. Optional `SPIRACHA_COMMAND_CODE_WRITER_PROCESS` is the exact `pgrep -x` name; omitted means Spiracha will not guess a writer process. |
 | Grok | `SPIRACHA_GROK_SESSIONS_DIR`; otherwise `sessions` under `SPIRACHA_GROK_HOME` > `SPIRACHA_GROK_DIR` > `~/.grok`. |
 | Grok Bot | `SPIRACHA_GROK_BOT_PERSISTENCE_DIR` > `~/Library/Application Support/Grok Bot/sand-client-persistence`. |
 | Kiro | `SPIRACHA_KIRO_WORKSPACE_SESSIONS_DIR`; otherwise `workspace-sessions` under `SPIRACHA_KIRO_DATA_DIR` > `SPIRACHA_KIRO_AGENT_DIR` > `SPIRACHA_KIRO_DIR` > `~/Library/Application Support/Kiro/User/globalStorage/kiro.kiroagent`. |

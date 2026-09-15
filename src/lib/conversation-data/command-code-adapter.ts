@@ -116,8 +116,10 @@ const getCommandCodeConversationRaw = async (options: GetConversationRawOptions)
 const deleteCommandCodeConversation = async (options: DeleteConversationOptions) => {
     const result = await deleteCommandCodeSession(getProjectsDir(options), options.id);
     return {
+        ...(result.cleanupFailures?.length ? { cleanupFailures: result.cleanupFailures } : {}),
         deletedFiles: result.deletedFiles,
         deletedIds: result.deletedSessionIds,
+        ...(result.receiptId ? { receiptId: result.receiptId } : {}),
     };
 };
 

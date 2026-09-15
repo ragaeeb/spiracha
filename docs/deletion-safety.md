@@ -18,11 +18,12 @@ a raw transcript does not necessarily include indexes, attachments, sibling
 segments, or runtime database rows. Do not treat copying one live SQLite main
 file, or deleting its WAL/SHM files, as a backup procedure.
 
-Keep Codex stopped during destructive maintenance, and keep Cursor and Grok Bot
-stopped throughout their delete/recovery operations. Spiracha's own mutation
-locks do not prevent the source application from relaunching. Other sources have
-their own persistence behavior; absence of a documented process guard is not a
-promise that concurrent deletion is safe.
+Keep Codex stopped during destructive maintenance, and keep Cursor, Grok Bot,
+and Qoder stopped throughout their delete/recovery operations. Command Code has
+no documented process name in this checkout; Spiracha does not guess one. Set
+`SPIRACHA_COMMAND_CODE_WRITER_PROCESS` to the exact `pgrep -x` name when it is
+known. Unknown pgrep status fails closed. Spiracha's own mutation locks do not
+prevent the source application from relaunching.
 
 ## Stable adapter capabilities
 
@@ -36,7 +37,7 @@ file; individual records may still have no raw file.
 | Claude Code | Yes; parent includes recognized lineage | Physical transcript file | Not consulted by adapter |
 | Cline | Yes | Session JSON | Not consulted by adapter |
 | Codex | Yes | Rollout JSONL | Adapter always requests rollout deletion |
-| Command Code | Yes | Session JSONL | Not consulted by adapter |
+| Command Code | Yes; durable sidecar/replica receipt | Session JSONL | Not consulted by adapter |
 | Cursor | Yes; app must be stopped | No stable raw operation | Omitted/true removes transcript directories; false preserves them |
 | FX | Yes | No stable raw operation | Not consulted by adapter |
 | Grok | Yes | Standalone source JSON | Not consulted by adapter |
@@ -44,7 +45,7 @@ file; individual records may still have no raw file.
 | Kiro | Yes; parent includes recognized lineage | Physical session JSON | Not consulted by adapter |
 | MiniMax Code | Yes | Standalone session data where available | Not consulted by adapter |
 | OpenCode | Yes | No stable raw operation | Not consulted by adapter |
-| Qoder | No | Conditional CLI transcript | No stable delete operation |
+| Qoder | Yes; app must be stopped; durable cleanup receipt | Conditional CLI transcript | Not consulted by adapter |
 
 HTTP uses `delete_session_files`; the client uses `deleteSessionFiles`. In this
 version only the Cursor stable adapter honors the preservation choice. In
@@ -60,12 +61,7 @@ A successful result can include `cleanupFailures`: authoritative records may
 already be gone while secondary cleanup remains. Inspect `deletedIds`,
 `deletedFiles`, and each cleanup phase rather than checking only HTTP status.
 
-Batch deletion is not one transaction. If every adapter call returns normally,
-mixed deleted/missing results are returned in a 200 response; a batch with no
-deleted IDs returns 404. If an adapter throws, the batch waits for already admitted
-work and fails. Earlier operations may have committed; the HTTP boundary returns
-500 rather than a partial result envelope. An error does not mean no side effects
-occurred. Re-read state and use the applicable recovery protocol before retrying.
+Batch deletion is not one transaction. Mixed deleted, missing, failed, cleanup-pending, and cancelled outcomes return in a 200 envelope that retains every started item. A batch whose unique IDs are all missing returns 404. Abort stops only unstarted work. Re-read state and use the applicable recovery protocol before retrying.
 
 Unsupported stable deletion returns HTTP 405 `unsupported_operation`. A missing
 single record returns 404 `conversation_not_found`. The HTTP SDK maps these
@@ -76,8 +72,12 @@ for missing records. Do not infer one universal missing-record result shape.
 
 Consult [Codex deletion recovery](codex-deletion-recovery.md),
 [Cursor crash recovery](cursor-crash-recovery.md), or
-[Grok Bot deletion recovery](grok-bot-deletion.md). These protocols complete a
-previously authorized operation; they are not an undo facility. Cursor discovery
+[Grok Bot deletion recovery](grok-bot-deletion.md). Command Code resumes a private
+`.spiracha-command-code-delete-*.json` receipt in the projects root by retrying the
+same session ID; the receipt lists exact replica and sidecar identities and is not
+an external Command Code writer lock. Qoder resumes `.spiracha-qoder-delete-*.json`
+the same way. These protocols complete a previously authorized operation; they are
+not an undo facility. Cursor discovery
 can reconcile a pending operation before returning a workspace list. Grok Bot
 resumes a receipt by retrying the same deletion, not by listing chats.
 

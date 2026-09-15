@@ -1,4 +1,4 @@
-import type { ConversationMessage } from './conversation-data/types';
+import type { ConversationCleanupFailure, ConversationMessage } from './conversation-data/types';
 import type { ExportFormat } from './shared-text';
 
 export type CommandCodeWorkspaceGroup = {
@@ -42,8 +42,10 @@ export type CommandCodeSessionTranscript = {
 };
 
 export type DeleteCommandCodeSessionResult = {
+    cleanupFailures?: ConversationCleanupFailure[];
     deletedFiles: string[];
     deletedSessionIds: string[];
+    receiptId?: string;
 };
 
 export type CommandCodeExportOptions = {
