@@ -33,4 +33,10 @@ export const ensurePrivateRuntimeDirectory = async (directory: string, label: st
     return directory;
 };
 
+/**
+ * Checks an existing real directory, rejects symlinks and a different current-user
+ * owner where getuid is available, and repairs its mode to 0700 when needed.
+ * Despite the assert name, this can chmod the directory; it does not create it,
+ * encrypt its contents, or establish a recursive audit of every ancestor path.
+ */
 export const assertPrivateRuntimeDirectorySafe = assertPrivateRuntimeDirectory;
