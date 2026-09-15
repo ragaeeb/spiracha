@@ -47,6 +47,7 @@ export { isSupportedOriginalRawSource, serializeConversationSourceInfo } from '.
 
 export {
     CONVERSATION_SOURCES,
+    type ContentState,
     type ConversationAdapter,
     type ConversationAdapterRegistry,
     type ConversationDataLocations,
@@ -60,6 +61,7 @@ export {
     type ConversationMessagePhase,
     type ConversationMessageRole,
     type ConversationMessageSelector,
+    type ConversationMessageVisibility,
     type ConversationPage,
     type ConversationPathMatch,
     type ConversationRawDownload,
@@ -84,6 +86,7 @@ export {
     type GetConversationOptions,
     type GetConversationRawOptions,
     type ListConversationsOptions,
+    type MessageProvenance,
     type ResolvedConversationRef,
 } from './types';
 

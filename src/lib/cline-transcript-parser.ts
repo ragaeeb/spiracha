@@ -1,4 +1,5 @@
 import type { ClineTaskTranscript, ClineToolEvidence, ClineTranscriptMessage } from './cline-exporter-types';
+import { toCanonicalMessage } from './conversation-data/adapter-helpers';
 import type { ConversationMessage } from './conversation-data/types';
 import { asNumber, asObject, asString, type JsonValue } from './shared-text';
 
@@ -221,28 +222,30 @@ export const parseClineSessionMessages = (
 };
 
 export const normalizeClineTranscriptMessages = (messages: ClineTaskTranscript['messages']): ConversationMessage[] =>
-    messages.map((message, order) => ({
-        createdAtMs: message.createdAtMs,
-        id: message.messageId,
-        metadata: {},
-        order,
-        phase: message.phase,
-        role: message.role,
-        text: message.text,
-        toolEvidence: message.tool
-            ? {
-                  callId: message.tool.callId,
-                  command: message.tool.command,
-                  durationMs: null,
-                  exitCode: null,
-                  inputText: message.tool.inputText,
-                  name: message.tool.name,
-                  namespace: null,
-                  outputText: message.tool.outputText,
-                  status: message.tool.status,
-                  workdir: message.tool.workdir,
-              }
-            : null,
-    }));
+    messages.map((message, order) =>
+        toCanonicalMessage({
+            createdAtMs: message.createdAtMs,
+            id: message.messageId,
+            metadata: {},
+            order,
+            phase: message.phase,
+            role: message.role,
+            text: message.text,
+            toolEvidence: message.tool
+                ? {
+                      callId: message.tool.callId,
+                      command: message.tool.command,
+                      durationMs: null,
+                      exitCode: null,
+                      inputText: message.tool.inputText,
+                      name: message.tool.name,
+                      namespace: null,
+                      outputText: message.tool.outputText,
+                      status: message.tool.status,
+                      workdir: message.tool.workdir,
+                  }
+                : null,
+        }),
+    );
 
 export { timestampFromJson };

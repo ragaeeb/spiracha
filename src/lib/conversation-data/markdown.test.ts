@@ -1,18 +1,20 @@
 import { describe, expect, it } from 'bun:test';
+import { toCanonicalMessage } from './adapter-helpers';
 import { renderConversationMarkdown } from './markdown';
 import type { ConversationMessage } from './types';
 
-const message = (overrides: Partial<ConversationMessage> = {}): ConversationMessage => ({
-    createdAtMs: null,
-    id: 'message',
-    metadata: {},
-    order: 0,
-    phase: 'final_answer',
-    role: 'assistant',
-    text: 'Answer',
-    toolEvidence: null,
-    ...overrides,
-});
+const message = (overrides: Partial<ConversationMessage> = {}): ConversationMessage =>
+    toCanonicalMessage({
+        createdAtMs: null,
+        id: 'message',
+        metadata: {},
+        order: 0,
+        phase: 'final_answer',
+        role: 'assistant',
+        text: 'Answer',
+        toolEvidence: null,
+        ...overrides,
+    });
 
 describe('normalized Markdown export contract', () => {
     it('should render all roles with one terminal newline and a deterministic fallback title', () => {

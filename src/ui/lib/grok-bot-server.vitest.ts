@@ -1,3 +1,4 @@
+import { toCanonicalMessage } from '@spiracha/lib/conversation-data/adapter-helpers';
 import type { ConversationDetail, ConversationMessage } from '@spiracha/lib/conversation-data/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -45,17 +46,18 @@ import {
     listGrokBotChatsFn,
 } from './grok-bot-server';
 
-const message = (overrides: Partial<ConversationMessage>): ConversationMessage => ({
-    createdAtMs: 1_700_000_000_000,
-    id: 'message-id',
-    metadata: {},
-    order: 0,
-    phase: 'final_answer',
-    role: 'assistant',
-    text: 'answer',
-    toolEvidence: null,
-    ...overrides,
-});
+const message = (overrides: Partial<ConversationMessage>): ConversationMessage =>
+    toCanonicalMessage({
+        createdAtMs: 1_700_000_000_000,
+        id: 'message-id',
+        metadata: {},
+        order: 0,
+        phase: 'final_answer',
+        role: 'assistant',
+        text: 'answer',
+        toolEvidence: null,
+        ...overrides,
+    });
 
 const chat = (): ConversationDetail => ({
     createdAtMs: 1_700_000_000_000,

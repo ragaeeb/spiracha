@@ -3,6 +3,7 @@ import { cp, mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createConversationClient, SpirachaClientError } from './client';
+import { toCanonicalMessage } from './lib/conversation-data/adapter-helpers';
 import type { ConversationDetail } from './lib/conversation-data/types';
 
 const conversation = {
@@ -16,7 +17,7 @@ const conversation = {
     matches: [],
     messageCount: 1,
     messages: [
-        {
+        toCanonicalMessage({
             createdAtMs: 2,
             id: 'message-1',
             metadata: {},
@@ -25,7 +26,7 @@ const conversation = {
             role: 'assistant',
             text: 'Collected review output.',
             toolEvidence: null,
-        },
+        }),
     ],
     metadata: {},
     source: 'codex',

@@ -2,21 +2,23 @@ import { describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { toCanonicalMessage } from './adapter-helpers';
 import { listConversationSources, listConversations, resolveConversationRef } from './index';
 import { renderConversationMarkdown } from './markdown';
 import type { ConversationMessage } from './types';
 
-const createMessage = (overrides: Partial<ConversationMessage>): ConversationMessage => ({
-    createdAtMs: null,
-    id: 'message',
-    metadata: {},
-    order: 0,
-    phase: 'unknown',
-    role: 'unknown',
-    text: 'text',
-    toolEvidence: null,
-    ...overrides,
-});
+const createMessage = (overrides: Partial<ConversationMessage>): ConversationMessage =>
+    toCanonicalMessage({
+        createdAtMs: null,
+        id: 'message',
+        metadata: {},
+        order: 0,
+        phase: 'unknown',
+        role: 'unknown',
+        text: 'text',
+        toolEvidence: null,
+        ...overrides,
+    });
 
 describe('conversation data facade', () => {
     it('should keep all-source collection resilient when integrations are not installed', async () => {

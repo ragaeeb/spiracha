@@ -1,18 +1,20 @@
+import { toCanonicalMessage } from '@spiracha/lib/conversation-data/adapter-helpers';
 import type { ConversationMessage } from '@spiracha/lib/conversation-data/types';
 import { describe, expect, it } from 'vitest';
 import { grokBotMessagesToThreadEvents } from './grok-bot-transcript-events';
 
-const message = (overrides: Partial<ConversationMessage>): ConversationMessage => ({
-    createdAtMs: 1_700_000_000_000,
-    id: 'message-id',
-    metadata: {},
-    order: 0,
-    phase: 'final_answer',
-    role: 'assistant',
-    text: 'message',
-    toolEvidence: null,
-    ...overrides,
-});
+const message = (overrides: Partial<ConversationMessage>): ConversationMessage =>
+    toCanonicalMessage({
+        createdAtMs: 1_700_000_000_000,
+        id: 'message-id',
+        metadata: {},
+        order: 0,
+        phase: 'final_answer',
+        role: 'assistant',
+        text: 'message',
+        toolEvidence: null,
+        ...overrides,
+    });
 
 describe('Grok Bot transcript events', () => {
     it('should preserve user and agent attribution while mapping transcript phases', () => {

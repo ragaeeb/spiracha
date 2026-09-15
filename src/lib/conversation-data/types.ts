@@ -147,16 +147,37 @@ export type ConversationDeepLinks = {
     ui: string;
 };
 
+export type ContentState =
+    | { representation: 'full' | 'summary'; state: 'available' }
+    | { availableCharacters: number; reason: string; state: 'partial'; totalCharacters: number | null }
+    | { reason: string; state: 'deferred' }
+    | { reason: string; state: 'encrypted' }
+    | { reason: string; state: 'unavailable' };
+
+export type MessageProvenance = {
+    blockIndex: number | null;
+    branchId: string | null;
+    origin: 'derived' | 'native' | 'synthetic';
+    parentMessageId: string | null;
+    sourceConversationId: string;
+    sourceRecordId: string | null;
+};
+
+export type ConversationMessageVisibility = 'bootstrap' | 'normal' | 'synthetic';
+
 export type ConversationMessage = {
+    contentState: ContentState;
     createdAtMs: number | null;
     id: string;
     model?: string;
     metadata: Record<string, unknown>;
     order: number;
     phase: ConversationMessagePhase;
+    provenance: MessageProvenance;
     role: ConversationMessageRole;
     text: string;
     toolEvidence: ConversationToolEvidence | null;
+    visibility: ConversationMessageVisibility;
 };
 
 export type ConversationDetail = {

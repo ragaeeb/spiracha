@@ -1,12 +1,15 @@
 import { SOURCE_CATALOG } from './source-catalog';
 import type {
+    ContentState,
     ConversationDeepLinks,
     ConversationMessage,
     ConversationMessagePhase,
     ConversationMessageRole,
+    ConversationMessageVisibility,
     ConversationSource,
     ConversationToolEvidence,
     ListConversationsOptions,
+    MessageProvenance,
 } from './types';
 
 export const isWithinUpdatedWindow = (
@@ -99,16 +102,72 @@ export const normalizeAssistantPhase = (
     return fallback;
 };
 
+export const AVAILABLE_FULL_CONTENT = {
+    representation: 'full',
+    state: 'available',
+} as const satisfies ContentState;
+
+export type CanonicalInclusionBucket =
+    | 'assistant_commentary'
+    | 'assistant_final'
+    | 'reasoning'
+    | 'system'
+    | 'tool_call'
+    | 'tool_output'
+    | 'unknown'
+    | 'user';
+
+export const classifyCanonicalInclusionBucket = (message: {
+    phase: ConversationMessagePhase;
+    role: ConversationMessageRole;
+}): CanonicalInclusionBucket => {
+    if (message.phase === 'tool_call') {
+        return 'tool_call';
+    }
+    if (message.phase === 'tool_output') {
+        return 'tool_output';
+    }
+    if (message.phase === 'reasoning') {
+        return 'reasoning';
+    }
+    if (message.role === 'assistant' && message.phase === 'final_answer') {
+        return 'assistant_final';
+    }
+    if (message.role === 'assistant' && message.phase === 'commentary') {
+        return 'assistant_commentary';
+    }
+    if (message.role === 'user') {
+        return 'user';
+    }
+    if (message.role === 'system') {
+        return 'system';
+    }
+    return 'unknown';
+};
+
+const nativeProvenance = (id: string, sourceConversationId: string): MessageProvenance => ({
+    blockIndex: null,
+    branchId: null,
+    origin: 'native',
+    parentMessageId: null,
+    sourceConversationId,
+    sourceRecordId: id,
+});
+
 export const createTextMessage = (input: {
+    contentState?: ContentState;
     createdAtMs: number | null;
     id: string;
     model?: string;
     metadata?: Record<string, unknown>;
     order: number;
     phase: ConversationMessagePhase;
+    provenance?: MessageProvenance;
     role: ConversationMessageRole;
+    sourceConversationId?: string;
     text: string | null | undefined;
     toolEvidence?: ConversationToolEvidence | null;
+    visibility?: ConversationMessageVisibility;
 }): ConversationMessage[] => {
     const text = input.text ?? '';
     if (!text && !input.toolEvidence) {
@@ -117,15 +176,18 @@ export const createTextMessage = (input: {
 
     return [
         {
+            contentState: input.contentState ?? AVAILABLE_FULL_CONTENT,
             createdAtMs: input.createdAtMs,
             id: input.id,
             ...(input.model ? { model: input.model } : {}),
             metadata: input.metadata ?? {},
             order: input.order,
             phase: input.phase,
+            provenance: input.provenance ?? nativeProvenance(input.id, input.sourceConversationId ?? ''),
             role: input.role,
             text: input.text ?? '',
             toolEvidence: input.toolEvidence ?? null,
+            visibility: input.visibility ?? 'normal',
         },
     ];
 };
@@ -168,9 +230,22 @@ export const getToolNamespace = (name: string): string | null => {
     return delimiterIndex >= 0 ? name.substring(0, delimiterIndex) : null;
 };
 
-export const finalizeMessages = (messages: ConversationMessage[]) => {
+export type CanonicalMessageDraft = Omit<ConversationMessage, 'contentState' | 'provenance' | 'visibility'> & {
+    contentState?: ContentState;
+    provenance?: MessageProvenance;
+    visibility?: ConversationMessageVisibility;
+};
+
+export const toCanonicalMessage = (message: CanonicalMessageDraft): ConversationMessage => ({
+    ...message,
+    contentState: message.contentState ?? AVAILABLE_FULL_CONTENT,
+    provenance: message.provenance ?? nativeProvenance(message.id, ''),
+    visibility: message.visibility ?? 'normal',
+});
+
+export const finalizeMessages = (messages: CanonicalMessageDraft[]) => {
     return messages.map((message, index) => ({
-        ...message,
+        ...toCanonicalMessage(message),
         order: index,
     }));
 };

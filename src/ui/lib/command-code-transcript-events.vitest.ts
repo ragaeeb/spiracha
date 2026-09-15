@@ -1,3 +1,4 @@
+import { toCanonicalMessage } from '@spiracha/lib/conversation-data/adapter-helpers';
 import type { ConversationMessage } from '@spiracha/lib/conversation-data/types';
 import { describe, expect, it } from 'vitest';
 import {
@@ -5,17 +6,18 @@ import {
     getCommandCodeThreadTranscriptStats,
 } from './command-code-transcript-events';
 
-const message = (overrides: Partial<ConversationMessage>): ConversationMessage => ({
-    createdAtMs: 1_700_000_000_000,
-    id: 'message-id',
-    metadata: {},
-    order: 0,
-    phase: 'unknown',
-    role: 'assistant',
-    text: 'message',
-    toolEvidence: null,
-    ...overrides,
-});
+const message = (overrides: Partial<ConversationMessage>): ConversationMessage =>
+    toCanonicalMessage({
+        createdAtMs: 1_700_000_000_000,
+        id: 'message-id',
+        metadata: {},
+        order: 0,
+        phase: 'unknown',
+        role: 'assistant',
+        text: 'message',
+        toolEvidence: null,
+        ...overrides,
+    });
 
 describe('Command Code transcript events', () => {
     it('should map reasoning, tools, and messages into transcript events', () => {

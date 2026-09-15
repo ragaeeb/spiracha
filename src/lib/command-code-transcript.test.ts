@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'bun:test';
 import type { CommandCodeSessionTranscript } from './command-code-exporter-types';
 import { renderCommandCodeTranscript } from './command-code-transcript';
+import { toCanonicalMessage } from './conversation-data/adapter-helpers';
 
 const transcript: CommandCodeSessionTranscript = {
     messages: [
-        {
+        toCanonicalMessage({
             createdAtMs: 1_700_000_000_000,
             id: 'user-1',
             metadata: {},
@@ -13,8 +14,8 @@ const transcript: CommandCodeSessionTranscript = {
             role: 'user',
             text: 'Review the exporter.',
             toolEvidence: null,
-        },
-        {
+        }),
+        toCanonicalMessage({
             createdAtMs: 1_700_000_001_000,
             id: 'assistant-progress',
             metadata: {},
@@ -24,8 +25,8 @@ const transcript: CommandCodeSessionTranscript = {
             role: 'assistant',
             text: 'Inspecting the export path.',
             toolEvidence: null,
-        },
-        {
+        }),
+        toCanonicalMessage({
             createdAtMs: 1_700_000_002_000,
             id: 'reasoning-1',
             metadata: {},
@@ -35,8 +36,8 @@ const transcript: CommandCodeSessionTranscript = {
             role: 'assistant',
             text: 'The export should preserve tool order.',
             toolEvidence: null,
-        },
-        {
+        }),
+        toCanonicalMessage({
             createdAtMs: 1_700_000_003_000,
             id: 'tool-call-1',
             metadata: {},
@@ -56,8 +57,8 @@ const transcript: CommandCodeSessionTranscript = {
                 status: 'unknown',
                 workdir: null,
             },
-        },
-        {
+        }),
+        toCanonicalMessage({
             createdAtMs: 1_700_000_004_000,
             id: 'tool-output-1',
             metadata: {},
@@ -77,8 +78,8 @@ const transcript: CommandCodeSessionTranscript = {
                 status: 'succeeded',
                 workdir: null,
             },
-        },
-        {
+        }),
+        toCanonicalMessage({
             createdAtMs: 1_700_000_005_000,
             id: 'assistant-final',
             metadata: {},
@@ -88,7 +89,7 @@ const transcript: CommandCodeSessionTranscript = {
             role: 'assistant',
             text: 'The export path is fixed.',
             toolEvidence: null,
-        },
+        }),
     ],
     rawRecords: [],
     session: {

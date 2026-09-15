@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import {
+    classifyCanonicalInclusionBucket,
     createConversationUiPath,
     createDeepLinks,
     createTextMessage,
@@ -112,5 +113,57 @@ describe('conversation adapter helpers', () => {
                 text: null,
             }),
         ).toEqual([]);
+    });
+
+    it('should attach available-full content state, native provenance, and normal visibility', () => {
+        const [message] = createTextMessage({
+            createdAtMs: 1,
+            id: 'rec-1',
+            order: 0,
+            phase: 'final_answer',
+            role: 'assistant',
+            sourceConversationId: 'session-1',
+            text: '',
+            toolEvidence: {
+                callId: 'call-1',
+                command: null,
+                durationMs: null,
+                exitCode: null,
+                inputText: null,
+                name: 'read',
+                namespace: null,
+                outputText: null,
+                status: 'unknown',
+                workdir: null,
+            },
+        });
+
+        expect(message).toMatchObject({
+            contentState: { representation: 'full', state: 'available' },
+            provenance: {
+                blockIndex: null,
+                branchId: null,
+                origin: 'native',
+                parentMessageId: null,
+                sourceConversationId: 'session-1',
+                sourceRecordId: 'rec-1',
+            },
+            text: '',
+            visibility: 'normal',
+        });
+    });
+
+    it('should classify canonical inclusion buckets by phase then role', () => {
+        expect(classifyCanonicalInclusionBucket({ phase: 'tool_call', role: 'assistant' })).toBe('tool_call');
+        expect(classifyCanonicalInclusionBucket({ phase: 'tool_output', role: 'user' })).toBe('tool_output');
+        expect(classifyCanonicalInclusionBucket({ phase: 'reasoning', role: 'assistant' })).toBe('reasoning');
+        expect(classifyCanonicalInclusionBucket({ phase: 'final_answer', role: 'assistant' })).toBe('assistant_final');
+        expect(classifyCanonicalInclusionBucket({ phase: 'commentary', role: 'assistant' })).toBe(
+            'assistant_commentary',
+        );
+        expect(classifyCanonicalInclusionBucket({ phase: 'unknown', role: 'user' })).toBe('user');
+        expect(classifyCanonicalInclusionBucket({ phase: 'unknown', role: 'system' })).toBe('system');
+        expect(classifyCanonicalInclusionBucket({ phase: 'unknown', role: 'assistant' })).toBe('unknown');
+        expect(classifyCanonicalInclusionBucket({ phase: 'final_answer', role: 'tool' })).toBe('unknown');
     });
 });

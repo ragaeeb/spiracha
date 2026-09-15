@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { handleConversationApiRequest } from './conversation-api';
 import { OriginalRepresentationUnavailableError } from './conversation-data';
+import { toCanonicalMessage } from './conversation-data/adapter-helpers';
 import type { ConversationDetail, ConversationSourceInfo } from './conversation-data/types';
 import { chatgptResearchPayload, chatgptResearchReport } from './conversation-payload-test-helpers';
 import type { ConvertedConversation } from './conversation-payload-types';
@@ -16,7 +17,7 @@ const conversation = {
     matches: [],
     messageCount: 1,
     messages: [
-        {
+        toCanonicalMessage({
             createdAtMs: 2,
             id: 'message-1',
             metadata: {},
@@ -25,7 +26,7 @@ const conversation = {
             role: 'assistant',
             text: 'Collected review output.',
             toolEvidence: null,
-        },
+        }),
     ],
     metadata: {},
     source: 'codex',

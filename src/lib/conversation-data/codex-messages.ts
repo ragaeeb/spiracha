@@ -6,6 +6,7 @@ import {
     normalizeAssistantPhase,
     normalizeRole,
     normalizeToolStatus,
+    toCanonicalMessage,
     toDateMs,
 } from './adapter-helpers';
 import type { ConversationMessage } from './types';
@@ -16,7 +17,7 @@ const toMessageEventMessage = (event: MessageEvent): ConversationMessage | null 
         return null;
     }
 
-    return {
+    return toCanonicalMessage({
         createdAtMs: toDateMs(event.timestamp),
         id: `codex:${event.sequence}`,
         ...(event.model ? { model: event.model } : {}),
@@ -31,7 +32,7 @@ const toMessageEventMessage = (event: MessageEvent): ConversationMessage | null 
         role: normalizeRole(event.role),
         text,
         toolEvidence: null,
-    };
+    });
 };
 
 const toToolMessage = (event: ThreadEvent): ConversationMessage | null => {
@@ -112,7 +113,7 @@ const toConversationMessage = (event: ThreadEvent): ConversationMessage | null =
     if (event.kind === 'reasoning') {
         const text = event.summary.join('\n').trim();
         return text
-            ? {
+            ? toCanonicalMessage({
                   createdAtMs: toDateMs(event.timestamp),
                   id: `codex:${event.sequence}`,
                   metadata: {
@@ -123,7 +124,7 @@ const toConversationMessage = (event: ThreadEvent): ConversationMessage | null =
                   role: 'assistant',
                   text,
                   toolEvidence: null,
-              }
+              })
             : null;
     }
 

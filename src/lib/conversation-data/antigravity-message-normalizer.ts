@@ -90,7 +90,7 @@ export const normalizeAntigravityConversationMessages = (
     messages: AntigravityConversationMessage[],
 ): ConversationMessage[] =>
     finalizeMessages(
-        messages.map((message, entryIndex): ConversationMessage => {
+        messages.map((message, entryIndex) => {
             const { model: sourceModel, ...sourceMetadata } = message.metadata;
             const model = typeof sourceModel === 'string' ? sourceModel : undefined;
             return {

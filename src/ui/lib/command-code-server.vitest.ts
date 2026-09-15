@@ -2,6 +2,7 @@ import type {
     CommandCodeSessionSummary,
     CommandCodeSessionTranscript,
 } from '@spiracha/lib/command-code-exporter-types';
+import { toCanonicalMessage } from '@spiracha/lib/conversation-data/adapter-helpers';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
@@ -88,7 +89,7 @@ const summary: CommandCodeSessionSummary = {
 
 const transcript: CommandCodeSessionTranscript = {
     messages: [
-        {
+        toCanonicalMessage({
             createdAtMs: 1_700_000_000_000,
             id: 'message-1',
             metadata: {},
@@ -97,7 +98,7 @@ const transcript: CommandCodeSessionTranscript = {
             role: 'user',
             text: 'Review this',
             toolEvidence: null,
-        },
+        }),
     ],
     rawRecords: [{ id: 'session-1', type: 'session' }],
     session: summary,

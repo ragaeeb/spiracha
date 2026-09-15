@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import { toCanonicalMessage } from './adapter-helpers';
 import { buildEvidenceEpisodes } from './evidence-episodes';
 import { buildEvidenceEvents } from './evidence-events';
 import { matchEvidenceEvent, parseShellInvocation, validateEvidenceLens } from './evidence-lens';
@@ -57,16 +58,17 @@ const message = (
     phase: ConversationMessage['phase'],
     text: string,
     toolEvidence: ConversationToolEvidence | null = null,
-): ConversationMessage => ({
-    createdAtMs: order,
-    id: `message-${order}`,
-    metadata: {},
-    order,
-    phase,
-    role: phase.startsWith('tool_') ? 'tool' : 'assistant',
-    text,
-    toolEvidence,
-});
+): ConversationMessage =>
+    toCanonicalMessage({
+        createdAtMs: order,
+        id: `message-${order}`,
+        metadata: {},
+        order,
+        phase,
+        role: phase.startsWith('tool_') ? 'tool' : 'assistant',
+        text,
+        toolEvidence,
+    });
 
 const conversation = (source: ConversationSource = 'codex'): ConversationDetail => ({
     createdAtMs: 1,
