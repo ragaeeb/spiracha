@@ -1090,6 +1090,14 @@ const removeKiroSessionIndexEntry = async (workspaceDir: string, sessionId: stri
     }
 };
 
+/**
+ * Reads a session with execution data and merges only a recognized unambiguous
+ * continuation chain rooted at the requested ID. A physical transcript with multiple
+ * active tabs, or without a valid root chain, stays a physical transcript rather
+ * than a guessed merge. Child IDs do not implicitly retrieve their parent lineage.
+ * Missing sessions return null; normalized lineage content may omit checkpoint
+ * summaries, so this is not a byte-exact raw-file read.
+ */
 export const readKiroSessionTranscript = async (
     sessionsDir: string,
     sessionId: string,
