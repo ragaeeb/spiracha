@@ -499,6 +499,14 @@ const reconcileDeletionIntents = async (dbPath: string, dryRun: boolean) => {
     return { dryRun, reports };
 };
 
+/**
+ * Inspects durable deletion intents in dry-run mode unless dryRun is explicitly
+ * false. Active replay acquires the deletion lock and completes previously
+ * authorized work, not restoration. Individual intent failures are reported in
+ * reports; a resolved promise does not mean every intent completed successfully.
+ * Keep Codex stopped during maintenance and retain failed intents for diagnosis.
+ * This internal checkout helper is not an additional public CLI command.
+ */
 export const reconcileCodexDeletions = (dbPath: string, options: { dryRun?: boolean } = {}) =>
     options.dryRun === false
         ? withCodexDeletionLock(dbPath, () => reconcileDeletionIntents(dbPath, false))
