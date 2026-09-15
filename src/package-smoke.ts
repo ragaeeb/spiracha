@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createCodexBrowserFixture } from './lib/codex-test-helpers';
 import { geminiResearchPayload, payloadSourceFixtures } from './lib/conversation-payload-test-helpers';
+import { buildIsolatedRuntimeEnv } from './lib/isolated-runtime-test-helpers';
 
 type PackageManifest = {
     name: string;
@@ -26,7 +27,7 @@ export const buildPackagedUiProcessEnv = (
     port: number,
     codexDbPath: string,
 ): NodeJS.ProcessEnv => ({
-    ...environment,
+    ...buildIsolatedRuntimeEnv(environment, path.dirname(codexDbPath)),
     PORT: String(port),
     SPIRACHA_CODEX_DB: codexDbPath,
 });
