@@ -273,6 +273,15 @@ export type ResolvedConversationRef = {
     source: ConversationSource;
 };
 
+/**
+ * Internal source-owned adapter contract, not a filesystem-driver plugin API.
+ * list/get must return normalized DTOs with explicit nullable fields, stable source
+ * identity, deterministic message order, and source-derived tool evidence.
+ * Optional raw/delete methods advertise only those operations the source supports;
+ * absence must not be replaced with synthesized raw data or a generic file delete.
+ * The collector may suppress list errors in all-source mode; explicit calls retain
+ * source failures. Parent/continuation semantics belong to the concrete adapter.
+ */
 export type ConversationAdapter = {
     deleteConversation?: (options: DeleteConversationOptions) => Promise<DeleteConversationResult>;
     getConversation: (options: GetConversationOptions) => Promise<ConversationDetail | null>;
