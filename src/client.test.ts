@@ -243,6 +243,7 @@ describe('conversation client', () => {
                 claudeCodeProjectsDir: path.join(tempRoot, 'claude'),
                 clineDataDir: path.join(tempRoot, 'cline'),
                 codexDbPath: path.join(tempRoot, 'missing-codex.sqlite'),
+                commandCodeProjectsDir: path.join(tempRoot, 'command-code'),
                 cursorUserDir: path.join(tempRoot, 'cursor'),
                 kiroWorkspaceSessionsDir: path.join(tempRoot, 'kiro'),
                 opencodeDbPath: path.join(tempRoot, 'missing-opencode.sqlite'),
