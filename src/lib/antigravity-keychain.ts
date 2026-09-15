@@ -207,6 +207,13 @@ const getAntigravityKeychainError = (error: unknown): string => {
     return error instanceof Error ? error.message : String(error);
 };
 
+/**
+ * Supplies a restricted decrypt function backed by the secret already unlocked
+ * for this server process. This does not prompt for access or create a per-request
+ * grant; the module caches the underlying secret across calls until process state
+ * is cleared. Do not serialize/log the capability or present it as per-user auth.
+ * @throws {AntigravityDecryptionCapabilityError} No cached unlock is available.
+ */
 export const withAntigravityDecryptionCapability = async <T>(
     action: (capability: AntigravityDecryptionCapability) => T | Promise<T>,
 ): Promise<T> => {
