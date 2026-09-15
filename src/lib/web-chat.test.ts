@@ -1338,6 +1338,134 @@ describe('parseWebChatFiles', () => {
         ]);
     });
 
+    it('should replay GLM compound report assembly and edits exactly', async () => {
+        const partsDirectory = '/tmp/glm-compound/parts';
+        const outputDirectory = '/tmp/glm-compound/output';
+        const jsonPath = `${outputDirectory}/report.json`;
+        const fence = '```';
+        const toolBlock = (id: string, name: string, args: Record<string, unknown>, status = 'completed') => ({
+            content: [{ function: { arguments: JSON.stringify(args), name }, id, type: 'function' }],
+            results: [{ status, tool_call_id: id }],
+            type: 'tool_calls',
+        });
+        const command =
+            `cd ${partsDirectory} && OUT=${outputDirectory} && cat json_part1.json json_part2.json > "$OUT/report.json" && ` +
+            `{ cat part01.md part02.md; printf '\\n# 14. Appendix\\n\\nThe report'"'"'s JSON follows.\\n\\n${fence}json\\n'; ` +
+            `cat "$OUT/report.json"; printf '\\n${fence}\\n'; } > "$OUT/REPORT.md" && ` +
+            `echo "assembled" && python3 -c "print('validated')" && wc -c "$OUT/REPORT.md" "$OUT/report.json"`;
+        const input = {
+            ...createMappingExport({ conversationId: 'glm-compound', model: 'glm-5.3', title: 'GLM compound' }),
+            raw_payload: {
+                messages_batch: {
+                    data: {
+                        'assistant-message': {
+                            content_blocks: [
+                                toolBlock('write-md-1', 'Write', {
+                                    content: '# Intro\n',
+                                    filepath: `${partsDirectory}/part01.md`,
+                                }),
+                                toolBlock('write-md-2', 'Write', {
+                                    content: '# Details\nold\n',
+                                    filepath: `${partsDirectory}/part02.md`,
+                                }),
+                                toolBlock('write-json-1', 'Write', {
+                                    content: '{"status":"old"',
+                                    filepath: `${partsDirectory}/json_part1.json`,
+                                }),
+                                toolBlock('write-json-2', 'Write', {
+                                    content: '}\n',
+                                    filepath: `${partsDirectory}/json_part2.json`,
+                                }),
+                                toolBlock(
+                                    'failed-json-assembly',
+                                    'Bash',
+                                    {
+                                        command: `cd ${partsDirectory} && cat json_part1.json > ${jsonPath} && python3 -c "raise SystemExit(1)"`,
+                                    },
+                                    'error',
+                                ),
+                                toolBlock('edit-json', 'Edit', {
+                                    filepath: `${partsDirectory}/json_part1.json`,
+                                    new_str: 'new',
+                                    old_str: 'old',
+                                }),
+                                toolBlock('edit-markdown', 'MultiEdit', {
+                                    edits: [{ new_str: 'new', old_str: 'old' }],
+                                    filepath: `${partsDirectory}/part02.md`,
+                                }),
+                                toolBlock('assemble', 'Bash', { command }),
+                            ],
+                            role: 'assistant',
+                        },
+                    },
+                },
+            },
+        };
+        const result = await parseWebChatFiles([{ content: JSON.stringify(input), name: 'glm-compound.json' }]);
+        const json = '{"status":"new"}\n';
+        const expected =
+            `# Intro\n# Details\nnew\n\n# 14. Appendix\n\nThe report's JSON follows.\n\n${fence}json\n` +
+            `${json}\n${fence}\n`;
+
+        expect(result.errors).toEqual([]);
+        expect(result.conversations[0]!.artifacts).toEqual([{ content: expected, id: 'assemble', title: 'REPORT.md' }]);
+    });
+
+    it('should expose a GLM JSON artifact generated from a Markdown appendix', async () => {
+        const directory = '/tmp/glm-json-extractor';
+        const reportPath = `${directory}/REPORT.md`;
+        const jsonPath = `${directory}/report.json`;
+        const fence = '```';
+        const jsonValue = { findings: ['one', 'اثنان'], metadata: { title: 'Isnad' } };
+        const report = `# Report\n\n${fence}json\n${JSON.stringify(jsonValue, null, 2)}\n${fence}\n`;
+        const script = [
+            'import json',
+            'import re',
+            'from pathlib import Path',
+            `REPORT_MD = Path("${reportPath}")`,
+            `REPORT_JSON = Path("${jsonPath}")`,
+            'text = REPORT_MD.read_text(encoding="utf-8")',
+            `pattern = re.compile(r"${fence}json\\s*\\n(.*?)\\n${fence}", re.DOTALL)`,
+            'matches = pattern.findall(text)',
+            'json_str = matches[-1].strip()',
+            'parsed = json.loads(json_str)',
+            'REPORT_JSON.write_text(json.dumps(parsed, ensure_ascii=False, indent=2), encoding="utf-8")',
+        ].join('\n');
+        const toolBlock = (id: string, name: string, args: Record<string, unknown>) => ({
+            content: [{ function: { arguments: JSON.stringify(args), name }, id, type: 'function' }],
+            results: [{ status: 'completed', tool_call_id: id }],
+            type: 'tool_calls',
+        });
+        const input = {
+            ...createMappingExport({ conversationId: 'glm-json-extractor', model: 'glm-5.3', title: 'GLM JSON' }),
+            raw_payload: {
+                messages_batch: {
+                    data: {
+                        'assistant-message': {
+                            content_blocks: [
+                                toolBlock('report-write', 'Write', { content: report, filepath: reportPath }),
+                                toolBlock('script-write', 'Write', {
+                                    content: script,
+                                    filepath: `${directory}/extract.py`,
+                                }),
+                                toolBlock('extract-json', 'Bash', { command: `python3 ${directory}/extract.py` }),
+                            ],
+                            role: 'assistant',
+                        },
+                    },
+                },
+            },
+        };
+
+        const result = await parseWebChatFiles([{ content: JSON.stringify(input), name: 'glm-json-extractor.json' }]);
+
+        expect(result.errors).toEqual([]);
+        expect(result.conversations[0]!.artifacts).toEqual([
+            { content: report, id: 'report-write', title: 'REPORT.md' },
+            { content: JSON.stringify(jsonValue, null, 2), id: 'extract-json', title: 'report.json' },
+        ]);
+    });
+
     it('should fail closed on unsupported or incomplete GLM report mutations', async () => {
         const directory = '/tmp/glm-safety';
         const reportPath = `${directory}/REPORT.md`;
@@ -1368,6 +1496,15 @@ describe('parseWebChatFiles', () => {
             toolBlock(id, 'Bash', { command }, status);
         const validAppend = `cat >> ${reportPath} << 'EOF'\n\n# Section\nEOF marker\nEOF\necho "appended"; wc -c ${reportPath}`;
 
+        expect(
+            await parseArtifacts([
+                write('write'),
+                append(
+                    'unrelated-log',
+                    `cat >> ${directory}/worklog.md <<'EOF'\nREPORT.md is mentioned in the log only\nEOF\necho "logged"; wc -c ${directory}/worklog.md`,
+                ),
+            ]),
+        ).toEqual([{ content: reportStart, id: 'write', title: 'REPORT.md' }]);
         expect(
             await parseArtifacts([write('write'), append('near-match', `${validAppend}; rm ${reportPath}`)]),
         ).toEqual([]);

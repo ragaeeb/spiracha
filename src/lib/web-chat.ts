@@ -1181,6 +1181,12 @@ type GlmFileMutation =
           kind: 'copy';
           path: string;
           sourcePath: string;
+      }
+    | {
+          kind: 'replace';
+          newContent: string;
+          oldContent: string;
+          path: string;
       };
 
 type GlmFileOperation = GlmFileMutation & {
@@ -1342,6 +1348,208 @@ const getGlmToolInvocations = (rawPayload: unknown, sourceMessages: SourceMessag
 const resolveGlmPath = (directory: string | null, path: string): string =>
     path.startsWith('/') || !directory ? path : `${directory.replace(/\/+$/u, '')}/${path}`;
 
+const isGlmShellPath = (value: string): boolean => Boolean(value) && !/[;&|<>()"'`$\\]/u.test(value);
+
+const parseGlmPathList = (value: string): string[] | null => {
+    const paths = value.trim().split(/\s+/u);
+    return paths.length > 0 && paths.every(isGlmShellPath) ? paths : null;
+};
+
+const skipGlmShellWhitespace = (value: string, start: number): number => {
+    let index = start;
+    while (/\s/u.test(value[index] ?? '')) {
+        index += 1;
+    }
+    return index;
+};
+
+type GlmShellWord = { end: number; value: string };
+
+const parseGlmSingleQuotedSegment = (value: string, start: number): GlmShellWord | null => {
+    const end = value.indexOf("'", start + 1);
+    return end === -1 ? null : { end: end + 1, value: value.slice(start + 1, end) };
+};
+
+const parseGlmDoubleQuotedSegment = (value: string, start: number): GlmShellWord | null => {
+    let index = start + 1;
+    let word = '';
+    while (index < value.length) {
+        const character = value[index]!;
+        if (character === '"') {
+            return { end: index + 1, value: word };
+        }
+        if (character !== '\\') {
+            word += character;
+            index += 1;
+            continue;
+        }
+        const escaped = value[index + 1];
+        if (!escaped || !'\\"$`\n'.includes(escaped)) {
+            return null;
+        }
+        if (escaped !== '\n') {
+            word += escaped;
+        }
+        index += 2;
+    }
+    return null;
+};
+
+const parseGlmShellSegment = (value: string, start: number): GlmShellWord | null => {
+    const character = value[start]!;
+    if (character === "'") {
+        return parseGlmSingleQuotedSegment(value, start);
+    }
+    if (character === '"') {
+        return parseGlmDoubleQuotedSegment(value, start);
+    }
+    if (character === '\\') {
+        const escaped = value[start + 1];
+        return escaped ? { end: start + 2, value: escaped } : null;
+    }
+    return '&|<>()$`'.includes(character) ? null : { end: start + 1, value: character };
+};
+
+const parseGlmShellWord = (value: string, start: number): GlmShellWord | null => {
+    let index = start;
+    let word = '';
+    let consumed = false;
+    while (index < value.length && !/\s|;/u.test(value[index]!)) {
+        consumed = true;
+        const segment = parseGlmShellSegment(value, index);
+        if (!segment) {
+            return null;
+        }
+        word += segment.value;
+        index = segment.end;
+    }
+    return consumed ? { end: index, value: word } : null;
+};
+
+const GLM_PRINTF_ESCAPES: Readonly<Record<string, string>> = {
+    '\\': '\\',
+    b: '\b',
+    f: '\f',
+    n: '\n',
+    r: '\r',
+    t: '\t',
+    v: '\v',
+};
+
+const decodeGlmPrintfFormat = (value: string): string | null => {
+    let decoded = '';
+    for (let index = 0; index < value.length; index += 1) {
+        if (value[index] !== '\\') {
+            decoded += value[index];
+            continue;
+        }
+        const escaped = value[index + 1];
+        if (!escaped) {
+            return null;
+        }
+        const replacement = GLM_PRINTF_ESCAPES[escaped];
+        if (replacement === undefined) {
+            return null;
+        }
+        decoded += replacement;
+        index += 1;
+    }
+    return decoded.includes('%') ? null : decoded;
+};
+
+const parseGlmPrintfCommand = (value: string, start: number): { content: string; nextIndex: number } | null => {
+    if (!value.startsWith('printf ', start)) {
+        return null;
+    }
+    const word = parseGlmShellWord(value, skipGlmShellWhitespace(value, start + 'printf '.length));
+    if (!word) {
+        return null;
+    }
+    const separator = skipGlmShellWhitespace(value, word.end);
+    if (value[separator] !== ';') {
+        return null;
+    }
+    const content = decodeGlmPrintfFormat(word.value);
+    return content === null ? null : { content, nextIndex: separator + 1 };
+};
+
+const isGlmReadOnlyPythonScript = (script: string): boolean =>
+    script.length > 0 &&
+    !script.includes('"') &&
+    !script.includes('`') &&
+    !script.replaceAll('$OUT', '').includes('$') &&
+    !/\b(?:unlink|remove|rename|mkdir|rmdir|truncate|write|replace|move|copy)\b/i.test(script);
+
+const isGlmReadOnlyAssemblySuffix = (value: string): boolean => {
+    const match = value.match(
+        /^echo "assembled" && python3 -c "([\s\S]+)" && wc -c "\$OUT\/REPORT\.md" "\$OUT\/report\.json"$/u,
+    );
+    if (!match) {
+        return false;
+    }
+    return isGlmReadOnlyPythonScript(match[1]!);
+};
+
+const parseGlmCompoundAssembly = (command: string): GlmFileMutation[] | null => {
+    const match = command.match(
+        /^cd (\S+) && OUT=(\S+) && cat ([^>]+?) > "\$OUT\/report\.json" && \{ ([\s\S]+) \} > "\$OUT\/REPORT\.md" && ([\s\S]+)$/u,
+    );
+    if (!match || !isGlmShellPath(match[1]!) || !isGlmShellPath(match[2]!) || !isGlmReadOnlyAssemblySuffix(match[5]!)) {
+        return null;
+    }
+    const directory = match[1]!;
+    const outputDirectory = resolveGlmPath(directory, match[2]!).replace(/\/+$/u, '');
+    const jsonPath = `${outputDirectory}/report.json`;
+    const reportPath = `${outputDirectory}/REPORT.md`;
+    const jsonSources = parseGlmPathList(match[3]!);
+    if (!jsonSources) {
+        return null;
+    }
+
+    const body = match[4]!;
+    const firstSeparator = body.indexOf(';');
+    if (!body.startsWith('cat ') || firstSeparator === -1) {
+        return null;
+    }
+    const markdownSources = parseGlmPathList(body.slice('cat '.length, firstSeparator));
+    if (!markdownSources) {
+        return null;
+    }
+    let index = skipGlmShellWhitespace(body, firstSeparator + 1);
+    const prefix = parseGlmPrintfCommand(body, index);
+    if (!prefix) {
+        return null;
+    }
+    index = skipGlmShellWhitespace(body, prefix.nextIndex);
+    const jsonCat = 'cat "$OUT/report.json";';
+    if (!body.startsWith(jsonCat, index)) {
+        return null;
+    }
+    index = skipGlmShellWhitespace(body, index + jsonCat.length);
+    const suffix = parseGlmPrintfCommand(body, index);
+    if (!suffix || skipGlmShellWhitespace(body, suffix.nextIndex) !== body.length) {
+        return null;
+    }
+
+    return [
+        { content: '', kind: 'write', path: jsonPath },
+        ...jsonSources.map((sourcePath) => ({
+            kind: 'copy' as const,
+            path: jsonPath,
+            sourcePath: resolveGlmPath(directory, sourcePath),
+        })),
+        { content: '', kind: 'write', path: reportPath },
+        ...markdownSources.map((sourcePath) => ({
+            kind: 'copy' as const,
+            path: reportPath,
+            sourcePath: resolveGlmPath(directory, sourcePath),
+        })),
+        { content: prefix.content, kind: 'append', path: reportPath },
+        { kind: 'copy' as const, path: reportPath, sourcePath: jsonPath },
+        { content: suffix.content, kind: 'append', path: reportPath },
+    ];
+};
+
 const parseGlmHeredoc = (
     command: string,
     directory: string | null,
@@ -1366,7 +1574,44 @@ const parseGlmHeredoc = (
     };
 };
 
-const parseGlmBashOperations = (command: string): { operations: GlmFileMutation[]; unsupported: boolean } => {
+const parseGlmJsonConcatenation = (command: string): GlmFileMutation[] | null => {
+    const match = command.match(
+        /^cd (\S+) && cat ([^>]+?) > ("?)([^\s"]+\/report\.json)\3 && python3 -c "([\s\S]+)"$/u,
+    );
+    if (!match || !isGlmShellPath(match[1]!) || !isGlmShellPath(match[4]!) || !isGlmReadOnlyPythonScript(match[5]!)) {
+        return null;
+    }
+    const sources = parseGlmPathList(match[2]!);
+    if (!sources) {
+        return null;
+    }
+    const directory = match[1]!;
+    const path = resolveGlmPath(directory, match[4]!);
+    return [
+        { content: '', kind: 'write', path },
+        ...sources.map((sourcePath) => ({
+            kind: 'copy' as const,
+            path,
+            sourcePath: resolveGlmPath(directory, sourcePath),
+        })),
+    ];
+};
+
+const parseGlmBashOperations = (
+    command: string,
+): {
+    ignoreOnFailure?: boolean;
+    operations: GlmFileMutation[];
+    unsupported: boolean;
+} => {
+    const jsonConcatenation = parseGlmJsonConcatenation(command);
+    if (jsonConcatenation) {
+        return { ignoreOnFailure: true, operations: jsonConcatenation, unsupported: false };
+    }
+    const compoundAssembly = parseGlmCompoundAssembly(command);
+    if (compoundAssembly) {
+        return { operations: compoundAssembly, unsupported: false };
+    }
     const finalPrefix = command.match(/^cd (\S+) && jq -e \. (\S+) > \/dev\/null && echo "JSON VALID" && /u);
     if (finalPrefix) {
         const directory = finalPrefix[1]!;
@@ -1414,26 +1659,51 @@ const parseGlmBashOperations = (command: string): { operations: GlmFileMutation[
     return {
         operations: [],
         unsupported:
-            /\breport\.(?:md|markdown|json)\b/i.test(command) &&
-            /(?:>>|>)\s*[^\s;]+\.(?:md|markdown|json)\b|\b(?:rm|mv|cp|tee|sed)\b[^\n]*\.(?:md|markdown|json)\b/i.test(
-                command,
-            ),
+            /(?:>>|>)\s*["']?(?:[^\s;/"']*[/\\])*report\.(?:md|markdown|json)\b["']?/i.test(command) ||
+            /\b(?:rm|mv|cp|tee|sed)\b[^\n;]*\breport\.(?:md|markdown|json)\b/i.test(command),
     };
 };
 
-const getGlmInvocationOperations = (
-    invocation: GlmToolInvocation,
-): { operations: GlmFileOperation[]; unsupported: boolean } => {
+type GlmInvocationOperations = { operations: GlmFileOperation[]; unsupported: boolean };
+
+const getGlmWriteOperations = (invocation: GlmToolInvocation, succeeded: boolean): GlmInvocationOperations => {
+    const path = typeof invocation.args?.filepath === 'string' ? invocation.args.filepath : null;
+    const content = typeof invocation.args?.content === 'string' ? invocation.args.content : null;
+    return path !== null && content !== null
+        ? { operations: [{ callId: invocation.id, content, kind: 'write', path, succeeded }], unsupported: false }
+        : { operations: [], unsupported: true };
+};
+
+const getGlmEditOperations = (invocation: GlmToolInvocation, succeeded: boolean): GlmInvocationOperations => {
+    const path = typeof invocation.args?.filepath === 'string' ? invocation.args.filepath : null;
+    const edits =
+        invocation.functionName === 'edit'
+            ? [invocation.args]
+            : Array.isArray(invocation.args?.edits)
+              ? invocation.args.edits
+              : [];
+    const replacements = edits.map((edit) => {
+        if (!isRecord(edit)) {
+            return null;
+        }
+        const oldContent = typeof edit.old_str === 'string' ? edit.old_str : null;
+        const newContent = typeof edit.new_str === 'string' ? edit.new_str : null;
+        return path !== null && oldContent !== null && newContent !== null
+            ? { callId: invocation.id, kind: 'replace' as const, newContent, oldContent, path, succeeded }
+            : null;
+    });
+    return path !== null && replacements.length > 0 && replacements.every((operation) => operation !== null)
+        ? { operations: replacements, unsupported: false }
+        : { operations: [], unsupported: true };
+};
+
+const getGlmInvocationOperations = (invocation: GlmToolInvocation): GlmInvocationOperations => {
     const succeeded = invocation.succeeded === true;
     if (invocation.functionName === 'write') {
-        const path = typeof invocation.args?.filepath === 'string' ? invocation.args.filepath : null;
-        const content = typeof invocation.args?.content === 'string' ? invocation.args.content : null;
-        return path !== null && content !== null
-            ? {
-                  operations: [{ callId: invocation.id, content, kind: 'write', path, succeeded }],
-                  unsupported: false,
-              }
-            : { operations: [], unsupported: true };
+        return getGlmWriteOperations(invocation, succeeded);
+    }
+    if (invocation.functionName === 'edit' || invocation.functionName === 'multiedit') {
+        return getGlmEditOperations(invocation, succeeded);
     }
     if (invocation.functionName !== 'bash') {
         return { operations: [], unsupported: false };
@@ -1444,8 +1714,11 @@ const getGlmInvocationOperations = (
     }
     const parsed = parseGlmBashOperations(command);
     return {
-        operations: parsed.operations.map((operation) => ({ ...operation, callId: invocation.id, succeeded })),
-        unsupported: parsed.unsupported,
+        operations:
+            parsed.ignoreOnFailure && !succeeded
+                ? []
+                : parsed.operations.map((operation) => ({ ...operation, callId: invocation.id, succeeded })),
+        unsupported: parsed.unsupported && succeeded,
     };
 };
 
@@ -1471,6 +1744,8 @@ const getGlmReportPaths = (operations: GlmFileOperation[]) => {
             if (isMarkdownPath(operation.path)) {
                 reportPaths.add(operation.path);
             }
+        } else if (operation.kind === 'replace') {
+            dependencyPaths.add(operation.path);
         } else if (operation.kind === 'append' && isMarkdownPath(operation.path)) {
             reportPaths.add(operation.path);
         } else if (
@@ -1483,6 +1758,47 @@ const getGlmReportPaths = (operations: GlmFileOperation[]) => {
     return { dependencyPaths, reportPaths };
 };
 
+const applyGlmWriteOperation = (
+    operation: Extract<GlmFileOperation, { kind: 'write' }>,
+    files: Map<string, string>,
+    artifactIds: Map<string, string>,
+    reportPaths: Set<string>,
+    dependencyPaths: Set<string>,
+): boolean => {
+    if (!operation.succeeded) {
+        return !reportPaths.has(operation.path) && !dependencyPaths.has(operation.path);
+    }
+    files.set(operation.path, operation.content);
+    if (reportPaths.has(operation.path) && !artifactIds.has(operation.path)) {
+        artifactIds.set(operation.path, operation.callId ?? `glm-artifact-${artifactIds.size + 1}`);
+    }
+    return true;
+};
+
+const applyGlmReplaceOperation = (
+    operation: Extract<GlmFileOperation, { kind: 'replace' }>,
+    files: Map<string, string>,
+    reportPaths: Set<string>,
+    dependencyPaths: Set<string>,
+): boolean => {
+    if (!operation.succeeded) {
+        return !reportPaths.has(operation.path) && !dependencyPaths.has(operation.path);
+    }
+    const current = files.get(operation.path);
+    if (current === undefined) {
+        return false;
+    }
+    const firstIndex = current.indexOf(operation.oldContent);
+    if (firstIndex === -1 || firstIndex !== current.lastIndexOf(operation.oldContent)) {
+        return false;
+    }
+    files.set(
+        operation.path,
+        `${current.slice(0, firstIndex)}${operation.newContent}${current.slice(firstIndex + operation.oldContent.length)}`,
+    );
+    return true;
+};
+
 const applyGlmFileOperation = (
     operation: GlmFileOperation,
     files: Map<string, string>,
@@ -1491,14 +1807,10 @@ const applyGlmFileOperation = (
     dependencyPaths: Set<string>,
 ): boolean => {
     if (operation.kind === 'write') {
-        if (!operation.succeeded) {
-            return !reportPaths.has(operation.path) && !dependencyPaths.has(operation.path);
-        }
-        files.set(operation.path, operation.content);
-        if (reportPaths.has(operation.path) && !artifactIds.has(operation.path)) {
-            artifactIds.set(operation.path, operation.callId ?? `glm-artifact-${artifactIds.size + 1}`);
-        }
-        return true;
+        return applyGlmWriteOperation(operation, files, artifactIds, reportPaths, dependencyPaths);
+    }
+    if (operation.kind === 'replace') {
+        return applyGlmReplaceOperation(operation, files, reportPaths, dependencyPaths);
     }
     if (!operation.succeeded || !files.has(operation.path)) {
         return false;
@@ -1530,10 +1842,84 @@ const replayGlmFileOperations = (
     return { artifactIds, files };
 };
 
+const getGlmPythonPath = (script: string, name: 'REPORT_JSON' | 'REPORT_MD'): string | null => {
+    const match = script.match(new RegExp(`^${name} = Path\\(["']([^"']+)["']\\)$`, 'mu'));
+    return match?.[1] ?? null;
+};
+
+const getGlmJsonExtractorArtifact = (
+    invocation: GlmToolInvocation,
+    files: Map<string, string>,
+    reportPaths: Set<string>,
+): WebChatArtifact | null => {
+    if (invocation.functionName !== 'bash' || invocation.succeeded !== true) {
+        return null;
+    }
+    const command = typeof invocation.args?.command === 'string' ? invocation.args.command : null;
+    const scriptPath = command?.match(/^python3 (\S+)$/u)?.[1] ?? null;
+    const script = scriptPath ? files.get(scriptPath) : null;
+    if (!scriptPath || !isGlmShellPath(scriptPath) || !script) {
+        return null;
+    }
+    const markdownPath = getGlmPythonPath(script, 'REPORT_MD');
+    const jsonPath = getGlmPythonPath(script, 'REPORT_JSON');
+    if (
+        !markdownPath ||
+        !jsonPath ||
+        markdownPath === jsonPath ||
+        !reportPaths.has(markdownPath) ||
+        !/\.json$/iu.test(jsonPath) ||
+        !script.includes('re.compile') ||
+        !script.includes('```json') ||
+        !script.includes('matches = pattern.findall(text)') ||
+        !script.includes('json_str = matches[-1].strip()') ||
+        !script.includes('parsed = json.loads(json_str)') ||
+        !script.includes('REPORT_JSON.write_text(json.dumps(parsed, ensure_ascii=False, indent=2), encoding="utf-8")')
+    ) {
+        return null;
+    }
+    const markdown = files.get(markdownPath);
+    const jsonBlock = markdown ? [...markdown.matchAll(/```json\s*\n([\s\S]*?)\n```/gu)].at(-1)?.[1]?.trim() : null;
+    if (!jsonBlock) {
+        return null;
+    }
+    let value: unknown;
+    try {
+        value = JSON.parse(jsonBlock);
+    } catch {
+        return null;
+    }
+    return {
+        content: JSON.stringify(value, null, 2),
+        id: invocation.id ?? `glm-artifact:${jsonPath}`,
+        title: jsonPath.split(/[\\/]/u).at(-1) || jsonPath,
+    };
+};
+
+const getGlmJsonExtractorArtifacts = (
+    invocations: GlmToolInvocation[],
+    files: Map<string, string>,
+    reportPaths: Set<string>,
+): WebChatArtifact[] | null => {
+    const artifacts = new Map<string, WebChatArtifact>();
+    for (const invocation of invocations) {
+        const artifact = getGlmJsonExtractorArtifact(invocation, files, reportPaths);
+        if (!artifact) {
+            continue;
+        }
+        const previous = artifacts.get(artifact.title);
+        if (previous && (previous.content !== artifact.content || previous.id !== artifact.id)) {
+            return null;
+        }
+        artifacts.set(artifact.title, artifact);
+    }
+    return [...artifacts.values()];
+};
+
 const getGlmArtifacts = (rawPayload: unknown, sourceMessages: SourceMessage[]): WebChatArtifact[] => {
     const invocations = getGlmToolInvocations(rawPayload, sourceMessages);
     const operations = invocations ? getGlmFileOperations(invocations) : null;
-    if (!operations) {
+    if (!invocations || !operations) {
         return [];
     }
     const { dependencyPaths, reportPaths } = getGlmReportPaths(operations);
@@ -1544,7 +1930,7 @@ const getGlmArtifacts = (rawPayload: unknown, sourceMessages: SourceMessage[]): 
     if (!replayed) {
         return [];
     }
-    return [...reportPaths]
+    const artifacts = [...reportPaths]
         .map((path, index) => {
             const content = replayed.files.get(path);
             if (content === undefined) {
@@ -1557,6 +1943,8 @@ const getGlmArtifacts = (rawPayload: unknown, sourceMessages: SourceMessage[]): 
             } satisfies WebChatArtifact;
         })
         .filter((artifact): artifact is WebChatArtifact => artifact !== null);
+    const extractedJson = getGlmJsonExtractorArtifacts(invocations, replayed.files, reportPaths);
+    return extractedJson ? [...artifacts, ...extractedJson] : [];
 };
 
 const NOVA_SEARCH_PATTERN = /^🔍\s+Searching for:\s*([\s\S]+)$/;
