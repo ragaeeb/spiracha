@@ -14,6 +14,14 @@ const SettingsContext = createContext<SettingsContextValue>({
     updateSetting: () => {},
 });
 
+/**
+ * Owns optimistic in-tab settings and serializes cookie saves to preserve submission
+ * order. Broadcasts successful saves to other tabs and ignores stale focus reads
+ * using request/revision guards; pending local saves take precedence over broadcasts.
+ * Persistence errors are logged without rolling back the optimistic state, so the
+ * displayed setting is not proof that the cookie write succeeded. Unmount closes
+ * broadcast/focus listeners; defaults and normalization remain in settings.ts.
+ */
 export function SettingsProvider({
     children,
     initialSettings = DEFAULT_SETTINGS,
