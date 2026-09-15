@@ -2,10 +2,10 @@ import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
-import type { ParsedCodexTranscript, ThreadTranscriptStats } from './codex-browser-types';
+import type { ParsedCodexTranscript } from './codex-browser-types';
 import { parseCodexTranscriptFile } from './codex-thread-parser';
-import type { CodexTranscriptEventFilters } from './codex-transcript-filter';
-import { shouldShowCodexTranscriptEvent } from './codex-transcript-filter';
+import type { ThreadTranscriptStats, TranscriptEventFilters } from './conversation-data/conversation-events';
+import { shouldShowTranscriptEvent } from './conversation-data/conversation-events';
 import { runWithTranscriptLoadLimit } from './transcript-load-limiter';
 import { getFileFingerprint, hashCacheKeyPartsIterable, withCachedJson } from './ui-cache';
 
@@ -125,7 +125,7 @@ const collectCodexTranscriptModelNames = async (sessionFile: string): Promise<st
 };
 
 type CachedThreadTranscriptPreviewOptions = {
-    filters?: CodexTranscriptEventFilters;
+    filters?: TranscriptEventFilters;
     largeTranscriptThresholdBytes?: number;
     previewEventLimit?: number;
 };
@@ -188,7 +188,7 @@ export const getCachedThreadTranscriptPreview = async (
             return runWithTranscriptLoadLimit(
                 () =>
                     parseCodexTranscriptFile(sessionFile, {
-                        eventFilter: filters ? (event) => shouldShowCodexTranscriptEvent(event, filters) : undefined,
+                        eventFilter: filters ? (event) => shouldShowTranscriptEvent(event, filters) : undefined,
                         includeRaw: false,
                         maxTurnContexts: 0,
                         sourceFileSizeBytes: fileSizeBytes,

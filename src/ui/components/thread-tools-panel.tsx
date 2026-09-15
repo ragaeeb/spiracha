@@ -1,4 +1,5 @@
-import type { DynamicToolDefinition, ThreadEvent } from '@spiracha/lib/codex-browser-types';
+import type { DynamicToolDefinition } from '@spiracha/lib/codex-browser-types';
+import type { ThreadEvent } from '@spiracha/lib/conversation-data/conversation-events';
 import { type TranscriptSortOrder, TranscriptView } from '#/components/transcript-view';
 import { Badge } from '#/components/ui/badge';
 import { Button } from '#/components/ui/button';

@@ -1,12 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
-import type {
-    DynamicToolDefinition,
-    MessageEvent,
-    ThreadEvent,
-    ThreadTranscriptStats,
-    ToolCallEvent,
-} from './codex-browser-types';
+import type { DynamicToolDefinition } from './codex-browser-types';
 import {
     asFiniteNumber,
     asRecord,
@@ -19,6 +13,12 @@ import {
     toIsoTimestamp,
     toSafeJsonValue,
 } from './codex-cloud-transcript';
+import type {
+    MessageEvent,
+    ThreadEvent,
+    ThreadTranscriptStats,
+    ToolCallEvent,
+} from './conversation-data/conversation-events';
 import type { JsonValue } from './shared-text';
 
 const CODEX_CLOUD_BASE_URL = 'https://chatgpt.com/backend-api/wham';

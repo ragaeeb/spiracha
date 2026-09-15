@@ -4,7 +4,7 @@ import {
     matchAntigravityTranscriptSectionHeading,
 } from './antigravity-transcript-contract';
 import { getFinalAntigravityAssistantSequences } from './antigravity-transcript-phase';
-import type { ThreadEvent } from './codex-browser-types';
+import type { ThreadEvent } from './conversation-data/conversation-events';
 import type { JsonValue } from './shared-text';
 
 type MarkdownSection = {

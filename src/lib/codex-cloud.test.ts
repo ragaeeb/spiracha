@@ -2,7 +2,6 @@ import { describe, expect, it, spyOn } from 'bun:test';
 import { chmod, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { MessageEvent } from './codex-browser-types';
 import {
     type CodexCloudAuth,
     CodexCloudError,
@@ -12,6 +11,7 @@ import {
     renderCodexCloudExport,
 } from './codex-cloud';
 import { type CodexCloudTurn, mapCodexCloudTurnEvents } from './codex-cloud-transcript';
+import type { MessageEvent } from './conversation-data/conversation-events';
 import type { JsonValue } from './shared-text';
 
 const auth: CodexCloudAuth = {

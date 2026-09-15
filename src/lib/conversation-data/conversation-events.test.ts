@@ -1,0 +1,72 @@
+import { describe, expect, it } from 'bun:test';
+import { shouldShowTranscriptEvent, type ThreadEvent, type TranscriptEventFilters } from './conversation-events';
+
+const filters = (overrides: Partial<TranscriptEventFilters> = {}): TranscriptEventFilters => ({
+    showCommentary: false,
+    showExtraEvents: false,
+    showToolCalls: false,
+    showUserMessages: true,
+    ...overrides,
+});
+
+const event = (overrides: Partial<ThreadEvent>): ThreadEvent =>
+    ({
+        isHiddenByDefault: false,
+        kind: 'message',
+        memoryCitation: null,
+        model: null,
+        phase: null,
+        raw: {},
+        role: 'assistant',
+        sequence: 0,
+        text: 'message',
+        timestamp: null,
+        variant: 'message',
+        ...overrides,
+    }) as ThreadEvent;
+
+describe('conversation presentation events', () => {
+    it('should apply message visibility controls independently', () => {
+        const commentary = event({ phase: 'commentary' });
+        const hidden = event({ isHiddenByDefault: true });
+        const user = event({ role: 'user' });
+        const hiddenUser = event({ isHiddenByDefault: true, role: 'user' });
+
+        expect(shouldShowTranscriptEvent(commentary, filters())).toBe(false);
+        expect(shouldShowTranscriptEvent(commentary, filters({ showCommentary: true }))).toBe(true);
+        expect(shouldShowTranscriptEvent(hidden, filters())).toBe(false);
+        expect(shouldShowTranscriptEvent(hidden, filters({ showExtraEvents: true }))).toBe(true);
+        expect(shouldShowTranscriptEvent(user, filters({ showUserMessages: false }))).toBe(false);
+        expect(shouldShowTranscriptEvent(hiddenUser, filters({ showUserMessages: true }))).toBe(false);
+    });
+
+    it('should gate tool and extra events behind their matching controls', () => {
+        const toolCall = event({ kind: 'tool_call' });
+        const reasoning = event({ kind: 'reasoning' });
+
+        expect(shouldShowTranscriptEvent(toolCall, filters())).toBe(false);
+        expect(shouldShowTranscriptEvent(toolCall, filters({ showToolCalls: true }))).toBe(true);
+        expect(shouldShowTranscriptEvent(reasoning, filters())).toBe(false);
+        expect(shouldShowTranscriptEvent(reasoning, filters({ showExtraEvents: true }))).toBe(true);
+    });
+
+    it('should keep generic presentation events and UI projection off Codex-owned modules', async () => {
+        const [events, types, view, search, filter] = await Promise.all([
+            Bun.file(new URL('./conversation-events.ts', import.meta.url)).text(),
+            Bun.file(new URL('../codex-browser-types.ts', import.meta.url)).text(),
+            Bun.file(new URL('../../ui/components/transcript-view.tsx', import.meta.url)).text(),
+            Bun.file(new URL('../../ui/components/transcript-search.tsx', import.meta.url)).text(),
+            Bun.file(new URL('../codex-transcript-filter.ts', import.meta.url)).exists(),
+        ]);
+
+        expect(events).not.toContain('codex-browser-types');
+        expect(events).not.toContain('codex-transcript-filter');
+        expect(types).not.toMatch(/\bexport type ThreadEvent\b/u);
+        expect(types).not.toMatch(/\bexport type MessageEvent\b/u);
+        expect(types).not.toMatch(/\bexport type ThreadTranscriptStats\b/u);
+        expect(view).not.toContain('codex-browser-types');
+        expect(view).not.toContain('codex-transcript-filter');
+        expect(search).not.toContain('codex-browser-types');
+        expect(filter).toBe(false);
+    });
+});

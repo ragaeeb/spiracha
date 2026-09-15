@@ -1,7 +1,7 @@
-import type { MessageEvent, ThreadEvent } from './codex-browser-types';
 import { mapCodexCloudTurnEvents, normalizeCodexCloudTurn } from './codex-cloud-transcript';
 import { parseCodexTranscriptRecords } from './codex-transcript-records';
 import { normalizeCodexEvents } from './conversation-data/codex-messages';
+import type { MessageEvent, ThreadEvent } from './conversation-data/conversation-events';
 import type { ConversationPayloadSource, PayloadConversationDraft } from './conversation-payload-types';
 import type { JsonValue } from './shared-text';
 

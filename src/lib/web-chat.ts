@@ -1,5 +1,5 @@
-import type { ThreadEvent } from './codex-browser-types';
 import { mapWithConcurrency } from './concurrency';
+import type { ThreadEvent } from './conversation-data/conversation-events';
 import { getNumericMaximum, getNumericMinimum } from './numeric-range';
 import { sha256Hex } from './sha256';
 import { utf8ByteLength } from './utf8-byte-length';

@@ -1,4 +1,4 @@
-import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/codex-browser-types';
+import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/conversation-data/conversation-events';
 import type { KiroSessionTranscript, KiroTranscriptEntry, KiroTranscriptPart } from '@spiracha/lib/kiro-exporter-types';
 import { getFinalKiroAssistantMessageEntryIds, getKiroMessagePhase } from '@spiracha/lib/kiro-transcript-phase';
 import type { JsonValue } from '@spiracha/lib/shared-text';

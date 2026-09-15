@@ -1,4 +1,4 @@
-import type { ThreadEvent } from '@spiracha/lib/codex-browser-types';
+import type { ThreadEvent } from '@spiracha/lib/conversation-data/conversation-events';
 import type { KiroSessionTranscript } from '@spiracha/lib/kiro-exporter-types';
 import { describe, expect, it } from 'vitest';
 import { getKiroThreadTranscriptStats, kiroTranscriptToThreadEvents } from './kiro-transcript-events';

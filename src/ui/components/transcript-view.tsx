@@ -1,5 +1,4 @@
-import type { ThreadEvent } from '@spiracha/lib/codex-browser-types';
-import { shouldShowCodexTranscriptEvent } from '@spiracha/lib/codex-transcript-filter';
+import { shouldShowTranscriptEvent, type ThreadEvent } from '@spiracha/lib/conversation-data/conversation-events';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Check, Copy } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -38,7 +37,7 @@ export const shouldShowEvent = (
     showCommentary: boolean,
     showUserMessages: boolean,
 ) =>
-    shouldShowCodexTranscriptEvent(event, {
+    shouldShowTranscriptEvent(event, {
         showCommentary,
         showExtraEvents,
         showToolCalls,

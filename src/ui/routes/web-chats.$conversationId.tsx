@@ -1,4 +1,4 @@
-import type { ThreadEvent } from '@spiracha/lib/codex-browser-types';
+import type { ThreadEvent } from '@spiracha/lib/conversation-data/conversation-events';
 import type { WebChatConversationSummary } from '@spiracha/lib/web-chat';
 import { useQuery, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';

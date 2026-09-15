@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import type { ThreadEvent } from './codex-browser-types';
+import type { ThreadEvent } from './conversation-data/conversation-events';
 import { getImportedWebChat, importWebChatFiles, parseWebChatFiles } from './web-chat';
 
 const isAssistantMessage = (event: ThreadEvent): event is Extract<ThreadEvent, { kind: 'message' }> =>

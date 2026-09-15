@@ -1,4 +1,3 @@
-import type { MessageEvent, ThreadEvent } from '../codex-browser-types';
 import {
     createTextMessage,
     durationTextToMs,
@@ -9,6 +8,7 @@ import {
     toCanonicalMessage,
     toDateMs,
 } from './adapter-helpers';
+import type { MessageEvent, ThreadEvent } from './conversation-events';
 import type { ConversationMessage } from './types';
 
 const toMessageEventMessage = (event: MessageEvent): ConversationMessage | null => {

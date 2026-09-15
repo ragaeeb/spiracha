@@ -50,6 +50,8 @@ Stable conversation API:
   - source registry, pagination, path-scoped collection, reference resolution, and normalized Markdown rendering
 - `src/lib/conversation-data/types.ts`
   - shared source, message, detail, paging, location, and adapter contracts
+- `src/lib/conversation-data/conversation-events.ts`
+  - generic transcript presentation events and visibility filtering
 - `src/lib/conversation-data/path-match.ts`
   - exact and descendant cwd matching
 - `src/lib/conversation-data/message-selector.ts`
@@ -80,8 +82,6 @@ Codex browser/export modules:
   - Codex DB row and transcript rendering types
 - `src/lib/codex-transcript-renderer.ts`
   - Markdown/plain text rendering for Codex session files
-- `src/lib/codex-transcript-filter.ts`
-  - centralized hidden bootstrap and transcript-text filtering
 - `src/lib/codex-thread-parser.ts`
   - structured Codex event parsing used by analytics and the UI
 - `src/lib/codex-analytics.ts`
