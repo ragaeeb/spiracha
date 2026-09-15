@@ -60,37 +60,43 @@ const normalizePercent = (hits: number, total: number) => {
     return Number(((hits / total) * 100).toFixed(2));
 };
 
+const readLcovCount = (lines: string[], label: string, required = true): number | undefined => {
+    const values = lines.filter((line) => line.startsWith(`${label}:`)).map((line) => line.slice(label.length + 1));
+    if (!required && values.length === 0) {
+        return undefined;
+    }
+    const value = Number(values[0]);
+    if (values.length !== 1 || !/^\d+$/u.test(values[0]) || !Number.isSafeInteger(value) || value < 0) {
+        throw new Error(`Invalid LCOV ${label} count.`);
+    }
+    return value;
+};
+
 const parseLcovBlock = (block: string) => {
-    const lines = block.trim().split(/\n/u);
-    const filePath = lines.find((line) => line.startsWith('SF:'))?.slice(3);
-    if (!filePath) {
+    const lines = block.trim().split(/\r?\n/u);
+    const sourceLines = lines.filter((line) => line.startsWith('SF:'));
+    if (sourceLines.length === 0) {
         return null;
     }
-
-    let functionTotal = 0;
-    let functionHits = 0;
-    let lineTotal = 0;
-    let lineHits = 0;
-
-    for (const line of lines) {
-        if (line.startsWith('FNF:')) {
-            functionTotal = Number(line.slice(4));
-        }
-        if (line.startsWith('FNH:')) {
-            functionHits = Number(line.slice(4));
-        }
-        if (line.startsWith('LF:')) {
-            lineTotal = Number(line.slice(3));
-        }
-        if (line.startsWith('LH:')) {
-            lineHits = Number(line.slice(3));
-        }
+    const filePath = sourceLines[0].slice(3).replaceAll('\\', '/');
+    if (sourceLines.length !== 1 || !filePath.trim()) {
+        throw new Error('Invalid LCOV source record.');
     }
-
+    const lineTotal = readLcovCount(lines, 'LF')!;
+    const lineHits = readLcovCount(lines, 'LH')!;
+    const functionTotal = readLcovCount(lines, 'FNF', false);
+    const functionHits = readLcovCount(lines, 'FNH', false);
+    if (
+        lineHits > lineTotal ||
+        (functionTotal === undefined) !== (functionHits === undefined) ||
+        (functionHits ?? 0) > (functionTotal ?? 0)
+    ) {
+        throw new Error(`Invalid LCOV hit/total counts for ${filePath}.`);
+    }
     return {
         filePath,
-        functionHits,
-        functionTotal,
+        functionHits: functionHits ?? 0,
+        functionTotal: functionTotal ?? 0,
         lineHits,
         lineTotal,
     };
@@ -98,11 +104,15 @@ const parseLcovBlock = (block: string) => {
 
 export const summarizeLcovReport = (profile: CoverageProfileName, lcovText: string): CoverageSummary => {
     const profileConfig = COVERAGE_PROFILES[profile];
+    if (!lcovText.trimEnd().endsWith('end_of_record')) {
+        throw new Error('Invalid LCOV report: missing completed source records.');
+    }
     const blocks = lcovText
         .split(/\r?\nend_of_record\r?\n?/u)
         .map((block) => block.trim())
         .filter(Boolean);
     const fileSummaries: FileCoverageSummary[] = [];
+    const sourcePaths = new Set<string>();
 
     for (const block of blocks) {
         const parsed = parseLcovBlock(block);
@@ -113,6 +123,11 @@ export const summarizeLcovReport = (profile: CoverageProfileName, lcovText: stri
         if (profileConfig.excludeSubstrings.some((substring) => parsed.filePath.includes(substring))) {
             continue;
         }
+
+        if (sourcePaths.has(parsed.filePath)) {
+            throw new Error(`Duplicate LCOV source record: ${parsed.filePath}`);
+        }
+        sourcePaths.add(parsed.filePath);
 
         fileSummaries.push({
             filePath: parsed.filePath,
@@ -129,6 +144,13 @@ export const summarizeLcovReport = (profile: CoverageProfileName, lcovText: stri
     const functionTotal = fileSummaries.reduce((sum, file) => sum + file.functionTotal, 0);
     const lineHits = fileSummaries.reduce((sum, file) => sum + file.lineHits, 0);
     const lineTotal = fileSummaries.reduce((sum, file) => sum + file.lineTotal, 0);
+
+    if (lineTotal === 0) {
+        throw new Error(`Coverage report contains no measurable source lines for ${profile}.`);
+    }
+    if (![lineHits, lineTotal, functionHits, functionTotal].every(Number.isSafeInteger)) {
+        throw new Error('Invalid LCOV aggregate counts.');
+    }
 
     return {
         fileSummaries,
@@ -161,17 +183,21 @@ const getCoverageSummaryText = (summary: CoverageSummary) => {
         .join('\n');
 };
 
+export const assertCoverageThreshold = (summary: CoverageSummary) => {
+    if (summary.lineHits / summary.lineTotal < summary.minimumLineCoverage / 100) {
+        throw new Error(
+            `Coverage check failed for ${summary.profile}: ${summary.lineHits}/${summary.lineTotal} covered lines ` +
+                `is below ${summary.minimumLineCoverage}% (displayed: ${summary.lineCoverage}%).`,
+        );
+    }
+};
+
 export const runCoverageCheck = async (profile: CoverageProfileName) => {
     const profileConfig = COVERAGE_PROFILES[profile];
     const lcovText = await Bun.file(profileConfig.lcovPath).text();
     const summary = summarizeLcovReport(profile, lcovText);
     console.log(getCoverageSummaryText(summary));
-
-    if (summary.lineCoverage < summary.minimumLineCoverage) {
-        throw new Error(
-            `Coverage check failed for ${profile}: ${summary.lineCoverage}% is below ${summary.minimumLineCoverage}%`,
-        );
-    }
+    assertCoverageThreshold(summary);
 };
 
 if (import.meta.main) {
