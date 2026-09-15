@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'bun:test';
-import { shouldShowTranscriptEvent, type ThreadEvent, type TranscriptEventFilters } from './conversation-events';
+import {
+    projectDisplayText,
+    shouldShowTranscriptEvent,
+    type ThreadEvent,
+    type TranscriptEventFilters,
+} from './conversation-events';
 
 const filters = (overrides: Partial<TranscriptEventFilters> = {}): TranscriptEventFilters => ({
     showCommentary: false,
@@ -48,6 +53,23 @@ describe('conversation presentation events', () => {
         expect(shouldShowTranscriptEvent(toolCall, filters({ showToolCalls: true }))).toBe(true);
         expect(shouldShowTranscriptEvent(reasoning, filters())).toBe(false);
         expect(shouldShowTranscriptEvent(reasoning, filters({ showExtraEvents: true }))).toBe(true);
+    });
+
+    it('should truncate display text without mutating the original body', () => {
+        const original = `${'A'.repeat(4000)}AFTER_4000${'B'.repeat(16_000)}AFTER_20000`;
+        const preview = projectDisplayText(original, 4000);
+
+        expect(preview.truncated).toBe(true);
+        expect(preview.previewText).toBe(original.slice(0, 4000));
+        expect(preview.previewText).not.toContain('AFTER_4000');
+        expect(preview.originalCharacters).toBe(original.length);
+        expect(original).toContain('AFTER_4000');
+        expect(original).toContain('AFTER_20000');
+        expect(projectDisplayText(original, original.length)).toEqual({
+            originalCharacters: original.length,
+            previewText: original,
+            truncated: false,
+        });
     });
 
     it('should keep generic presentation events and UI projection off Codex-owned modules', async () => {

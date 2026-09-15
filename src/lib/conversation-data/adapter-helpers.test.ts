@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import {
+    canonicalRolePhaseIssues,
     classifyCanonicalInclusionBucket,
     createConversationUiPath,
     createDeepLinks,
@@ -165,5 +166,23 @@ describe('conversation adapter helpers', () => {
         expect(classifyCanonicalInclusionBucket({ phase: 'unknown', role: 'system' })).toBe('system');
         expect(classifyCanonicalInclusionBucket({ phase: 'unknown', role: 'assistant' })).toBe('unknown');
         expect(classifyCanonicalInclusionBucket({ phase: 'final_answer', role: 'tool' })).toBe('unknown');
+    });
+
+    it('should report impossible known role and phase combinations without repairing them', () => {
+        expect(canonicalRolePhaseIssues({ phase: 'tool_call', role: 'user' })).toEqual([
+            'tool_phase_requires_tool_role',
+        ]);
+        expect(canonicalRolePhaseIssues({ phase: 'tool_output', role: 'assistant' })).toEqual([
+            'tool_phase_requires_tool_role',
+        ]);
+        expect(canonicalRolePhaseIssues({ phase: 'reasoning', role: 'user' })).toEqual([
+            'reasoning_phase_requires_assistant_role',
+        ]);
+        expect(canonicalRolePhaseIssues({ phase: 'final_answer', role: 'tool' })).toEqual([
+            'assistant_prose_phase_requires_assistant_role',
+        ]);
+        expect(canonicalRolePhaseIssues({ phase: 'unknown', role: 'assistant' })).toEqual([]);
+        expect(canonicalRolePhaseIssues({ phase: 'tool_call', role: 'tool' })).toEqual([]);
+        expect(canonicalRolePhaseIssues({ phase: 'final_answer', role: 'assistant' })).toEqual([]);
     });
 });

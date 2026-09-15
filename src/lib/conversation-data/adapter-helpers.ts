@@ -145,6 +145,27 @@ export const classifyCanonicalInclusionBucket = (message: {
     return 'unknown';
 };
 
+export type CanonicalRolePhaseIssue =
+    | 'assistant_prose_phase_requires_assistant_role'
+    | 'reasoning_phase_requires_assistant_role'
+    | 'tool_phase_requires_tool_role';
+
+export const canonicalRolePhaseIssues = (message: {
+    phase: ConversationMessagePhase;
+    role: ConversationMessageRole;
+}): CanonicalRolePhaseIssue[] => {
+    if (message.phase === 'tool_call' || message.phase === 'tool_output') {
+        return message.role === 'tool' ? [] : ['tool_phase_requires_tool_role'];
+    }
+    if (message.phase === 'reasoning') {
+        return message.role === 'assistant' ? [] : ['reasoning_phase_requires_assistant_role'];
+    }
+    if (message.phase === 'final_answer' || message.phase === 'commentary') {
+        return message.role === 'assistant' ? [] : ['assistant_prose_phase_requires_assistant_role'];
+    }
+    return [];
+};
+
 const nativeProvenance = (id: string, sourceConversationId: string): MessageProvenance => ({
     blockIndex: null,
     branchId: null,

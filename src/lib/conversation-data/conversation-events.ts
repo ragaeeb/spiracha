@@ -136,3 +136,15 @@ export const shouldShowTranscriptEvent = (event: ThreadEvent, filters: Transcrip
 
     return filters.showExtraEvents;
 };
+
+export const projectDisplayText = (text: string, maxCharacters: number) => {
+    const limit = Math.max(0, maxCharacters);
+    if (text.length <= limit) {
+        return { originalCharacters: text.length, previewText: text, truncated: false };
+    }
+    return {
+        originalCharacters: text.length,
+        previewText: text.slice(0, limit),
+        truncated: true,
+    };
+};
