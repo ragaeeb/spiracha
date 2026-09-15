@@ -47,7 +47,7 @@ These rules define the boundary between source-specific discovery and Spiracha's
 
 - Stable HTTP failures use the versioned JSON error envelope with a machine-readable code, a user-facing message, and bounded structured details where useful.
 - Invalid input returns `validation_error`; unavailable records return `conversation_not_found`; unsupported source operations return `unsupported_operation`.
-- Explicit source requests surface source failures. All-source collection tolerates missing optional integrations but does not turn malformed installed-source data into success.
+- Explicit source requests surface adapter failures. All-source collection currently catches every adapter error, logs a warning, and omits that source, including malformed installed-source data. A successful page is not a completeness guarantee; repeat a query with an explicit source to diagnose missing history.
 - UI errors may name a path needed for local diagnosis, but must not include credentials, cookies, session headers, API keys, prompts, or raw provider result streams.
 
 ## Caching and loading

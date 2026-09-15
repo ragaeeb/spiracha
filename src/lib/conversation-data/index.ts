@@ -219,6 +219,12 @@ const filterByUpdatedAt = (
 
 export const listConversationSources = async (): Promise<ConversationSourceInfo[]> => [...SOURCE_INFOS];
 
+/**
+ * Collects one source and applies timestamp/keyset bounds before the final merge.
+ * When ignoreSourceFailures is true, every adapter error becomes a warning and an
+ * empty contribution, not just missing-installation errors. Explicit-source calls
+ * rethrow; callers must not interpret an all-source page as a completeness report.
+ */
 const listSourceConversations = async (
     source: ConversationSource,
     options: ListConversationsOptions,
