@@ -1,6 +1,7 @@
 import { lstat, readdir, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { mapWithConcurrency } from './concurrency';
 import { assertPrivateRuntimeDirectorySafe, ensurePrivateRuntimeDirectory } from './private-runtime-directory.ts';
 import { resolveUiRuntimeConfig } from './runtime-config.ts';
 
@@ -9,6 +10,8 @@ export const UI_EXPORT_URL_PREFIX = '/__exports/';
 
 const DEFAULT_UI_EXPORT_DIR = path.join(os.homedir(), '.cache', 'spiracha', 'ui-exports');
 const MAX_EXPORT_FILE_NAME_BYTES = 200;
+
+const FILE_MAINTENANCE_CONCURRENCY = 16;
 
 const decodeExportFileName = (value: string) => {
     try {
@@ -87,30 +90,33 @@ export const purgeStaleUiExports = async (
     const entries = await readdir(exportDir, { withFileTypes: true });
     const cutoff = Date.now() - maxAgeMs;
     const files = (
-        await Promise.all(
-            entries
-                .filter((entry) => entry.isFile())
-                .map(async (entry) => {
-                    const filePath = path.join(exportDir, entry.name);
-                    try {
-                        const metadata = await lstat(filePath);
-                        return metadata.isFile() && !metadata.isSymbolicLink()
-                            ? { filePath, mtimeMs: metadata.mtimeMs, name: entry.name, size: metadata.size }
-                            : null;
-                    } catch (error) {
-                        if ((error as { code?: unknown }).code === 'ENOENT') {
-                            return null;
-                        }
-                        throw error;
+        await mapWithConcurrency(
+            entries.filter((entry) => entry.isFile()),
+            FILE_MAINTENANCE_CONCURRENCY,
+            async (entry) => {
+                const filePath = path.join(exportDir, entry.name);
+                try {
+                    const metadata = await lstat(filePath);
+                    return metadata.isFile() && !metadata.isSymbolicLink()
+                        ? { filePath, mtimeMs: metadata.mtimeMs, name: entry.name, size: metadata.size }
+                        : null;
+                } catch (error) {
+                    if ((error as { code?: unknown }).code === 'ENOENT') {
+                        return null;
                     }
-                }),
+                    throw error;
+                }
+            },
         )
     ).filter((file): file is NonNullable<typeof file> => file !== null);
     const staleFiles = files.filter((file) => file.mtimeMs < cutoff);
-    await Promise.all(staleFiles.map((file) => rm(file.filePath, { force: true })));
+    await mapWithConcurrency(staleFiles, FILE_MAINTENANCE_CONCURRENCY, (file) => rm(file.filePath, { force: true }));
 
     const retainedFiles = files.filter((file) => file.mtimeMs >= cutoff);
     let retainedBytes = retainedFiles.reduce((total, file) => total + file.size, 0);
+    if (retainedBytes <= maxBytes) {
+        return;
+    }
     const oldestFirst = retainedFiles.sort(
         (left, right) => left.mtimeMs - right.mtimeMs || left.name.localeCompare(right.name),
     );

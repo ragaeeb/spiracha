@@ -1,6 +1,6 @@
 import { normalizeCodexEvents } from './conversation-data/codex-messages';
 import type { PayloadConversationDraft } from './conversation-payload-types';
-import { parseWebChatFiles } from './web-chat';
+import { parseWebChatValue } from './web-chat';
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
     typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -32,19 +32,19 @@ export const parseWebPayload = async (
     fileName = 'import.json',
 ): Promise<PayloadConversationDraft[] | null> => {
     validateMessageCollections(value);
-    const result = await parseWebChatFiles([{ content: JSON.stringify(value), name: fileName }]);
-    if (result.errors.length > 0) {
+    const conversations = await parseWebChatValue(value, fileName);
+    if (conversations.length === 0) {
         return null;
     }
     const collection = isRecord(value) && Array.isArray(value.conversations) ? value.conversations : value;
     if (
         Array.isArray(collection) &&
         collection.some((entry) => isRecord(entry) && !('role' in entry || 'sender' in entry || 'author' in entry)) &&
-        result.conversations.length !== collection.length
+        conversations.length !== collection.length
     ) {
         throw new Error('Web payload contains unsupported or duplicate conversations.');
     }
-    return result.conversations.map((conversation) => ({
+    return conversations.map((conversation) => ({
         artifacts: conversation.artifacts,
         createdAtMs: conversation.createdAtMs,
         id: conversation.sourceConversationId ?? conversation.id,

@@ -21,6 +21,7 @@ import type {
 import { parseWebPayload } from './conversation-payload-web';
 import { sha256Hex } from './sha256';
 import { cleanInlineTitle } from './shared-text';
+import { utf8ByteLength } from './utf8-byte-length';
 
 export type {
     ConversationPayloadArtifact,
@@ -104,7 +105,7 @@ const decodePayload = (payload: unknown): unknown => {
     if (typeof payload !== 'string') {
         return payload;
     }
-    if (new TextEncoder().encode(payload).byteLength > MAX_PAYLOAD_BYTES) {
+    if (utf8ByteLength(payload) > MAX_PAYLOAD_BYTES) {
         throw new ConversationPayloadError('invalid_input', 'Payload must be 25 MB or smaller.');
     }
     const text = payload.replace(/^\uFEFF/, '');
@@ -146,7 +147,7 @@ const serializePayload = (value: unknown): string => {
     } catch {
         throw new ConversationPayloadError('invalid_input', 'Payload must contain only serializable JSON values.');
     }
-    if (new TextEncoder().encode(serialized).byteLength > MAX_PAYLOAD_BYTES) {
+    if (utf8ByteLength(serialized) > MAX_PAYLOAD_BYTES) {
         throw new ConversationPayloadError('invalid_input', 'Payload must be 25 MB or smaller.');
     }
     return serialized;

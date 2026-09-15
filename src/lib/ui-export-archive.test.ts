@@ -73,6 +73,14 @@ describe('ui export archive helpers', () => {
         ).toBe('spiracha-2026-05-17-1712-threads-1');
     });
 
+    it('should name a batch from more timestamps than the argument-spread limit', () => {
+        const entries = Array.from({ length: 140_000 }, (_, index) => ({
+            cwd: '/Users/example/workspace/spiracha',
+            updatedAtMs: index === 139_999 ? Date.UTC(2026, 4, 17, 17, 12) : 1,
+        }));
+        expect(buildBatchExportBaseName(entries, 'threads')).toBe('spiracha-2026-05-17-1712-threads-140000');
+    });
+
     it('should return text MIME types for export formats', () => {
         expect(getExportMimeType('md')).toBe('text/markdown; charset=utf-8');
         expect(getExportMimeType('txt')).toBe('text/plain; charset=utf-8');

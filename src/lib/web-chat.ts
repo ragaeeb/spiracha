@@ -1,6 +1,10 @@
 import type { ThreadEvent } from './codex-browser-types';
+import { mapWithConcurrency } from './concurrency';
 import { getNumericMaximum, getNumericMinimum } from './numeric-range';
 import { sha256Hex } from './sha256';
+import { utf8ByteLength } from './utf8-byte-length';
+
+const WEB_CHAT_PARSE_CONCURRENCY = 4;
 
 type JsonRecord = Record<string, unknown>;
 
@@ -2248,17 +2252,27 @@ const classifyAssistantPhases = (messages: NormalizedMessage[]): NormalizedMessa
     }));
 };
 
+const getMappingFallbackId = (mapping: JsonRecord): string | null => {
+    let lastId: string | null = null;
+    let lastLeafId: string | null = null;
+    for (const id of Object.keys(mapping)) {
+        lastId = id;
+        const node = mapping[id];
+        if (isRecord(node) && (!Array.isArray(node.children) || node.children.length === 0)) {
+            lastLeafId = id;
+        }
+    }
+    return lastLeafId ?? lastId;
+};
+
 const getMappingChain = (root: JsonRecord): Array<{ id: string; message: JsonRecord }> => {
     if (!isRecord(root.mapping)) {
         return [];
     }
     const mapping = root.mapping;
-    const leafIds = Object.entries(mapping)
-        .filter(([, node]) => isRecord(node) && (!Array.isArray(node.children) || node.children.length === 0))
-        .map(([id]) => id);
     let currentId = firstString(root.current_node);
     if (!currentId || !isRecord(mapping[currentId])) {
-        currentId = leafIds.at(-1) ?? Object.keys(mapping).at(-1) ?? null;
+        currentId = getMappingFallbackId(mapping);
     }
     const chain: Array<{ id: string; message: JsonRecord }> = [];
     const visited = new Set<string>();
@@ -2269,11 +2283,11 @@ const getMappingChain = (root: JsonRecord): Array<{ id: string; message: JsonRec
             break;
         }
         if (isRecord(node.message)) {
-            chain.unshift({ id: currentId, message: node.message });
+            chain.push({ id: currentId, message: node.message });
         }
         currentId = firstString(node.parent);
     }
-    return chain;
+    return chain.reverse();
 };
 
 const parseMappingConversation = async (root: JsonRecord, fileName: string): Promise<ConversationDraft | null> => {
@@ -2553,18 +2567,20 @@ const parsePayload = async (value: unknown, fileName: string): Promise<Conversat
             const parsed = await parseMessageArrayConversation({ messages: value }, fileName);
             return parsed ? [parsed] : [];
         }
-        return (await Promise.all(value.map((item) => parseConversation(item, fileName)))).filter(
-            (item): item is ConversationDraft => item !== null,
-        );
+        return (
+            await mapWithConcurrency(value, WEB_CHAT_PARSE_CONCURRENCY, (item) => parseConversation(item, fileName))
+        ).filter((item): item is ConversationDraft => item !== null);
     }
     if (!isRecord(value)) {
         return [];
     }
     const conversations = Array.isArray(value.conversations) ? value.conversations : null;
     if (conversations) {
-        return (await Promise.all(conversations.map((item) => parseConversation(item, fileName)))).filter(
-            (item): item is ConversationDraft => item !== null,
-        );
+        return (
+            await mapWithConcurrency(conversations, WEB_CHAT_PARSE_CONCURRENCY, (item) =>
+                parseConversation(item, fileName),
+            )
+        ).filter((item): item is ConversationDraft => item !== null);
     }
     const parsed = await parseConversation(value, fileName);
     return parsed ? [parsed] : [];
@@ -2720,6 +2736,15 @@ const finalizeConversation = async (draft: ConversationDraft, fileName: string):
     };
 };
 
+export const parseWebChatValue = async (value: unknown, fileName: string): Promise<WebChatConversation[]> => {
+    const conversations = new Map<string, WebChatConversation>();
+    for (const draft of await parsePayload(value, fileName)) {
+        const conversation = await finalizeConversation(draft, fileName);
+        conversations.set(conversation.id, conversation);
+    }
+    return [...conversations.values()];
+};
+
 const parseSizedWebChatFiles = async (
     files: WebChatFileInput[],
 ): Promise<{ conversations: SizedWebChatConversation[]; errors: WebChatImportError[] }> => {
@@ -2738,7 +2763,7 @@ const parseSizedWebChatFiles = async (
             errors.push({ fileName: file.name, message: 'No supported web conversation was found.' });
             continue;
         }
-        const bytes = Math.ceil(new TextEncoder().encode(file.content).byteLength / drafts.length);
+        const bytes = Math.ceil(utf8ByteLength(file.content) / drafts.length);
         for (const draft of drafts) {
             const conversation = await finalizeConversation(draft, file.name);
             conversations.set(conversation.id, { bytes, conversation });

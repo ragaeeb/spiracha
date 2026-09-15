@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readdir, rename, rm, stat, utimes } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { mapWithConcurrency } from './concurrency';
 import { assertPrivateRuntimeDirectorySafe, ensurePrivateRuntimeDirectory } from './private-runtime-directory.ts';
 import { resolveUiRuntimeConfig } from './runtime-config';
 
@@ -10,6 +11,8 @@ const DEFAULT_CACHE_DIR = path.join(os.homedir(), '.cache', 'spiracha', 'ui-cach
 const CACHE_ENVELOPE_VERSION = 1;
 const CACHE_PURGE_INTERVAL_MS = 60 * 1000;
 const CACHE_KEY_PREFIX_MAX_LENGTH = 80;
+
+const FILE_MAINTENANCE_CONCURRENCY = 16;
 
 type CacheEnvelope<T> = {
     value: T;
@@ -63,25 +66,27 @@ export const pruneUiCacheEntries = async (
         throw error;
     });
     const cacheFiles = (
-        await Promise.all(
-            entries
-                .filter((entry) => entry.isFile())
-                .map(async (entry) => {
-                    const filePath = path.join(cacheDir, entry.name);
-                    try {
-                        const metadata = await stat(filePath);
-                        return { filePath, mtimeMs: metadata.mtimeMs, name: entry.name, size: metadata.size };
-                    } catch (error) {
-                        if ((error as { code?: unknown }).code === 'ENOENT') {
-                            return null;
-                        }
-                        throw error;
+        await mapWithConcurrency(
+            entries.filter((entry) => entry.isFile()),
+            FILE_MAINTENANCE_CONCURRENCY,
+            async (entry) => {
+                const filePath = path.join(cacheDir, entry.name);
+                try {
+                    const metadata = await stat(filePath);
+                    return { filePath, mtimeMs: metadata.mtimeMs, name: entry.name, size: metadata.size };
+                } catch (error) {
+                    if ((error as { code?: unknown }).code === 'ENOENT') {
+                        return null;
                     }
-                }),
+                    throw error;
+                }
+            },
         )
     ).filter((entry): entry is NonNullable<typeof entry> => entry !== null);
     const staleFiles = cacheFiles.filter((entry) => entry.name.endsWith('.json') && entry.mtimeMs < cutoff);
-    await Promise.all(staleFiles.map((entry) => removeInactiveCachePath(entry.filePath)));
+    await mapWithConcurrency(staleFiles, FILE_MAINTENANCE_CONCURRENCY, (entry) =>
+        removeInactiveCachePath(entry.filePath),
+    );
 
     const retainedCacheFiles = cacheFiles.filter((entry) => entry.mtimeMs >= cutoff && entry.name.endsWith('.json'));
     let retainedBytes = retainedCacheFiles.reduce((total, entry) => total + entry.size, 0);
@@ -100,7 +105,7 @@ export const pruneUiCacheEntries = async (
         oversizedFiles.push(entry.filePath);
         retainedBytes -= entry.size;
     }
-    await Promise.all(oversizedFiles.map(removeInactiveCachePath));
+    await mapWithConcurrency(oversizedFiles, FILE_MAINTENANCE_CONCURRENCY, removeInactiveCachePath);
 };
 
 export const getUiCacheDir = () => process.env[UI_CACHE_DIR_ENV]?.trim() || DEFAULT_CACHE_DIR;
@@ -274,10 +279,10 @@ export const invalidateCacheByPrefix = async (...prefixes: string[]) => {
     const cacheDir = getUiCacheDir();
     const entries = await readdir(cacheDir);
 
-    await Promise.all(
-        entries
-            .filter((entry) => prefixes.some((prefix) => entry.startsWith(prefix)))
-            .map((entry) => removeInactiveCachePath(path.join(cacheDir, entry))),
+    await mapWithConcurrency(
+        entries.filter((entry) => prefixes.some((prefix) => entry.startsWith(prefix))),
+        FILE_MAINTENANCE_CONCURRENCY,
+        (entry) => removeInactiveCachePath(path.join(cacheDir, entry)),
     );
 };
 
@@ -286,6 +291,8 @@ export const clearUiCache = async (): Promise<void> => {
     await ensureCacheDir();
     const cacheDir = getUiCacheDir();
     const entries = await readdir(cacheDir);
-    await Promise.all(entries.map((entry) => removeInactiveCachePath(path.join(cacheDir, entry))));
+    await mapWithConcurrency(entries, FILE_MAINTENANCE_CONCURRENCY, (entry) =>
+        removeInactiveCachePath(path.join(cacheDir, entry)),
+    );
     lastCachePurgeAtMs = 0;
 };

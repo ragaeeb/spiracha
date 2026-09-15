@@ -1,4 +1,5 @@
 import type { ConversationSource } from './conversation-data/types';
+import { getNumericMaximum } from './numeric-range';
 import { getPortablePathBasename } from './portable-path';
 import type { ExportFormat } from './shared-text';
 
@@ -130,8 +131,8 @@ export const buildBatchExportBaseName = (entries: BatchExportNameEntry[], fallba
 
     const firstCwd = entries.find((entry) => entry.cwd?.trim())?.cwd ?? null;
     const projectName = resolveExportProjectName(firstCwd, fallbackProjectName);
-    const latestUpdatedAtMs = Math.max(
-        ...entries.map((entry) => (Number.isFinite(entry.updatedAtMs) ? (entry.updatedAtMs ?? 0) : 0)),
+    const latestUpdatedAtMs = getNumericMaximum(
+        entries.map((entry) => (Number.isFinite(entry.updatedAtMs) ? (entry.updatedAtMs ?? 0) : 0)),
     );
 
     return latestUpdatedAtMs > 0
