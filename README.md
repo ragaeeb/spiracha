@@ -38,7 +38,7 @@ Spiracha binds to loopback `127.0.0.1` and is intended for same-user local acces
 
 ## CLI
 
-The packaged CLI is a thin client over Spiracha's normalized conversation API. With no arguments, it prints help:
+The packaged CLI is a thin client over Spiracha's normalized conversation API. The bare `spiracha` examples below assume its binary is on your PATH; after the Quick Start, use `bunx spiracha` in place of `spiracha` for the same commands. With no arguments, it prints help:
 
 ```bash
 spiracha
