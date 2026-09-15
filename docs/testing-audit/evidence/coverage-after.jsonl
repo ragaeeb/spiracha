@@ -1,0 +1,5 @@
+{"name":"empty report","rejected":"Invalid LCOV report: missing completed source records."}
+{"name":"non-LCOV input","rejected":"Invalid LCOV report: missing completed source records."}
+{"name":"NaN hits","rejected":"Invalid LCOV LH count."}
+{"name":"hits greater than lines","rejected":"Invalid LCOV hit/total counts for src/lib/example.ts."}
+{"name":"rounded below threshold","rejected":"Coverage check failed for root: 89999/100000 covered lines is below 90% (displayed: 90%)."}

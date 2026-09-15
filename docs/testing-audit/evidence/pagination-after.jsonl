@@ -1,0 +1,3 @@
+{"name":"long ASCII ID","roundTrip":true,"cursorCharacters":2755,"idCharacters":2048}
+{"name":"Unicode ID","roundTrip":true,"cursorCharacters":4120,"idCharacters":1024}
+{"name":"unsafe timestamp","roundTrip":true,"cursorCharacters":23,"idCharacters":1}

@@ -1,0 +1,39 @@
+Tue Sep 15 04:30:20 UTC 2026
+
+Node: v22.16.0
+
+Tool discovery:
+
+$ bun run lint
+bash: line 1: bun: command not found
+EXIT=127
+
+$ bun run typecheck
+bash: line 1: bun: command not found
+EXIT=127
+
+$ bun test
+bash: line 1: bun: command not found
+EXIT=127
+
+$ bun run test:ui
+bash: line 1: bun: command not found
+EXIT=127
+
+$ bun run coverage
+bash: line 1: bun: command not found
+EXIT=127
+
+$ bun run build
+bash: line 1: bun: command not found
+EXIT=127
+
+$ bun run test:package
+bash: line 1: bun: command not found
+EXIT=127
+
+Network dependency probe:
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0curl: (6) Could not resolve host: registry.npmjs.org
+EXIT=6

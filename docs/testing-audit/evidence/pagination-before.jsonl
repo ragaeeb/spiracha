@@ -1,0 +1,3 @@
+{"name":"long ASCII ID","roundTrip":false,"error":"Invalid conversation pagination cursor."}
+{"name":"Unicode ID","roundTrip":false,"error":"Invalid conversation pagination cursor."}
+{"name":"unsafe timestamp","roundTrip":false,"error":"Invalid conversation pagination cursor."}

@@ -1,0 +1,5 @@
+{"name":"empty report","reported":100,"acceptedByCurrentGate":true}
+{"name":"non-LCOV input","reported":100,"acceptedByCurrentGate":true}
+{"name":"NaN hits","reported":null,"acceptedByCurrentGate":true}
+{"name":"hits greater than lines","reported":99900,"acceptedByCurrentGate":true}
+{"name":"rounded below threshold","reported":90,"acceptedByCurrentGate":true}

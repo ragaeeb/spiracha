@@ -1,0 +1,11 @@
+{"assertions":22,"check":"LCOV integrity and exact threshold","passed":true}
+{"assertions":29,"check":"Loopback origin matrix","passed":true}
+{"assertions":10,"check":"Private directory real filesystem boundaries","passed":true}
+{"assertions":22,"check":"Cache invalidation races and recovery against real files","passed":true}
+{"assertions":379,"check":"Pagination traversal and generated cursor invariants","passed":true}
+{"assertions":6,"check":"Exact normalized Markdown assertions","passed":true}
+{"assertions":12,"check":"Evidence HTTP envelope guards and request encoding","passed":true}
+{"assertions":10,"check":"Web import preflight and partial file-read failure","passed":true}
+{"assertions":59,"check":"Isolated process environment and loopback stream URLs","passed":true}
+{"assertions":73,"check":"Portable production payload converters on Node without Bun","passed":true}
+{"assertions":622,"failedGroups":0,"groups":10,"kind":"Independent Node production-module checks, not Bun/Vitest/Playwright or coverage","node":"v22.16.0"}
