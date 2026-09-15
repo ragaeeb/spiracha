@@ -225,11 +225,16 @@ const assertOkResponse = async (response: Response): Promise<void> => {
 };
 
 const readJsonEnvelope = async <T>(response: Response): Promise<HttpEnvelope<T>> => {
+    let body: unknown;
     try {
-        return (await response.json()) as HttpEnvelope<T>;
+        body = await response.json();
     } catch {
         throw new SpirachaClientError('Spiracha API returned invalid JSON.', response.status);
     }
+    if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+        throw new SpirachaClientError('Spiracha API returned an invalid response envelope.', response.status);
+    }
+    return body as HttpEnvelope<T>;
 };
 
 const fetchJson = async <T>(url: URL, init?: RequestInit): Promise<HttpEnvelope<T>> => {
@@ -313,6 +318,10 @@ const fetchZipOrNull = async (url: URL, init?: RequestInit): Promise<Conversatio
     }
 
     await assertOkResponse(response);
+    const mimeType = response.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase();
+    if (mimeType !== 'application/zip') {
+        throw new SpirachaClientError('Spiracha API returned an unsupported ZIP content type.', response.status);
+    }
     return {
         blob: await response.blob(),
         fileName: fileNameFromContentDisposition(response.headers.get('Content-Disposition'), 'conversations.zip'),
@@ -341,7 +350,7 @@ const fetchRawOrNull = async (url: URL): Promise<ConversationRawDownload | null>
 };
 
 const requireData = <T>(envelope: HttpEnvelope<T>, label: string): T => {
-    if (envelope.data === undefined) {
+    if (envelope.data === undefined || envelope.data === null) {
         throw new SpirachaClientError(`Spiracha API response did not include ${label}.`);
     }
 
