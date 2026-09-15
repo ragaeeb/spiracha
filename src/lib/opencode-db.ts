@@ -300,6 +300,14 @@ const configureOpenCodeReadDb = (db: Database, dbPath: string): Database => {
     }
 };
 
+/**
+ * Opens a query-only database and validates required schema. Tries a read-only URI
+ * first, then a non-creating read-write URI for other open/configuration failures;
+ * an incompatible schema is not retried as a different access mode.
+ * Read intent therefore does not promise the OS handle is always read-only. The
+ * returned handle remains caller-owned and must be closed; failed configuration
+ * closes its attempted handle. Busy retries belong to the surrounding operation.
+ */
 export const openOpenCodeReadDb = (dbPath: string): Database => {
     try {
         return configureOpenCodeReadDb(
