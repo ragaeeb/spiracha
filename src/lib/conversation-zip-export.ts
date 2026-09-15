@@ -78,6 +78,14 @@ const toSafeFileBaseName = (value: string | null, fallback: string) => {
     return truncateUtf8(sanitized, EXPORT_BASE_NAME_BYTE_LIMIT) || 'conversation';
 };
 
+/**
+ * Materializes non-empty Markdown entries into temporary files and an archive, then
+ * returns a fully loaded Blob before cleaning up both temporary artifacts. Filenames
+ * are sanitized and collisions disambiguated; the original source stores are not
+ * snapshotted atomically. Compression and final Blob loading consume memory.
+ * Cleanup failures are reported by the cleanup helper without replacing the primary
+ * result/error. This stable archive is not the UI's source-specific export manifest.
+ */
 export const createConversationMarkdownZip = async ({
     entries,
     fallbackProjectName,
