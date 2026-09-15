@@ -61,7 +61,7 @@ const listCommandCodeConversations = async (options: ListConversationsOptions) =
 
     const projectsDir = getProjectsDir(options);
     if (options.includeMessages) {
-        const summaries = await listCommandCodeSessionSummaries(projectsDir);
+        const summaries = await listCommandCodeSessionSummaries(projectsDir, options.cwd);
         const conversations: ConversationDetail[] = [];
         for (const summary of summaries) {
             const match = await getConversationPathMatch(options.cwd, summary.worktree);
@@ -77,7 +77,7 @@ const listCommandCodeConversations = async (options: ListConversationsOptions) =
         return conversations;
     }
 
-    const summaries = await listCommandCodeSessionSummaries(projectsDir);
+    const summaries = await listCommandCodeSessionSummaries(projectsDir, options.cwd);
     const conversations: ConversationDetail[] = [];
     for (const summary of summaries) {
         const match = await getConversationPathMatch(options.cwd, summary.worktree);

@@ -266,6 +266,7 @@ describe('conversation client', () => {
             await Bun.write(scriptPath, script);
             const collectResult = await runBunCommand([scriptPath], consumerDirectory, {
                 BUN_INSTALL_CACHE_DIR: bunCacheDirectory,
+                HOME: tempRoot,
             });
 
             expect(collectResult.stderrText).toBe('');

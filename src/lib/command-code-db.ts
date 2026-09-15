@@ -18,6 +18,7 @@ import {
     normalizeToolStatus,
     toDateMs,
 } from './conversation-data/adapter-helpers';
+import { getConversationPathMatch } from './conversation-data/path-match';
 import type { ConversationMessage } from './conversation-data/types';
 import { withFileMutationLock } from './file-mutation-lock';
 import { getPortablePathBasename } from './portable-path';
@@ -671,7 +672,10 @@ const resolveDuplicateSessions = (sessions: ParsedCommandCodeSession[]): ParsedC
     return [...byId.values()];
 };
 
-const readAllCommandCodeSessionSummaries = async (projectsDir: string): Promise<CommandCodeSessionSummary[]> => {
+const readAllCommandCodeSessionSummaries = async (
+    projectsDir: string,
+    includeSession?: (session: CommandCodeSessionSummary) => boolean | Promise<boolean>,
+): Promise<CommandCodeSessionSummary[]> => {
     const files = await listCommandCodeSessionFiles(projectsDir);
     const summaries = await mapWithConcurrency(files, COMMAND_CODE_DISCOVERY_CONCURRENCY, async (filePath) => {
         const session = await readCommandCodeSessionFile(filePath);
@@ -679,10 +683,16 @@ const readAllCommandCodeSessionSummaries = async (projectsDir: string): Promise<
             ? ({ rawHash: session.rawHash, session: session.session } satisfies ParsedCommandCodeSummary)
             : null;
     });
-    const byId = new Map<string, ParsedCommandCodeSummary>();
+    const scoped: ParsedCommandCodeSummary[] = [];
     for (const summary of summaries
         .filter((value): value is ParsedCommandCodeSummary => value !== null)
         .sort((left, right) => left.session.filePath.localeCompare(right.session.filePath))) {
+        if (!includeSession || (await includeSession(summary.session))) {
+            scoped.push(summary);
+        }
+    }
+    const byId = new Map<string, ParsedCommandCodeSummary>();
+    for (const summary of scoped) {
         const previous = byId.get(summary.session.sessionId);
         if (previous && previous.rawHash !== summary.rawHash) {
             throw new Error(
@@ -739,17 +749,23 @@ const sortSessions = (left: CommandCodeSessionSummary, right: CommandCodeSession
 
 export const listCommandCodeSessionSummaries = async (
     projectsDir = resolveCommandCodeProjectsDir(),
+    cwd?: string,
 ): Promise<CommandCodeSessionSummary[]> => {
-    return (await readAllCommandCodeSessionSummaries(projectsDir)).sort(sortSessions);
+    return (
+        await readAllCommandCodeSessionSummaries(
+            projectsDir,
+            cwd ? async (session) => Boolean(await getConversationPathMatch(cwd, session.worktree)) : undefined,
+        )
+    ).sort(sortSessions);
 };
 
 export const listCommandCodeSessionSummariesForWorkspace = async (
     projectsDir: string,
     workspaceKey: string,
 ): Promise<CommandCodeSessionSummary[]> => {
-    return (await listCommandCodeSessionSummaries(projectsDir)).filter(
-        (session) => session.workspaceKey === workspaceKey,
-    );
+    return (
+        await readAllCommandCodeSessionSummaries(projectsDir, (session) => session.workspaceKey === workspaceKey)
+    ).sort(sortSessions);
 };
 
 export const listCommandCodeWorkspaceGroups = async (
