@@ -49,6 +49,14 @@ export type ConcurrencyOptions = {
     timeoutMs?: number;
 };
 
+/**
+ * Creates a FIFO limiter with at least one active slot. A submitted task owns its
+ * slot until its returned promise settles, including cleanup. Abort/timeout can
+ * reject the caller immediately, but cannot forcibly stop active work or release
+ * its slot early; tasks must observe their signal and settle after cleanup.
+ * A deadline includes queue time. Pre-aborted or canceled queued tasks never run.
+ * Do not detach work from the task promise or treat rejection as resource release.
+ */
 export const createConcurrencyLimiter = (limit: number) => {
     const workerLimit = Math.max(1, Number.isFinite(limit) ? Math.floor(limit) : 1);
     const queue = new Set<() => void>();
