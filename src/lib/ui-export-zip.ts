@@ -40,6 +40,13 @@ export const zipExportFile = async (sourcePath: string, zipPath: string) => {
     }
 };
 
+/**
+ * Recursively collects regular files (not directory-entry symlinks), reads all
+ * contents into memory, then synchronously compresses a ZIP at level 3. This is
+ * not a streaming or fixed-heap export despite accepting filesystem paths.
+ * On failure, removes the partial destination best-effort and rethrows. The caller
+ * owns source-directory cleanup and any stable-source snapshot validation.
+ */
 export const zipExportDirectory = async (sourceDirectory: string, zipPath: string) => {
     try {
         await Bun.write(zipPath, await createZip(await readZipDirectory(sourceDirectory)));
