@@ -373,6 +373,14 @@ const getCachedHistory = (key: string): string[] | null => {
     return cached.contents;
 };
 
+/**
+ * Reconstructs an earlier transcript prefix from retained Git snapshots when the
+ * current transcript starts at a positive step index. Uses local Git and verifies
+ * the canonical transcript is within the repository; it does not fetch remote data.
+ * Missing repository/path/history yields no retained prefix, not an unreadable
+ * current transcript. Cached/bounded snapshot traversal is a best-effort history
+ * supplement, not proof that every pre-compaction record still exists.
+ */
 export const readAntigravityTranscriptHistory = async (
     transcriptPath: string,
     currentMinimumStepIndex: number | null,
