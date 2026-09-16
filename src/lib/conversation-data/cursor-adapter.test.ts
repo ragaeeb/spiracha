@@ -5,6 +5,7 @@ import path from 'node:path';
 import { unzipSync } from 'fflate';
 import type { CursorPruneResult } from '../cursor-exporter-types';
 import { createCursorFixture } from '../cursor-test-helpers';
+import { EXPORT_ARCHIVE_MANIFEST_FILE } from '../export-archive';
 import {
     cursorConversationAdapter,
     deleteCursorConversation,
@@ -182,7 +183,12 @@ describe('cursorConversationAdapter', () => {
         const members = unzipSync(new Uint8Array(await download!.blob.arrayBuffer()));
 
         expect(download?.mimeType).toBe('application/zip');
-        expect(Object.keys(members).sort()).toEqual(['replica.jsonl', 'thread-1.jsonl']);
+        expect(
+            Object.keys(members)
+                .filter((name) => name !== EXPORT_ARCHIVE_MANIFEST_FILE)
+                .sort(),
+        ).toEqual(['replica.jsonl', 'thread-1.jsonl']);
+        expect(members[EXPORT_ARCHIVE_MANIFEST_FILE]).toBeDefined();
         expect(Buffer.from(members['thread-1.jsonl']!).toString()).toBe('{"role":"user"}\n');
         expect(Buffer.from(members['replica.jsonl']!).toString()).toBe('{"role":"assistant"}\n');
         expect(Object.keys(members).some((name) => name.endsWith('.vscdb'))).toBe(false);

@@ -1,5 +1,8 @@
 import { mapWithConcurrency } from './concurrency';
+import { normalizeCodexEvents } from './conversation-data/codex-messages';
 import type { ThreadEvent } from './conversation-data/conversation-events';
+import { renderSelectedTranscriptExport } from './conversation-data/conversation-export';
+import type { CompactExportFlags } from './conversation-data/export-options';
 import { getNumericMaximum, getNumericMinimum } from './numeric-range';
 import { sha256Hex } from './sha256';
 import { utf8ByteLength } from './utf8-byte-length';
@@ -2827,3 +2830,49 @@ export const getImportedWebChatSummary = (id: string): WebChatConversationSummar
     const conversation = getImportedWebChat(id);
     return conversation ? toWebChatSummary(conversation) : null;
 };
+
+export const removeImportedWebChats = (ids: readonly string[]) => {
+    const deletedIds: string[] = [];
+    const missingIds: string[] = [];
+    const seen = new Set<string>();
+    for (const id of ids) {
+        if (seen.has(id)) {
+            continue;
+        }
+        seen.add(id);
+        const entry = importedWebChats.get(id);
+        if (!entry) {
+            missingIds.push(id);
+            continue;
+        }
+        importedWebChats.delete(id);
+        importedWebChatBytes -= entry.bytes;
+        deletedIds.push(id);
+    }
+    return { deletedIds, missingIds };
+};
+
+export const webChatToMessages = (conversation: WebChatConversation) =>
+    normalizeCodexEvents(conversation.events).map((message) => ({
+        ...message,
+        id: message.id.replace(/^codex:/, 'web:'),
+    }));
+
+export const renderImportedWebChat = (conversation: WebChatConversation, options: CompactExportFlags = {}) =>
+    renderSelectedTranscriptExport(
+        {
+            artifacts: conversation.artifacts,
+            bodyAvailability: 'full',
+            messages: webChatToMessages(conversation),
+            metadata: {
+                exported_from: 'web_import',
+                file_name: conversation.fileName,
+                parsed_id: conversation.id,
+                platform: conversation.platform,
+                source_conversation_id: conversation.sourceConversationId,
+            },
+            ...(conversation.model ? { model: conversation.model } : {}),
+            title: conversation.title,
+        },
+        options,
+    );

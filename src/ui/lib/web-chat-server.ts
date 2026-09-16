@@ -1,6 +1,6 @@
 import type { WebChatConversationSummary, WebChatFileInput, WebChatImportError } from '@spiracha/lib/web-chat';
 import { createServerFn } from '@tanstack/react-start';
-import { array, check, maxLength, minLength, object, pipe, string } from 'valibot';
+import { array, boolean, check, maxLength, minLength, object, optional, picklist, pipe, string } from 'valibot';
 
 import { MAX_WEB_CHAT_FILE_BYTES, MAX_WEB_CHAT_FILES, MAX_WEB_CHAT_IMPORT_BYTES } from './web-chat-limits';
 
@@ -32,6 +32,56 @@ const importSchema = pipe(
 const conversationSchema = object({
     conversationId: pipe(string(), minLength(1)),
 });
+
+const exportOptionsSchema = {
+    includeCommentary: optional(boolean(), false),
+    includeMetadata: optional(boolean(), true),
+    includeTools: optional(boolean(), true),
+    outputFormat: optional(picklist(['md', 'txt']), 'md'),
+    zipArchive: optional(boolean(), false),
+};
+
+const exportSchema = object({
+    conversationId: pipe(string(), minLength(1)),
+    ...exportOptionsSchema,
+});
+
+const exportChatsSchema = object({
+    conversationIds: pipe(array(pipe(string(), minLength(1))), minLength(1), maxLength(200)),
+    ...exportOptionsSchema,
+    zipArchive: optional(boolean(), true),
+});
+
+const deleteChatsSchema = object({
+    conversationIds: pipe(array(pipe(string(), minLength(1))), minLength(1), maxLength(200)),
+});
+
+const loadImportedWebChat = async (conversationId: string) => {
+    const { getImportedWebChat } = await import('@spiracha/lib/web-chat');
+    const conversation = getImportedWebChat(conversationId);
+    if (!conversation) {
+        throw new Error(`Imported web conversation not found: ${conversationId}`);
+    }
+    return conversation;
+};
+
+const renderLoadedWebChat = async (
+    conversationId: string,
+    options: {
+        includeCommentary: boolean;
+        includeMetadata: boolean;
+        includeTools: boolean;
+        outputFormat: 'md' | 'txt';
+    },
+) => {
+    const { renderImportedWebChat } = await import('@spiracha/lib/web-chat');
+    const conversation = await loadImportedWebChat(conversationId);
+    const content = renderImportedWebChat(conversation, options);
+    if (!content) {
+        throw new Error(`Imported web conversation has no exportable content: ${conversationId}`);
+    }
+    return { content, conversation };
+};
 
 export const listWebChatsFn = createServerFn({ method: 'GET' }).handler(async () => {
     const { listImportedWebChats } = await import('@spiracha/lib/web-chat');
@@ -93,4 +143,64 @@ export const getWebChatArtifactsFn = createServerFn({ method: 'GET' })
             throw new Error(`Imported web conversation not found: ${data.conversationId}`);
         }
         return conversation.artifacts;
+    });
+
+export const exportWebChatFn = createServerFn({ method: 'POST' })
+    .validator(exportSchema)
+    .handler(async ({ data }) => {
+        const { content, conversation } = await renderLoadedWebChat(data.conversationId, data);
+        const { renderSourceSessionDownload } = await import('./source-session-export-server');
+        return renderSourceSessionDownload({
+            content,
+            cwd: null,
+            fallbackBaseName: 'web-chat',
+            outputFormat: data.outputFormat,
+            platform: 'web',
+            sessionId: conversation.id,
+            updatedAtMs: conversation.lastActiveAtMs,
+            zipArchive: data.zipArchive,
+        });
+    });
+
+export const exportWebChatsFn = createServerFn({ method: 'POST' })
+    .validator(exportChatsSchema)
+    .handler(async ({ data }) => {
+        const { renderSourceSessionsDownload } = await import('./source-session-export-server');
+        const entries = [];
+        for (const conversationId of data.conversationIds) {
+            const { content, conversation } = await renderLoadedWebChat(conversationId, data);
+            entries.push({
+                content,
+                cwd: null,
+                fallbackBaseName: 'web-chat',
+                fileBaseName: conversation.title || conversation.id,
+                sessionId: conversation.id,
+                updatedAtMs: conversation.lastActiveAtMs,
+            });
+        }
+        return renderSourceSessionsDownload({
+            entries,
+            fallbackBaseName: 'web-chats',
+            outputFormat: data.outputFormat,
+            platform: 'web',
+            zipArchive: data.zipArchive,
+        });
+    });
+
+export const deleteWebChatFn = createServerFn({ method: 'POST' })
+    .validator(conversationSchema)
+    .handler(async ({ data }) => {
+        const { removeImportedWebChats } = await import('@spiracha/lib/web-chat');
+        const result = removeImportedWebChats([data.conversationId]);
+        if (result.deletedIds.length === 0) {
+            throw new Error(`Imported web conversation not found: ${data.conversationId}`);
+        }
+        return result;
+    });
+
+export const deleteWebChatsFn = createServerFn({ method: 'POST' })
+    .validator(deleteChatsSchema)
+    .handler(async ({ data }) => {
+        const { removeImportedWebChats } = await import('@spiracha/lib/web-chat');
+        return removeImportedWebChats(data.conversationIds);
     });

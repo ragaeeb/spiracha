@@ -100,6 +100,15 @@ export class OriginalRepresentationUnavailableError extends Error {
     }
 }
 
+export class SourceChangedError extends Error {
+    readonly reasonCode = 'source_changed';
+
+    constructor() {
+        super('The original file changed during export. Retry the raw export.');
+        this.name = 'SourceChangedError';
+    }
+}
+
 export type PublicMutationError = {
     code: string;
     details?: Record<string, string>;

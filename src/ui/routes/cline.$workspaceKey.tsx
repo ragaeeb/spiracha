@@ -15,6 +15,7 @@ import { clineTasksQueryOptions, clineWorkspacesQueryOptions } from '#/lib/cline
 import { deleteClineTaskFn, deleteClineTasksFn, exportClineTaskFn, exportClineTasksFn } from '#/lib/cline-server';
 import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
+import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { matchesTextQuery } from '#/lib/text-filter';
 import { isWorkspaceEmptiedByDelete } from '#/lib/workspace-delete-navigation';
 
@@ -76,12 +77,12 @@ const ClineWorkspacePage = () => {
             ids.length === 1
                 ? deleteClineTaskFn({ data: { taskId: ids[0]! } })
                 : deleteClineTasksFn({ data: { taskIds: ids } }),
-        onSettled: async (_result, _error, ids) => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['cline-workspaces'] }),
-                queryClient.invalidateQueries({ queryKey: ['cline-tasks', workspace.key] }),
-                ...ids.map((id) => queryClient.invalidateQueries({ queryKey: ['cline-task', id] })),
-            ]);
+        onSettled: async (_result, error, ids) => {
+            await invalidateSourceConversationQueries(queryClient, 'cline', {
+                ids,
+                removeDetails: error == null,
+                workspaceKey: workspace.key,
+            });
         },
         onSuccess: async (_result, ids) => {
             setDeleteTasks([]);

@@ -1,5 +1,6 @@
+import type { ClaudeCodeSessionSummary } from '@spiracha/lib/claude-code-exporter-types';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import type { ComponentType, MouseEventHandler, ReactNode } from 'react';
+import type { MouseEventHandler, ReactNode } from 'react';
 import * as React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -105,165 +106,51 @@ vi.mock('#/components/ui/dropdown-menu', () => {
 
 import { ClaudeCodeSessionsTable } from './claude-code-sessions-table';
 import { ClaudeCodeWorkspacesTable } from './claude-code-workspaces-table';
-import { ClineTasksTable } from './cline-tasks-table';
 import { ClineWorkspacesTable } from './cline-workspaces-table';
 import { CommandCodeSessionsTable } from './command-code-sessions-table';
 import { CommandCodeWorkspacesTable } from './command-code-workspaces-table';
-import { GrokSessionsTable } from './grok-sessions-table';
 import { GrokWorkspacesTable } from './grok-workspaces-table';
-import { KiroSessionsTable } from './kiro-sessions-table';
 import { KiroWorkspacesTable } from './kiro-workspaces-table';
-import { OpenCodeSessionsTable } from './opencode-sessions-table';
 import { OpenCodeWorkspacesTable } from './opencode-workspaces-table';
 import { QoderWorkspacesTable } from './qoder-workspaces-table';
 
-type SessionRow = {
-    renderablePartCount: number;
-    sessionId: string;
-    title: string;
-    [key: string]: unknown;
-};
-
-type SessionTableProps = {
-    onDeleteSession: (session: SessionRow) => void;
-    onDeleteSessions: (sessionIds: string[]) => void;
-    onExportSession: (session: SessionRow) => void;
-    onExportSessions: (sessionIds: string[]) => void;
-    sessions: SessionRow[];
-};
-
-const sessionSpecs: Array<{
-    Component: ComponentType<SessionTableProps>;
-    expectedValues: string[];
-    route: string;
-    session: SessionRow;
-}> = [
-    {
-        Component: ClineTasksTable as unknown as ComponentType<SessionTableProps>,
-        expectedValues: ['Cline model', '42', 'favorite'],
-        route: '/cline-tasks/1785560414951',
-        session: {
-            isFavorited: true,
-            lastActiveAtMs: 1_700_000_000_000,
-            messageCount: 42,
-            modelId: 'Cline model',
-            renderablePartCount: 8,
-            sessionId: '1785560414951',
-            taskId: '1785560414951',
-            title: 'Cline review',
-            toolCallCount: 12,
-        },
-    },
-    {
-        Component: ClaudeCodeSessionsTable as unknown as ComponentType<SessionTableProps>,
-        expectedValues: ['Claude Model', '1,234', '2,500 tokens', '1.0.0'],
-        route: '/claude-code-sessions/claude-session',
-        session: {
-            lastActiveAtMs: 1_700_000_000_000,
-            messageCount: 1234,
-            model: 'Claude model',
-            renderablePartCount: 1,
-            sessionId: 'claude-session',
-            title: 'Claude review',
-            toolCallCount: 12,
-            totalTokens: 2500,
-            version: '1.0.0',
-        },
-    },
-    {
-        Component: GrokSessionsTable as unknown as ComponentType<SessionTableProps>,
-        expectedValues: ['Grok model', 'review-agent', '12'],
-        route: '/grok-sessions/grok-session',
-        session: {
-            agentName: 'review-agent',
-            currentModelId: 'grok-fallback',
-            lastActiveAtMs: 1_700_000_000_000,
-            messageCount: 42,
-            modelLabel: 'Grok model',
-            renderablePartCount: 1,
-            sessionId: 'grok-session',
-            title: 'Grok review',
-            toolCallCount: 12,
-        },
-    },
-    {
-        Component: KiroSessionsTable as unknown as ComponentType<SessionTableProps>,
-        expectedValues: ['Kiro model', 'spec'],
-        route: '/kiro-sessions/kiro-session',
-        session: {
-            imageCount: 3,
-            lastActiveAtMs: 1_700_000_000_000,
-            messageCount: 42,
-            promptLogCount: 4,
-            renderablePartCount: 1,
-            selectedModel: 'Kiro model',
-            sessionId: 'kiro-session',
-            sessionType: 'spec',
-            title: 'Kiro review',
-        },
-    },
-    {
-        Component: OpenCodeSessionsTable as unknown as ComponentType<SessionTableProps>,
-        expectedValues: ['review-agent', 'OpenCode model', '2,500 tokens', '$0.0042', 'archived'],
-        route: '/opencode-sessions/opencode-session',
-        session: {
-            agent: 'review-agent',
-            archivedAtMs: 1_700_000_000_000,
-            cost: 0.0042,
-            lastUpdatedAtMs: 1_700_000_000_000,
-            messageCount: 42,
-            modelLabel: 'OpenCode model',
-            renderablePartCount: 1,
-            sessionId: 'opencode-session',
-            slug: 'opencode-review',
-            title: 'OpenCode review',
-            totalTokens: 2500,
-        },
-    },
-];
+const claudeNestedSession = (overrides: Partial<ClaudeCodeSessionSummary> = {}): ClaudeCodeSessionSummary => ({
+    assistantMessageCount: 1,
+    attachmentCount: 0,
+    cacheCreationInputTokens: 0,
+    cacheReadInputTokens: 0,
+    continuationSessionIds: [],
+    createdAtIso: null,
+    createdAtMs: 1_700_000_000_000,
+    cwd: '/workspace/claude',
+    filePath: '/tmp/claude.jsonl',
+    gitBranch: null,
+    hierarchy: { parentSessionId: null },
+    inputTokens: 0,
+    lastActiveAtIso: null,
+    lastActiveAtMs: 1_700_000_000_000,
+    messageCount: 1234,
+    model: 'Claude model',
+    outputTokens: 0,
+    renderablePartCount: 1,
+    sessionId: 'claude-session',
+    title: 'Claude review',
+    toolCallCount: 12,
+    toolResultCount: 12,
+    totalTokens: 2500,
+    userMessageCount: 1,
+    version: '1.0.0',
+    workspaceKey: 'claude-key',
+    workspaceLabel: 'Claude workspace',
+    worktree: '/workspace/claude',
+    ...overrides,
+});
 
 afterEach(() => {
     cleanup();
 });
 
 describe('source session tables', () => {
-    for (const { Component, expectedValues, route, session } of sessionSpecs) {
-        it(`should render and operate on ${session.title} sessions`, () => {
-            const onDeleteSession = vi.fn();
-            const onDeleteSessions = vi.fn();
-            const onExportSession = vi.fn();
-            const onExportSessions = vi.fn();
-            render(
-                <Component
-                    sessions={[session]}
-                    onDeleteSession={onDeleteSession}
-                    onDeleteSessions={onDeleteSessions}
-                    onExportSession={onExportSession}
-                    onExportSessions={onExportSessions}
-                />,
-            );
-
-            expect(screen.getByRole('link', { name: new RegExp(session.title, 'i') }).getAttribute('href')).toBe(route);
-            for (const value of expectedValues) {
-                expect(screen.getByText(value)).toBeTruthy();
-            }
-
-            fireEvent.click(screen.getByRole('checkbox', { name: `Select row ${session.sessionId}` }));
-            fireEvent.click(screen.getByRole('button', { name: 'Export selected session' }));
-            fireEvent.click(screen.getByRole('button', { name: 'Delete selected session' }));
-            expect(onExportSessions).toHaveBeenCalledWith([session.sessionId]);
-            expect(onDeleteSessions).toHaveBeenCalledWith([session.sessionId]);
-
-            const menuTrigger = screen.getByRole('button', { name: `Actions for ${session.title}` });
-            fireEvent.click(menuTrigger);
-            fireEvent.click(screen.getByRole('button', { name: 'Export session' }));
-            fireEvent.click(menuTrigger);
-            fireEvent.click(screen.getByRole('button', { name: 'Delete session' }));
-            expect(onExportSession).toHaveBeenCalledWith(session);
-            expect(onDeleteSession).toHaveBeenCalledWith(session);
-        });
-    }
-
     it('should select Command Code sessions and export from the toolbar or row menu', () => {
         const onDeleteSession = vi.fn();
         const onDeleteSessions = vi.fn();
@@ -321,30 +208,26 @@ describe('source session tables', () => {
     });
 
     it('should render Claude Code sub-agents as nested rows beneath their parent', () => {
-        const parent = {
-            ...sessionSpecs[1]!.session,
-            hierarchy: { parentSessionId: null },
+        const parent = claudeNestedSession({
             sessionId: 'parent-session',
             title: 'Fingerprint Wave 1 behavioral fixes',
-        };
-        const child = {
-            ...parent,
+        });
+        const child = claudeNestedSession({
             hierarchy: { parentSessionId: 'parent-session' },
             model: 'claude-opus-5',
             sessionId: 'agent-a1d79cbf732582863',
             title: 'Implement fingerprint #100 and #101',
-        };
-        const grandchild = {
-            ...child,
+        });
+        const grandchild = claudeNestedSession({
             hierarchy: { parentSessionId: 'agent-a1d79cbf732582863' },
             model: 'claude-opus-5',
             sessionId: 'agent-7f8e90e8',
             title: 'Follow-up review for #101',
-        };
+        });
 
         render(
             <ClaudeCodeSessionsTable
-                sessions={[parent, child, grandchild] as never}
+                sessions={[parent, child, grandchild]}
                 onDeleteSession={vi.fn()}
                 onDeleteSessions={vi.fn()}
                 onExportSession={vi.fn()}

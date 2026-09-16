@@ -15,6 +15,7 @@ import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellat
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { fxSessionsQueryOptions, fxWorkspacesQueryOptions } from '#/lib/fx-queries';
 import { deleteFxSessionFn, deleteFxSessionsFn, exportFxSessionFn, exportFxSessionsFn } from '#/lib/fx-server';
+import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { matchesTextQuery } from '#/lib/text-filter';
 import { isWorkspaceEmptiedByDelete } from '#/lib/workspace-delete-navigation';
 
@@ -123,14 +124,12 @@ const FxWorkspacePage = () => {
             sessionIds.length === 1
                 ? deleteFxSessionFn({ data: { sessionId: sessionIds[0]! } })
                 : deleteFxSessionsFn({ data: { sessionIds } }),
-        onSettled: async (_result, _error, sessionIds) => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['fx-workspaces'] }),
-                queryClient.invalidateQueries({ queryKey: ['fx-sessions', workspace.key] }),
-                ...sessionIds.map((sessionId) =>
-                    queryClient.invalidateQueries({ queryKey: ['fx-session', sessionId] }),
-                ),
-            ]);
+        onSettled: async (_result, error, sessionIds) => {
+            await invalidateSourceConversationQueries(queryClient, 'fx', {
+                ids: sessionIds,
+                removeDetails: error == null,
+                workspaceKey: workspace.key,
+            });
         },
         onSuccess: async (_result, sessionIds) => {
             const workspaceEmptied = isWorkspaceEmptiedByDelete(sessions, sessionIds, (session) => session.sessionId);

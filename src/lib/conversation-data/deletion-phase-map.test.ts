@@ -17,4 +17,21 @@ describe('deletion phase map', () => {
             expect(DELETION_PHASE_MAP[source].capability.state).toBe('supported');
         }
     });
+
+    it('should keep multi-store deletes without durable intent undeclared rather than not-applicable', () => {
+        const multiStoreWithoutJournal = [
+            'antigravity',
+            'claude-code',
+            'cline',
+            'fx',
+            'grok',
+            'kiro',
+            'minimax-code',
+        ] as const;
+        for (const source of multiStoreWithoutJournal) {
+            expect(DELETION_PHASE_MAP[source].reconciliation).toBe('none');
+            expect(DELETION_PHASE_MAP[source].phases.length).toBeGreaterThan(0);
+            expect(hasDurableDeletionReconciliation(source)).toBe(false);
+        }
+    });
 });

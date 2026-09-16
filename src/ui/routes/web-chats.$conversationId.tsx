@@ -1,9 +1,13 @@
 import type { ThreadEvent } from '@spiracha/lib/conversation-data/conversation-events';
 import type { WebChatConversationSummary } from '@spiracha/lib/web-chat';
-import { useQuery, useSuspenseQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { useMemo } from 'react';
+import { Download, Trash2 } from 'lucide-react';
+import type { ReactNode } from 'react';
+import { useMemo, useState } from 'react';
 import { Breadcrumbs } from '#/components/breadcrumbs';
+import { DeleteConfirmDialog } from '#/components/delete-confirm-dialog';
+import { ExportDialog } from '#/components/export-dialog';
 import { JsonPanel } from '#/components/json-panel';
 import { LoadingPanel } from '#/components/loading-panel';
 import { MetadataSection } from '#/components/metadata-section';
@@ -12,9 +16,13 @@ import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
 import { TranscriptControls } from '#/components/transcript-controls';
 import { TranscriptView } from '#/components/transcript-view';
+import { Button } from '#/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
 import { WebChatArtifacts } from '#/components/web-chat-artifacts';
+import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
+import type { ExportDialogOptions, ExportLifecycleCallbacks } from '#/lib/export-options';
 import { formatDateTime, formatList, formatNumber } from '#/lib/formatters';
+import { getMutationErrorMessage } from '#/lib/mutation-error';
 import {
     getTranscriptDisplayState,
     parseThreadTranscriptSearch,
@@ -22,9 +30,11 @@ import {
     withThreadTranscriptSearch,
 } from '#/lib/route-search';
 import { RouteStateResetBoundary } from '#/lib/route-state-reset';
+import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { getThreadTranscriptStats } from '#/lib/thread-transcript-stats';
 import { useClientReady } from '#/lib/use-client-ready';
 import { webChatArtifactsQueryOptions, webChatEventsQueryOptions, webChatQueryOptions } from '#/lib/web-chat-queries';
+import { deleteWebChatFn, exportWebChatFn } from '#/lib/web-chat-server';
 
 const buildConversationMetadata = (conversation: WebChatConversationSummary) => [
     { label: 'Parsed ID', value: <span data-mono="true">{conversation.id}</span> },
@@ -47,8 +57,63 @@ const buildTranscriptMetadata = (events: ThreadEvent[]) => {
     ];
 };
 
+const webQueryPanel = (
+    query: { error: unknown; isError: boolean; isPending: boolean },
+    pending: ReactNode,
+    errorTitle: string,
+    ready: ReactNode,
+) => {
+    if (query.isPending) {
+        return pending;
+    }
+    if (query.isError) {
+        return <RouteErrorPanel error={query.error} title={errorTitle} />;
+    }
+    return ready;
+};
+
+const transcriptStatsItems = (
+    query: { isError: boolean; isPending: boolean },
+    ready: ReturnType<typeof buildTranscriptMetadata>,
+) => {
+    if (query.isPending) {
+        return [{ label: 'Transcript', value: 'Loading…' }];
+    }
+    if (query.isError) {
+        return [{ label: 'Transcript', value: 'Failed to load.' }];
+    }
+    return ready;
+};
+
+const reasoningMetric = (pending: boolean, events: ThreadEvent[]) =>
+    pending ? 'Loading…' : formatNumber(events.filter((event) => event.kind === 'reasoning').length);
+
+const downloadWebChatExport = async (
+    conversationId: string,
+    options: ExportDialogOptions,
+    cancellation: ReturnType<typeof useDownloadCancellation>,
+) => {
+    const download = await exportWebChatFn({
+        data: {
+            conversationId,
+            includeCommentary: options.includeCommentary,
+            includeMetadata: options.includeMetadata,
+            includeTools: options.includeTools,
+            outputFormat: options.outputFormat,
+            zipArchive: options.zipArchive,
+        },
+    });
+    if (download.mode === 'download') {
+        downloadTextFile(download.fileName, download.content, download.mimeType);
+        return;
+    }
+    await downloadUrlFileWithCancellation(cancellation, download.fileName, download.downloadUrl);
+};
+
 const WebChatDetailPage = () => {
     const navigate = useNavigate({ from: Route.fullPath });
+    const downloadCancellation = useDownloadCancellation();
+    const queryClient = useQueryClient();
     const conversationId = Route.useParams().conversationId;
     const conversation = useSuspenseQuery(webChatQueryOptions(conversationId)).data;
     const clientReady = useClientReady();
@@ -61,16 +126,58 @@ const WebChatDetailPage = () => {
     const transcriptSearch = Route.useSearch();
     const transcriptDisplay = getTranscriptDisplayState(transcriptSearch);
     const transcriptMetadata = useMemo(() => buildTranscriptMetadata(events), [events]);
+    const [deleteOpen, setDeleteOpen] = useState(false);
+    const [exportOpen, setExportOpen] = useState(false);
     const updateTranscriptDisplay = (patch: Partial<ThreadTranscriptSearch>) => {
         void navigate({
             replace: true,
             search: (previous: Record<string, unknown>) => withThreadTranscriptSearch(previous, patch),
         });
     };
+    const exportMutation = useMutation({
+        mutationFn: ({ options }: { callbacks: ExportLifecycleCallbacks; options: ExportDialogOptions }) =>
+            downloadWebChatExport(conversationId, options, downloadCancellation),
+        onSuccess: () => setExportOpen(false),
+    });
+    const deleteMutation = useMutation({
+        mutationFn: () => deleteWebChatFn({ data: { conversationId } }),
+        onSettled: async (_result, error) => {
+            await invalidateSourceConversationQueries(queryClient, 'web', {
+                ids: [conversationId],
+                removeDetails: error == null,
+            });
+        },
+        onSuccess: () => {
+            setDeleteOpen(false);
+            navigate({ to: '/web' });
+        },
+    });
 
     return (
         <div className="space-y-4">
             <PageHeader
+                actions={
+                    <>
+                        <Button
+                            className="rounded-full"
+                            type="button"
+                            variant="outline"
+                            onClick={() => setExportOpen(true)}
+                        >
+                            <Download className="mr-2 size-4" />
+                            Export
+                        </Button>
+                        <Button
+                            className="rounded-full border-[var(--destructive)]/20 text-[var(--destructive)]"
+                            type="button"
+                            variant="outline"
+                            onClick={() => setDeleteOpen(true)}
+                        >
+                            <Trash2 className="mr-2 size-4" />
+                            Delete
+                        </Button>
+                    </>
+                }
                 breadcrumb={<Breadcrumbs items={[{ label: 'Web', to: '/web' }, { label: conversation.title }]} />}
                 eyebrow={`${conversation.platform} web chat`}
                 subtitle={`Parsed from ${conversation.fileName}.`}
@@ -79,14 +186,7 @@ const WebChatDetailPage = () => {
 
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 <MetricCard label="Messages" value={formatNumber(conversation.messageCount)} />
-                <MetricCard
-                    label="Reasoning"
-                    value={
-                        eventsQuery.isPending
-                            ? 'Loading…'
-                            : formatNumber(events.filter((event) => event.kind === 'reasoning').length)
-                    }
-                />
+                <MetricCard label="Reasoning" value={reasoningMetric(eventsQuery.isPending, events)} />
                 <MetricCard label="Platform" value={conversation.platform} />
                 <MetricCard label="Model" value={conversation.model ?? 'unknown'} />
             </div>
@@ -108,11 +208,10 @@ const WebChatDetailPage = () => {
                 </TabsList>
 
                 <TabsContent className="space-y-3" value="transcript">
-                    {eventsQuery.isPending ? (
-                        <LoadingPanel description="Loading the parsed web transcript." title="Loading transcript" />
-                    ) : eventsQuery.isError ? (
-                        <RouteErrorPanel error={eventsQuery.error} title="Failed to load web transcript" />
-                    ) : (
+                    {webQueryPanel(
+                        eventsQuery,
+                        <LoadingPanel description="Loading the parsed web transcript." title="Loading transcript" />,
+                        'Failed to load web transcript',
                         <>
                             <TranscriptControls
                                 rawJsonDisabled={events.length === 0}
@@ -137,17 +236,16 @@ const WebChatDetailPage = () => {
                                 showToolCalls={transcriptDisplay.showToolCalls}
                                 showUserMessages={transcriptDisplay.showUserMessages}
                             />
-                        </>
+                        </>,
                     )}
                 </TabsContent>
 
                 <TabsContent value="artifacts">
-                    {artifactsQuery.isPending ? (
-                        <LoadingPanel description="Loading generated documents." title="Loading artifacts" />
-                    ) : artifactsQuery.isError ? (
-                        <RouteErrorPanel error={artifactsQuery.error} title="Failed to load artifacts" />
-                    ) : (
-                        <WebChatArtifacts artifacts={artifactsQuery.data} />
+                    {webQueryPanel(
+                        artifactsQuery,
+                        <LoadingPanel description="Loading generated documents." title="Loading artifacts" />,
+                        'Failed to load artifacts',
+                        <WebChatArtifacts artifacts={artifactsQuery.data ?? []} />,
                     )}
                 </TabsContent>
 
@@ -158,28 +256,52 @@ const WebChatDetailPage = () => {
                             title="Conversation metadata"
                         />
                         <MetadataSection
-                            items={
-                                eventsQuery.isPending
-                                    ? [{ label: 'Transcript', value: 'Loading…' }]
-                                    : eventsQuery.isError
-                                      ? [{ label: 'Transcript', value: 'Failed to load.' }]
-                                      : transcriptMetadata
-                            }
+                            items={transcriptStatsItems(eventsQuery, transcriptMetadata)}
                             title="Transcript stats"
                         />
                     </div>
                 </TabsContent>
 
                 <TabsContent value="raw">
-                    {eventsQuery.isPending ? (
-                        <LoadingPanel description="Loading normalized transcript events." title="Loading parsed JSON" />
-                    ) : eventsQuery.isError ? (
-                        <RouteErrorPanel error={eventsQuery.error} title="Failed to load parsed JSON" />
-                    ) : (
-                        <JsonPanel title="Normalized imported conversation" value={{ ...conversation, events }} />
+                    {webQueryPanel(
+                        eventsQuery,
+                        <LoadingPanel
+                            description="Loading normalized transcript events."
+                            title="Loading parsed JSON"
+                        />,
+                        'Failed to load parsed JSON',
+                        <JsonPanel title="Normalized imported conversation" value={{ ...conversation, events }} />,
                     )}
                 </TabsContent>
             </Tabs>
+
+            <ExportDialog
+                errorMessage={getMutationErrorMessage(exportMutation.error, 'Chat export failed')}
+                open={exportOpen}
+                pending={exportMutation.isPending}
+                title={`Export ${conversation.title}`}
+                onExport={(options, callbacks) => exportMutation.mutate({ callbacks, options })}
+                onOpenChange={(open) => {
+                    setExportOpen(open);
+                    if (!open) {
+                        exportMutation.reset();
+                    }
+                }}
+            />
+            <DeleteConfirmDialog
+                confirmLabel={deleteMutation.isPending ? 'Deleting...' : 'Delete chat'}
+                description={`Remove "${conversation.title}" from this Spiracha process. The original provider export is not changed.`}
+                errorMessage={getMutationErrorMessage(deleteMutation.error, 'Chat delete failed')}
+                open={deleteOpen}
+                title="Delete this imported chat?"
+                onConfirm={() => deleteMutation.mutate()}
+                onOpenChange={(open) => {
+                    setDeleteOpen(open);
+                    if (!open) {
+                        deleteMutation.reset();
+                    }
+                }}
+            />
         </div>
     );
 };

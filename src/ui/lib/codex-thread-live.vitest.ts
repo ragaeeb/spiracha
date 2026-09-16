@@ -1,4 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('@tanstack/react-start', () => ({
+    createServerFn: () => {
+        const serverFn = {
+            handler: (callback: unknown) => callback,
+            validator: () => serverFn,
+        };
+        return serverFn;
+    },
+}));
+
 import { connectCodexThreadLiveUpdates, refreshCodexThreadLiveQueries } from './codex-thread-live';
 
 class FakeMessagePort {

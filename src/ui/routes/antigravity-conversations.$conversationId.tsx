@@ -1,4 +1,5 @@
 import { antigravityMarkdownToThreadEvents } from '@spiracha/lib/antigravity-transcript-events';
+import { canonicalMessagesToThreadEvents, type ThreadEvent } from '@spiracha/lib/conversation-data/conversation-events';
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { Download, ScrollText, Trash2 } from 'lucide-react';
@@ -46,6 +47,7 @@ import {
     withThreadTranscriptSearch,
 } from '#/lib/route-search';
 import { RouteStateResetBoundary } from '#/lib/route-state-reset';
+import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { getThreadTranscriptStats } from '#/lib/thread-transcript-stats';
 import { useClientReady } from '#/lib/use-client-ready';
 import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
@@ -86,17 +88,14 @@ const buildConversationMetadata = (detail: AntigravityConversationDetail) => {
     ];
 };
 
-const buildTranscriptStatsItems = (
-    detail: AntigravityConversationDetail,
-    events: ReturnType<typeof antigravityMarkdownToThreadEvents>,
-) => {
+const buildTranscriptStatsItems = (detail: AntigravityConversationDetail, events: ThreadEvent[]) => {
     if (detail.transcriptLocked) {
         return [
             { label: 'Transcript load', value: 'Transcript is locked until Antigravity Keychain access is enabled.' },
         ];
     }
 
-    if (!detail.conversationMarkdown) {
+    if (events.length === 0 && !detail.conversationMarkdown) {
         return [{ label: 'Transcript load', value: 'No renderable transcript content was found.' }];
     }
 
@@ -238,7 +237,7 @@ const AntigravityTranscriptContent = ({
     clientReady: boolean;
     detail: AntigravityConversationDetail;
     documentsError: unknown;
-    events: ReturnType<typeof antigravityMarkdownToThreadEvents>;
+    events: ThreadEvent[];
     isError: boolean;
     isPending: boolean;
     transcriptDisplay: ReturnType<typeof getTranscriptDisplayState>;
@@ -301,13 +300,7 @@ const AntigravityTranscriptContent = ({
     );
 };
 
-function AntigravityRawPanels({
-    detail,
-    events,
-}: {
-    detail: AntigravityConversationDetail;
-    events: ReturnType<typeof antigravityMarkdownToThreadEvents>;
-}) {
+function AntigravityRawPanels({ detail, events }: { detail: AntigravityConversationDetail; events: ThreadEvent[] }) {
     return (
         <div className="space-y-4">
             <JsonPanel title="Conversation summary" value={detail.conversation} />
@@ -348,6 +341,7 @@ function AntigravityConversationDetailPage() {
         ...metadata,
         artifactsMarkdown: documentsQuery.data?.artifactsMarkdown ?? null,
         conversationMarkdown: documentsQuery.data?.conversationMarkdown ?? null,
+        messages: documentsQuery.data?.messages ?? [],
         transcriptLocked: documentsQuery.data?.transcriptLocked ?? false,
     };
     const [deleteOpen, setDeleteOpen] = useState(false);
@@ -358,10 +352,12 @@ function AntigravityConversationDetailPage() {
             search: (previous: Record<string, unknown>) => withThreadTranscriptSearch(previous, patch),
         });
     };
-    const transcriptEvents = useMemo(
-        () => antigravityMarkdownToThreadEvents(detail.conversationMarkdown),
-        [detail.conversationMarkdown],
-    );
+    const transcriptEvents = useMemo(() => {
+        if (detail.messages.length > 0) {
+            return canonicalMessagesToThreadEvents(detail.messages, { source: 'antigravity' });
+        }
+        return antigravityMarkdownToThreadEvents(detail.conversationMarkdown);
+    }, [detail.conversationMarkdown, detail.messages]);
     const canExportConversation = canExportAntigravityConversation(
         detail.conversation,
         Boolean(decryptionState?.isUnlocked),
@@ -405,18 +401,11 @@ function AntigravityConversationDetailPage() {
         mutationFn: () =>
             deleteAntigravityConversationFn({ data: { conversationId: detail.conversation.conversationId } }),
         onSuccess: async () => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['antigravity-workspaces'] }),
-                queryClient.invalidateQueries({
-                    queryKey: ['antigravity-conversations', detail.conversationGroup.key],
-                }),
-                queryClient.invalidateQueries({
-                    queryKey: ['antigravity-conversation', detail.conversation.conversationId],
-                }),
-                queryClient.invalidateQueries({
-                    queryKey: ['antigravity-conversation-documents', detail.conversation.conversationId],
-                }),
-            ]);
+            await invalidateSourceConversationQueries(queryClient, 'antigravity', {
+                ids: [detail.conversation.conversationId],
+                removeDetails: true,
+                workspaceKey: detail.conversationGroup.key,
+            });
             const workspaces = await queryClient.fetchQuery(antigravityWorkspacesQueryOptions());
             if (
                 shouldNavigateToSourceIndexAfterDelete(

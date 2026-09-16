@@ -39,6 +39,7 @@ import {
     withThreadTranscriptSearch,
 } from '#/lib/route-search';
 import { RouteStateResetBoundary } from '#/lib/route-state-reset';
+import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { useClientReady } from '#/lib/use-client-ready';
 import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
@@ -310,14 +311,11 @@ const CursorThreadDetailPage = () => {
         mutationFn: (deleteSessionFiles: boolean) =>
             deleteCursorThreadsFn({ data: { composerIds: [detail.thread.composerId], deleteSessionFiles } }),
         onSuccess: async () => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['cursor-thread', detail.thread.composerId] }),
-                queryClient.invalidateQueries({
-                    queryKey: ['cursor-thread-transcript', detail.thread.composerId],
-                }),
-                queryClient.invalidateQueries({ queryKey: ['cursor-threads', detail.thread.workspaceKey] }),
-                queryClient.invalidateQueries({ queryKey: ['cursor-workspaces'] }),
-            ]);
+            await invalidateSourceConversationQueries(queryClient, 'cursor', {
+                ids: [detail.thread.composerId],
+                removeDetails: true,
+                workspaceKey: detail.thread.workspaceKey,
+            });
             const workspaces = await queryClient.fetchQuery(cursorWorkspacesQueryOptions());
             if (
                 shouldNavigateToSourceIndexAfterDelete(

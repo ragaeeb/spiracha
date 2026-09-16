@@ -27,6 +27,7 @@ import {
 import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { getMutationErrorMessage } from '#/lib/mutation-error';
+import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { matchesTextQuery } from '#/lib/text-filter';
 import { isWorkspaceEmptiedByDelete } from '#/lib/workspace-delete-navigation';
 
@@ -139,12 +140,8 @@ const CursorWorkspacePage = () => {
     const workspace = findWorkspaceOrThrow(workspaces, params.workspaceKey);
     const threads = useSuspenseQuery(cursorThreadsQueryOptions(workspace.key)).data;
 
-    const invalidateWorkspaceQueries = async () => {
-        await Promise.all([
-            queryClient.invalidateQueries({ queryKey: ['cursor-workspaces'] }),
-            queryClient.invalidateQueries({ queryKey: ['cursor-threads', workspace.key] }),
-        ]);
-    };
+    const invalidateWorkspaceQueries = () =>
+        invalidateSourceConversationQueries(queryClient, 'cursor', { workspaceKey: workspace.key });
 
     const recoverWorkspaceMutation = useMutation({
         mutationFn: () => recoverCursorWorkspaceFn({ data: { apply: true, workspaceKey: workspace.key } }),
@@ -164,17 +161,24 @@ const CursorWorkspacePage = () => {
                 : deleteCursorThreadsFn({
                       data: { composerIds: target.threads.map((thread) => thread.composerId), deleteSessionFiles },
                   }),
-        onSettled: (result, _error, request) => {
+        onSettled: (result, error, request) => {
             const target = request?.target;
             if (target?.kind === 'workspace') {
                 if (hasCursorCleanupFailures(result)) {
                     return;
                 }
 
-                return queryClient.invalidateQueries({ queryKey: ['cursor-workspaces'] });
+                return invalidateSourceConversationQueries(queryClient, 'cursor', {});
+            }
+            if (!target) {
+                return;
             }
 
-            return invalidateWorkspaceQueries();
+            return invalidateSourceConversationQueries(queryClient, 'cursor', {
+                ids: target.threads.map((thread) => thread.composerId),
+                removeDetails: error == null && !hasCursorCleanupFailures(result),
+                workspaceKey: workspace.key,
+            });
         },
         onSuccess: async (result, { target }) => {
             const cleanupError = getCursorCleanupFailureMessage(result);
@@ -190,7 +194,7 @@ const CursorWorkspacePage = () => {
             if (target.kind === 'workspace') {
                 await navigate({ to: '/cursor' });
                 queryClient.removeQueries({ queryKey: ['cursor-thread'] });
-                await queryClient.invalidateQueries({ queryKey: ['cursor-workspaces'] });
+                await invalidateSourceConversationQueries(queryClient, 'cursor', {});
                 setPendingDelete(null);
                 return;
             }
@@ -200,15 +204,10 @@ const CursorWorkspacePage = () => {
                 target.threads.map((thread) => thread.composerId),
                 (thread) => thread.composerId,
             );
-            for (const thread of target.threads) {
-                queryClient.removeQueries({ queryKey: ['cursor-thread', thread.composerId] });
-            }
             setPendingDelete(null);
             if (workspaceEmptied) {
                 await navigate({ to: '/cursor' });
             }
-
-            await invalidateWorkspaceQueries();
         },
     });
 

@@ -25,6 +25,7 @@ import { createExportSelectionMutationInput, type ExportSelectionMutationInput }
 import { getMutationErrorMessage } from '#/lib/mutation-error';
 import { parseTextQuerySearch, withTextQuerySearch } from '#/lib/route-search';
 import { useSettings } from '#/lib/settings-store';
+import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { matchesTextQuery } from '#/lib/text-filter';
 
 type PendingThreadDelete = {
@@ -143,13 +144,12 @@ function ProjectDetailPage() {
 
             return deleteThreadsFn({ data: input });
         },
-        onSuccess: async () => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['analytics'] }),
-                queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
-                queryClient.invalidateQueries({ queryKey: ['project-threads', project] }),
-                queryClient.invalidateQueries({ queryKey: ['projects'] }),
-            ]);
+        onSuccess: async (_result, input) => {
+            await invalidateSourceConversationQueries(queryClient, 'codex', {
+                ids: input.threadIds,
+                removeDetails: true,
+                workspaceKey: project,
+            });
             setPendingDelete(null);
         },
     });
@@ -162,12 +162,7 @@ function ProjectDetailPage() {
                 },
             }),
         onSuccess: async () => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['analytics'] }),
-                queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
-                queryClient.invalidateQueries({ queryKey: ['project-threads', project] }),
-                queryClient.invalidateQueries({ queryKey: ['projects'] }),
-            ]);
+            await invalidateSourceConversationQueries(queryClient, 'codex', { workspaceKey: project });
         },
     });
 

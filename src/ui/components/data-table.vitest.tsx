@@ -152,6 +152,35 @@ describe('DataTable', () => {
         expect(screen.getByRole('checkbox', { name: 'Select row row-1' }).getAttribute('aria-checked')).toBe('false');
     });
 
+    it('should keep selected row ids after sorting and changing page', () => {
+        render(
+            <DataTable
+                columns={columns}
+                data={rows}
+                emptyMessage="No rows"
+                enableRowSelection
+                getRowId={(row) => row.id}
+                pageSize={2}
+                renderToolbar={({ selectedRows }) => (
+                    <span>{[...selectedRows.map((row) => row.id)].sort().join(',') || 'none'}</span>
+                )}
+            />,
+        );
+
+        fireEvent.click(screen.getByRole('checkbox', { name: 'Select row row-1' }));
+        fireEvent.click(screen.getByRole('checkbox', { name: 'Select row row-2' }));
+        expect(screen.getByText('row-1,row-2')).toBeTruthy();
+
+        fireEvent.click(screen.getByRole('button', { name: /tokens/i }));
+        expect(screen.getByText('row-1,row-2')).toBeTruthy();
+        expect(screen.getByRole('checkbox', { name: 'Select row row-2' }).getAttribute('aria-checked')).toBe('true');
+
+        fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+        expect(screen.getByText('row-1,row-2')).toBeTruthy();
+        expect(screen.getByRole('checkbox', { name: 'Select row row-1' }).getAttribute('aria-checked')).toBe('true');
+        expect(screen.queryByRole('checkbox', { name: 'Select row row-2' })).toBeNull();
+    });
+
     it('should paginate large row sets', () => {
         const manyRows = Array.from({ length: 51 }, (_, index) => ({
             id: `row-${index + 1}`,

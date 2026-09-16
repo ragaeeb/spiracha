@@ -1,38 +1,135 @@
-import type { WebChatImportError } from '@spiracha/lib/web-chat';
+import type { WebChatConversationSummary, WebChatImportError } from '@spiracha/lib/web-chat';
 import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useDeferredValue, useMemo, useState } from 'react';
+import { DeleteConfirmDialog } from '#/components/delete-confirm-dialog';
+import { ExportDialog } from '#/components/export-dialog';
 import { ListSearchInput } from '#/components/list-search-input';
 import { LoadingPanel } from '#/components/loading-panel';
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
 import { WebChatDropzone } from '#/components/web-chat-dropzone';
 import { WebConversationsTable } from '#/components/web-conversations-table';
+import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
+import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
+import { getMutationErrorMessage } from '#/lib/mutation-error';
+import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { matchesTextQuery } from '#/lib/text-filter';
 import { dedupeImportErrors, readImportFiles } from '#/lib/web-chat-import';
 import { webChatsQueryOptions } from '#/lib/web-chat-queries';
-import { importWebChatsFn } from '#/lib/web-chat-server';
+import {
+    deleteWebChatFn,
+    deleteWebChatsFn,
+    exportWebChatFn,
+    exportWebChatsFn,
+    importWebChatsFn,
+} from '#/lib/web-chat-server';
+
+type PendingChatDelete = {
+    chats: WebChatConversationSummary[];
+};
+
+type PendingChatExport = {
+    conversationIds: string[];
+    label: string;
+};
+
+const buildChatExport = (selectedChats: WebChatConversationSummary[]): PendingChatExport => ({
+    conversationIds: selectedChats.map((chat) => chat.id),
+    label: selectedChats.length === 1 ? selectedChats[0]!.title : `${selectedChats.length} selected chats`,
+});
+
+const filterWebConversations = (conversations: WebChatConversationSummary[], query: string) =>
+    conversations.filter((conversation) =>
+        matchesTextQuery(query, [
+            conversation.title,
+            conversation.platform,
+            conversation.model,
+            conversation.fileName,
+            conversation.sourceConversationId,
+            conversation.id,
+        ]),
+    );
+
+const lookupVisibleChats = (conversations: WebChatConversationSummary[], conversationIds: string[]) => {
+    const byId = new Map(conversations.map((conversation) => [conversation.id, conversation]));
+    return conversationIds.flatMap((conversationId) => {
+        const conversation = byId.get(conversationId);
+        return conversation ? [conversation] : [];
+    });
+};
+
+const downloadWebExport = async (
+    ids: readonly string[],
+    options: ExportSelectionMutationInput['options'],
+    cancellation: ReturnType<typeof useDownloadCancellation>,
+) => {
+    const download =
+        ids.length === 1
+            ? await exportWebChatFn({
+                  data: {
+                      conversationId: ids[0]!,
+                      includeCommentary: options.includeCommentary,
+                      includeMetadata: options.includeMetadata,
+                      includeTools: options.includeTools,
+                      outputFormat: options.outputFormat,
+                      zipArchive: options.zipArchive,
+                  },
+              })
+            : await exportWebChatsFn({
+                  data: {
+                      conversationIds: [...ids],
+                      includeCommentary: options.includeCommentary,
+                      includeMetadata: options.includeMetadata,
+                      includeTools: options.includeTools,
+                      outputFormat: options.outputFormat,
+                      zipArchive: options.zipArchive,
+                  },
+              });
+    if (download.mode === 'download') {
+        downloadTextFile(download.fileName, download.content, download.mimeType);
+        return;
+    }
+    await downloadUrlFileWithCancellation(cancellation, download.fileName, download.downloadUrl);
+};
+
+const webDeleteCopy = (pendingDelete: PendingChatDelete | null, isPending: boolean) => {
+    const count = pendingDelete?.chats.length ?? 0;
+    const title = count > 1 ? `Delete ${count} imported chats?` : 'Delete this imported chat?';
+    const confirmLabel = isPending ? 'Deleting...' : count > 1 ? 'Delete chats' : 'Delete chat';
+    const description =
+        count === 1
+            ? `Remove "${pendingDelete!.chats[0]!.title}" from this Spiracha process. The original provider export is not changed.`
+            : count > 1
+              ? `Remove ${count} imported chats from this Spiracha process. Original provider exports are not changed.`
+              : 'Remove the selected imported chats from this Spiracha process.';
+    return { confirmLabel, description, title };
+};
 
 const WebPage = () => {
     const navigate = useNavigate({ from: Route.fullPath });
+    const downloadCancellation = useDownloadCancellation();
     const queryClient = useQueryClient();
     const conversations = useSuspenseQuery(webChatsQueryOptions()).data;
     const [importErrors, setImportErrors] = useState<WebChatImportError[]>([]);
     const [searchInput, setSearchInput] = useState('');
+    const [pendingDelete, setPendingDelete] = useState<PendingChatDelete | null>(null);
+    const [pendingExport, setPendingExport] = useState<PendingChatExport | null>(null);
     const deferredSearch = useDeferredValue(searchInput);
     const visibleConversations = useMemo(
-        () =>
-            conversations.filter((conversation) =>
-                matchesTextQuery(deferredSearch, [
-                    conversation.title,
-                    conversation.platform,
-                    conversation.model,
-                    conversation.fileName,
-                    conversation.sourceConversationId,
-                ]),
-            ),
+        () => filterWebConversations(conversations, deferredSearch),
         [conversations, deferredSearch],
     );
+    const openExportForChats = (selectedChats: WebChatConversationSummary[]) => {
+        if (selectedChats.length > 0) {
+            setPendingExport(buildChatExport(selectedChats));
+        }
+    };
+    const openDeleteForChats = (selectedChats: WebChatConversationSummary[]) => {
+        if (selectedChats.length > 0) {
+            setPendingDelete({ chats: selectedChats });
+        }
+    };
 
     const importMutation = useMutation({
         mutationFn: async (files: File[]) => {
@@ -45,13 +142,9 @@ const WebPage = () => {
         },
         onSuccess: async (result) => {
             setImportErrors(dedupeImportErrors(result.errors));
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['web-chats'] }),
-                ...result.conversations.flatMap((conversation) => [
-                    queryClient.invalidateQueries({ queryKey: ['web-chat', conversation.id] }),
-                    queryClient.invalidateQueries({ queryKey: ['web-chat-events', conversation.id] }),
-                ]),
-            ]);
+            await invalidateSourceConversationQueries(queryClient, 'web', {
+                ids: result.conversations.map((conversation) => conversation.id),
+            });
             if (result.conversations.length === 1 && result.errors.length === 0) {
                 await navigate({
                     params: { conversationId: result.conversations[0]!.id },
@@ -60,12 +153,26 @@ const WebPage = () => {
             }
         },
     });
-
-    const errorMessage = importMutation.isError
-        ? importMutation.error instanceof Error
-            ? importMutation.error.message
-            : 'Web chat import failed.'
-        : null;
+    const exportMutation = useMutation({
+        mutationFn: ({ ids, options }: ExportSelectionMutationInput) =>
+            downloadWebExport(ids, options, downloadCancellation),
+        onSuccess: () => setPendingExport(null),
+    });
+    const deleteMutation = useMutation({
+        mutationFn: async (conversationIds: string[]) =>
+            conversationIds.length === 1
+                ? deleteWebChatFn({ data: { conversationId: conversationIds[0]! } })
+                : deleteWebChatsFn({ data: { conversationIds } }),
+        onSettled: async (_result, error, conversationIds) => {
+            await invalidateSourceConversationQueries(queryClient, 'web', {
+                ids: conversationIds,
+                removeDetails: error == null,
+            });
+        },
+        onSuccess: () => setPendingDelete(null),
+    });
+    const deleteCopy = webDeleteCopy(pendingDelete, deleteMutation.isPending);
+    const errorMessage = getMutationErrorMessage(importMutation.error, 'Web chat import failed.');
 
     return (
         <div className="space-y-4">
@@ -112,7 +219,55 @@ const WebPage = () => {
                 </section>
             ) : null}
 
-            <WebConversationsTable conversations={visibleConversations} />
+            <WebConversationsTable
+                conversations={visibleConversations}
+                onDeleteChat={(chat) => openDeleteForChats([chat])}
+                onDeleteChats={(conversationIds) =>
+                    openDeleteForChats(lookupVisibleChats(visibleConversations, conversationIds))
+                }
+                onExportChat={(chat) => openExportForChats([chat])}
+                onExportChats={(conversationIds) =>
+                    openExportForChats(lookupVisibleChats(visibleConversations, conversationIds))
+                }
+            />
+            <ExportDialog
+                errorMessage={getMutationErrorMessage(exportMutation.error, 'Chat export failed')}
+                forceZipArchive={pendingExport ? pendingExport.conversationIds.length > 1 : false}
+                open={pendingExport !== null}
+                pending={exportMutation.isPending}
+                title={pendingExport ? `Export ${pendingExport.label}` : 'Export chat'}
+                onExport={(options) => {
+                    if (pendingExport) {
+                        exportMutation.mutate(
+                            createExportSelectionMutationInput(pendingExport.conversationIds, options),
+                        );
+                    }
+                }}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        setPendingExport(null);
+                        exportMutation.reset();
+                    }
+                }}
+            />
+            <DeleteConfirmDialog
+                confirmLabel={deleteCopy.confirmLabel}
+                description={deleteCopy.description}
+                errorMessage={getMutationErrorMessage(deleteMutation.error, 'Chat delete failed')}
+                open={pendingDelete !== null}
+                title={deleteCopy.title}
+                onConfirm={() => {
+                    if (pendingDelete) {
+                        deleteMutation.mutate(pendingDelete.chats.map((chat) => chat.id));
+                    }
+                }}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        setPendingDelete(null);
+                        deleteMutation.reset();
+                    }
+                }}
+            />
         </div>
     );
 };

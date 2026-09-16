@@ -99,8 +99,9 @@ describe('HTTP SDK through the real API and Codex storage', () => {
                 }),
             );
             expect(
-                Object.values(unpacked)
-                    .map((bytes) => strFromU8(bytes))
+                Object.entries(unpacked)
+                    .filter(([name]) => name !== 'spiracha-manifest.json')
+                    .map(([, bytes]) => strFromU8(bytes))
                     .toSorted(),
             ).toEqual(expected.toSorted());
             expect(await http.exportConversationsZip({ ids: [...ids, 'missing-thread'], source: 'codex' })).toBeNull();

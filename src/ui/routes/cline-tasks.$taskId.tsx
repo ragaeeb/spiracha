@@ -24,6 +24,7 @@ import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellat
 import type { ExportDialogOptions } from '#/lib/export-options';
 import { formatDateTime, formatList, formatNumber } from '#/lib/formatters';
 import { RouteStateResetBoundary } from '#/lib/route-state-reset';
+import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
 const metadataItems = (detail: ClineTaskTranscript) => [
@@ -87,11 +88,11 @@ const ClineTaskDetailPage = () => {
     const deleteMutation = useMutation({
         mutationFn: () => deleteClineTaskFn({ data: { taskId: detail.task.taskId } }),
         onSuccess: async () => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['cline-workspaces'] }),
-                queryClient.invalidateQueries({ queryKey: ['cline-tasks', detail.task.workspaceKey] }),
-                queryClient.invalidateQueries({ queryKey: ['cline-task', detail.task.taskId] }),
-            ]);
+            await invalidateSourceConversationQueries(queryClient, 'cline', {
+                ids: [detail.task.taskId],
+                removeDetails: true,
+                workspaceKey: detail.task.workspaceKey,
+            });
             const workspaces = await queryClient.fetchQuery(clineWorkspacesQueryOptions());
             if (
                 shouldNavigateToSourceIndexAfterDelete(

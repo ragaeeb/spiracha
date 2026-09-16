@@ -26,12 +26,13 @@ describe('conversation archive content integrity', () => {
         const names = Object.keys(archive);
         expect(result.mimeType).toBe('application/zip');
         expect(result.blob.type).toBe('application/zip');
-        expect(names).toHaveLength(titles.length);
-        expect(new Set(names.map((name) => name.normalize('NFC').toLowerCase())).size).toBe(titles.length);
+        expect(names.filter((name) => name !== 'spiracha-manifest.json')).toHaveLength(titles.length);
+        expect(new Set(names.map((name) => name.normalize('NFC').toLowerCase())).size).toBe(titles.length + 1);
         expect(names.every((name) => !name.includes('/') && !name.includes('\\') && !name.includes('..'))).toBe(true);
         expect(
-            Object.values(archive)
-                .map((bytes) => strFromU8(bytes))
+            Object.entries(archive)
+                .filter(([name]) => name !== 'spiracha-manifest.json')
+                .map(([, bytes]) => strFromU8(bytes))
                 .sort(),
         ).toEqual(contents.toSorted());
     });

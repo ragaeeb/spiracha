@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
+import { unzipSync } from 'fflate';
 import { handleConversationApiRequest } from './conversation-api';
-import { OriginalRepresentationUnavailableError } from './conversation-data';
+import { OriginalRepresentationUnavailableError, SourceChangedError } from './conversation-data';
 import { toCanonicalMessage } from './conversation-data/adapter-helpers';
 import type { ConversationDetail, ConversationSourceInfo } from './conversation-data/types';
 import { chatgptResearchPayload, chatgptResearchReport } from './conversation-payload-test-helpers';
@@ -912,6 +913,25 @@ describe('conversation API handler', () => {
         });
     });
 
+    it('should refuse a raw transcript whose source file changed during the read', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/cursor/thread-1/raw'),
+            {
+                getConversationRaw: async () => {
+                    throw new SourceChangedError();
+                },
+            },
+        );
+
+        expect(response.status).toBe(409);
+        await expect(response.json()).resolves.toMatchObject({
+            error: {
+                code: 'source_changed',
+                details: { id: 'thread-1', reason_code: 'source_changed', source: 'cursor' },
+            },
+        });
+    });
+
     it('should distinguish missing native files from a missing conversation', async () => {
         const response = await handleConversationApiRequest(
             createRequest('/api/v1/conversations/cursor/thread-1/raw'),
@@ -1226,6 +1246,54 @@ describe('conversation API handler', () => {
         expect(renderedSelectors).toEqual(['all', 'all']);
         const bytes = new Uint8Array(await response.arrayBuffer());
         expect(Array.from(bytes.slice(0, 2))).toEqual([0x50, 0x4b]);
+    });
+
+    it('should refuse atomic batch export when any requested conversation is missing', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/export', {
+                body: JSON.stringify({ ids: ['thread-1', 'missing'], source: 'grok' }),
+                method: 'POST',
+            }),
+            {
+                getConversation: async (options) => (options.id === 'missing' ? null : conversation),
+            },
+        );
+
+        expect(response.status).toBe(404);
+        await expect(response.json()).resolves.toMatchObject({
+            error: {
+                code: 'conversation_not_found',
+                details: { ids: ['missing'], source: 'grok' },
+            },
+        });
+    });
+
+    it('should publish a partial batch zip with a generated manifest when some ids are missing', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/export', {
+                body: JSON.stringify({
+                    failure_policy: 'partial',
+                    ids: ['thread-1', 'missing'],
+                    source: 'grok',
+                }),
+                method: 'POST',
+            }),
+            {
+                getConversation: async (options) =>
+                    options.id === 'missing' ? null : { ...conversation, id: options.id, title: options.id },
+                renderConversationMarkdown: (rendered) => `# ${rendered.title ?? rendered.model ?? 'conversation'}`,
+            },
+        );
+
+        expect(response.status).toBe(200);
+        const archive = unzipSync(new Uint8Array(await response.arrayBuffer()));
+        expect(Object.keys(archive).sort()).toEqual(['spiracha-manifest.json', 'thread-1.md'].sort());
+        const manifest = JSON.parse(Buffer.from(archive['spiracha-manifest.json']!).toString()) as {
+            failurePolicy: string;
+            missingCount: number;
+            successCount: number;
+        };
+        expect(manifest).toMatchObject({ failurePolicy: 'partial', missingCount: 1, successCount: 1 });
     });
 
     it('should load batch export conversations with bounded concurrency while preserving input order', async () => {

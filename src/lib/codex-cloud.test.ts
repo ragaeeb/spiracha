@@ -125,6 +125,73 @@ describe('Codex Cloud client', () => {
         expect(requests).toBe(1);
     });
 
+    it('should report absent Cloud login without exposing the auth path', async () => {
+        const previousAuth = process.env.SPIRACHA_CODEX_AUTH;
+        const missingAuth = path.join(os.tmpdir(), 'missing-codex-auth.json');
+        process.env.SPIRACHA_CODEX_AUTH = missingAuth;
+        try {
+            const client = createCodexCloudClient({
+                fetchImpl: async () => jsonResponse({}),
+            });
+            const error = await client.getTask('task_example').catch((caught: unknown) => caught);
+            expect(error).toBeInstanceOf(CodexCloudError);
+            expect((error as Error).message).toContain('login is unavailable');
+            expect((error as Error).message).not.toContain(missingAuth);
+        } finally {
+            if (previousAuth === undefined) {
+                delete process.env.SPIRACHA_CODEX_AUTH;
+            } else {
+                process.env.SPIRACHA_CODEX_AUTH = previousAuth;
+            }
+        }
+    });
+
+    it('should explain a disappeared Cloud task without exposing the response body', async () => {
+        const client = createCodexCloudClient({
+            fetchImpl: async () => new Response('secret vanished task body', { status: 404 }),
+            readAuth: async () => auth,
+        });
+        const error = await client.getTask('task_example').catch((caught: unknown) => caught);
+        expect(error).toBeInstanceOf(CodexCloudError);
+        expect((error as CodexCloudError).status).toBe(404);
+        expect((error as Error).message).toContain('disappeared');
+        expect((error as Error).message).not.toContain('secret vanished task body');
+    });
+
+    it('should load a deferred Cloud task without requiring assistant turn events', async () => {
+        const client = createCodexCloudClient({
+            fetchImpl: async () =>
+                jsonResponse({
+                    task: {
+                        environment_id: 'environment-1',
+                        id: 'task_example',
+                        status: 'pending',
+                        title: 'Queued task',
+                    },
+                }),
+            readAuth: async () => auth,
+        });
+
+        const detail = await client.getTask('task_example');
+        expect(detail.task.title).toBe('Queued task');
+        expect(detail.events).toEqual([]);
+        expect(detail.currentTurnId).toBeNull();
+        expect(detail.diff.patch).toBeNull();
+    });
+
+    it('should refuse a Cloud environment id that does not match the current project inventory', async () => {
+        const client = createCodexCloudClient({
+            listCommandImpl: async () => ({
+                cursor: null,
+                tasks: [{ environment_id: 'environment-a', environment_label: 'owner/alpha', id: 'task_e_1' }],
+            }),
+            readAuth: async () => auth,
+        });
+
+        await expect(client.listProject('environment-a')).rejects.toThrow('environment does not match');
+        await expect(client.listProject('missing-project')).rejects.toThrow('project not found');
+    });
+
     it('should reject malformed Cloud inventory envelopes instead of reporting an empty inventory', async () => {
         for (const value of [null, {}, { tasks: 'invalid' }, []]) {
             const client = createCodexCloudClient({ listCommandImpl: async () => value, readAuth: async () => auth });
@@ -850,12 +917,17 @@ describe('Codex Cloud client', () => {
         });
 
         expect(markdown).toContain('# Fix it');
+        expect(markdown).toContain('## User');
+        expect(markdown).toContain('## Assistant · Final answer');
         expect(markdown).toContain('Done.');
+        expect(markdown).toContain('## Artifact · Diff');
         expect(markdown).toContain('diff --git a/file.ts b/file.ts');
         expect(markdown).toContain('Files changed: 1');
         expect(markdown).not.toContain('I am inspecting it.');
         expect(markdown).not.toContain('Command: ls');
+        expect(plainText).toContain('Assistant · Commentary');
         expect(plainText).toContain('I am inspecting it.');
+        expect(plainText).toContain('Tool call');
         expect(plainText).toContain('Command: ls');
         expect(plainText).toContain('Done.');
     });

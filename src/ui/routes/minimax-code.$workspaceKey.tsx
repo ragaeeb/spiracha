@@ -20,6 +20,7 @@ import {
     exportMiniMaxCodeSessionFn,
     exportMiniMaxCodeSessionsFn,
 } from '#/lib/minimax-code-server';
+import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { matchesTextQuery } from '#/lib/text-filter';
 import { isWorkspaceEmptiedByDelete } from '#/lib/workspace-delete-navigation';
 
@@ -151,14 +152,12 @@ const MiniMaxCodeWorkspacePage = () => {
             sessionIds.length === 1
                 ? deleteMiniMaxCodeSessionFn({ data: { sessionId: sessionIds[0]! } })
                 : deleteMiniMaxCodeSessionsFn({ data: { sessionIds } }),
-        onSettled: async (_result, _error, sessionIds) => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['minimax-code-workspaces'] }),
-                queryClient.invalidateQueries({ queryKey: ['minimax-code-sessions', workspace.key] }),
-                ...sessionIds.map((sessionId) =>
-                    queryClient.invalidateQueries({ queryKey: ['minimax-code-session', sessionId] }),
-                ),
-            ]);
+        onSettled: async (_result, error, sessionIds) => {
+            await invalidateSourceConversationQueries(queryClient, 'minimax-code', {
+                ids: sessionIds,
+                removeDetails: error == null,
+                workspaceKey: workspace.key,
+            });
         },
         onSuccess: async (_result, sessionIds) => {
             const workspaceEmptied = isWorkspaceEmptiedByDelete(sessions, sessionIds, (session) => session.sessionId);

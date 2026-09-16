@@ -1,19 +1,21 @@
 import type { CodexCloudTask } from '@spiracha/lib/codex-cloud';
-import { useSuspenseQuery } from '@tanstack/react-query';
+import { useMutation, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { ArrowLeft, ExternalLink } from 'lucide-react';
-import { startTransition, useDeferredValue, useMemo } from 'react';
+import { ArrowLeft } from 'lucide-react';
+import { startTransition, useDeferredValue, useMemo, useState } from 'react';
 import { Breadcrumbs } from '#/components/breadcrumbs';
-import { DataTable } from '#/components/data-table';
+import { CodexCloudReadOnlyNotice, CodexCloudTasksTable } from '#/components/codex-cloud-tasks-table';
+import { ExportDialog } from '#/components/export-dialog';
 import { ListSearchInput } from '#/components/list-search-input';
 import { LoadingPanel } from '#/components/loading-panel';
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
-import { Badge } from '#/components/ui/badge';
 import { Button } from '#/components/ui/button';
 import { codexCloudProjectQueryOptions } from '#/lib/codex-cloud-queries';
-import { createDataTableColumnHelper } from '#/lib/data-table-config';
-import { formatDateTime, formatNumber } from '#/lib/formatters';
+import { exportCodexCloudTaskFn, exportCodexCloudTasksFn } from '#/lib/codex-cloud-server';
+import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
+import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
+import { getMutationErrorMessage } from '#/lib/mutation-error';
 import { parseTextQuerySearch, withTextQuerySearch } from '#/lib/route-search';
 import { matchesTextQuery } from '#/lib/text-filter';
 
@@ -32,69 +34,49 @@ function CodexCloudProjectErrorComponent({ error }: { error: unknown }) {
     return <RouteErrorPanel error={error} title="Failed to load Codex Cloud project" />;
 }
 
-const columnHelper = createDataTableColumnHelper<CodexCloudTask>();
+type PendingCloudExport = {
+    label: string;
+    taskIds: string[];
+};
 
-const compareDateValues = (left: unknown, right: unknown) =>
-    (Date.parse(String(left ?? '')) || 0) - (Date.parse(String(right ?? '')) || 0);
+const buildCloudExport = (tasks: CodexCloudTask[]): PendingCloudExport | null =>
+    tasks.length === 0
+        ? null
+        : {
+              label: tasks.length === 1 ? tasks[0]!.title : `${tasks.length} selected threads`,
+              taskIds: tasks.map((task) => task.id),
+          };
 
-const columns = [
-    columnHelper.accessor('title', {
-        cell: (info) => (
-            <Link
-                className="block min-w-[18rem] rounded-md outline-none transition hover:opacity-80 focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
-                params={{ taskId: info.row.original.id }}
-                to="/codex/cloud/tasks/$taskId"
-            >
-                <p className="font-medium underline-offset-2 hover:underline">{info.getValue()}</p>
-                <p className="font-mono text-[var(--muted-foreground)] text-xs">{info.row.original.id}</p>
-            </Link>
-        ),
-        header: 'Thread',
-    }),
-    columnHelper.accessor('status', {
-        cell: (info) => <Badge variant="outline">{info.getValue()}</Badge>,
-        header: 'State',
-    }),
-    columnHelper.accessor('updatedAt', {
-        cell: (info) => (
-            <span className="whitespace-nowrap text-sm" suppressHydrationWarning>
-                {formatDateTime(info.getValue())}
-            </span>
-        ),
-        header: 'Updated',
-        sortFn: (left, right, columnId) => compareDateValues(left.getValue(columnId), right.getValue(columnId)),
-    }),
-    columnHelper.accessor('diffStats', {
-        cell: (info) => {
-            const stats = info.getValue();
-            const files = stats.filesModified === null ? 'n/a' : formatNumber(stats.filesModified);
-            const additions = stats.linesAdded === null ? 'n/a' : `+${formatNumber(stats.linesAdded)}`;
-            const removals = stats.linesRemoved === null ? 'n/a' : `-${formatNumber(stats.linesRemoved)}`;
-            return (
-                <span className="whitespace-nowrap font-mono text-sm">{`${files} files · ${additions}/${removals}`}</span>
-            );
-        },
-        header: 'Diff',
-        id: 'diff',
-    }),
-    columnHelper.display({
-        cell: (info) => (
-            <a
-                aria-label={`Open ${info.row.original.title} in Codex Cloud`}
-                className="inline-flex items-center gap-1 text-[var(--muted-foreground)] text-sm hover:text-[var(--foreground)]"
-                href={info.row.original.taskUrl}
-                rel="noreferrer"
-                target="_blank"
-            >
-                <ExternalLink className="size-4" />
-                Cloud
-            </a>
-        ),
-        enableSorting: false,
-        header: '',
-        id: 'external',
-    }),
-] as const;
+const lookupVisibleCloudTasks = (tasks: CodexCloudTask[], taskIds: string[]) => {
+    const byId = new Map(tasks.map((task) => [task.id, task]));
+    return taskIds.flatMap((taskId) => {
+        const task = byId.get(taskId);
+        return task ? [task] : [];
+    });
+};
+
+const downloadCloudExport = async (
+    ids: readonly string[],
+    options: ExportSelectionMutationInput['options'],
+    cancellation: ReturnType<typeof useDownloadCancellation>,
+) => {
+    const payload = {
+        includeCommentary: options.includeCommentary,
+        includeMetadata: options.includeMetadata,
+        includeTools: options.includeTools,
+        outputFormat: options.outputFormat,
+        zipArchive: options.zipArchive,
+    };
+    const download =
+        ids.length === 1
+            ? await exportCodexCloudTaskFn({ data: { ...payload, taskId: ids[0]! } })
+            : await exportCodexCloudTasksFn({ data: { ...payload, taskIds: [...ids] } });
+    if (download.mode === 'download') {
+        downloadTextFile(download.fileName, download.content, download.mimeType);
+        return;
+    }
+    await downloadUrlFileWithCancellation(cancellation, download.fileName, download.downloadUrl);
+};
 
 function CodexCloudProjectPage() {
     const navigate = Route.useNavigate();
@@ -107,6 +89,19 @@ function CodexCloudProjectPage() {
         () => project.tasks.filter((task) => matchesTextQuery(deferredSearch, [task.title, task.id, task.status])),
         [deferredSearch, project.tasks],
     );
+    const [pendingExport, setPendingExport] = useState<PendingCloudExport | null>(null);
+    const downloadCancellation = useDownloadCancellation();
+    const exportMutation = useMutation({
+        mutationFn: ({ ids, options }: ExportSelectionMutationInput) =>
+            downloadCloudExport(ids, options, downloadCancellation),
+        onSuccess: () => setPendingExport(null),
+    });
+    const openExport = (tasks: CodexCloudTask[]) => {
+        const pending = buildCloudExport(tasks);
+        if (pending) {
+            setPendingExport(pending);
+        }
+    };
 
     return (
         <div className="space-y-4">
@@ -147,6 +142,8 @@ function CodexCloudProjectPage() {
                 title={project.label}
             />
 
+            <CodexCloudReadOnlyNotice />
+
             {project.partial ? (
                 <p className="rounded-xl border border-[var(--border)] bg-[var(--panel)] px-4 py-3 text-[var(--muted-foreground)] text-sm">
                     This project is from a bounded Cloud inventory. Some older current tasks may be outside the loaded
@@ -154,12 +151,29 @@ function CodexCloudProjectPage() {
                 </p>
             ) : null}
 
-            <DataTable
-                columns={columns}
-                data={visibleTasks}
+            <CodexCloudTasksTable
                 emptyMessage="No Cloud threads match the current search."
-                getRowId={(row) => row.id}
-                initialSorting={[{ desc: true, id: 'updatedAt' }]}
+                tasks={visibleTasks}
+                onExportTask={(task) => openExport([task])}
+                onExportTasks={(taskIds) => openExport(lookupVisibleCloudTasks(visibleTasks, taskIds))}
+            />
+            <ExportDialog
+                errorMessage={getMutationErrorMessage(exportMutation.error, 'Cloud thread export failed')}
+                forceZipArchive={pendingExport ? pendingExport.taskIds.length > 1 : false}
+                open={pendingExport !== null}
+                pending={exportMutation.isPending}
+                title={pendingExport ? `Export ${pendingExport.label}` : 'Export Cloud threads'}
+                onExport={(options) => {
+                    if (pendingExport) {
+                        exportMutation.mutate(createExportSelectionMutationInput(pendingExport.taskIds, options));
+                    }
+                }}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        setPendingExport(null);
+                        exportMutation.reset();
+                    }
+                }}
             />
         </div>
     );

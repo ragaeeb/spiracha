@@ -25,6 +25,7 @@ import {
 } from '#/lib/antigravity-server';
 import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
+import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { matchesTextQuery } from '#/lib/text-filter';
 import { isWorkspaceEmptiedByDelete } from '#/lib/workspace-delete-navigation';
 
@@ -180,16 +181,12 @@ function AntigravityWorkspacePage() {
             conversationIds.length === 1
                 ? deleteAntigravityConversationFn({ data: { conversationId: conversationIds[0]! } })
                 : deleteAntigravityConversationsFn({ data: { conversationIds } }),
-        onSettled: async (_result, _error, conversationIds) => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['antigravity-workspaces'] }),
-                queryClient.invalidateQueries({ queryKey: ['antigravity-conversations', workspace.key] }),
-                ...conversationIds.map((conversationId) =>
-                    queryClient.invalidateQueries({
-                        queryKey: ['antigravity-conversation', conversationId],
-                    }),
-                ),
-            ]);
+        onSettled: async (_result, error, conversationIds) => {
+            await invalidateSourceConversationQueries(queryClient, 'antigravity', {
+                ids: conversationIds,
+                removeDetails: error == null,
+                workspaceKey: workspace.key,
+            });
         },
         onSuccess: async (result) => {
             const conversationIds = result.deletedConversationIds;

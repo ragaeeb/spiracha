@@ -1,6 +1,5 @@
-import { normalizeCodexEvents } from './conversation-data/codex-messages';
 import type { PayloadConversationDraft } from './conversation-payload-types';
-import { parseWebChatValue } from './web-chat';
+import { parseWebChatValue, webChatToMessages } from './web-chat';
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
     typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -48,10 +47,7 @@ export const parseWebPayload = async (
         artifacts: conversation.artifacts,
         createdAtMs: conversation.createdAtMs,
         id: conversation.sourceConversationId ?? conversation.id,
-        messages: normalizeCodexEvents(conversation.events).map((message) => ({
-            ...message,
-            id: message.id.replace(/^codex:/, 'web:'),
-        })),
+        messages: webChatToMessages(conversation),
         metadata: { platform: conversation.platform },
         model: conversation.model,
         source: 'web',

@@ -12,6 +12,7 @@ import { getCursorCleanupFailureMessage } from '#/lib/cursor-delete-result';
 import { cursorWorkspacesQueryOptions } from '#/lib/cursor-queries';
 import { deleteCursorWorkspaceFn, deleteCursorWorkspacesFn, recoverCursorWorkspaceFn } from '#/lib/cursor-server';
 import { getMutationErrorMessage } from '#/lib/mutation-error';
+import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { matchesTextQuery } from '#/lib/text-filter';
 
 const CursorErrorComponent = ({ error }: { error: unknown }) => {
@@ -46,9 +47,7 @@ const CursorPage = () => {
     const [partialDeleteError, setPartialDeleteError] = useState<string | null>(null);
     const deferredSearch = useDeferredValue(searchInput);
 
-    const invalidateCursorQueries = async () => {
-        await queryClient.invalidateQueries({ queryKey: ['cursor-workspaces'] });
-    };
+    const invalidateCursorQueries = () => invalidateSourceConversationQueries(queryClient, 'cursor', {});
 
     const recoverWorkspaceMutation = useMutation({
         mutationFn: (workspace: CursorWorkspaceGroup) =>

@@ -1,13 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { getTaskMock, listProjectMock, listProjectsMock, renderCodexCloudExportMock, renderSourceSessionDownloadMock } =
-    vi.hoisted(() => ({
-        getTaskMock: vi.fn(),
-        listProjectMock: vi.fn(),
-        listProjectsMock: vi.fn(),
-        renderCodexCloudExportMock: vi.fn(),
-        renderSourceSessionDownloadMock: vi.fn(),
-    }));
+const {
+    getTaskMock,
+    listProjectMock,
+    listProjectsMock,
+    renderCodexCloudExportMock,
+    renderSourceSessionDownloadMock,
+    renderSourceSessionsDownloadMock,
+} = vi.hoisted(() => ({
+    getTaskMock: vi.fn(),
+    listProjectMock: vi.fn(),
+    listProjectsMock: vi.fn(),
+    renderCodexCloudExportMock: vi.fn(),
+    renderSourceSessionDownloadMock: vi.fn(),
+    renderSourceSessionsDownloadMock: vi.fn(),
+}));
 
 vi.mock('@tanstack/react-start', () => ({
     createServerFn: () => {
@@ -31,10 +38,12 @@ vi.mock('@spiracha/lib/codex-cloud', () => ({
 
 vi.mock('./source-session-export-server', () => ({
     renderSourceSessionDownload: renderSourceSessionDownloadMock,
+    renderSourceSessionsDownload: renderSourceSessionsDownloadMock,
 }));
 
 import {
     exportCodexCloudTaskFn,
+    exportCodexCloudTasksFn,
     getCodexCloudTaskFn,
     listCodexCloudProjectFn,
     listCodexCloudProjectsFn,
@@ -91,6 +100,53 @@ describe('Codex Cloud server functions', () => {
             platform: 'codex',
             sessionId: 'task_e_1',
             updatedAtMs: Date.parse('2026-01-01T00:00:00.000Z'),
+            zipArchive: true,
+        });
+    });
+
+    it('should package a Cloud batch export from the current task list', async () => {
+        const first = { task: { id: 'task_e_1', title: 'First', updatedAt: '2026-01-01T00:00:00.000Z' } };
+        const second = { task: { id: 'task_e_2', title: 'Second', updatedAt: null } };
+        getTaskMock.mockResolvedValueOnce(first).mockResolvedValueOnce(second);
+        renderCodexCloudExportMock.mockReturnValueOnce('# First').mockReturnValueOnce('# Second');
+        renderSourceSessionsDownloadMock.mockResolvedValue({ fileName: 'cloud.zip', mode: 'download_url' });
+
+        const result = await exportCodexCloudTasksFn({
+            data: {
+                includeCommentary: false,
+                includeMetadata: true,
+                includeTools: false,
+                outputFormat: 'txt',
+                taskIds: ['task_e_1', 'task_e_2'],
+                zipArchive: true,
+            },
+        });
+
+        expect(result).toEqual({ fileName: 'cloud.zip', mode: 'download_url' });
+        expect(getTaskMock).toHaveBeenCalledWith('task_e_1');
+        expect(getTaskMock).toHaveBeenCalledWith('task_e_2');
+        expect(renderSourceSessionsDownloadMock).toHaveBeenCalledWith({
+            entries: [
+                {
+                    content: '# First',
+                    cwd: null,
+                    fallbackBaseName: 'codex-cloud',
+                    fileBaseName: 'First',
+                    sessionId: 'task_e_1',
+                    updatedAtMs: Date.parse('2026-01-01T00:00:00.000Z'),
+                },
+                {
+                    content: '# Second',
+                    cwd: null,
+                    fallbackBaseName: 'codex-cloud',
+                    fileBaseName: 'Second',
+                    sessionId: 'task_e_2',
+                    updatedAtMs: null,
+                },
+            ],
+            fallbackBaseName: 'codex-cloud-tasks',
+            outputFormat: 'txt',
+            platform: 'codex',
             zipArchive: true,
         });
     });

@@ -2,16 +2,9 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { access, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { Readable, Writable } from 'node:stream';
 import { getThreadBrowseData } from './codex-browser-queries';
 import { createCodexFixture } from './codex-test-helpers';
-import {
-    formatToolOutputSummary,
-    parseExecCommandArguments,
-    pipeCodexExportStream,
-    renderCodexSessionFile,
-    writeCodexSessionFileExport,
-} from './codex-transcript-renderer';
+import { renderCodexSessionFile, writeCodexSessionFileExport } from './codex-transcript-renderer';
 
 const tempPaths: string[] = [];
 
@@ -20,39 +13,6 @@ afterEach(async () => {
 });
 
 describe('codex transcript renderer helpers', () => {
-    it('should reject when the export destination fails while piping a transcript', async () => {
-        const source = Readable.from(['transcript']);
-        const destination = new Writable({
-            write(_chunk, _encoding, callback) {
-                callback(new Error('disk full'));
-            },
-        });
-
-        await expect(pipeCodexExportStream(source, destination)).rejects.toThrow('disk full');
-    });
-
-    it('extracts only stable command metadata from tool output', () => {
-        const summary = formatToolOutputSummary(
-            ['Command: echo hi', 'Chunk ID: abc', 'Process exited with code 0', 'Wall time: 0.1 seconds'].join('\n'),
-            'txt',
-        );
-
-        expect(summary).toBe(['Command: echo hi', 'Process exited with code 0', 'Wall time: 0.1 seconds'].join('\n'));
-    });
-
-    it('parses exec_command arguments defensively', () => {
-        expect(parseExecCommandArguments('{"cmd":"bun test","workdir":"/tmp/app"}')).toEqual({
-            argumentsParseFailed: false,
-            cmd: 'bun test',
-            workdir: '/tmp/app',
-        });
-        expect(parseExecCommandArguments('{oops')).toEqual({
-            argumentsParseFailed: true,
-            cmd: null,
-            workdir: null,
-        });
-    });
-
     it('uses the assistant model name in exported thread content when available', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-transcript-renderer-test-'));
         tempPaths.push(tempRoot);
@@ -77,8 +37,7 @@ describe('codex transcript renderer helpers', () => {
             },
         );
 
-        expect(content).toContain('## GPT 5.4');
-        expect(content).not.toContain('## Assistant');
+        expect(content).toContain('## Assistant · Final answer · GPT 5.4');
     });
 
     it('should fall back to the thread model when inline transcript messages omit their model field', async () => {
@@ -128,8 +87,7 @@ describe('codex transcript renderer helpers', () => {
             },
         );
 
-        expect(content).toContain('## GPT 5.4');
-        expect(content).not.toContain('## Assistant');
+        expect(content).toContain('## Assistant · Final answer · GPT 5.4');
     });
 
     it('should omit hidden messages and commentary while exporting every tool record', async () => {
@@ -236,11 +194,11 @@ describe('codex transcript renderer helpers', () => {
 
         expect(content).toContain('## User');
         expect(content).toContain('User from response item');
-        expect(content).toContain('## GPT 5.5');
+        expect(content).toContain('## Assistant · Final answer · GPT 5.5');
         expect(content).toContain('Final answer body');
-        expect(content).toContain('## Tool');
-        expect(content).toContain('Command: `bun test`');
-        expect(content).toContain('## Tool Output');
+        expect(content).toContain('## Tool call');
+        expect(content).toContain('Command: bun test');
+        expect(content).toContain('## Tool output');
         expect(content).toContain('search_repo');
         expect(content).toContain('unstructured output');
         expect(content).not.toContain('Hidden commentary');
@@ -321,10 +279,10 @@ describe('codex transcript renderer helpers', () => {
             outputFormat: 'md',
         });
 
-        expect(content).toContain('Tool: `exec`');
+        expect(content).toContain('Tool: exec');
         expect(content).toContain('tools.exec_command');
         expect(content).toContain('12 tests passed');
-        expect(content).toContain('Tool: `wait`');
+        expect(content).toContain('Tool: wait');
         expect(content).toContain('"timeout_ms":30000');
         expect(content).toContain('Wait finished without another message.');
 
@@ -599,11 +557,11 @@ describe('codex transcript renderer helpers', () => {
 
         expect(content).toContain('## User');
         expect(content).toContain('Actual request');
-        expect(content).toContain('## GPT 5.4');
+        expect(content).toContain('## Assistant · Final answer · GPT 5.4');
         expect(content).toContain('Final **answer**');
-        expect(content).toContain('## Tool');
-        expect(content).toContain('Command: `bun test`');
-        expect(content).toContain('## Tool Output');
+        expect(content).toContain('## Tool call');
+        expect(content).toContain('Command: bun test');
+        expect(content).toContain('## Tool output');
         expect(content).not.toContain('Metadata');
         expect(content).not.toContain('Commentary that should be hidden');
         expect(content).not.toContain('AGENTS.md instructions');

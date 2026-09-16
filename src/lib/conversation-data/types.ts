@@ -354,6 +354,7 @@ export type DeleteConversationsResult = DeleteConversationResult & {
 };
 
 export type ExportConversationsZipOptions = ConversationIdSetOptions & {
+    failurePolicy?: 'atomic' | 'partial';
     messageSelector?: ConversationMessageSelector;
     outputFormat?: 'md';
 };

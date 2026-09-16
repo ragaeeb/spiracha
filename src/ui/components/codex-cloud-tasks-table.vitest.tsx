@@ -1,12 +1,12 @@
-import type { WebChatConversationSummary } from '@spiracha/lib/web-chat';
+import type { CodexCloudTask } from '@spiracha/lib/codex-cloud';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { MouseEventHandler, ReactNode } from 'react';
 import * as React from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
 
 vi.mock('@tanstack/react-router', () => ({
-    Link: ({ children, params }: { children: ReactNode; params: { conversationId: string } }) => (
-        <a href={`/web-chats/${params.conversationId}`}>{children}</a>
+    Link: ({ children, params, to }: { children: ReactNode; params: { taskId: string }; to: string }) => (
+        <a href={to.replace('$taskId', params.taskId)}>{children}</a>
     ),
 }));
 
@@ -64,59 +64,54 @@ vi.mock('#/components/ui/dropdown-menu', () => {
     };
 });
 
-import { WebConversationsTable } from './web-conversations-table';
+import { CodexCloudReadOnlyNotice, CodexCloudTasksTable } from './codex-cloud-tasks-table';
 
 afterEach(() => {
     cleanup();
 });
 
-const conversation = (overrides: Partial<WebChatConversationSummary> = {}): WebChatConversationSummary => ({
-    createdAtMs: 1_700_000_000_000,
-    fileName: 'claude.json',
-    id: 'parsed-id',
-    lastActiveAtMs: 1_700_000_001_000,
-    messageCount: 12,
-    model: 'claude-sonnet-4',
-    platform: 'Claude',
-    sourceConversationId: 'source-id',
-    title: 'Imported research',
+const task = (overrides: Partial<CodexCloudTask> = {}): CodexCloudTask => ({
+    createdAt: '2026-01-01T00:00:00.000Z',
+    diffStats: { filesModified: 1, linesAdded: 2, linesRemoved: 0 },
+    environmentId: 'environment-1',
+    environmentLabel: 'owner/alpha',
+    id: 'task_e_1',
+    status: 'ready',
+    taskUrl: 'https://chatgpt.com/codex/tasks/task_e_1',
+    title: 'Cloud review',
+    updatedAt: '2026-01-02T00:00:00.000Z',
     ...overrides,
 });
 
-it('should export and delete imported chats by parsed id', () => {
-    const onDeleteChat = vi.fn();
-    const onDeleteChats = vi.fn();
-    const onExportChat = vi.fn();
-    const onExportChats = vi.fn();
-    const first = conversation();
+it('should export Cloud tasks from the current project list without delete or raw actions', () => {
+    const onExportTask = vi.fn();
+    const onExportTasks = vi.fn();
+    const first = task();
 
     render(
-        <WebConversationsTable
-            conversations={[first]}
-            onDeleteChat={onDeleteChat}
-            onDeleteChats={onDeleteChats}
-            onExportChat={onExportChat}
-            onExportChats={onExportChats}
-        />,
+        <>
+            <CodexCloudReadOnlyNotice />
+            <CodexCloudTasksTable
+                emptyMessage="No Cloud threads match the current search."
+                tasks={[first]}
+                onExportTask={onExportTask}
+                onExportTasks={onExportTasks}
+            />
+        </>,
     );
 
-    expect(screen.getByRole('link', { name: /Imported research/i }).getAttribute('href')).toBe('/web-chats/parsed-id');
-    expect(screen.getByText('Claude')).toBeTruthy();
-    expect(screen.getByText('claude-sonnet-4')).toBeTruthy();
-    expect(screen.getByText('12')).toBeTruthy();
-    expect(screen.getByText('claude.json')).toBeTruthy();
+    expect(screen.getByText(/Original files and deletion stay on the Codex Cloud account/)).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Cloud review task_e_1' }).getAttribute('href')).toBe(
+        '/codex/cloud/tasks/task_e_1',
+    );
+    expect(screen.queryByRole('button', { name: /Delete/i })).toBeNull();
+    expect(screen.getByText('Select threads to export them in a batch.')).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Select row parsed-id' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Export selected chat' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Delete selected chat' }));
-    expect(onExportChats).toHaveBeenCalledWith(['parsed-id']);
-    expect(onDeleteChats).toHaveBeenCalledWith(['parsed-id']);
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select row task_e_1' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Export selected thread' }));
+    expect(onExportTasks).toHaveBeenCalledWith(['task_e_1']);
 
-    const menuTrigger = screen.getByRole('button', { name: 'Actions for Imported research' });
-    fireEvent.click(menuTrigger);
-    fireEvent.click(screen.getByRole('button', { name: 'Export chat' }));
-    fireEvent.click(menuTrigger);
-    fireEvent.click(screen.getByRole('button', { name: 'Delete chat' }));
-    expect(onExportChat).toHaveBeenCalledWith(first);
-    expect(onDeleteChat).toHaveBeenCalledWith(first);
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Cloud review' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+    expect(onExportTask).toHaveBeenCalledWith(first);
 });

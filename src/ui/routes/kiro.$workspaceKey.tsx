@@ -20,6 +20,7 @@ import {
     exportKiroSessionFn,
     exportKiroSessionsFn,
 } from '#/lib/kiro-server';
+import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { matchesTextQuery } from '#/lib/text-filter';
 import { isWorkspaceEmptiedByDelete } from '#/lib/workspace-delete-navigation';
 
@@ -143,14 +144,12 @@ const KiroWorkspacePage = () => {
             sessionIds.length === 1
                 ? deleteKiroSessionFn({ data: { sessionId: sessionIds[0]! } })
                 : deleteKiroSessionsFn({ data: { sessionIds } }),
-        onSettled: async (_result, _error, sessionIds) => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['kiro-workspaces'] }),
-                queryClient.invalidateQueries({ queryKey: ['kiro-sessions', workspace.key] }),
-                ...sessionIds.map((sessionId) =>
-                    queryClient.invalidateQueries({ queryKey: ['kiro-session', sessionId] }),
-                ),
-            ]);
+        onSettled: async (_result, error, sessionIds) => {
+            await invalidateSourceConversationQueries(queryClient, 'kiro', {
+                ids: sessionIds,
+                removeDetails: error == null,
+                workspaceKey: workspace.key,
+            });
         },
         onSuccess: async (_result, sessionIds) => {
             const workspaceEmptied = isWorkspaceEmptiedByDelete(sessions, sessionIds, (session) => session.sessionId);

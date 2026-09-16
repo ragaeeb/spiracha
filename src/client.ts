@@ -1,5 +1,3 @@
-import { mapWithConcurrency } from './lib/concurrency';
-
 export type { ConversationPayloadErrorCode } from './lib/conversation-payload';
 export { ConversationPayloadError, convertConversationPayload } from './lib/conversation-payload';
 export type {
@@ -42,8 +40,13 @@ import type {
     ListConversationsOptions,
     ResolvedConversationRef,
 } from './lib/conversation-data/types';
-import { createConversationMarkdownZip } from './lib/conversation-zip-export';
-import { getExportPlatformName } from './lib/ui-export-archive';
+import {
+    AtomicExportError,
+    assembleExportBatch,
+    EmptyPartialExportError,
+    writeExportArchive,
+} from './lib/export-archive';
+import { buildBatchExportBaseName, getExportPlatformName, sanitizeExportFileName } from './lib/ui-export-archive';
 
 export type {
     ConversationDataLocations,
@@ -409,7 +412,14 @@ const rejectHttpLocations = (locations: ConversationDataLocations | undefined): 
     }
 };
 
-const buildBatchBody = ({ ids, messageSelector, outputFormat, source }: ExportConversationsZipOptions) => ({
+const buildBatchBody = ({
+    failurePolicy,
+    ids,
+    messageSelector,
+    outputFormat,
+    source,
+}: ExportConversationsZipOptions) => ({
+    failure_policy: failurePolicy,
     ids,
     message_selector: messageSelector,
     output_format: outputFormat,
@@ -424,35 +434,66 @@ const exportLocalConversationsZip = async (
     if (options.ids.length > 200) {
         throw new SpirachaClientError('At most 200 conversation ids may be exported at once.');
     }
-    const conversations = await mapWithConcurrency(options.ids, 4, (id) =>
-        getLocalConversation({
-            id,
-            locations: options.locations,
-            messageSelector: 'all',
+    const failurePolicy = options.failurePolicy ?? 'atomic';
+    const zipMeta: Array<{ cwd: string | null; updatedAtMs: number | null }> = [];
+    try {
+        const assembled = await assembleExportBatch({
+            failurePolicy,
+            kind: 'batch_normalized_export',
+            load: async (id) => {
+                const conversation = await getLocalConversation({
+                    id,
+                    locations: options.locations,
+                    messageSelector: 'all',
+                    source: options.source,
+                });
+                if (!conversation) {
+                    return null;
+                }
+                zipMeta.push({
+                    cwd: conversation.workspacePath,
+                    updatedAtMs: conversation.updatedAtMs,
+                });
+                const fileBaseName =
+                    sanitizeExportFileName(conversation.title?.trim() || '') ||
+                    sanitizeExportFileName(`${options.source}-${id}`) ||
+                    'conversation';
+                return {
+                    members: [
+                        {
+                            bytes: renderLocalConversationMarkdown(conversation, {
+                                messageSelector: options.messageSelector ?? 'all',
+                            }),
+                            relativePath: `${fileBaseName}.md`,
+                        },
+                    ],
+                };
+            },
+            options: {
+                failurePolicy,
+                messageSelector: options.messageSelector ?? 'all',
+                outputFormat: options.outputFormat ?? 'md',
+            },
+            requestedIds: options.ids,
             source: options.source,
-        }),
-    );
-
-    if (conversations.some((conversation) => conversation === null)) {
-        return null;
+        });
+        const archive = await writeExportArchive({
+            baseName: buildBatchExportBaseName(zipMeta, `${options.source}-conversations`),
+            destination: { mode: 'blob' },
+            manifest: assembled.manifest,
+            members: assembled.members,
+            platform: getExportPlatformName(options.source),
+        });
+        if ('downloadUrl' in archive) {
+            throw new Error('Expected an in-memory conversation archive');
+        }
+        return archive;
+    } catch (error) {
+        if (error instanceof AtomicExportError || error instanceof EmptyPartialExportError) {
+            return null;
+        }
+        throw error;
     }
-
-    return createConversationMarkdownZip({
-        entries: conversations.map((conversation, index) => {
-            const resolvedConversation = conversation!;
-            return {
-                cwd: resolvedConversation.workspacePath,
-                fallbackBaseName: `${options.source}-${options.ids[index]}`,
-                markdown: renderLocalConversationMarkdown(resolvedConversation, {
-                    messageSelector: options.messageSelector ?? 'all',
-                }),
-                title: resolvedConversation.title,
-                updatedAtMs: resolvedConversation.updatedAtMs,
-            };
-        }),
-        fallbackProjectName: `${options.source}-conversations`,
-        platform: getExportPlatformName(options.source),
-    });
 };
 
 const makeLocalClient = (options: LocalConversationClientOptions): ConversationClient => ({

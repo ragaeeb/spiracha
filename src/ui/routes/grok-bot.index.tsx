@@ -10,15 +10,16 @@ import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
 import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
+import { grokBotChatsQueryOptions } from '#/lib/grok-bot-queries';
 import type { GrokBotChat } from '#/lib/grok-bot-server';
 import {
     deleteGrokBotChatFn,
     deleteGrokBotChatsFn,
     exportGrokBotChatFn,
     exportGrokBotChatsFn,
-    grokBotChatsQueryOptions,
 } from '#/lib/grok-bot-server';
 import { getMutationErrorMessage } from '#/lib/mutation-error';
+import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { matchesTextQuery } from '#/lib/text-filter';
 
 type PendingChatDelete = {
@@ -136,13 +137,11 @@ const GrokBotPage = () => {
             conversationIds.length === 1
                 ? deleteGrokBotChatFn({ data: { conversationId: conversationIds[0]! } })
                 : deleteGrokBotChatsFn({ data: { conversationIds } }),
-        onSettled: async (_result, _error, conversationIds) => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['grok-bot-chats'] }),
-                ...conversationIds.map((conversationId) =>
-                    queryClient.invalidateQueries({ queryKey: ['grok-bot-chat', conversationId] }),
-                ),
-            ]);
+        onSettled: async (_result, error, conversationIds) => {
+            await invalidateSourceConversationQueries(queryClient, 'grok-bot', {
+                ids: conversationIds,
+                removeDetails: error == null,
+            });
         },
         onSuccess: () => setPendingDelete(null),
     });

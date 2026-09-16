@@ -64,8 +64,13 @@ describe('raw export end-to-end helpers', () => {
         const fileName = decodeURIComponent(result.downloadUrl.slice(UI_EXPORT_URL_PREFIX.length));
         const onDisk = new Uint8Array(await Bun.file(path.join(root, fileName)).arrayBuffer());
         const members = unzipSync(onDisk);
-        expect(Object.keys(members).sort()).toEqual(['events.jsonl', 'replica-2.blob', 'replica.blob']);
-        for (const bytes of Object.values(members)) {
+        expect(Object.keys(members).sort()).toEqual(
+            ['events.jsonl', 'replica-2.blob', 'replica.blob', 'spiracha-manifest.json'].sort(),
+        );
+        for (const [name, bytes] of Object.entries(members)) {
+            if (name === 'spiracha-manifest.json') {
+                continue;
+            }
             expect(bytes).toEqual(original);
         }
         const fetch = createProductionUiFetch({

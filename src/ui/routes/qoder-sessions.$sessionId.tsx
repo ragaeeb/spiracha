@@ -30,6 +30,7 @@ import {
     withThreadTranscriptSearch,
 } from '#/lib/route-search';
 import { RouteStateResetBoundary } from '#/lib/route-state-reset';
+import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
 const QoderSessionDetailErrorComponent = ({ error }: { error: unknown }) => {
@@ -141,11 +142,11 @@ const QoderSessionDetailPage = () => {
     const deleteMutation = useMutation({
         mutationFn: () => deleteQoderSessionFn({ data: { sessionId: detail.session.sessionId } }),
         onSuccess: async () => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['qoder-workspaces'] }),
-                queryClient.invalidateQueries({ queryKey: ['qoder-sessions', detail.session.workspaceKey] }),
-                queryClient.invalidateQueries({ queryKey: ['qoder-session', detail.session.sessionId] }),
-            ]);
+            await invalidateSourceConversationQueries(queryClient, 'qoder', {
+                ids: [detail.session.sessionId],
+                removeDetails: true,
+                workspaceKey: detail.session.workspaceKey,
+            });
             const workspaces = await queryClient.fetchQuery(qoderWorkspacesQueryOptions());
             if (shouldNavigateToSourceIndexAfterDelete(workspaces, detail.session.workspaceKey, (item) => item.key)) {
                 await navigate({ to: '/qoder' });

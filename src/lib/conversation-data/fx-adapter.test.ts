@@ -3,6 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { unzipSync } from 'fflate';
+import { EXPORT_ARCHIVE_MANIFEST_FILE } from '../export-archive';
 import { writeFxFixture } from '../fx-test-helpers';
 import {
     deleteConversation,
@@ -122,7 +123,12 @@ describe('FX conversation adapter', () => {
         const members = unzipSync(new Uint8Array(await download!.blob.arrayBuffer()));
 
         expect(download?.mimeType).toBe('application/zip');
-        expect(Object.keys(members).sort()).toEqual(Object.keys(expectedMembers).sort());
+        expect(
+            Object.keys(members)
+                .filter((name) => name !== EXPORT_ARCHIVE_MANIFEST_FILE)
+                .sort(),
+        ).toEqual(Object.keys(expectedMembers).sort());
+        expect(members[EXPORT_ARCHIVE_MANIFEST_FILE]).toBeDefined();
         for (const [name, bytes] of Object.entries(expectedMembers)) {
             expect(Buffer.from(members[name]!)).toEqual(Buffer.from(bytes));
         }

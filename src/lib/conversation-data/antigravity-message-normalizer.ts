@@ -56,7 +56,7 @@ const antigravityToolEvidence = (message: Pick<ConversationMessage, 'metadata' |
                   callId: metadataString(message, 'toolCallId'),
                   command: metadataString(message, 'command'),
                   inputText: null,
-                  name: metadataString(message, 'toolName') ?? 'unknown',
+                  name: metadataString(message, 'toolName') ?? metadataString(message, 'type') ?? 'unknown',
                   workdir: metadataString(message, 'workdir'),
               };
     const status = metadataString(message, 'status');

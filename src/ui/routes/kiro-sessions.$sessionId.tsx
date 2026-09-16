@@ -30,6 +30,7 @@ import {
     withThreadTranscriptSearch,
 } from '#/lib/route-search';
 import { RouteStateResetBoundary } from '#/lib/route-state-reset';
+import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
 const KiroSessionDetailErrorComponent = ({ error }: { error: unknown }) => {
@@ -157,11 +158,11 @@ const KiroSessionDetailPage = () => {
     const deleteSessionMutation = useMutation({
         mutationFn: () => deleteKiroSessionFn({ data: { sessionId: detail.session.sessionId } }),
         onSuccess: async () => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['kiro-workspaces'] }),
-                queryClient.invalidateQueries({ queryKey: ['kiro-sessions', detail.session.workspaceKey] }),
-                queryClient.invalidateQueries({ queryKey: ['kiro-session', detail.session.sessionId] }),
-            ]);
+            await invalidateSourceConversationQueries(queryClient, 'kiro', {
+                ids: [detail.session.sessionId],
+                removeDetails: true,
+                workspaceKey: detail.session.workspaceKey,
+            });
             const workspaces = await queryClient.fetchQuery(kiroWorkspacesQueryOptions());
             if (
                 shouldNavigateToSourceIndexAfterDelete(

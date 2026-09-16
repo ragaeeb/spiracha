@@ -20,6 +20,7 @@ import {
 } from '#/lib/command-code-server';
 import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
+import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { matchesTextQuery } from '#/lib/text-filter';
 import { isWorkspaceEmptiedByDelete } from '#/lib/workspace-delete-navigation';
 
@@ -134,14 +135,12 @@ const CommandCodeWorkspacePage = () => {
             sessionIds.length === 1
                 ? deleteCommandCodeSessionFn({ data: { sessionId: sessionIds[0]! } })
                 : deleteCommandCodeSessionsFn({ data: { sessionIds } }),
-        onSettled: async (_result, _error, sessionIds) => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['command-code-workspaces'] }),
-                queryClient.invalidateQueries({ queryKey: ['command-code-sessions', workspace.key] }),
-                ...sessionIds.map((sessionId) =>
-                    queryClient.invalidateQueries({ queryKey: ['command-code-session', sessionId] }),
-                ),
-            ]);
+        onSettled: async (_result, error, sessionIds) => {
+            await invalidateSourceConversationQueries(queryClient, 'command-code', {
+                ids: sessionIds,
+                removeDetails: error == null,
+                workspaceKey: workspace.key,
+            });
         },
         onSuccess: async (_result, sessionIds) => {
             const workspaceEmptied = isWorkspaceEmptiedByDelete(sessions, sessionIds, (session) => session.sessionId);

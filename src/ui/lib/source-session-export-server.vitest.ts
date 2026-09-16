@@ -217,10 +217,9 @@ describe('source session export server helpers', () => {
         if (batch.mode !== 'download_url') {
             throw new Error('expected a zip download URL');
         }
-        expect(bunWriteMock.mock.calls.map(([target]) => path.basename(String(target)))).toEqual([
-            'messages.jsonl',
-            'messages-2.jsonl',
-        ]);
+        expect(bunWriteMock.mock.calls.map(([target]) => path.basename(String(target))).sort()).toEqual(
+            ['messages-2.jsonl', 'messages.jsonl', 'spiracha-manifest.json'].sort(),
+        );
         expect((await stat(resolveDownloadPath(batch.downloadUrl))).isFile()).toBe(true);
         expect(new TextDecoder().decode(bunWriteMock.mock.calls[0]?.[1] as ArrayBuffer)).toBe(firstContent);
         expect(new TextDecoder().decode(bunWriteMock.mock.calls[1]?.[1] as ArrayBuffer)).toBe(secondContent);

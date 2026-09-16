@@ -1,7 +1,6 @@
 import { renderSelectedTranscriptExport } from '@spiracha/lib/conversation-data/conversation-export';
 import type { ConversationDetail, ConversationMessage } from '@spiracha/lib/conversation-data/types';
 import type { JsonValue } from '@spiracha/lib/shared-text';
-import { queryOptions } from '@tanstack/react-query';
 import { createServerFn } from '@tanstack/react-start';
 import type { InferOutput } from 'valibot';
 import { array, boolean, maxLength, minLength, object, optional, picklist, pipe, regex, string } from 'valibot';
@@ -220,18 +219,4 @@ export const deleteGrokBotChatsFn = createServerFn({ method: 'POST' })
             deletedFiles: [...new Set(results.flatMap((result) => result.deletedFiles))],
             deletedIds: [...new Set(results.flatMap((result) => result.deletedIds))],
         };
-    });
-
-export const grokBotChatsQueryOptions = () =>
-    queryOptions({
-        queryFn: () => listGrokBotChatsFn(),
-        queryKey: ['grok-bot-chats'],
-    });
-
-export const grokBotChatQueryOptions = (conversationId: string | null) =>
-    queryOptions({
-        enabled: conversationId !== null,
-        gcTime: 60_000,
-        queryFn: () => getGrokBotChatFn({ data: { conversationId: conversationId ?? '' } }),
-        queryKey: ['grok-bot-chat', conversationId ?? 'none'],
     });

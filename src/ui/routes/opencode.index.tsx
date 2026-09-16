@@ -11,6 +11,7 @@ import { RouteErrorPanel } from '#/components/route-error-panel';
 import { getMutationErrorMessage } from '#/lib/mutation-error';
 import { openCodeWorkspacesQueryOptions } from '#/lib/opencode-queries';
 import { deleteOpenCodeWorkspaceFn, deleteOpenCodeWorkspacesFn } from '#/lib/opencode-server';
+import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { matchesTextQuery } from '#/lib/text-filter';
 
 type OpenCodeCleanupRetryTarget = {
@@ -56,9 +57,7 @@ const OpenCodePage = () => {
     const [partialDeleteError, setPartialDeleteError] = useState<string | null>(null);
     const deferredSearch = useDeferredValue(searchInput);
 
-    const invalidateOpenCodeWorkspaceQueries = async () => {
-        await queryClient.invalidateQueries({ queryKey: ['opencode-workspaces'] });
-    };
+    const invalidateOpenCodeWorkspaceQueries = () => invalidateSourceConversationQueries(queryClient, 'opencode', {});
 
     const deleteWorkspaceMutation = useMutation({
         mutationFn: async (selectedWorkspaces: PendingOpenCodeWorkspace[]) => {

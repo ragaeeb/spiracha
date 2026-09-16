@@ -20,6 +20,7 @@ import {
     exportQoderSessionFn,
     exportQoderSessionsFn,
 } from '#/lib/qoder-server';
+import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { matchesTextQuery } from '#/lib/text-filter';
 import { isWorkspaceEmptiedByDelete } from '#/lib/workspace-delete-navigation';
 
@@ -133,14 +134,12 @@ const QoderWorkspacePage = () => {
             sessionIds.length === 1
                 ? deleteQoderSessionFn({ data: { sessionId: sessionIds[0]! } })
                 : deleteQoderSessionsFn({ data: { sessionIds } }),
-        onSettled: async (_result, _error, sessionIds) => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['qoder-workspaces'] }),
-                queryClient.invalidateQueries({ queryKey: ['qoder-sessions', workspace.key] }),
-                ...sessionIds.map((sessionId) =>
-                    queryClient.invalidateQueries({ queryKey: ['qoder-session', sessionId] }),
-                ),
-            ]);
+        onSettled: async (_result, error, sessionIds) => {
+            await invalidateSourceConversationQueries(queryClient, 'qoder', {
+                ids: sessionIds,
+                removeDetails: error == null,
+                workspaceKey: workspace.key,
+            });
         },
         onSuccess: async (_result, sessionIds) => {
             const workspaceEmptied = isWorkspaceEmptiedByDelete(sessions, sessionIds, (session) => session.sessionId);

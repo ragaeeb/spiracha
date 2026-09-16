@@ -4,6 +4,9 @@ import { getNumericMaximum } from './numeric-range';
 import { getPortablePathBasename } from './portable-path';
 import type { ExportFormat } from './shared-text';
 
+export const EXPORT_ARCHIVE_MANIFEST_FILE = 'spiracha-manifest.json';
+export const EXPORT_ARCHIVE_MANIFEST_SCHEMA_VERSION = 1;
+
 export type ExportPlatform = (typeof SOURCE_CATALOG)[ConversationSource]['exportPlatform'];
 
 type BatchExportNameEntry = {
@@ -73,7 +76,7 @@ const truncateExportName = (value: string, maxBytes: number): string => {
     return result;
 };
 
-export const buildExportArchiveBaseName = (platform: ExportPlatform, baseName: string) =>
+export const buildExportArchiveBaseName = (platform: string, baseName: string) =>
     truncateExportName(`${platform}_${sanitizeExportFileName(baseName) || 'export'}`, 150);
 
 export const getExportMimeType = (outputFormat: ExportFormat) => {

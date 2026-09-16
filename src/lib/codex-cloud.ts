@@ -13,12 +13,15 @@ import {
     toIsoTimestamp,
     toSafeJsonValue,
 } from './codex-cloud-transcript';
+import { normalizeCodexEvents } from './conversation-data/codex-messages';
 import type {
     MessageEvent,
     ThreadEvent,
     ThreadTranscriptStats,
     ToolCallEvent,
 } from './conversation-data/conversation-events';
+import { renderNormalizedExport } from './conversation-data/conversation-export';
+import type { ConversationArtifact, SupplementalEvent } from './conversation-data/types';
 import type { JsonValue } from './shared-text';
 
 const CODEX_CLOUD_BASE_URL = 'https://chatgpt.com/backend-api/wham';
@@ -429,7 +432,15 @@ const performCloudRequest = async (
 };
 
 const parseCloudResponse = async (response: Response) => {
+    if (response.status === 404) {
+        await response.body?.cancel();
+        throw new CodexCloudError(
+            'Codex Cloud task was not found. It may have disappeared from the current inventory.',
+            404,
+        );
+    }
     if (!response.ok) {
+        await response.body?.cancel();
         throw new CodexCloudError(`Codex Cloud request failed (${response.status}).`, response.status);
     }
 
@@ -655,11 +666,17 @@ export const createCodexCloudClient = (options: CodexCloudClientOptions = {}): C
     };
 
     const listProject = async (projectId: string) => {
-        const project = (await listProjects()).find((candidate) => candidate.id === projectId);
-        if (!project) {
-            throw new CodexCloudError('Codex Cloud project not found. Refresh the Cloud inventory and try again.');
+        const projects = await listProjects();
+        const project = projects.find((candidate) => candidate.id === projectId);
+        if (project) {
+            return project;
         }
-        return project;
+        if (projects.some((candidate) => candidate.environmentId === projectId)) {
+            throw new CodexCloudError(
+                'Codex Cloud environment does not match the current project inventory. Refresh the Cloud inventory and try again.',
+            );
+        }
+        throw new CodexCloudError('Codex Cloud project not found. Refresh the Cloud inventory and try again.');
     };
 
     return { getTask, listProject, listProjects, listTasks };
@@ -674,105 +691,96 @@ export type CodexCloudExportOptions = {
     outputFormat: 'md' | 'txt';
 };
 
-const getCloudEventTitle = (event: ThreadEvent, model: string | null) => {
-    if (event.kind === 'message') {
-        if (event.variant === 'agent_message') {
-            return event.role === 'assistant' ? (model ?? 'Assistant') : 'Assistant update';
-        }
-        return event.role === 'user' ? 'User' : event.role === 'system' ? 'System' : (model ?? 'Assistant');
-    }
-
+const cloudEventBody = (event: ThreadEvent) => {
     switch (event.kind) {
-        case 'reasoning':
-            return 'Reasoning';
-        case 'task_started':
-            return 'Task started';
-        case 'task_complete':
-            return 'Task complete';
-        case 'token_count':
-            return 'Token update';
-        case 'tool_call':
-            return `Tool call: ${event.name}`;
-        case 'tool_output':
-            return 'Tool output';
-        case 'web_search':
-            return 'Web search';
-    }
-};
-
-const getCloudEventBody = (event: ThreadEvent) => {
-    switch (event.kind) {
-        case 'message':
-            return event.text || 'No text content';
-        case 'reasoning':
-            return event.summary.join(' ') || 'Reasoning content is not directly available.';
         case 'task_started':
             return `Context window: ${event.modelContextWindow ?? 'n/a'}\n\nCollaboration mode: ${event.collaborationModeKind ?? 'n/a'}`;
         case 'task_complete':
             return `Duration: ${event.durationMs ?? 'n/a'} ms\n\nFirst token: ${event.timeToFirstTokenMs ?? 'n/a'} ms`;
         case 'token_count':
             return JSON.stringify(event.rateLimits, null, 2);
-        case 'tool_call':
-            return [
-                event.command ? `Command: ${event.command}` : event.name,
-                event.workdir ? `Working directory: ${event.workdir}` : null,
-            ]
-                .filter(Boolean)
-                .join('\n\n');
-        case 'tool_output':
-            return [event.exitCode === null ? null : `Exit code: ${event.exitCode}`, event.summary || event.outputText]
-                .filter(Boolean)
-                .join('\n\n');
         case 'web_search':
             return [`Phase: ${event.phase}`, event.status, event.query].filter(Boolean).join('\n\n');
+        default:
+            return '';
     }
 };
 
-const shouldIncludeCloudExportEvent = (event: ThreadEvent, options: CodexCloudExportOptions) => {
-    if (event.kind === 'message' && event.role === 'assistant' && event.phase === 'commentary') {
-        return options.includeCommentary;
+const cloudSupplementalKind = (event: ThreadEvent): SupplementalEvent['kind'] | null => {
+    if (event.kind === 'task_started' || event.kind === 'task_complete') {
+        return 'lifecycle';
     }
-    if (event.kind === 'tool_call' || event.kind === 'tool_output' || event.kind === 'web_search') {
-        return options.includeTools;
+    if (event.kind === 'token_count') {
+        return 'token_usage';
     }
-    return true;
+    if (event.kind === 'web_search') {
+        return 'search';
+    }
+    return null;
 };
 
-const getCloudDiffSection = (detail: CodexCloudTaskDetail, outputFormat: 'md' | 'txt') => {
+const cloudSupplementalEvents = (detail: CodexCloudTaskDetail, includeTools: boolean): SupplementalEvent[] =>
+    detail.events.flatMap((event) => {
+        const kind = cloudSupplementalKind(event);
+        if (!kind || (event.kind === 'web_search' && !includeTools)) {
+            return [];
+        }
+        return [
+            {
+                createdAtMs: null,
+                id: `${detail.task.id}:${event.sequence}`,
+                kind,
+                metadata: { eventKind: event.kind },
+                order: event.sequence,
+                provenance: {
+                    blockIndex: null,
+                    branchId: null,
+                    origin: 'derived',
+                    parentMessageId: null,
+                    sourceConversationId: detail.task.id,
+                    sourceRecordId: null,
+                },
+                text: cloudEventBody(event),
+            },
+        ];
+    });
+
+const cloudDiffArtifact = (detail: CodexCloudTaskDetail): ConversationArtifact[] => {
     const { filesModified, linesAdded, linesRemoved } = detail.diff.stats;
     const stats = [
         filesModified === null ? null : `Files changed: ${filesModified}`,
         linesAdded === null ? null : `Additions: +${linesAdded}`,
         linesRemoved === null ? null : `Deletions: -${linesRemoved}`,
     ].filter((value): value is string => value !== null);
-    const body = [...stats, detail.diff.patch].filter((value): value is string => Boolean(value)).join('\n\n');
-    if (!body) {
-        return null;
-    }
-    return outputFormat === 'md' ? `## Diff\n\n${body}` : `Diff\n\n${body}`;
+    const content = [...stats, detail.diff.patch].filter((value): value is string => Boolean(value)).join('\n\n');
+    return content
+        ? [
+              {
+                  content,
+                  id: `${detail.task.id}:diff`,
+                  title: 'Diff',
+              },
+          ]
+        : [];
 };
 
-export const renderCodexCloudExport = (detail: CodexCloudTaskDetail, options: CodexCloudExportOptions) => {
-    const metadata = [
-        `Source: Codex Cloud`,
-        `Task ID: ${detail.task.id}`,
-        `Project: ${detail.projectLabel}`,
-        `Status: ${detail.status ?? detail.task.status}`,
-        `Updated: ${detail.task.updatedAt ?? 'n/a'}`,
-        `URL: ${detail.task.taskUrl}`,
-    ];
-    const sections = detail.events
-        .filter((event) => shouldIncludeCloudExportEvent(event, options))
-        .map((event) => {
-            const title = getCloudEventTitle(event, detail.model);
-            const body = getCloudEventBody(event);
-            return options.outputFormat === 'md' ? `## ${title}\n\n${body}` : `${title}\n\n${body}`;
-        });
-    const diffSection = getCloudDiffSection(detail, options.outputFormat);
-    if (diffSection) {
-        sections.push(diffSection);
-    }
-    const heading = options.outputFormat === 'md' ? `# ${detail.task.title}` : detail.task.title;
-    const metadataSection = options.includeMetadata ? `${metadata.join('\n')}\n\n` : '';
-    return `${heading}\n\n${metadataSection}${sections.join('\n\n')}`.trimEnd() + '\n';
-};
+export const renderCodexCloudExport = (detail: CodexCloudTaskDetail, options: CodexCloudExportOptions) =>
+    renderNormalizedExport(
+        {
+            artifacts: cloudDiffArtifact(detail),
+            bodyAvailability: 'full',
+            messages: normalizeCodexEvents(detail.events),
+            metadata: {
+                project: detail.projectLabel,
+                source: 'Codex Cloud',
+                status: detail.status ?? detail.task.status,
+                task_id: detail.task.id,
+                updated: detail.task.updatedAt ?? 'n/a',
+                url: detail.task.taskUrl,
+            },
+            ...(detail.model ? { model: detail.model } : {}),
+            supplementalEvents: cloudSupplementalEvents(detail, options.includeTools),
+            title: detail.task.title,
+        },
+        options,
+    );

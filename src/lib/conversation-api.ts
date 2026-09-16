@@ -1,5 +1,4 @@
 import path from 'node:path';
-import { mapWithConcurrency } from './concurrency';
 import {
     type ConversationDetail,
     type ConversationIdSetOptions,
@@ -20,6 +19,7 @@ import {
     listConversations,
     OriginalRepresentationUnavailableError,
     resolveConversationRef,
+    SourceChangedError,
     SourceMutationConflictError,
     UnsupportedSourceOperationError,
 } from './conversation-data';
@@ -32,9 +32,14 @@ import { IncompleteTranscriptError } from './conversation-data/operation-types';
 import { decodeConversationCursor } from './conversation-data/pagination';
 import { ConversationPayloadError, convertConversationPayload } from './conversation-payload';
 import type { ConvertConversationPayloadOptions } from './conversation-payload-types';
-import { createConversationMarkdownZip } from './conversation-zip-export';
+import { AtomicExportError, assembleExportBatch, EmptyPartialExportError, writeExportArchive } from './export-archive';
 import { isAllowedLocalRequestOrigin } from './local-request-security';
-import { buildRawConversationExportFileName, getExportPlatformName } from './ui-export-archive';
+import {
+    buildBatchExportBaseName,
+    buildRawConversationExportFileName,
+    getExportPlatformName,
+    sanitizeExportFileName,
+} from './ui-export-archive';
 
 type ConversationApiDependencies = {
     buildEvidenceExport?: typeof buildEvidenceExport;
@@ -58,11 +63,11 @@ type ApiErrorCode =
     | 'mutation_conflict'
     | 'not_found'
     | 'original_representation_unavailable'
+    | 'source_changed'
     | 'unsupported_operation'
     | 'validation_error';
 type ParseResult<T> = { error: Response } | { value: T };
 
-const BATCH_LOAD_CONCURRENCY = 4;
 const MAX_ID_BATCH_SIZE = 200;
 const MAX_ID_LENGTH = 2048;
 const MAX_LIMIT = 200;
@@ -694,6 +699,13 @@ const handleRawConversation = async (
                 source: error.source,
             });
         }
+        if (error instanceof SourceChangedError) {
+            return errorResponse('source_changed', error.message, 409, {
+                id: result.value.id,
+                reason_code: error.reasonCode,
+                source: result.value.source,
+            });
+        }
         throw error;
     }
 };
@@ -880,6 +892,26 @@ const parseJsonIdsOption = (body: Record<string, unknown>): ParseResult<string[]
     return { value: ids };
 };
 
+const parseJsonFailurePolicy = (body: Record<string, unknown>): ParseResult<'atomic' | 'partial'> => {
+    const failurePolicy = getStringOption(body, 'failurePolicy', 'failure_policy');
+    if ('error' in failurePolicy) {
+        return failurePolicy;
+    }
+    if (failurePolicy.value === undefined || failurePolicy.value === 'atomic') {
+        return { value: 'atomic' };
+    }
+    if (failurePolicy.value === 'partial') {
+        return { value: 'partial' };
+    }
+    return {
+        error: invalidFieldResponse(
+            'failure_policy',
+            failurePolicy.value,
+            '`failure_policy` must be "atomic" or "partial".',
+        ),
+    };
+};
+
 const parseJsonExportFormat = (body: Record<string, unknown>): ParseResult<'md'> => {
     const outputFormat = getStringOption(body, 'outputFormat', 'output_format');
     if ('error' in outputFormat) {
@@ -942,8 +974,14 @@ const parseExportConversationsBody = async (request: Request): Promise<ParseResu
         return messageSelector;
     }
 
+    const failurePolicy = parseJsonFailurePolicy(body.value);
+    if ('error' in failurePolicy) {
+        return failurePolicy;
+    }
+
     return {
         value: {
+            failurePolicy: failurePolicy.value,
             ids: idSet.value.ids,
             messageSelector: messageSelector.value,
             outputFormat: outputFormat.value,
@@ -1002,68 +1040,84 @@ const handleDeleteConversations = async (request: Request, dependencies: ReturnT
     }
 };
 
-const getConversationZipEntry = (conversation: ConversationDetail, markdown: string) => ({
-    cwd: conversation.workspacePath,
-    fallbackBaseName: `${conversation.source}-${conversation.id}`,
-    markdown,
-    title: conversation.title,
-    updatedAtMs: conversation.updatedAtMs,
-});
-
 const handleExportConversations = async (request: Request, dependencies: ReturnType<typeof getDeps>) => {
     const result = await parseExportConversationsBody(request);
     if ('error' in result) {
         return result.error;
     }
 
-    const loaded = await mapWithConcurrency(result.value.ids, BATCH_LOAD_CONCURRENCY, async (id) => {
-        const conversation = await dependencies.getConversation({
-            id,
-            messageSelector: 'all',
+    const failurePolicy = result.value.failurePolicy ?? 'atomic';
+    const zipMeta: Array<{ cwd: string | null; updatedAtMs: number | null }> = [];
+
+    try {
+        const assembled = await assembleExportBatch({
+            failurePolicy,
+            kind: 'batch_normalized_export',
+            load: async (id) => {
+                const conversation = await dependencies.getConversation({
+                    id,
+                    messageSelector: 'all',
+                    source: result.value.source,
+                });
+                if (!conversation) {
+                    return null;
+                }
+                zipMeta.push({
+                    cwd: conversation.workspacePath,
+                    updatedAtMs: conversation.updatedAtMs,
+                });
+                const fileBaseName =
+                    sanitizeExportFileName(conversation.title?.trim() || '') ||
+                    sanitizeExportFileName(`${conversation.source}-${conversation.id}`) ||
+                    'conversation';
+                return {
+                    members: [
+                        {
+                            bytes: dependencies.renderConversationMarkdown(conversation, {
+                                messageSelector: result.value.messageSelector,
+                            }),
+                            relativePath: `${fileBaseName}.md`,
+                        },
+                    ],
+                };
+            },
+            options: {
+                failurePolicy,
+                messageSelector: result.value.messageSelector,
+                outputFormat: result.value.outputFormat,
+            },
+            requestedIds: result.value.ids,
             source: result.value.source,
         });
-        if (!conversation) {
-            return { entry: null, id };
+
+        const zip = await writeExportArchive({
+            baseName: buildBatchExportBaseName(zipMeta, `${result.value.source}-conversations`),
+            destination: { mode: 'blob' },
+            manifest: assembled.manifest,
+            members: assembled.members,
+            platform: getExportPlatformName(result.value.source),
+        });
+        if ('downloadUrl' in zip) {
+            throw new Error('Expected an in-memory conversation archive');
         }
 
-        return {
-            entry: getConversationZipEntry(
-                conversation,
-                dependencies.renderConversationMarkdown(conversation, {
-                    messageSelector: result.value.messageSelector,
-                }),
-            ),
-            id,
-        };
-    });
-    const missingIds = loaded.filter(({ entry }) => !entry).map(({ id }) => id);
-
-    if (missingIds.length > 0) {
-        return errorResponse(
-            'conversation_not_found',
-            'Some conversations do not exist for that source and id set.',
-            404,
-            {
-                ids: missingIds,
-                source: result.value.source,
+        return new Response(zip.blob, {
+            headers: {
+                'Cache-Control': 'no-store',
+                'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(zip.fileName)}`,
+                'Content-Type': zip.mimeType,
+                'X-Content-Type-Options': 'nosniff',
             },
-        );
+        });
+    } catch (error) {
+        if (error instanceof AtomicExportError || error instanceof EmptyPartialExportError) {
+            return errorResponse('conversation_not_found', error.message, 404, {
+                ids: error instanceof AtomicExportError ? error.missingIds : result.value.ids,
+                source: result.value.source,
+            });
+        }
+        throw error;
     }
-
-    const zip = await createConversationMarkdownZip({
-        entries: loaded.flatMap(({ entry }) => (entry ? [entry] : [])),
-        fallbackProjectName: `${result.value.source}-conversations`,
-        platform: getExportPlatformName(result.value.source),
-    });
-
-    return new Response(zip.blob, {
-        headers: {
-            'Cache-Control': 'no-store',
-            'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(zip.fileName)}`,
-            'Content-Type': zip.mimeType,
-            'X-Content-Type-Options': 'nosniff',
-        },
-    });
 };
 
 const handleResolve = async (url: URL, dependencies: ReturnType<typeof getDeps>) => {

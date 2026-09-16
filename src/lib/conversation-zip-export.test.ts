@@ -39,8 +39,8 @@ describe('createConversationMarkdownZip', () => {
         const names = Object.keys(archive);
 
         expect(result.fileName).toBe('minimax_spiracha-2026-05-17-1712-threads-3.zip');
-        expect(names).toHaveLength(3);
-        expect(new Set(names).size).toBe(3);
+        expect(names.filter((name) => name !== 'spiracha-manifest.json')).toHaveLength(3);
+        expect(new Set(names).size).toBe(4);
         expect(names.every((name) => Buffer.byteLength(name) <= 255)).toBe(true);
         expect(names).toContain('fallback-title.md');
     });

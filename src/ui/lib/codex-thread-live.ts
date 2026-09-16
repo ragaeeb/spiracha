@@ -1,5 +1,6 @@
 import type { CodexThreadLiveStatus } from './codex-thread-live-types';
 import { createCodexThreadLiveStreamUrl } from './codex-thread-live-url';
+import { invalidateSourceConversationQueries } from './source-query-bindings';
 
 const LIVE_HEARTBEAT_INTERVAL_MS = 15_000;
 
@@ -66,10 +67,5 @@ export const connectCodexThreadLiveUpdates = ({
     };
 };
 
-export const refreshCodexThreadLiveQueries = async (queryClient: QueryInvalidator, threadId: string) => {
-    await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['thread', threadId] }),
-        queryClient.invalidateQueries({ queryKey: ['thread-transcript-preview', threadId] }),
-        queryClient.invalidateQueries({ queryKey: ['thread-transcript', threadId] }),
-    ]);
-};
+export const refreshCodexThreadLiveQueries = (queryClient: QueryInvalidator, threadId: string) =>
+    invalidateSourceConversationQueries(queryClient, 'codex', { ids: [threadId], scope: 'detail' });

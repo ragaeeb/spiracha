@@ -1,6 +1,8 @@
 import { AntigravityDecryptionCapabilityError } from '@spiracha/lib/antigravity-decryption-error';
 import type { AntigravityConversation } from '@spiracha/lib/antigravity-exporter-types';
 import type { AntigravityDecryptionCapability } from '@spiracha/lib/antigravity-keychain';
+import type { ConversationMessage } from '@spiracha/lib/conversation-data/types';
+import type { JsonValue } from '@spiracha/lib/shared-text';
 import { buildConversationExportBaseName } from '@spiracha/lib/ui-export-archive';
 import { createServerFn } from '@tanstack/react-start';
 import type { InferInput } from 'valibot';
@@ -43,6 +45,11 @@ const deleteConversationsSchema = object({
 });
 
 export { AntigravityDecryptionCapabilityError };
+
+const toSerializableMessages = (messages: ConversationMessage[]) =>
+    JSON.parse(JSON.stringify(messages)) as Array<
+        Omit<ConversationMessage, 'metadata'> & { metadata: Record<string, JsonValue> }
+    >;
 
 const acquireAntigravityDecryptionCapability = async () => {
     const { withAntigravityDecryptionCapability } = await import('@spiracha/lib/antigravity-keychain');
@@ -122,58 +129,81 @@ export const loadAntigravityConversationMetadata = async (conversationId: string
 
 export const loadAntigravityConversationDocuments = async (conversationId: string) => {
     const { runWithTranscriptLoadLimit } = await import('@spiracha/lib/transcript-load-limiter');
-    const { renderAntigravityArtifactsMarkdown, renderAntigravityConversationMarkdown } = await import(
-        '@spiracha/lib/antigravity-db'
+    const {
+        readAntigravityConversationMessages,
+        renderAntigravityArtifactsMarkdown,
+        renderAntigravityCanonicalTranscript,
+        renderAntigravityConversationMarkdown,
+    } = await import('@spiracha/lib/antigravity-db');
+    const { normalizeAntigravityConversationMessages } = await import(
+        '@spiracha/lib/conversation-data/antigravity-message-normalizer'
     );
     const conversation = await findAntigravityConversationById(conversationId);
     const isEncrypted = hasEncryptedAntigravityConversation(conversation);
-    const { artifactsMarkdown, renderedConversationMarkdown, transcriptLocked } = await runWithTranscriptLoadLimit(
-        async () => {
-            const renderConversation = async (): Promise<{ content: string | null; locked: boolean }> => {
-                try {
-                    if (isEncrypted) {
-                        const decryptionCapability = await acquireAntigravityDecryptionCapability();
+    const { artifactsMarkdown, messages, renderedConversationMarkdown, transcriptLocked } =
+        await runWithTranscriptLoadLimit(
+            async () => {
+                const renderConversation = async (): Promise<{ content: string | null; locked: boolean }> => {
+                    try {
+                        if (isEncrypted) {
+                            const decryptionCapability = await acquireAntigravityDecryptionCapability();
+                            return {
+                                content: await renderAntigravityConversationMarkdown(conversation, {
+                                    decryptionCapability,
+                                }),
+                                locked: false,
+                            };
+                        }
                         return {
-                            content: await renderAntigravityConversationMarkdown(conversation, {
-                                decryptionCapability,
-                            }),
+                            content: await renderAntigravityConversationMarkdown(conversation),
                             locked: false,
                         };
+                    } catch (error) {
+                        if (!isEncrypted || !isAntigravityDecryptionCapabilityError(error)) {
+                            throw error;
+                        }
+                        return { content: null, locked: true };
                     }
-                    return {
-                        content: await renderAntigravityConversationMarkdown(conversation),
-                        locked: false,
-                    };
-                } catch (error) {
-                    if (!isEncrypted || !isAntigravityDecryptionCapabilityError(error)) {
-                        throw error;
-                    }
-                    return { content: null, locked: true };
-                }
-            };
-            const [renderedConversation, renderedArtifacts] = await Promise.all([
-                renderConversation(),
-                conversation.artifactCount > 0 ? renderAntigravityArtifactsMarkdown(conversation) : null,
-            ]);
+                };
+                const sourceMessages =
+                    !isEncrypted && conversation.transcriptSource
+                        ? await readAntigravityConversationMessages(conversation)
+                        : [];
+                const canonicalMessages = normalizeAntigravityConversationMessages(
+                    conversation.conversationId,
+                    conversation.transcriptSource,
+                    sourceMessages,
+                );
+                const [renderedConversation, renderedArtifacts] = await Promise.all([
+                    sourceMessages.length > 0
+                        ? Promise.resolve({
+                              content: renderAntigravityCanonicalTranscript(conversation, sourceMessages),
+                              locked: false,
+                          })
+                        : renderConversation(),
+                    conversation.artifactCount > 0 ? renderAntigravityArtifactsMarkdown(conversation) : null,
+                ]);
 
-            return {
-                artifactsMarkdown: renderedArtifacts,
-                renderedConversationMarkdown: renderedConversation.content,
-                transcriptLocked: renderedConversation.locked,
-            };
-        },
-        {
-            id: conversation.conversationId,
-            integration: 'antigravity',
-            operation: 'ui-detail',
-            path: conversation.transcriptPath ?? conversation.conversationPath ?? undefined,
-        },
-    );
+                return {
+                    artifactsMarkdown: renderedArtifacts,
+                    messages: toSerializableMessages(canonicalMessages),
+                    renderedConversationMarkdown: renderedConversation.content,
+                    transcriptLocked: renderedConversation.locked,
+                };
+            },
+            {
+                id: conversation.conversationId,
+                integration: 'antigravity',
+                operation: 'ui-detail',
+                path: conversation.transcriptPath ?? conversation.conversationPath ?? undefined,
+            },
+        );
 
     return {
         artifactsMarkdown,
         // Suppress the duplicate panel when artifactsMarkdown and conversationMarkdown are identical.
         conversationMarkdown: renderedConversationMarkdown === artifactsMarkdown ? null : renderedConversationMarkdown,
+        messages,
         transcriptLocked,
     };
 };

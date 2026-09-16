@@ -41,6 +41,7 @@ export {
     IncompleteTranscriptError,
     OriginalRepresentationUnavailableError,
     type PublicMutationError,
+    SourceChangedError,
     SourceMutationConflictError,
     UnsupportedSourceOperationError,
 } from './operation-types';
