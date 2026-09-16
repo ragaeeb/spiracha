@@ -142,7 +142,7 @@ describe('renderGrokTranscript', () => {
         expect(markdown).toContain('exported_from: "grok_local_session"');
         expect(markdown).toContain('Inspecting the export path.');
         expect(markdown).toContain('<system-reminder>Use tools.</system-reminder>');
-        expect(markdown).toContain('Tool: `read_file`');
+        expect(markdown).toContain('Tool: read_file');
         expect(markdown).toContain('export const fixed = true;');
         expect(markdown).toContain('The export path is fixed.');
     });
@@ -174,8 +174,9 @@ describe('renderGrokTranscript', () => {
         });
 
         expect(text).toContain('Export audit\n============');
-        expect(text).toContain('Grok Code Fast\n--------------\nThe export path is fixed.');
-        expect(text).not.toContain('Assistant\n---------');
+        expect(text).toContain('Assistant · Final answer · Grok Code Fast');
+        expect(text).toContain('The export path is fixed.');
+        expect(text).not.toContain('Assistant · Commentary');
         expect(text).not.toContain('#');
         expect(text).not.toContain('`');
     });

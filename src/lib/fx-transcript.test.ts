@@ -29,10 +29,9 @@ describe('FX transcript rendering', () => {
         expect(markdown).toContain('# FX router migration');
         expect(markdown).toContain('exported_from: "fx_event_log"');
         expect(markdown).toContain('I will inspect the workspace.');
-        expect(markdown).toContain('Tool: `bash`');
+        expect(markdown).toContain('Tool: bash');
         expect(markdown).toContain('full externalized output');
-        expect(markdown).toContain('## Claude Sonnet 4.5');
-        expect(markdown).not.toContain('## Assistant');
+        expect(markdown).toContain('## Assistant · Final answer · Claude Sonnet 4.5');
         expect(markdown).toContain('The committed turn is complete.');
     });
 

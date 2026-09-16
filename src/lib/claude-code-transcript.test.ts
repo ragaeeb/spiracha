@@ -114,13 +114,13 @@ describe('renderClaudeCodeTranscript', () => {
         expect(rendered).toContain('Review Descope-Class Vendor-Detection');
         expect(rendered).toContain('## Reasoning');
         expect(rendered).toContain('Need inspect first.');
-        expect(rendered).toContain('## Tool Call');
-        expect(rendered).toContain('Tool: `Bash`');
+        expect(rendered).toContain('## Tool call');
+        expect(rendered).toContain('Tool: Bash');
         expect(rendered).toContain('"command": "rg vendor"');
-        expect(rendered).toContain('## Tool Output');
+        expect(rendered).toContain('## Tool output');
         expect(rendered).toContain('src/vendor.ts: match');
-        expect(rendered).toContain('## Claude Sonnet 4.5');
-        expect(rendered).not.toContain('## Assistant');
+        expect(rendered).toContain('## Assistant · Final answer · Claude Sonnet 4.5');
+        expect(rendered).not.toContain('## Assistant · Commentary');
         expect(rendered).toContain('Vendor detection is present.');
     });
 

@@ -37,11 +37,10 @@ describe('MiniMax Code transcript renderer', () => {
         expect(markdown).toContain('## User');
         expect(markdown).toContain('## Reasoning');
         expect(markdown).toContain("complete picture. Let me also look at what's");
-        expect(markdown).toContain('## Tool Call');
+        expect(markdown).toContain('## Tool call');
         expect(markdown).toContain('grep -rn \\"evidence-extraction\\"');
-        expect(markdown).toContain('## Tool Output');
-        expect(markdown).toContain('## MiniMax M3');
-        expect(markdown).not.toContain('## Assistant');
+        expect(markdown).toContain('## Tool output');
+        expect(markdown).toContain('## Assistant · Final answer · MiniMax M3');
         expect(markdown).toContain('The detailed decomposition plan is ready.');
     });
 

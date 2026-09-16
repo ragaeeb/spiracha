@@ -16,6 +16,7 @@ import type {
     ConversationBodyAvailability,
     ConversationMessage,
     ConversationMessageSelector,
+    ConversationToolEvidence,
     SupplementalEvent,
 } from './types';
 
@@ -143,25 +144,51 @@ const renderExportSection = (title: string, body: string, format: NormalizedExpo
     return body.length > 0 ? `${title}\n${underline}\n${body}` : `${title}\n${underline}`;
 };
 
-const renderMessageBody = (message: ConversationMessage) => {
-    if (classifyCanonicalInclusionBucket(message) !== 'tool_call') {
-        return message.toolEvidence?.outputText ?? message.text;
-    }
-    const tool = message.toolEvidence;
-    if (!tool) {
-        return message.text;
-    }
+const toolFactLines = (tool: ConversationToolEvidence, kind: 'call' | 'output') => {
     const lines = [`Tool: ${tool.name}`];
     if (tool.callId) {
         lines.push(`Call ID: ${tool.callId}`);
     }
-    if (tool.command) {
+    if (tool.status && tool.status !== 'unknown') {
+        lines.push(`Status: ${tool.status}`);
+    }
+    if (kind === 'call' && tool.command) {
         lines.push(`Command: ${tool.command}`);
     }
-    if (tool.inputText != null) {
-        lines.push('', 'Input:', tool.inputText);
+    if (tool.workdir) {
+        lines.push(`Working directory: ${tool.workdir}`);
     }
-    return lines.join('\n');
+    if (kind === 'output' && tool.exitCode !== null) {
+        lines.push(`Exit code: ${tool.exitCode}`);
+    }
+    return lines;
+};
+
+const renderMessageBody = (message: ConversationMessage) => {
+    const bucket = classifyCanonicalInclusionBucket(message);
+    const tool = message.toolEvidence;
+    if (bucket === 'tool_call') {
+        if (!tool) {
+            return message.text;
+        }
+        const lines = toolFactLines(tool, 'call');
+        if (tool.inputText != null) {
+            lines.push('', 'Input:', tool.inputText);
+        }
+        return lines.join('\n');
+    }
+    if (bucket === 'tool_output') {
+        const output = tool?.outputText ?? message.text;
+        if (!tool) {
+            return output;
+        }
+        const facts = toolFactLines(tool, 'output');
+        if (facts.length === 0) {
+            return output;
+        }
+        return output ? `${facts.join('\n')}\n\n${output}` : facts.join('\n');
+    }
+    return message.text;
 };
 
 const renderMetadata = (metadata: Record<string, unknown> | undefined, format: NormalizedExportFormat) => {

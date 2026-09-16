@@ -1,23 +1,7 @@
-import type {
-    CursorBubble,
-    CursorExportOptions,
-    CursorThreadHead,
-    CursorThreadTranscript,
-    CursorToolCall,
-} from './cursor-exporter-types';
-import { getCursorTextBubblePhase, getFinalCursorAssistantTextBubbleIds } from './cursor-transcript-phase';
-import { formatModelLabel } from './model-label';
-import {
-    cleanExtractedText,
-    cleanInlineTitle,
-    type ExportFormat,
-    formatInlineLiteral,
-    type MetadataEntry,
-    renderCodeBlock,
-    renderDocumentTitle,
-    renderMetadataBlock,
-    renderSection,
-} from './shared-text';
+import { renderSelectedTranscriptExport } from './conversation-data/conversation-export';
+import { cursorBubblesToMessages } from './conversation-data/cursor-message-normalizer';
+import type { SupplementalEvent } from './conversation-data/types';
+import type { CursorExportOptions, CursorThreadHead, CursorThreadTranscript } from './cursor-exporter-types';
 
 const MIN_DATE_MS = -8_640_000_000_000_000;
 const MAX_DATE_MS = 8_640_000_000_000_000;
@@ -36,161 +20,68 @@ const formatUnixMillis = (value: number | null): string | null => {
     return new Date(value).toISOString();
 };
 
-const prettyToolArguments = (argumentsText: string | null): string | null => {
-    if (!argumentsText) {
-        return null;
-    }
-
-    try {
-        return JSON.stringify(JSON.parse(argumentsText), null, 2);
-    } catch {
-        return argumentsText;
-    }
-};
-
-const truncateResult = (resultText: string): string => resultText;
-
-export const renderCursorToolCall = (toolCall: CursorToolCall, outputFormat: ExportFormat): string => {
-    const lines: string[] = [`Tool: ${formatInlineLiteral(toolCall.name, outputFormat)}`];
-    if (toolCall.status) {
-        lines.push(`Status: ${toolCall.status}`);
-    }
-    if (toolCall.callId) {
-        lines.push(`Call ID: ${toolCall.callId}`);
-    }
-
-    const args = prettyToolArguments(toolCall.argumentsText);
-    if (args) {
-        lines.push('', 'Arguments:', '', renderCodeBlock(args, outputFormat));
-    }
-
-    const result = toolCall.resultText?.trim();
-    if (result) {
-        lines.push('', 'Result:', '', renderCodeBlock(truncateResult(result), outputFormat));
-    }
-
-    return renderSection('Tool Call', lines.join('\n'), outputFormat);
-};
-
-const renderUserBubble = (bubble: CursorBubble, outputFormat: ExportFormat): string => {
-    const text = cleanExtractedText(bubble.text).trim();
-    return text ? renderSection('User', text, outputFormat) : '';
-};
-
-const renderAssistantBubble = (
-    bubble: CursorBubble,
-    options: CursorExportOptions,
-    finalAssistantTextBubbleIds: Set<string>,
-    assistantLabel: string,
-): string[] => {
-    const blocks: string[] = [];
-
-    if (bubble.thinking?.trim()) {
-        const reasoning = cleanExtractedText(bubble.thinking).trim();
-        if (reasoning) {
-            blocks.push(renderSection('Reasoning', reasoning, options.outputFormat));
-        }
-    }
-
-    const text = cleanExtractedText(bubble.text).trim();
-    if (
-        text &&
-        (getCursorTextBubblePhase(bubble, finalAssistantTextBubbleIds) !== 'commentary' || options.includeCommentary)
-    ) {
-        blocks.push(renderSection(assistantLabel, text, options.outputFormat));
-    }
-
-    if (options.includeTools && bubble.toolCall) {
-        blocks.push(renderCursorToolCall(bubble.toolCall, options.outputFormat));
-    }
-
-    return blocks;
-};
-
-export const renderCursorBubble = (
-    bubble: CursorBubble,
-    options: CursorExportOptions,
-    finalAssistantTextBubbleIds = getFinalCursorAssistantTextBubbleIds([bubble]),
-    assistantLabel = 'Assistant',
-): string[] => {
-    if (bubble.kind === 'user') {
-        const block = renderUserBubble(bubble, options.outputFormat);
-        return block ? [block] : [];
-    }
-
-    if (bubble.kind === 'assistant') {
-        return renderAssistantBubble(bubble, options, finalAssistantTextBubbleIds, assistantLabel);
-    }
-
-    return [];
-};
-
-const getThreadTitle = (head: CursorThreadHead): string => {
-    if (head.name) {
-        return cleanInlineTitle(head.name);
-    }
-
-    return head.composerId;
-};
-
-const buildMetadataEntries = (transcript: CursorThreadTranscript): MetadataEntry[] => {
+const buildMetadata = (transcript: CursorThreadTranscript): Record<string, unknown> => {
     const { head } = transcript;
+    return {
+        composer_id: head.composerId,
+        created_at_iso: formatUnixMillis(head.createdAtMs),
+        created_at_unix_ms: head.createdAtMs,
+        exported_from: 'cursor_global_storage_bubbles',
+        last_updated_at_iso: formatUnixMillis(head.lastUpdatedAtMs),
+        last_updated_at_unix_ms: head.lastUpdatedAtMs,
+        mode: head.mode,
+        omitted_message_count: transcript.omittedBubbleCount > 0 ? transcript.omittedBubbleCount : null,
+        rendered_message_count: transcript.renderableBubbleCount,
+        title: head.name,
+    };
+};
 
+const truncationNotice = (transcript: CursorThreadTranscript): SupplementalEvent[] => {
+    if (transcript.omittedBubbleCount <= 0) {
+        return [];
+    }
+
+    const orderedCount = transcript.head.orderedBubbleIds.length;
     return [
-        { key: 'exported_from', value: 'cursor_global_storage_bubbles' },
-        { key: 'composer_id', value: head.composerId },
-        { key: 'title', value: head.name },
-        { key: 'mode', value: head.mode },
-        { key: 'created_at_unix_ms', value: head.createdAtMs },
-        { key: 'created_at_iso', value: formatUnixMillis(head.createdAtMs) },
-        { key: 'last_updated_at_unix_ms', value: head.lastUpdatedAtMs },
-        { key: 'last_updated_at_iso', value: formatUnixMillis(head.lastUpdatedAtMs) },
-        { key: 'rendered_message_count', value: transcript.renderableBubbleCount },
         {
-            key: 'omitted_message_count',
-            value: transcript.omittedBubbleCount > 0 ? transcript.omittedBubbleCount : null,
+            createdAtMs: null,
+            id: `${transcript.head.composerId}:omitted`,
+            kind: 'lifecycle',
+            metadata: { omittedBubbleCount: transcript.omittedBubbleCount },
+            order: 0,
+            provenance: {
+                blockIndex: null,
+                branchId: null,
+                origin: 'derived',
+                parentMessageId: null,
+                sourceConversationId: transcript.head.composerId,
+                sourceRecordId: null,
+            },
+            text: [
+                `Cursor indexed only the most recent ${orderedCount} of`,
+                `${orderedCount + transcript.omittedBubbleCount} stored messages for this thread,`,
+                'so earlier messages are not part of its conversation index and are not included here.',
+            ].join(' '),
         },
     ];
 };
 
-const buildTruncationNotice = (transcript: CursorThreadTranscript, outputFormat: ExportFormat): string => {
-    if (transcript.omittedBubbleCount <= 0) {
-        return '';
-    }
-
-    const orderedCount = transcript.head.orderedBubbleIds.length;
-    const message = [
-        `Cursor indexed only the most recent ${orderedCount} of`,
-        `${orderedCount + transcript.omittedBubbleCount} stored messages for this thread,`,
-        'so earlier messages are not part of its conversation index and are not included here.',
-    ].join(' ');
-
-    return renderSection('Note', message, outputFormat);
-};
+const threadTitle = (head: CursorThreadHead): string => head.name || head.composerId;
 
 export const renderCursorTranscript = (
     transcript: CursorThreadTranscript,
     options: CursorExportOptions,
-): string | null => {
-    const finalAssistantTextBubbleIds = getFinalCursorAssistantTextBubbleIds(transcript.bubbles);
-    const assistantLabel = formatModelLabel(transcript.head.model);
-    const sections: string[] = [];
-    for (const bubble of transcript.bubbles) {
-        sections.push(...renderCursorBubble(bubble, options, finalAssistantTextBubbleIds, assistantLabel));
-    }
-
-    if (sections.length === 0) {
-        return null;
-    }
-
-    const title = getThreadTitle(transcript.head);
-    const parts = [
-        renderDocumentTitle(title, options.outputFormat),
-        '',
-        options.includeMetadata ? renderMetadataBlock(buildMetadataEntries(transcript), options.outputFormat) : '',
-        buildTruncationNotice(transcript, options.outputFormat),
-        ...sections,
-    ].filter(Boolean);
-
-    return `${parts.join('\n').trimEnd()}\n`;
-};
+): string | null =>
+    renderSelectedTranscriptExport(
+        {
+            bodyAvailability: 'full',
+            messages: cursorBubblesToMessages(
+                transcript.bubbles.filter((bubble) => bubble.kind === 'user' || bubble.kind === 'assistant'),
+            ),
+            metadata: buildMetadata(transcript),
+            ...(transcript.head.model ? { model: transcript.head.model } : {}),
+            supplementalEvents: truncationNotice(transcript),
+            title: threadTitle(transcript.head),
+        },
+        options,
+    );

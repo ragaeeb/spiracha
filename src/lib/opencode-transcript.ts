@@ -1,22 +1,10 @@
-import { formatModelLabel } from './model-label';
+import { renderSelectedTranscriptExport } from './conversation-data/conversation-export';
+import { openCodePartsToMessages } from './conversation-data/opencode-message-normalizer';
 import type {
     OpenCodeExportOptions,
     OpenCodeSessionSummary,
     OpenCodeSessionTranscript,
-    OpenCodeTranscriptPart,
 } from './opencode-exporter-types';
-import { splitOpenCodeThinkTaggedText } from './opencode-think-tags';
-import { getFinalOpenCodeAssistantTextPartIds, getOpenCodeTextPartPhase } from './opencode-transcript-phase';
-import {
-    cleanExtractedText,
-    cleanInlineTitle,
-    formatInlineLiteral,
-    type MetadataEntry,
-    renderCodeBlock,
-    renderDocumentTitle,
-    renderMetadataBlock,
-    renderSection,
-} from './shared-text';
 
 const MIN_DATE_MS = -8_640_000_000_000_000;
 const MAX_DATE_MS = 8_640_000_000_000_000;
@@ -35,154 +23,37 @@ const formatUnixMillis = (value: number | null): string | null => {
     return new Date(value).toISOString();
 };
 
-const getSessionTitle = (session: OpenCodeSessionSummary): string => {
-    return cleanInlineTitle(session.title || session.sessionId);
-};
-
-const buildMetadataEntries = (session: OpenCodeSessionSummary): MetadataEntry[] => [
-    { key: 'exported_from', value: 'opencode_sqlite' },
-    { key: 'session_id', value: session.sessionId },
-    { key: 'title', value: session.title },
-    { key: 'slug', value: session.slug },
-    { key: 'project_id', value: session.projectId },
-    { key: 'worktree', value: session.worktree },
-    { key: 'directory', value: session.directory },
-    { key: 'agent', value: session.agent },
-    { key: 'model', value: session.modelLabel },
-    { key: 'created_at_unix_ms', value: session.createdAtMs },
-    { key: 'created_at_iso', value: formatUnixMillis(session.createdAtMs) },
-    { key: 'last_updated_at_unix_ms', value: session.lastUpdatedAtMs },
-    { key: 'last_updated_at_iso', value: formatUnixMillis(session.lastUpdatedAtMs) },
-    { key: 'message_count', value: session.messageCount },
-    { key: 'part_count', value: session.partCount },
-    { key: 'total_tokens', value: session.totalTokens },
-    { key: 'cost', value: session.cost },
-];
-
-const roleTitle = (role: string, assistantModel: string | null): string => {
-    if (role === 'assistant') {
-        return formatModelLabel(assistantModel);
-    }
-
-    if (role === 'user') {
-        return 'User';
-    }
-
-    if (role === 'system') {
-        return 'System';
-    }
-
-    return role ? cleanInlineTitle(role) : 'Message';
-};
-
-const truncateOutput = (text: string): string => text;
-
-const renderTextPart = (
-    part: OpenCodeTranscriptPart,
-    options: OpenCodeExportOptions,
-    finalAssistantTextPartIds: Set<string>,
-    assistantModel: string | null,
-): string => {
-    const rawText = part.text ?? '';
-    const { reasoningBlocks, visibleText } =
-        part.role === 'assistant'
-            ? splitOpenCodeThinkTaggedText(rawText)
-            : { reasoningBlocks: [], visibleText: rawText };
-    const sections: string[] = [];
-    sections.push(
-        ...reasoningBlocks
-            .map((block) => cleanExtractedText(block).trim())
-            .filter(Boolean)
-            .map((block) => renderSection('Reasoning', block, options.outputFormat)),
-    );
-
-    const text = cleanExtractedText(visibleText).trim();
-    if (
-        text &&
-        (getOpenCodeTextPartPhase(part, finalAssistantTextPartIds) !== 'commentary' || options.includeCommentary)
-    ) {
-        sections.push(renderSection(roleTitle(part.role, assistantModel), text, options.outputFormat));
-    }
-
-    return sections.join('\n\n');
-};
-
-const renderReasoningPart = (part: OpenCodeTranscriptPart, options: OpenCodeExportOptions): string => {
-    const rawText = part.text ?? '';
-    const { reasoningBlocks, visibleText } = splitOpenCodeThinkTaggedText(rawText);
-    const text = cleanExtractedText([...reasoningBlocks, visibleText].filter(Boolean).join('\n\n')).trim();
-    return text ? renderSection('Reasoning', text, options.outputFormat) : '';
-};
-
-const renderToolPart = (part: OpenCodeTranscriptPart, options: OpenCodeExportOptions): string => {
-    if (!options.includeTools) {
-        return '';
-    }
-
-    const toolName = part.toolName ?? 'unknown';
-    const lines = [`Tool: ${formatInlineLiteral(toolName, options.outputFormat)}`];
-    if (part.status) {
-        lines.push(`Status: ${part.status}`);
-    }
-    if (part.callId) {
-        lines.push(`Call ID: ${part.callId}`);
-    }
-    if (part.title) {
-        lines.push(`Title: ${part.title}`);
-    }
-    if (part.argumentsText?.trim()) {
-        lines.push('', 'Input:', '', renderCodeBlock(part.argumentsText.trim(), options.outputFormat));
-    }
-    const outputText = part.outputText ?? '';
-    if (outputText.trim()) {
-        lines.push('', 'Output:', '', renderCodeBlock(truncateOutput(outputText.trim()), options.outputFormat));
-    }
-
-    return renderSection('Tool Call', lines.join('\n'), options.outputFormat);
-};
-
-const renderPart = (
-    part: OpenCodeTranscriptPart,
-    options: OpenCodeExportOptions,
-    finalAssistantTextPartIds: Set<string>,
-    assistantModel: string | null,
-): string => {
-    if (part.type === 'text') {
-        return renderTextPart(part, options, finalAssistantTextPartIds, assistantModel);
-    }
-
-    if (part.type === 'reasoning') {
-        return renderReasoningPart(part, options);
-    }
-
-    if (part.type === 'tool') {
-        return renderToolPart(part, options);
-    }
-
-    return '';
-};
+const buildMetadata = (session: OpenCodeSessionSummary): Record<string, unknown> => ({
+    agent: session.agent,
+    cost: session.cost,
+    created_at_iso: formatUnixMillis(session.createdAtMs),
+    created_at_unix_ms: session.createdAtMs,
+    directory: session.directory,
+    exported_from: 'opencode_sqlite',
+    last_updated_at_iso: formatUnixMillis(session.lastUpdatedAtMs),
+    last_updated_at_unix_ms: session.lastUpdatedAtMs,
+    message_count: session.messageCount,
+    model: session.modelLabel,
+    part_count: session.partCount,
+    project_id: session.projectId,
+    session_id: session.sessionId,
+    slug: session.slug,
+    title: session.title,
+    total_tokens: session.totalTokens,
+    worktree: session.worktree,
+});
 
 export const renderOpenCodeTranscript = (
     transcript: OpenCodeSessionTranscript,
     options: OpenCodeExportOptions,
-): string | null => {
-    const partsList = transcript.messages.flatMap((message) => message.parts);
-    const finalAssistantTextPartIds = getFinalOpenCodeAssistantTextPartIds(partsList);
-    const sections = partsList
-        .map((part) => renderPart(part, options, finalAssistantTextPartIds, transcript.session.modelLabel))
-        .filter(Boolean);
-    if (sections.length === 0) {
-        return null;
-    }
-
-    const parts = [
-        renderDocumentTitle(getSessionTitle(transcript.session), options.outputFormat),
-        '',
-        options.includeMetadata
-            ? renderMetadataBlock(buildMetadataEntries(transcript.session), options.outputFormat)
-            : '',
-        ...sections,
-    ].filter(Boolean);
-
-    return `${parts.join('\n').trimEnd()}\n`;
-};
+): string | null =>
+    renderSelectedTranscriptExport(
+        {
+            bodyAvailability: 'full',
+            messages: openCodePartsToMessages(transcript.messages.flatMap((message) => message.parts)),
+            metadata: buildMetadata(transcript.session),
+            ...(transcript.session.modelLabel ? { model: transcript.session.modelLabel } : {}),
+            title: transcript.session.title || transcript.session.sessionId,
+        },
+        options,
+    );

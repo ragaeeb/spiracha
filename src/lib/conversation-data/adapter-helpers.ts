@@ -132,11 +132,11 @@ export const classifyCanonicalInclusionBucket = (message: {
     if (message.phase === 'reasoning') {
         return 'reasoning';
     }
+    if (message.phase === 'commentary') {
+        return 'assistant_commentary';
+    }
     if (message.role === 'assistant' && message.phase === 'final_answer') {
         return 'assistant_final';
-    }
-    if (message.role === 'assistant' && message.phase === 'commentary') {
-        return 'assistant_commentary';
     }
     if (message.role === 'user') {
         return 'user';

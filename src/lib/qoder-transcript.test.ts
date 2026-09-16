@@ -111,10 +111,10 @@ describe('renderQoderTranscript', () => {
         expect(rendered).toContain('## Tool output');
         expect(rendered).toContain('const value = 1;');
         expect(rendered?.match(/Call ID: call-1/gu)).toHaveLength(2);
-        expect(rendered).toContain('Tool: `edit_file`');
-        expect(rendered).toContain('Tool: `Read`');
-        expect(rendered).toContain('## Qwen 3.7 Max');
-        expect(rendered).not.toContain('## Assistant');
+        expect(rendered).toContain('Tool: edit_file');
+        expect(rendered).toContain('Tool: Read');
+        expect(rendered).toContain('## Assistant · Final answer · Qwen 3.7 Max');
+        expect(rendered).not.toContain('## Assistant · Commentary');
     });
 
     it('should omit optional metadata and tool calls', () => {

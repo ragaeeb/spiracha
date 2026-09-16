@@ -170,6 +170,7 @@ describe('conversation adapter helpers', () => {
         expect(classifyCanonicalInclusionBucket({ phase: 'commentary', role: 'assistant' })).toBe(
             'assistant_commentary',
         );
+        expect(classifyCanonicalInclusionBucket({ phase: 'commentary', role: 'system' })).toBe('assistant_commentary');
         expect(classifyCanonicalInclusionBucket({ phase: 'unknown', role: 'user' })).toBe('user');
         expect(classifyCanonicalInclusionBucket({ phase: 'unknown', role: 'system' })).toBe('system');
         expect(classifyCanonicalInclusionBucket({ phase: 'unknown', role: 'assistant' })).toBe('unknown');

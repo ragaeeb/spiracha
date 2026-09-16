@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import type { CursorExportOptions, CursorThreadTranscript } from './cursor-exporter-types';
-import { renderCursorBubble, renderCursorToolCall, renderCursorTranscript } from './cursor-transcript';
+import { renderCursorTranscript } from './cursor-transcript';
 
 const options = (overrides: Partial<CursorExportOptions> = {}): CursorExportOptions => ({
     includeCommentary: false,
@@ -49,53 +49,55 @@ const buildTranscript = (overrides: Partial<CursorThreadTranscript> = {}): Curso
     ...overrides,
 });
 
-describe('renderCursorBubble', () => {
+describe('renderCursorTranscript', () => {
     it('should render a user bubble as a User section', () => {
-        const [block] = renderCursorBubble(buildTranscript().bubbles[0]!, options());
-        expect(block).toContain('## User');
-        expect(block).toContain('Please fix the bug');
+        const content = renderCursorTranscript(buildTranscript(), options());
+        expect(content).toContain('## User');
+        expect(content).toContain('Please fix the bug');
     });
 
     it('should include reasoning independently of commentary', () => {
-        const blocks = renderCursorBubble(buildTranscript().bubbles[1]!, options());
-        expect(blocks.join('\n')).toContain('## Reasoning');
-        expect(blocks.join('\n')).toContain('inspect the file first');
+        const content = renderCursorTranscript(buildTranscript(), options());
+        expect(content).toContain('## Reasoning');
+        expect(content).toContain('inspect the file first');
     });
 
     it('should omit tool calls unless tools are enabled', () => {
-        const blocks = renderCursorBubble(buildTranscript().bubbles[1]!, options());
-        expect(blocks.join('\n')).not.toContain('Tool Call');
+        const content = renderCursorTranscript(buildTranscript(), options());
+        expect(content).not.toContain('Tool call');
+        expect(content).not.toContain('read_file');
     });
 
     it('should not render unknown bubbles as assistant messages', () => {
-        const blocks = renderCursorBubble(
-            {
-                bubbleId: 'unknown-1',
-                createdAtMs: null,
-                kind: 'unknown',
-                text: 'internal cursor payload',
-                thinking: null,
-                toolCall: null,
-            },
+        const content = renderCursorTranscript(
+            buildTranscript({
+                bubbles: [
+                    ...buildTranscript().bubbles,
+                    {
+                        bubbleId: 'unknown-1',
+                        createdAtMs: null,
+                        kind: 'unknown',
+                        text: 'internal cursor payload',
+                        thinking: null,
+                        toolCall: null,
+                    },
+                ],
+            }),
             options(),
         );
 
-        expect(blocks).toEqual([]);
+        expect(content).not.toContain('internal cursor payload');
     });
-});
 
-describe('renderCursorToolCall', () => {
-    it('should render name, arguments, and result', () => {
-        const block = renderCursorToolCall(buildTranscript().bubbles[1]!.toolCall!, 'md');
-        expect(block).toContain('Tool Call');
-        expect(block).toContain('read_file');
-        expect(block).toContain('Call ID: call-1');
-        expect(block).toContain('src/index.ts');
-        expect(block).toContain('export const x = 1;');
+    it('should render name, arguments, and result when tools are enabled', () => {
+        const content = renderCursorTranscript(buildTranscript(), options({ includeTools: true }));
+        expect(content).toContain('Tool call');
+        expect(content).toContain('read_file');
+        expect(content).toContain('Call ID: call-1');
+        expect(content).toContain('src/index.ts');
+        expect(content).toContain('export const x = 1;');
     });
-});
 
-describe('renderCursorTranscript', () => {
     it('should render a full transcript with metadata header', () => {
         const content = renderCursorTranscript(
             buildTranscript(),
@@ -105,8 +107,8 @@ describe('renderCursorTranscript', () => {
         expect(content).toContain('exported_from: "cursor_global_storage_bubbles"');
         expect(content).toContain('## User');
         expect(content).toContain('## Reasoning');
-        expect(content).toContain('## Assistant');
-        expect(content).toContain('Tool Call');
+        expect(content).toContain('## Assistant · Final answer');
+        expect(content).toContain('Tool call');
     });
 
     it('should use the thread model for assistant section headings', () => {
@@ -119,13 +121,13 @@ describe('renderCursorTranscript', () => {
 
         const content = renderCursorTranscript(transcript, options());
 
-        expect(content).toContain('## Grok 4.6');
-        expect(content).not.toContain('## Assistant');
+        expect(content).toContain('## Assistant · Final answer · Grok 4.6');
+        expect(content).not.toContain('## Assistant · Commentary');
     });
 
     it('should include a truncation note when messages were omitted', () => {
         const content = renderCursorTranscript(buildTranscript({ omittedBubbleCount: 2579 }), options());
-        expect(content).toContain('## Note');
+        expect(content).toContain('## Supplemental · lifecycle');
         expect(content).toContain('most recent');
     });
 

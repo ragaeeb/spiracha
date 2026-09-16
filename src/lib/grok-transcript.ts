@@ -1,167 +1,36 @@
-import type {
-    GrokExportOptions,
-    GrokSessionSummary,
-    GrokSessionTranscript,
-    GrokTranscriptEntry,
-    GrokTranscriptPart,
-} from './grok-exporter-types';
-import { getFinalGrokAssistantTextPartIds, getGrokTextPartPhase } from './grok-transcript-phase';
-import { formatModelLabel } from './model-label';
-import {
-    cleanExtractedText,
-    cleanInlineTitle,
-    formatInlineLiteral,
-    type MetadataEntry,
-    renderCodeBlock,
-    renderDocumentTitle,
-    renderMetadataBlock,
-    renderSection,
-} from './shared-text';
+import { renderSelectedTranscriptExport } from './conversation-data/conversation-export';
+import type { GrokExportOptions, GrokSessionSummary, GrokSessionTranscript } from './grok-exporter-types';
+import { normalizeGrokTranscriptEntries } from './grok-transcript-parser';
 
-const getSessionTitle = (session: GrokSessionSummary): string => {
-    return cleanInlineTitle(session.title || session.sessionId);
-};
-
-const buildMetadataEntries = (session: GrokSessionSummary): MetadataEntry[] => [
-    { key: 'exported_from', value: 'grok_local_session' },
-    { key: 'session_id', value: session.sessionId },
-    { key: 'title', value: session.title },
-    { key: 'source_transcript_path', value: session.chatHistoryPath },
-    { key: 'workspace_key', value: session.workspaceKey },
-    { key: 'worktree', value: session.worktree },
-    { key: 'cwd', value: session.cwd },
-    { key: 'model', value: session.currentModelId },
-    { key: 'model_label', value: session.modelLabel },
-    { key: 'agent_name', value: session.agentName },
-    { key: 'git_branch', value: session.gitBranch },
-    { key: 'created_at_iso', value: session.createdAtIso },
-    { key: 'last_active_at_iso', value: session.lastActiveAtIso },
-    { key: 'message_count', value: session.messageCount },
-    { key: 'tool_call_count', value: session.toolCallCount },
-    { key: 'tool_result_count', value: session.toolResultCount },
-];
-
-const roleTitle = (role: string, model: string | null): string => {
-    if (role === 'assistant') {
-        return formatModelLabel(model);
-    }
-
-    if (role === 'user') {
-        return 'User';
-    }
-
-    if (role === 'system') {
-        return 'System';
-    }
-
-    if (role === 'tool') {
-        return 'Tool';
-    }
-
-    return role ? cleanInlineTitle(role) : 'Message';
-};
-
-const truncateOutput = (text: string): string => text;
-
-const renderTextPart = (
-    entry: GrokTranscriptEntry,
-    part: GrokTranscriptPart,
-    options: GrokExportOptions,
-    assistantModel: string | null,
-): string => {
-    const text = cleanExtractedText(part.text ?? '').trim();
-    return text
-        ? renderSection(roleTitle(entry.role, entry.modelId ?? assistantModel), text, options.outputFormat)
-        : '';
-};
-
-const renderReasoningPart = (part: GrokTranscriptPart, options: GrokExportOptions): string => {
-    const text = cleanExtractedText(part.text ?? '').trim();
-    return text ? renderSection('Reasoning', text, options.outputFormat) : '';
-};
-
-const renderToolCallPart = (part: GrokTranscriptPart, options: GrokExportOptions): string => {
-    if (!options.includeTools) {
-        return '';
-    }
-
-    const toolName = part.toolName ?? 'unknown';
-    const lines = [`Tool: ${formatInlineLiteral(toolName, options.outputFormat)}`];
-    if (part.toolCallId) {
-        lines.push(`Call ID: ${part.toolCallId}`);
-    }
-    if (part.argumentsText?.trim()) {
-        lines.push('', 'Input:', '', renderCodeBlock(part.argumentsText.trim(), options.outputFormat));
-    }
-
-    return renderSection('Tool Call', lines.join('\n'), options.outputFormat);
-};
-
-const renderToolResultPart = (part: GrokTranscriptPart, options: GrokExportOptions): string => {
-    if (!options.includeTools) {
-        return '';
-    }
-
-    const outputText = part.outputText?.trim();
-    if (!outputText) {
-        return '';
-    }
-
-    const lines: string[] = [];
-    if (part.toolCallId) {
-        lines.push(`Call ID: ${part.toolCallId}`, '');
-    }
-    lines.push(renderCodeBlock(truncateOutput(outputText), options.outputFormat));
-    return renderSection('Tool Output', lines.join('\n'), options.outputFormat);
-};
-
-const renderPart = (
-    entry: GrokTranscriptEntry,
-    part: GrokTranscriptPart,
-    options: GrokExportOptions,
-    finalAssistantTextPartIds: Set<string>,
-    assistantModel: string | null,
-): string => {
-    switch (part.type) {
-        case 'text':
-            if (
-                getGrokTextPartPhase(entry, part, finalAssistantTextPartIds) === 'commentary' &&
-                !options.includeCommentary
-            ) {
-                return '';
-            }
-            return renderTextPart(entry, part, options, assistantModel);
-        case 'reasoning':
-            return renderReasoningPart(part, options);
-        case 'tool_call':
-            return renderToolCallPart(part, options);
-        case 'tool_result':
-            return renderToolResultPart(part, options);
-        case 'unknown':
-            return '';
-    }
-};
+const buildMetadata = (session: GrokSessionSummary): Record<string, unknown> => ({
+    agent_name: session.agentName,
+    created_at_iso: session.createdAtIso,
+    cwd: session.cwd,
+    exported_from: 'grok_local_session',
+    git_branch: session.gitBranch,
+    last_active_at_iso: session.lastActiveAtIso,
+    message_count: session.messageCount,
+    model: session.currentModelId,
+    model_label: session.modelLabel,
+    session_id: session.sessionId,
+    source_transcript_path: session.chatHistoryPath,
+    title: session.title,
+    tool_call_count: session.toolCallCount,
+    tool_result_count: session.toolResultCount,
+    workspace_key: session.workspaceKey,
+    worktree: session.worktree,
+});
 
 export const renderGrokTranscript = (transcript: GrokSessionTranscript, options: GrokExportOptions): string | null => {
-    const finalAssistantTextPartIds = getFinalGrokAssistantTextPartIds(transcript.entries);
-    const assistantModel = transcript.session.modelLabel ?? transcript.session.currentModelId;
-    const sections = transcript.entries.flatMap((entry) =>
-        entry.parts
-            .map((part) => renderPart(entry, part, options, finalAssistantTextPartIds, assistantModel))
-            .filter(Boolean),
+    const model = transcript.session.modelLabel ?? transcript.session.currentModelId;
+    return renderSelectedTranscriptExport(
+        {
+            bodyAvailability: 'full',
+            messages: normalizeGrokTranscriptEntries(transcript.entries),
+            metadata: buildMetadata(transcript.session),
+            ...(model ? { model } : {}),
+            title: transcript.session.title || transcript.session.sessionId,
+        },
+        options,
     );
-    if (sections.length === 0) {
-        return null;
-    }
-
-    const parts = [
-        renderDocumentTitle(getSessionTitle(transcript.session), options.outputFormat),
-        '',
-        options.includeMetadata
-            ? renderMetadataBlock(buildMetadataEntries(transcript.session), options.outputFormat)
-            : '',
-        ...sections,
-    ].filter(Boolean);
-
-    return `${parts.join('\n').trimEnd()}\n`;
 };

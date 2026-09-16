@@ -70,7 +70,9 @@ describe('normalized conversation export', () => {
             ],
             title: 'Empty tool',
         });
-        expect(markdown).toBe('# Empty tool\n\n## User\n\n  keep  \n\n## Tool output\n');
+        expect(markdown).toBe(
+            '# Empty tool\n\n## User\n\n  keep  \n\n## Tool output\n\nTool: exec\nCall ID: call-1\nStatus: succeeded\nExit code: 0\n',
+        );
         expect(markdown).not.toContain('_No message content._');
     });
 
