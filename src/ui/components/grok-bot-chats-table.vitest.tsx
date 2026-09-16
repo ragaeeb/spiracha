@@ -146,4 +146,31 @@ describe('GrokBotChatsTable', () => {
         expect(onExportChat).toHaveBeenCalledWith(first);
         expect(onDeleteChat).toHaveBeenCalledWith(first);
     });
+
+    it('should keep filter-hidden Grok Bot chat ids for batch export without a workspace', () => {
+        const onExportChats = vi.fn();
+        const first = chat();
+        const second = chat({
+            id: 'chat-id-2',
+            metadata: { chatKind: 'direct', members: [{ id: 'kiwi', name: 'Kiwi' }] },
+            title: 'Kiwi DM',
+        });
+        const tableProps = {
+            authoritativeRowIds: [first.id, second.id],
+            inventoryIdentity: 'grok-bot',
+            onDeleteChat: vi.fn(),
+            onDeleteChats: vi.fn(),
+            onExportChat: vi.fn(),
+            onExportChats,
+        };
+        const { rerender } = render(<GrokBotChatsTable {...tableProps} chats={[first, second]} />);
+
+        fireEvent.click(screen.getByRole('checkbox', { name: 'Select row chat-id' }));
+        fireEvent.click(screen.getByRole('checkbox', { name: 'Select row chat-id-2' }));
+        rerender(<GrokBotChatsTable {...tableProps} chats={[first]} />);
+
+        expect(screen.getByRole('status').textContent).toBe('2 chats selected (1 outside this view)');
+        fireEvent.click(screen.getByRole('button', { name: 'Export selected chats' }));
+        expect(onExportChats).toHaveBeenCalledWith(['chat-id', 'chat-id-2']);
+    });
 });

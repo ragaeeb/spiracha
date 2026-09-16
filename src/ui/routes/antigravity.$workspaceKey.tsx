@@ -23,6 +23,7 @@ import {
     exportAntigravityArtifactsFn,
     exportAntigravityConversationsFn,
 } from '#/lib/antigravity-server';
+import { conversationListSelection, lookupSelectedItems } from '#/lib/conversation-selection';
 import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
@@ -214,14 +215,8 @@ function AntigravityWorkspacePage() {
             ),
         [conversations, deferredSearch],
     );
-    const visibleConversationsById = useMemo(
-        () => new Map(visibleConversations.map((conversation) => [conversation.conversationId, conversation])),
-        [visibleConversations],
-    );
     const lookupSelectedConversations = (conversationIds: string[]) =>
-        conversationIds
-            .map((conversationId) => visibleConversationsById.get(conversationId) ?? null)
-            .filter((conversation): conversation is AntigravityConversation => conversation !== null);
+        lookupSelectedItems(conversationIds, conversations, (conversation) => conversation.conversationId);
     const openExportForConversations = (selectedConversations: AntigravityConversation[]) => {
         if (selectedConversations.length === 0) {
             return;
@@ -268,6 +263,11 @@ function AntigravityWorkspacePage() {
             <AntigravityKeychainPanel />
 
             <AntigravityConversationsTable
+                {...conversationListSelection(
+                    'antigravity',
+                    conversations.map((conversation) => conversation.conversationId),
+                    workspace.key,
+                )}
                 conversations={visibleConversations}
                 decryptionState={decryptionState}
                 onDeleteConversation={(conversation) => openDeleteForConversations([conversation], 'selected')}

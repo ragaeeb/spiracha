@@ -4,7 +4,7 @@ import type { SortingState } from '@tanstack/react-table';
 import { Download, GitFork, MoreHorizontal, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
-import { SelectionActionsToolbar } from '#/components/selection-actions-toolbar';
+import { ConversationSelectionActions } from '#/components/selection-actions-toolbar';
 import { Button } from '#/components/ui/button';
 import {
     DropdownMenu,
@@ -12,6 +12,8 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu';
+import { supportedListAction } from '#/lib/conversation-actions';
+import type { ConversationListSelectionProps } from '#/lib/conversation-selection';
 import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatBytes, formatDateTime, formatModelLabel, formatNumber } from '#/lib/formatters';
 import { cn } from '#/lib/utils';
@@ -22,7 +24,7 @@ type CursorThreadsTableProps = {
     onExportThread: (thread: CursorThreadSummary) => void;
     onExportThreads: (composerIds: string[]) => void;
     threads: CursorThreadSummary[];
-};
+} & ConversationListSelectionProps;
 
 type CursorThreadTreeNode = CursorThreadSummary & { children: CursorThreadTreeNode[] };
 
@@ -178,6 +180,8 @@ const columns = (
     ] as const;
 
 export const CursorThreadsTable = ({
+    authoritativeRowIds,
+    inventoryIdentity,
     onDeleteThread,
     onDeleteThreads,
     onExportThread,
@@ -189,6 +193,7 @@ export const CursorThreadsTable = ({
 
     return (
         <DataTable
+            authoritativeRowIds={authoritativeRowIds}
             columns={tableColumns}
             data={threadTreeRoots}
             emptyMessage="No Cursor threads match the current workspace filter."
@@ -197,20 +202,19 @@ export const CursorThreadsTable = ({
             getRowId={(row) => row.composerId}
             getSubRows={(row) => row.children}
             initialSorting={defaultSorting}
-            renderToolbar={({ clearSelection, selectedRows }) => {
-                const selectedComposerIds = selectedRows.map((row) => row.composerId);
-                const hasEmptySelection = selectedRows.some((row) => row.bubbleCount === 0);
-                return (
-                    <SelectionActionsToolbar
-                        clearSelection={clearSelection}
-                        exportDisabled={hasEmptySelection}
-                        itemLabel="thread"
-                        selectedCount={selectedRows.length}
-                        onDeleteSelected={() => onDeleteThreads(selectedComposerIds)}
-                        onExportSelected={() => onExportThreads(selectedComposerIds)}
-                    />
-                );
-            }}
+            inventoryIdentity={inventoryIdentity}
+            renderToolbar={({ clearSelection, hiddenSelectedCount, selectedIds, selectedRows }) => (
+                <ConversationSelectionActions
+                    clearSelection={clearSelection}
+                    deleteAction={supportedListAction(() => onDeleteThreads(selectedIds))}
+                    exportAction={supportedListAction(() => onExportThreads(selectedIds), {
+                        disabled: selectedRows.some((row) => row.bubbleCount === 0),
+                    })}
+                    hiddenSelectedCount={hiddenSelectedCount}
+                    itemLabel="thread"
+                    selectedCount={selectedIds.length}
+                />
+            )}
         />
     );
 };

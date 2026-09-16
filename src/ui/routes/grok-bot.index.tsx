@@ -8,6 +8,7 @@ import { ListSearchInput } from '#/components/list-search-input';
 import { LoadingPanel } from '#/components/loading-panel';
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
+import { conversationListSelection, lookupSelectedItems } from '#/lib/conversation-selection';
 import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { grokBotChatsQueryOptions } from '#/lib/grok-bot-queries';
@@ -81,14 +82,8 @@ const GrokBotPage = () => {
             ),
         [conversations, deferredSearch],
     );
-    const visibleChatsById = useMemo(
-        () => new Map(visibleConversations.map((conversation) => [conversation.id, conversation])),
-        [visibleConversations],
-    );
     const lookupSelectedChats = (conversationIds: string[]) =>
-        conversationIds
-            .map((conversationId) => visibleChatsById.get(conversationId) ?? null)
-            .filter((conversation): conversation is GrokBotChat => conversation !== null);
+        lookupSelectedItems(conversationIds, conversations, (conversation) => conversation.id);
     const openExportForChats = (selectedChats: GrokBotChat[]) => {
         if (selectedChats.length > 0) {
             setPendingExport(buildChatExport(selectedChats));
@@ -161,6 +156,10 @@ const GrokBotPage = () => {
                 title="Grok Bot"
             />
             <GrokBotChatsTable
+                {...conversationListSelection(
+                    'grok-bot',
+                    conversations.map((conversation) => conversation.id),
+                )}
                 chats={visibleConversations}
                 onDeleteChat={(chat) => openDeleteForChats([chat])}
                 onDeleteChats={(conversationIds) => openDeleteForChats(lookupSelectedChats(conversationIds))}

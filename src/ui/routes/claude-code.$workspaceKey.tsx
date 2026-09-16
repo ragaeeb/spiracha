@@ -16,6 +16,7 @@ import {
     exportClaudeCodeSessionFn,
     exportClaudeCodeSessionsFn,
 } from '#/lib/claude-code-server';
+import { conversationListSelection, lookupSelectedItems } from '#/lib/conversation-selection';
 import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
@@ -171,14 +172,8 @@ function ClaudeCodeWorkspacePage() {
             ),
         [deferredSearch, sessions],
     );
-    const visibleSessionsById = useMemo(
-        () => new Map(visibleSessions.map((session) => [session.sessionId, session])),
-        [visibleSessions],
-    );
     const lookupSelectedSessions = (sessionIds: string[]) =>
-        sessionIds
-            .map((sessionId) => visibleSessionsById.get(sessionId) ?? null)
-            .filter((session): session is ClaudeCodeSessionSummary => session !== null);
+        lookupSelectedItems(sessionIds, sessions, (session) => session.sessionId);
     const openExportForSessions = (selectedSessions: ClaudeCodeSessionSummary[]) => {
         if (selectedSessions.length === 0) {
             return;
@@ -210,6 +205,11 @@ function ClaudeCodeWorkspacePage() {
             />
 
             <ClaudeCodeSessionsTable
+                {...conversationListSelection(
+                    'claude-code',
+                    sessions.map((session) => session.sessionId),
+                    workspace.key,
+                )}
                 sessions={visibleSessions}
                 onDeleteSession={(session) => openDeleteForSessions([session])}
                 onDeleteSessions={(sessionIds) => openDeleteForSessions(lookupSelectedSessions(sessionIds))}

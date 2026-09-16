@@ -10,6 +10,7 @@ import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
 import { WebChatDropzone } from '#/components/web-chat-dropzone';
 import { WebConversationsTable } from '#/components/web-conversations-table';
+import { conversationListSelection, lookupSelectedItems } from '#/lib/conversation-selection';
 import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { getMutationErrorMessage } from '#/lib/mutation-error';
@@ -51,13 +52,8 @@ const filterWebConversations = (conversations: WebChatConversationSummary[], que
         ]),
     );
 
-const lookupVisibleChats = (conversations: WebChatConversationSummary[], conversationIds: string[]) => {
-    const byId = new Map(conversations.map((conversation) => [conversation.id, conversation]));
-    return conversationIds.flatMap((conversationId) => {
-        const conversation = byId.get(conversationId);
-        return conversation ? [conversation] : [];
-    });
-};
+const lookupVisibleChats = (conversations: WebChatConversationSummary[], conversationIds: string[]) =>
+    lookupSelectedItems(conversationIds, conversations, (conversation) => conversation.id);
 
 const downloadWebExport = async (
     ids: readonly string[],
@@ -220,14 +216,18 @@ const WebPage = () => {
             ) : null}
 
             <WebConversationsTable
+                {...conversationListSelection(
+                    'web',
+                    conversations.map((conversation) => conversation.id),
+                )}
                 conversations={visibleConversations}
                 onDeleteChat={(chat) => openDeleteForChats([chat])}
                 onDeleteChats={(conversationIds) =>
-                    openDeleteForChats(lookupVisibleChats(visibleConversations, conversationIds))
+                    openDeleteForChats(lookupVisibleChats(conversations, conversationIds))
                 }
                 onExportChat={(chat) => openExportForChats([chat])}
                 onExportChats={(conversationIds) =>
-                    openExportForChats(lookupVisibleChats(visibleConversations, conversationIds))
+                    openExportForChats(lookupVisibleChats(conversations, conversationIds))
                 }
             />
             <ExportDialog

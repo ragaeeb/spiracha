@@ -52,6 +52,14 @@ const runBunCommand = async (args: string[], cwd: string, environment?: Record<s
 };
 
 describe('conversation client', () => {
+    it('should re-export shared normalized export options from the public SDK', async () => {
+        const { DEFAULT_NORMALIZED_EXPORT_OPTIONS, expandNormalizedExportOptions } = await import('./client');
+
+        expect(DEFAULT_NORMALIZED_EXPORT_OPTIONS.format).toBe('md');
+        expect(expandNormalizedExportOptions({ includeCommentary: false }).include.commentary).toBe(false);
+        expect(expandNormalizedExportOptions({ includeTools: false }).include.reasoning).toBe(true);
+    });
+
     it('should download raw transcript bytes through the HTTP client contract', async () => {
         const original = '{"z":1, "spacing":  true}\n';
         const requests: string[] = [];

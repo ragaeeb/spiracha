@@ -13,6 +13,7 @@ import { RouteErrorPanel } from '#/components/route-error-panel';
 import { Button } from '#/components/ui/button';
 import { clineTasksQueryOptions, clineWorkspacesQueryOptions } from '#/lib/cline-queries';
 import { deleteClineTaskFn, deleteClineTasksFn, exportClineTaskFn, exportClineTasksFn } from '#/lib/cline-server';
+import { conversationListSelection, lookupSelectedItems } from '#/lib/conversation-selection';
 import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
@@ -45,8 +46,7 @@ const ClineWorkspacePage = () => {
             ),
         [deferredSearch, tasks],
     );
-    const visibleById = useMemo(() => new Map(visible.map((task) => [task.taskId, task])), [visible]);
-    const selected = (ids: string[]) => ids.flatMap((id) => visibleById.get(id) ?? []);
+    const selected = (ids: string[]) => lookupSelectedItems(ids, tasks, (task) => task.taskId);
 
     const exportMutation = useMutation({
         mutationFn: async ({ ids, options }: ExportSelectionMutationInput) => {
@@ -118,6 +118,11 @@ const ClineWorkspacePage = () => {
                 title={workspace.label}
             />
             <ClineTasksTable
+                {...conversationListSelection(
+                    'cline',
+                    tasks.map((task) => task.taskId),
+                    workspace.key,
+                )}
                 sessions={visible}
                 onDeleteSession={(task) => setDeleteTasks([task])}
                 onDeleteSessions={(ids) => setDeleteTasks(selected(ids))}

@@ -11,6 +11,7 @@ import { PageHeader } from '#/components/page-header';
 import { QoderSessionsTable } from '#/components/qoder-sessions-table';
 import { RouteErrorPanel } from '#/components/route-error-panel';
 import { Button } from '#/components/ui/button';
+import { conversationListSelection, lookupSelectedItems } from '#/lib/conversation-selection';
 import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { qoderSessionsQueryOptions, qoderWorkspacesQueryOptions } from '#/lib/qoder-queries';
@@ -168,14 +169,8 @@ const QoderWorkspacePage = () => {
             ),
         [deferredSearch, sessions],
     );
-    const visibleSessionsById = useMemo(
-        () => new Map(visibleSessions.map((session) => [session.sessionId, session])),
-        [visibleSessions],
-    );
     const lookupSelectedSessions = (sessionIds: string[]) =>
-        sessionIds
-            .map((sessionId) => visibleSessionsById.get(sessionId) ?? null)
-            .filter((session): session is QoderSessionSummary => session !== null);
+        lookupSelectedItems(sessionIds, sessions, (session) => session.sessionId);
     const openExportForSessions = (selectedSessions: QoderSessionSummary[]) => {
         if (selectedSessions.length === 0) {
             return;
@@ -223,6 +218,11 @@ const QoderWorkspacePage = () => {
             />
 
             <QoderSessionsTable
+                {...conversationListSelection(
+                    'qoder',
+                    sessions.map((session) => session.sessionId),
+                    workspace.key,
+                )}
                 sessions={visibleSessions}
                 onDeleteSession={(session) => openDelete([session], 'selected')}
                 onDeleteSessions={(sessionIds) => openDelete(lookupSelectedSessions(sessionIds), 'selected')}

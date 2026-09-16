@@ -4,7 +4,7 @@ import type { SortingState } from '@tanstack/react-table';
 import { Download, GitFork, MoreHorizontal, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
-import { SelectionActionsToolbar } from '#/components/selection-actions-toolbar';
+import { ConversationSelectionActions } from '#/components/selection-actions-toolbar';
 import { Button } from '#/components/ui/button';
 import {
     DropdownMenu,
@@ -12,6 +12,8 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu';
+import { supportedListAction } from '#/lib/conversation-actions';
+import type { ConversationListSelectionProps } from '#/lib/conversation-selection';
 import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatBytes, formatDateTime, formatTokens } from '#/lib/formatters';
 import { cn } from '#/lib/utils';
@@ -22,7 +24,7 @@ type ThreadsTableProps = {
     onDeleteThreads: (threadIds: string[]) => void;
     onExportThread: (thread: ThreadListEntry) => void;
     onExportThreads: (threadIds: string[]) => void;
-};
+} & ConversationListSelectionProps;
 
 type ThreadTreeNode = ThreadListEntry & {
     children: ThreadTreeNode[];
@@ -196,6 +198,8 @@ const columns = (
     ] as const;
 
 export function ThreadsTable({
+    authoritativeRowIds,
+    inventoryIdentity,
     threads,
     onDeleteThread,
     onDeleteThreads,
@@ -206,6 +210,7 @@ export function ThreadsTable({
     const memoizedColumns = useMemo(() => columns(onDeleteThread, onExportThread), [onDeleteThread, onExportThread]);
     return (
         <DataTable
+            authoritativeRowIds={authoritativeRowIds}
             columns={memoizedColumns}
             data={threadTreeRoots}
             emptyMessage="No threads match the current project filter."
@@ -214,19 +219,18 @@ export function ThreadsTable({
             getRowId={(row) => row.thread.id}
             getSubRows={(row) => row.children}
             initialSorting={defaultSorting}
+            inventoryIdentity={inventoryIdentity}
             pageSize={CODEX_PROJECT_THREADS_PAGE_SIZE}
-            renderToolbar={({ clearSelection, selectedRows }) => {
-                const selectedThreadIds = selectedRows.map((row) => row.thread.id);
-                return (
-                    <SelectionActionsToolbar
-                        clearSelection={clearSelection}
-                        itemLabel="thread"
-                        selectedCount={selectedRows.length}
-                        onDeleteSelected={() => onDeleteThreads(selectedThreadIds)}
-                        onExportSelected={() => onExportThreads(selectedThreadIds)}
-                    />
-                );
-            }}
+            renderToolbar={({ clearSelection, hiddenSelectedCount, selectedIds }) => (
+                <ConversationSelectionActions
+                    clearSelection={clearSelection}
+                    deleteAction={supportedListAction(() => onDeleteThreads(selectedIds))}
+                    exportAction={supportedListAction(() => onExportThreads(selectedIds))}
+                    hiddenSelectedCount={hiddenSelectedCount}
+                    itemLabel="thread"
+                    selectedCount={selectedIds.length}
+                />
+            )}
         />
     );
 }

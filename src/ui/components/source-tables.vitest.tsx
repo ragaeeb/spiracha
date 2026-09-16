@@ -207,6 +207,52 @@ describe('source session tables', () => {
         expect(onDeleteSession).toHaveBeenCalledWith(session);
     });
 
+    it('should keep filter-hidden Command Code session ids for batch export', () => {
+        const onExportSessions = vi.fn();
+        const session = {
+            assistantMessageCount: 1,
+            createdAtMs: 1_700_000_000_000,
+            cwd: '/workspace/command-code',
+            filePath: '/tmp/command-code/session.jsonl',
+            lastActiveAtMs: 1_700_000_000_100,
+            messageCount: 2,
+            model: 'z-ai/glm-5.3-flash',
+            modelLabel: 'GLM 5.3 Flash',
+            recordCount: 3,
+            renderableMessageCount: 2,
+            sessionId: 'command-code-session',
+            title: 'Command Code review',
+            toolCallCount: 1,
+            toolOutputCount: 1,
+            userMessageCount: 1,
+            workspaceKey: 'command-code-key',
+            workspaceLabel: 'Command Code workspace',
+            worktree: '/workspace/command-code',
+        };
+        const secondSession = {
+            ...session,
+            sessionId: 'command-code-session-2',
+            title: 'Command Code follow-up',
+        };
+        const tableProps = {
+            authoritativeRowIds: [session.sessionId, secondSession.sessionId],
+            inventoryIdentity: 'command-code:command-code-key',
+            onDeleteSession: vi.fn(),
+            onDeleteSessions: vi.fn(),
+            onExportSession: vi.fn(),
+            onExportSessions,
+        };
+        const { rerender } = render(<CommandCodeSessionsTable {...tableProps} sessions={[session, secondSession]} />);
+
+        fireEvent.click(screen.getByRole('checkbox', { name: 'Select row command-code-session' }));
+        fireEvent.click(screen.getByRole('checkbox', { name: 'Select row command-code-session-2' }));
+        rerender(<CommandCodeSessionsTable {...tableProps} sessions={[session]} />);
+
+        expect(screen.getByRole('status').textContent).toBe('2 sessions selected (1 outside this view)');
+        fireEvent.click(screen.getByRole('button', { name: 'Export selected sessions' }));
+        expect(onExportSessions).toHaveBeenCalledWith(['command-code-session', 'command-code-session-2']);
+    });
+
     it('should render Claude Code sub-agents as nested rows beneath their parent', () => {
         const parent = claudeNestedSession({
             sessionId: 'parent-session',
@@ -304,19 +350,6 @@ describe('source workspace tables', () => {
                 },
             },
             {
-                Component: OpenCodeWorkspacesTable,
-                path: '/opencode/opencode-key',
-                row: {
-                    key: 'opencode-key',
-                    label: 'OpenCode workspace',
-                    lastActiveMs: 1_700_000_000_000,
-                    messageCount: 20,
-                    partCount: 30,
-                    sessionCount: 2,
-                    worktree: '/workspace/opencode',
-                },
-            },
-            {
                 Component: CommandCodeWorkspacesTable,
                 path: '/command-code/command-code-key',
                 row: {
@@ -354,6 +387,32 @@ describe('source workspace tables', () => {
             expect(screen.getByText(row.worktree)).toBeTruthy();
             unmount();
         }
+
+        const { unmount: unmountOpenCode } = render(
+            <OpenCodeWorkspacesTable
+                onDeleteWorkspace={vi.fn()}
+                onDeleteWorkspaces={vi.fn()}
+                workspaces={[
+                    {
+                        archivedSessionCount: 0,
+                        key: 'opencode-key',
+                        label: 'OpenCode workspace',
+                        lastActiveMs: 1_700_000_000_000,
+                        messageCount: 20,
+                        partCount: 30,
+                        projectId: 'opencode-key',
+                        sessionCount: 2,
+                        uri: 'file:///workspace/opencode',
+                        worktree: '/workspace/opencode',
+                    },
+                ]}
+            />,
+        );
+        expect(screen.getByRole('link', { name: /OpenCode workspace/i }).getAttribute('href')).toBe(
+            '/opencode/opencode-key',
+        );
+        expect(screen.getByText('/workspace/opencode')).toBeTruthy();
+        unmountOpenCode();
     });
 
     it('should render Command Code session metadata and navigation', () => {

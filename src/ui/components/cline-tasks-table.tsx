@@ -4,7 +4,7 @@ import type { SortingState } from '@tanstack/react-table';
 import { Download, MoreHorizontal, Star, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
-import { SelectionActionsToolbar } from '#/components/selection-actions-toolbar';
+import { ConversationSelectionActions } from '#/components/selection-actions-toolbar';
 import { Button } from '#/components/ui/button';
 import {
     DropdownMenu,
@@ -12,6 +12,8 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu';
+import { supportedListAction } from '#/lib/conversation-actions';
+import type { ConversationListSelectionProps } from '#/lib/conversation-selection';
 import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatDateTime, formatNumber } from '#/lib/formatters';
 
@@ -21,7 +23,7 @@ type Props = {
     onExportSession: (task: ClineTaskSummary) => void;
     onExportSessions: (taskIds: string[]) => void;
     sessions: ClineTaskSummary[];
-};
+} & ConversationListSelectionProps;
 
 const columnHelper = createDataTableColumnHelper<ClineTaskSummary>();
 const defaultSorting: SortingState = [{ desc: true, id: 'lastActive' }];
@@ -104,6 +106,8 @@ const buildColumns = (onDelete: Props['onDeleteSession'], onExport: Props['onExp
     ] as const;
 
 export const ClineTasksTable = ({
+    authoritativeRowIds,
+    inventoryIdentity,
     onDeleteSession,
     onDeleteSessions,
     onExportSession,
@@ -113,19 +117,22 @@ export const ClineTasksTable = ({
     const columns = useMemo(() => buildColumns(onDeleteSession, onExportSession), [onDeleteSession, onExportSession]);
     return (
         <DataTable
+            authoritativeRowIds={authoritativeRowIds}
             columns={columns}
             data={sessions}
             emptyMessage="No Cline chats match the current workspace filter."
             enableRowSelection
             getRowId={(row) => row.taskId}
             initialSorting={defaultSorting}
-            renderToolbar={({ clearSelection, selectedRows }) => (
-                <SelectionActionsToolbar
+            inventoryIdentity={inventoryIdentity}
+            renderToolbar={({ clearSelection, hiddenSelectedCount, selectedIds }) => (
+                <ConversationSelectionActions
                     clearSelection={clearSelection}
+                    deleteAction={supportedListAction(() => onDeleteSessions(selectedIds))}
+                    exportAction={supportedListAction(() => onExportSessions(selectedIds))}
+                    hiddenSelectedCount={hiddenSelectedCount}
                     itemLabel="session"
-                    selectedCount={selectedRows.length}
-                    onDeleteSelected={() => onDeleteSessions(selectedRows.map((row) => row.taskId))}
-                    onExportSelected={() => onExportSessions(selectedRows.map((row) => row.taskId))}
+                    selectedCount={selectedIds.length}
                 />
             )}
         />

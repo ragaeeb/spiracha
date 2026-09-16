@@ -107,8 +107,8 @@ it('should export and delete imported chats by parsed id', () => {
     expect(screen.getByText('claude.json')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select row parsed-id' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Export selected chat' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Delete selected chat' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Export selected imported conversation' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove selected imported conversation' }));
     expect(onExportChats).toHaveBeenCalledWith(['parsed-id']);
     expect(onDeleteChats).toHaveBeenCalledWith(['parsed-id']);
 
@@ -116,7 +116,7 @@ it('should export and delete imported chats by parsed id', () => {
     fireEvent.click(menuTrigger);
     fireEvent.click(screen.getByRole('button', { name: 'Export chat' }));
     fireEvent.click(menuTrigger);
-    fireEvent.click(screen.getByRole('button', { name: 'Delete chat' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove imported conversation' }));
     expect(onExportChat).toHaveBeenCalledWith(first);
     expect(onDeleteChat).toHaveBeenCalledWith(first);
 });

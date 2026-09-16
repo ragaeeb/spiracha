@@ -104,18 +104,58 @@ describe('DataTable', () => {
             />,
         );
 
-        fireEvent.click(screen.getAllByRole('checkbox', { name: 'Select all rows' })[0]!);
+        fireEvent.click(screen.getAllByRole('checkbox', { name: 'Select all visible rows on this page' })[0]!);
         expect(screen.getByText('3 selected')).toBeTruthy();
         fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
         expect(screen.getByText('0 selected')).toBeTruthy();
     });
 
-    it('should discard selection state for rows removed from the data set', () => {
-        const renderToolbar = ({ selectedRows }: { selectedRows: typeof rows }) => (
-            <span>{selectedRows.map((row) => row.id).join(',') || 'none'}</span>
+    it('should keep selected ids that are only hidden by a filtered page', () => {
+        const renderToolbar = ({
+            hiddenSelectedCount,
+            selectedIds,
+        }: {
+            hiddenSelectedCount: number;
+            selectedIds: string[];
+        }) => <span>{`${selectedIds.join(',') || 'none'} hidden:${hiddenSelectedCount}`}</span>;
+        const { rerender } = render(
+            <DataTable
+                authoritativeRowIds={rows.map((row) => row.id)}
+                columns={columns}
+                data={rows}
+                emptyMessage="No rows"
+                enableRowSelection
+                getRowId={(row) => row.id}
+                inventoryIdentity="source:workspace-a"
+                renderToolbar={renderToolbar}
+            />,
+        );
+        fireEvent.click(screen.getByRole('checkbox', { name: 'Select row row-1' }));
+        expect(screen.getByText('row-1 hidden:0')).toBeTruthy();
+
+        rerender(
+            <DataTable
+                authoritativeRowIds={rows.map((row) => row.id)}
+                columns={columns}
+                data={rows.slice(1)}
+                emptyMessage="No rows"
+                enableRowSelection
+                getRowId={(row) => row.id}
+                inventoryIdentity="source:workspace-a"
+                renderToolbar={renderToolbar}
+            />,
+        );
+
+        expect(screen.getByText('row-1 hidden:1')).toBeTruthy();
+    });
+
+    it('should drop selected ids that leave the authoritative membership', () => {
+        const renderToolbar = ({ selectedIds }: { selectedIds: string[] }) => (
+            <span>{selectedIds.join(',') || 'none'}</span>
         );
         const { rerender } = render(
             <DataTable
+                authoritativeRowIds={['row-1', 'row-2', 'row-3']}
                 columns={columns}
                 data={rows}
                 emptyMessage="No rows"
@@ -129,6 +169,7 @@ describe('DataTable', () => {
 
         rerender(
             <DataTable
+                authoritativeRowIds={['row-2', 'row-3']}
                 columns={columns}
                 data={rows.slice(1)}
                 emptyMessage="No rows"
@@ -137,19 +178,87 @@ describe('DataTable', () => {
                 renderToolbar={renderToolbar}
             />,
         );
+
+        expect(screen.getByText('none')).toBeTruthy();
+    });
+
+    it('should reset selection when the inventory identity changes', () => {
+        const renderToolbar = ({ selectedIds }: { selectedIds: string[] }) => (
+            <span>{selectedIds.join(',') || 'none'}</span>
+        );
+        const { rerender } = render(
+            <DataTable
+                authoritativeRowIds={['row-1', 'row-2', 'row-3']}
+                columns={columns}
+                data={rows}
+                emptyMessage="No rows"
+                enableRowSelection
+                getRowId={(row) => row.id}
+                inventoryIdentity="source:workspace-a"
+                renderToolbar={renderToolbar}
+            />,
+        );
+        fireEvent.click(screen.getByRole('checkbox', { name: 'Select row row-1' }));
+        expect(screen.getByText('row-1')).toBeTruthy();
+
         rerender(
+            <DataTable
+                authoritativeRowIds={['row-1', 'row-2', 'row-3']}
+                columns={columns}
+                data={rows}
+                emptyMessage="No rows"
+                enableRowSelection
+                getRowId={(row) => row.id}
+                inventoryIdentity="source:workspace-b"
+                renderToolbar={renderToolbar}
+            />,
+        );
+
+        expect(screen.getByText('none')).toBeTruthy();
+    });
+
+    it('should select only the currently visible page and keep off-page ids when deselecting the page', () => {
+        const renderToolbar = ({ selectedIds }: { selectedIds: string[] }) => (
+            <span>{[...selectedIds].sort().join(',') || 'none'}</span>
+        );
+        render(
             <DataTable
                 columns={columns}
                 data={rows}
                 emptyMessage="No rows"
                 enableRowSelection
                 getRowId={(row) => row.id}
+                pageSize={2}
                 renderToolbar={renderToolbar}
             />,
         );
 
-        expect(screen.getByText('none')).toBeTruthy();
-        expect(screen.getByRole('checkbox', { name: 'Select row row-1' }).getAttribute('aria-checked')).toBe('false');
+        fireEvent.click(screen.getAllByRole('checkbox', { name: 'Select all visible rows on this page' })[0]!);
+        expect(screen.getByText('row-1,row-2')).toBeTruthy();
+        expect(screen.queryByText('row-3')).toBeNull();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+        fireEvent.click(screen.getByRole('checkbox', { name: 'Select row row-3' }));
+        expect(screen.getByText('row-1,row-2,row-3')).toBeTruthy();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Previous page' }));
+        fireEvent.click(screen.getAllByRole('checkbox', { name: 'Select all visible rows on this page' })[0]!);
+        expect(screen.getByText('row-3')).toBeTruthy();
+    });
+
+    it('should include the row title in the checkbox accessible name when provided', () => {
+        render(
+            <DataTable
+                columns={columns}
+                data={rows}
+                emptyMessage="No rows"
+                enableRowSelection
+                getRowId={(row) => row.id}
+                getRowLabel={(row) => row.model}
+            />,
+        );
+
+        expect(screen.getByRole('checkbox', { name: 'Select gpt-5.5 row-1' })).toBeTruthy();
     });
 
     it('should keep selected row ids after sorting and changing page', () => {

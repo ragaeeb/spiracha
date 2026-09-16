@@ -3,7 +3,7 @@ import type { SortingState } from '@tanstack/react-table';
 import { Download, MoreHorizontal, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
-import { SelectionActionsToolbar } from '#/components/selection-actions-toolbar';
+import { ConversationSelectionActions } from '#/components/selection-actions-toolbar';
 import { Button } from '#/components/ui/button';
 import {
     DropdownMenu,
@@ -11,6 +11,8 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu';
+import { supportedListAction } from '#/lib/conversation-actions';
+import type { ConversationListSelectionProps } from '#/lib/conversation-selection';
 import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatDateTime, formatNumber } from '#/lib/formatters';
 import type { GrokBotChat } from '#/lib/grok-bot-server';
@@ -21,7 +23,7 @@ type GrokBotChatsTableProps = {
     onDeleteChats: (conversationIds: string[]) => void;
     onExportChat: (chat: GrokBotChat) => void;
     onExportChats: (conversationIds: string[]) => void;
-};
+} & ConversationListSelectionProps;
 
 const columnHelper = createDataTableColumnHelper<GrokBotChat>();
 const defaultSorting: SortingState = [{ desc: true, id: 'updated' }];
@@ -126,7 +128,9 @@ const buildColumns = (onDeleteChat: (chat: GrokBotChat) => void, onExportChat: (
     ] as const;
 
 export const GrokBotChatsTable = ({
+    authoritativeRowIds,
     chats,
+    inventoryIdentity,
     onDeleteChat,
     onDeleteChats,
     onExportChat,
@@ -136,19 +140,22 @@ export const GrokBotChatsTable = ({
 
     return (
         <DataTable
+            authoritativeRowIds={authoritativeRowIds}
             columns={columns}
             data={chats}
             emptyMessage="No Grok Bot chats match the current search."
             enableRowSelection
             getRowId={(conversation) => conversation.id}
             initialSorting={defaultSorting}
-            renderToolbar={({ clearSelection, selectedRows }) => (
-                <SelectionActionsToolbar
+            inventoryIdentity={inventoryIdentity}
+            renderToolbar={({ clearSelection, hiddenSelectedCount, selectedIds }) => (
+                <ConversationSelectionActions
                     clearSelection={clearSelection}
+                    deleteAction={supportedListAction(() => onDeleteChats(selectedIds))}
+                    exportAction={supportedListAction(() => onExportChats(selectedIds))}
+                    hiddenSelectedCount={hiddenSelectedCount}
                     itemLabel="chat"
-                    selectedCount={selectedRows.length}
-                    onDeleteSelected={() => onDeleteChats(selectedRows.map((row) => row.id))}
-                    onExportSelected={() => onExportChats(selectedRows.map((row) => row.id))}
+                    selectedCount={selectedIds.length}
                 />
             )}
         />

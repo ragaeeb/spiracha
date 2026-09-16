@@ -18,6 +18,7 @@ import {
     exportCommandCodeSessionFn,
     exportCommandCodeSessionsFn,
 } from '#/lib/command-code-server';
+import { conversationListSelection, lookupSelectedItems } from '#/lib/conversation-selection';
 import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
@@ -163,14 +164,8 @@ const CommandCodeWorkspacePage = () => {
             ),
         [deferredSearch, sessions],
     );
-    const visibleSessionsById = useMemo(
-        () => new Map(visibleSessions.map((session) => [session.sessionId, session])),
-        [visibleSessions],
-    );
     const lookupSelectedSessions = (sessionIds: string[]) =>
-        sessionIds
-            .map((sessionId) => visibleSessionsById.get(sessionId) ?? null)
-            .filter((session): session is CommandCodeSessionSummary => session !== null);
+        lookupSelectedItems(sessionIds, sessions, (session) => session.sessionId);
     const openExportForSessions = (selectedSessions: CommandCodeSessionSummary[]) => {
         if (selectedSessions.length > 0) {
             setPendingExport(buildSessionExport(selectedSessions));
@@ -212,6 +207,11 @@ const CommandCodeWorkspacePage = () => {
                 title={workspace.label}
             />
             <CommandCodeSessionsTable
+                {...conversationListSelection(
+                    'command-code',
+                    sessions.map((session) => session.sessionId),
+                    workspace.key,
+                )}
                 sessions={visibleSessions}
                 onDeleteSession={(session) => openDeleteForSessions([session], 'selected')}
                 onDeleteSessions={(sessionIds) => openDeleteForSessions(lookupSelectedSessions(sessionIds), 'selected')}
@@ -254,6 +254,7 @@ const CommandCodeWorkspacePage = () => {
                         : null
                 }
                 open={pendingDelete !== null}
+                pending={deleteMutation.isPending}
                 title={getDeleteTitle(pendingDelete)}
                 onConfirm={() => {
                     if (pendingDelete) {

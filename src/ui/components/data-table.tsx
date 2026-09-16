@@ -4,10 +4,19 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '#/components/ui/button';
 import { Checkbox } from '#/components/ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '#/components/ui/table';
+import { pruneSelectionToAuthoritative, selectedIdsFromRecord, summarizeSelection } from '#/lib/conversation-selection';
 import { type DataTableColumnDef, dataTableFeatures } from '#/lib/data-table-config';
 import { cn } from '#/lib/utils';
 
+export type DataTableToolbarInput<TData> = {
+    clearSelection: () => void;
+    hiddenSelectedCount: number;
+    selectedIds: string[];
+    selectedRows: TData[];
+};
+
 type DataTableProps<TData extends RowData> = {
+    authoritativeRowIds?: readonly string[];
     className?: string;
     columns: ReadonlyArray<DataTableColumnDef<TData, any>>;
     data: TData[];
@@ -15,11 +24,13 @@ type DataTableProps<TData extends RowData> = {
     enableRowSelection?: boolean;
     expandAllRows?: boolean;
     getRowId?: (row: TData, index: number) => string;
+    getRowLabel?: (row: TData) => string;
     getSubRows?: (row: TData, index: number) => TData[] | undefined;
     initialSorting?: SortingState;
+    inventoryIdentity?: string;
     onRowClick?: (row: TData) => void;
     pageSize?: number;
-    renderToolbar?: (input: { clearSelection: () => void; selectedRows: TData[] }) => ReactNode;
+    renderToolbar?: (input: DataTableToolbarInput<TData>) => ReactNode;
 };
 
 const DEFAULT_PAGE_SIZE = 50;
@@ -77,6 +88,7 @@ const getDataRowIds = <TData extends RowData>(
 };
 
 export function DataTable<TData extends RowData>({
+    authoritativeRowIds,
     className,
     columns,
     data,
@@ -84,8 +96,10 @@ export function DataTable<TData extends RowData>({
     enableRowSelection = false,
     expandAllRows = false,
     getRowId,
+    getRowLabel,
     getSubRows,
     initialSorting = [],
+    inventoryIdentity,
     onRowClick,
     pageSize = DEFAULT_PAGE_SIZE,
     renderToolbar,
@@ -94,22 +108,28 @@ export function DataTable<TData extends RowData>({
     const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
     const lastSelectedRowIdRef = useRef<string | null>(null);
     const pendingShiftSelectionRowIdRef = useRef<string | null>(null);
-    const currentRowIds = useMemo(
-        () => new Set(getDataRowIds(data, getRowId, getSubRows)),
-        [data, getRowId, getSubRows],
+    const inventoryIdentityRef = useRef(inventoryIdentity);
+    const dataRowIds = useMemo(() => new Set(getDataRowIds(data, getRowId, getSubRows)), [data, getRowId, getSubRows]);
+    const membershipIds = useMemo(
+        () => (authoritativeRowIds ? new Set(authoritativeRowIds) : dataRowIds),
+        [authoritativeRowIds, dataRowIds],
     );
 
     useEffect(() => {
-        setRowSelection((selection) => {
-            const next = Object.fromEntries(
-                Object.entries(selection).filter(([rowId, selected]) => selected && currentRowIds.has(rowId)),
-            );
-            return Object.keys(next).length === Object.keys(selection).length ? selection : next;
-        });
-        if (lastSelectedRowIdRef.current && !currentRowIds.has(lastSelectedRowIdRef.current)) {
+        if (inventoryIdentityRef.current === inventoryIdentity) {
+            return;
+        }
+        inventoryIdentityRef.current = inventoryIdentity;
+        setRowSelection({});
+        lastSelectedRowIdRef.current = null;
+    }, [inventoryIdentity]);
+
+    useEffect(() => {
+        setRowSelection((selection) => pruneSelectionToAuthoritative(selection, membershipIds) as RowSelectionState);
+        if (lastSelectedRowIdRef.current && !membershipIds.has(lastSelectedRowIdRef.current)) {
             lastSelectedRowIdRef.current = null;
         }
-    }, [currentRowIds]);
+    }, [membershipIds]);
 
     const updateSelectionForRow = (rowId: string, checked: boolean, shiftKey: boolean) => {
         const visibleRowIds = table.getPaginatedRowModel().rows.map((row) => row.id);
@@ -130,7 +150,7 @@ export function DataTable<TData extends RowData>({
     const selectionColumn: DataTableColumnDef<TData, any> = {
         cell: ({ row }) => (
             <Checkbox
-                aria-label={`Select row ${row.id}`}
+                aria-label={getRowLabel ? `Select ${getRowLabel(row.original)} ${row.id}` : `Select row ${row.id}`}
                 checked={row.getIsSelected()}
                 onPointerDown={(event) => {
                     event.stopPropagation();
@@ -150,7 +170,7 @@ export function DataTable<TData extends RowData>({
         enableSorting: false,
         header: ({ table }) => (
             <Checkbox
-                aria-label="Select all rows"
+                aria-label="Select all visible rows on this page"
                 checked={
                     table.getIsAllPageRowsSelected()
                         ? true
@@ -185,6 +205,11 @@ export function DataTable<TData extends RowData>({
     });
     const visibleRows = table.getPaginatedRowModel().rows;
     const selectedRows = table.getSelectedRowModel().flatRows.map((row) => row.original);
+    const selectedIds = selectedIdsFromRecord(rowSelection);
+    const hiddenSelectedCount = summarizeSelection(
+        selectedIds,
+        visibleRows.map((row) => row.id),
+    ).hiddenCount;
 
     return (
         <div
@@ -197,6 +222,8 @@ export function DataTable<TData extends RowData>({
                 <div className="border-[var(--border)] border-b px-3 py-2">
                     {renderToolbar({
                         clearSelection: () => setRowSelection({}),
+                        hiddenSelectedCount,
+                        selectedIds,
                         selectedRows,
                     })}
                 </div>

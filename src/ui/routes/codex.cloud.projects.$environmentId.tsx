@@ -13,6 +13,7 @@ import { RouteErrorPanel } from '#/components/route-error-panel';
 import { Button } from '#/components/ui/button';
 import { codexCloudProjectQueryOptions } from '#/lib/codex-cloud-queries';
 import { exportCodexCloudTaskFn, exportCodexCloudTasksFn } from '#/lib/codex-cloud-server';
+import { conversationListSelection, lookupSelectedItems } from '#/lib/conversation-selection';
 import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { getMutationErrorMessage } from '#/lib/mutation-error';
@@ -47,13 +48,8 @@ const buildCloudExport = (tasks: CodexCloudTask[]): PendingCloudExport | null =>
               taskIds: tasks.map((task) => task.id),
           };
 
-const lookupVisibleCloudTasks = (tasks: CodexCloudTask[], taskIds: string[]) => {
-    const byId = new Map(tasks.map((task) => [task.id, task]));
-    return taskIds.flatMap((taskId) => {
-        const task = byId.get(taskId);
-        return task ? [task] : [];
-    });
-};
+const lookupVisibleCloudTasks = (tasks: CodexCloudTask[], taskIds: string[]) =>
+    lookupSelectedItems(taskIds, tasks, (task) => task.id);
 
 const downloadCloudExport = async (
     ids: readonly string[],
@@ -152,10 +148,15 @@ function CodexCloudProjectPage() {
             ) : null}
 
             <CodexCloudTasksTable
+                {...conversationListSelection(
+                    'codex-cloud',
+                    project.tasks.map((task) => task.id),
+                    environmentId,
+                )}
                 emptyMessage="No Cloud threads match the current search."
                 tasks={visibleTasks}
                 onExportTask={(task) => openExport([task])}
-                onExportTasks={(taskIds) => openExport(lookupVisibleCloudTasks(visibleTasks, taskIds))}
+                onExportTasks={(taskIds) => openExport(lookupVisibleCloudTasks(project.tasks, taskIds))}
             />
             <ExportDialog
                 errorMessage={getMutationErrorMessage(exportMutation.error, 'Cloud thread export failed')}

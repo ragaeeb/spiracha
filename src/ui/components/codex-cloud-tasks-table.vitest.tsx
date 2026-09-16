@@ -100,12 +100,14 @@ it('should export Cloud tasks from the current project list without delete or ra
         </>,
     );
 
-    expect(screen.getByText(/Original files and deletion stay on the Codex Cloud account/)).toBeTruthy();
+    expect(screen.getAllByText(/Original files and deletion stay on the Codex Cloud account/).length).toBeGreaterThan(
+        0,
+    );
     expect(screen.getByRole('link', { name: 'Cloud review task_e_1' }).getAttribute('href')).toBe(
         '/codex/cloud/tasks/task_e_1',
     );
     expect(screen.queryByRole('button', { name: /Delete/i })).toBeNull();
-    expect(screen.getByText('Select threads to export them in a batch.')).toBeTruthy();
+    expect(screen.getByText(/Select threads to export them in a batch/)).toBeTruthy();
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select row task_e_1' }));
     fireEvent.click(screen.getByRole('button', { name: 'Export selected thread' }));

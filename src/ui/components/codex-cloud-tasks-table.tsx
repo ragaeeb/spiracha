@@ -4,7 +4,7 @@ import type { SortingState } from '@tanstack/react-table';
 import { Download, ExternalLink, MoreHorizontal } from 'lucide-react';
 import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
-import { SelectionActionsToolbar } from '#/components/selection-actions-toolbar';
+import { ConversationSelectionActions } from '#/components/selection-actions-toolbar';
 import { Badge } from '#/components/ui/badge';
 import { Button } from '#/components/ui/button';
 import {
@@ -13,6 +13,8 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu';
+import { supportedListAction } from '#/lib/conversation-actions';
+import type { ConversationListSelectionProps } from '#/lib/conversation-selection';
 import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatDateTime, formatNumber } from '#/lib/formatters';
 
@@ -21,7 +23,7 @@ type CodexCloudTasksTableProps = {
     onExportTask: (task: CodexCloudTask) => void;
     onExportTasks: (taskIds: string[]) => void;
     tasks: CodexCloudTask[];
-};
+} & ConversationListSelectionProps;
 
 const columnHelper = createDataTableColumnHelper<CodexCloudTask>();
 const defaultSorting: SortingState = [{ desc: true, id: 'updatedAt' }];
@@ -124,7 +126,9 @@ const buildColumns = (onExportTask: (task: CodexCloudTask) => void) =>
     ] as const;
 
 export const CodexCloudTasksTable = ({
+    authoritativeRowIds,
     emptyMessage,
+    inventoryIdentity,
     onExportTask,
     onExportTasks,
     tasks,
@@ -133,18 +137,22 @@ export const CodexCloudTasksTable = ({
 
     return (
         <DataTable
+            authoritativeRowIds={authoritativeRowIds}
             columns={columns}
             data={tasks}
             emptyMessage={emptyMessage}
             enableRowSelection
             getRowId={(row) => row.id}
             initialSorting={defaultSorting}
-            renderToolbar={({ clearSelection, selectedRows }) => (
-                <SelectionActionsToolbar
+            inventoryIdentity={inventoryIdentity}
+            renderToolbar={({ clearSelection, hiddenSelectedCount, selectedIds }) => (
+                <ConversationSelectionActions
                     clearSelection={clearSelection}
+                    deleteAction={{ reason: CODEX_CLOUD_READONLY_COPY, state: 'unsupported' }}
+                    exportAction={supportedListAction(() => onExportTasks(selectedIds))}
+                    hiddenSelectedCount={hiddenSelectedCount}
                     itemLabel="thread"
-                    selectedCount={selectedRows.length}
-                    onExportSelected={() => onExportTasks(selectedRows.map((row) => row.id))}
+                    selectedCount={selectedIds.length}
                 />
             )}
         />

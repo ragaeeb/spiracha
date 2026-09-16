@@ -150,4 +150,46 @@ describe('DeleteConfirmDialog', () => {
 
         expect(screen.getByText('Quit Cursor before deleting.')).toBeTruthy();
     });
+
+    it('should ignore a second confirm click while the first delete is pending', () => {
+        const onConfirm = vi.fn();
+
+        render(
+            <DeleteConfirmDialog
+                description="Delete this thread."
+                open
+                pending
+                title="Delete thread?"
+                onConfirm={onConfirm}
+                onOpenChange={vi.fn()}
+            />,
+        );
+
+        const confirm = screen.getAllByRole('button', { name: 'Delete' })[0]!;
+        fireEvent.click(confirm);
+        fireEvent.click(confirm);
+
+        expect(onConfirm).not.toHaveBeenCalled();
+        expect(confirm).toHaveProperty('disabled', true);
+    });
+
+    it('should not mutate when cancel is pressed', () => {
+        const onConfirm = vi.fn();
+        const onOpenChange = vi.fn();
+
+        render(
+            <DeleteConfirmDialog
+                description="Delete this thread."
+                open
+                title="Delete thread?"
+                onConfirm={onConfirm}
+                onOpenChange={onOpenChange}
+            />,
+        );
+
+        fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+        expect(onConfirm).not.toHaveBeenCalled();
+        expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
 });

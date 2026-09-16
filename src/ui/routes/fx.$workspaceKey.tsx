@@ -11,6 +11,7 @@ import { LoadingPanel } from '#/components/loading-panel';
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
 import { Button } from '#/components/ui/button';
+import { conversationListSelection, lookupSelectedItems } from '#/lib/conversation-selection';
 import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { fxSessionsQueryOptions, fxWorkspacesQueryOptions } from '#/lib/fx-queries';
@@ -92,10 +93,7 @@ const FxWorkspacePage = () => {
             ),
         [deferredSearch, sessions],
     );
-    const visibleSessionsById = useMemo(
-        () => new Map(visibleSessions.map((session) => [session.sessionId, session])),
-        [visibleSessions],
-    );
+    const lookupSessions = (ids: string[]) => lookupSelectedItems(ids, sessions, (session) => session.sessionId);
 
     const exportMutation = useMutation({
         mutationFn: async ({ ids, options }: ExportSelectionMutationInput) => {
@@ -140,10 +138,6 @@ const FxWorkspacePage = () => {
         },
     });
 
-    const lookupSessions = (ids: string[]) =>
-        ids
-            .map((id) => visibleSessionsById.get(id) ?? null)
-            .filter((value): value is FxSessionSummary => value !== null);
     const openExport = (selected: FxSessionSummary[]) =>
         selected.length > 0 && setPendingExport(buildSessionExport(selected));
     const openDelete = (selected: FxSessionSummary[], scope: PendingSessionDelete['scope']) =>
@@ -175,6 +169,11 @@ const FxWorkspacePage = () => {
                 title={workspace.label}
             />
             <FxSessionsTable
+                {...conversationListSelection(
+                    'fx',
+                    sessions.map((session) => session.sessionId),
+                    workspace.key,
+                )}
                 sessions={visibleSessions}
                 onDeleteSession={(session) => openDelete([session], 'selected')}
                 onDeleteSessions={(ids) => openDelete(lookupSessions(ids), 'selected')}

@@ -4,7 +4,7 @@ import type { SortingState } from '@tanstack/react-table';
 import { Download, MoreHorizontal, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
-import { SelectionActionsToolbar } from '#/components/selection-actions-toolbar';
+import { ConversationSelectionActions } from '#/components/selection-actions-toolbar';
 import { Button } from '#/components/ui/button';
 import {
     DropdownMenu,
@@ -12,6 +12,8 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu';
+import { supportedListAction } from '#/lib/conversation-actions';
+import type { ConversationListSelectionProps } from '#/lib/conversation-selection';
 import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatDateTime, formatNumber } from '#/lib/formatters';
 
@@ -21,7 +23,7 @@ type WebConversationsTableProps = {
     onDeleteChats: (conversationIds: string[]) => void;
     onExportChat: (conversation: WebChatConversationSummary) => void;
     onExportChats: (conversationIds: string[]) => void;
-};
+} & ConversationListSelectionProps;
 
 const columnHelper = createDataTableColumnHelper<WebChatConversationSummary>();
 const defaultSorting: SortingState = [{ desc: true, id: 'lastActive' }];
@@ -96,7 +98,7 @@ const buildColumns = (
                             onClick={() => onDeleteChat(info.row.original)}
                         >
                             <Trash2 className="mr-2 size-4" />
-                            Delete chat
+                            Remove imported conversation
                         </DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>
@@ -108,7 +110,9 @@ const buildColumns = (
     ] as const;
 
 export const WebConversationsTable = ({
+    authoritativeRowIds,
     conversations,
+    inventoryIdentity,
     onDeleteChat,
     onDeleteChats,
     onExportChat,
@@ -118,19 +122,22 @@ export const WebConversationsTable = ({
 
     return (
         <DataTable
+            authoritativeRowIds={authoritativeRowIds}
             columns={columns}
             data={conversations}
             emptyMessage="Drop one or more exported web chats to inspect them here."
             enableRowSelection
             getRowId={(row) => row.id}
             initialSorting={defaultSorting}
-            renderToolbar={({ clearSelection, selectedRows }) => (
-                <SelectionActionsToolbar
+            inventoryIdentity={inventoryIdentity}
+            renderToolbar={({ clearSelection, hiddenSelectedCount, selectedIds }) => (
+                <ConversationSelectionActions
                     clearSelection={clearSelection}
-                    itemLabel="chat"
-                    selectedCount={selectedRows.length}
-                    onDeleteSelected={() => onDeleteChats(selectedRows.map((row) => row.id))}
-                    onExportSelected={() => onExportChats(selectedRows.map((row) => row.id))}
+                    deleteAction={supportedListAction(() => onDeleteChats(selectedIds), { verb: 'Remove' })}
+                    exportAction={supportedListAction(() => onExportChats(selectedIds))}
+                    hiddenSelectedCount={hiddenSelectedCount}
+                    itemLabel="imported conversation"
+                    selectedCount={selectedIds.length}
                 />
             )}
         />

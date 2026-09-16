@@ -135,6 +135,7 @@ type ListActionHandlers = {
 
 type ListActionBinding = {
     deleteRowLabel: string | null;
+    deleteSelectedLabel?: string;
     exportRowLabel: string;
     href: string;
     itemLabel: string;
@@ -729,10 +730,11 @@ const SOURCE_LIST_ACTION_BINDINGS = {
         />
     )),
     web: {
-        deleteRowLabel: 'Delete chat',
+        deleteRowLabel: 'Remove imported conversation',
+        deleteSelectedLabel: 'Remove selected imported conversation',
         exportRowLabel: 'Export chat',
         href: '/web-chats/parsed-id',
-        itemLabel: 'chat',
+        itemLabel: 'imported conversation',
         render: (handlers) => (
             <WebConversationsTable
                 conversations={[webChat()]}
@@ -762,7 +764,7 @@ describe('source list action bindings', () => {
 
     for (const source of Object.keys(SOURCE_LIST_ACTION_BINDINGS) as ListActionSurface[]) {
         it(`should export and ${SOURCE_LIST_ACTION_BINDINGS[source].deleteRowLabel ? 'delete' : 'explain read-only'} ${source} from its real table`, () => {
-            const binding = SOURCE_LIST_ACTION_BINDINGS[source];
+            const binding = SOURCE_LIST_ACTION_BINDINGS[source] as ListActionBinding;
             const onDeleteIds = vi.fn();
             const onDeleteRow = vi.fn();
             const onExportIds = vi.fn();
@@ -786,7 +788,11 @@ describe('source list action bindings', () => {
             expect(onExportIds).toHaveBeenCalledWith([binding.rowId]);
 
             if (binding.deleteRowLabel) {
-                fireEvent.click(screen.getByRole('button', { name: `Delete selected ${binding.itemLabel}` }));
+                fireEvent.click(
+                    screen.getByRole('button', {
+                        name: binding.deleteSelectedLabel ?? `Delete selected ${binding.itemLabel}`,
+                    }),
+                );
                 expect(onDeleteIds).toHaveBeenCalledWith([binding.rowId]);
             } else {
                 expect(screen.queryByRole('button', { name: /Delete/i })).toBeNull();

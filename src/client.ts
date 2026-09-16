@@ -1,3 +1,13 @@
+export type {
+    CompactExportFlags,
+    NormalizedExportFormat,
+    NormalizedExportInclude,
+    NormalizedExportOptions,
+} from './lib/conversation-data/export-options';
+export {
+    DEFAULT_NORMALIZED_EXPORT_OPTIONS,
+    expandNormalizedExportOptions,
+} from './lib/conversation-data/export-options';
 export type { ConversationPayloadErrorCode } from './lib/conversation-payload';
 export { ConversationPayloadError, convertConversationPayload } from './lib/conversation-payload';
 export type {

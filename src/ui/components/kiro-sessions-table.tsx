@@ -4,7 +4,7 @@ import type { SortingState } from '@tanstack/react-table';
 import { Download, MoreHorizontal, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
-import { SelectionActionsToolbar } from '#/components/selection-actions-toolbar';
+import { ConversationSelectionActions } from '#/components/selection-actions-toolbar';
 import { Button } from '#/components/ui/button';
 import {
     DropdownMenu,
@@ -12,6 +12,8 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu';
+import { supportedListAction } from '#/lib/conversation-actions';
+import type { ConversationListSelectionProps } from '#/lib/conversation-selection';
 import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatDateTime, formatNumber } from '#/lib/formatters';
 
@@ -21,7 +23,7 @@ type KiroSessionsTableProps = {
     onExportSession: (session: KiroSessionSummary) => void;
     onExportSessions: (sessionIds: string[]) => void;
     sessions: KiroSessionSummary[];
-};
+} & ConversationListSelectionProps;
 
 const columnHelper = createDataTableColumnHelper<KiroSessionSummary>();
 const defaultSorting: SortingState = [{ desc: true, id: 'lastActive' }];
@@ -113,6 +115,8 @@ const columns = (
     ] as const;
 
 export const KiroSessionsTable = ({
+    authoritativeRowIds,
+    inventoryIdentity,
     onDeleteSession,
     onDeleteSessions,
     onExportSession,
@@ -123,26 +127,26 @@ export const KiroSessionsTable = ({
 
     return (
         <DataTable
+            authoritativeRowIds={authoritativeRowIds}
             columns={tableColumns}
             data={sessions}
             emptyMessage="No Kiro sessions match the current workspace filter."
             enableRowSelection
             getRowId={(row) => row.sessionId}
             initialSorting={defaultSorting}
-            renderToolbar={({ clearSelection, selectedRows }) => {
-                const selectedSessionIds = selectedRows.map((row) => row.sessionId);
-                const hasEmptySelection = selectedRows.some((row) => row.renderablePartCount === 0);
-                return (
-                    <SelectionActionsToolbar
-                        clearSelection={clearSelection}
-                        exportDisabled={hasEmptySelection}
-                        itemLabel="session"
-                        selectedCount={selectedRows.length}
-                        onDeleteSelected={() => onDeleteSessions(selectedSessionIds)}
-                        onExportSelected={() => onExportSessions(selectedSessionIds)}
-                    />
-                );
-            }}
+            inventoryIdentity={inventoryIdentity}
+            renderToolbar={({ clearSelection, hiddenSelectedCount, selectedIds, selectedRows }) => (
+                <ConversationSelectionActions
+                    clearSelection={clearSelection}
+                    deleteAction={supportedListAction(() => onDeleteSessions(selectedIds))}
+                    exportAction={supportedListAction(() => onExportSessions(selectedIds), {
+                        disabled: selectedRows.some((row) => row.renderablePartCount === 0),
+                    })}
+                    hiddenSelectedCount={hiddenSelectedCount}
+                    itemLabel="session"
+                    selectedCount={selectedIds.length}
+                />
+            )}
         />
     );
 };
