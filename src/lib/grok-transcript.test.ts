@@ -75,6 +75,12 @@ const transcript: GrokSessionTranscript = {
             entryId: 'assistant-final',
             parts: [
                 {
+                    partId: 'assistant-final:reason',
+                    raw: {},
+                    text: 'Considering the path.',
+                    type: 'reasoning',
+                },
+                {
                     partId: 'assistant-final:text',
                     raw: {},
                     text: 'The export path is fixed.',
@@ -151,6 +157,7 @@ describe('renderGrokTranscript', () => {
 
         expect(markdown).toContain('Audit the exporter.');
         expect(markdown).toContain('The export path is fixed.');
+        expect(markdown).toContain('Considering the path.');
         expect(markdown).not.toContain('Inspecting the export path.');
         expect(markdown).not.toContain('<system-reminder>');
         expect(markdown).not.toContain('exported_from');

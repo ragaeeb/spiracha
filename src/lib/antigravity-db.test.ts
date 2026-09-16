@@ -943,7 +943,7 @@ describe('antigravity db discovery', () => {
                 includeCommentary: false,
                 includeTools: false,
             }),
-        ).not.toContain('Confirming Test Drive Success');
+        ).toContain('Confirming Test Drive Success');
     });
 
     it('should render Antigravity operation results as tool output sections', async () => {
@@ -1036,7 +1036,7 @@ describe('antigravity db discovery', () => {
         expect(text).toContain('Assistant\n---------\nThe export path is fixed.');
         expect(text).not.toContain('Inspecting the export path.');
         expect(text).not.toContain('exported_from');
-        expect(text).not.toContain('Inspecting the renderer.');
+        expect(text).toContain('Inspecting the renderer.');
         expect(text).not.toContain('view_file');
         expect(text).not.toContain('Hidden tool output');
         expect(text).not.toContain('#');

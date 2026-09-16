@@ -18,8 +18,6 @@ import {
     renderSection,
 } from './shared-text';
 
-const TOOL_OUTPUT_PREVIEW_LIMIT = 4000;
-
 const buildMetadataEntries = (session: FxSessionSummary): MetadataEntry[] => [
     { key: 'exported_from', value: 'fx_event_log' },
     { key: 'session_id', value: session.sessionId },
@@ -39,8 +37,7 @@ const buildMetadataEntries = (session: FxSessionSummary): MetadataEntry[] => [
     { key: 'total_output_tokens', value: session.totalOutputTokens },
 ];
 
-const truncateOutput = (text: string): string =>
-    text.length <= TOOL_OUTPUT_PREVIEW_LIMIT ? text : `${text.slice(0, TOOL_OUTPUT_PREVIEW_LIMIT)}\n... (truncated)`;
+const truncateOutput = (text: string): string => text;
 
 const roleTitle = (role: string, assistantModel: string | null): string => {
     if (role === 'assistant') {

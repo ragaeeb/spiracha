@@ -21,6 +21,7 @@ type ConversationMarkdownZipOptions = {
     entries: ConversationMarkdownZipEntry[];
     fallbackProjectName: string;
     platform: Parameters<typeof buildExportArchiveBaseName>[0];
+    signal?: AbortSignal;
 };
 
 const EXPORT_BASE_NAME_BYTE_LIMIT = 120;
@@ -82,6 +83,13 @@ const toSafeFileBaseName = (value: string | null, fallback: string) => {
     return truncateUtf8(sanitized, EXPORT_BASE_NAME_BYTE_LIMIT) || 'conversation';
 };
 
+const throwIfAborted = (signal?: AbortSignal) => {
+    if (!signal?.aborted) {
+        return;
+    }
+    throw signal.reason instanceof Error ? signal.reason : new DOMException('The operation was aborted.', 'AbortError');
+};
+
 /**
  * Materializes non-empty Markdown entries into temporary files and an archive, then
  * returns a fully loaded Blob before cleaning up both temporary artifacts. Filenames
@@ -94,10 +102,12 @@ export const createConversationMarkdownZip = async ({
     entries,
     fallbackProjectName,
     platform,
+    signal,
 }: ConversationMarkdownZipOptions): Promise<ConversationMarkdownZip> => {
     if (entries.length === 0) {
         throw new Error('No conversations selected for export');
     }
+    throwIfAborted(signal);
 
     const safeBaseName = buildBatchExportBaseName(entries, fallbackProjectName);
     const archiveBaseName = buildExportArchiveBaseName(platform, safeBaseName);
@@ -109,12 +119,15 @@ export const createConversationMarkdownZip = async ({
     try {
         await mkdir(entriesDir, { mode: 0o700 });
         for (const entry of entries) {
+            throwIfAborted(signal);
             const entryBaseName = toSafeFileBaseName(entry.title, entry.fallbackBaseName);
             const fileBaseNameForEntry = resolveUniqueExportFileBaseName(entryBaseName, usedBaseNames);
             await Bun.write(path.join(entriesDir, `${fileBaseNameForEntry}.md`), entry.markdown);
         }
 
+        throwIfAborted(signal);
         await zipExportDirectory(entriesDir, zipPath);
+        throwIfAborted(signal);
         return {
             blob: new Blob([await Bun.file(zipPath).arrayBuffer()], { type: 'application/zip' }),
             fileName: `${archiveBaseName}.zip`,

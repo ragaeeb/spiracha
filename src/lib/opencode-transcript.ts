@@ -18,7 +18,6 @@ import {
     renderSection,
 } from './shared-text';
 
-const TOOL_OUTPUT_PREVIEW_LIMIT = 4000;
 const MIN_DATE_MS = -8_640_000_000_000_000;
 const MAX_DATE_MS = 8_640_000_000_000_000;
 
@@ -76,13 +75,7 @@ const roleTitle = (role: string, assistantModel: string | null): string => {
     return role ? cleanInlineTitle(role) : 'Message';
 };
 
-const truncateOutput = (text: string): string => {
-    if (text.length <= TOOL_OUTPUT_PREVIEW_LIMIT) {
-        return text;
-    }
-
-    return `${text.slice(0, TOOL_OUTPUT_PREVIEW_LIMIT)}\n... (truncated)`;
-};
+const truncateOutput = (text: string): string => text;
 
 const renderTextPart = (
     part: OpenCodeTranscriptPart,
@@ -96,15 +89,12 @@ const renderTextPart = (
             ? splitOpenCodeThinkTaggedText(rawText)
             : { reasoningBlocks: [], visibleText: rawText };
     const sections: string[] = [];
-
-    if (options.includeCommentary) {
-        sections.push(
-            ...reasoningBlocks
-                .map((block) => cleanExtractedText(block).trim())
-                .filter(Boolean)
-                .map((block) => renderSection('Reasoning', block, options.outputFormat)),
-        );
-    }
+    sections.push(
+        ...reasoningBlocks
+            .map((block) => cleanExtractedText(block).trim())
+            .filter(Boolean)
+            .map((block) => renderSection('Reasoning', block, options.outputFormat)),
+    );
 
     const text = cleanExtractedText(visibleText).trim();
     if (
@@ -118,10 +108,6 @@ const renderTextPart = (
 };
 
 const renderReasoningPart = (part: OpenCodeTranscriptPart, options: OpenCodeExportOptions): string => {
-    if (!options.includeCommentary) {
-        return '';
-    }
-
     const rawText = part.text ?? '';
     const { reasoningBlocks, visibleText } = splitOpenCodeThinkTaggedText(rawText);
     const text = cleanExtractedText([...reasoningBlocks, visibleText].filter(Boolean).join('\n\n')).trim();

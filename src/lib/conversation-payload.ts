@@ -21,7 +21,6 @@ import type {
 } from './conversation-payload-types';
 import { parseWebPayload } from './conversation-payload-web';
 import { sha256Hex } from './sha256';
-import { cleanInlineTitle } from './shared-text';
 import { utf8ByteLength } from './utf8-byte-length';
 
 export type {
@@ -208,7 +207,8 @@ const finalizePayload = async (
     identity: string,
     options: ConvertConversationPayloadOptions,
 ): Promise<ConvertedConversation> => {
-    const messages = selectConversationMessages(finalizeMessages(draft.messages), options.messageSelector ?? 'all');
+    const allMessages = finalizeMessages(draft.messages);
+    const messages = selectConversationMessages(allMessages, options.messageSelector ?? 'all');
     const artifacts = draft.artifacts ?? [];
     const conversation = {
         id: draft.id ?? (await sha256Hex(identity)).slice(0, 32),
@@ -222,14 +222,10 @@ const finalizePayload = async (
         updatedAtMs: draft.updatedAtMs ?? null,
         workspacePath: draft.workspacePath ?? null,
     };
-    const transcript = renderConversationMarkdown(conversation);
-    const markdown =
-        artifacts.length > 0
-            ? `${transcript}\n## Artifacts\n\n${artifacts
-                  .map((artifact) => `### ${cleanInlineTitle(artifact.title)}\n\n${artifact.content}`)
-                  .join('\n\n')
-                  .trimEnd()}\n`
-            : transcript;
+    const markdown = renderConversationMarkdown(
+        { ...conversation, messages: allMessages },
+        { messageSelector: options.messageSelector ?? 'all' },
+    );
     return { ...conversation, markdown };
 };
 

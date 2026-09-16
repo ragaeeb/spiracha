@@ -21,11 +21,11 @@ import {
     renderSection,
 } from './shared-text';
 
-const TOOL_OUTPUT_PREVIEW_LIMIT = 4000;
-
 const getSessionTitle = (session: ClaudeCodeSessionSummary): string => {
     return cleanInlineTitle(session.title || session.sessionId);
 };
+
+const truncateOutput = (text: string): string => text;
 
 const buildMetadataEntries = (session: ClaudeCodeSessionSummary): MetadataEntry[] => [
     { key: 'exported_from', value: 'claude_code_local_jsonl' },
@@ -62,14 +62,6 @@ const roleTitle = (role: string, model: string | null): string => {
     return role ? cleanInlineTitle(role) : 'Message';
 };
 
-const truncateOutput = (text: string): string => {
-    if (text.length <= TOOL_OUTPUT_PREVIEW_LIMIT) {
-        return text;
-    }
-
-    return `${text.slice(0, TOOL_OUTPUT_PREVIEW_LIMIT)}\n... (truncated)`;
-};
-
 const renderTextPart = (
     part: ClaudeCodeTranscriptPart,
     role: string,
@@ -81,10 +73,6 @@ const renderTextPart = (
 };
 
 const renderThinkingPart = (part: ClaudeCodeTranscriptPart, options: ClaudeCodeExportOptions): string => {
-    if (!options.includeCommentary) {
-        return '';
-    }
-
     const text = cleanExtractedText(part.text ?? '').trim();
     return text ? renderSection('Reasoning', text, options.outputFormat) : '';
 };

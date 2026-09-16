@@ -1,5 +1,8 @@
+import type { DELETION_PHASE_MAP } from './deletion-phase-map';
 import {
+    COMMON_EXPORT_CAPABILITIES,
     DELETE_CAPABILITIES,
+    DURABLE_DELETION_RECONCILIATION,
     NATIVE_FILE_RAW_CAPABILITY,
     OPENCODE_ORIGINAL_RAW_EXCEPTION,
     REQUIRED_READ_CAPABILITIES,
@@ -16,17 +19,35 @@ const nativeFileCapabilities = {
     ...REQUIRED_READ_CAPABILITIES,
     ...NATIVE_FILE_RAW_CAPABILITY,
     ...DELETE_CAPABILITIES,
+    ...COMMON_EXPORT_CAPABILITIES,
+} as const;
+
+const durableNativeCapabilities = {
+    ...nativeFileCapabilities,
+    ...DURABLE_DELETION_RECONCILIATION,
 } as const;
 
 const openCodeCapabilities = {
     ...REQUIRED_READ_CAPABILITIES,
     ...OPENCODE_ORIGINAL_RAW_EXCEPTION,
     ...DELETE_CAPABILITIES,
+    ...COMMON_EXPORT_CAPABILITIES,
 } as const;
 
+const durableOpenCodeCapabilities = {
+    ...openCodeCapabilities,
+    ...DURABLE_DELETION_RECONCILIATION,
+} as const;
+
+type DurableDeletionSource = {
+    [S in ConversationSource]: (typeof DELETION_PHASE_MAP)[S]['reconciliation'] extends 'durable_intent' ? S : never;
+}[ConversationSource];
+
 type SourceCapabilitiesFor<S extends ConversationSource> = S extends 'opencode'
-    ? typeof openCodeCapabilities
-    : typeof nativeFileCapabilities;
+    ? typeof durableOpenCodeCapabilities
+    : S extends DurableDeletionSource
+      ? typeof durableNativeCapabilities
+      : typeof nativeFileCapabilities;
 
 type SourceDescriptorBase<S extends ConversationSource> = {
     capabilities: SourceCapabilitiesFor<S>;
@@ -85,7 +106,7 @@ export const SOURCE_CATALOG = {
         workspaceRoute: workspaceKeyRoute('cline'),
     },
     codex: {
-        capabilities: nativeFileCapabilities,
+        capabilities: durableNativeCapabilities,
         detailRouteSegment: 'threads',
         exportPlatform: 'codex',
         inventoryPath: '/codex',
@@ -99,7 +120,7 @@ export const SOURCE_CATALOG = {
         },
     },
     'command-code': {
-        capabilities: nativeFileCapabilities,
+        capabilities: durableNativeCapabilities,
         detailRouteSegment: 'command-code-sessions',
         exportPlatform: 'command-code',
         inventoryPath: '/command-code',
@@ -110,7 +131,7 @@ export const SOURCE_CATALOG = {
         workspaceRoute: workspaceKeyRoute('command-code'),
     },
     cursor: {
-        capabilities: nativeFileCapabilities,
+        capabilities: durableNativeCapabilities,
         detailRouteSegment: 'cursor-threads',
         exportPlatform: 'cursor',
         inventoryPath: '/cursor',
@@ -143,7 +164,7 @@ export const SOURCE_CATALOG = {
         workspaceRoute: workspaceKeyRoute('grok'),
     },
     'grok-bot': {
-        capabilities: nativeFileCapabilities,
+        capabilities: durableNativeCapabilities,
         detailRouteSegment: 'grok-bot-chats',
         exportPlatform: 'grok-bot',
         inventoryPath: '/grok-bot',
@@ -175,7 +196,7 @@ export const SOURCE_CATALOG = {
         workspaceRoute: workspaceKeyRoute('minimax-code'),
     },
     opencode: {
-        capabilities: openCodeCapabilities,
+        capabilities: durableOpenCodeCapabilities,
         detailRouteSegment: 'opencode-sessions',
         exportPlatform: 'opencode',
         inventoryPath: '/opencode',
@@ -186,7 +207,7 @@ export const SOURCE_CATALOG = {
         workspaceRoute: workspaceKeyRoute('opencode'),
     },
     qoder: {
-        capabilities: nativeFileCapabilities,
+        capabilities: durableNativeCapabilities,
         detailRouteSegment: 'qoder-sessions',
         exportPlatform: 'qoder',
         inventoryPath: '/qoder',

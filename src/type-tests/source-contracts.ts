@@ -1,6 +1,8 @@
 import type { Capability, CapabilityBinding } from '../lib/conversation-data/capability';
 import {
+    COMMON_EXPORT_CAPABILITIES,
     DELETE_CAPABILITIES,
+    DURABLE_DELETION_RECONCILIATION,
     NATIVE_FILE_RAW_CAPABILITY,
     REQUIRED_READ_CAPABILITIES,
 } from '../lib/conversation-data/operation-types';
@@ -8,7 +10,13 @@ import type { SourceCatalog, SourceDescriptor } from '../lib/conversation-data/s
 import type { ConversationAdapter, ConversationAdapterRegistry } from '../lib/conversation-data/types';
 import type { ConversationPayloadParserRegistry } from '../lib/conversation-payload-types';
 
-const capabilities = { ...REQUIRED_READ_CAPABILITIES, ...NATIVE_FILE_RAW_CAPABILITY, ...DELETE_CAPABILITIES };
+const capabilities = {
+    ...REQUIRED_READ_CAPABILITIES,
+    ...NATIVE_FILE_RAW_CAPABILITY,
+    ...DELETE_CAPABILITIES,
+    ...COMMON_EXPORT_CAPABILITIES,
+    ...DURABLE_DELETION_RECONCILIATION,
+};
 
 declare const missingRoute: Omit<SourceDescriptor<'codex'>, 'detailRouteSegment'>;
 declare const missingCapabilities: Omit<SourceDescriptor<'codex'>, 'capabilities'>;
@@ -16,6 +24,8 @@ declare const missingCatalogSource: Omit<SourceCatalog, 'codex'>;
 declare const missingAdapterSource: Omit<ConversationAdapterRegistry, 'codex'>;
 declare const wrongSourceAdapter: ConversationAdapter<'grok'>;
 declare const missingReadHandler: Omit<ConversationAdapter<'codex'>, 'getConversation'>;
+declare const missingRawHandler: Omit<ConversationAdapter<'codex'>, 'getConversationRaw'>;
+declare const missingDeleteHandler: Omit<ConversationAdapter<'codex'>, 'deleteConversation'>;
 declare const missingParserSource: Omit<ConversationPayloadParserRegistry, 'codex'>;
 
 // @ts-expect-error Every descriptor must bind a detail route.
@@ -30,6 +40,10 @@ export const rejectsMissingAdapterSource: ConversationAdapterRegistry = missingA
 export const rejectsMismatchedAdapter: ConversationAdapterRegistry['codex'] = wrongSourceAdapter;
 // @ts-expect-error Required reads cannot silently become optional.
 export const rejectsMissingReadHandler: ConversationAdapter<'codex'> = missingReadHandler;
+// @ts-expect-error Required original_raw cannot silently become optional.
+export const rejectsMissingRawHandler: ConversationAdapter<'codex'> = missingRawHandler;
+// @ts-expect-error Required delete cannot silently become optional.
+export const rejectsMissingDeleteHandler: ConversationAdapter<'codex'> = missingDeleteHandler;
 // @ts-expect-error Payload-capable sources must supply a parser.
 export const rejectsMissingParserSource: ConversationPayloadParserRegistry = missingParserSource;
 // @ts-expect-error An exception requires a reason, not only a state.
@@ -112,4 +126,13 @@ export const rejectsOpenCodeRawHandler: CapabilityBinding<IndexedOpenCodeRaw, Ca
 export const rejectsMissingIndexedDeleteHandler: CapabilityBinding<IndexedCodexDelete, CatalogDeleteHandler> = {};
 export const acceptsIndexedDeleteHandler: CapabilityBinding<IndexedCodexDelete, CatalogDeleteHandler> = {
     handler: async () => ({ deletedFiles: [], deletedIds: [] }),
+};
+
+export const rejectsOpenCodeRawAdapterMethod: ConversationAdapter<'opencode'> = {
+    deleteConversation: async () => ({ deletedFiles: [], deletedIds: [] }),
+    getConversation: async () => null,
+    // @ts-expect-error OpenCode original_raw cannot bind a handler.
+    getConversationRaw: async () => null,
+    listConversations: async () => [],
+    source: 'opencode',
 };

@@ -1871,7 +1871,7 @@ const renderLogEntryBodyParts = (
         bodyParts.push(`Exit code: ${exitCode}`, '');
     }
     const thinking = getString(entry.thinking) ?? '';
-    if (options.includeCommentary && thinking) {
+    if (thinking) {
         bodyParts.push(
             renderNestedHeading(ANTIGRAVITY_TRANSCRIPT_HEADINGS.thinking, options.outputFormat),
             '',

@@ -153,6 +153,32 @@ export const DELETE_CAPABILITIES = {
     delete: SOURCE_MUTATOR_OWNED,
 } as const;
 
+export const COMMON_SERVICE_OWNED = {
+    state: 'supported',
+    value: { owner: 'common_service' },
+} as const satisfies Supported<{ owner: 'common_service' }>;
+
+export const COMMON_EXPORT_CAPABILITIES = {
+    batch_normalized_export: COMMON_SERVICE_OWNED,
+    focused_evidence: COMMON_SERVICE_OWNED,
+    inventory: COMMON_SERVICE_OWNED,
+    multi_selection: COMMON_SERVICE_OWNED,
+    normalized_export: COMMON_SERVICE_OWNED,
+} as const;
+
+export const DURABLE_DELETION_RECONCILIATION = {
+    deletion_reconciliation: SOURCE_MUTATOR_OWNED,
+} as const;
+
+export class IncompleteTranscriptError extends Error {
+    readonly reasonCode = 'incomplete_transcript';
+
+    constructor(message: string) {
+        super(message);
+        this.name = 'IncompleteTranscriptError';
+    }
+}
+
 export const OPENCODE_ORIGINAL_RAW_EXCEPTION = {
     original_raw: {
         evidence: [

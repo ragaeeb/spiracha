@@ -1,3 +1,4 @@
+import { conversationReadFields } from './adapter-helpers';
 import { antigravityConversationAdapter } from './antigravity-adapter';
 import { claudeCodeConversationAdapter } from './claude-code-adapter';
 import { clineConversationAdapter } from './cline-adapter';
@@ -19,6 +20,7 @@ import {
     CONVERSATION_SOURCES,
     type ConversationAdapter,
     type ConversationAdapterRegistry,
+    type ConversationDetail,
     type ConversationPage,
     type ConversationRawDownload,
     type ConversationSource,
@@ -36,6 +38,7 @@ import {
 
 export { selectConversationMessages } from './message-selector';
 export {
+    IncompleteTranscriptError,
     OriginalRepresentationUnavailableError,
     type PublicMutationError,
     SourceMutationConflictError,
@@ -50,6 +53,8 @@ export {
     type ContentState,
     type ConversationAdapter,
     type ConversationAdapterRegistry,
+    type ConversationArtifact,
+    type ConversationBodyAvailability,
     type ConversationDataLocations,
     type ConversationDeepLinks,
     type ConversationDetail,
@@ -252,11 +257,32 @@ export const listConversations = async (options: ListConversationsOptions): Prom
         )
     ).flat();
 
-    return paginateConversations(conversations, options.cursor, limit);
+    const page = paginateConversations(conversations, options.cursor, limit);
+    return {
+        ...page,
+        data: page.data.map((conversation) =>
+            withReadFields(conversation, {
+                includeMessages: options.includeMessages === true,
+                messageSelector: options.messageSelector ?? 'last_final_answer',
+            }),
+        ),
+    };
 };
 
+const withReadFields = (
+    conversation: ConversationDetail,
+    readOptions: { includeMessages: boolean; messageSelector?: ListConversationsOptions['messageSelector'] },
+): ConversationDetail =>
+    conversation.bodyAvailability ? conversation : { ...conversation, ...conversationReadFields(readOptions) };
+
 export const getConversation = async (options: GetConversationOptions) => {
-    return getAdapter(options.source).getConversation(options);
+    const conversation = await getAdapter(options.source).getConversation(options);
+    return conversation
+        ? withReadFields(conversation, {
+              includeMessages: true,
+              messageSelector: options.messageSelector ?? 'all',
+          })
+        : conversation;
 };
 
 export const getConversationRaw = async (
@@ -280,22 +306,12 @@ export const getConversationRaw = async (
 
 export const deleteConversation = async (
     options: DeleteConversationOptions,
-): Promise<DeleteConversationResult | null> => {
-    const handler = getAdapter(options.source).deleteConversation;
-    if (!handler) {
-        throw new Error(`${options.source} declared delete support without a handler.`);
-    }
-    return handler(options);
-};
+): Promise<DeleteConversationResult | null> => getAdapter(options.source).deleteConversation(options);
 
 export const deleteConversations = async (
     options: DeleteConversationsOptions,
 ): Promise<DeleteConversationsResult | null> => {
-    const adapter = getAdapter(options.source);
-    if (!adapter.deleteConversation) {
-        throw new Error(`${options.source} declared delete support without a handler.`);
-    }
-    const deleteAdapterConversation = adapter.deleteConversation;
+    const deleteAdapterConversation = getAdapter(options.source).deleteConversation;
 
     return settleDeleteBatch({
         concurrency: DELETE_CONCURRENCY_BY_SOURCE[options.source],

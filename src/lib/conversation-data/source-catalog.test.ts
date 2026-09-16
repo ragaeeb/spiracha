@@ -122,6 +122,21 @@ describe('portable source catalog', () => {
             opencode: 'unsupported',
             qoder: 'supported',
         } satisfies Record<ConversationSource, 'supported' | 'unsupported'>;
+        const expectedDurableDeletion = {
+            antigravity: false,
+            'claude-code': false,
+            cline: false,
+            codex: true,
+            'command-code': true,
+            cursor: true,
+            fx: false,
+            grok: false,
+            'grok-bot': true,
+            kiro: false,
+            'minimax-code': false,
+            opencode: true,
+            qoder: true,
+        } satisfies Record<ConversationSource, boolean>;
         const repoRoot = new URL('../../..', import.meta.url);
 
         for (const source of CONVERSATION_SOURCES) {
@@ -129,8 +144,12 @@ describe('portable source catalog', () => {
             expect(capabilities.list.state).toBe('supported');
             expect(capabilities.detail.state).toBe('supported');
             expect(capabilities.original_raw.state).toBe(expectedOriginalRaw[source]);
-            expect(capabilities.delete.state).toBe('supported');
-            expect(capabilities.batch_delete.state).toBe('supported');
+            expect(capabilities.normalized_export.state).toBe('supported');
+            expect(capabilities.batch_normalized_export.state).toBe('supported');
+            expect(capabilities.focused_evidence.state).toBe('supported');
+            expect(capabilities.inventory.state).toBe('supported');
+            expect(capabilities.multi_selection.state).toBe('supported');
+            expect('deletion_reconciliation' in capabilities).toBe(expectedDurableDeletion[source]);
             if (capabilities.original_raw.state === 'unsupported') {
                 const [evidence] = capabilities.original_raw.evidence;
                 expect(capabilities.original_raw.reasonCode).toBe('no_native_conversation_file');

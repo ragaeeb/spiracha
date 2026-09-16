@@ -223,6 +223,7 @@ rtk bun run coverage
 rtk bun start
 rtk bun run ui:preview
 rtk bun run test:ui
+rtk bun run test:conformance
 ```
 
 ## Notes

@@ -136,7 +136,7 @@ describe('renderOpenCodeTranscript', () => {
         });
 
         expect(markdown).not.toContain('exported_from');
-        expect(markdown).not.toContain('Inspecting the generated files.');
+        expect(markdown).toContain('Inspecting the generated files.');
         expect(markdown).not.toContain('Tool:');
         expect(markdown).toContain('The review is complete.');
     });
@@ -191,7 +191,7 @@ describe('renderOpenCodeTranscript', () => {
         expect(text).toContain('GPT 5 Codex High\n----------------');
     });
 
-    it('should strip MiniMax think tags from text parts and render them as commentary only when enabled', () => {
+    it('should strip MiniMax think tags from text parts and render them as reasoning', () => {
         const minimaxTranscript: OpenCodeSessionTranscript = {
             ...transcript,
             messages: [
@@ -232,7 +232,7 @@ describe('renderOpenCodeTranscript', () => {
 
         expect(withoutCommentary).toContain('Final review.');
         expect(withoutCommentary).not.toContain('<think>');
-        expect(withoutCommentary).not.toContain('Internal review notes.');
+        expect(withoutCommentary).toContain('Internal review notes.');
         expect(withCommentary).toContain('## Reasoning');
         expect(withCommentary).toContain('Internal review notes.');
         expect(withCommentary).toContain('## GPT 5 Codex High');

@@ -67,7 +67,7 @@ describe('MiniMax Code transcript renderer', () => {
 
         expect(text).toContain('Come up with a plan to decompose and refactor');
         expect(text).toContain('The detailed decomposition plan is ready.');
-        expect(text).not.toContain('complete picture');
+        expect(text).toContain('complete picture');
         expect(text).not.toContain('Tool Call');
         expect(text).not.toContain("I'll investigate this thoroughly");
     });

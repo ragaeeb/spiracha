@@ -212,10 +212,11 @@ describe('Cline session storage', () => {
         });
         expect(markdown).toContain('# Fix issue 1494 per the implementation plan');
         expect(markdown).toContain('exported_from: "cline_session_messages"');
-        expect(markdown).toContain('## Deepseek V4 Flash (Final)');
-        expect(markdown).not.toContain('## Assistant');
-        expect(markdown).not.toContain('protected surface policy');
-        expect(markdown).not.toContain('Tool Call');
+        expect(markdown).toContain('## Assistant · Final answer · Deepseek V4 Flash');
+        expect(markdown).not.toContain('## Assistant · Commentary');
+        expect(markdown).toContain('## Reasoning');
+        expect(markdown).toContain('protected surface policy');
+        expect(markdown).not.toContain('Tool call');
 
         const text = renderClineTranscript(transcript!, {
             includeCommentary: true,
@@ -224,7 +225,7 @@ describe('Cline session storage', () => {
             outputFormat: 'txt',
         });
         expect(text).toContain('Fix issue 1494 per the implementation plan\n');
-        expect(text).toContain('Tool Call\n---------');
+        expect(text).toContain('Tool call\n---------');
         expect(text).not.toContain('exported_from:');
     });
 

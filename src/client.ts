@@ -20,6 +20,7 @@ import {
 } from './lib/conversation-data';
 import { validateEvidenceLens } from './lib/conversation-data/evidence-lens';
 import { buildEvidenceExport } from './lib/conversation-data/evidence-markdown';
+import type { CompactExportFlags } from './lib/conversation-data/export-options';
 import { renderConversationMarkdown as renderLocalConversationMarkdown } from './lib/conversation-data/markdown';
 import type {
     ConversationDataLocations,
@@ -114,7 +115,7 @@ export type HttpConversationClientOptions = {
 
 export type CreateConversationClientOptions = HttpConversationClientOptions | LocalConversationClientOptions;
 
-export type ExportConversationMarkdownOptions = GetConversationOptions;
+export type ExportConversationMarkdownOptions = GetConversationOptions & CompactExportFlags;
 
 export type ConversationClient = {
     deleteConversation: (options: DeleteConversationOptions) => Promise<DeleteConversationResult | null>;
@@ -188,6 +189,22 @@ const appendMessageSelector = (url: URL, messageSelector: ConversationMessageSel
 
 const appendGetOptions = (url: URL, options: Pick<GetConversationOptions, 'messageSelector'>): void => {
     appendMessageSelector(url, options.messageSelector);
+};
+
+const appendExportOptions = (url: URL, options: ExportConversationMarkdownOptions): void => {
+    appendGetOptions(url, options);
+    if (options.includeCommentary !== undefined) {
+        url.searchParams.set('include_commentary', String(options.includeCommentary));
+    }
+    if (options.includeMetadata !== undefined) {
+        url.searchParams.set('include_metadata', String(options.includeMetadata));
+    }
+    if (options.includeTools !== undefined) {
+        url.searchParams.set('include_tools', String(options.includeTools));
+    }
+    if (options.outputFormat !== undefined) {
+        url.searchParams.set('format', options.outputFormat);
+    }
 };
 
 const httpErrorMessage = async (response: Response): Promise<string> => {
@@ -411,7 +428,7 @@ const exportLocalConversationsZip = async (
         getLocalConversation({
             id,
             locations: options.locations,
-            messageSelector: options.messageSelector ?? 'all',
+            messageSelector: 'all',
             source: options.source,
         }),
     );
@@ -457,10 +474,18 @@ const makeLocalClient = (options: LocalConversationClientOptions): ConversationC
             : null;
     },
     exportConversationMarkdown: async (getOptions) => {
-        const conversation = await getLocalConversation(withDefaultLocations(getOptions, options.locations));
+        const conversation = await getLocalConversation(
+            withDefaultLocations({ ...getOptions, messageSelector: 'all' }, options.locations),
+        );
         return conversation
             ? renderLocalConversationMarkdown(conversation, {
-                  messageSelector: getOptions.messageSelector,
+                  ...(getOptions.includeCommentary === undefined
+                      ? {}
+                      : { includeCommentary: getOptions.includeCommentary }),
+                  ...(getOptions.includeMetadata === undefined ? {} : { includeMetadata: getOptions.includeMetadata }),
+                  ...(getOptions.includeTools === undefined ? {} : { includeTools: getOptions.includeTools }),
+                  messageSelector: getOptions.messageSelector ?? 'all',
+                  ...(getOptions.outputFormat === undefined ? {} : { outputFormat: getOptions.outputFormat }),
               })
             : null;
     },
@@ -525,7 +550,7 @@ const makeHttpClient = (options: HttpConversationClientOptions): ConversationCli
             rejectHttpLocations(getOptions.locations);
             const { id, source } = getOptions;
             const url = makeHttpUrl(baseUrl, `/api/v1/conversations/${source}/${encodeURIComponent(id)}/export`);
-            appendGetOptions(url, getOptions);
+            appendExportOptions(url, getOptions);
             return fetchTextOrNull(url);
         },
         exportConversationRaw: async (getOptions) => {

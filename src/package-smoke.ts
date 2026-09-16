@@ -240,7 +240,7 @@ for (const fixture of await Bun.file('payload-fixtures.json').json()) {
 const [web] = await convertConversationPayload({ payload: {
     title: 'Consumer test', model: 'openai/gpt-5', messages: [{ role: 'assistant', content: 'Installed SDK works.' }],
 } });
-if (web.source !== 'web' || web.markdown !== '# Consumer test\\n\\n## GPT 5\\n\\nInstalled SDK works.\\n') {
+if (web.source !== 'web' || web.markdown !== '# Consumer test\\n\\n## Assistant · Final answer · GPT 5\\n\\nInstalled SDK works.\\n') {
     throw new Error('Installed SDK payload conversion did not preserve normalized Markdown.');
 }
 const records = [

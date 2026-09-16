@@ -1,14 +1,6 @@
+import { renderSelectedTranscriptExport } from '@spiracha/lib/conversation-data/conversation-export';
 import type { ConversationDetail, ConversationMessage } from '@spiracha/lib/conversation-data/types';
 import type { JsonValue } from '@spiracha/lib/shared-text';
-import {
-    cleanExtractedText,
-    cleanInlineTitle,
-    formatInlineLiteral,
-    renderCodeBlock,
-    renderDocumentTitle,
-    renderMetadataBlock,
-    renderSection,
-} from '@spiracha/lib/shared-text';
 import { queryOptions } from '@tanstack/react-query';
 import { createServerFn } from '@tanstack/react-start';
 import type { InferOutput } from 'valibot';
@@ -75,21 +67,6 @@ const getMemberNames = (conversation: ConversationDetail) => {
         : [];
 };
 
-const getMessageTitle = (message: ConversationMessage) => {
-    if (message.role === 'user') {
-        return 'User';
-    }
-    if (message.role === 'tool') {
-        return 'Tool';
-    }
-    const authorName = message.metadata.authorName;
-    return typeof authorName === 'string' && authorName.trim()
-        ? cleanInlineTitle(authorName)
-        : message.role === 'assistant'
-          ? 'Assistant'
-          : 'Message';
-};
-
 const exportTimestamp = (value: unknown): string | null => {
     if (typeof value !== 'number' || !Number.isFinite(value)) {
         return null;
@@ -98,49 +75,21 @@ const exportTimestamp = (value: unknown): string | null => {
     return Number.isNaN(date.getTime()) ? null : date.toISOString();
 };
 
-const messageTimestampSuffix = (message: ConversationMessage, includeMetadata: boolean): string => {
-    const timestamp = includeMetadata ? exportTimestamp(message.createdAtMs) : null;
-    return timestamp ? ` — ${timestamp}` : '';
-};
-
-const renderGrokBotMessage = (
-    message: ConversationMessage,
-    options: Pick<
-        InferOutput<typeof exportSchema>,
-        'includeCommentary' | 'includeMetadata' | 'includeTools' | 'outputFormat'
-    >,
-) => {
-    if ((message.phase === 'commentary' || message.phase === 'reasoning') && !options.includeCommentary) {
-        return '';
-    }
-    if ((message.phase === 'tool_call' || message.phase === 'tool_output') && !options.includeTools) {
-        return '';
-    }
-
-    const suffix = messageTimestampSuffix(message, options.includeMetadata);
-    const text = cleanExtractedText(message.text).trim();
-    if (message.phase === 'tool_call') {
-        const tool = message.toolEvidence;
-        const toolName = tool?.name ?? 'unknown';
-        const lines = [`Tool: ${formatInlineLiteral(toolName, options.outputFormat)}`];
-        if (tool?.callId) {
-            lines.push(`Call ID: ${tool.callId}`);
-        }
-        if (tool?.inputText?.trim()) {
-            lines.push('', 'Input:', '', renderCodeBlock(tool.inputText.trim(), options.outputFormat));
-        }
-        return renderSection(`Tool Call${suffix}`, lines.join('\n'), options.outputFormat);
-    }
-    if (message.phase === 'tool_output') {
-        const outputText = message.toolEvidence?.outputText?.trim() || text;
-        return renderSection(`Tool Output${suffix}`, outputText, options.outputFormat);
-    }
-    if (message.phase === 'reasoning') {
-        return renderSection(`Reasoning${suffix}`, text, options.outputFormat);
-    }
-
-    return renderSection(`${getMessageTitle(message)}${suffix}`, text, options.outputFormat);
-};
+const buildGrokBotExportMetadata = (conversation: GrokBotChat): Record<string, unknown> => ({
+    agent_title: conversation.metadata.agentTitle,
+    attachments: conversation.metadata.attachments,
+    chat_kind: conversation.metadata.chatKind,
+    conversation_id: conversation.id,
+    created_at: exportTimestamp(conversation.createdAtMs),
+    description: conversation.metadata.description,
+    exported_from: 'grok_bot',
+    last_activity_at: exportTimestamp(conversation.metadata.lastActivityAtMs),
+    message_count: conversation.messages.length,
+    participants: getMemberNames(conversation).join(', '),
+    replica_persisted_at: exportTimestamp(conversation.metadata.replicaPersistedAtMs),
+    roster_updated_at: exportTimestamp(conversation.metadata.rosterUpdatedAtMs),
+    title: conversation.title,
+});
 
 const renderGrokBotChat = (
     conversation: GrokBotChat,
@@ -148,39 +97,24 @@ const renderGrokBotChat = (
         InferOutput<typeof exportSchema>,
         'includeCommentary' | 'includeMetadata' | 'includeTools' | 'outputFormat'
     >,
-) => {
-    const sections = conversation.messages.map((message) => renderGrokBotMessage(message, options)).filter(Boolean);
-    if (sections.length === 0) {
-        return null;
-    }
-
-    const title = cleanInlineTitle(conversation.title ?? conversation.id);
-    const metadata = options.includeMetadata
-        ? renderMetadataBlock(
-              [
-                  { key: 'exported_from', value: 'grok_bot' },
-                  { key: 'conversation_id', value: conversation.id },
-                  { key: 'title', value: conversation.title },
-                  { key: 'created_at', value: exportTimestamp(conversation.createdAtMs) },
-                  { key: 'last_activity_at', value: exportTimestamp(conversation.metadata.lastActivityAtMs) },
-                  { key: 'roster_updated_at', value: exportTimestamp(conversation.metadata.rosterUpdatedAtMs) },
-                  { key: 'replica_persisted_at', value: exportTimestamp(conversation.metadata.replicaPersistedAtMs) },
-                  { key: 'description', value: conversation.metadata.description },
-                  { key: 'agent_title', value: conversation.metadata.agentTitle },
-                  { key: 'attachments', value: conversation.metadata.attachments },
-                  { key: 'chat_kind', value: conversation.metadata.chatKind },
-                  { key: 'participants', value: getMemberNames(conversation).join(', ') },
-                  { key: 'message_count', value: conversation.messages.length },
-              ],
-              options.outputFormat,
-          )
-        : '';
-
-    return `${[renderDocumentTitle(title, options.outputFormat), '', metadata, ...sections]
-        .filter(Boolean)
-        .join('\n')
-        .trimEnd()}\n`;
-};
+) =>
+    renderSelectedTranscriptExport(
+        {
+            artifacts: conversation.artifacts,
+            bodyAvailability: conversation.bodyAvailability ?? 'full',
+            messages: conversation.messages,
+            metadata: buildGrokBotExportMetadata(conversation),
+            ...(conversation.model ? { model: conversation.model } : {}),
+            supplementalEvents: conversation.supplementalEvents,
+            title: conversation.title ?? conversation.id,
+        },
+        {
+            includeCommentary: options.includeCommentary,
+            includeMetadata: options.includeMetadata,
+            includeTools: options.includeTools,
+            outputFormat: options.outputFormat,
+        },
+    );
 
 const loadGrokBotChat = async (conversationId: string): Promise<GrokBotChat> => {
     const { getConversation } = await import('@spiracha/lib/conversation-data');

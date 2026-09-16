@@ -233,7 +233,7 @@ const ExportModeContent = ({
                         <SelectItem value="full">Full transcript</SelectItem>
                         {focusedEvidenceTarget ? <SelectItem value="focused">Focused evidence</SelectItem> : null}
                         {showRawJsonOption ||
-                        (focusedEvidenceTarget && isRawExportSource(focusedEvidenceTarget.source)) ? (
+                        (focusedEvidenceTarget && isSupportedOriginalRawSource(focusedEvidenceTarget.source)) ? (
                             <SelectItem value="raw">Raw JSON</SelectItem>
                         ) : null}
                     </SelectContent>
@@ -291,8 +291,6 @@ type ExportDialogFooterProps = {
 };
 
 type ExportMode = 'focused' | 'full' | 'raw';
-
-const isRawExportSource = (source: ConversationSource) => isSupportedOriginalRawSource(source);
 
 const ExportDialogFooter = ({
     disabled,
@@ -361,7 +359,8 @@ export function ExportDialog({
     const displayedError = exportError ?? errorMessage;
     const downloadCancellation = useDownloadCancellation();
     const zipDescriptionId = useId();
-    const hasRawJsonExport = rawExport !== undefined && rawExport.ids.length > 0 && isRawExportSource(rawExport.source);
+    const hasRawJsonExport =
+        rawExport !== undefined && rawExport.ids.length > 0 && isSupportedOriginalRawSource(rawExport.source);
     const handleOpenChange = (nextOpen: boolean) => {
         if (!nextOpen) {
             submissionToken.current += 1;
@@ -447,7 +446,7 @@ export function ExportDialog({
             ? { ids: [focusedEvidenceTarget.id], source: focusedEvidenceTarget.source }
             : rawExport;
         try {
-            if (!target || target.ids.length === 0 || !isRawExportSource(target.source)) {
+            if (!target || target.ids.length === 0 || !isSupportedOriginalRawSource(target.source)) {
                 throw new Error('Original raw export is unavailable for this selection.');
             }
             const download = await exportRawConversationsFn({

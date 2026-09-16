@@ -113,7 +113,9 @@ describe('conversation data facade', () => {
             { messageSelector: 'last_final_answer' },
         );
 
-        expect(markdown).toBe('# Review thread\n\n## Claude Sonnet 4.5\n\nThe final review result.\n');
+        expect(markdown).toBe(
+            '# Review thread\n\n## Assistant · Final answer · Claude Sonnet 4.5\n\nThe final review result.\n',
+        );
     });
 
     it('should render stable markdown for empty and unknown-role messages', () => {
@@ -122,7 +124,7 @@ describe('conversation data facade', () => {
                 messages: [createMessage({ role: 'unknown', text: '' })],
                 title: null,
             }),
-        ).toBe('# Conversation\n\n## Unknown\n\n_No message content._\n');
+        ).toBe('# Conversation\n\n## Unknown\n');
 
         expect(
             renderConversationMarkdown(

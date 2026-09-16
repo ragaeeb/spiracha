@@ -18,8 +18,6 @@ import {
     renderSection,
 } from './shared-text';
 
-const TOOL_OUTPUT_PREVIEW_LIMIT = 4000;
-
 const getSessionTitle = (session: GrokSessionSummary): string => {
     return cleanInlineTitle(session.title || session.sessionId);
 };
@@ -63,13 +61,7 @@ const roleTitle = (role: string, model: string | null): string => {
     return role ? cleanInlineTitle(role) : 'Message';
 };
 
-const truncateOutput = (text: string): string => {
-    if (text.length <= TOOL_OUTPUT_PREVIEW_LIMIT) {
-        return text;
-    }
-
-    return `${text.slice(0, TOOL_OUTPUT_PREVIEW_LIMIT)}\n... (truncated)`;
-};
+const truncateOutput = (text: string): string => text;
 
 const renderTextPart = (
     entry: GrokTranscriptEntry,
@@ -84,10 +76,6 @@ const renderTextPart = (
 };
 
 const renderReasoningPart = (part: GrokTranscriptPart, options: GrokExportOptions): string => {
-    if (!options.includeCommentary) {
-        return '';
-    }
-
     const text = cleanExtractedText(part.text ?? '').trim();
     return text ? renderSection('Reasoning', text, options.outputFormat) : '';
 };

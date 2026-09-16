@@ -1,4 +1,4 @@
-import type { PublicMutationError, SerializedSourceOperation } from './operation-types';
+import type { OperationId, PublicMutationError, SerializedSourceOperation } from './operation-types';
 
 export const CONVERSATION_SOURCES = [
     'cline',
@@ -32,14 +32,34 @@ export type ConversationMessagePhase =
 
 export type ConversationMessageSelector = 'all' | 'last_assistant' | 'last_final_answer';
 
+export type ContentState =
+    | { representation: 'full' | 'summary'; state: 'available' }
+    | { availableCharacters: number; reason: string; state: 'partial'; totalCharacters: number | null }
+    | { reason: string; state: 'deferred' }
+    | { reason: string; state: 'encrypted' }
+    | { reason: string; state: 'unavailable' };
+
+export type MessageProvenance = {
+    blockIndex: number | null;
+    branchId: string | null;
+    origin: 'derived' | 'native' | 'synthetic';
+    parentMessageId: string | null;
+    sourceConversationId: string;
+    sourceRecordId: string | null;
+};
+
+export type ConversationMessageVisibility = 'bootstrap' | 'normal' | 'synthetic';
+
 export type ConversationToolEvidence = {
     callId: string | null;
     command: string | null;
     durationMs: number | null;
     exitCode: number | null;
+    inputContentState?: ContentState | null;
     inputText: string | null;
     name: string;
     namespace: string | null;
+    outputContentState?: ContentState | null;
     outputText: string | null;
     status: 'failed' | 'succeeded' | 'unknown';
     workdir: string | null;
@@ -131,6 +151,8 @@ export type ConversationSourceInfo = {
     inventoryPath: string;
     label: string;
     operations: {
+        [K in OperationId]?: SerializedSourceOperation;
+    } & {
         batch_delete: SerializedSourceOperation;
         delete: SerializedSourceOperation;
         detail: SerializedSourceOperation;
@@ -147,24 +169,6 @@ export type ConversationDeepLinks = {
     ui: string;
 };
 
-export type ContentState =
-    | { representation: 'full' | 'summary'; state: 'available' }
-    | { availableCharacters: number; reason: string; state: 'partial'; totalCharacters: number | null }
-    | { reason: string; state: 'deferred' }
-    | { reason: string; state: 'encrypted' }
-    | { reason: string; state: 'unavailable' };
-
-export type MessageProvenance = {
-    blockIndex: number | null;
-    branchId: string | null;
-    origin: 'derived' | 'native' | 'synthetic';
-    parentMessageId: string | null;
-    sourceConversationId: string;
-    sourceRecordId: string | null;
-};
-
-export type ConversationMessageVisibility = 'bootstrap' | 'normal' | 'synthetic';
-
 export type ConversationMessage = {
     contentState: ContentState;
     createdAtMs: number | null;
@@ -180,7 +184,29 @@ export type ConversationMessage = {
     visibility: ConversationMessageVisibility;
 };
 
+export type ConversationArtifact = {
+    content: string;
+    id: string;
+    title: string;
+};
+
+export type ConversationBodyAvailability = 'full' | 'preview' | 'selected' | 'summary';
+
+export type SupplementalEventKind = 'lifecycle' | 'search' | 'token_usage' | 'unknown';
+
+export type SupplementalEvent = {
+    createdAtMs: number | null;
+    id: string;
+    kind: SupplementalEventKind;
+    metadata: Record<string, string | number | boolean | null>;
+    order: number;
+    provenance: MessageProvenance;
+    text: string;
+};
+
 export type ConversationDetail = {
+    artifacts?: ConversationArtifact[];
+    bodyAvailability?: ConversationBodyAvailability;
     createdAtMs: number | null;
     deepLinks: ConversationDeepLinks;
     id: string;
@@ -190,6 +216,7 @@ export type ConversationDetail = {
     messages: ConversationMessage[];
     metadata: Record<string, unknown>;
     source: ConversationSource;
+    supplementalEvents?: SupplementalEvent[];
     title: string | null;
     updatedAtMs: number | null;
     workspaceKey: string | null;
@@ -348,21 +375,29 @@ export type ResolvedConversationRef = {
     source: ConversationSource;
 };
 
+type ConversationAdapterCore<S extends ConversationSource> = {
+    deleteConversation: (options: DeleteConversationOptions) => Promise<DeleteConversationResult>;
+    getConversation: (options: GetConversationOptions) => Promise<ConversationDetail | null>;
+    listConversations: (options: ListConversationsOptions) => Promise<ConversationDetail[]>;
+    source: S;
+};
+
+type ConversationAdapterRaw<S extends ConversationSource> = S extends 'opencode'
+    ? { getConversationRaw?: never }
+    : {
+          getConversationRaw: (options: GetConversationRawOptions) => Promise<ConversationRawDownload | null>;
+      };
+
 /**
  * Internal source-owned adapter contract, not a filesystem-driver plugin API.
  * list/get must return normalized DTOs with explicit nullable fields, stable source
  * identity, deterministic message order, and source-derived tool evidence.
- * Optional raw/delete methods advertise only those operations the source supports;
- * absence must not be replaced with synthesized raw data or a generic file delete.
- * The collector may suppress list errors in all-source mode; explicit calls retain
- * source failures. Parent/continuation semantics belong to the concrete adapter.
+ * Delete is required on every source. Original raw is required except OpenCode,
+ * whose catalog exception forbids a handler. Absence must not be replaced with
+ * synthesized raw data or a generic file delete. The collector may suppress list
+ * errors in all-source mode; explicit calls retain source failures.
  */
-export type ConversationAdapter<S extends ConversationSource = ConversationSource> = {
-    deleteConversation?: (options: DeleteConversationOptions) => Promise<DeleteConversationResult>;
-    getConversation: (options: GetConversationOptions) => Promise<ConversationDetail | null>;
-    getConversationRaw?: (options: GetConversationRawOptions) => Promise<ConversationRawDownload | null>;
-    listConversations: (options: ListConversationsOptions) => Promise<ConversationDetail[]>;
-    source: S;
-};
+export type ConversationAdapter<S extends ConversationSource = ConversationSource> = ConversationAdapterCore<S> &
+    ConversationAdapterRaw<S>;
 
 export type ConversationAdapterRegistry = { [S in ConversationSource]: ConversationAdapter<S> };

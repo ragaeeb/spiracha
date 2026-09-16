@@ -2,9 +2,11 @@ import { SOURCE_CATALOG } from './source-catalog';
 import type {
     ContentState,
     ConversationDeepLinks,
+    ConversationDetail,
     ConversationMessage,
     ConversationMessagePhase,
     ConversationMessageRole,
+    ConversationMessageSelector,
     ConversationMessageVisibility,
     ConversationSource,
     ConversationToolEvidence,
@@ -175,6 +177,42 @@ const nativeProvenance = (id: string, sourceConversationId: string): MessageProv
     sourceRecordId: id,
 });
 
+export const observedToolFieldState = (value: string | null | undefined): ContentState | null =>
+    value == null ? null : AVAILABLE_FULL_CONTENT;
+
+export type ConversationToolEvidenceDraft = Omit<
+    ConversationToolEvidence,
+    'inputContentState' | 'outputContentState'
+> & {
+    inputContentState?: ContentState | null;
+    outputContentState?: ContentState | null;
+};
+
+export const toCanonicalToolEvidence = (
+    tool: ConversationToolEvidenceDraft | null | undefined,
+): ConversationToolEvidence | null => {
+    if (!tool) {
+        return null;
+    }
+    return {
+        ...tool,
+        inputContentState: tool.inputContentState ?? observedToolFieldState(tool.inputText),
+        outputContentState: tool.outputContentState ?? observedToolFieldState(tool.outputText),
+    };
+};
+
+export const conversationReadFields = (options: {
+    includeMessages: boolean;
+    messageSelector?: ConversationMessageSelector | null;
+}): Pick<ConversationDetail, 'bodyAvailability'> => {
+    if (!options.includeMessages) {
+        return {};
+    }
+    return {
+        bodyAvailability: (options.messageSelector ?? 'last_final_answer') === 'all' ? 'full' : 'selected',
+    };
+};
+
 export const createTextMessage = (input: {
     contentState?: ContentState;
     createdAtMs: number | null;
@@ -187,7 +225,7 @@ export const createTextMessage = (input: {
     role: ConversationMessageRole;
     sourceConversationId?: string;
     text: string | null | undefined;
-    toolEvidence?: ConversationToolEvidence | null;
+    toolEvidence?: ConversationToolEvidenceDraft | null;
     visibility?: ConversationMessageVisibility;
 }): ConversationMessage[] => {
     const text = input.text ?? '';
@@ -207,7 +245,7 @@ export const createTextMessage = (input: {
             provenance: input.provenance ?? nativeProvenance(input.id, input.sourceConversationId ?? ''),
             role: input.role,
             text: input.text ?? '',
-            toolEvidence: input.toolEvidence ?? null,
+            toolEvidence: toCanonicalToolEvidence(input.toolEvidence),
             visibility: input.visibility ?? 'normal',
         },
     ];
@@ -251,9 +289,13 @@ export const getToolNamespace = (name: string): string | null => {
     return delimiterIndex >= 0 ? name.substring(0, delimiterIndex) : null;
 };
 
-export type CanonicalMessageDraft = Omit<ConversationMessage, 'contentState' | 'provenance' | 'visibility'> & {
+export type CanonicalMessageDraft = Omit<
+    ConversationMessage,
+    'contentState' | 'provenance' | 'toolEvidence' | 'visibility'
+> & {
     contentState?: ContentState;
     provenance?: MessageProvenance;
+    toolEvidence?: ConversationToolEvidenceDraft | null;
     visibility?: ConversationMessageVisibility;
 };
 
@@ -261,6 +303,7 @@ export const toCanonicalMessage = (message: CanonicalMessageDraft): Conversation
     ...message,
     contentState: message.contentState ?? AVAILABLE_FULL_CONTENT,
     provenance: message.provenance ?? nativeProvenance(message.id, ''),
+    toolEvidence: toCanonicalToolEvidence(message.toolEvidence),
     visibility: message.visibility ?? 'normal',
 });
 

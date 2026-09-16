@@ -1,4 +1,5 @@
 import type { JsonValue } from '../shared-text';
+import type { ConversationMessage } from './types';
 
 type BaseThreadEvent = {
     kind:
@@ -148,3 +149,113 @@ export const projectDisplayText = (text: string, maxCharacters: number) => {
         truncated: true,
     };
 };
+
+export type CanonicalThreadEventOptions = {
+    modelFrom?: (message: ConversationMessage) => string | null;
+    source?: string;
+};
+
+const toTimestamp = (createdAtMs: number | null) => (createdAtMs === null ? null : new Date(createdAtMs).toISOString());
+
+const messageRaw = (message: ConversationMessage, source: string) => ({
+    id: message.id,
+    phase: message.phase,
+    role: message.role,
+    source,
+    text: message.text,
+});
+
+const toReasoningEvent = (
+    message: ConversationMessage,
+    raw: ReturnType<typeof messageRaw>,
+    sequence: number,
+    timestamp: string | null,
+): ThreadEvent => ({
+    content: message.text,
+    hasEncryptedContent: false,
+    kind: 'reasoning',
+    raw,
+    sequence,
+    summary: [message.text],
+    timestamp,
+});
+
+const toToolCallEvent = (
+    message: ConversationMessage,
+    raw: ReturnType<typeof messageRaw>,
+    sequence: number,
+    timestamp: string | null,
+): ThreadEvent => {
+    const name = message.toolEvidence?.name ?? 'unknown';
+    return {
+        argumentsParseFailed: false,
+        argumentsText: message.toolEvidence?.inputText ?? null,
+        callId: message.toolEvidence?.callId ?? null,
+        command: message.toolEvidence?.command ?? name,
+        kind: 'tool_call',
+        name,
+        raw,
+        sequence,
+        timestamp,
+        workdir: message.toolEvidence?.workdir ?? null,
+    };
+};
+
+const toToolOutputEvent = (
+    message: ConversationMessage,
+    raw: ReturnType<typeof messageRaw>,
+    sequence: number,
+    timestamp: string | null,
+): ThreadEvent => {
+    const outputText = message.toolEvidence?.outputText ?? message.text;
+    return {
+        callId: message.toolEvidence?.callId ?? null,
+        exitCode: message.toolEvidence?.exitCode ?? null,
+        kind: 'tool_output',
+        outputText,
+        raw,
+        sequence,
+        summary: outputText,
+        timestamp,
+        wallTime: null,
+    };
+};
+
+const toMessageEvent = (
+    message: ConversationMessage,
+    raw: ReturnType<typeof messageRaw>,
+    sequence: number,
+    timestamp: string | null,
+    modelFrom: CanonicalThreadEventOptions['modelFrom'],
+): ThreadEvent => ({
+    isHiddenByDefault: message.role !== 'assistant' && message.role !== 'user',
+    kind: 'message',
+    memoryCitation: null,
+    model: modelFrom?.(message) ?? message.model ?? null,
+    phase: message.phase === 'unknown' ? null : message.phase,
+    raw,
+    role: message.role,
+    sequence,
+    text: message.text,
+    timestamp,
+    variant: message.role === 'user' ? 'user_message' : message.role === 'assistant' ? 'agent_message' : 'message',
+});
+
+export const canonicalMessagesToThreadEvents = (
+    messages: ConversationMessage[],
+    options: CanonicalThreadEventOptions = {},
+): ThreadEvent[] =>
+    messages.map((message, sequence) => {
+        const timestamp = toTimestamp(message.createdAtMs);
+        const raw = messageRaw(message, options.source ?? 'canonical');
+        if (message.phase === 'reasoning') {
+            return toReasoningEvent(message, raw, sequence, timestamp);
+        }
+        if (message.phase === 'tool_call') {
+            return toToolCallEvent(message, raw, sequence, timestamp);
+        }
+        if (message.phase === 'tool_output') {
+            return toToolOutputEvent(message, raw, sequence, timestamp);
+        }
+        return toMessageEvent(message, raw, sequence, timestamp, options.modelFrom);
+    });

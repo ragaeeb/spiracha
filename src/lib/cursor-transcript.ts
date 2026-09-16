@@ -19,7 +19,6 @@ import {
     renderSection,
 } from './shared-text';
 
-const TOOL_RESULT_PREVIEW_LIMIT = 4000;
 const MIN_DATE_MS = -8_640_000_000_000_000;
 const MAX_DATE_MS = 8_640_000_000_000_000;
 
@@ -49,13 +48,7 @@ const prettyToolArguments = (argumentsText: string | null): string | null => {
     }
 };
 
-const truncateResult = (resultText: string): string => {
-    if (resultText.length <= TOOL_RESULT_PREVIEW_LIMIT) {
-        return resultText;
-    }
-
-    return `${resultText.slice(0, TOOL_RESULT_PREVIEW_LIMIT)}\n... (truncated)`;
-};
+const truncateResult = (resultText: string): string => resultText;
 
 export const renderCursorToolCall = (toolCall: CursorToolCall, outputFormat: ExportFormat): string => {
     const lines: string[] = [`Tool: ${formatInlineLiteral(toolCall.name, outputFormat)}`];
@@ -92,7 +85,7 @@ const renderAssistantBubble = (
 ): string[] => {
     const blocks: string[] = [];
 
-    if (options.includeCommentary && bubble.thinking?.trim()) {
+    if (bubble.thinking?.trim()) {
         const reasoning = cleanExtractedText(bubble.thinking).trim();
         if (reasoning) {
             blocks.push(renderSection('Reasoning', reasoning, options.outputFormat));

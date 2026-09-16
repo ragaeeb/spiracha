@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'bun:test';
+import { toCanonicalMessage } from './adapter-helpers';
 import {
+    canonicalMessagesToThreadEvents,
     projectDisplayText,
     shouldShowTranscriptEvent,
     type ThreadEvent,
@@ -70,6 +72,38 @@ describe('conversation presentation events', () => {
             previewText: original,
             truncated: false,
         });
+    });
+
+    it('should project canonical messages into shared thread events', () => {
+        const events = canonicalMessagesToThreadEvents(
+            [
+                toCanonicalMessage({
+                    createdAtMs: 1,
+                    id: 'u',
+                    metadata: {},
+                    order: 0,
+                    phase: 'unknown',
+                    role: 'user',
+                    text: 'Ask',
+                    toolEvidence: null,
+                }),
+                toCanonicalMessage({
+                    createdAtMs: 2,
+                    id: 'r',
+                    metadata: {},
+                    order: 1,
+                    phase: 'reasoning',
+                    role: 'assistant',
+                    text: 'Think',
+                    toolEvidence: null,
+                }),
+            ],
+            { source: 'command_code' },
+        );
+        expect(events.map((event) => event.kind)).toEqual(['message', 'reasoning']);
+        expect(events[0]).toMatchObject({ role: 'user', text: 'Ask', variant: 'user_message' });
+        expect(events[1]).toMatchObject({ kind: 'reasoning', summary: ['Think'] });
+        expect(events[0]?.raw).toMatchObject({ source: 'command_code' });
     });
 
     it('should keep generic presentation events and UI projection off Codex-owned modules', async () => {

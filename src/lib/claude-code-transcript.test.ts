@@ -133,7 +133,7 @@ describe('renderClaudeCodeTranscript', () => {
         });
 
         expect(rendered).not.toContain('exported_from');
-        expect(rendered).not.toContain('Need inspect first.');
+        expect(rendered).toContain('Need inspect first.');
         expect(rendered).not.toContain('Tool:');
         expect(rendered).toContain('Vendor detection is present.');
     });

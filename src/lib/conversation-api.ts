@@ -23,9 +23,12 @@ import {
     SourceMutationConflictError,
     UnsupportedSourceOperationError,
 } from './conversation-data';
+import { conversationReadFields } from './conversation-data/adapter-helpers';
 import { validateEvidenceLens } from './conversation-data/evidence-lens';
 import { buildEvidenceExport } from './conversation-data/evidence-markdown';
+import type { CompactExportFlags } from './conversation-data/export-options';
 import { renderConversationMarkdown } from './conversation-data/markdown';
+import { IncompleteTranscriptError } from './conversation-data/operation-types';
 import { decodeConversationCursor } from './conversation-data/pagination';
 import { ConversationPayloadError, convertConversationPayload } from './conversation-payload';
 import type { ConvertConversationPayloadOptions } from './conversation-payload-types';
@@ -49,6 +52,7 @@ type ConversationApiDependencies = {
 type ApiErrorCode =
     | 'conversation_not_found'
     | 'origin_not_allowed'
+    | 'incomplete_transcript'
     | 'internal_error'
     | 'method_not_allowed'
     | 'mutation_conflict'
@@ -211,6 +215,59 @@ const parseMessageSelector = (
 
 const invalidFieldResponse = (field: string, value: unknown, message: string) =>
     errorResponse('validation_error', message, 400, { field, value });
+
+const parseOptionalBooleanParam = (value: string | null, field: string): ParseResult<boolean | undefined> => {
+    if (value === null) {
+        return { value: undefined };
+    }
+    if (value === 'true' || value === '1') {
+        return { value: true };
+    }
+    if (value === 'false' || value === '0') {
+        return { value: false };
+    }
+    return { error: invalidFieldResponse(field, value, `\`${field}\` must be a boolean.`) };
+};
+
+const parseExportFormat = (value: string | null): ParseResult<CompactExportFlags['outputFormat']> => {
+    if (!value) {
+        return { value: undefined };
+    }
+    if (value === 'md' || value === 'txt') {
+        return { value };
+    }
+    return { error: invalidFieldResponse('format', value, '`format` must be "md" or "txt".') };
+};
+
+const parseExportFlags = (url: URL): ParseResult<CompactExportFlags> => {
+    const includeCommentary = parseOptionalBooleanParam(
+        url.searchParams.get('include_commentary'),
+        'include_commentary',
+    );
+    if ('error' in includeCommentary) {
+        return includeCommentary;
+    }
+    const includeMetadata = parseOptionalBooleanParam(url.searchParams.get('include_metadata'), 'include_metadata');
+    if ('error' in includeMetadata) {
+        return includeMetadata;
+    }
+    const includeTools = parseOptionalBooleanParam(url.searchParams.get('include_tools'), 'include_tools');
+    if ('error' in includeTools) {
+        return includeTools;
+    }
+    const outputFormat = parseExportFormat(url.searchParams.get('format') ?? url.searchParams.get('output_format'));
+    if ('error' in outputFormat) {
+        return outputFormat;
+    }
+    return {
+        value: {
+            ...(includeCommentary.value === undefined ? {} : { includeCommentary: includeCommentary.value }),
+            ...(includeMetadata.value === undefined ? {} : { includeMetadata: includeMetadata.value }),
+            ...(includeTools.value === undefined ? {} : { includeTools: includeTools.value }),
+            ...(outputFormat.value === undefined ? {} : { outputFormat: outputFormat.value }),
+        },
+    };
+};
 
 const normalizeLimit = (value: number | undefined): number | undefined => {
     if (value === undefined) {
@@ -396,6 +453,12 @@ const handleSources = async (dependencies: ReturnType<typeof getDeps>) => {
     });
 };
 
+const withReadFields = (
+    conversation: ConversationDetail,
+    options: { includeMessages: boolean; messageSelector?: ConversationMessageSelector },
+): ConversationDetail =>
+    conversation.bodyAvailability ? conversation : { ...conversation, ...conversationReadFields(options) };
+
 const handleListConversations = async (url: URL, dependencies: ReturnType<typeof getDeps>) => {
     const result = buildListOptions(url);
     if ('error' in result) {
@@ -404,7 +467,12 @@ const handleListConversations = async (url: URL, dependencies: ReturnType<typeof
 
     const page = await dependencies.listConversations(result.value);
     return jsonResponse({
-        data: page.data,
+        data: page.data.map((conversation) =>
+            withReadFields(conversation, {
+                includeMessages: result.value.includeMessages === true,
+                messageSelector: result.value.messageSelector ?? 'last_final_answer',
+            }),
+        ),
         meta: normalizeMeta(page.meta),
     });
 };
@@ -520,7 +588,12 @@ const handleGetConversation = async (
         });
     }
 
-    return jsonResponse({ data: conversation });
+    return jsonResponse({
+        data: withReadFields(conversation, {
+            includeMessages: true,
+            messageSelector: result.value.messageSelector ?? 'all',
+        }),
+    });
 };
 
 const handleExportConversation = async (
@@ -534,7 +607,15 @@ const handleExportConversation = async (
         return result.error;
     }
 
-    const conversation = await dependencies.getConversation(result.value);
+    const flags = parseExportFlags(url);
+    if ('error' in flags) {
+        return flags.error;
+    }
+
+    const conversation = await dependencies.getConversation({
+        ...result.value,
+        messageSelector: 'all',
+    });
     if (!conversation) {
         return errorResponse('conversation_not_found', 'No conversation exists for that source and id.', 404, {
             id: result.value.id,
@@ -542,18 +623,27 @@ const handleExportConversation = async (
         });
     }
 
-    return new Response(
-        dependencies.renderConversationMarkdown(conversation, {
-            messageSelector: result.value.messageSelector,
-        }),
-        {
-            headers: {
-                'Cache-Control': 'no-store',
-                'Content-Type': 'text/markdown; charset=utf-8',
-                'X-Content-Type-Options': 'nosniff',
+    try {
+        const format = flags.value.outputFormat ?? 'md';
+        return new Response(
+            dependencies.renderConversationMarkdown(conversation, {
+                messageSelector: result.value.messageSelector,
+                ...flags.value,
+            }),
+            {
+                headers: {
+                    'Cache-Control': 'no-store',
+                    'Content-Type': format === 'txt' ? 'text/plain; charset=utf-8' : 'text/markdown; charset=utf-8',
+                    'X-Content-Type-Options': 'nosniff',
+                },
             },
-        },
-    );
+        );
+    } catch (error) {
+        if (error instanceof IncompleteTranscriptError) {
+            return errorResponse('incomplete_transcript', error.message, 409);
+        }
+        throw error;
+    }
 };
 
 const handleRawConversation = async (
@@ -929,7 +1019,7 @@ const handleExportConversations = async (request: Request, dependencies: ReturnT
     const loaded = await mapWithConcurrency(result.value.ids, BATCH_LOAD_CONCURRENCY, async (id) => {
         const conversation = await dependencies.getConversation({
             id,
-            messageSelector: result.value.messageSelector,
+            messageSelector: 'all',
             source: result.value.source,
         });
         if (!conversation) {
@@ -1257,7 +1347,12 @@ const handleConversationQuery = async (request: Request, dependencies: ReturnTyp
 
     const page = await dependencies.listConversations(options);
     return jsonResponse({
-        data: page.data,
+        data: page.data.map((conversation) =>
+            withReadFields(conversation, {
+                includeMessages: options.includeMessages === true,
+                messageSelector: options.messageSelector ?? 'last_final_answer',
+            }),
+        ),
         meta: normalizeMeta(page.meta),
     });
 };

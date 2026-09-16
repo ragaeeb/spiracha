@@ -18,8 +18,6 @@ import {
     renderSection,
 } from './shared-text';
 
-const TOOL_OUTPUT_PREVIEW_LIMIT = 4000;
-
 const buildMetadataEntries = (session: MiniMaxCodeSessionSummary): MetadataEntry[] => [
     { key: 'exported_from', value: 'minimax_code_v2_snapshot' },
     { key: 'session_id', value: session.sessionId },
@@ -38,11 +36,7 @@ const buildMetadataEntries = (session: MiniMaxCodeSessionSummary): MetadataEntry
     { key: 'tool_result_count', value: session.toolResultCount },
 ];
 
-const truncateOutput = (text: string): string => {
-    return text.length <= TOOL_OUTPUT_PREVIEW_LIMIT
-        ? text
-        : `${text.slice(0, TOOL_OUTPUT_PREVIEW_LIMIT)}\n... (truncated)`;
-};
+const truncateOutput = (text: string): string => text;
 
 const roleTitle = (role: string, assistantModel: string | null): string => {
     if (role === 'assistant') {
@@ -87,7 +81,7 @@ const renderMessage = (
     assistantModel: string | null,
 ): string[] => {
     const sections: string[] = [];
-    if (options.includeCommentary && message.reasoning) {
+    if (message.reasoning) {
         const reasoning = cleanExtractedText(message.reasoning).trim();
         if (reasoning) {
             sections.push(renderSection('Reasoning', reasoning, options.outputFormat));

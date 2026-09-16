@@ -7,6 +7,7 @@ import { chatgptResearchPayload, chatgptResearchReport } from './conversation-pa
 import type { ConvertedConversation } from './conversation-payload-types';
 
 const conversation = {
+    bodyAvailability: 'full',
     createdAtMs: 1,
     deepLinks: {
         native: 'codex://threads/thread-1',
@@ -397,6 +398,15 @@ describe('conversation API handler', () => {
             owner: 'source_mutator',
             state: 'supported',
         });
+        expect(body.data.find((entry) => entry.source === 'codex')?.operations.normalized_export).toEqual({
+            owner: 'common_service',
+            state: 'supported',
+        });
+        expect(body.data.find((entry) => entry.source === 'codex')?.operations.deletion_reconciliation).toEqual({
+            owner: 'source_mutator',
+            state: 'supported',
+        });
+        expect(body.data.find((entry) => entry.source === 'cline')?.operations.deletion_reconciliation).toBeUndefined();
     });
 
     it('should accept Command Code as a stable workspace source', async () => {
@@ -773,7 +783,7 @@ describe('conversation API handler', () => {
                 getConversation: async (options) => {
                     expect(options).toEqual({
                         id: 'thread-1',
-                        messageSelector: 'last_final_answer',
+                        messageSelector: 'all',
                         source: 'codex',
                     });
                     return conversation;
@@ -789,6 +799,30 @@ describe('conversation API handler', () => {
         expect(response.status).toBe(200);
         expect(response.headers.get('Content-Type')).toBe('text/markdown; charset=utf-8');
         await expect(response.text()).resolves.toBe('# Thread 1\n');
+    });
+
+    it('should pass compact export flags through Markdown export', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest(
+                '/api/v1/conversations/codex/thread-1/export?include_commentary=false&include_tools=false&format=txt',
+            ),
+            {
+                getConversation: async () => conversation,
+                renderConversationMarkdown: (_renderedConversation, options) => {
+                    expect(options).toEqual({
+                        includeCommentary: false,
+                        includeTools: false,
+                        messageSelector: 'all',
+                        outputFormat: 'txt',
+                    });
+                    return 'Thread 1\n';
+                },
+            },
+        );
+
+        expect(response.status).toBe(200);
+        expect(response.headers.get('Content-Type')).toBe('text/plain; charset=utf-8');
+        await expect(response.text()).resolves.toBe('Thread 1\n');
     });
 
     it('should pass through a raw transcript without parsing or rewriting it', async () => {

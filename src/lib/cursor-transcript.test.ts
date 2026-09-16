@@ -56,13 +56,8 @@ describe('renderCursorBubble', () => {
         expect(block).toContain('Please fix the bug');
     });
 
-    it('should omit reasoning unless commentary is enabled', () => {
+    it('should include reasoning independently of commentary', () => {
         const blocks = renderCursorBubble(buildTranscript().bubbles[1]!, options());
-        expect(blocks.join('\n')).not.toContain('## Reasoning');
-    });
-
-    it('should include reasoning when commentary is enabled', () => {
-        const blocks = renderCursorBubble(buildTranscript().bubbles[1]!, options({ includeCommentary: true }));
         expect(blocks.join('\n')).toContain('## Reasoning');
         expect(blocks.join('\n')).toContain('inspect the file first');
     });

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import {
     canonicalRolePhaseIssues,
     classifyCanonicalInclusionBucket,
+    conversationReadFields,
     createConversationUiPath,
     createDeepLinks,
     createTextMessage,
@@ -92,7 +93,14 @@ describe('conversation adapter helpers', () => {
         expect(emptyOutput).toMatchObject({
             id: 'to4',
             text: '',
-            toolEvidence: { durationMs: 0, exitCode: 0, outputText: '', status: 'succeeded' },
+            toolEvidence: {
+                durationMs: 0,
+                exitCode: 0,
+                inputContentState: null,
+                outputContentState: { representation: 'full', state: 'available' },
+                outputText: '',
+                status: 'succeeded',
+            },
         });
         expect(
             createTextMessage({
@@ -184,5 +192,15 @@ describe('conversation adapter helpers', () => {
         expect(canonicalRolePhaseIssues({ phase: 'unknown', role: 'assistant' })).toEqual([]);
         expect(canonicalRolePhaseIssues({ phase: 'tool_call', role: 'tool' })).toEqual([]);
         expect(canonicalRolePhaseIssues({ phase: 'final_answer', role: 'assistant' })).toEqual([]);
+    });
+
+    it('should report list rows as selected and detail reads as full', () => {
+        expect(conversationReadFields({ includeMessages: false })).toEqual({});
+        expect(conversationReadFields({ includeMessages: true, messageSelector: 'all' })).toEqual({
+            bodyAvailability: 'full',
+        });
+        expect(conversationReadFields({ includeMessages: true, messageSelector: 'last_final_answer' })).toEqual({
+            bodyAvailability: 'selected',
+        });
     });
 });

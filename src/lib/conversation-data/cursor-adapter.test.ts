@@ -174,7 +174,7 @@ describe('cursorConversationAdapter', () => {
         await Bun.write(preferred, '{"role":"user"}\n');
         await Bun.write(replica, '{"role":"assistant"}\n');
 
-        const download = await cursorConversationAdapter.getConversationRaw!({
+        const download = await cursorConversationAdapter.getConversationRaw({
             id: 'thread-1',
             locations: { cursorUserDir: userDir },
             source: 'cursor',
@@ -198,7 +198,7 @@ describe('cursorConversationAdapter', () => {
         });
 
         await expect(
-            cursorConversationAdapter.getConversationRaw!({
+            cursorConversationAdapter.getConversationRaw({
                 id: 'thread-1',
                 locations: { cursorUserDir: userDir },
                 source: 'cursor',

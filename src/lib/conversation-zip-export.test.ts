@@ -84,4 +84,24 @@ describe('createConversationMarkdownZip', () => {
 
         expect(failures).toEqual([{ error: 'archive cleanup failed', path: '/tmp/archive.zip' }]);
     });
+
+    it('should honor cancellation before writing archive members', async () => {
+        const signal = AbortSignal.abort();
+        await expect(
+            createConversationMarkdownZip({
+                entries: [
+                    {
+                        cwd: null,
+                        fallbackBaseName: 'cancelled',
+                        markdown: '# One',
+                        title: 'One',
+                        updatedAtMs: null,
+                    },
+                ],
+                fallbackProjectName: 'conversations',
+                platform: 'cline',
+                signal,
+            }),
+        ).rejects.toThrow(/aborted/i);
+    });
 });

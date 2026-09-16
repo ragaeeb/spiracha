@@ -127,7 +127,7 @@ describe('renderCommandCodeTranscript', () => {
         expect(markdown).toContain('exported_from: "command_code_sessions"');
         expect(markdown).toContain('Inspecting the export path.');
         expect(markdown).toContain('The export should preserve tool order.');
-        expect(markdown).toContain('Tool: `read_file`');
+        expect(markdown).toContain('read_file');
         expect(markdown).toContain('export const fixed = true;');
         expect(markdown).toContain('The export path is fixed.');
     });
@@ -142,8 +142,8 @@ describe('renderCommandCodeTranscript', () => {
 
         expect(markdown).toContain('Review the exporter.');
         expect(markdown).toContain('The export path is fixed.');
+        expect(markdown).toContain('The export should preserve tool order.');
         expect(markdown).not.toContain('Inspecting the export path.');
-        expect(markdown).not.toContain('The export should preserve tool order.');
         expect(markdown).not.toContain('exported_from');
         expect(markdown).not.toContain('read_file');
         expect(markdown).not.toContain('export const fixed = true;');
@@ -158,7 +158,8 @@ describe('renderCommandCodeTranscript', () => {
         });
 
         expect(text).toContain('Export audit\n============');
-        expect(text).toContain('Muse Spark 1.3 Contributor\n--------------------------\nThe export path is fixed.');
+        expect(text).toContain('Assistant · Final answer · Muse Spark 1.3 Contributor');
+        expect(text).toContain('The export path is fixed.');
         expect(text).not.toContain('#');
         expect(text).not.toContain('`');
     });
