@@ -1,4 +1,4 @@
-import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/codex-browser-types';
+import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/conversation-data/conversation-events';
 
 const EXEC_TOOL_NAMES = new Set([
     'bash',

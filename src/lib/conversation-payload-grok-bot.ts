@@ -6,6 +6,7 @@ import {
     parseGrokBotRosterRow,
     parseGrokBotTranscript,
 } from './grok-bot-payload';
+import { getNumericMaximum } from './numeric-range';
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
     typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -52,7 +53,7 @@ const parseReplica = (record: Record<string, unknown>): PayloadConversationDraft
         metadata,
         source: 'grok-bot',
         title: roster?.name ?? null,
-        updatedAtMs: timestamps.length ? Math.max(...timestamps) : null,
+        updatedAtMs: timestamps.length ? getNumericMaximum(timestamps) : null,
     };
 };
 

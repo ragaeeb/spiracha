@@ -1,4 +1,4 @@
-import { mapWithConcurrency } from '../concurrency';
+import { conversationReadFields } from './adapter-helpers';
 import { antigravityConversationAdapter } from './antigravity-adapter';
 import { claudeCodeConversationAdapter } from './claude-code-adapter';
 import { clineConversationAdapter } from './cline-adapter';
@@ -10,18 +10,22 @@ import { grokConversationAdapter } from './grok-adapter';
 import { grokBotConversationAdapter } from './grok-bot-adapter';
 import { kiroConversationAdapter } from './kiro-adapter';
 import { minimaxCodeConversationAdapter } from './minimax-code-adapter';
+import { settleDeleteBatch } from './mutation-executor';
 import { opencodeConversationAdapter } from './opencode-adapter';
+import { UnsupportedSourceOperationError } from './operation-types';
 import { decodeConversationCursor, paginateConversations } from './pagination';
 import { qoderConversationAdapter } from './qoder-adapter';
+import { SOURCE_CATALOG, serializeConversationSourceInfo, sourceFromDetailRouteSegment } from './source-catalog';
 import {
     CONVERSATION_SOURCES,
     type ConversationAdapter,
+    type ConversationAdapterRegistry,
+    type ConversationDetail,
     type ConversationPage,
     type ConversationRawDownload,
     type ConversationSource,
     type ConversationSourceInfo,
     type ConversationSourceScope,
-    type DeleteConversationItemResult,
     type DeleteConversationOptions,
     type DeleteConversationResult,
     type DeleteConversationsOptions,
@@ -33,12 +37,25 @@ import {
 } from './types';
 
 export { selectConversationMessages } from './message-selector';
-
+export {
+    IncompleteTranscriptError,
+    OriginalRepresentationUnavailableError,
+    type PublicMutationError,
+    SourceChangedError,
+    SourceMutationConflictError,
+    UnsupportedSourceOperationError,
+} from './operation-types';
 export { getConversationPathMatch, normalizeConversationPath } from './path-match';
+
+export { isSupportedOriginalRawSource, serializeConversationSourceInfo } from './source-catalog';
 
 export {
     CONVERSATION_SOURCES,
+    type ContentState,
     type ConversationAdapter,
+    type ConversationAdapterRegistry,
+    type ConversationArtifact,
+    type ConversationBodyAvailability,
     type ConversationDataLocations,
     type ConversationDeepLinks,
     type ConversationDetail,
@@ -50,6 +67,7 @@ export {
     type ConversationMessagePhase,
     type ConversationMessageRole,
     type ConversationMessageSelector,
+    type ConversationMessageVisibility,
     type ConversationPage,
     type ConversationPathMatch,
     type ConversationRawDownload,
@@ -58,11 +76,14 @@ export {
     type ConversationSourceScope,
     type ConversationToolEvidence,
     type ConversationZipDownload,
+    type DeleteBatchRequestMetadata,
+    type DeleteBatchSummary,
     type DeleteConversationItemResult,
     type DeleteConversationOptions,
     type DeleteConversationResult,
     type DeleteConversationsOptions,
     type DeleteConversationsResult,
+    type DeleteOutcome,
     type EvidenceAnchor,
     type EvidenceLens,
     type EvidenceOmissionStats,
@@ -71,52 +92,17 @@ export {
     type GetConversationOptions,
     type GetConversationRawOptions,
     type ListConversationsOptions,
+    type MessageProvenance,
     type ResolvedConversationRef,
 } from './types';
 
-const SOURCE_LABELS: Record<ConversationSource, string> = {
-    antigravity: 'Antigravity',
-    'claude-code': 'Claude Code',
-    cline: 'Cline',
-    codex: 'Codex',
-    'command-code': 'Command Code',
-    cursor: 'Cursor',
-    fx: 'FX',
-    grok: 'Grok',
-    'grok-bot': 'Grok Bot',
-    kiro: 'Kiro',
-    'minimax-code': 'MiniMax Code',
-    opencode: 'OpenCode',
-    qoder: 'Qoder',
-};
-
-const SOURCE_SCOPES: Record<ConversationSource, ConversationSourceScope> = {
-    antigravity: 'workspace',
-    'claude-code': 'workspace',
-    cline: 'workspace',
-    codex: 'workspace',
-    'command-code': 'workspace',
-    cursor: 'workspace',
-    fx: 'workspace',
-    grok: 'workspace',
-    'grok-bot': 'global',
-    kiro: 'workspace',
-    'minimax-code': 'workspace',
-    opencode: 'workspace',
-    qoder: 'workspace',
-};
-
-const SOURCE_INFOS: ConversationSourceInfo[] = CONVERSATION_SOURCES.map((source) => ({
-    label: SOURCE_LABELS[source],
-    scope: SOURCE_SCOPES[source],
-    source,
-}));
+const SOURCE_INFOS: ConversationSourceInfo[] = CONVERSATION_SOURCES.map(serializeConversationSourceInfo);
 
 export const isConversationSource = (value: unknown): value is ConversationSource => {
     return typeof value === 'string' && (CONVERSATION_SOURCES as readonly string[]).includes(value);
 };
 
-const ADAPTERS: Partial<Record<ConversationSource, ConversationAdapter>> = {
+const ADAPTERS = {
     antigravity: antigravityConversationAdapter,
     'claude-code': claudeCodeConversationAdapter,
     cline: clineConversationAdapter,
@@ -130,7 +116,7 @@ const ADAPTERS: Partial<Record<ConversationSource, ConversationAdapter>> = {
     'minimax-code': minimaxCodeConversationAdapter,
     opencode: opencodeConversationAdapter,
     qoder: qoderConversationAdapter,
-};
+} satisfies ConversationAdapterRegistry;
 
 const MAX_LIMIT = 200;
 
@@ -163,12 +149,14 @@ export const getConversationListScopeError = (
     }
 
     const requestedScope = getRequestedScope(options.cwd);
-    const invalidSource = [...new Set(options.sources)].find((source) => SOURCE_SCOPES[source] !== requestedScope);
+    const invalidSource = [...new Set(options.sources)].find(
+        (source) => SOURCE_CATALOG[source].scope !== requestedScope,
+    );
     if (!invalidSource) {
         return null;
     }
 
-    return `${invalidSource} is a ${SOURCE_SCOPES[invalidSource]} source and cannot be listed with a ${requestedScope} scope.`;
+    return `${invalidSource} is a ${SOURCE_CATALOG[invalidSource].scope} source and cannot be listed with a ${requestedScope} scope.`;
 };
 
 const getEnabledSources = (options: Pick<ListConversationsOptions, 'cwd' | 'sources'>): ConversationSource[] => {
@@ -189,9 +177,7 @@ const getEnabledSources = (options: Pick<ListConversationsOptions, 'cwd' | 'sour
 
 const isAllSourcesRequest = (sources: ListConversationsOptions['sources']) => !sources || sources === 'all';
 
-const getAdapter = (source: ConversationSource): ConversationAdapter | null => {
-    return ADAPTERS[source] ?? null;
-};
+const getAdapter = (source: ConversationSource): ConversationAdapter => ADAPTERS[source];
 
 const getLimit = (limit: number | undefined) => {
     if (!limit || limit <= 0) {
@@ -219,6 +205,12 @@ const filterByUpdatedAt = (
 
 export const listConversationSources = async (): Promise<ConversationSourceInfo[]> => [...SOURCE_INFOS];
 
+/**
+ * Collects one source and applies timestamp/keyset bounds before the final merge.
+ * When ignoreSourceFailures is true, every adapter error becomes a warning and an
+ * empty contribution, not just missing-installation errors. Explicit-source calls
+ * rethrow; callers must not interpret an all-source page as a completeness report.
+ */
 const listSourceConversations = async (
     source: ConversationSource,
     options: ListConversationsOptions,
@@ -226,10 +218,6 @@ const listSourceConversations = async (
     paginationCursor: string | null | undefined,
 ) => {
     const adapter = getAdapter(source);
-    if (!adapter) {
-        return [];
-    }
-
     try {
         const conversations = filterByUpdatedAt(await adapter.listConversations(options), options);
         return options.limit === undefined
@@ -250,7 +238,8 @@ const listSourceConversations = async (
 export const listConversations = async (options: ListConversationsOptions): Promise<ConversationPage> => {
     const cursorKey = decodeConversationCursor(options.cursor);
     const limit = getLimit(options.limit);
-    const cursorUpdatedBeforeMs = cursorKey?.updatedAtMs;
+    // Cursor keys floor timestamps; retain the whole bucket before applying source/id tie-breakers.
+    const cursorUpdatedBeforeMs = cursorKey ? cursorKey.updatedAtMs + 1 : undefined;
     const collectionOptions: ListConversationsOptions = {
         ...options,
         cursor: null,
@@ -269,104 +258,74 @@ export const listConversations = async (options: ListConversationsOptions): Prom
         )
     ).flat();
 
-    return paginateConversations(conversations, options.cursor, limit);
+    const page = paginateConversations(conversations, options.cursor, limit);
+    return {
+        ...page,
+        data: page.data.map((conversation) =>
+            withReadFields(conversation, {
+                includeMessages: options.includeMessages === true,
+                messageSelector: options.messageSelector ?? 'last_final_answer',
+            }),
+        ),
+    };
 };
 
+const withReadFields = (
+    conversation: ConversationDetail,
+    readOptions: { includeMessages: boolean; messageSelector?: ListConversationsOptions['messageSelector'] },
+): ConversationDetail =>
+    conversation.bodyAvailability ? conversation : { ...conversation, ...conversationReadFields(readOptions) };
+
 export const getConversation = async (options: GetConversationOptions) => {
-    return getAdapter(options.source)?.getConversation(options) ?? null;
+    const conversation = await getAdapter(options.source).getConversation(options);
+    return conversation
+        ? withReadFields(conversation, {
+              includeMessages: true,
+              messageSelector: options.messageSelector ?? 'all',
+          })
+        : conversation;
 };
 
 export const getConversationRaw = async (
     options: GetConversationRawOptions,
 ): Promise<ConversationRawDownload | null> => {
-    return (await getAdapter(options.source)?.getConversationRaw?.(options)) ?? null;
+    const capability = SOURCE_CATALOG[options.source].capabilities.original_raw;
+    if (capability.state !== 'supported') {
+        throw new UnsupportedSourceOperationError(
+            options.source,
+            'original_raw',
+            capability.reason,
+            capability.reasonCode,
+        );
+    }
+    const handler = getAdapter(options.source).getConversationRaw;
+    if (!handler) {
+        throw new Error(`${options.source} declared original_raw support without a handler.`);
+    }
+    return handler(options);
 };
 
 export const deleteConversation = async (
     options: DeleteConversationOptions,
-): Promise<DeleteConversationResult | null> => {
-    return (await getAdapter(options.source)?.deleteConversation?.(options)) ?? null;
-};
+): Promise<DeleteConversationResult | null> => getAdapter(options.source).deleteConversation(options);
 
 export const deleteConversations = async (
     options: DeleteConversationsOptions,
 ): Promise<DeleteConversationsResult | null> => {
-    const adapter = getAdapter(options.source);
-    if (!adapter?.deleteConversation) {
-        return null;
-    }
-    const deleteAdapterConversation = adapter.deleteConversation;
+    const deleteAdapterConversation = getAdapter(options.source).deleteConversation;
 
-    const rawResults = await mapWithConcurrency(
-        options.ids,
-        DELETE_CONCURRENCY_BY_SOURCE[options.source],
-        async (id) => ({
-            id,
-            result: await deleteAdapterConversation({
+    return settleDeleteBatch({
+        concurrency: DELETE_CONCURRENCY_BY_SOURCE[options.source],
+        deleteOne: (id) =>
+            deleteAdapterConversation({
                 deleteSessionFiles: options.deleteSessionFiles,
                 id,
                 locations: options.locations,
                 source: options.source,
             }),
-        }),
-    );
-    const deletedIdSet = new Set(rawResults.flatMap(({ result }) => result.deletedIds));
-    const results: DeleteConversationItemResult[] = rawResults.map(({ id, result }) => ({
-        ...(result.cleanupFailures?.length ? { cleanupFailures: result.cleanupFailures } : {}),
-        deleted: result.deletedIds.length > 0 || deletedIdSet.has(id),
-        deletedFiles: result.deletedFiles,
-        deletedIds: result.deletedIds,
-        id,
-    }));
-    const cleanupFailures = results.flatMap((result) => result.cleanupFailures ?? []);
-
-    return {
-        ...(cleanupFailures.length > 0 ? { cleanupFailures } : {}),
-        deletedFiles: [...new Set(results.flatMap((result) => result.deletedFiles))],
-        deletedIds: [...deletedIdSet],
-        missingIds: results.filter((result) => !result.deleted).map((result) => result.id),
-        results,
-    };
-};
-
-const sourceFromSessionRoute = (segment: string): ConversationSource | null => {
-    if (segment === 'claude-code-sessions') {
-        return 'claude-code';
-    }
-    if (segment === 'command-code-sessions') {
-        return 'command-code';
-    }
-    if (segment === 'cline-tasks') {
-        return 'cline';
-    }
-    if (segment === 'grok-sessions') {
-        return 'grok';
-    }
-    if (segment === 'grok-bot-chats') {
-        return 'grok-bot';
-    }
-    if (segment === 'kiro-sessions') {
-        return 'kiro';
-    }
-    if (segment === 'qoder-sessions') {
-        return 'qoder';
-    }
-    if (segment === 'cursor-threads') {
-        return 'cursor';
-    }
-    if (segment === 'fx-sessions') {
-        return 'fx';
-    }
-    if (segment === 'antigravity-conversations') {
-        return 'antigravity';
-    }
-    if (segment === 'opencode-sessions') {
-        return 'opencode';
-    }
-    if (segment === 'minimax-code-sessions') {
-        return 'minimax-code';
-    }
-    return null;
+        ids: options.ids,
+        signal: options.signal,
+    });
 };
 
 const decodeRefId = (value: string | undefined): string | null => {
@@ -387,17 +346,12 @@ const refFromPathSegmentAt = (segments: string[], index: number): ResolvedConver
     const next = segments[index + 1];
     const nextNext = segments[index + 2];
 
-    if (segment === 'threads') {
-        const id = decodeRefId(next);
-        return id ? { id, source: 'codex' } : null;
-    }
-
     if (segment === 'conversations' && isConversationSource(next)) {
         const id = decodeRefId(nextNext);
         return id ? { id, source: next } : null;
     }
 
-    const source = segment ? sourceFromSessionRoute(segment) : null;
+    const source = segment ? sourceFromDetailRouteSegment(segment) : null;
     if (!source) {
         return null;
     }
@@ -411,7 +365,7 @@ const refFromPathSegments = (segments: string[]): ResolvedConversationRef | null
         segments[0] === 'api' &&
         segments[1] === 'v1' &&
         segments[2] === 'conversations' &&
-        (segments.length === 5 || (segments.length === 6 && (segments[5] === 'export' || segments[5] === 'evidence')))
+        (segments.length === 5 || (segments.length === 6 && ['export', 'evidence', 'raw'].includes(segments[5]!)))
     ) {
         return refFromPathSegmentAt(segments, 2);
     }
@@ -446,6 +400,12 @@ const parseUrlRef = (ref: string): ResolvedConversationRef | null => {
     return refFromPathSegments(url.pathname.split('/').filter(Boolean));
 };
 
+/**
+ * Parses supported absolute UI/API/deep-link shapes into a source and ID without
+ * fetching the URL or proving that a conversation exists. Host identity is not an
+ * authorization check here. Bare IDs, relative URLs, and unsupported path shapes
+ * return null; callers must separately retrieve/validate the resolved conversation.
+ */
 export const resolveConversationRef = async (ref: string): Promise<ResolvedConversationRef | null> => {
     const trimmed = ref.trim();
     if (!trimmed) {

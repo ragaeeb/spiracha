@@ -1,27 +1,19 @@
+import { isSupportedOriginalRawSource } from '@spiracha/lib/conversation-data/source-catalog';
+import { CONVERSATION_SOURCES } from '@spiracha/lib/conversation-data/types';
 import { createServerFn } from '@tanstack/react-start';
 import { array, minLength, object, picklist, pipe, string } from 'valibot';
 
-const rawSourceValues = [
-    'antigravity',
-    'claude-code',
-    'cline',
-    'codex',
-    'command-code',
-    'grok',
-    'grok-bot',
-    'kiro',
-    'minimax-code',
-    'qoder',
-] as const;
-
 const exportRawConversationsSchema = object({
     ids: pipe(array(pipe(string(), minLength(1))), minLength(1)),
-    source: picklist(rawSourceValues),
+    source: picklist(CONVERSATION_SOURCES),
 });
 
 export const exportRawConversationsFn = createServerFn({ method: 'POST' })
     .validator(exportRawConversationsSchema)
     .handler(async ({ data }) => {
+        if (!isSupportedOriginalRawSource(data.source)) {
+            throw new Error(`Original raw export is not supported for ${data.source}.`);
+        }
         const [{ getConversationRaw }, { mapWithConcurrency }, { renderRawConversationDownloads }] = await Promise.all([
             import('@spiracha/lib/conversation-data'),
             import('@spiracha/lib/concurrency'),

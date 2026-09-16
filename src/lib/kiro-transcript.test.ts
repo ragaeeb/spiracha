@@ -90,10 +90,9 @@ describe('renderKiroTranscript', () => {
         expect(rendered).toContain('exported_from: "kiro_workspace_sessions"');
         expect(rendered).toContain('## User');
         expect(rendered).toContain('Review Descope-Class Vendor-Detection');
-        expect(rendered).toContain('## Attachment');
         expect(rendered).toContain('Image attachment');
-        expect(rendered).toContain('## Claude Sonnet 4.5');
-        expect(rendered).not.toContain('## Assistant');
+        expect(rendered).toContain('## Assistant · Final answer · Claude Sonnet 4.5');
+        expect(rendered).not.toContain('## Assistant · Commentary');
         expect(rendered).toContain('Vendor detection is present.');
     });
 
@@ -159,7 +158,7 @@ describe('renderKiroTranscript', () => {
 
         expect(rendered).toContain('Review Descope-Class Vendor-Detection\n');
         expect(rendered).toContain('=====================================');
-        expect(rendered).toContain('Attachment\n----------');
+        expect(rendered).toContain('Image attachment');
         expect(rendered).not.toContain('```');
     });
 

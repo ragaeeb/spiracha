@@ -7,9 +7,11 @@
 [![license](https://img.shields.io/npm/l/spiracha)](LICENSE.md)
 [![runtime](https://img.shields.io/badge/runtime-Bun-000000?logo=bun)](https://bun.sh)
 
-Spiracha is a Bun package with a local TanStack Start UI, a small CLI, and a direct data client for browsing and exporting agent conversation history from Codex, Claude Code, Command Code, Grok, Grok Bot, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode.
+Spiracha is a Bun package with a local TanStack Start UI, a small CLI, and a direct data client for browsing and exporting agent conversation history from Codex, Claude Code, Command Code, Cline, Grok, Grok Bot, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode.
 
 The legacy exporter, MCP server, and Codex plugin surfaces were removed in the 2.0 hard cut. Spiracha now exposes the UI, a stable local data API, and the API-driven CLI below; client-specific workflows such as review collection belong in the client that calls the API.
+
+See the [documentation index](docs/README.md) for API/client references, configuration, privacy, recovery, and contributor guides.
 
 ## Quick Start
 
@@ -38,7 +40,7 @@ Spiracha binds to loopback `127.0.0.1` and is intended for same-user local acces
 
 ## CLI
 
-The packaged CLI is a thin client over Spiracha's normalized conversation API. With no arguments, it prints help:
+The packaged CLI is a thin client over Spiracha's normalized conversation API. The bare `spiracha` examples below assume its binary is on your PATH; after the Quick Start, use `bunx spiracha` in place of `spiracha` for the same commands. With no arguments, it prints help:
 
 ```bash
 spiracha
@@ -61,7 +63,7 @@ Install the SDK in another Bun application with `bun add spiracha`. `list` and `
 
 ## What It Does
 
-- Browse local conversations across Codex, Claude Code, Command Code, Grok, Grok Bot, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode.
+- Browse local conversations across Codex, Claude Code, Command Code, Cline, Grok, Grok Bot, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode.
 - Import exported ChatGPT, Claude, Gemini, Grok, Qwen, GLM, Amazon Nova, DeepSeek, Mistral, Perplexity, and compatible web conversations by dropping JSON files onto the Web page.
 - Group each integration into workspace inventories with local search and source-specific export/delete actions where supported.
 - Search Codex projects from the app shell, with results delegated to the shareable `/codex?q=...` inventory filter.
@@ -81,7 +83,7 @@ Open `/web` and drop one or more JSON exports. Spiracha parses mapping-based Cha
 
 Unsupported or malformed files return per-file errors while valid files in the same import remain available. Web conversation detail pages expose the normalized transcript, metadata, transcript controls, and Parsed JSON; they do not export or delete the original source file.
 
-Each file is limited to 25 MB, with at most 20 files and 100 MB per import. Spiracha retains up to 128 MB of the most recent normalized conversations in server memory and evicts the oldest entries first; imports disappear when evicted or when the Spiracha server stops. Each detail route uses a generated opaque ID and keeps the original provider conversation ID separately when one is present. Web imports are a UI workflow and are not added to the stable data API, CLI, or stable source registry.
+Each file is limited to 25 MB, with at most 20 files and 100 MB per import. Spiracha retains normalized conversations in server memory using a 128 MiB input-byte accounting budget, not an exact JavaScript heap limit, and evicts the oldest retained entries first; imports disappear when evicted or when the Spiracha server stops. See [Web import behavior](docs/web-imports.md) for identity, limits, and fidelity. Each detail route uses a generated opaque ID and keeps the original provider conversation ID separately when one is present. Web imports are a UI workflow and are not added to the stable data API, CLI, or stable source registry.
 
 ## Stable Data API
 
@@ -101,6 +103,7 @@ POST /api/v1/conversation-query
 GET  /api/v1/conversations/:source/:id
 GET  /api/v1/conversations/:source/:id/export
 GET  /api/v1/conversations/:source/:id/raw
+HEAD /api/v1/conversations/:source/:id/raw
 POST /api/v1/conversations/:source/:id/evidence
 POST /api/v1/conversation-payload
 DELETE /api/v1/conversations/:source/:id
@@ -119,7 +122,7 @@ List requests accept a positive `limit` up to 200, optional `updated_after_ms` a
 
 Workspace matching is lexical and performs no filesystem reads, so missing and network-mounted transcript paths cannot delay collection. Symlink aliases are intentionally not resolved; callers that require alias equivalence should pass the canonical workspace path recorded by the source.
 
-Batch delete requires an explicit source and ID list. It returns `deletedIds`, `missingIds`, and a result for each requested ID, so partial success is represented in a `200` response body. Batch export also requires an explicit source and ID list, but is atomic: any missing ID returns an error instead of a partial archive. Cursor deletes accept `delete_session_files=false` on the single-delete query string or batch-delete JSON body. This removes Cursor database records while preserving its transcript directories; preserved source files can make the conversation discoverable again. The Cursor UI exposes the same choice and keeps transcript deletion selected by default. Cursor must be closed before a write; workspace cleanup failures can return a bounded, single-use retry token while filesystem paths remain server-side.
+Batch delete requires an explicit source and ID list. Non-throwing mixed results return `deletedIds`, `missingIds`, and per-ID results in a `200` body; an all-missing batch returns `404`. An adapter exception can instead return `500` after some deletions have committed; batch deletion is not transactional. Inspect source state and recovery records before retrying. See [Deletion safety and capabilities](docs/deletion-safety.md), including the Cursor-only scope of `delete_session_files=false`. Batch export also requires an explicit source and ID list, but is atomic: any missing ID returns an error instead of a partial archive. Cursor deletes accept `delete_session_files=false` on the single-delete query string or batch-delete JSON body. This removes Cursor database records while preserving its transcript directories; preserved source files can make the conversation discoverable again. The Cursor UI exposes the same choice and keeps transcript deletion selected by default. Cursor must be closed before a write; workspace cleanup failures can return a bounded, single-use retry token while filesystem paths remain server-side.
 
 Example:
 
@@ -127,7 +130,7 @@ Example:
 curl 'http://localhost:3000/api/v1/conversations?cwd=/Users/me/workspace/fgh&include_messages=true'
 ```
 
-Response envelope:
+Abbreviated response envelope (required nullable fields and message identity/order metadata are omitted for readability; see `ConversationDetail` and `ConversationMessage` in `src/lib/conversation-data/types.ts` for the complete contract):
 
 ```json
 {
@@ -177,7 +180,7 @@ Malformed local records emit aggregated or first-sample warnings rather than one
 
 The public client exposes the same operations in local and HTTP modes: source listing, scoped listing, detail reads, raw/Markdown/evidence/zip exports, source-owned deletes, and reference resolution.
 
-`client.exportConversationRaw({ source, id })` returns the original source JSON/JSONL/blob file as a `Blob`, with its native filename and MIME type in local mode. The HTTP `/raw` endpoint names downloads `<source>-<conversation-id>.json` while preserving the original bytes and MIME type. Raw exports never parse, filter, normalize, or reserialize the source file. Grok Bot exports the account-scoped `.blob` replica byte-for-byte. Grok Bot chat detail pages include a Raw tab for normalized chat and transcript-event JSON, and the normal export dialog supports Raw JSON, Markdown, text, and zip downloads. Local Grok Bot deletion removes the roster entry and replica only after a fail-closed process check confirms the app is stopped; an unavailable or unexpected process-check result refuses deletion. Sources whose conversation exists only inside a shared database, or which have no standalone JSON transcript, return `null` from the client and `404` from HTTP rather than synthesizing a replacement.
+`client.exportConversationRaw({ source, id })` returns `{ blob, fileName, mimeType }` (or `null` when unavailable); `blob` contains the original source JSON/JSONL/blob bytes, with the native filename and MIME type in local mode. The HTTP `/raw` endpoint and UI downloads preserve the sanitized native filename and extension, such as `.jsonl` or `.blob`, together with the original bytes and MIME type. Raw ZIP members use deterministic, extension-preserving collision suffixes. The UI transports small single raw downloads as base64-decoded bytes, not UTF-8 text; large single downloads and batches use the private ZIP download lifecycle. Consumers must use the returned filename instead of assuming `<source>-<conversation-id>.json`. Raw exports never parse, filter, normalize, or reserialize the source file. Grok Bot exports the account-scoped `.blob` replica byte-for-byte. Grok Bot chat detail pages include a Raw tab for normalized chat and transcript-event JSON, and the normal export dialog supports Raw JSON, Markdown, text, and zip downloads. Local Grok Bot deletion removes the roster entry and replica only after a fail-closed process check confirms the app is stopped; an unavailable or unexpected process-check result refuses deletion. Sources whose conversation exists only inside a shared database, or which have no standalone JSON transcript, return `null` from the client and `404` from HTTP rather than synthesizing a replacement.
 
 Focused evidence is a deterministic, lossy Markdown export for qualitative DX analysis. It does not change full-transcript exports. See [Focused evidence lenses](docs/focused-evidence.md) for the complete lens schema, bounds, local and HTTP examples, UI workflow, privacy behavior, omission accounting, and performance limits.
 
@@ -203,11 +206,11 @@ const fromFile = await convertConversationPayload({
 
 Each result contains the detected `source`, `id`, `title`, `model` ID when available, timestamps, workspace metadata, normalized `messages`, `artifacts`, and `markdown`. With no explicit `source`, the converter tries every native payload adapter first. Exactly one native match wins; multiple native matches are ambiguous and require a source hint, even if the generic Web parser could also accept the shape. Native parser rejections are ignored during this inference pass; if no native adapter matches, the converter falls back to Web inference. Markdown uses the stable API's model labels and message selectors (`all`, `last_assistant`, `last_final_answer`). Embedded artifacts are included in Markdown and also returned separately; ChatGPT Deep Research reports preserve their exact report body, while Gemini reports include their numbered Works cited entries. Multiple Web conversations return multiple results.
 
-The optional `fileName` supplies a Web provider hint; it is never opened. Payloads are limited to 25 MB. Invalid options, malformed JSON/JSONL, unsupported or ambiguous formats, and incomplete exports throw `ConversationPayloadError` with a machine-readable `code`. Claude Code is explicitly unsupported by this function; Claude Web exports remain supported. Sources that store content in multiple files, databases, or encrypted binary data require a self-contained decoded JSON export, including any necessary message/tool bodies.
+The optional `fileName` supplies a Web provider hint; it is never opened. Payloads are limited to 25 MB. Invalid options, malformed JSON/JSONL, unsupported or ambiguous formats, and incomplete exports throw `ConversationPayloadError` with a machine-readable `code`. Claude Code and Command Code are explicitly unsupported by this function; Claude Web exports remain supported. Stable local-source support does not imply supplied-payload support. Sources that store content in multiple files, databases, or encrypted binary data require a self-contained decoded JSON export, including any necessary message/tool bodies.
 
 Use `artifacts[].content` for a standalone embedded report, including exact ChatGPT Deep Research bodies and Gemini Works cited; `markdown` is the entire conversation plus artifacts. `createdAtMs` and `updatedAtMs` are nullable Unix epoch milliseconds on the conversation. Individual artifacts do not have timestamps. `model` is an optional string, with display labels formatted in Markdown rather than separate provider/name/version fields.
 
-The supported payload shapes and validation plan are described in [Payload conversion SDK](docs/payload-sdk-plan.md). The same conversion is available through `POST /api/v1/conversation-payload` for clients that already hold the JSON or JSONL payload but do not run the converter in process. It does not add Web imports to the stable source registry or UI import store.
+See [Payload conversion reference](docs/payload-reference.md) for current support, error codes, size checks, identity, and artifact behavior. The [payload SDK design and validation plan](docs/payload-sdk-plan.md) records supported shapes and design background. The same conversion is available through `POST /api/v1/conversation-payload` for clients that already hold the JSON or JSONL payload but do not run the converter in process. It does not add Web imports to the stable source registry or UI import store.
 
 ### Codex analytics
 
@@ -342,6 +345,12 @@ The hard-cut package keeps one `spiracha` bin, the stable `spiracha/client`, `sp
 - Programmatic consumers should call the stable local HTTP API or import `spiracha/client` from Bun rather than shelling out.
 - Normalized conversation messages now always include `toolEvidence` (`null` for non-tool messages); consumers that construct these DTOs must provide that explicit field.
 
-Deletion recovery protocols: [Codex](docs/codex-deletion-recovery.md), [Cursor](docs/cursor-crash-recovery.md), and [Grok Bot](docs/grok-bot-deletion.md). See [concurrency](docs/concurrency.md) for cancellation, source scheduling, and server tuning.
+Deletion recovery protocols: [Codex](docs/codex-deletion-recovery.md), [Cursor](docs/cursor-crash-recovery.md), [Grok Bot](docs/grok-bot-deletion.md), plus Command Code and Qoder receipts described in [deletion safety](docs/deletion-safety.md). See [concurrency](docs/concurrency.md) for cancellation, source scheduling, and server tuning.
 
 Grok Bot Markdown/text exports with metadata enabled include the roster creation date, last activity, roster update, replica save time, group description, participants, attachment names/sizes, and per-message timestamps. Dates use ISO 8601 UTC; unavailable dates are omitted. Replica save time is local persistence metadata, not conversation creation or message activity. The local replica may contain only part of the conversation history.
+
+## Source-adapter contract work
+
+[docs/contract-review/CODEX_HANDOFF.md](docs/contract-review/CODEX_HANDOFF.md) describes the contract foundation and remaining migration. The target specification is [docs/source-adapter-contract.md](docs/source-adapter-contract.md); the source audit, ordered implementation work, granular test matrix and actual verification results are in `docs/contract-review/`. These documents distinguish implemented foundations from target behavior. Current normalized-export defaults, deletion semantics, payload exclusions and source membership are unchanged by the seed. The target capability/error/default changes are not yet the runtime API. Grok Bot's global inventory now has the same row and batch export/delete actions as other source lists. Required-read, original-raw, and delete/batch-delete declarations are catalog-backed, including Cursor/FX native-file raw, OpenCode's no-native-file exception, and Qoder shared-store deletion with durable cleanup receipts. Command Code deletion now plans exact replica/sidecar identities, persists a projects-root receipt, and resumes after a vanished transcript. Batch deletion returns settled per-item outcomes (`deleted`, `missing`, `cleanup_pending`, `failed`, `cancelled`) so a later failure does not discard earlier successes. Remaining operation matrix, shared semantic/export migration, common UI action composition, and browser conformance remain planned work.
+
+Source identity/routes/scopes/export aliases now come from the portable `src/lib/conversation-data/source-catalog.ts`. The adapter, icon and native payload-parser maps are exhaustive, with literal source-ID constraints and compiler-negative fixtures. Raw downloads no longer force native files to `.json` or decode original bytes as text. Full operation-capability enforcement, common UI actions and canonical export semantics are planned in the handoff; the existence of a descriptor is not evidence of completed parity.

@@ -1,5 +1,13 @@
-import { mapWithConcurrency } from './lib/concurrency';
-
+export type {
+    CompactExportFlags,
+    NormalizedExportFormat,
+    NormalizedExportInclude,
+    NormalizedExportOptions,
+} from './lib/conversation-data/export-options';
+export {
+    DEFAULT_NORMALIZED_EXPORT_OPTIONS,
+    expandNormalizedExportOptions,
+} from './lib/conversation-data/export-options';
 export type { ConversationPayloadErrorCode } from './lib/conversation-payload';
 export { ConversationPayloadError, convertConversationPayload } from './lib/conversation-payload';
 export type {
@@ -20,6 +28,7 @@ import {
 } from './lib/conversation-data';
 import { validateEvidenceLens } from './lib/conversation-data/evidence-lens';
 import { buildEvidenceExport } from './lib/conversation-data/evidence-markdown';
+import type { CompactExportFlags } from './lib/conversation-data/export-options';
 import { renderConversationMarkdown as renderLocalConversationMarkdown } from './lib/conversation-data/markdown';
 import type {
     ConversationDataLocations,
@@ -41,8 +50,13 @@ import type {
     ListConversationsOptions,
     ResolvedConversationRef,
 } from './lib/conversation-data/types';
-import { createConversationMarkdownZip } from './lib/conversation-zip-export';
-import { getExportPlatformName } from './lib/ui-export-archive';
+import {
+    AtomicExportError,
+    assembleExportBatch,
+    EmptyPartialExportError,
+    writeExportArchive,
+} from './lib/export-archive';
+import { buildBatchExportBaseName, getExportPlatformName, sanitizeExportFileName } from './lib/ui-export-archive';
 
 export type {
     ConversationDataLocations,
@@ -114,7 +128,7 @@ export type HttpConversationClientOptions = {
 
 export type CreateConversationClientOptions = HttpConversationClientOptions | LocalConversationClientOptions;
 
-export type ExportConversationMarkdownOptions = GetConversationOptions;
+export type ExportConversationMarkdownOptions = GetConversationOptions & CompactExportFlags;
 
 export type ConversationClient = {
     deleteConversation: (options: DeleteConversationOptions) => Promise<DeleteConversationResult | null>;
@@ -190,6 +204,22 @@ const appendGetOptions = (url: URL, options: Pick<GetConversationOptions, 'messa
     appendMessageSelector(url, options.messageSelector);
 };
 
+const appendExportOptions = (url: URL, options: ExportConversationMarkdownOptions): void => {
+    appendGetOptions(url, options);
+    if (options.includeCommentary !== undefined) {
+        url.searchParams.set('include_commentary', String(options.includeCommentary));
+    }
+    if (options.includeMetadata !== undefined) {
+        url.searchParams.set('include_metadata', String(options.includeMetadata));
+    }
+    if (options.includeTools !== undefined) {
+        url.searchParams.set('include_tools', String(options.includeTools));
+    }
+    if (options.outputFormat !== undefined) {
+        url.searchParams.set('format', options.outputFormat);
+    }
+};
+
 const httpErrorMessage = async (response: Response): Promise<string> => {
     const text = await response.text();
     if (!text.trim()) {
@@ -225,11 +255,16 @@ const assertOkResponse = async (response: Response): Promise<void> => {
 };
 
 const readJsonEnvelope = async <T>(response: Response): Promise<HttpEnvelope<T>> => {
+    let body: unknown;
     try {
-        return (await response.json()) as HttpEnvelope<T>;
+        body = await response.json();
     } catch {
         throw new SpirachaClientError('Spiracha API returned invalid JSON.', response.status);
     }
+    if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+        throw new SpirachaClientError('Spiracha API returned an invalid response envelope.', response.status);
+    }
+    return body as HttpEnvelope<T>;
 };
 
 const fetchJson = async <T>(url: URL, init?: RequestInit): Promise<HttpEnvelope<T>> => {
@@ -313,6 +348,10 @@ const fetchZipOrNull = async (url: URL, init?: RequestInit): Promise<Conversatio
     }
 
     await assertOkResponse(response);
+    const mimeType = response.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase();
+    if (mimeType !== 'application/zip') {
+        throw new SpirachaClientError('Spiracha API returned an unsupported ZIP content type.', response.status);
+    }
     return {
         blob: await response.blob(),
         fileName: fileNameFromContentDisposition(response.headers.get('Content-Disposition'), 'conversations.zip'),
@@ -327,8 +366,13 @@ const fetchRawOrNull = async (url: URL): Promise<ConversationRawDownload | null>
     }
 
     await assertOkResponse(response);
-    const mimeType = response.headers.get('Content-Type')?.split(';')[0];
-    if (mimeType !== 'application/json' && mimeType !== 'application/x-ndjson') {
+    const mimeType = response.headers.get('Content-Type')?.split(';')[0]?.trim().toLowerCase();
+    if (
+        mimeType !== 'application/json' &&
+        mimeType !== 'application/octet-stream' &&
+        mimeType !== 'application/x-ndjson' &&
+        mimeType !== 'application/zip'
+    ) {
         throw new SpirachaClientError(
             `Spiracha API returned an unsupported raw transcript type: ${mimeType ?? 'none'}.`,
         );
@@ -341,7 +385,7 @@ const fetchRawOrNull = async (url: URL): Promise<ConversationRawDownload | null>
 };
 
 const requireData = <T>(envelope: HttpEnvelope<T>, label: string): T => {
-    if (envelope.data === undefined) {
+    if (envelope.data === undefined || envelope.data === null) {
         throw new SpirachaClientError(`Spiracha API response did not include ${label}.`);
     }
 
@@ -378,7 +422,14 @@ const rejectHttpLocations = (locations: ConversationDataLocations | undefined): 
     }
 };
 
-const buildBatchBody = ({ ids, messageSelector, outputFormat, source }: ExportConversationsZipOptions) => ({
+const buildBatchBody = ({
+    failurePolicy,
+    ids,
+    messageSelector,
+    outputFormat,
+    source,
+}: ExportConversationsZipOptions) => ({
+    failure_policy: failurePolicy,
     ids,
     message_selector: messageSelector,
     output_format: outputFormat,
@@ -393,35 +444,66 @@ const exportLocalConversationsZip = async (
     if (options.ids.length > 200) {
         throw new SpirachaClientError('At most 200 conversation ids may be exported at once.');
     }
-    const conversations = await mapWithConcurrency(options.ids, 4, (id) =>
-        getLocalConversation({
-            id,
-            locations: options.locations,
-            messageSelector: options.messageSelector ?? 'all',
+    const failurePolicy = options.failurePolicy ?? 'atomic';
+    const zipMeta: Array<{ cwd: string | null; updatedAtMs: number | null }> = [];
+    try {
+        const assembled = await assembleExportBatch({
+            failurePolicy,
+            kind: 'batch_normalized_export',
+            load: async (id) => {
+                const conversation = await getLocalConversation({
+                    id,
+                    locations: options.locations,
+                    messageSelector: 'all',
+                    source: options.source,
+                });
+                if (!conversation) {
+                    return null;
+                }
+                zipMeta.push({
+                    cwd: conversation.workspacePath,
+                    updatedAtMs: conversation.updatedAtMs,
+                });
+                const fileBaseName =
+                    sanitizeExportFileName(conversation.title?.trim() || '') ||
+                    sanitizeExportFileName(`${options.source}-${id}`) ||
+                    'conversation';
+                return {
+                    members: [
+                        {
+                            bytes: renderLocalConversationMarkdown(conversation, {
+                                messageSelector: options.messageSelector ?? 'all',
+                            }),
+                            relativePath: `${fileBaseName}.md`,
+                        },
+                    ],
+                };
+            },
+            options: {
+                failurePolicy,
+                messageSelector: options.messageSelector ?? 'all',
+                outputFormat: options.outputFormat ?? 'md',
+            },
+            requestedIds: options.ids,
             source: options.source,
-        }),
-    );
-
-    if (conversations.some((conversation) => conversation === null)) {
-        return null;
+        });
+        const archive = await writeExportArchive({
+            baseName: buildBatchExportBaseName(zipMeta, `${options.source}-conversations`),
+            destination: { mode: 'blob' },
+            manifest: assembled.manifest,
+            members: assembled.members,
+            platform: getExportPlatformName(options.source),
+        });
+        if ('downloadUrl' in archive) {
+            throw new Error('Expected an in-memory conversation archive');
+        }
+        return archive;
+    } catch (error) {
+        if (error instanceof AtomicExportError || error instanceof EmptyPartialExportError) {
+            return null;
+        }
+        throw error;
     }
-
-    return createConversationMarkdownZip({
-        entries: conversations.map((conversation, index) => {
-            const resolvedConversation = conversation!;
-            return {
-                cwd: resolvedConversation.workspacePath,
-                fallbackBaseName: `${options.source}-${options.ids[index]}`,
-                markdown: renderLocalConversationMarkdown(resolvedConversation, {
-                    messageSelector: options.messageSelector ?? 'all',
-                }),
-                title: resolvedConversation.title,
-                updatedAtMs: resolvedConversation.updatedAtMs,
-            };
-        }),
-        fallbackProjectName: `${options.source}-conversations`,
-        platform: getExportPlatformName(options.source),
-    });
 };
 
 const makeLocalClient = (options: LocalConversationClientOptions): ConversationClient => ({
@@ -443,10 +525,18 @@ const makeLocalClient = (options: LocalConversationClientOptions): ConversationC
             : null;
     },
     exportConversationMarkdown: async (getOptions) => {
-        const conversation = await getLocalConversation(withDefaultLocations(getOptions, options.locations));
+        const conversation = await getLocalConversation(
+            withDefaultLocations({ ...getOptions, messageSelector: 'all' }, options.locations),
+        );
         return conversation
             ? renderLocalConversationMarkdown(conversation, {
-                  messageSelector: getOptions.messageSelector,
+                  ...(getOptions.includeCommentary === undefined
+                      ? {}
+                      : { includeCommentary: getOptions.includeCommentary }),
+                  ...(getOptions.includeMetadata === undefined ? {} : { includeMetadata: getOptions.includeMetadata }),
+                  ...(getOptions.includeTools === undefined ? {} : { includeTools: getOptions.includeTools }),
+                  messageSelector: getOptions.messageSelector ?? 'all',
+                  ...(getOptions.outputFormat === undefined ? {} : { outputFormat: getOptions.outputFormat }),
               })
             : null;
     },
@@ -511,7 +601,7 @@ const makeHttpClient = (options: HttpConversationClientOptions): ConversationCli
             rejectHttpLocations(getOptions.locations);
             const { id, source } = getOptions;
             const url = makeHttpUrl(baseUrl, `/api/v1/conversations/${source}/${encodeURIComponent(id)}/export`);
-            appendGetOptions(url, getOptions);
+            appendExportOptions(url, getOptions);
             return fetchTextOrNull(url);
         },
         exportConversationRaw: async (getOptions) => {
@@ -562,6 +652,15 @@ const makeHttpClient = (options: HttpConversationClientOptions): ConversationCli
     };
 };
 
+/**
+ * Creates the Bun-only stable conversation client; omitted mode means local storage.
+ * HTTP mode still uses this Bun entrypoint and expects a server root baseUrl, not
+ * a URL already ending in /api/v1. It rejects local location overrides.
+ * In local mode, call-specific locations replace factory locations rather than
+ * merging individual fields. Missing/unsupported operations can return null;
+ * thrown transport/storage errors are not uniformly SpirachaClientError instances.
+ * See docs/client-reference.md for per-method return values and mode differences.
+ */
 export const createConversationClient = (options: CreateConversationClientOptions = {}): ConversationClient => {
     return options.mode === 'http' ? makeHttpClient(options) : makeLocalClient(options);
 };

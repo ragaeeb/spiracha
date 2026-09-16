@@ -23,7 +23,12 @@ import {
     getCursorWorkspaceStorageDir,
     resolveCursorUserDir,
 } from './cursor-exporter-types';
-import { getCursorBubbleKeyRange, isCursorBubbleKeyForComposer, isSafeCursorComposerId } from './cursor-id';
+import {
+    getCursorBubbleKeyRange,
+    getCursorComposerDataKeyRange,
+    isCursorBubbleKeyForComposer,
+    isSafeCursorComposerId,
+} from './cursor-id';
 import { pathExists, toFileUri } from './shared';
 import { asNumber, asObject, asString, type JsonValue } from './shared-text';
 import { runWithSqliteRetry } from './sqlite-retry';
@@ -729,8 +734,10 @@ export const listCursorThreadsForGroup = async (
     userDir = resolveCursorUserDir(),
     options: ListCursorThreadsOptions = {},
 ): Promise<CursorThreadSummary[]> => {
-    const discovery = await discoverCursorWorkspaces(userDir, options);
-    const discoveredThreads = discovery.threadsByKey.get(group.key) ?? [];
+    const discovery = await discoverCursorWorkspaces(userDir);
+    const discoveredThreads = (discovery.threadsByKey.get(group.key) ?? []).filter((thread) =>
+        isCursorThreadWithinUpdateWindow(thread.lastUpdatedAtMs, options),
+    );
     return hydrateCursorThreadSummaries(discoveredThreads, userDir, options);
 };
 
@@ -1000,10 +1007,11 @@ const inferFolderFromBubbles = (db: Database, composerId: string): string | null
 };
 
 const readAllHeads = (db: Database, options: CursorDiscoveryOptions = {}): Map<string, GlobalHead> => {
-    const predicates = ["key LIKE 'composerData:%'"];
+    const range = getCursorComposerDataKeyRange();
+    const predicates = ['key >= ? AND key < ?'];
+    const parameters: Array<string | number> = [range.start, range.end];
     const lastUpdatedAtExpression =
         "CASE WHEN json_valid(value) THEN COALESCE(json_extract(value, '$.lastUpdatedAt'), 0) ELSE 0 END";
-    const parameters: number[] = [];
     if (options.updatedAfterMs !== undefined) {
         predicates.push(`${lastUpdatedAtExpression} >= ?`);
         parameters.push(options.updatedAfterMs);
@@ -1475,11 +1483,12 @@ const readMovedSnapshotLineage = (
         return;
     }
 
+    const range = getCursorComposerDataKeyRange();
     const rows = db
         .query(
-            `SELECT substr(key, 14) AS id, value
+            `SELECT substr(key, length('composerData:') + 1) AS id, value
              FROM cursorDiskKV
-             WHERE key LIKE 'composerData:%'
+             WHERE key >= ? AND key < ?
                AND EXISTS (
                    SELECT 1
                    FROM json_each(
@@ -1493,7 +1502,7 @@ const readMovedSnapshotLineage = (
                      AND json_extract(header.value, '$.bubbleId') = ?
                )`,
         )
-        .all(head.firstUserBubbleId) as Array<{ id: string; value: string }>;
+        .all(range.start, range.end, head.firstUserBubbleId) as Array<{ id: string; value: string }>;
     const candidates = rows.flatMap<MovedSnapshotCandidate>((row) => {
         const candidateHead = { ...parseGlobalHead(row.value), hasBubbleData: hasStoredCursorBubbleData(row.value) };
         const candidateHeader = readHeaderInfoById(db, row.id);
@@ -2171,6 +2180,19 @@ const listCursorAgentTranscriptFiles = async (transcriptDir: string, composerId:
     return [...files].sort();
 };
 
+export const listCursorNativeTranscriptFiles = async (
+    composerId: string,
+    userDir = resolveCursorUserDir(),
+): Promise<string[]> => {
+    const files = new Set<string>();
+    for (const transcriptDir of [...(await findCursorTranscriptDirs(composerId, userDir))].sort()) {
+        for (const file of await listCursorAgentTranscriptFiles(transcriptDir, composerId)) {
+            files.add(file);
+        }
+    }
+    return [...files].sort();
+};
+
 type CursorAgentTranscript = {
     bubbles: CursorBubble[];
     bytes: number;
@@ -2423,6 +2445,14 @@ export const readCursorThreadTranscript = (
     });
 };
 
+/**
+ * Combines the database transcript with discovered agent transcript files and chat
+ * store model metadata. Agent files can supply a transcript when the database is
+ * absent; otherwise the source-specific tail merge preserves known ordering.
+ * Database headers can omit stored bubbles whose order cannot be established;
+ * omittedBubbleCount is diagnostic, not permission to guess their order. A result
+ * is normalized merged content, not a single raw source file or complete snapshot.
+ */
 export const readCursorThreadTranscriptWithAgentFiles = async (
     globalDbPath: string,
     composerId: string,

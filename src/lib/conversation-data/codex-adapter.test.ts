@@ -178,7 +178,7 @@ describe('codex conversation adapter', () => {
         expect(detail?.messages.map((message) => message.order)).toEqual(detail?.messages.map((_, index) => index));
     });
 
-    it('should omit empty Codex tool outputs from normalized messages', async () => {
+    it('should keep empty Codex tool outputs in normalized messages', async () => {
         const fixture = await createCodexBrowserFixture(await makeTempRoot());
         const thread = fixture.threads[0]!;
         await appendTranscriptRecord(thread.sessionFile, {
@@ -194,7 +194,7 @@ describe('codex conversation adapter', () => {
             source: 'codex',
         });
 
-        expect(detail?.messages.some((message) => message.text === '')).toBe(false);
+        expect(detail?.messages.some((message) => message.phase === 'tool_output' && message.text === '')).toBe(true);
     });
 
     it('should resolve Codex UI and native thread references', async () => {

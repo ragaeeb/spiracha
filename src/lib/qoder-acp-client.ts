@@ -123,6 +123,14 @@ const getSessionUpdate = (message: JsonRpcMessage): QoderAcpSessionUpdate | null
     };
 };
 
+/**
+ * Performs a best-effort local JSON-RPC initialize/session-load exchange. Defaults
+ * to a 2500 ms total timer, 300 ms post-completion drain, and at most 50 retained
+ * updates for the requested session. Timeout/close can return collected partial
+ * updates; a socket error returns null. Null is not proof the session does not exist.
+ * Resolving always destroys the socket and clears timers. Callers own validation
+ * of override timing/count options; this is not a complete-history guarantee.
+ */
 export const loadQoderAcpSession = async (
     options: QoderAcpSessionLoadOptions,
 ): Promise<QoderAcpSessionLoadResult | null> => {

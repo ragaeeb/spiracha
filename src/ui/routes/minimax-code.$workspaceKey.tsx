@@ -11,6 +11,7 @@ import { MiniMaxCodeSessionsTable } from '#/components/minimax-code-sessions-tab
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
 import { Button } from '#/components/ui/button';
+import { conversationListSelection, lookupSelectedItems } from '#/lib/conversation-selection';
 import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { miniMaxCodeSessionsQueryOptions, miniMaxCodeWorkspacesQueryOptions } from '#/lib/minimax-code-queries';
@@ -20,6 +21,7 @@ import {
     exportMiniMaxCodeSessionFn,
     exportMiniMaxCodeSessionsFn,
 } from '#/lib/minimax-code-server';
+import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { matchesTextQuery } from '#/lib/text-filter';
 import { isWorkspaceEmptiedByDelete } from '#/lib/workspace-delete-navigation';
 
@@ -108,10 +110,8 @@ const MiniMaxCodeWorkspacePage = () => {
             ),
         [deferredSearch, sessions],
     );
-    const visibleSessionsById = useMemo(
-        () => new Map(visibleSessions.map((session) => [session.sessionId, session])),
-        [visibleSessions],
-    );
+    const lookupSelectedSessions = (sessionIds: string[]) =>
+        lookupSelectedItems(sessionIds, sessions, (session) => session.sessionId);
 
     const exportMutation = useMutation({
         mutationFn: async ({ ids, options }: ExportSelectionMutationInput) => {
@@ -151,14 +151,12 @@ const MiniMaxCodeWorkspacePage = () => {
             sessionIds.length === 1
                 ? deleteMiniMaxCodeSessionFn({ data: { sessionId: sessionIds[0]! } })
                 : deleteMiniMaxCodeSessionsFn({ data: { sessionIds } }),
-        onSettled: async (_result, _error, sessionIds) => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['minimax-code-workspaces'] }),
-                queryClient.invalidateQueries({ queryKey: ['minimax-code-sessions', workspace.key] }),
-                ...sessionIds.map((sessionId) =>
-                    queryClient.invalidateQueries({ queryKey: ['minimax-code-session', sessionId] }),
-                ),
-            ]);
+        onSettled: async (_result, error, sessionIds) => {
+            await invalidateSourceConversationQueries(queryClient, 'minimax-code', {
+                ids: sessionIds,
+                removeDetails: error == null,
+                workspaceKey: workspace.key,
+            });
         },
         onSuccess: async (_result, sessionIds) => {
             const workspaceEmptied = isWorkspaceEmptiedByDelete(sessions, sessionIds, (session) => session.sessionId);
@@ -169,10 +167,6 @@ const MiniMaxCodeWorkspacePage = () => {
         },
     });
 
-    const lookupSelectedSessions = (sessionIds: string[]) =>
-        sessionIds
-            .map((sessionId) => visibleSessionsById.get(sessionId) ?? null)
-            .filter((session): session is MiniMaxCodeSessionSummary => session !== null);
     const openExportForSessions = (selectedSessions: MiniMaxCodeSessionSummary[]) => {
         if (selectedSessions.length > 0) {
             setPendingExport(buildSessionExport(selectedSessions));
@@ -214,6 +208,11 @@ const MiniMaxCodeWorkspacePage = () => {
                 title={workspace.label}
             />
             <MiniMaxCodeSessionsTable
+                {...conversationListSelection(
+                    'minimax-code',
+                    sessions.map((session) => session.sessionId),
+                    workspace.key,
+                )}
                 sessions={visibleSessions}
                 onDeleteSession={(session) => openDeleteForSessions([session], 'selected')}
                 onDeleteSessions={(sessionIds) => openDeleteForSessions(lookupSelectedSessions(sessionIds), 'selected')}

@@ -11,6 +11,7 @@ import { OpenCodeSessionsTable } from '#/components/opencode-sessions-table';
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
 import { Button } from '#/components/ui/button';
+import { conversationListSelection, lookupSelectedItems } from '#/lib/conversation-selection';
 import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { openCodeSessionsQueryOptions, openCodeWorkspacesQueryOptions } from '#/lib/opencode-queries';
@@ -20,6 +21,7 @@ import {
     exportOpenCodeSessionFn,
     exportOpenCodeSessionsFn,
 } from '#/lib/opencode-server';
+import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { matchesTextQuery } from '#/lib/text-filter';
 import { isWorkspaceEmptiedByDelete } from '#/lib/workspace-delete-navigation';
 
@@ -167,14 +169,12 @@ function OpenCodeWorkspaceContent({
             sessionIds.length === 1
                 ? deleteOpenCodeSessionFn({ data: { sessionId: sessionIds[0]! } })
                 : deleteOpenCodeSessionsFn({ data: { sessionIds } }),
-        onSettled: async (_result, _error, sessionIds) => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['opencode-workspaces'] }),
-                queryClient.invalidateQueries({ queryKey: ['opencode-sessions', workspace.key] }),
-                ...sessionIds.map((sessionId) =>
-                    queryClient.invalidateQueries({ queryKey: ['opencode-session', sessionId] }),
-                ),
-            ]);
+        onSettled: async (_result, error, sessionIds) => {
+            await invalidateSourceConversationQueries(queryClient, 'opencode', {
+                ids: sessionIds,
+                removeDetails: error == null,
+                workspaceKey: workspace.key,
+            });
         },
         onSuccess: async (_result, sessionIds) => {
             const workspaceEmptied = isWorkspaceEmptiedByDelete(sessions, sessionIds, (session) => session.sessionId);
@@ -199,14 +199,8 @@ function OpenCodeWorkspaceContent({
             ),
         [deferredSearch, sessions],
     );
-    const visibleSessionsById = useMemo(
-        () => new Map(visibleSessions.map((session) => [session.sessionId, session])),
-        [visibleSessions],
-    );
     const lookupSelectedSessions = (sessionIds: string[]) =>
-        sessionIds
-            .map((sessionId) => visibleSessionsById.get(sessionId) ?? null)
-            .filter((session): session is OpenCodeSessionSummary => session !== null);
+        lookupSelectedItems(sessionIds, sessions, (session) => session.sessionId);
     const openExportForSessions = (selectedSessions: OpenCodeSessionSummary[]) => {
         if (selectedSessions.length === 0) {
             return;
@@ -251,6 +245,11 @@ function OpenCodeWorkspaceContent({
             />
 
             <OpenCodeSessionsTable
+                {...conversationListSelection(
+                    'opencode',
+                    sessions.map((session) => session.sessionId),
+                    workspace.key,
+                )}
                 sessions={visibleSessions}
                 onDeleteSession={(session) => openDeleteForSessions([session], 'selected')}
                 onDeleteSessions={(sessionIds) => openDeleteForSessions(lookupSelectedSessions(sessionIds), 'selected')}

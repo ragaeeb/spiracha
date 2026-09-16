@@ -80,6 +80,14 @@ const logTranscriptLoad = (event: string, details: Record<string, unknown>) => {
     }
 };
 
+/**
+ * Runs owned transcript work under both per-integration and global admission limits.
+ * The loader promise must include parsing and cleanup; detached work escapes the
+ * budget. Integration limiters are created lazily, while the total limiter is
+ * created at module load, so restart after changing concurrency configuration.
+ * Optional timing logs include context identifiers/paths, never treat them as a
+ * privacy-filtered report. This wrapper does not add a caller cancellation API.
+ */
 export const runWithTranscriptLoadLimit = async <T>(
     loader: () => Promise<T>,
     context: TranscriptLoadContext,

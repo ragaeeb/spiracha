@@ -31,10 +31,8 @@ const getNormalizedPathMatch = (requested: string, candidate: string): Conversat
         };
     }
 
-    if (
-        (requested === '/' && candidate !== '/' && candidate.startsWith('/')) ||
-        candidate.startsWith(`${requested}/`)
-    ) {
+    const descendantPrefix = requested.endsWith('/') ? requested : `${requested}/`;
+    if (candidate.startsWith(descendantPrefix)) {
         return {
             candidatePath: candidate,
             kind: 'descendant',
@@ -45,6 +43,13 @@ const getNormalizedPathMatch = (requested: string, candidate: string): Conversat
     return null;
 };
 
+/**
+ * Matches an exact workspace or a descendant of the requested path after lexical
+ * normalization (home expansion, separators, dot segments, trailing separators).
+ * This does not realpath/stat either input, resolve symlinks, or perform a security
+ * containment check. Matching is case-sensitive; Windows-style paths are normalized
+ * lexically even when running on another host. Null/blank candidates do not match.
+ */
 export const getConversationPathMatch = async (
     requestedPath: string,
     candidatePath: string | null,

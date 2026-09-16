@@ -1,3 +1,5 @@
+import type { OperationId, PublicMutationError, SerializedSourceOperation } from './operation-types';
+
 export const CONVERSATION_SOURCES = [
     'cline',
     'codex',
@@ -30,14 +32,34 @@ export type ConversationMessagePhase =
 
 export type ConversationMessageSelector = 'all' | 'last_assistant' | 'last_final_answer';
 
+export type ContentState =
+    | { representation: 'full' | 'summary'; state: 'available' }
+    | { availableCharacters: number; reason: string; state: 'partial'; totalCharacters: number | null }
+    | { reason: string; state: 'deferred' }
+    | { reason: string; state: 'encrypted' }
+    | { reason: string; state: 'unavailable' };
+
+export type MessageProvenance = {
+    blockIndex: number | null;
+    branchId: string | null;
+    origin: 'derived' | 'native' | 'synthetic';
+    parentMessageId: string | null;
+    sourceConversationId: string;
+    sourceRecordId: string | null;
+};
+
+export type ConversationMessageVisibility = 'bootstrap' | 'normal' | 'synthetic';
+
 export type ConversationToolEvidence = {
     callId: string | null;
     command: string | null;
     durationMs: number | null;
     exitCode: number | null;
+    inputContentState?: ContentState | null;
     inputText: string | null;
     name: string;
     namespace: string | null;
+    outputContentState?: ContentState | null;
     outputText: string | null;
     status: 'failed' | 'succeeded' | 'unknown';
     workdir: string | null;
@@ -124,7 +146,19 @@ export type ConversationPathMatch = {
 };
 
 export type ConversationSourceInfo = {
+    detailRouteSegment: string;
+    exportPlatform: string;
+    inventoryPath: string;
     label: string;
+    operations: {
+        [K in OperationId]?: SerializedSourceOperation;
+    } & {
+        batch_delete: SerializedSourceOperation;
+        delete: SerializedSourceOperation;
+        detail: SerializedSourceOperation;
+        list: SerializedSourceOperation;
+        original_raw: SerializedSourceOperation;
+    };
     scope: ConversationSourceScope;
     source: ConversationSource;
 };
@@ -136,18 +170,43 @@ export type ConversationDeepLinks = {
 };
 
 export type ConversationMessage = {
+    contentState: ContentState;
     createdAtMs: number | null;
     id: string;
     model?: string;
     metadata: Record<string, unknown>;
     order: number;
     phase: ConversationMessagePhase;
+    provenance: MessageProvenance;
     role: ConversationMessageRole;
     text: string;
     toolEvidence: ConversationToolEvidence | null;
+    visibility: ConversationMessageVisibility;
+};
+
+export type ConversationArtifact = {
+    content: string;
+    id: string;
+    title: string;
+};
+
+export type ConversationBodyAvailability = 'full' | 'preview' | 'selected' | 'summary';
+
+export type SupplementalEventKind = 'lifecycle' | 'search' | 'token_usage' | 'unknown';
+
+export type SupplementalEvent = {
+    createdAtMs: number | null;
+    id: string;
+    kind: SupplementalEventKind;
+    metadata: Record<string, string | number | boolean | null>;
+    order: number;
+    provenance: MessageProvenance;
+    text: string;
 };
 
 export type ConversationDetail = {
+    artifacts?: ConversationArtifact[];
+    bodyAvailability?: ConversationBodyAvailability;
     createdAtMs: number | null;
     deepLinks: ConversationDeepLinks;
     id: string;
@@ -157,6 +216,7 @@ export type ConversationDetail = {
     messages: ConversationMessage[];
     metadata: Record<string, unknown>;
     source: ConversationSource;
+    supplementalEvents?: SupplementalEvent[];
     title: string | null;
     updatedAtMs: number | null;
     workspaceKey: string | null;
@@ -223,6 +283,7 @@ export type DeleteConversationResult = {
     cleanupFailures?: ConversationCleanupFailure[];
     deletedFiles: string[];
     deletedIds: string[];
+    receiptId?: string;
 };
 
 export type ConversationCleanupFailure = {
@@ -239,6 +300,7 @@ export type ConversationIdSetOptions = {
 
 export type DeleteConversationsOptions = ConversationIdSetOptions & {
     deleteSessionFiles?: boolean;
+    signal?: AbortSignal;
 };
 
 export type DeleteConversationItemResult = DeleteConversationResult & {
@@ -246,12 +308,53 @@ export type DeleteConversationItemResult = DeleteConversationResult & {
     id: string;
 };
 
+export type DeleteOutcome =
+    | { affectedIds: string[]; coveredBy: string | null; deletedFiles: string[]; id: string; status: 'deleted' }
+    | { affectedIds: []; deletedFiles: []; id: string; status: 'missing' }
+    | {
+          affectedIds: string[];
+          deletedFiles: string[];
+          failures: ConversationCleanupFailure[];
+          id: string;
+          receiptId: string;
+          status: 'cleanup_pending';
+      }
+    | {
+          affectedIds: string[];
+          deletedFiles: string[];
+          effect: 'none' | 'partial' | 'unknown';
+          error: PublicMutationError;
+          id: string;
+          receiptId: string | null;
+          status: 'failed';
+      }
+    | { affectedIds: []; deletedFiles: []; id: string; status: 'cancelled' };
+
+export type DeleteBatchRequestMetadata = {
+    duplicateCount: number;
+    ids: string[];
+    uniqueIds: string[];
+};
+
+export type DeleteBatchSummary = {
+    cancelled: number;
+    cleanupPending: number;
+    deleted: number;
+    failed: number;
+    missing: number;
+};
+
 export type DeleteConversationsResult = DeleteConversationResult & {
+    affectedIds: string[];
     missingIds: string[];
+    outcomes: DeleteOutcome[];
+    request: DeleteBatchRequestMetadata;
     results: DeleteConversationItemResult[];
+    summary: DeleteBatchSummary;
 };
 
 export type ExportConversationsZipOptions = ConversationIdSetOptions & {
+    failurePolicy?: 'atomic' | 'partial';
     messageSelector?: ConversationMessageSelector;
     outputFormat?: 'md';
 };
@@ -265,7 +368,7 @@ export type ConversationZipDownload = {
 export type ConversationRawDownload = {
     blob: Blob;
     fileName: string;
-    mimeType: 'application/json' | 'application/x-ndjson';
+    mimeType: 'application/json' | 'application/octet-stream' | 'application/x-ndjson' | 'application/zip';
 };
 
 export type ResolvedConversationRef = {
@@ -273,10 +376,29 @@ export type ResolvedConversationRef = {
     source: ConversationSource;
 };
 
-export type ConversationAdapter = {
-    deleteConversation?: (options: DeleteConversationOptions) => Promise<DeleteConversationResult>;
+type ConversationAdapterCore<S extends ConversationSource> = {
+    deleteConversation: (options: DeleteConversationOptions) => Promise<DeleteConversationResult>;
     getConversation: (options: GetConversationOptions) => Promise<ConversationDetail | null>;
-    getConversationRaw?: (options: GetConversationRawOptions) => Promise<ConversationRawDownload | null>;
     listConversations: (options: ListConversationsOptions) => Promise<ConversationDetail[]>;
-    source: ConversationSource;
+    source: S;
 };
+
+type ConversationAdapterRaw<S extends ConversationSource> = S extends 'opencode'
+    ? { getConversationRaw?: never }
+    : {
+          getConversationRaw: (options: GetConversationRawOptions) => Promise<ConversationRawDownload | null>;
+      };
+
+/**
+ * Internal source-owned adapter contract, not a filesystem-driver plugin API.
+ * list/get must return normalized DTOs with explicit nullable fields, stable source
+ * identity, deterministic message order, and source-derived tool evidence.
+ * Delete is required on every source. Original raw is required except OpenCode,
+ * whose catalog exception forbids a handler. Absence must not be replaced with
+ * synthesized raw data or a generic file delete. The collector may suppress list
+ * errors in all-source mode; explicit calls retain source failures.
+ */
+export type ConversationAdapter<S extends ConversationSource = ConversationSource> = ConversationAdapterCore<S> &
+    ConversationAdapterRaw<S>;
+
+export type ConversationAdapterRegistry = { [S in ConversationSource]: ConversationAdapter<S> };

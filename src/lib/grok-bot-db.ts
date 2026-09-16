@@ -451,6 +451,14 @@ const applyGrokBotDeletion = async (
     return finishGrokBotDeletion(persistenceDir, conversationId, replicaPath, intentPath, identity);
 };
 
+/**
+ * Deletes within the active account under in-process admission and a cross-process
+ * mutation lock. The supplied process checker must return false only after proving
+ * the app is stopped; unknown/unavailable checks must throw, not imply safe deletion.
+ * Durable intent and identity checks allow retry of this same deletion to complete
+ * interrupted cleanup. Roster commit can precede cleanupFailures; keep the app
+ * stopped and retain the receipt. This operation is not an undo/restore facility.
+ */
 export const deleteGrokBotConversation = async (
     persistenceDir: string,
     conversationId: string,

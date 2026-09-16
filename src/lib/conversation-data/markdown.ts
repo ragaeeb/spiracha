@@ -1,37 +1,29 @@
-import { formatModelLabel } from '../model-label';
-import { selectConversationMessages } from './message-selector';
+import { renderConversationMarkdownOptions, renderNormalizedExport } from './conversation-export';
+import type { CompactExportFlags } from './export-options';
 import type { ConversationMessage, ConversationMessageSelector } from './types';
 
 export const renderConversationMarkdown = (
     conversation: {
+        artifacts?: Array<{ content: string; id: string; title: string }>;
         messages: ConversationMessage[];
+        metadata?: Record<string, unknown>;
         model?: string;
+        supplementalEvents?: Array<{
+            createdAtMs: number | null;
+            id: string;
+            kind: 'lifecycle' | 'search' | 'token_usage' | 'unknown';
+            metadata: Record<string, string | number | boolean | null>;
+            order: number;
+            provenance: ConversationMessage['provenance'];
+            text: string;
+        }>;
         title: string | null;
     },
     options: {
         messageSelector?: ConversationMessageSelector;
-    } = {},
-) => {
-    const selectedMessages = options.messageSelector
-        ? selectConversationMessages(conversation.messages, options.messageSelector)
-        : conversation.messages;
-    const title = conversation.title?.trim() || 'Conversation';
-    const roleLabels: Record<Exclude<ConversationMessage['role'], 'assistant'>, string> = {
-        system: 'System',
-        tool: 'Tool',
-        unknown: 'Unknown',
-        user: 'User',
-    };
-    const sections = selectedMessages.map((message) => {
-        const text = message.text.trim() || '_No message content._';
-        const roleLabel =
-            message.role === 'assistant'
-                ? formatModelLabel(message.model ?? conversation.model)
-                : roleLabels[message.role];
-        return `## ${roleLabel}\n\n${text}`;
+    } & CompactExportFlags = {},
+) =>
+    renderNormalizedExport(conversation, {
+        ...renderConversationMarkdownOptions(options.messageSelector),
+        ...options,
     });
-    if (sections.length === 0) {
-        sections.push('_No messages selected._');
-    }
-    return [`# ${title}`, ...sections].join('\n\n').trimEnd() + '\n';
-};

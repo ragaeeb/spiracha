@@ -4,6 +4,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { Download, ExternalLink } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Breadcrumbs } from '#/components/breadcrumbs';
+import { CodexCloudReadOnlyNotice } from '#/components/codex-cloud-tasks-table';
 import { ExportDialog } from '#/components/export-dialog';
 import { JsonPanel } from '#/components/json-panel';
 import { LoadingPanel } from '#/components/loading-panel';
@@ -209,6 +210,8 @@ function CodexCloudTaskPage() {
                 subtitle="Read-only Cloud transcript and task metadata."
                 title={detail.task.title}
             />
+
+            <CodexCloudReadOnlyNotice />
 
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <MetricCard label="Model" value={detail.model ?? 'n/a'} />

@@ -1,8 +1,8 @@
 import { CONVERSATION_SOURCES, type ConversationDetail, type ConversationPage, type ConversationSource } from './types';
 
 const CURSOR_VERSION = 1;
-const CURSOR_MAX_ENCODED_CHARACTERS = 2_048;
-const CURSOR_MAX_ID_CHARACTERS = 1_024;
+const CURSOR_MAX_ENCODED_CHARACTERS = 18_000;
+const CURSOR_MAX_ID_CHARACTERS = 2_048;
 
 export type ConversationCursorKey = {
     id: string;
@@ -16,13 +16,16 @@ const invalidCursor = (): never => {
 
 const compareStrings = (left: string, right: string) => (left < right ? -1 : left > right ? 1 : 0);
 
+// A 2048-character ID can expand sixfold in JSON before base64 encoding.
+const normalizeTimestamp = (value: number | null): number => {
+    const integer = value === null ? 0 : Math.floor(value);
+    return Number.isSafeInteger(integer) ? Math.max(0, integer) : 0;
+};
+
 const toCursorKey = (conversation: ConversationDetail): ConversationCursorKey => ({
     id: conversation.id,
     source: conversation.source,
-    updatedAtMs:
-        conversation.updatedAtMs !== null && Number.isFinite(conversation.updatedAtMs)
-            ? Math.max(0, Math.floor(conversation.updatedAtMs))
-            : 0,
+    updatedAtMs: normalizeTimestamp(conversation.updatedAtMs),
 });
 
 const compareCursorKeys = (left: ConversationCursorKey, right: ConversationCursorKey) =>
@@ -68,6 +71,54 @@ export const decodeConversationCursor = (cursor: string | null | undefined): Con
     return { id: parsed[3], source: parsed[2] as ConversationSource, updatedAtMs: parsed[1] as number };
 };
 
+type PageCandidate = {
+    conversation: ConversationDetail;
+    index: number;
+    key: ConversationCursorKey;
+};
+
+const compareCandidates = (left: PageCandidate, right: PageCandidate) =>
+    compareCursorKeys(left.key, right.key) || left.index - right.index;
+
+const pushCandidate = (heap: PageCandidate[], candidate: PageCandidate): void => {
+    let index = heap.length;
+    heap.push(candidate);
+    while (index > 0) {
+        const parent = Math.floor((index - 1) / 2);
+        if (compareCandidates(heap[parent]!, candidate) >= 0) {
+            break;
+        }
+        heap[index] = heap[parent]!;
+        index = parent;
+    }
+    heap[index] = candidate;
+};
+
+const replaceWorstCandidate = (heap: PageCandidate[], candidate: PageCandidate): void => {
+    let index = 0;
+    while (index * 2 + 1 < heap.length) {
+        let child = index * 2 + 1;
+        if (child + 1 < heap.length && compareCandidates(heap[child + 1]!, heap[child]!) > 0) {
+            child += 1;
+        }
+        if (compareCandidates(candidate, heap[child]!) >= 0) {
+            break;
+        }
+        heap[index] = heap[child]!;
+        index = child;
+    }
+    heap[index] = candidate;
+};
+
+/**
+ * Pages by normalized updatedAtMs descending, then source and ID ascending.
+ * Unknown/non-finite times become zero; finite times are floored and clamped
+ * non-negative. Retains at most limit+1 keyed candidates (one lookahead) and
+ * uses an opaque versioned cursor. The cursor contains a sort boundary, not a
+ * frozen snapshot or filter identity; callers must preserve query filters and
+ * tolerate concurrent source mutations.
+ * @throws Invalid cursor or non-positive/non-safe-integer limit.
+ */
 export const paginateConversations = (
     conversations: ConversationDetail[],
     cursor: string | null | undefined,
@@ -77,11 +128,22 @@ export const paginateConversations = (
         throw new Error('Conversation pagination limit must be a positive integer.');
     }
     const cursorKey = decodeConversationCursor(cursor);
-    const sorted = [...conversations].sort((left, right) => compareCursorKeys(toCursorKey(left), toCursorKey(right)));
-    const eligible = cursorKey
-        ? sorted.filter((conversation) => compareCursorKeys(toCursorKey(conversation), cursorKey) > 0)
-        : sorted;
-    const candidates = eligible.slice(0, limit + 1);
+    // Keep only one page plus the lookahead, with the worst retained key at the root.
+    const heap: PageCandidate[] = [];
+    const capacity = Math.min(limit + 1, conversations.length);
+    for (const [index, conversation] of conversations.entries()) {
+        const key = toCursorKey(conversation);
+        if (cursorKey && compareCursorKeys(key, cursorKey) <= 0) {
+            continue;
+        }
+        const candidate = { conversation, index, key };
+        if (heap.length < capacity) {
+            pushCandidate(heap, candidate);
+        } else if (compareCandidates(candidate, heap[0]!) < 0) {
+            replaceWorstCandidate(heap, candidate);
+        }
+    }
+    const candidates = heap.sort(compareCandidates).map(({ conversation }) => conversation);
     const hasNext = candidates.length > limit;
     const data = hasNext ? candidates.slice(0, limit) : candidates;
     return {

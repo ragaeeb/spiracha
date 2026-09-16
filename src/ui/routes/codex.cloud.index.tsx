@@ -4,6 +4,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { Cloud } from 'lucide-react';
 import { startTransition, useDeferredValue, useMemo } from 'react';
 import { Breadcrumbs } from '#/components/breadcrumbs';
+import { CodexCloudReadOnlyNotice } from '#/components/codex-cloud-tasks-table';
 import { DataTable } from '#/components/data-table';
 import { ListSearchInput } from '#/components/list-search-input';
 import { LoadingPanel } from '#/components/loading-panel';
@@ -120,6 +121,8 @@ function CodexCloudProjectsPage() {
                 subtitle="Read-only projects and tasks from the Codex Cloud account used by this machine."
                 title="Codex Cloud"
             />
+
+            <CodexCloudReadOnlyNotice />
 
             {isPartial ? (
                 <p className="rounded-xl border border-[var(--border)] bg-[var(--panel)] px-4 py-3 text-[var(--muted-foreground)] text-sm">

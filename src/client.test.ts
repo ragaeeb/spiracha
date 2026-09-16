@@ -3,6 +3,7 @@ import { cp, mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createConversationClient, SpirachaClientError } from './client';
+import { toCanonicalMessage } from './lib/conversation-data/adapter-helpers';
 import type { ConversationDetail } from './lib/conversation-data/types';
 
 const conversation = {
@@ -16,7 +17,7 @@ const conversation = {
     matches: [],
     messageCount: 1,
     messages: [
-        {
+        toCanonicalMessage({
             createdAtMs: 2,
             id: 'message-1',
             metadata: {},
@@ -25,7 +26,7 @@ const conversation = {
             role: 'assistant',
             text: 'Collected review output.',
             toolEvidence: null,
-        },
+        }),
     ],
     metadata: {},
     source: 'codex',
@@ -51,6 +52,14 @@ const runBunCommand = async (args: string[], cwd: string, environment?: Record<s
 };
 
 describe('conversation client', () => {
+    it('should re-export shared normalized export options from the public SDK', async () => {
+        const { DEFAULT_NORMALIZED_EXPORT_OPTIONS, expandNormalizedExportOptions } = await import('./client');
+
+        expect(DEFAULT_NORMALIZED_EXPORT_OPTIONS.format).toBe('md');
+        expect(expandNormalizedExportOptions({ includeCommentary: false }).include.commentary).toBe(false);
+        expect(expandNormalizedExportOptions({ includeTools: false }).include.reasoning).toBe(true);
+    });
+
     it('should download raw transcript bytes through the HTTP client contract', async () => {
         const original = '{"z":1, "spacing":  true}\n';
         const requests: string[] = [];
@@ -243,6 +252,7 @@ describe('conversation client', () => {
                 claudeCodeProjectsDir: path.join(tempRoot, 'claude'),
                 clineDataDir: path.join(tempRoot, 'cline'),
                 codexDbPath: path.join(tempRoot, 'missing-codex.sqlite'),
+                commandCodeProjectsDir: path.join(tempRoot, 'command-code'),
                 cursorUserDir: path.join(tempRoot, 'cursor'),
                 kiroWorkspaceSessionsDir: path.join(tempRoot, 'kiro'),
                 opencodeDbPath: path.join(tempRoot, 'missing-opencode.sqlite'),
@@ -265,6 +275,7 @@ describe('conversation client', () => {
             await Bun.write(scriptPath, script);
             const collectResult = await runBunCommand([scriptPath], consumerDirectory, {
                 BUN_INSTALL_CACHE_DIR: bunCacheDirectory,
+                HOME: tempRoot,
             });
 
             expect(collectResult.stderrText).toBe('');
@@ -459,10 +470,18 @@ describe('conversation client', () => {
 
                 return Response.json({
                     data: {
+                        affectedIds: ['session-1', 'session-2'],
                         deletedFiles: ['/tmp/opencode.db'],
                         deletedIds: ['session-1', 'session-2'],
                         missingIds: [],
+                        outcomes: [],
+                        request: {
+                            duplicateCount: 0,
+                            ids: ['session-1', 'session-2'],
+                            uniqueIds: ['session-1', 'session-2'],
+                        },
                         results: [],
+                        summary: { cancelled: 0, cleanupPending: 0, deleted: 2, failed: 0, missing: 0 },
                     },
                 });
             },
@@ -482,10 +501,18 @@ describe('conversation client', () => {
                     source: 'opencode',
                 }),
             ).resolves.toEqual({
+                affectedIds: ['session-1', 'session-2'],
                 deletedFiles: ['/tmp/opencode.db'],
                 deletedIds: ['session-1', 'session-2'],
                 missingIds: [],
+                outcomes: [],
+                request: {
+                    duplicateCount: 0,
+                    ids: ['session-1', 'session-2'],
+                    uniqueIds: ['session-1', 'session-2'],
+                },
                 results: [],
+                summary: { cancelled: 0, cleanupPending: 0, deleted: 2, failed: 0, missing: 0 },
             });
             expect(requests).toEqual([
                 {

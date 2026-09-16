@@ -1,9 +1,12 @@
 import type {
     DynamicToolDefinition,
-    MessageEvent,
     ParsedCodexTranscript,
-    ReasoningEvent,
     SessionMetaExtended,
+    TurnContextRecord,
+} from './codex-browser-types';
+import type {
+    MessageEvent,
+    ReasoningEvent,
     TaskCompleteEvent,
     TaskStartedEvent,
     ThreadEvent,
@@ -11,9 +14,8 @@ import type {
     TokenCountEvent,
     ToolCallEvent,
     ToolOutputEvent,
-    TurnContextRecord,
     WebSearchEvent,
-} from './codex-browser-types';
+} from './conversation-data/conversation-events';
 import { asNumber, asObject, asString, type JsonValue, stripCodexAppDirectiveLines } from './shared-text';
 
 export type ParseCodexTranscriptOptions = {

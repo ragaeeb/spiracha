@@ -1,5 +1,5 @@
-import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/codex-browser-types';
 import type { CommandCodeSessionTranscript } from '@spiracha/lib/command-code-exporter-types';
+import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/conversation-data/conversation-events';
 import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { Download, Trash2 } from 'lucide-react';
@@ -33,6 +33,7 @@ import {
     withThreadTranscriptSearch,
 } from '#/lib/route-search';
 import { RouteStateResetBoundary } from '#/lib/route-state-reset';
+import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
 const buildSessionMetadata = (detail: CommandCodeSessionTranscript) => [
@@ -129,11 +130,11 @@ const CommandCodeSessionDetailPage = () => {
     const deleteMutation = useMutation({
         mutationFn: () => deleteCommandCodeSessionFn({ data: { sessionId: detail.session.sessionId } }),
         onSuccess: async () => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['command-code-workspaces'] }),
-                queryClient.invalidateQueries({ queryKey: ['command-code-sessions', detail.session.workspaceKey] }),
-                queryClient.invalidateQueries({ queryKey: ['command-code-session', detail.session.sessionId] }),
-            ]);
+            await invalidateSourceConversationQueries(queryClient, 'command-code', {
+                ids: [detail.session.sessionId],
+                removeDetails: true,
+                workspaceKey: detail.session.workspaceKey,
+            });
             const workspaces = await queryClient.fetchQuery(commandCodeWorkspacesQueryOptions());
             if (
                 shouldNavigateToSourceIndexAfterDelete(

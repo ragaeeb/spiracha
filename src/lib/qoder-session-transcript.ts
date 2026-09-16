@@ -224,6 +224,15 @@ const buildTranscriptEntries = async (
     };
 };
 
+/**
+ * Builds a normalized transcript from stored session state, CLI records, and when
+ * eligible a local ACP socket load. This is not necessarily a disk-only operation:
+ * enableAcp=false disables IPC; custom locations do not implicitly target the
+ * default live app unless an explicit socket override enables that path.
+ * Assistant-bearing CLI records take precedence over ACP; history fills missing
+ * user context and operation entries are retained. Raw provenance records which
+ * stores/socket contributed. Missing session metadata returns null.
+ */
 export const readQoderSessionTranscript = async (
     globalStateDb: string,
     workspaceStorageDir: string,

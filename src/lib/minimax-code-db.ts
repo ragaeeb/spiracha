@@ -613,6 +613,14 @@ const deleteMiniMaxCodeSessionWithLimit = async (
         : { deletedFiles: [], deletedSessionIds: [] };
 };
 
+/**
+ * Serializes deletion of a validated MiniMax session ID. Stages its directory under
+ * the sibling Spiracha trash area, deletes runtime rows transactionally, then
+ * removes staged files. A runtime-row failure attempts to restore the directory;
+ * failed restoration aggregates errors. Cleanup can still fail after database
+ * commit, so rejection is not proof of rollback or a complete crash-recovery log.
+ * Missing/invalid IDs can return an empty deletion result.
+ */
 export const deleteMiniMaxCodeSession = (
     sessionsDir: string,
     runtimeDbPath: string,

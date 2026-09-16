@@ -1,5 +1,5 @@
 import type { ClineTaskTranscript, ClineTranscriptMessage } from '@spiracha/lib/cline-exporter-types';
-import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/codex-browser-types';
+import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/conversation-data/conversation-events';
 import type { JsonValue } from '@spiracha/lib/shared-text';
 import { getThreadTranscriptStats } from './thread-transcript-stats';
 

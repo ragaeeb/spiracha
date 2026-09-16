@@ -120,10 +120,10 @@ describe('renderOpenCodeTranscript', () => {
         expect(markdown).toContain('Review the fixture');
         expect(markdown).toContain('## Reasoning');
         expect(markdown).toContain('Inspecting the generated files.');
-        expect(markdown).toContain('Tool: `read`');
+        expect(markdown).toContain('Tool: read');
         expect(markdown).toContain('file contents');
-        expect(markdown).toContain('## GPT 5 Codex High');
-        expect(markdown).not.toContain('## Assistant');
+        expect(markdown).toContain('## Assistant · Final answer · GPT 5 Codex High');
+        expect(markdown).not.toContain('## Assistant · Commentary');
         expect(markdown).toContain('The review is complete.');
     });
 
@@ -136,7 +136,7 @@ describe('renderOpenCodeTranscript', () => {
         });
 
         expect(markdown).not.toContain('exported_from');
-        expect(markdown).not.toContain('Inspecting the generated files.');
+        expect(markdown).toContain('Inspecting the generated files.');
         expect(markdown).not.toContain('Tool:');
         expect(markdown).toContain('The review is complete.');
     });
@@ -188,10 +188,10 @@ describe('renderOpenCodeTranscript', () => {
 
         expect(text).toContain('Fixture review\n==============');
         expect(text).toContain('User\n----');
-        expect(text).toContain('GPT 5 Codex High\n----------------');
+        expect(text).toContain('Assistant · Final answer · GPT 5 Codex High');
     });
 
-    it('should strip MiniMax think tags from text parts and render them as commentary only when enabled', () => {
+    it('should strip MiniMax think tags from text parts and render them as reasoning', () => {
         const minimaxTranscript: OpenCodeSessionTranscript = {
             ...transcript,
             messages: [
@@ -232,10 +232,10 @@ describe('renderOpenCodeTranscript', () => {
 
         expect(withoutCommentary).toContain('Final review.');
         expect(withoutCommentary).not.toContain('<think>');
-        expect(withoutCommentary).not.toContain('Internal review notes.');
+        expect(withoutCommentary).toContain('Internal review notes.');
         expect(withCommentary).toContain('## Reasoning');
         expect(withCommentary).toContain('Internal review notes.');
-        expect(withCommentary).toContain('## GPT 5 Codex High');
+        expect(withCommentary).toContain('## Assistant · Final answer · GPT 5 Codex High');
         expect(withCommentary).toContain('Final review.');
         expect(withCommentary).not.toContain('<think>');
     });

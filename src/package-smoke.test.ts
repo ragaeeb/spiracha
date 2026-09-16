@@ -29,7 +29,7 @@ describe('packaged UI smoke helpers', () => {
                 '/tmp/spiracha-package-smoke/state.sqlite',
             ),
         ).toMatchObject({
-            HOME: '/home/runner',
+            HOME: '/tmp/spiracha-package-smoke',
             PORT: '45337',
             SPIRACHA_CODEX_DB: '/tmp/spiracha-package-smoke/state.sqlite',
         });

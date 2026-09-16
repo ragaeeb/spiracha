@@ -15,6 +15,7 @@ import { LoadingPanel } from '#/components/loading-panel';
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
 import { Button } from '#/components/ui/button';
+import { conversationListSelection, lookupSelectedItems } from '#/lib/conversation-selection';
 import { getCursorCleanupFailureMessage, hasCursorCleanupFailures } from '#/lib/cursor-delete-result';
 import { cursorThreadsQueryOptions, cursorWorkspacesQueryOptions } from '#/lib/cursor-queries';
 import {
@@ -27,6 +28,7 @@ import {
 import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { getMutationErrorMessage } from '#/lib/mutation-error';
+import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { matchesTextQuery } from '#/lib/text-filter';
 import { isWorkspaceEmptiedByDelete } from '#/lib/workspace-delete-navigation';
 
@@ -57,10 +59,8 @@ export const getCursorWorkspaceQueryOptions = (workspaceDeletePending: boolean):
     refetchOnWindowFocus: workspaceDeletePending ? false : undefined,
 });
 
-const getSelectedThreads = (threads: CursorThreadSummary[], composerIds: string[]) => {
-    const composerIdSet = new Set(composerIds);
-    return threads.filter((thread) => composerIdSet.has(thread.composerId));
-};
+const getSelectedThreads = (threads: CursorThreadSummary[], composerIds: string[]) =>
+    lookupSelectedItems(composerIds, threads, (thread) => thread.composerId);
 
 const buildPendingCursorDelete = (threads: CursorThreadSummary[]): PendingCursorDelete | null => {
     if (threads.length === 0) {
@@ -139,12 +139,8 @@ const CursorWorkspacePage = () => {
     const workspace = findWorkspaceOrThrow(workspaces, params.workspaceKey);
     const threads = useSuspenseQuery(cursorThreadsQueryOptions(workspace.key)).data;
 
-    const invalidateWorkspaceQueries = async () => {
-        await Promise.all([
-            queryClient.invalidateQueries({ queryKey: ['cursor-workspaces'] }),
-            queryClient.invalidateQueries({ queryKey: ['cursor-threads', workspace.key] }),
-        ]);
-    };
+    const invalidateWorkspaceQueries = () =>
+        invalidateSourceConversationQueries(queryClient, 'cursor', { workspaceKey: workspace.key });
 
     const recoverWorkspaceMutation = useMutation({
         mutationFn: () => recoverCursorWorkspaceFn({ data: { apply: true, workspaceKey: workspace.key } }),
@@ -164,17 +160,24 @@ const CursorWorkspacePage = () => {
                 : deleteCursorThreadsFn({
                       data: { composerIds: target.threads.map((thread) => thread.composerId), deleteSessionFiles },
                   }),
-        onSettled: (result, _error, request) => {
+        onSettled: (result, error, request) => {
             const target = request?.target;
             if (target?.kind === 'workspace') {
                 if (hasCursorCleanupFailures(result)) {
                     return;
                 }
 
-                return queryClient.invalidateQueries({ queryKey: ['cursor-workspaces'] });
+                return invalidateSourceConversationQueries(queryClient, 'cursor', {});
+            }
+            if (!target) {
+                return;
             }
 
-            return invalidateWorkspaceQueries();
+            return invalidateSourceConversationQueries(queryClient, 'cursor', {
+                ids: target.threads.map((thread) => thread.composerId),
+                removeDetails: error == null && !hasCursorCleanupFailures(result),
+                workspaceKey: workspace.key,
+            });
         },
         onSuccess: async (result, { target }) => {
             const cleanupError = getCursorCleanupFailureMessage(result);
@@ -190,7 +193,7 @@ const CursorWorkspacePage = () => {
             if (target.kind === 'workspace') {
                 await navigate({ to: '/cursor' });
                 queryClient.removeQueries({ queryKey: ['cursor-thread'] });
-                await queryClient.invalidateQueries({ queryKey: ['cursor-workspaces'] });
+                await invalidateSourceConversationQueries(queryClient, 'cursor', {});
                 setPendingDelete(null);
                 return;
             }
@@ -200,15 +203,10 @@ const CursorWorkspacePage = () => {
                 target.threads.map((thread) => thread.composerId),
                 (thread) => thread.composerId,
             );
-            for (const thread of target.threads) {
-                queryClient.removeQueries({ queryKey: ['cursor-thread', thread.composerId] });
-            }
             setPendingDelete(null);
             if (workspaceEmptied) {
                 await navigate({ to: '/cursor' });
             }
-
-            await invalidateWorkspaceQueries();
         },
     });
 
@@ -245,14 +243,14 @@ const CursorWorkspacePage = () => {
         matchesTextQuery(deferredSearch, [thread.name, thread.composerId, thread.mode, thread.workspaceLabel]),
     );
     const openDeleteForSelectedThreads = (composerIds: string[]) => {
-        const nextPendingDelete = buildPendingCursorDelete(getSelectedThreads(visibleThreads, composerIds));
+        const nextPendingDelete = buildPendingCursorDelete(getSelectedThreads(threads, composerIds));
         if (nextPendingDelete) {
             setPartialDeleteError(null);
             setPendingDelete(nextPendingDelete);
         }
     };
     const openExportForSelectedThreads = (composerIds: string[]) => {
-        const nextPendingExport = buildPendingCursorExport(getSelectedThreads(visibleThreads, composerIds));
+        const nextPendingExport = buildPendingCursorExport(getSelectedThreads(threads, composerIds));
         if (nextPendingExport) {
             setPendingExport(nextPendingExport);
         }
@@ -283,6 +281,11 @@ const CursorWorkspacePage = () => {
             <CursorWorkspaceRecoveryNotice workspace={workspace} />
 
             <CursorThreadsTable
+                {...conversationListSelection(
+                    'cursor',
+                    threads.map((thread) => thread.composerId),
+                    workspace.key,
+                )}
                 onDeleteThread={(thread) => {
                     setPartialDeleteError(null);
                     setPendingDelete({ kind: 'threads', threads: [thread] });
@@ -335,6 +338,7 @@ const CursorWorkspacePage = () => {
                 forceZipArchive={pendingExport ? pendingExport.composerIds.length > 1 : false}
                 open={pendingExport !== null}
                 pending={exportMutation.isPending}
+                rawExport={pendingExport ? { ids: pendingExport.composerIds, source: 'cursor' } : undefined}
                 title={pendingExport ? `Export ${pendingExport.label}` : 'Export thread'}
                 onExport={(options) => {
                     if (pendingExport) {

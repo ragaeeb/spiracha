@@ -258,3 +258,59 @@ describe('downloadUrlFile', () => {
         expect(states).toEqual(['preparing', 'cancelled']);
     });
 });
+
+// Uses a real browser Blob and FileReader rather than interpreting raw data as text.
+describe('raw binary downloads', () => {
+    it('should send exact bytes and native MIME through the shared Blob lifecycle', async () => {
+        const { downloadRawBase64File } = await import('./download');
+        const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+        let exportedBlob: Blob | undefined;
+        const states: string[] = [];
+        const revoke = vi.fn();
+        try {
+            downloadRawBase64File('replica.blob', 'AP/AQQ0K', 'application/json', {
+                createObjectUrl: (blob) => {
+                    exportedBlob = blob;
+                    return 'blob:raw-contract';
+                },
+                onStateChange: (state) => states.push(state),
+                revokeObjectUrl: revoke,
+                schedule: (callback) => callback(),
+            });
+            if (!exportedBlob) {
+                throw new Error('Expected the download Blob');
+            }
+            const blob = exportedBlob;
+            expect(blob.type).toBe('application/json');
+            const bytes = await new Promise<ArrayBuffer>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    if (reader.result instanceof ArrayBuffer) {
+                        resolve(reader.result);
+                    } else {
+                        reject(new Error('Expected binary FileReader output'));
+                    }
+                };
+                reader.onerror = () => reject(reader.error);
+                reader.readAsArrayBuffer(blob);
+            });
+            expect([...new Uint8Array(bytes)]).toEqual([0, 255, 192, 65, 13, 10]);
+            expect(states).toEqual(['ready', 'downloading']);
+            expect(click).toHaveBeenCalledTimes(1);
+            expect(revoke).toHaveBeenCalledWith('blob:raw-contract');
+        } finally {
+            click.mockRestore();
+        }
+    });
+
+    it('should report invalid base64 before creating a browser URL', async () => {
+        const { downloadRawBase64File } = await import('./download');
+        const createObjectUrl = vi.fn();
+        const onStateChange = vi.fn();
+        expect(() =>
+            downloadRawBase64File('raw.blob', 'not base64!', 'application/json', { createObjectUrl, onStateChange }),
+        ).toThrow();
+        expect(createObjectUrl).not.toHaveBeenCalled();
+        expect(onStateChange).toHaveBeenCalledExactlyOnceWith('failed');
+    });
+});

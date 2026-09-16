@@ -42,6 +42,13 @@ const extractArtifacts = (text: string, metadata: Record<string, unknown>): stri
     return [...artifacts];
 };
 
+/**
+ * Projects normalized messages into evidence events ordered by message order then
+ * ID. Message metadata overrides conversation metadata on duplicate keys. Artifact
+ * references are bounded textual hints extracted from text/metadata, not verified
+ * filesystem paths; this function never opens a matched path or artifact.
+ * Pairing confidence starts unpaired and is assigned by the episode stage.
+ */
 export const buildEvidenceEvents = (conversation: ConversationDetail): ConversationEvidenceEvent[] => {
     return [...conversation.messages]
         .sort((left, right) => left.order - right.order || left.id.localeCompare(right.id))

@@ -246,6 +246,18 @@ describe('spiracha executable', () => {
         ).toThrow('does not accept');
     });
 
+    it('should parse compact Markdown export flags', () => {
+        expect(
+            parseSpirachaCliArgs(['export', 'codex://thread-1', '--format', 'txt', '--no-commentary', '--no-tools']),
+        ).toEqual({
+            command: 'export',
+            includeCommentary: false,
+            includeTools: false,
+            outputFormat: 'txt',
+            ref: 'codex://thread-1',
+        });
+    });
+
     it('should read the evidence lens from JSON and emit markdown', async () => {
         const root = await mkdtemp(path.join(os.tmpdir(), 'spiracha-cli-'));
         temporaryPaths.push(root);

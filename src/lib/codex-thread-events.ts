@@ -86,6 +86,14 @@ type CreateEventResponseOptions = {
     }[];
 };
 
+/**
+ * Creates an SSE invalidation stream: connected announces retry: 2000, then
+ * transcript-changed sends threadId and a wall-clock revision hint. Events do not
+ * contain transcript data, durable event IDs, replay history, or a snapshot cursor;
+ * clients refetch their queries and must tolerate coalesced/repeated notifications.
+ * Abort/cancel unsubscribes watchers. No periodic heartbeat is emitted here, so
+ * proxy buffering/timeouts and browser reconnection are separate concerns.
+ */
 export const createCodexThreadEventResponse = ({
     broker = defaultBroker,
     signal,

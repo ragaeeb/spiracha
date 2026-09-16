@@ -1,0 +1,2 @@
+src/lib/shared.ts(170,11): error TS2868: Cannot find name 'Bun'. Do you need to install type definitions for Bun? Try `npm i --save-dev @types/bun` and then add 'bun' to the types field in your tsconfig.
+TypeScript 5.8.3; explicit 9-module production subset only; exit=2

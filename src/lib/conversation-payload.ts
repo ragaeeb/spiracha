@@ -14,13 +14,14 @@ import { parseMiniMaxCodePayload } from './conversation-payload-minimax-code';
 import { parseOpenCodePayload } from './conversation-payload-opencode';
 import { parseQoderPayload } from './conversation-payload-qoder';
 import type {
+    ConversationPayloadParserRegistry,
     ConvertConversationPayloadOptions,
     ConvertedConversation,
     PayloadConversationDraft,
 } from './conversation-payload-types';
 import { parseWebPayload } from './conversation-payload-web';
 import { sha256Hex } from './sha256';
-import { cleanInlineTitle } from './shared-text';
+import { utf8ByteLength } from './utf8-byte-length';
 
 export type {
     ConversationPayloadArtifact,
@@ -61,8 +62,15 @@ const nativeParsers = {
     'minimax-code': parseMiniMaxCodePayload,
     opencode: parseOpenCodePayload,
     qoder: parseQoderPayload,
-};
+} satisfies ConversationPayloadParserRegistry;
 
+/**
+ * Resolves parser ownership without I/O. A parser returns null for a shape it does
+ * not claim and may throw for malformed data it does claim. Explicit-source calls
+ * expose that parser's error; automatic inference suppresses candidate rejections,
+ * rejects multiple successful native matches, then falls back to Web only when no
+ * native parser succeeds. Keep registry changes aligned with payload source types.
+ */
 const parsePayloadDrafts = async (
     value: unknown,
     options: ConvertConversationPayloadOptions,
@@ -97,7 +105,7 @@ const decodePayload = (payload: unknown): unknown => {
     if (typeof payload !== 'string') {
         return payload;
     }
-    if (new TextEncoder().encode(payload).byteLength > MAX_PAYLOAD_BYTES) {
+    if (utf8ByteLength(payload) > MAX_PAYLOAD_BYTES) {
         throw new ConversationPayloadError('invalid_input', 'Payload must be 25 MB or smaller.');
     }
     const text = payload.replace(/^\uFEFF/, '');
@@ -139,7 +147,7 @@ const serializePayload = (value: unknown): string => {
     } catch {
         throw new ConversationPayloadError('invalid_input', 'Payload must contain only serializable JSON values.');
     }
-    if (new TextEncoder().encode(serialized).byteLength > MAX_PAYLOAD_BYTES) {
+    if (utf8ByteLength(serialized) > MAX_PAYLOAD_BYTES) {
         throw new ConversationPayloadError('invalid_input', 'Payload must be 25 MB or smaller.');
     }
     return serialized;
@@ -199,7 +207,8 @@ const finalizePayload = async (
     identity: string,
     options: ConvertConversationPayloadOptions,
 ): Promise<ConvertedConversation> => {
-    const messages = selectConversationMessages(finalizeMessages(draft.messages), options.messageSelector ?? 'all');
+    const allMessages = finalizeMessages(draft.messages);
+    const messages = selectConversationMessages(allMessages, options.messageSelector ?? 'all');
     const artifacts = draft.artifacts ?? [];
     const conversation = {
         id: draft.id ?? (await sha256Hex(identity)).slice(0, 32),
@@ -213,17 +222,23 @@ const finalizePayload = async (
         updatedAtMs: draft.updatedAtMs ?? null,
         workspacePath: draft.workspacePath ?? null,
     };
-    const transcript = renderConversationMarkdown(conversation);
-    const markdown =
-        artifacts.length > 0
-            ? `${transcript}\n## Artifacts\n\n${artifacts
-                  .map((artifact) => `### ${cleanInlineTitle(artifact.title)}\n\n${artifact.content}`)
-                  .join('\n\n')
-                  .trimEnd()}\n`
-            : transcript;
+    const markdown = renderConversationMarkdown(
+        { ...conversation, messages: allMessages },
+        { messageSelector: options.messageSelector ?? 'all' },
+    );
     return { ...conversation, markdown };
 };
 
+/**
+ * Converts only supplied JSON-compatible data or JSON/JSONL text; performs no source
+ * storage I/O and does not retain a Web UI import. Limits input text and serialized
+ * parsed data to 25 MiB of UTF-8. Native inference requires exactly one match before
+ * Web fallback; use an explicit supported source to disambiguate a known format.
+ * Returns one result per parsed conversation. Selection filters messages, not
+ * embedded artifacts; generated fallback IDs depend on serialized input and index.
+ * @throws {ConversationPayloadError} Invalid input/JSON, unsupported source/format,
+ * ambiguous native matches, or a malformed claimed payload.
+ */
 export const convertConversationPayload = async (
     options: ConvertConversationPayloadOptions,
 ): Promise<ConvertedConversation[]> => {

@@ -102,7 +102,10 @@ describe('UI API server routes', () => {
             try {
                 const sources = await waitForJson(`http://127.0.0.1:${port}/api/v1/sources`);
                 expect(sources).toEqual({
-                    data: expect.arrayContaining([{ label: 'Codex', scope: 'workspace', source: 'codex' }]),
+                    data: expect.arrayContaining([
+                        expect.objectContaining({ label: 'Codex', scope: 'workspace', source: 'codex' }),
+                    ]),
+                    meta: { schema_version: 1 },
                 });
 
                 const savedSettings = encodeURIComponent(

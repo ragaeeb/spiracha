@@ -72,6 +72,7 @@
         "bin/spiracha.ts",
         "dist/**/*",
         "!dist/server/**/*",
+        "docs/**/*",
         "src/client.ts",
         "src/lib/**/*.ts",
         "!src/lib/**/*.test.ts",
@@ -122,11 +123,13 @@
         "prepublishOnly": "bun run build && bun run test:package",
         "serve": "bun ./bin/spiracha.ts serve",
         "start": "bun --bun vite dev --host 127.0.0.1 --port 3000",
+        "test:conformance": "bun test src/lib/conversation-data/source-conformance.test.ts src/test-support/conversation-sources.test.ts src/lib/conversation-data/source-catalog.test.ts",
+        "test:e2e": "bunx playwright test --config testing/e2e/playwright.config.ts",
         "test:package": "bun run ./src/package-smoke.ts",
         "test:ui": "vitest run --config vitest.config.ts",
         "typecheck": "bunx tsc --noEmit",
         "ui:preview": "bun --bun vite preview"
     },
     "type": "module",
-    "version": "2.9.0"
+    "version": "2.10.0"
 }

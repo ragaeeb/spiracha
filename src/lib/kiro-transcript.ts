@@ -1,144 +1,37 @@
-import type {
-    KiroExportOptions,
-    KiroSessionSummary,
-    KiroSessionTranscript,
-    KiroTranscriptEntry,
-    KiroTranscriptPart,
-} from './kiro-exporter-types';
-import { getFinalKiroAssistantMessageEntryIds, getKiroMessagePhase } from './kiro-transcript-phase';
-import { formatModelLabel } from './model-label';
-import {
-    cleanExtractedText,
-    cleanInlineTitle,
-    type MetadataEntry,
-    renderDocumentTitle,
-    renderMetadataBlock,
-    renderSection,
-} from './shared-text';
+import { renderSelectedTranscriptExport } from './conversation-data/conversation-export';
+import type { KiroExportOptions, KiroSessionSummary, KiroSessionTranscript } from './kiro-exporter-types';
+import { normalizeKiroTranscriptEntries } from './kiro-transcript-parser';
 
-const getSessionTitle = (session: KiroSessionSummary): string => {
-    return cleanInlineTitle(session.title || session.sessionId);
-};
-
-const buildMetadataEntries = (session: KiroSessionSummary): MetadataEntry[] => [
-    { key: 'exported_from', value: 'kiro_workspace_sessions' },
-    { key: 'session_id', value: session.sessionId },
-    { key: 'title', value: session.title },
-    { key: 'source_session_path', value: session.filePath },
-    { key: 'workspace_key', value: session.workspaceKey },
-    { key: 'workspace_directory', value: session.workspaceDirectory },
-    { key: 'workspace_path', value: session.workspacePath },
-    { key: 'selected_model', value: session.selectedModel },
-    { key: 'default_model_title', value: session.defaultModelTitle },
-    { key: 'selected_profile_id', value: session.selectedProfileId },
-    { key: 'autonomy_mode', value: session.autonomyMode },
-    { key: 'session_type', value: session.sessionType },
-    { key: 'created_at_iso', value: session.createdAtIso },
-    { key: 'last_active_at_iso', value: session.lastActiveAtIso },
-    { key: 'message_count', value: session.messageCount },
-    { key: 'image_count', value: session.imageCount },
-    { key: 'prompt_log_count', value: session.promptLogCount },
-];
-
-const roleTitle = (role: string, assistantModel: string | null): string => {
-    if (role === 'assistant') {
-        return formatModelLabel(assistantModel);
-    }
-
-    if (role === 'user') {
-        return 'User';
-    }
-
-    if (role === 'system') {
-        return 'System';
-    }
-
-    return role ? cleanInlineTitle(role) : 'Message';
-};
-
-const renderTextPart = (part: KiroTranscriptPart, title: string, options: KiroExportOptions): string => {
-    const text = cleanExtractedText(part.text ?? '').trim();
-    return text ? renderSection(title, text, options.outputFormat) : '';
-};
-
-const renderImagePart = (part: KiroTranscriptPart, options: KiroExportOptions): string => {
-    const text = cleanExtractedText(part.text ?? 'Image attachment').trim();
-    return renderSection('Attachment', text, options.outputFormat);
-};
-
-const getPartString = (part: KiroTranscriptPart, key: string): string | null => {
-    const value = part.raw[key];
-    return typeof value === 'string' && value.trim() ? value : null;
-};
-
-const getPartNumber = (part: KiroTranscriptPart, key: string): number | null => {
-    const value = part.raw[key];
-    return typeof value === 'number' && Number.isFinite(value) ? value : null;
-};
-
-const renderToolCallPart = (part: KiroTranscriptPart, options: KiroExportOptions): string => {
-    const text = cleanExtractedText(part.text ?? '').trim();
-    const workdir = getPartString(part, 'workdir');
-    const body = [text, workdir ? `Working directory: ${workdir}` : ''].filter(Boolean).join('\n\n');
-    return body ? renderSection('Tool call', body, options.outputFormat) : '';
-};
-
-const renderToolOutputPart = (part: KiroTranscriptPart, options: KiroExportOptions): string => {
-    const text = cleanExtractedText(part.text ?? '').trim();
-    const exitCode = getPartNumber(part, 'exitCode');
-    const body = [exitCode === null ? '' : `Exit code: ${exitCode}`, text].filter(Boolean).join('\n\n');
-    return body ? renderSection('Tool output', body, options.outputFormat) : '';
-};
-
-const renderPart = (
-    entry: KiroTranscriptEntry,
-    part: KiroTranscriptPart,
-    options: KiroExportOptions,
-    finalAssistantMessageEntryIds: Set<string>,
-    assistantModel: string | null,
-): string => {
-    if (entry.entryType === 'tool_call') {
-        return options.includeTools && part.type === 'text' ? renderToolCallPart(part, options) : '';
-    }
-
-    if (entry.entryType === 'tool_output') {
-        return options.includeTools && part.type === 'text' ? renderToolOutputPart(part, options) : '';
-    }
-
-    if (getKiroMessagePhase(entry, finalAssistantMessageEntryIds) === 'commentary' && !options.includeCommentary) {
-        return '';
-    }
-
-    switch (part.type) {
-        case 'text':
-            return renderTextPart(part, roleTitle(entry.role, assistantModel), options);
-        case 'image':
-            return renderImagePart(part, options);
-        case 'unknown':
-            return '';
-    }
-};
+const buildMetadata = (session: KiroSessionSummary): Record<string, unknown> => ({
+    autonomy_mode: session.autonomyMode,
+    created_at_iso: session.createdAtIso,
+    default_model_title: session.defaultModelTitle,
+    exported_from: 'kiro_workspace_sessions',
+    image_count: session.imageCount,
+    last_active_at_iso: session.lastActiveAtIso,
+    message_count: session.messageCount,
+    prompt_log_count: session.promptLogCount,
+    selected_model: session.selectedModel,
+    selected_profile_id: session.selectedProfileId,
+    session_id: session.sessionId,
+    session_type: session.sessionType,
+    source_session_path: session.filePath,
+    title: session.title,
+    workspace_directory: session.workspaceDirectory,
+    workspace_key: session.workspaceKey,
+    workspace_path: session.workspacePath,
+});
 
 export const renderKiroTranscript = (transcript: KiroSessionTranscript, options: KiroExportOptions): string | null => {
-    const finalAssistantMessageEntryIds = getFinalKiroAssistantMessageEntryIds(transcript.entries);
-    const assistantModel = transcript.session.selectedModel ?? transcript.session.defaultModelTitle;
-    const sections = transcript.entries.flatMap((entry) =>
-        entry.parts
-            .map((part) => renderPart(entry, part, options, finalAssistantMessageEntryIds, assistantModel))
-            .filter(Boolean),
+    const model = transcript.session.selectedModel ?? transcript.session.defaultModelTitle;
+    return renderSelectedTranscriptExport(
+        {
+            bodyAvailability: 'full',
+            messages: normalizeKiroTranscriptEntries(transcript.entries),
+            metadata: buildMetadata(transcript.session),
+            ...(model ? { model } : {}),
+            title: transcript.session.title || transcript.session.sessionId,
+        },
+        options,
     );
-    if (sections.length === 0) {
-        return null;
-    }
-
-    const parts = [
-        renderDocumentTitle(getSessionTitle(transcript.session), options.outputFormat),
-        '',
-        options.includeMetadata
-            ? renderMetadataBlock(buildMetadataEntries(transcript.session), options.outputFormat)
-            : '',
-        ...sections,
-    ].filter(Boolean);
-
-    return `${parts.join('\n').trimEnd()}\n`;
 };

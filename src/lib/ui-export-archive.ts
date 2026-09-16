@@ -1,37 +1,13 @@
+import { SOURCE_CATALOG } from './conversation-data/source-catalog';
 import type { ConversationSource } from './conversation-data/types';
+import { getNumericMaximum } from './numeric-range';
 import { getPortablePathBasename } from './portable-path';
 import type { ExportFormat } from './shared-text';
 
-export type ExportPlatform =
-    | 'antigravity'
-    | 'claude'
-    | 'cline'
-    | 'command-code'
-    | 'codex'
-    | 'cursor'
-    | 'fx'
-    | 'grok'
-    | 'grok-bot'
-    | 'kiro'
-    | 'minimax'
-    | 'opencode'
-    | 'qoder';
+export const EXPORT_ARCHIVE_MANIFEST_FILE = 'spiracha-manifest.json';
+export const EXPORT_ARCHIVE_MANIFEST_SCHEMA_VERSION = 1;
 
-const EXPORT_PLATFORM_BY_SOURCE: Record<ConversationSource, ExportPlatform> = {
-    antigravity: 'antigravity',
-    'claude-code': 'claude',
-    cline: 'cline',
-    codex: 'codex',
-    'command-code': 'command-code',
-    cursor: 'cursor',
-    fx: 'fx',
-    grok: 'grok',
-    'grok-bot': 'grok-bot',
-    kiro: 'kiro',
-    'minimax-code': 'minimax',
-    opencode: 'opencode',
-    qoder: 'qoder',
-};
+export type ExportPlatform = (typeof SOURCE_CATALOG)[ConversationSource]['exportPlatform'];
 
 type BatchExportNameEntry = {
     cwd: string | null;
@@ -43,20 +19,65 @@ type ConversationExportNameEntry = BatchExportNameEntry & {
 };
 
 export const sanitizeExportFileName = (value: string) => {
-    return value
+    const sanitized = value
         .replace(/[<>:"/\\|?*\u0000-\u001f]/gu, ' ')
         .replace(/\.\.+/gu, ' ')
         .replace(/\s+/gu, ' ')
-        .trim();
+        .trim()
+        .replace(/[. ]+$/gu, '');
+    return /^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/iu.test(sanitized) ? `_${sanitized}` : sanitized;
 };
 
-export const buildRawConversationExportFileName = (source: ConversationSource, id: string) =>
-    `${sanitizeExportFileName(`${source}-${id}`) || 'conversation'}.json`;
+export const buildRawConversationExportFileName = (
+    source: ConversationSource,
+    id: string,
+    originalFileName: string,
+) => {
+    const original = sanitizeExportFileName(getPortablePathBasename(originalFileName));
+    return original || `${sanitizeExportFileName(`${source}-${id}`) || 'conversation'}.bin`;
+};
 
-export const getExportPlatformName = (source: ConversationSource): ExportPlatform => EXPORT_PLATFORM_BY_SOURCE[source];
+const splitExportFileName = (fileName: string) => {
+    const dot = fileName.lastIndexOf('.');
+    return dot > 0
+        ? { base: fileName.slice(0, dot), extension: fileName.slice(dot) }
+        : { base: fileName, extension: '' };
+};
 
-export const buildExportArchiveBaseName = (platform: ExportPlatform, baseName: string) =>
-    `${platform}_${sanitizeExportFileName(baseName) || 'export'}`;
+export const resolveUniqueRawExportFileName = (fileName: string, usedCounts: Map<string, number>) => {
+    const key = (value: string) => value.normalize('NFC').toLowerCase();
+    const { base, extension } = splitExportFileName(fileName);
+    let count = (usedCounts.get(key(fileName)) ?? 0) + 1;
+    let candidate = count === 1 ? fileName : `${base}-${count}${extension}`;
+    while (usedCounts.has(key(candidate))) {
+        count += 1;
+        candidate = `${base}-${count}${extension}`;
+    }
+    usedCounts.set(key(fileName), count);
+    usedCounts.set(key(candidate), Math.max(usedCounts.get(key(candidate)) ?? 0, 1));
+    return candidate;
+};
+
+export const getExportPlatformName = (source: ConversationSource): ExportPlatform =>
+    SOURCE_CATALOG[source].exportPlatform;
+
+const truncateExportName = (value: string, maxBytes: number): string => {
+    const encoder = new TextEncoder();
+    let bytes = 0;
+    let result = '';
+    for (const character of value) {
+        const characterBytes = encoder.encode(character).byteLength;
+        if (bytes + characterBytes > maxBytes) {
+            break;
+        }
+        bytes += characterBytes;
+        result += character;
+    }
+    return result;
+};
+
+export const buildExportArchiveBaseName = (platform: string, baseName: string) =>
+    truncateExportName(`${platform}_${sanitizeExportFileName(baseName) || 'export'}`, 150);
 
 export const getExportMimeType = (outputFormat: ExportFormat) => {
     return outputFormat === 'md' ? 'text/markdown; charset=utf-8' : 'text/plain; charset=utf-8';
@@ -89,7 +110,10 @@ const formatBatchExportDate = (value: number) => {
 };
 
 const resolveExportProjectName = (cwd: string | null, fallbackProjectName: string) => {
-    return sanitizeExportFileName(getPortablePathBasename(cwd ?? '') || fallbackProjectName) || 'threads';
+    return truncateExportName(
+        sanitizeExportFileName(getPortablePathBasename(cwd ?? '') || fallbackProjectName) || 'threads',
+        80,
+    );
 };
 
 export const buildConversationExportBaseName = (
@@ -110,8 +134,8 @@ export const buildBatchExportBaseName = (entries: BatchExportNameEntry[], fallba
 
     const firstCwd = entries.find((entry) => entry.cwd?.trim())?.cwd ?? null;
     const projectName = resolveExportProjectName(firstCwd, fallbackProjectName);
-    const latestUpdatedAtMs = Math.max(
-        ...entries.map((entry) => (Number.isFinite(entry.updatedAtMs) ? (entry.updatedAtMs ?? 0) : 0)),
+    const latestUpdatedAtMs = getNumericMaximum(
+        entries.map((entry) => (Number.isFinite(entry.updatedAtMs) ? (entry.updatedAtMs ?? 0) : 0)),
     );
 
     return latestUpdatedAtMs > 0

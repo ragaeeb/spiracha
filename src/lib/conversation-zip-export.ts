@@ -1,19 +1,11 @@
-import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
-import {
-    buildBatchExportBaseName,
-    buildExportArchiveBaseName,
-    resolveUniqueExportFileBaseName,
-    sanitizeExportFileName,
-} from './ui-export-archive';
-import { zipExportDirectory } from './ui-export-zip';
+import { cleanupConversationZipArtifacts, type ExportArchiveManifest, writeExportArchive } from './export-archive';
+import { buildBatchExportBaseName, resolveUniqueExportFileBaseName, sanitizeExportFileName } from './ui-export-archive';
 
 type ConversationMarkdownZipEntry = {
     cwd: string | null;
     fallbackBaseName: string;
     markdown: string;
+    requestedId?: string;
     title: string | null;
     updatedAtMs: number | null;
 };
@@ -21,7 +13,10 @@ type ConversationMarkdownZipEntry = {
 type ConversationMarkdownZipOptions = {
     entries: ConversationMarkdownZipEntry[];
     fallbackProjectName: string;
-    platform: Parameters<typeof buildExportArchiveBaseName>[0];
+    failurePolicy?: ExportArchiveManifest['failurePolicy'];
+    platform: string;
+    signal?: AbortSignal;
+    source?: string;
 };
 
 const EXPORT_BASE_NAME_BYTE_LIMIT = 120;
@@ -46,70 +41,69 @@ export type ConversationMarkdownZip = {
     mimeType: 'application/zip';
 };
 
-export type ConversationZipCleanupFailure = {
-    error: string;
-    path: string;
-};
-
-export const cleanupConversationZipArtifacts = async (
-    workspaceDir: string,
-    zipPath: string,
-    remove: typeof rm = rm,
-): Promise<ConversationZipCleanupFailure[]> => {
-    const results = await Promise.allSettled([
-        remove(workspaceDir, { force: true, recursive: true }),
-        remove(zipPath, { force: true }),
-    ]);
-    const paths = [workspaceDir, zipPath];
-    return results.flatMap((result, index) =>
-        result.status === 'rejected'
-            ? [
-                  {
-                      error: result.reason instanceof Error ? result.reason.message : String(result.reason),
-                      path: paths[index]!,
-                  },
-              ]
-            : [],
-    );
-};
+export type { ConversationZipCleanupFailure } from './export-archive';
+export { cleanupConversationZipArtifacts };
 
 const toSafeFileBaseName = (value: string | null, fallback: string) => {
     const sanitized = sanitizeExportFileName(value?.trim() || '') || sanitizeExportFileName(fallback) || 'conversation';
     return truncateUtf8(sanitized, EXPORT_BASE_NAME_BYTE_LIMIT) || 'conversation';
 };
 
+/**
+ * Names Markdown members, writes a generated batch manifest, and archives through
+ * the shared orchestrator. Original source stores are not snapshotted atomically.
+ */
 export const createConversationMarkdownZip = async ({
     entries,
     fallbackProjectName,
+    failurePolicy = 'atomic',
     platform,
+    signal,
+    source = platform,
 }: ConversationMarkdownZipOptions): Promise<ConversationMarkdownZip> => {
     if (entries.length === 0) {
         throw new Error('No conversations selected for export');
     }
 
-    const safeBaseName = buildBatchExportBaseName(entries, fallbackProjectName);
-    const archiveBaseName = buildExportArchiveBaseName(platform, safeBaseName);
-    const workspaceDir = await mkdtemp(path.join(os.tmpdir(), `${archiveBaseName}-`));
-    const zipPath = path.join(os.tmpdir(), `${archiveBaseName}-${randomUUID()}.zip`);
     const usedBaseNames = new Map<string, number>();
-
-    try {
-        for (const entry of entries) {
-            const entryBaseName = toSafeFileBaseName(entry.title, entry.fallbackBaseName);
-            const fileBaseNameForEntry = resolveUniqueExportFileBaseName(entryBaseName, usedBaseNames);
-            await Bun.write(path.join(workspaceDir, `${fileBaseNameForEntry}.md`), entry.markdown);
-        }
-
-        await zipExportDirectory(workspaceDir, zipPath);
+    const members = entries.map((entry) => {
+        const fileBaseName = resolveUniqueExportFileBaseName(
+            toSafeFileBaseName(entry.title, entry.fallbackBaseName),
+            usedBaseNames,
+        );
         return {
-            blob: new Blob([await Bun.file(zipPath).arrayBuffer()], { type: 'application/zip' }),
-            fileName: `${archiveBaseName}.zip`,
-            mimeType: 'application/zip',
+            bytes: entry.markdown,
+            relativePath: `${fileBaseName}.md`,
+            requestedId: entry.requestedId ?? entry.fallbackBaseName,
         };
-    } finally {
-        const cleanupFailures = await cleanupConversationZipArtifacts(workspaceDir, zipPath);
-        for (const failure of cleanupFailures) {
-            console.warn('[spiracha:export] temporary cleanup failed', failure);
-        }
+    });
+    const archive = await writeExportArchive({
+        baseName: buildBatchExportBaseName(entries, fallbackProjectName),
+        destination: { mode: 'blob' },
+        manifest: {
+            entries: members.map((member) => ({
+                error: null,
+                memberNames: [member.relativePath],
+                omissionSummary: null,
+                requestedId: member.requestedId,
+                status: 'exported',
+            })),
+            failedCount: 0,
+            failurePolicy,
+            kind: 'batch_normalized_export',
+            missingCount: 0,
+            options: {},
+            requestedCount: members.length,
+            schemaVersion: 1,
+            source,
+            successCount: members.length,
+        },
+        members: members.map(({ bytes, relativePath }) => ({ bytes, relativePath })),
+        platform,
+        signal,
+    });
+    if ('downloadUrl' in archive) {
+        throw new Error('Expected an in-memory conversation archive');
     }
+    return archive;
 };

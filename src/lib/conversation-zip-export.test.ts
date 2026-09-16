@@ -39,8 +39,8 @@ describe('createConversationMarkdownZip', () => {
         const names = Object.keys(archive);
 
         expect(result.fileName).toBe('minimax_spiracha-2026-05-17-1712-threads-3.zip');
-        expect(names).toHaveLength(3);
-        expect(new Set(names).size).toBe(3);
+        expect(names.filter((name) => name !== 'spiracha-manifest.json')).toHaveLength(3);
+        expect(new Set(names).size).toBe(4);
         expect(names.every((name) => Buffer.byteLength(name) <= 255)).toBe(true);
         expect(names).toContain('fallback-title.md');
     });
@@ -70,7 +70,9 @@ describe('createConversationMarkdownZip', () => {
             }),
         ).rejects.toThrow('synthetic markdown read failure');
 
-        expect((await readdir(os.tmpdir())).filter((name) => name.startsWith('cline_'))).toEqual([]);
+        expect((await readdir(os.tmpdir())).filter((name) => name.startsWith(`cline_${fallbackProjectName}-`))).toEqual(
+            [],
+        );
     });
 
     it('should retain temporary cleanup failures for reporting without throwing them', async () => {
@@ -81,5 +83,25 @@ describe('createConversationMarkdownZip', () => {
         });
 
         expect(failures).toEqual([{ error: 'archive cleanup failed', path: '/tmp/archive.zip' }]);
+    });
+
+    it('should honor cancellation before writing archive members', async () => {
+        const signal = AbortSignal.abort();
+        await expect(
+            createConversationMarkdownZip({
+                entries: [
+                    {
+                        cwd: null,
+                        fallbackBaseName: 'cancelled',
+                        markdown: '# One',
+                        title: 'One',
+                        updatedAtMs: null,
+                    },
+                ],
+                fallbackProjectName: 'conversations',
+                platform: 'cline',
+                signal,
+            }),
+        ).rejects.toThrow(/aborted/i);
     });
 });

@@ -7,7 +7,8 @@ export type PathDisplaySettings = {
 const escapeForRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
 
 const toUniquePathVariants = (projectPath: string) => {
-    const normalized = projectPath.trim();
+    const trimmed = projectPath.trim();
+    const normalized = trimmed.replace(/[\\/]+$/u, '') || trimmed;
     const variants = [normalized, normalized.replaceAll('\\', '/'), normalized.replaceAll('/', '\\')].filter(Boolean);
     return [...new Set(variants)].sort((left, right) => right.length - left.length);
 };
@@ -32,10 +33,14 @@ const replaceExactProjectPath = (text: string, projectPath: string) => {
 };
 
 const redactRemainingUsernames = (text: string) => {
-    return text
-        .replace(/\/home\/[^/\\]+(?=\/|$)/gu, '~')
-        .replace(/\/Users\/[^/\\]+(?=\/|$)/gu, '~')
-        .replace(/[A-Za-z]:[\\/]+Users[\\/]+[^\\/]+(?=[\\/]|$)/gu, '~');
+    return (
+        text
+            // Prefer complete path components so spaces in usernames remain redacted.
+            .replace(/(?:[A-Za-z]:[\\/]+Users[\\/]+|\/(?:home|Users)\/)[^/\\\r\n`"<>]*[^\s/\\`"<>](?=[/\\])/gu, '~')
+            .replace(/\/home\/[^/\\\s`"'<>()[\]{};,]+(?=[/\\\s`"'<>()[\]{};,]|$)/gu, '~')
+            .replace(/\/Users\/[^/\\\s`"'<>()[\]{};,]+(?=[/\\\s`"'<>()[\]{};,]|$)/gu, '~')
+            .replace(/[A-Za-z]:[\\/]+Users[\\/]+[^\\/\s`"'<>()[\]{};,]+(?=[\\/\s`"'<>()[\]{};,]|$)/gu, '~')
+    );
 };
 
 export const applyPathTransforms = (text: string, settings: PathDisplaySettings): string => {

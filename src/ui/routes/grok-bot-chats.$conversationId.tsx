@@ -1,4 +1,4 @@
-import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/codex-browser-types';
+import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/conversation-data/conversation-events';
 import type { ConversationDetail } from '@spiracha/lib/conversation-data/types';
 import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
@@ -20,7 +20,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs';
 import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import type { ExportDialogOptions, ExportLifecycleCallbacks } from '#/lib/export-options';
 import { formatDateTime, formatList, formatNumber } from '#/lib/formatters';
-import { deleteGrokBotChatFn, exportGrokBotChatFn, grokBotChatQueryOptions } from '#/lib/grok-bot-server';
+import { grokBotChatQueryOptions } from '#/lib/grok-bot-queries';
+import { deleteGrokBotChatFn, exportGrokBotChatFn } from '#/lib/grok-bot-server';
 import { getGrokBotThreadTranscriptStats, grokBotMessagesToThreadEvents } from '#/lib/grok-bot-transcript-events';
 import { getMutationErrorMessage } from '#/lib/mutation-error';
 import {
@@ -30,6 +31,7 @@ import {
     withThreadTranscriptSearch,
 } from '#/lib/route-search';
 import { RouteStateResetBoundary } from '#/lib/route-state-reset';
+import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 
 const getChatKind = (conversation: ConversationDetail) =>
     conversation.metadata.chatKind === 'group' ? 'Group' : '1:1';
@@ -148,10 +150,10 @@ const GrokBotChatPage = () => {
     const deleteMutation = useMutation({
         mutationFn: () => deleteGrokBotChatFn({ data: { conversationId } }),
         onSuccess: async () => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['grok-bot-chats'] }),
-                queryClient.invalidateQueries({ queryKey: ['grok-bot-chat', conversationId] }),
-            ]);
+            await invalidateSourceConversationQueries(queryClient, 'grok-bot', {
+                ids: [conversationId],
+                removeDetails: true,
+            });
             navigate({ to: '/grok-bot' });
         },
     });

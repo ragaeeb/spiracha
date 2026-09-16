@@ -1,4 +1,4 @@
-import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/codex-browser-types';
+import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/conversation-data/conversation-events';
 import type { GrokSessionTranscript } from '@spiracha/lib/grok-exporter-types';
 import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
@@ -30,6 +30,7 @@ import {
     withThreadTranscriptSearch,
 } from '#/lib/route-search';
 import { RouteStateResetBoundary } from '#/lib/route-state-reset';
+import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
 const GrokSessionDetailErrorComponent = ({ error }: { error: unknown }) => {
@@ -132,11 +133,11 @@ const GrokSessionDetailPage = () => {
     const deleteSessionMutation = useMutation({
         mutationFn: () => deleteGrokSessionFn({ data: { sessionId: detail.session.sessionId } }),
         onSuccess: async () => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['grok-workspaces'] }),
-                queryClient.invalidateQueries({ queryKey: ['grok-sessions', detail.session.workspaceKey] }),
-                queryClient.invalidateQueries({ queryKey: ['grok-session', detail.session.sessionId] }),
-            ]);
+            await invalidateSourceConversationQueries(queryClient, 'grok', {
+                ids: [detail.session.sessionId],
+                removeDetails: true,
+                workspaceKey: detail.session.workspaceKey,
+            });
             const workspaces = await queryClient.fetchQuery(grokWorkspacesQueryOptions());
             if (
                 shouldNavigateToSourceIndexAfterDelete(

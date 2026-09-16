@@ -19,7 +19,6 @@ import {
     readAntigravityTrajectoryStepIndexes,
 } from './antigravity-trajectory';
 import {
-    ANTIGRAVITY_TRANSCRIPT_HEADINGS,
     ANTIGRAVITY_TRANSCRIPT_MARKDOWN_VERSION,
     ANTIGRAVITY_TRANSCRIPT_VERSION_METADATA_KEY,
 } from './antigravity-transcript-contract';
@@ -30,25 +29,16 @@ import {
     readAntigravityTranscriptHistory,
 } from './antigravity-transcript-history';
 import type { AntigravityConversationMessage, AntigravityLogEntry } from './antigravity-transcript-normalizer';
-import {
-    cleanLogContent,
-    getAntigravityPhaseItems,
-    getString,
-    logEntryOrder,
-    logEntryRole,
-    normalizeAntigravityLogEntries,
-} from './antigravity-transcript-normalizer';
-import { getAntigravityAssistantPhase, getFinalAntigravityAssistantSequences } from './antigravity-transcript-phase';
+import { getString, logEntryOrder, normalizeAntigravityLogEntries } from './antigravity-transcript-normalizer';
 import { mapWithConcurrency } from './concurrency';
-import { formatModelLabel } from './model-label';
+import { normalizeAntigravityConversationMessages } from './conversation-data/antigravity-message-normalizer';
+import { renderSelectedTranscriptExport } from './conversation-data/conversation-export';
 import {
     type ExportFormat,
     formatInlineLiteral,
     type MetadataEntry,
-    renderCodeBlock,
     renderDocumentTitle,
     renderMetadataBlock,
-    renderSection,
 } from './shared-text';
 
 type ProtoField = {
@@ -1782,28 +1772,6 @@ const parseLogEntries = (content: string): AntigravityLogEntry[] => {
     return parseAntigravityJsonlText(content, (line) => JSON.parse(line) as AntigravityLogEntry).records;
 };
 
-const logEntryHeading = (entry: AntigravityLogEntry): string => {
-    const source = getString(entry.source);
-    const type = getString(entry.type);
-    if (source?.startsWith('USER')) {
-        return ANTIGRAVITY_TRANSCRIPT_HEADINGS.user;
-    }
-
-    if (source === 'MODEL') {
-        if (type && type !== 'PLANNER_RESPONSE') {
-            return `${ANTIGRAVITY_TRANSCRIPT_HEADINGS.toolPrefix}${type}`;
-        }
-
-        return formatModelLabel(getString(entry.model));
-    }
-
-    if (source === 'SYSTEM') {
-        return ANTIGRAVITY_TRANSCRIPT_HEADINGS.system;
-    }
-
-    return type ? `${ANTIGRAVITY_TRANSCRIPT_HEADINGS.toolPrefix}${type}` : ANTIGRAVITY_TRANSCRIPT_HEADINGS.event;
-};
-
 type ResolvedAntigravityConversationRenderOptions = {
     decryptionCapability: AntigravityDecryptionCapability | null;
     includeCommentary: boolean;
@@ -1821,106 +1789,6 @@ const resolveAntigravityRenderOptions = (
     includeTools: options.includeTools ?? true,
     outputFormat: options.outputFormat ?? 'md',
 });
-
-const renderNestedHeading = (title: string, outputFormat: ExportFormat) => {
-    return outputFormat === 'md' ? `### ${title}` : `${title}\n${'~'.repeat(Math.max(title.length, 3))}`;
-};
-
-const renderToolCalls = (toolCalls: unknown, outputFormat: ExportFormat): string => {
-    if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
-        return '';
-    }
-
-    const parts: string[] = [];
-    for (const call of toolCalls) {
-        if (!call || typeof call !== 'object') {
-            continue;
-        }
-
-        const { args, id, name } = call as { args?: unknown; id?: unknown; name?: unknown };
-        parts.push(`- ${formatInlineLiteral(typeof name === 'string' ? name : 'unknown', outputFormat)}`);
-        if (typeof id === 'string' && id.trim()) {
-            parts.push('', `Call ID: ${formatInlineLiteral(id, outputFormat)}`);
-        }
-        if (args !== undefined) {
-            parts.push('', 'Input:', '', renderCodeBlock(JSON.stringify(args, null, 2), outputFormat), '');
-        }
-    }
-
-    return parts.length > 0
-        ? [renderNestedHeading(ANTIGRAVITY_TRANSCRIPT_HEADINGS.toolCalls, outputFormat), '', ...parts]
-              .join('\n')
-              .trimEnd()
-        : '';
-};
-
-const renderLogEntryBodyParts = (
-    entry: AntigravityLogEntry,
-    role: AntigravityConversationMessage['role'],
-    sequence: number,
-    finalAssistantSequences: Set<number>,
-    options: ResolvedAntigravityConversationRenderOptions,
-): string[] => {
-    const bodyParts: string[] = [];
-    const toolCallId = getString(entry.tool_call_id);
-    const exitCode = typeof entry.exit_code === 'number' && Number.isFinite(entry.exit_code) ? entry.exit_code : null;
-    if (role === 'tool' && toolCallId) {
-        bodyParts.push(`Call ID: ${formatInlineLiteral(toolCallId, options.outputFormat)}`, '');
-    }
-    if (role === 'tool' && exitCode !== null) {
-        bodyParts.push(`Exit code: ${exitCode}`, '');
-    }
-    const thinking = getString(entry.thinking) ?? '';
-    if (options.includeCommentary && thinking) {
-        bodyParts.push(
-            renderNestedHeading(ANTIGRAVITY_TRANSCRIPT_HEADINGS.thinking, options.outputFormat),
-            '',
-            thinking.trim(),
-            '',
-        );
-    }
-
-    const content = cleanLogContent(entry);
-    const phase = role === 'assistant' ? getAntigravityAssistantPhase(sequence, finalAssistantSequences) : 'unknown';
-    if (content && (role !== 'assistant' || phase !== 'commentary' || options.includeCommentary)) {
-        bodyParts.push(content, '');
-    }
-
-    const toolCalls = options.includeTools ? renderToolCalls(entry.tool_calls, options.outputFormat) : '';
-    if (toolCalls) {
-        bodyParts.push(toolCalls);
-    }
-
-    return bodyParts;
-};
-
-const renderLogEntry = (
-    entry: AntigravityLogEntry,
-    sequence: number,
-    finalAssistantSequences: Set<number>,
-    options: ResolvedAntigravityConversationRenderOptions,
-): string => {
-    const heading = logEntryHeading(entry);
-    const role = logEntryRole(entry);
-    if (!options.includeTools && (role === 'tool' || heading.startsWith('Tool: '))) {
-        return '';
-    }
-
-    const timestamp = getString(entry.created_at);
-    const model = role === 'assistant' ? getString(entry.model) : null;
-    const bodyParts = renderLogEntryBodyParts(entry, role, sequence, finalAssistantSequences, options);
-
-    if (bodyParts.length === 0) {
-        return '';
-    }
-
-    const sectionMetadata = [
-        timestamp ? (options.outputFormat === 'md' ? `_Timestamp: ${timestamp}_` : `Timestamp: ${timestamp}`) : '',
-        model ? (options.outputFormat === 'md' ? `_Model: ${model}_` : `Model: ${model}`) : '',
-    ].filter(Boolean);
-    const parts = [...sectionMetadata.flatMap((metadata) => [metadata, '']), ...bodyParts];
-    return renderSection(heading, parts.join('\n').trimEnd(), options.outputFormat);
-};
 
 const mergeLogEntries = (
     generatedEntries: AntigravityLogEntry[],
@@ -2035,6 +1903,51 @@ const buildAntigravityIdentityMetadata = (
     { key: 'workspace', value: conversation.workspaceUri },
 ];
 
+const antigravityExportedFrom = (source: AntigravityTranscriptSource | null) => {
+    if (source === 'trajectory') {
+        return 'antigravity_trajectory_database';
+    }
+    if (source === 'overview') {
+        return 'antigravity_overview_transcript';
+    }
+    return 'antigravity_jsonl_transcript';
+};
+
+export const renderAntigravityCanonicalTranscript = (
+    conversation: AntigravityConversation,
+    sourceMessages: AntigravityConversationMessage[],
+    options: AntigravityConversationRenderOptions = {},
+): string | null => {
+    if (sourceMessages.length === 0) {
+        return null;
+    }
+    const resolved = resolveAntigravityRenderOptions(options);
+    return renderSelectedTranscriptExport(
+        {
+            bodyAvailability: 'full',
+            messages: normalizeAntigravityConversationMessages(
+                conversation.conversationId,
+                conversation.transcriptSource,
+                sourceMessages,
+            ),
+            metadata: Object.fromEntries(
+                buildAntigravityIdentityMetadata(
+                    conversation,
+                    antigravityExportedFrom(conversation.transcriptSource),
+                ).map((entry) => [entry.key, entry.value]),
+            ),
+            ...(conversation.model ? { model: conversation.model } : {}),
+            title: conversation.title,
+        },
+        {
+            includeCommentary: resolved.includeCommentary,
+            includeMetadata: resolved.includeMetadata,
+            includeTools: resolved.includeTools,
+            outputFormat: resolved.outputFormat,
+        },
+    );
+};
+
 const renderAntigravityTranscript = async (
     conversation: AntigravityConversation,
     options: ResolvedAntigravityConversationRenderOptions,
@@ -2042,35 +1955,12 @@ const renderAntigravityTranscript = async (
     if (!conversation.transcriptSource) {
         return null;
     }
-
-    const entries = await readConversationLogEntries(conversation);
-    if (entries.length === 0) {
-        return null;
-    }
-
-    const exportedFrom =
-        conversation.transcriptSource === 'trajectory'
-            ? 'antigravity_trajectory_database'
-            : conversation.transcriptSource === 'overview'
-              ? 'antigravity_overview_transcript'
-              : 'antigravity_jsonl_transcript';
-    const finalAssistantSequences = getFinalAntigravityAssistantSequences(getAntigravityPhaseItems(entries));
-    const sections = entries
-        .map((entry, sequence) => renderLogEntry(entry, sequence, finalAssistantSequences, options))
-        .filter(Boolean);
-    const parts = [
-        renderDocumentTitle(conversation.title, options.outputFormat),
-        '',
-        options.includeMetadata
-            ? renderAntigravityMetadata(
-                  buildAntigravityIdentityMetadata(conversation, exportedFrom),
-                  options.outputFormat,
-              )
-            : '',
-        ...sections,
-    ].filter(Boolean);
-
-    return `${parts.join('\n').trimEnd()}\n`;
+    return renderAntigravityCanonicalTranscript(conversation, await readAntigravityConversationMessages(conversation), {
+        includeCommentary: options.includeCommentary,
+        includeMetadata: options.includeMetadata,
+        includeTools: options.includeTools,
+        outputFormat: options.outputFormat,
+    });
 };
 
 const renderDecryptedSafeStorage = (

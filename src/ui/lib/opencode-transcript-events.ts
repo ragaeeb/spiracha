@@ -1,4 +1,4 @@
-import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/codex-browser-types';
+import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/conversation-data/conversation-events';
 import type { OpenCodeSessionTranscript, OpenCodeTranscriptPart } from '@spiracha/lib/opencode-exporter-types';
 import { splitOpenCodeThinkTaggedText } from '@spiracha/lib/opencode-think-tags';
 import {

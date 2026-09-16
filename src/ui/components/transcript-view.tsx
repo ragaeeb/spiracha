@@ -1,5 +1,8 @@
-import type { ThreadEvent } from '@spiracha/lib/codex-browser-types';
-import { shouldShowCodexTranscriptEvent } from '@spiracha/lib/codex-transcript-filter';
+import {
+    projectDisplayText,
+    shouldShowTranscriptEvent,
+    type ThreadEvent,
+} from '@spiracha/lib/conversation-data/conversation-events';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Check, Copy } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -38,7 +41,7 @@ export const shouldShowEvent = (
     showCommentary: boolean,
     showUserMessages: boolean,
 ) =>
-    shouldShowCodexTranscriptEvent(event, {
+    shouldShowTranscriptEvent(event, {
         showCommentary,
         showExtraEvents,
         showToolCalls,
@@ -172,10 +175,32 @@ export const getTranscriptEventKey = (event: ThreadEvent, index: number) => {
     return `${event.kind}-${event.sequence}-${event.timestamp ?? 'event'}-${index}`;
 };
 
+const DISPLAY_BODY_LIMIT = 4000;
+
+const TruncatedBody = ({
+    emptyFallback,
+    text,
+    transform,
+}: {
+    emptyFallback: string;
+    text: string;
+    transform: Transform;
+}) => {
+    const { previewText, truncated } = projectDisplayText(text, DISPLAY_BODY_LIMIT);
+    return (
+        <div className="space-y-2">
+            <p className="min-w-0 whitespace-pre-wrap break-words text-sm leading-6 [overflow-wrap:anywhere]">
+                {transform(previewText || emptyFallback)}
+            </p>
+            {truncated ? (
+                <p className="text-[var(--muted-foreground)] text-xs">{`Showing first ${DISPLAY_BODY_LIMIT} characters`}</p>
+            ) : null}
+        </div>
+    );
+};
+
 const renderMessageBody = (event: Extract<ThreadEvent, { kind: 'message' }>, t: Transform) => (
-    <p className="min-w-0 whitespace-pre-wrap break-words text-sm leading-6 [overflow-wrap:anywhere]">
-        {t(event.text || 'No text content')}
-    </p>
+    <TruncatedBody emptyFallback="No text content" text={event.text} transform={t} />
 );
 
 const renderToolCallBody = (event: Extract<ThreadEvent, { kind: 'tool_call' }>, t: Transform) => (
@@ -194,9 +219,7 @@ const renderToolOutputBody = (event: Extract<ThreadEvent, { kind: 'tool_output' 
         {event.exitCode === null ? null : (
             <p className="font-mono text-[var(--muted-foreground)] text-xs">{`Exit code: ${event.exitCode}`}</p>
         )}
-        <p className="min-w-0 whitespace-pre-wrap break-words leading-6 [overflow-wrap:anywhere]">
-            {t(event.summary || event.outputText || '')}
-        </p>
+        <TruncatedBody emptyFallback="" text={event.summary || event.outputText || ''} transform={t} />
     </div>
 );
 

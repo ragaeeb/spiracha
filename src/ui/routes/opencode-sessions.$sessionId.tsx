@@ -1,4 +1,4 @@
-import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/codex-browser-types';
+import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/conversation-data/conversation-events';
 import type { OpenCodeSessionTranscript } from '@spiracha/lib/opencode-exporter-types';
 import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
@@ -30,6 +30,7 @@ import {
     withThreadTranscriptSearch,
 } from '#/lib/route-search';
 import { RouteStateResetBoundary } from '#/lib/route-state-reset';
+import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
 const OpenCodeSessionDetailErrorComponent = ({ error }: { error: unknown }) => {
@@ -148,11 +149,11 @@ const OpenCodeSessionDetailPage = () => {
                 return;
             }
 
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['opencode-workspaces'] }),
-                queryClient.invalidateQueries({ queryKey: ['opencode-sessions', detail.session.workspaceKey] }),
-                queryClient.invalidateQueries({ queryKey: ['opencode-session', detail.session.sessionId] }),
-            ]);
+            await invalidateSourceConversationQueries(queryClient, 'opencode', {
+                ids: [detail.session.sessionId],
+                removeDetails: true,
+                workspaceKey: detail.session.workspaceKey,
+            });
             const workspaces = await queryClient.fetchQuery(openCodeWorkspacesQueryOptions());
             if (
                 shouldNavigateToSourceIndexAfterDelete(

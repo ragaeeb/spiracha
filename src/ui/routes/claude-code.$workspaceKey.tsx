@@ -16,8 +16,10 @@ import {
     exportClaudeCodeSessionFn,
     exportClaudeCodeSessionsFn,
 } from '#/lib/claude-code-server';
+import { conversationListSelection, lookupSelectedItems } from '#/lib/conversation-selection';
 import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
+import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { matchesTextQuery } from '#/lib/text-filter';
 import { isWorkspaceEmptiedByDelete } from '#/lib/workspace-delete-navigation';
 
@@ -140,14 +142,12 @@ function ClaudeCodeWorkspacePage() {
             sessionIds.length === 1
                 ? deleteClaudeCodeSessionFn({ data: { sessionId: sessionIds[0]! } })
                 : deleteClaudeCodeSessionsFn({ data: { sessionIds } }),
-        onSettled: async (_result, _error, sessionIds) => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['claude-code-workspaces'] }),
-                queryClient.invalidateQueries({ queryKey: ['claude-code-sessions', workspace.key] }),
-                ...sessionIds.map((sessionId) =>
-                    queryClient.invalidateQueries({ queryKey: ['claude-code-session', sessionId] }),
-                ),
-            ]);
+        onSettled: async (_result, error, sessionIds) => {
+            await invalidateSourceConversationQueries(queryClient, 'claude-code', {
+                ids: sessionIds,
+                removeDetails: error == null,
+                workspaceKey: workspace.key,
+            });
         },
         onSuccess: async (_result, sessionIds) => {
             const workspaceEmptied = isWorkspaceEmptiedByDelete(sessions, sessionIds, (session) => session.sessionId);
@@ -172,14 +172,8 @@ function ClaudeCodeWorkspacePage() {
             ),
         [deferredSearch, sessions],
     );
-    const visibleSessionsById = useMemo(
-        () => new Map(visibleSessions.map((session) => [session.sessionId, session])),
-        [visibleSessions],
-    );
     const lookupSelectedSessions = (sessionIds: string[]) =>
-        sessionIds
-            .map((sessionId) => visibleSessionsById.get(sessionId) ?? null)
-            .filter((session): session is ClaudeCodeSessionSummary => session !== null);
+        lookupSelectedItems(sessionIds, sessions, (session) => session.sessionId);
     const openExportForSessions = (selectedSessions: ClaudeCodeSessionSummary[]) => {
         if (selectedSessions.length === 0) {
             return;
@@ -211,6 +205,11 @@ function ClaudeCodeWorkspacePage() {
             />
 
             <ClaudeCodeSessionsTable
+                {...conversationListSelection(
+                    'claude-code',
+                    sessions.map((session) => session.sessionId),
+                    workspace.key,
+                )}
                 sessions={visibleSessions}
                 onDeleteSession={(session) => openDeleteForSessions([session])}
                 onDeleteSessions={(sessionIds) => openDeleteForSessions(lookupSelectedSessions(sessionIds))}

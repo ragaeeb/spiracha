@@ -1,10 +1,10 @@
 import type { QoderSessionSummary } from '@spiracha/lib/qoder-exporter-types';
 import { Link } from '@tanstack/react-router';
 import type { SortingState } from '@tanstack/react-table';
-import { Download, MoreHorizontal } from 'lucide-react';
+import { Download, MoreHorizontal, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
-import { SelectionActionsToolbar } from '#/components/selection-actions-toolbar';
+import { ConversationSelectionActions } from '#/components/selection-actions-toolbar';
 import { Button } from '#/components/ui/button';
 import {
     DropdownMenu,
@@ -12,19 +12,26 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu';
+import { supportedListAction } from '#/lib/conversation-actions';
+import type { ConversationListSelectionProps } from '#/lib/conversation-selection';
 import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatDateTime, formatNumber } from '#/lib/formatters';
 
 type QoderSessionsTableProps = {
+    onDeleteSession: (session: QoderSessionSummary) => void;
+    onDeleteSessions: (sessionIds: string[]) => void;
     onExportSession: (session: QoderSessionSummary) => void;
     onExportSessions: (sessionIds: string[]) => void;
     sessions: QoderSessionSummary[];
-};
+} & ConversationListSelectionProps;
 
 const columnHelper = createDataTableColumnHelper<QoderSessionSummary>();
 const defaultSorting: SortingState = [{ desc: true, id: 'lastActive' }];
 
-const columns = (onExportSession: (session: QoderSessionSummary) => void) =>
+const columns = (
+    onDeleteSession: (session: QoderSessionSummary) => void,
+    onExportSession: (session: QoderSessionSummary) => void,
+) =>
     [
         columnHelper.accessor('title', {
             cell: (info) => (
@@ -95,6 +102,10 @@ const columns = (onExportSession: (session: QoderSessionSummary) => void) =>
                             <Download className="mr-2 size-4" />
                             Export session
                         </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => onDeleteSession(info.row.original)}>
+                            <Trash2 className="mr-2 size-4" />
+                            Delete session
+                        </DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>
             ),
@@ -104,30 +115,39 @@ const columns = (onExportSession: (session: QoderSessionSummary) => void) =>
         }),
     ] as const;
 
-export const QoderSessionsTable = ({ onExportSession, onExportSessions, sessions }: QoderSessionsTableProps) => {
-    const tableColumns = useMemo(() => columns(onExportSession), [onExportSession]);
+export const QoderSessionsTable = ({
+    authoritativeRowIds,
+    inventoryIdentity,
+    onDeleteSession,
+    onDeleteSessions,
+    onExportSession,
+    onExportSessions,
+    sessions,
+}: QoderSessionsTableProps) => {
+    const tableColumns = useMemo(() => columns(onDeleteSession, onExportSession), [onDeleteSession, onExportSession]);
 
     return (
         <DataTable
+            authoritativeRowIds={authoritativeRowIds}
             columns={tableColumns}
             data={sessions}
             emptyMessage="No Qoder sessions match the current workspace filter."
             enableRowSelection
             getRowId={(row) => row.sessionId}
             initialSorting={defaultSorting}
-            renderToolbar={({ clearSelection, selectedRows }) => {
-                const selectedSessionIds = selectedRows.map((row) => row.sessionId);
-                const hasEmptySelection = selectedRows.some((row) => row.renderablePartCount === 0);
-                return (
-                    <SelectionActionsToolbar
-                        clearSelection={clearSelection}
-                        exportDisabled={hasEmptySelection}
-                        itemLabel="session"
-                        selectedCount={selectedRows.length}
-                        onExportSelected={() => onExportSessions(selectedSessionIds)}
-                    />
-                );
-            }}
+            inventoryIdentity={inventoryIdentity}
+            renderToolbar={({ clearSelection, hiddenSelectedCount, selectedIds, selectedRows }) => (
+                <ConversationSelectionActions
+                    clearSelection={clearSelection}
+                    deleteAction={supportedListAction(() => onDeleteSessions(selectedIds))}
+                    exportAction={supportedListAction(() => onExportSessions(selectedIds), {
+                        disabled: selectedRows.some((row) => row.renderablePartCount === 0),
+                    })}
+                    hiddenSelectedCount={hiddenSelectedCount}
+                    itemLabel="session"
+                    selectedCount={selectedIds.length}
+                />
+            )}
         />
     );
 };

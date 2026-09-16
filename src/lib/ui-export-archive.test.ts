@@ -12,6 +12,10 @@ describe('ui export archive helpers', () => {
     it('should sanitize export filenames consistently', () => {
         expect(sanitizeExportFileName('bad<>:"/\\|?*\u0000 name..md')).toBe('bad name md');
         expect(sanitizeExportFileName('   ')).toBe('');
+        expect(sanitizeExportFileName('../etc/passwd')).toBe('etc passwd');
+        expect(sanitizeExportFileName('a/../../b.jsonl')).toBe('a b.jsonl');
+        expect(sanitizeExportFileName('con.jsonl')).toBe('_con.jsonl');
+        expect(sanitizeExportFileName('..')).toBe('');
     });
 
     it('should resolve filename collisions with per-base counters', () => {
@@ -39,6 +43,7 @@ describe('ui export archive helpers', () => {
         expect(buildExportArchiveBaseName('minimax', 'project-2026-05-17-1712-threads-2')).toBe(
             'minimax_project-2026-05-17-1712-threads-2',
         );
+        expect(buildExportArchiveBaseName('web', 'parsed-chat')).toBe('web_parsed-chat');
         expect(getExportPlatformName('minimax-code')).toBe('minimax');
         expect(getExportPlatformName('command-code')).toBe('command-code');
     });
@@ -71,6 +76,14 @@ describe('ui export archive helpers', () => {
                 'threads',
             ),
         ).toBe('spiracha-2026-05-17-1712-threads-1');
+    });
+
+    it('should name a batch from more timestamps than the argument-spread limit', () => {
+        const entries = Array.from({ length: 140_000 }, (_, index) => ({
+            cwd: '/Users/example/workspace/spiracha',
+            updatedAtMs: index === 139_999 ? Date.UTC(2026, 4, 17, 17, 12) : 1,
+        }));
+        expect(buildBatchExportBaseName(entries, 'threads')).toBe('spiracha-2026-05-17-1712-threads-140000');
     });
 
     it('should return text MIME types for export formats', () => {

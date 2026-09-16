@@ -121,9 +121,9 @@ describe('renderCodexThreadDownload', () => {
             throw new Error('expected inline download mode');
         }
         expect(download.content).toContain('tokens_used: 42');
-        expect(download.content).toContain('## GPT 5.4');
+        expect(download.content).toContain('## Assistant · Final answer · GPT 5.4');
         expect(download.content).toContain('## Tool');
-        expect(download.content).toContain('Tool: `exec`');
+        expect(download.content).toContain('Tool: exec');
         expect(download.content).toContain('Modern tool output');
     });
 
@@ -222,8 +222,8 @@ describe('renderCodexThreadDownload', () => {
             throw new Error('expected inline download mode');
         }
         expect(download.content).not.toContain('Checking repo structure before planning.');
-        expect(download.content).toContain('## GPT 5.4');
-        expect(download.content).not.toContain('## Assistant');
+        expect(download.content).toContain('## Assistant · Final answer · GPT 5.4');
+        expect(download.content).not.toContain('## Assistant · Commentary');
     });
 
     it('should zip oversized exports and return a downloadable url instead of inline transcript content', async () => {
@@ -282,7 +282,7 @@ describe('renderCodexThreadDownload', () => {
 
         expect(entries).toEqual(['spiracha-2026-05-17-1712-019e36d7.md']);
         const content = await readZipEntry(zipPath, entries[0]!);
-        expect(content).toContain('Tool: `exec`');
+        expect(content).toContain('Tool: exec');
         expect(content).toContain('Modern tool output');
         expect(content).toContain('Large export payload');
     });
@@ -480,36 +480,45 @@ describe('renderCodexThreadDownload', () => {
 
         const zipPath = path.join(tempRoot, path.basename(download.downloadUrl));
         const manifest = JSON.parse(await readZipEntry(zipPath, 'spiracha-manifest.json')) as {
-            exportedCount: number;
             entries: Array<{
-                code?: string;
-                fileName?: string;
-                message?: string;
+                error: { code: string; message: string } | null;
+                memberNames: string[];
+                omissionSummary: string | null;
+                requestedId: string;
                 status: string;
-                threadId: string;
             }>;
-            requestedThreadIds: string[];
+            missingCount: number;
+            requestedCount: number;
             schemaVersion: number;
-            skippedCount: number;
+            successCount: number;
         };
         expect(manifest).toMatchObject({
-            exportedCount: 1,
-            requestedThreadIds: [exportedThreadId, missingThreadId],
+            failurePolicy: 'partial',
+            kind: 'batch_normalized_export',
+            missingCount: 1,
+            requestedCount: 2,
             schemaVersion: 1,
-            skippedCount: 1,
+            source: 'codex',
+            successCount: 1,
         });
         expect(download.skippedThreadCount).toBe(1);
         expect(manifest.entries).toEqual([
             {
-                fileName: 'spiracha-2026-05-17-1712-019e36d7.md',
+                error: null,
+                memberNames: ['spiracha-2026-05-17-1712-019e36d7.md'],
+                omissionSummary: null,
+                requestedId: exportedThreadId,
                 status: 'exported',
-                threadId: exportedThreadId,
             },
             {
-                code: 'CODEX_THREAD_NOT_FOUND',
-                message: `Thread ${missingThreadId} was not found.`,
+                error: {
+                    code: 'CODEX_THREAD_NOT_FOUND',
+                    message: `Thread ${missingThreadId} was not found.`,
+                },
+                memberNames: [],
+                omissionSummary: null,
+                requestedId: missingThreadId,
                 status: 'missing',
-                threadId: missingThreadId,
             },
         ]);
     });

@@ -14,14 +14,24 @@ type CacheEntry<T> = {
 const getFingerprint = (metadata: NonNullable<Awaited<ReturnType<typeof stat>>>, salt: string): string =>
     `${metadata.dev}:${metadata.ino}:${metadata.size}:${metadata.mtimeMs}:${metadata.ctimeMs}:${salt}`;
 
+/**
+ * Creates a fingerprint-keyed LRU cache budgeted by source file bytes, not decoded
+ * value heap size. Coalesces concurrent loads of the same path/fingerprint; missing
+ * or non-file inputs return null and oversized entries are returned without retention.
+ * Invalidation marks matching in-flight loads so their results are not retained
+ * and detaches them from the coalescing map, but does not cancel loaders or
+ * prevent their existing callers from receiving those results. Unrelated paths
+ * keep their in-flight identity. Fingerprinting before loading is not an
+ * immutable read snapshot; callers needing stable content must add
+ * source-specific identity/copy validation.
+ */
 export const createBoundedFileCache = <T>({ maxBytes, maxEntries }: BoundedFileCacheOptions) => {
     if (!Number.isSafeInteger(maxBytes) || maxBytes < 0 || !Number.isSafeInteger(maxEntries) || maxEntries < 0) {
         throw new Error('Bounded file cache limits must be non-negative safe integers.');
     }
 
     const entries = new Map<string, CacheEntry<T>>();
-    const inFlight = new Map<string, Promise<T | null>>();
-    let invalidationGeneration = 0;
+    const inFlight = new Map<string, { filePath: string; invalidated: boolean; load: Promise<T | null> }>();
     let retainedBytes = 0;
 
     const removeEntry = (filePath: string): void => {
@@ -33,7 +43,12 @@ export const createBoundedFileCache = <T>({ maxBytes, maxEntries }: BoundedFileC
     };
 
     const invalidate = (filePath?: string): void => {
-        invalidationGeneration += 1;
+        for (const [key, pending] of inFlight) {
+            if (filePath === undefined || pending.filePath === filePath) {
+                pending.invalidated = true;
+                inFlight.delete(key);
+            }
+        }
         if (filePath === undefined) {
             entries.clear();
             retainedBytes = 0;
@@ -86,20 +101,19 @@ export const createBoundedFileCache = <T>({ maxBytes, maxEntries }: BoundedFileC
         const inFlightKey = `${filePath}\0${fingerprint}`;
         const pending = inFlight.get(inFlightKey);
         if (pending) {
-            return pending;
+            return pending.load;
         }
 
-        const generation = invalidationGeneration;
-        const load = loader();
-        inFlight.set(inFlightKey, load);
+        const entry = { filePath, invalidated: false, load: Promise.resolve().then(loader) };
+        inFlight.set(inFlightKey, entry);
         try {
-            const value = await load;
-            if (value !== null && generation === invalidationGeneration) {
+            const value = await entry.load;
+            if (value !== null && !entry.invalidated) {
                 retain(filePath, { bytes: metadata.size, fingerprint, value });
             }
             return value;
         } finally {
-            if (inFlight.get(inFlightKey) === load) {
+            if (inFlight.get(inFlightKey) === entry) {
                 inFlight.delete(inFlightKey);
             }
         }

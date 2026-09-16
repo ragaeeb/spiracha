@@ -2,21 +2,25 @@ import type { QoderSessionTranscript } from '@spiracha/lib/qoder-exporter-types'
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
+    deleteQoderConversationMock,
     listQoderSessionsForGroupMock,
     listQoderWorkspaceGroupsMock,
     readQoderSessionTranscriptMock,
     renderQoderTranscriptMock,
     renderSourceSessionDownloadMock,
     renderSourceSessionsDownloadMock,
+    resolveQoderCliProjectsDirMock,
     resolveQoderGlobalStateDbMock,
     resolveQoderWorkspaceStorageDirMock,
 } = vi.hoisted(() => ({
+    deleteQoderConversationMock: vi.fn(),
     listQoderSessionsForGroupMock: vi.fn(),
     listQoderWorkspaceGroupsMock: vi.fn(),
     readQoderSessionTranscriptMock: vi.fn(),
     renderQoderTranscriptMock: vi.fn(),
     renderSourceSessionDownloadMock: vi.fn(),
     renderSourceSessionsDownloadMock: vi.fn(),
+    resolveQoderCliProjectsDirMock: vi.fn(),
     resolveQoderGlobalStateDbMock: vi.fn(),
     resolveQoderWorkspaceStorageDirMock: vi.fn(),
 }));
@@ -41,8 +45,13 @@ vi.mock('@spiracha/lib/qoder-session-transcript', () => ({
 }));
 
 vi.mock('@spiracha/lib/qoder-exporter-types', async () => ({
+    resolveQoderCliProjectsDir: resolveQoderCliProjectsDirMock,
     resolveQoderGlobalStateDb: resolveQoderGlobalStateDbMock,
     resolveQoderWorkspaceStorageDir: resolveQoderWorkspaceStorageDirMock,
+}));
+
+vi.mock('@spiracha/lib/qoder-mutations', () => ({
+    deleteQoderConversation: deleteQoderConversationMock,
 }));
 
 vi.mock('@spiracha/lib/qoder-transcript', () => ({
@@ -59,6 +68,8 @@ vi.mock('./source-session-export-server', () => ({
 }));
 
 import {
+    deleteQoderSessionFn,
+    deleteQoderSessionsFn,
     exportQoderSessionFn,
     exportQoderSessionsFn,
     getQoderSessionDetailFn,
@@ -83,8 +94,13 @@ const buildTranscript = (sessionId: string, title: string): QoderSessionTranscri
 describe('Qoder server exports', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        resolveQoderCliProjectsDirMock.mockReturnValue('/tmp/qoder-cli');
         resolveQoderGlobalStateDbMock.mockReturnValue('/tmp/qoder-state.vscdb');
         resolveQoderWorkspaceStorageDirMock.mockReturnValue('/tmp/qoder-workspaces');
+        deleteQoderConversationMock.mockImplementation(async (sessionId: string) => ({
+            deletedFiles: [],
+            deletedIds: [sessionId],
+        }));
         renderQoderTranscriptMock.mockReturnValue('rendered transcript');
         renderSourceSessionDownloadMock.mockResolvedValue({ mode: 'download' });
         renderSourceSessionsDownloadMock.mockResolvedValue({ mode: 'download_url' });
@@ -190,5 +206,21 @@ describe('Qoder server exports', () => {
                 },
             } as never),
         ).rejects.toThrow('Qoder session has no exportable content: empty');
+    });
+
+    it('should delete single and batch sessions from the resolved Qoder store', async () => {
+        await deleteQoderSessionFn({ data: { sessionId: 'first' } } as never);
+        await deleteQoderSessionsFn({ data: { sessionIds: ['first', 'second'] } } as never);
+
+        expect(deleteQoderConversationMock).toHaveBeenCalledWith('first', {
+            cliProjectsDir: '/tmp/qoder-cli',
+            globalStateDb: '/tmp/qoder-state.vscdb',
+            workspaceStorageDir: '/tmp/qoder-workspaces',
+        });
+        expect(deleteQoderConversationMock).toHaveBeenCalledWith('second', {
+            cliProjectsDir: '/tmp/qoder-cli',
+            globalStateDb: '/tmp/qoder-state.vscdb',
+            workspaceStorageDir: '/tmp/qoder-workspaces',
+        });
     });
 });

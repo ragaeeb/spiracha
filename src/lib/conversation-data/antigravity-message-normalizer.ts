@@ -56,7 +56,7 @@ const antigravityToolEvidence = (message: Pick<ConversationMessage, 'metadata' |
                   callId: metadataString(message, 'toolCallId'),
                   command: metadataString(message, 'command'),
                   inputText: null,
-                  name: metadataString(message, 'toolName') ?? 'unknown',
+                  name: metadataString(message, 'toolName') ?? metadataString(message, 'type') ?? 'unknown',
                   workdir: metadataString(message, 'workdir'),
               };
     const status = metadataString(message, 'status');
@@ -90,7 +90,7 @@ export const normalizeAntigravityConversationMessages = (
     messages: AntigravityConversationMessage[],
 ): ConversationMessage[] =>
     finalizeMessages(
-        messages.map((message, entryIndex): ConversationMessage => {
+        messages.map((message, entryIndex) => {
             const { model: sourceModel, ...sourceMetadata } = message.metadata;
             const model = typeof sourceModel === 'string' ? sourceModel : undefined;
             return {

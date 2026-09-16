@@ -184,6 +184,84 @@ describe('cursor-db workspace discovery', () => {
         }
     });
 
+    const isComposerHeadEnumerationSql = (sql: string): boolean =>
+        sql.includes("SELECT substr(key, length('composerData:') + 1) AS id") && sql.includes('FROM cursorDiskKV');
+
+    const withComposerHeadEnumerationCount = async (run: () => Promise<void>): Promise<number> => {
+        const originalQuery = Database.prototype.query;
+        let headScanCount = 0;
+        Database.prototype.query = function (this: Database, sql: string) {
+            if (isComposerHeadEnumerationSql(sql)) {
+                headScanCount += 1;
+            }
+            return originalQuery.call(this, sql);
+        } as typeof originalQuery;
+        try {
+            await run();
+            return headScanCount;
+        } finally {
+            Database.prototype.query = originalQuery;
+        }
+    };
+
+    it('should reuse one unbounded discovery for repeated group and time-windowed thread lists', async () => {
+        const userDir = await makeUserDir();
+        await createCursorFixture(userDir, baseSpec());
+
+        const headScanCount = await withComposerHeadEnumerationCount(async () => {
+            const [first] = await listCursorWorkspaceGroups(userDir);
+            const [second] = await listCursorWorkspaceGroups(userDir);
+            const windowed = await listCursorThreadsForGroup(first!, userDir, {
+                includeTranscriptDirs: false,
+                updatedAfterMs: 1000,
+                updatedBeforeMs: 1000,
+            });
+
+            expect(second).toEqual(first);
+            expect(windowed.map((thread) => thread.composerId)).toEqual(['thread-1']);
+        });
+
+        expect(headScanCount).toBe(1);
+    });
+
+    it('should index composer-head enumeration instead of scanning cursorDiskKV with LIKE', async () => {
+        const userDir = await makeUserDir();
+        await createCursorFixture(userDir, baseSpec());
+        const originalQuery = Database.prototype.query;
+        const enumerationSql: string[] = [];
+        Database.prototype.query = function (this: Database, sql: string) {
+            if (isComposerHeadEnumerationSql(sql)) {
+                enumerationSql.push(sql);
+            }
+            return originalQuery.call(this, sql);
+        } as typeof originalQuery;
+
+        try {
+            await listCursorWorkspaceGroups(userDir);
+        } finally {
+            Database.prototype.query = originalQuery;
+        }
+
+        expect(enumerationSql).toHaveLength(1);
+        expect(enumerationSql[0]).toContain('key >= ? AND key < ?');
+        expect(enumerationSql[0]).not.toContain('LIKE');
+
+        const db = new Database(getCursorGlobalDbPath(userDir), { readonly: true });
+        try {
+            const plan = db
+                .query(`EXPLAIN QUERY PLAN ${enumerationSql[0]}`)
+                .all('composerData:', 'composerData;') as Array<{
+                detail: string;
+            }>;
+            expect(plan.map((row) => row.detail).join('\n')).toContain(
+                'SEARCH cursorDiskKV USING INDEX sqlite_autoindex_cursorDiskKV_1',
+            );
+            expect(plan.map((row) => row.detail).join('\n')).not.toContain('SCAN cursorDiskKV');
+        } finally {
+            db.close();
+        }
+    });
+
     it('should hydrate only the directly requested composer summary', async () => {
         const userDir = await makeUserDir();
         await createCursorFixture(userDir, {
@@ -225,7 +303,7 @@ describe('cursor-db workspace discovery', () => {
             if (sql.includes('SELECT ? AS composerId, key, value FROM cursorDiskKV')) {
                 hydratedComposerIds.push(sql);
             }
-            if (sql.includes("key LIKE 'composerData:%'") && !sql.includes("'$.fullConversationHeadersOnly'")) {
+            if (isComposerHeadEnumerationSql(sql) && !sql.includes("'$.fullConversationHeadersOnly'")) {
                 globalHeadScanCount += 1;
             }
             const statement = originalQuery.call(this, sql);

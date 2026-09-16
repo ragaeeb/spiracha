@@ -1,5 +1,6 @@
 import { normalizeClineTranscriptMessages, parseClineSessionMessages } from './cline-transcript-parser';
 import type { ConversationPayloadSource, PayloadConversationDraft } from './conversation-payload-types';
+import { getNumericMaximum, getNumericMinimum } from './numeric-range';
 import type { JsonValue } from './shared-text';
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -106,10 +107,10 @@ const getClineTimes = (
     return {
         createdAtMs:
             parseTimestampMs(envelope.started_at ?? envelope.created_at ?? envelope.createdAt) ??
-            (messageTimes.length > 0 ? Math.min(...messageTimes) : null),
+            (messageTimes.length > 0 ? getNumericMinimum(messageTimes) : null),
         updatedAtMs:
             parseTimestampMs(envelope.ended_at ?? envelope.updated_at ?? envelope.updatedAt) ??
-            (messageTimes.length > 0 ? Math.max(...messageTimes) : null),
+            (messageTimes.length > 0 ? getNumericMaximum(messageTimes) : null),
     };
 };
 

@@ -50,6 +50,8 @@ Stable conversation API:
   - source registry, pagination, path-scoped collection, reference resolution, and normalized Markdown rendering
 - `src/lib/conversation-data/types.ts`
   - shared source, message, detail, paging, location, and adapter contracts
+- `src/lib/conversation-data/conversation-events.ts`
+  - generic transcript presentation events and visibility filtering
 - `src/lib/conversation-data/path-match.ts`
   - exact and descendant cwd matching
 - `src/lib/conversation-data/message-selector.ts`
@@ -80,8 +82,6 @@ Codex browser/export modules:
   - Codex DB row and transcript rendering types
 - `src/lib/codex-transcript-renderer.ts`
   - Markdown/plain text rendering for Codex session files
-- `src/lib/codex-transcript-filter.ts`
-  - centralized hidden bootstrap and transcript-text filtering
 - `src/lib/codex-thread-parser.ts`
   - structured Codex event parsing used by analytics and the UI
 - `src/lib/codex-analytics.ts`
@@ -156,9 +156,10 @@ The local UI server exposes:
 - `GET /api/v1/sources`
 - `GET /api/v1/conversations[?cwd=<absolute-path>][&source=...]`
 - `POST /api/v1/conversation-query`
+- `POST /api/v1/conversation-payload`
 - `GET /api/v1/conversations/:source/:id`
 - `GET /api/v1/conversations/:source/:id/export`
-- `GET /api/v1/conversations/:source/:id/raw`
+- `GET /api/v1/conversations/:source/:id/raw` (also supports `HEAD`)
 - `POST /api/v1/conversations/:source/:id/evidence`
 - `DELETE /api/v1/conversations/:source/:id`
 - `POST /api/v1/conversations/delete`
@@ -222,6 +223,7 @@ rtk bun run coverage
 rtk bun start
 rtk bun run ui:preview
 rtk bun run test:ui
+rtk bun run test:conformance
 ```
 
 ## Notes
@@ -235,3 +237,16 @@ rtk bun run test:ui
 - API routes should use route-level `server.handlers`.
 - Keep `*-transcript-phase.ts` modules browser-safe; UI client adapters import them directly.
 - Keep source-specific phase and filtering rules centralized so the UI export flow and stable API select messages consistently.
+
+## Source contract onboarding and migration
+
+Read `docs/contract-review/CODEX_HANDOFF.md` and `docs/source-adapter-contract.md` before changing adapter/UI/export contracts. `docs/contract-review/FINDINGS.md` records the supplied archive's actual behavior; Command Code already has selection, export and deletion. Do not overwrite it with the older issue's baseline. The target migration and exhaustive acceptance cases are in `docs/contract-review/IMPLEMENTATION_PLAN.md` and `TEST_MATRIX.md`.
+
+- Keep `CONVERSATION_SOURCES` authoritative. A new ID requires an exact entry in `SOURCE_CATALOG`, the storage adapter registry and `SOURCE_ICONS`; preserve its source literal with `satisfies ConversationAdapter<'source-id'>`. Required route metadata and actual route files must agree. Generate TanStack routes normally.
+- The native payload parser map is exhaustive over the currently supported payload sources, not all UI providers. Keep Claude Code/Command Code exclusions until real portable parsers and fixtures are implemented. Never import storage/React/router modules into the portable catalog or payload normalizers.
+- Register actual native parser/storage fixtures and UI/browser journeys for every source as the conformance layer is implemented. Required baseline operations cannot be excused by missing callbacks. Supported declarations require typed handlers/common orchestration and reachable controls; genuine unsupported/not-applicable decisions need source/fixture evidence. Do not add production pending states or no-op adapters.
+- Reuse canonical message/tool/artifact semantics and common export/actions. Preserve exact artifact strings and original raw bytes; preview limits must not truncate exports. Raw names retain native extensions. Do not add another generic transcript renderer or normalization pipeline.
+- Keep source mutation ownership, locks, journals, stopped-process checks, rollback/cleanup/retry rules and worktree protection. No destructive test may access personal/default source stores. Source-code directories are never conversation cleanup targets.
+- Keep compiler-negative expectations in `src/type-tests` only; they test deliberate errors and must not suppress production diagnostics. The seed does not yet enforce every action/fixture capability; do not describe the full migration as complete until all target gates pass.
+
+Run the existing lint/typecheck/root/UI/build/package/coverage/diff gates and the new source/browser conformance commands once introduced. Root and UI line coverage must meet existing 90% gates. Record actual per-source journey results; mocked buttons or coverage alone do not prove parity. `testing/verify-portable-contracts.mjs` is a supplemental portable check, not a substitute for Bun, UI, package or browser testing.

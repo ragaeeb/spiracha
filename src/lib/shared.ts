@@ -78,6 +78,14 @@ export const workspacePathMatchesQuery = (worktree: string, query: string): bool
     return Boolean(suffix) && normalizedWorktree.endsWith(`/${suffix}`);
 };
 
+/**
+ * Streams JSON object records, skipping blank lines, malformed JSON, and non-object
+ * JSON values. Emits one aggregated warning with count/path/first bad line on close;
+ * this tolerant source-reader policy differs from strict supplied-payload conversion.
+ * Consume with for-await (or call return/throw on early exit) so the iterator closes
+ * readline and destroys its stream. Streaming does not impose a per-line byte cap.
+ * Do not use successful iteration as proof that every source record was preserved.
+ */
 export const readJsonlObjects = (
     filePath: string,
     diagnosticSource = 'jsonl',

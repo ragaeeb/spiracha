@@ -11,6 +11,7 @@ import { LoadingPanel } from '#/components/loading-panel';
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
 import { Button } from '#/components/ui/button';
+import { conversationListSelection, lookupSelectedItems } from '#/lib/conversation-selection';
 import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { kiroSessionsQueryOptions, kiroWorkspacesQueryOptions } from '#/lib/kiro-queries';
@@ -20,6 +21,7 @@ import {
     exportKiroSessionFn,
     exportKiroSessionsFn,
 } from '#/lib/kiro-server';
+import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { matchesTextQuery } from '#/lib/text-filter';
 import { isWorkspaceEmptiedByDelete } from '#/lib/workspace-delete-navigation';
 
@@ -143,14 +145,12 @@ const KiroWorkspacePage = () => {
             sessionIds.length === 1
                 ? deleteKiroSessionFn({ data: { sessionId: sessionIds[0]! } })
                 : deleteKiroSessionsFn({ data: { sessionIds } }),
-        onSettled: async (_result, _error, sessionIds) => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['kiro-workspaces'] }),
-                queryClient.invalidateQueries({ queryKey: ['kiro-sessions', workspace.key] }),
-                ...sessionIds.map((sessionId) =>
-                    queryClient.invalidateQueries({ queryKey: ['kiro-session', sessionId] }),
-                ),
-            ]);
+        onSettled: async (_result, error, sessionIds) => {
+            await invalidateSourceConversationQueries(queryClient, 'kiro', {
+                ids: sessionIds,
+                removeDetails: error == null,
+                workspaceKey: workspace.key,
+            });
         },
         onSuccess: async (_result, sessionIds) => {
             const workspaceEmptied = isWorkspaceEmptiedByDelete(sessions, sessionIds, (session) => session.sessionId);
@@ -176,14 +176,8 @@ const KiroWorkspacePage = () => {
             ),
         [deferredSearch, sessions],
     );
-    const visibleSessionsById = useMemo(
-        () => new Map(visibleSessions.map((session) => [session.sessionId, session])),
-        [visibleSessions],
-    );
     const lookupSelectedSessions = (sessionIds: string[]) =>
-        sessionIds
-            .map((sessionId) => visibleSessionsById.get(sessionId) ?? null)
-            .filter((session): session is KiroSessionSummary => session !== null);
+        lookupSelectedItems(sessionIds, sessions, (session) => session.sessionId);
     const openExportForSessions = (selectedSessions: KiroSessionSummary[]) => {
         if (selectedSessions.length === 0) {
             return;
@@ -225,6 +219,11 @@ const KiroWorkspacePage = () => {
             />
 
             <KiroSessionsTable
+                {...conversationListSelection(
+                    'kiro',
+                    sessions.map((session) => session.sessionId),
+                    workspace.key,
+                )}
                 sessions={visibleSessions}
                 onDeleteSession={(session) => openDeleteForSessions([session], 'selected')}
                 onDeleteSessions={(sessionIds) => openDeleteForSessions(lookupSelectedSessions(sessionIds), 'selected')}

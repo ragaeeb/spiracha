@@ -1107,21 +1107,24 @@ const descendantsFor = (
 ) => {
     const members: AgentDxThreadDescriptor[] = [];
     const visitedSet = new Set<string>();
-    const visit = (threadId: string) => {
+    const pending = [root.threadId];
+    while (pending.length > 0) {
+        const threadId = pending.pop()!;
         if (visitedSet.has(threadId)) {
-            return;
+            continue;
         }
         const descriptor = byId.get(threadId);
         if (!descriptor) {
-            return;
+            continue;
         }
         visitedSet.add(threadId);
         members.push(descriptor);
-        for (const childId of childrenById.get(threadId) ?? []) {
-            visit(childId);
+        const children = childrenById.get(threadId) ?? [];
+        // Reverse the stack pushes to preserve the existing depth-first order.
+        for (let index = children.length - 1; index >= 0; index -= 1) {
+            pending.push(children[index]!);
         }
-    };
-    visit(root.threadId);
+    }
     return members;
 };
 
@@ -1260,23 +1263,26 @@ const buildGoalSpan = (
 export const buildAgentDxAnalytics = (descriptors: AgentDxThreadDescriptor[]): AgentDxAnalytics => {
     const byId = new Map(descriptors.map((descriptor) => [descriptor.threadId, descriptor]));
     const parentById = new Map<string, string>();
-    const childrenById = new Map<string, string[]>();
+    const childSetsById = new Map<string, Set<string>>();
     for (const descriptor of descriptors) {
-        const children = new Set(childrenById.get(descriptor.threadId) ?? []);
+        const children = childSetsById.get(descriptor.threadId) ?? new Set<string>();
         for (const childId of descriptor.childThreadIds) {
             if (byId.has(childId)) {
                 children.add(childId);
                 parentById.set(childId, descriptor.threadId);
             }
         }
-        childrenById.set(descriptor.threadId, [...children].sort());
+        childSetsById.set(descriptor.threadId, children);
         if (descriptor.parentThreadId && byId.has(descriptor.parentThreadId)) {
             parentById.set(descriptor.threadId, descriptor.parentThreadId);
-            const parentChildren = new Set(childrenById.get(descriptor.parentThreadId) ?? []);
+            const parentChildren = childSetsById.get(descriptor.parentThreadId) ?? new Set<string>();
             parentChildren.add(descriptor.threadId);
-            childrenById.set(descriptor.parentThreadId, [...parentChildren].sort());
+            childSetsById.set(descriptor.parentThreadId, parentChildren);
         }
     }
+    const childrenById = new Map(
+        [...childSetsById].map(([threadId, children]) => [threadId, [...children].sort()] as const),
+    );
     const roots = descriptors.filter((descriptor) => !parentById.has(descriptor.threadId));
     const goalSpans = roots
         .map((root) => {

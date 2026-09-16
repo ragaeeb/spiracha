@@ -3,7 +3,7 @@ import { Link } from '@tanstack/react-router';
 import { MoreHorizontal, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
-import { SelectionActionsToolbar } from '#/components/selection-actions-toolbar';
+import { ConversationSelectionActions } from '#/components/selection-actions-toolbar';
 import { Button } from '#/components/ui/button';
 import {
     DropdownMenu,
@@ -11,12 +11,13 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu';
+import { supportedListAction } from '#/lib/conversation-actions';
 import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatDateTime, formatNumber } from '#/lib/formatters';
 
 type OpenCodeWorkspacesTableProps = {
-    onDeleteWorkspace?: (workspace: OpenCodeWorkspaceGroup) => void;
-    onDeleteWorkspaces?: (workspaces: OpenCodeWorkspaceGroup[]) => void;
+    onDeleteWorkspace: (workspace: OpenCodeWorkspaceGroup) => void;
+    onDeleteWorkspaces: (workspaces: OpenCodeWorkspaceGroup[]) => void;
     workspaces: OpenCodeWorkspaceGroup[];
 };
 
@@ -93,7 +94,7 @@ export const OpenCodeWorkspacesTable = ({
     onDeleteWorkspaces,
     workspaces,
 }: OpenCodeWorkspacesTableProps) => {
-    const tableColumns = useMemo(() => columns(onDeleteWorkspace ?? (() => undefined)), [onDeleteWorkspace]);
+    const tableColumns = useMemo(() => columns(onDeleteWorkspace), [onDeleteWorkspace]);
 
     return (
         <DataTable
@@ -102,12 +103,16 @@ export const OpenCodeWorkspacesTable = ({
             emptyMessage="No OpenCode workspaces match the current search."
             enableRowSelection
             getRowId={(row) => row.key}
-            renderToolbar={({ clearSelection, selectedRows }) => (
-                <SelectionActionsToolbar
+            renderToolbar={({ clearSelection, selectedIds, selectedRows }) => (
+                <ConversationSelectionActions
                     clearSelection={clearSelection}
+                    deleteAction={supportedListAction(() => onDeleteWorkspaces(selectedRows))}
+                    exportAction={{
+                        reason: 'Workspace inventory does not export conversations.',
+                        state: 'not_applicable',
+                    }}
                     itemLabel="workspace"
-                    selectedCount={selectedRows.length}
-                    onDeleteSelected={onDeleteWorkspaces ? () => onDeleteWorkspaces(selectedRows) : undefined}
+                    selectedCount={selectedIds.length}
                 />
             )}
         />

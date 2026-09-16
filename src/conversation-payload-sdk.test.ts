@@ -67,7 +67,9 @@ describe('payload SDK', () => {
         };
         const [all] = await convertConversationPayload({ payload });
         expect(all).toMatchObject({ model: 'openai/gpt-5', source: 'web', title: 'Imported question' });
-        expect(all!.markdown).toBe('# Imported question\n\n## User\n\nQuestion\n\n## GPT 5\n\nAnswer\n');
+        expect(all!.markdown).toBe(
+            '# Imported question\n\n## User\n\nQuestion\n\n## Assistant · Final answer · GPT 5\n\nAnswer\n',
+        );
         const [last] = await convertConversationPayload({
             messageSelector: 'last_final_answer',
             payload: JSON.stringify(payload),
@@ -213,7 +215,7 @@ describe('payload SDK', () => {
         for (const key of ['data', 'conversation', 'payload']) {
             const [result] = await convertConversationPayload({ payload: { [key]: data } });
             expect(result).toMatchObject({ id: 'inner', model: 'gpt-5', title: 'Inner title' });
-            expect(result!.markdown).toContain('## GPT 5');
+            expect(result!.markdown).toContain('## Assistant · Final answer · GPT 5');
         }
     });
 
@@ -256,7 +258,7 @@ describe('payload SDK', () => {
                 title: 'REPORT.md',
             },
         ]);
-        expect(result!.markdown).toContain(`### REPORT.md\n\n${chatgptResearchReport.trimEnd()}`);
+        expect(result!.markdown).toContain(`## Artifact · REPORT.md\n\n${chatgptResearchReport.trimEnd()}`);
     });
 
     it('should carry Claude Markdown and JSON artifacts through public payload conversion', async () => {
@@ -294,8 +296,8 @@ describe('payload SDK', () => {
             { content: report, id: 'report', title: 'REPORT.md' },
             { content: jsonReport, id: 'json-report', title: 'report.json' },
         ]);
-        expect(result!.markdown).toContain(`### REPORT.md\n\n${report}`);
-        expect(result!.markdown).toContain(`### report.json\n\n${jsonReport.trimEnd()}`);
+        expect(result!.markdown).toContain(`## Artifact · REPORT.md\n\n${report}`);
+        expect(result!.markdown).toContain(`## Artifact · report.json\n\n${jsonReport.trimEnd()}`);
     });
 
     it('should carry GLM Markdown artifacts through public payload conversion', async () => {
@@ -357,7 +359,7 @@ describe('payload SDK', () => {
         const [result] = await convertConversationPayload({ payload });
 
         expect(result!.artifacts).toEqual([{ content: report, id: 'report-call', title: 'REPORT.md' }]);
-        expect(result!.markdown).toContain(`### REPORT.md\n\n${report}`);
+        expect(result!.markdown).toContain(`## Artifact · REPORT.md\n\n${report}`);
     });
 
     it('should carry Meta Markdown and JSON artifacts through public payload conversion', async () => {
@@ -443,7 +445,7 @@ describe('payload SDK', () => {
             { content: report, id: 'assistant:md-id', title: 'REPORT.md' },
             { content: reportJson, id: 'assistant:json-id', title: 'report.json' },
         ]);
-        expect(result!.markdown).toContain(`### report.json\n\n${reportJson}`);
+        expect(result!.markdown).toContain(`## Artifact · report.json\n\n${reportJson}`);
     });
 
     it('should carry Qwen Markdown artifacts through public payload conversion', async () => {
@@ -537,7 +539,7 @@ describe('payload SDK', () => {
             },
         ]);
         expect(result!.markdown).toContain(
-            '### Qwen SDK report.md\n\n# Qwen SDK report\n\nCitation [[1](https://example.com/one)].\n',
+            '## Artifact · Qwen SDK report.md\n\n# Qwen SDK report\n\nCitation [[1](https://example.com/one)].\n',
         );
     });
 
@@ -546,7 +548,7 @@ describe('payload SDK', () => {
         (payload.raw_payload[0] as unknown[])[2] = 'Report\n## Injected heading';
         const [result] = await convertConversationPayload({ payload });
         expect(result!.artifacts[0]!.title).toBe('Report\n## Injected heading');
-        expect(result!.markdown).toContain('### Report\n\n# Findings');
+        expect(result!.markdown).toContain('## Artifact · Report\n\n# Findings');
         expect(result!.markdown).not.toContain('## Injected heading');
     });
 

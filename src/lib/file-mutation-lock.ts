@@ -106,7 +106,15 @@ const closeMutationResources = async (lock: Database | undefined, handle: Mutati
     return cleanupError;
 };
 
-/** SQLite releases this cross-process writer lock even when its owner is killed. */
+/**
+ * Serializes cooperating Spiracha source-file writers through a SQLite transaction.
+ * Requires an existing non-symlink directory and passes its canonical path to the
+ * awaited action; use that path and keep owned asynchronous work inside the action.
+ * SQLite releases the lock on process death, but does not undo source-file changes
+ * or coordinate native application writers. Caller recovery protocols remain needed.
+ * Cleanup can throw after a successful action or be attached to its primary error;
+ * an exception does not prove that the action made no persistent changes.
+ */
 export const withFileMutationLock = async <T>(
     directory: string,
     action: (canonicalDirectory: string) => Promise<T>,

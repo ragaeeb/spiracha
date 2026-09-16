@@ -1,53 +1,24 @@
-import { createReadStream } from 'node:fs';
-import { rm } from 'node:fs/promises';
 import path from 'node:path';
-import type { Readable, Writable } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
+import type { ParsedCodexTranscript } from './codex-browser-types';
+import { parseCodexTranscriptFile } from './codex-thread-parser';
 import {
     type CodexTranscriptExportTarget,
     type CodexTranscriptRenderOptions,
     DEFAULT_CODEX_DIR,
-    type MessageRecord,
     type SessionMeta,
-    type ToolRecord,
 } from './codex-thread-types';
-import {
-    parseCodexTranscriptRecord,
-    shouldHideCodexTranscriptText,
-    stripCodexMemoryCitationBlocks,
-} from './codex-transcript-records';
-import { createExportWriteStream, finalizeExportWriteStream, readJsonlObjects } from './shared';
-import {
-    asObject,
-    asString,
-    cleanExtractedText,
-    cleanInlineTitle,
-    type ExportFormat,
-    formatInlineLiteral,
-    formatModelLabel,
-    type JsonValue,
-    type MetadataEntry,
-    renderCodeBlock,
-    renderDocumentTitle,
-    renderMetadataBlock,
-    renderSection,
-    stripCodexAppDirectiveLines,
-} from './shared-text';
+import { normalizeCodexEvents } from './conversation-data/codex-messages';
+import { renderSelectedTranscriptExport } from './conversation-data/conversation-export';
+import { createExportWriteStream, finalizeExportWriteStream } from './shared';
+import { cleanInlineTitle, type MetadataEntry } from './shared-text';
 import { runWithTranscriptLoadLimit } from './transcript-load-limiter';
 
-export const pipeCodexExportStream = async (source: Readable, destination: Writable) => {
-    await pipeline(source, destination, { end: false });
-};
+type TranscriptTextTransform = (text: string) => string;
 
-export const renderCodexSessionFile = async (
-    target: CodexTranscriptExportTarget,
-    options: CodexTranscriptRenderOptions,
-): Promise<string | null> => {
-    let transcriptState: CodexTranscriptState;
-
+const loadCodexTranscript = async (target: CodexTranscriptExportTarget): Promise<ParsedCodexTranscript> => {
     try {
-        transcriptState = await runWithTranscriptLoadLimit(
-            () => collectCodexTranscript(target.sessionFile, options, target.thread?.model ?? null),
+        return await runWithTranscriptLoadLimit(
+            () => parseCodexTranscriptFile(target.sessionFile, { includeRaw: false }),
             {
                 id: target.thread?.id,
                 integration: 'codex',
@@ -59,27 +30,34 @@ export const renderCodexSessionFile = async (
         const message = error instanceof Error ? error.message : String(error);
         throw new Error(`Failed to read Codex transcript ${target.sessionFile}: ${message}`);
     }
-
-    if (transcriptState.sections.length === 0) {
-        return null;
-    }
-
-    const title = getTitle(target, transcriptState.sessionMeta);
-    const parts = [
-        renderDocumentTitle(title, options.outputFormat),
-        '',
-        options.includeMetadata
-            ? renderMetadataBlock(
-                  buildMetadataEntries(target, transcriptState.sessionMeta, options),
-                  options.outputFormat,
-              )
-            : '',
-        ...transcriptState.sections,
-    ].filter(Boolean);
-    return parts.join('\n').trimEnd() + '\n';
 };
 
-type TranscriptTextTransform = (text: string) => string;
+const renderLoadedCodexTranscript = (
+    target: CodexTranscriptExportTarget,
+    transcript: ParsedCodexTranscript,
+    options: CodexTranscriptRenderOptions,
+): string | null => {
+    const model = target.thread?.model;
+    return renderSelectedTranscriptExport(
+        {
+            bodyAvailability: 'full',
+            messages: normalizeCodexEvents(transcript.events),
+            metadata: Object.fromEntries(
+                buildMetadataEntries(target, transcript.sessionMeta, options).map((entry) => [entry.key, entry.value]),
+            ),
+            ...(model ? { model } : {}),
+            title: getTitle(target, transcript.sessionMeta),
+        },
+        options,
+    );
+};
+
+export const renderCodexSessionFile = async (
+    target: CodexTranscriptExportTarget,
+    options: CodexTranscriptRenderOptions,
+): Promise<string | null> => {
+    return renderLoadedCodexTranscript(target, await loadCodexTranscript(target), options);
+};
 
 export const writeCodexSessionFileExport = async (
     target: CodexTranscriptExportTarget,
@@ -87,210 +65,19 @@ export const writeCodexSessionFileExport = async (
     outputPath: string,
     transform: TranscriptTextTransform = (text) => text,
 ): Promise<boolean> => {
-    const transcriptOutputPath = `${outputPath}.transcript.tmp`;
-    let transcriptStream: any = null;
-    const state: CodexTranscriptState = {
-        assistantModel: target.thread?.model ?? null,
-        sections: [],
-        sessionMeta: {},
-    };
-    let wroteSection = false;
+    const content = await renderCodexSessionFile(target, options);
+    if (!content) {
+        return false;
+    }
 
+    const outputStream = await createExportWriteStream(outputPath);
     try {
-        await runWithTranscriptLoadLimit(
-            async () => {
-                transcriptStream = await createExportWriteStream(transcriptOutputPath);
-                for await (const parsed of readJsonlObjects(target.sessionFile)) {
-                    captureSessionMeta(parsed, state.sessionMeta);
-                    const block = renderCodexTranscriptRecord(parsed, options, state);
-                    if (!block) {
-                        continue;
-                    }
-
-                    transcriptStream.write(transform(wroteSection ? `${getSectionSeparator()}${block}` : block));
-                    wroteSection = true;
-                }
-                await finalizeExportWriteStream(transcriptStream);
-                transcriptStream = null;
-            },
-            {
-                id: target.thread?.id,
-                integration: 'codex',
-                operation: 'export-stream',
-                path: target.sessionFile,
-            },
-        );
-
-        if (!wroteSection) {
-            return false;
-        }
-
-        const outputStream = await createExportWriteStream(outputPath);
-        try {
-            const prefix = buildStreamExportPrefix(target, state.sessionMeta, options);
-            if (prefix) {
-                outputStream.write(transform(prefix));
-            }
-
-            const transcriptReadStream = createReadStream(transcriptOutputPath, { encoding: 'utf8' });
-            await pipeCodexExportStream(transcriptReadStream, outputStream);
-            outputStream.write('\n');
-            await finalizeExportWriteStream(outputStream);
-        } catch (error) {
-            outputStream.destroy();
-            throw error;
-        }
-
+        outputStream.write(transform(content));
+        await finalizeExportWriteStream(outputStream);
         return true;
     } catch (error) {
-        if (transcriptStream) {
-            transcriptStream.destroy();
-        }
+        outputStream.destroy();
         throw error;
-    } finally {
-        await rm(transcriptOutputPath, { force: true });
-    }
-};
-
-type CodexTranscriptState = {
-    assistantModel: string | null;
-    sessionMeta: SessionMeta;
-    sections: string[];
-};
-
-const collectCodexTranscript = async (
-    sessionFile: string,
-    options: CodexTranscriptRenderOptions,
-    assistantModel: string | null = null,
-): Promise<CodexTranscriptState> => {
-    const state: CodexTranscriptState = {
-        assistantModel,
-        sections: [],
-        sessionMeta: {},
-    };
-
-    for await (const parsed of readJsonlObjects(sessionFile)) {
-        processCodexTranscriptRecord(parsed, options, state);
-    }
-
-    return state;
-};
-
-const getSectionSeparator = () => '\n';
-
-const processCodexTranscriptRecord = (
-    parsed: Record<string, JsonValue>,
-    options: CodexTranscriptRenderOptions,
-    state: CodexTranscriptState,
-) => {
-    captureSessionMeta(parsed, state.sessionMeta);
-    const block = renderCodexTranscriptRecord(parsed, options, state);
-    if (block) {
-        state.sections.push(block);
-    }
-};
-
-const renderCodexTranscriptRecord = (
-    parsed: Record<string, JsonValue>,
-    options: CodexTranscriptRenderOptions,
-    state: CodexTranscriptState,
-) => {
-    const message = extractMessageRecord(parsed);
-    if (message) {
-        return processCodexMessageRecord(message, options, state);
-    }
-
-    if (!options.includeTools) {
-        return '';
-    }
-
-    const tool = extractToolRecord(parsed);
-    if (!tool) {
-        return '';
-    }
-
-    return renderToolBlock(tool, options.outputFormat);
-};
-
-const processCodexMessageRecord = (
-    message: MessageRecord,
-    options: CodexTranscriptRenderOptions,
-    state: CodexTranscriptState,
-) => {
-    return renderMessageBlock(message, options.outputFormat, state, options.includeCommentary);
-};
-
-const buildStreamExportPrefix = (
-    target: CodexTranscriptExportTarget,
-    sessionMeta: SessionMeta,
-    options: CodexTranscriptRenderOptions,
-) => {
-    const title = getTitle(target, sessionMeta);
-    if (!options.includeMetadata) {
-        return `${renderDocumentTitle(title, options.outputFormat)}\n`;
-    }
-
-    const parts = [
-        renderDocumentTitle(title, options.outputFormat),
-        '',
-        renderMetadataBlock(buildMetadataEntries(target, sessionMeta, options), options.outputFormat),
-    ]
-        .filter(Boolean)
-        .join('\n');
-
-    return `${parts}\n`;
-};
-
-export const formatToolOutputSummary = (outputText: string, outputFormat: ExportFormat): string => {
-    if (!outputText) {
-        return '';
-    }
-
-    const lines = outputText
-        .split('\n')
-        .map((line) => line.trim())
-        .filter(Boolean);
-
-    if (lines.length === 0) {
-        return '';
-    }
-
-    const summaryLines: string[] = [];
-    const command = lines.find((line) => line.startsWith('Command: '));
-    const exit = lines.find((line) => line.startsWith('Process exited with code '));
-    const wall = lines.find((line) => line.startsWith('Wall time: '));
-
-    if (command) {
-        summaryLines.push(command);
-    }
-    if (exit) {
-        summaryLines.push(exit);
-    }
-    if (wall) {
-        summaryLines.push(wall);
-    }
-
-    if (outputFormat === 'md') {
-        return summaryLines.map((line) => `*${line}*`).join('\n');
-    }
-
-    return summaryLines.join('\n');
-};
-
-export const parseExecCommandArguments = (argumentsText?: string) => {
-    if (!argumentsText) {
-        return { argumentsParseFailed: false, cmd: null as string | null, workdir: null as string | null };
-    }
-
-    try {
-        const parsed = JSON.parse(argumentsText) as Record<string, unknown>;
-        return {
-            argumentsParseFailed: false,
-            cmd: typeof parsed.cmd === 'string' ? parsed.cmd : null,
-            workdir: typeof parsed.workdir === 'string' ? parsed.workdir : null,
-        };
-    } catch {
-        return { argumentsParseFailed: true, cmd: null as string | null, workdir: null as string | null };
     }
 };
 
@@ -463,216 +250,4 @@ const formatUnixSeconds = (value: number | null): string | null => {
     }
 
     return new Date(value * 1000).toISOString();
-};
-
-const captureSessionMeta = (parsed: Record<string, JsonValue>, meta: SessionMeta) => {
-    if (parsed.type !== 'session_meta') {
-        return;
-    }
-
-    const payload = asObject(parsed.payload);
-    if (!payload) {
-        return;
-    }
-
-    meta.id = asString(payload.id) ?? meta.id;
-    meta.timestamp = asString(payload.timestamp) ?? meta.timestamp;
-    meta.cwd = asString(payload.cwd) ?? meta.cwd;
-    meta.source = asString(payload.source) ?? meta.source;
-    meta.originator = asString(payload.originator) ?? meta.originator;
-    meta.cli_version = asString(payload.cli_version) ?? meta.cli_version;
-};
-
-const extractMessageRecord = (parsed: Record<string, JsonValue>): MessageRecord | null => {
-    if (parsed.type === 'message') {
-        const directMessage = normalizeMessage(parsed);
-        if (directMessage) {
-            return directMessage;
-        }
-    }
-
-    if (parsed.type !== 'response_item') {
-        return null;
-    }
-
-    const payload = asObject(parsed.payload);
-    if (!payload) {
-        return null;
-    }
-
-    if (payload.type !== 'message' && payload.type !== 'agent_message' && payload.type !== 'user_message') {
-        return null;
-    }
-
-    return normalizeMessage(payload);
-};
-
-const normalizeMessage = (value: Record<string, JsonValue>): MessageRecord | null => {
-    const type = asString(value.type);
-    const role =
-        asString(value.role) ?? (type === 'agent_message' ? 'assistant' : type === 'user_message' ? 'user' : null);
-    const content = value.content ?? asString(value.message);
-    const phase = asString(value.phase);
-
-    if (!role || content === undefined) {
-        return null;
-    }
-
-    return { content, model: asString(value.model), phase: phase ?? undefined, role };
-};
-
-const extractToolRecord = (parsed: Record<string, JsonValue>): ToolRecord | null => {
-    const event = parseCodexTranscriptRecord(parsed);
-    if (event?.kind === 'tool_call') {
-        return {
-            argumentsText: event.argumentsText ?? undefined,
-            callId: event.callId,
-            kind: 'call',
-            name: event.name,
-        };
-    }
-
-    if (event?.kind === 'tool_output') {
-        return {
-            callId: event.callId,
-            kind: 'output',
-            name: 'tool_output',
-            outputText: event.outputText,
-        };
-    }
-
-    return null;
-};
-
-const renderMessageBlock = (
-    message: MessageRecord,
-    outputFormat: ExportFormat,
-    state: CodexTranscriptState,
-    includeCommentary: boolean,
-): string => {
-    if (message.role !== 'user' && message.role !== 'assistant') {
-        return '';
-    }
-
-    if (message.role === 'assistant' && message.phase === 'commentary' && !includeCommentary) {
-        return '';
-    }
-
-    const extractedText = extractText(message.content);
-    const text = stripCodexMemoryCitationBlocks(
-        stripCodexAppDirectiveLines(cleanExtractedText(stripPreviewBlock(extractedText))),
-    );
-    if (!text || shouldHideCodexTranscriptText(message.role, text)) {
-        return '';
-    }
-
-    const title = message.role === 'user' ? 'User' : formatModelLabel(message.model ?? state.assistantModel);
-    const body = message.phase ? `Phase: ${message.phase}\n\n${text}` : text;
-
-    return renderSection(title, body, outputFormat);
-};
-
-const renderToolBlock = (tool: ToolRecord, outputFormat: ExportFormat): string => {
-    if (tool.kind === 'call') {
-        const details = formatToolCallDetails(tool, outputFormat);
-        return renderSection('Tool Call', details, outputFormat);
-    }
-
-    const outputText = tool.outputText ?? '';
-    const summary = formatToolOutputSummary(outputText, outputFormat);
-    if (!summary && !outputText.trim()) {
-        return '';
-    }
-
-    const lines = tool.callId ? [`Call ID: ${tool.callId}`, ''] : [];
-    lines.push(summary || renderCodeBlock(outputText.trim(), outputFormat));
-    return renderSection('Tool Output', lines.join('\n'), outputFormat);
-};
-
-const stripPreviewBlock = (text: string): string => {
-    const parts = text
-        .split(/\n{2,}/)
-        .map((part) => part.trim())
-        .filter(Boolean);
-
-    if (parts.length < 2) {
-        return text.trim();
-    }
-
-    const first = parts[0];
-    const second = parts[1];
-    const isTranscriptHeading = (value: string) => /^##\s+(?:assistant|user)$/i.test(value);
-    const looksLikePreview =
-        !/^([UA]):/i.test(first) &&
-        !isTranscriptHeading(first) &&
-        /^([UA]):/i.test(second) === false &&
-        isTranscriptHeading(second);
-
-    if (!looksLikePreview) {
-        return text.trim();
-    }
-
-    return parts.slice(1).join('\n\n');
-};
-
-const formatToolCallDetails = (tool: ToolRecord, outputFormat: ExportFormat): string => {
-    const lines = [`Tool: ${formatInlineLiteral(tool.name, outputFormat)}`];
-    if (tool.callId) {
-        lines.push(`Call ID: ${tool.callId}`);
-    }
-
-    if (tool.name === 'exec_command') {
-        const details = parseExecCommandArguments(tool.argumentsText);
-        if (details.cmd) {
-            lines.push(`Command: ${formatInlineLiteral(details.cmd, outputFormat)}`);
-            return lines.join('\n');
-        }
-    }
-
-    const argumentsText = tool.argumentsText?.trim();
-    if (argumentsText) {
-        lines.push('', 'Input:', '', renderCodeBlock(argumentsText, outputFormat));
-    }
-
-    return lines.join('\n');
-};
-
-const extractText = (content: JsonValue): string => {
-    if (typeof content === 'string') {
-        return content;
-    }
-
-    if (Array.isArray(content)) {
-        const parts = content.map((item) => extractContentPart(item)).filter((part) => part.length > 0);
-        return parts.join('\n\n');
-    }
-
-    if (content && typeof content === 'object') {
-        const text = asString((content as Record<string, JsonValue>).text);
-        if (text) {
-            return text;
-        }
-    }
-
-    return '';
-};
-
-const extractContentPart = (value: JsonValue): string => {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) {
-        return '';
-    }
-
-    const item = value as Record<string, JsonValue>;
-    const type = asString(item.type);
-    const text = asString(item.text);
-
-    if ((type === 'input_text' || type === 'output_text' || type === 'text') && text) {
-        return text;
-    }
-
-    if (type === 'input_image') {
-        return '[Image attached]';
-    }
-
-    return text ?? '';
 };

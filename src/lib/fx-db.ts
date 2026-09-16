@@ -175,6 +175,72 @@ const readTurnSources = async (sessionDir: string): Promise<FxTurnSource[]> => {
     return finalizeFxTurnSourceParse(state);
 };
 
+const FX_SESSION_ASSET_NAMES = ['session.json', 'display.json', 'checkpoint.json', 'events.jsonl'] as const;
+
+const collectHandlesFromTurn = (source: FxTurnSource, handles: Set<string>) => {
+    const execution = asObject(source.turn.execution ?? null);
+    for (const step of objectArray(execution?.tool_steps)) {
+        for (const input of getToolCallInputs(step)) {
+            const handle = input.result ? asString(input.result.output_handle ?? null)?.trim() : null;
+            if (handle && path.basename(handle) === handle) {
+                handles.add(handle);
+            }
+        }
+    }
+};
+
+const collectFxOutputHandles = async (sessionDir: string): Promise<string[]> => {
+    const handles = new Set<string>();
+    for (const source of await readTurnSources(sessionDir)) {
+        collectHandlesFromTurn(source, handles);
+    }
+    return [...handles].sort();
+};
+
+const isInsideOwnedDir = (filePath: string, ownedDir: string): boolean => {
+    const resolvedFile = path.resolve(filePath);
+    const resolvedDir = path.resolve(ownedDir);
+    return resolvedFile === resolvedDir || resolvedFile.startsWith(`${resolvedDir}${path.sep}`);
+};
+
+export const listFxNativeSessionAssets = async (
+    dataDir: string,
+    sessionId: string,
+): Promise<{ files: string[]; missingReferenced: string[] } | null> => {
+    if (!isSafeSessionId(sessionId)) {
+        return null;
+    }
+    const sessionDir = path.resolve(dataDir, 'sessions', sessionId);
+    if (!(await Bun.file(path.join(sessionDir, 'session.json')).exists())) {
+        return null;
+    }
+
+    const files: string[] = [];
+    for (const name of FX_SESSION_ASSET_NAMES) {
+        const filePath = path.join(sessionDir, name);
+        if (isInsideOwnedDir(filePath, sessionDir) && (await Bun.file(filePath).exists())) {
+            files.push(filePath);
+        }
+    }
+
+    const missingReferenced: string[] = [];
+    const toolResultsDir = path.join(sessionDir, 'tool-results');
+    for (const handle of await collectFxOutputHandles(sessionDir)) {
+        const filePath = path.join(toolResultsDir, handle);
+        if (!isInsideOwnedDir(filePath, toolResultsDir)) {
+            missingReferenced.push(filePath);
+            continue;
+        }
+        if (await Bun.file(filePath).exists()) {
+            files.push(filePath);
+        } else {
+            missingReferenced.push(filePath);
+        }
+    }
+
+    return { files: files.sort(), missingReferenced };
+};
+
 export const readFxSessionTranscript = async (
     dataDir: string = resolveFxDataDir(),
     sessionId: string,
@@ -274,18 +340,28 @@ const listFilesRecursively = async (root: string): Promise<string[]> => {
     return files;
 };
 
-const removeSessionFromIndex = async (indexPath: string, sessionId: string): Promise<void> => {
+const prepareSessionIndexRemoval = async (indexPath: string, sessionId: string) => {
     if (!(await Bun.file(indexPath).exists())) {
-        return;
+        return null;
     }
     const root = await readJsonObject(indexPath);
     if (!root || !Array.isArray(root.sessions)) {
         throw new Error(`Invalid FX session index: ${indexPath}`);
     }
     const sessions = root.sessions.filter((value) => asString(asObject(value)?.id ?? null) !== sessionId);
-    const tempPath = `${indexPath}.${randomUUID()}.tmp`;
-    await Bun.write(tempPath, `${JSON.stringify({ ...root, sessions }, null, 2)}\n`);
-    await rename(tempPath, indexPath);
+    return { content: `${JSON.stringify({ ...root, sessions }, null, 2)}\n`, indexPath };
+};
+
+const writeSessionIndexRemoval = async (
+    update: NonNullable<Awaited<ReturnType<typeof prepareSessionIndexRemoval>>>,
+) => {
+    const tempPath = `${update.indexPath}.${randomUUID()}.tmp`;
+    try {
+        await Bun.write(tempPath, update.content);
+        await rename(tempPath, update.indexPath);
+    } finally {
+        await rm(tempPath, { force: true });
+    }
 };
 
 const removeLatestReferences = async (sessionsDir: string, sessionId: string): Promise<string[]> => {
@@ -320,14 +396,17 @@ export const deleteFxSession = async (
         if (!(await Bun.file(path.join(sessionDir, 'session.json')).exists())) {
             return { deletedFiles: [], deletedSessionIds: [] };
         }
+        const indexUpdates = (
+            await Promise.all([
+                prepareSessionIndexRemoval(path.join(sessionsDir, 'index.json'), sessionId),
+                prepareSessionIndexRemoval(path.join(sessionsDir, 'relationship-migration-index.json'), sessionId),
+            ])
+        ).filter((update) => update !== null);
         const deletedFiles = await listFilesRecursively(sessionDir);
         const quarantineDir = path.join(sessionsDir, `.spiracha-delete-${sessionId}-${randomUUID()}`);
         await rename(sessionDir, quarantineDir);
         try {
-            await Promise.all([
-                removeSessionFromIndex(path.join(sessionsDir, 'index.json'), sessionId),
-                removeSessionFromIndex(path.join(sessionsDir, 'relationship-migration-index.json'), sessionId),
-            ]);
+            await mapWithConcurrency(indexUpdates, 1, writeSessionIndexRemoval);
             deletedFiles.push(...(await removeLatestReferences(sessionsDir, sessionId)));
             await rm(quarantineDir, { force: true, recursive: true });
         } catch (error) {

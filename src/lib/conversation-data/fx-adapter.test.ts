@@ -2,8 +2,17 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { unzipSync } from 'fflate';
+import { EXPORT_ARCHIVE_MANIFEST_FILE } from '../export-archive';
 import { writeFxFixture } from '../fx-test-helpers';
-import { deleteConversation, getConversation, listConversations, resolveConversationRef } from './index';
+import {
+    deleteConversation,
+    getConversation,
+    getConversationRaw,
+    listConversations,
+    resolveConversationRef,
+} from './index';
+import { OriginalRepresentationUnavailableError } from './operation-types';
 
 const tempRoots: string[] = [];
 
@@ -90,5 +99,52 @@ describe('FX conversation adapter', () => {
 
         expect(result?.deletedIds).toEqual([fixture.sessionId]);
         expect(await Bun.file(path.join(fixture.sessionDir, 'session.json')).exists()).toBe(false);
+    });
+
+    it('should export owned FX session assets without reconstructed turns or sibling files', async () => {
+        const fixture = await writeFxFixture(await makeTempRoot());
+        const expectedMembers = {
+            'checkpoint.json': new Uint8Array(
+                await Bun.file(path.join(fixture.sessionDir, 'checkpoint.json')).arrayBuffer(),
+            ),
+            'display.json': new Uint8Array(await Bun.file(path.join(fixture.sessionDir, 'display.json')).arrayBuffer()),
+            'events.jsonl': new Uint8Array(await Bun.file(path.join(fixture.sessionDir, 'events.jsonl')).arrayBuffer()),
+            'result-bash-fixture.txt': new Uint8Array(
+                await Bun.file(path.join(fixture.sessionDir, 'tool-results', 'result-bash-fixture.txt')).arrayBuffer(),
+            ),
+            'session.json': new Uint8Array(await Bun.file(path.join(fixture.sessionDir, 'session.json')).arrayBuffer()),
+        };
+
+        const download = await getConversationRaw({
+            id: fixture.sessionId,
+            locations: { fxDataDir: fixture.dataDir },
+            source: 'fx',
+        });
+        const members = unzipSync(new Uint8Array(await download!.blob.arrayBuffer()));
+
+        expect(download?.mimeType).toBe('application/zip');
+        expect(
+            Object.keys(members)
+                .filter((name) => name !== EXPORT_ARCHIVE_MANIFEST_FILE)
+                .sort(),
+        ).toEqual(Object.keys(expectedMembers).sort());
+        expect(members[EXPORT_ARCHIVE_MANIFEST_FILE]).toBeDefined();
+        for (const [name, bytes] of Object.entries(expectedMembers)) {
+            expect(Buffer.from(members[name]!)).toEqual(Buffer.from(bytes));
+        }
+        expect(Object.keys(members)).not.toContain('index.json');
+    });
+
+    it('should refuse an incomplete FX original set when a referenced tool file is missing', async () => {
+        const fixture = await writeFxFixture(await makeTempRoot());
+        await rm(path.join(fixture.sessionDir, 'tool-results', 'result-bash-fixture.txt'));
+
+        await expect(
+            getConversationRaw({
+                id: fixture.sessionId,
+                locations: { fxDataDir: fixture.dataDir },
+                source: 'fx',
+            }),
+        ).rejects.toBeInstanceOf(OriginalRepresentationUnavailableError);
     });
 });

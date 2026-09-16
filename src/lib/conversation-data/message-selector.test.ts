@@ -1,18 +1,20 @@
 import { describe, expect, it } from 'bun:test';
+import { toCanonicalMessage } from './adapter-helpers';
 import { selectConversationMessages } from './message-selector';
 import type { ConversationMessage } from './types';
 
-const baseMessage = (overrides: Partial<ConversationMessage>): ConversationMessage => ({
-    createdAtMs: null,
-    id: 'message',
-    metadata: {},
-    order: 0,
-    phase: 'unknown',
-    role: 'unknown',
-    text: 'text',
-    toolEvidence: null,
-    ...overrides,
-});
+const baseMessage = (overrides: Partial<ConversationMessage>): ConversationMessage =>
+    toCanonicalMessage({
+        createdAtMs: null,
+        id: 'message',
+        metadata: {},
+        order: 0,
+        phase: 'unknown',
+        role: 'unknown',
+        text: 'text',
+        toolEvidence: null,
+        ...overrides,
+    });
 
 describe('conversation message selection', () => {
     it('should return all messages when requested', () => {
@@ -61,5 +63,19 @@ describe('conversation message selection', () => {
 
         expect(selectConversationMessages(messages, 'last_final_answer')).toEqual([]);
         expect(selectConversationMessages([messages[1]!], 'last_final_answer')).toEqual([]);
+    });
+
+    it('should preserve first-in-input ties and avoid a full-size filtered message array', () => {
+        const messages = [
+            baseMessage({ id: 'first', order: 10, phase: 'final_answer', role: 'assistant' }),
+            baseMessage({ id: 'tie', order: 10, phase: 'final_answer', role: 'assistant' }),
+            baseMessage({ id: 'older', order: -1, phase: 'final_answer', role: 'assistant' }),
+        ];
+        messages.filter = () => {
+            throw new Error('Selection should not allocate a filtered message array.');
+        };
+        expect(selectConversationMessages(messages, 'last_assistant')).toEqual([messages[0]]);
+        expect(selectConversationMessages(messages, 'last_final_answer')).toEqual([messages[0]]);
+        expect(selectConversationMessages(messages, 'all')).toBe(messages);
     });
 });

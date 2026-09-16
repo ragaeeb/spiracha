@@ -1,4 +1,4 @@
-import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/codex-browser-types';
+import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/conversation-data/conversation-events';
 import type { FxSessionTranscript } from '@spiracha/lib/fx-exporter-types';
 import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
@@ -24,6 +24,7 @@ import { fxSessionDetailQueryOptions, fxWorkspacesQueryOptions } from '#/lib/fx-
 import { deleteFxSessionFn, exportFxSessionFn } from '#/lib/fx-server';
 import { fxTranscriptToThreadEvents, getFxThreadTranscriptStats } from '#/lib/fx-transcript-events';
 import { RouteStateResetBoundary } from '#/lib/route-state-reset';
+import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
 const buildSessionMetadata = (detail: FxSessionTranscript) => [
@@ -105,11 +106,11 @@ const FxSessionDetailPage = () => {
     const deleteMutation = useMutation({
         mutationFn: () => deleteFxSessionFn({ data: { sessionId: detail.session.sessionId } }),
         onSuccess: async () => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['fx-workspaces'] }),
-                queryClient.invalidateQueries({ queryKey: ['fx-sessions', detail.session.workspaceKey] }),
-                queryClient.invalidateQueries({ queryKey: ['fx-session', detail.session.sessionId] }),
-            ]);
+            await invalidateSourceConversationQueries(queryClient, 'fx', {
+                ids: [detail.session.sessionId],
+                removeDetails: true,
+                workspaceKey: detail.session.workspaceKey,
+            });
             const workspaces = await queryClient.fetchQuery(fxWorkspacesQueryOptions());
             if (shouldNavigateToSourceIndexAfterDelete(workspaces, detail.session.workspaceKey, (item) => item.key)) {
                 await navigate({ to: '/fx' });

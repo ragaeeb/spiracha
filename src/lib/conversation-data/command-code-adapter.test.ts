@@ -122,7 +122,7 @@ describe('Command Code conversation adapter', () => {
 
     it('should return the selected original JSONL bytes and expose delete operation', async () => {
         const { filePath, raw, root, sessionId } = await writeFixture();
-        const download = await commandCodeConversationAdapter.getConversationRaw?.({
+        const download = await commandCodeConversationAdapter.getConversationRaw({
             id: sessionId,
             locations: { commandCodeProjectsDir: root },
             source: 'command-code',

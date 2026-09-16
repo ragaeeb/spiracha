@@ -59,7 +59,7 @@ const buildConversation = async (
         deepLinks: createDeepLinks(
             'opencode',
             session.sessionId,
-            createConversationUiPath('opencode-sessions', session.sessionId),
+            createConversationUiPath('opencode', session.sessionId),
         ),
         id: session.sessionId,
         matches,
@@ -137,9 +137,9 @@ const deleteOpenCodeConversation = async (options: DeleteConversationOptions) =>
     };
 };
 
-export const opencodeConversationAdapter: ConversationAdapter = {
+export const opencodeConversationAdapter = {
     deleteConversation: deleteOpenCodeConversation,
     getConversation: getOpenCodeConversation,
     listConversations: listOpenCodeConversations,
     source: 'opencode',
-};
+} satisfies ConversationAdapter<'opencode'>;

@@ -351,6 +351,22 @@ describe('pruneCursorThreads', () => {
         expect(group?.threadCount).toBe(0);
     });
 
+    it('should not serve cached discovery after an applied prune', async () => {
+        const userDir = await makeUserDir('cursor-prune-cache-');
+        await createCursorFixture(userDir, recoverySpec());
+        const [before] = await listCursorWorkspaceGroups(userDir);
+        expect(before?.threadCount).toBeGreaterThan(0);
+
+        const deletable = await collectCursorThreadsForDeletion(['thread-1'], userDir);
+        await pruneCursorThreads(deletable, { apply: true, deleteSessionFiles: false }, userDir);
+
+        const [after] = await listCursorWorkspaceGroups(userDir);
+        const { listCursorThreadsForGroup } = await import('./cursor-db');
+        const threads = after ? await listCursorThreadsForGroup(after, userDir, { includeTranscriptDirs: false }) : [];
+        expect(threads.map((thread) => thread.composerId)).not.toContain('thread-1');
+        expect(after?.threadCount ?? 0).toBe(0);
+    });
+
     it('should delete modern composer headers so removed threads are not rediscovered', async () => {
         const userDir = await makeUserDir('cursor-delete-modern-headers-');
         await createCursorFixture(userDir, {

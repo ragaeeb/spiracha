@@ -5,7 +5,7 @@ import type {
     ThreadEvent,
     ToolCallEvent,
     ToolOutputEvent,
-} from './codex-browser-types';
+} from './conversation-data/conversation-events';
 import type { JsonValue } from './shared-text';
 
 export type CloudRecord = Record<string, unknown>;

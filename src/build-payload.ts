@@ -36,6 +36,7 @@ try {
         'conversation-payload.d.ts',
         'conversation-payload-types.d.ts',
         'conversation-data/types.d.ts',
+        'conversation-data/operation-types.d.ts',
     ]) {
         const declaration = await Bun.file(path.join(declarationsDirectory, file)).text();
         await Bun.write(

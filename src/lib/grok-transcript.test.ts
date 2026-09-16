@@ -75,6 +75,12 @@ const transcript: GrokSessionTranscript = {
             entryId: 'assistant-final',
             parts: [
                 {
+                    partId: 'assistant-final:reason',
+                    raw: {},
+                    text: 'Considering the path.',
+                    type: 'reasoning',
+                },
+                {
                     partId: 'assistant-final:text',
                     raw: {},
                     text: 'The export path is fixed.',
@@ -136,7 +142,7 @@ describe('renderGrokTranscript', () => {
         expect(markdown).toContain('exported_from: "grok_local_session"');
         expect(markdown).toContain('Inspecting the export path.');
         expect(markdown).toContain('<system-reminder>Use tools.</system-reminder>');
-        expect(markdown).toContain('Tool: `read_file`');
+        expect(markdown).toContain('Tool: read_file');
         expect(markdown).toContain('export const fixed = true;');
         expect(markdown).toContain('The export path is fixed.');
     });
@@ -151,6 +157,7 @@ describe('renderGrokTranscript', () => {
 
         expect(markdown).toContain('Audit the exporter.');
         expect(markdown).toContain('The export path is fixed.');
+        expect(markdown).toContain('Considering the path.');
         expect(markdown).not.toContain('Inspecting the export path.');
         expect(markdown).not.toContain('<system-reminder>');
         expect(markdown).not.toContain('exported_from');
@@ -167,8 +174,9 @@ describe('renderGrokTranscript', () => {
         });
 
         expect(text).toContain('Export audit\n============');
-        expect(text).toContain('Grok Code Fast\n--------------\nThe export path is fixed.');
-        expect(text).not.toContain('Assistant\n---------');
+        expect(text).toContain('Assistant · Final answer · Grok Code Fast');
+        expect(text).toContain('The export path is fixed.');
+        expect(text).not.toContain('Assistant · Commentary');
         expect(text).not.toContain('#');
         expect(text).not.toContain('`');
     });

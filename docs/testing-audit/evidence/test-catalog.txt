@@ -1,0 +1,2079 @@
+src/client.test.ts
+  conversation client', () => {
+  should download raw transcript bytes through the HTTP client contract', async () => {
+  should export focused evidence through the HTTP client contract', async () => {
+  should list conversations locally without a running HTTP server', async () => {
+  should support direct CLI imports from the installed package without starting a TanStack server', async () => {
+  should call the HTTP API using stable query names and normalize pagination metadata', async () => {
+  should serialize Command Code as a supported HTTP source', async () => {
+  should surface HTTP API failures with status and message', async () => {
+  should normalize invalid HTTP response bodies into client errors', async () => {
+  should delete conversations through the HTTP API with a DELETE request', async () => {
+  should delete explicit conversation sets through the HTTP API', async () => {
+  should download explicit conversation export zips through the HTTP API', async () => {
+  should return null for HTTP conversation deletes that no longer exist', async () => {
+  should return null for unsupported HTTP conversation delete operations', async () => {
+  should reject local data locations on HTTP clients', async () => {
+  should reject oversized local export batches before hydrating conversations', async () => {
+  should preserve a configured HTTP base path prefix', async () => {
+  should surface a route-level 404 instead of treating it as a missing conversation', async () => {
+
+src/conversation-payload-sdk.test.ts
+  payload SDK', () => {
+  should infer and convert ${source} through the public SDK`, async () => {
+  should reject malformed rows alongside valid rows for every source', async () => {
+  should convert JSON payloads without a server and use stable model labels and selectors', async () => {
+  should continue auto-detection to Web after a native parser rejects the shape', async () => {
+  should infer every supported Web provider and preserve distinct conversations', async () => {
+  should reject invalid, unknown and unsupported inputs without partial conversion', async () => {
+  should reject native Claude Code JSONL while continuing to support Claude Web exports', async () => {
+  should respect an explicit native source for records with shared Claude Code fields', async () => {
+  should reserve Claude Code rejection for Claude-shaped records', async () => {
+  should retain metadata in nested Web conversation envelopes', async () => {
+  should reject partially malformed Web message collections', async () => {
+  should retain Gemini report citations and tools without populating the Web import store', async () => {
+  should carry a ChatGPT Deep Research report through public payload conversion', async () => {
+  should carry Claude Markdown and JSON artifacts through public payload conversion', async () => {
+  should carry GLM Markdown artifacts through public payload conversion', async () => {
+  should carry Meta Markdown and JSON artifacts through public payload conversion', async () => {
+  should carry Qwen Markdown artifacts through public payload conversion', async () => {
+  should keep artifact headings on one Markdown line while preserving raw titles', async () => {
+  should enforce payload limits and preserve useful JSONL errors', async () => {
+  should reject ambiguous native envelopes and allow an explicit source to resolve them', async () => {
+
+src/coverage-check.test.ts
+  coverage check helpers', () => {
+  should summarize lcov reports with profile-specific exclusions', () => {
+  should split lcov records correctly for CRLF line endings and missing trailing newlines', () => {
+
+src/lib/agent-dx-analytics.test.ts
+  agent DX analytics', () => {
+  should classify executed command names without counting quoted, commented, or heredoc examples', () => {
+  should leave missing CSV values empty while retaining explicit null text', () => {
+  \n')[1]!;
+  should keep gate repetition scoped to observed state and workdir', () => {
+  should quote carriage returns and escape NULs in CSV analytics identifiers', () => {
+  should keep goal span identities distinct when components contain delimiters and controls', () => {
+  should only infer repository identity from unambiguous Git output', () => {
+  should retain provider-neutral event, usage, saturation, polling, and lineage metrics', () => {
+  should count polling operations without inventing parent lineage', () => {
+  should aggregate goal spans and warn on same-state cross-child rereads', () => {
+  should keep ordinary tool output from becoming a terminal failure', () => {
+  should stop discovery before the first mutation call', () => {
+  should export deterministic JSON and CSV scorecards', () => {
+
+src/lib/antigravity-db.test.ts
+  antigravity db discovery', () => {
+  should include the Antigravity CLI root in default discovery roots without leaking overrides', () => {
+  should preserve valid summary records around protobuf corruption with diagnostics', async () => {
+  should cap protobuf diagnostics while continuing to parse later records', async () => {
+  should cap summary-record diagnostics without dropping later valid records', async () => {
+  should continue after an oversized protobuf record with one bounded diagnostic', async () => {
+  should diagnose an oversized protobuf record truncated at EOF', async () => {
+  should resolve one conversation without requiring a collection scan', async () => {
+  should discover conversations from the summary index, conversation files, and artifacts', async () => {
+  should resolve Antigravity sub-agent parents from summary metadata', async () => {
+  should ignore artifact directories whose names are not safe conversation ids', async () => {
+  should group conversations by Antigravity workspace and keep unknown chats separate', async () => {
+  should prefer Antigravity project assignment over a conflicting workspace URI', async () => {
+  should prefer newer conversation files when duplicate roots are present', async () => {
+  should ignore empty Antigravity databases recreated without the trajectory schema', async () => {
+  should still surface malformed Antigravity trajectory databases', async () => {
+  should render markdown exports for Antigravity brain artifacts', async () => {
+  should discover and render Antigravity overview transcript logs', async () => {
+  should prefer full Antigravity JSONL transcripts and include them in total size', async () => {
+  should restore a compacted Antigravity transcript prefix from artifact Git snapshots', async () => {
+  should merge complete SQLite trajectory commands, outputs, and reasoning into UI and export transcripts', async () => {
+  should render Antigravity operation results as tool output sections', async () => {
+  should honor transcript export options for metadata, commentary, tools, and plain text', async () => {
+  should surface corrupt transcripts during explicit conversation reads', async () => {
+  should derive a workspace group from the source root when a conversation has no summary metadata', async () => {
+  should derive a workspace from a trajectory workdir before falling back to the source root', async () => {
+  should not treat artifacts as conversation transcript markdown', async () => {
+  should render summary-only Antigravity conversations as exportable metadata', async () => {
+  should delete an Antigravity conversation from summaries, databases, transcripts, and artifacts', async () => {
+  should report incomplete deletion when a recreated conversation database remains', async () => {
+  should report incomplete deletion when Antigravity recreates the database after cleanup', async () => {
+  should replace a read-only Antigravity summary index atomically', async () => {
+
+src/lib/antigravity-keychain.test.ts
+  antigravity keychain helpers', () => {
+  should derive the macOS safeStorage AES key from the Keychain secret', () => {
+  should decrypt Electron safeStorage JSON buffer payloads', () => {
+  should expose only an opaque decryption capability instead of the Keychain secret', () => {
+  should report locked state without touching Keychain secrets', () => {
+  should report unlocked state from explicit request-scoped access', () => {
+  should bound Keychain subprocess execution time', () => {
+
+src/lib/antigravity-projects.test.ts
+  Antigravity project metadata', () => {
+  should extract the CSRF token only from the Antigravity language server process', () => {
+  should accept only a loopback Antigravity project service URL', () => {
+  should decode the first JSON data frame from a gRPC-Web response', () => {
+  should resolve Antigravity project names from the authenticated loopback service', async () => {
+  should fall back without throwing when Antigravity is not running', async () => {
+
+src/lib/antigravity-trajectory.test.ts
+  Antigravity trajectory reader', () => {
+  should keep valid steps when a neighboring protobuf row is corrupt', async () => {
+  should cap trajectory protobuf diagnostics while retaining valid later steps', async () => {
+
+src/lib/antigravity-transcript-history.test.ts
+  Antigravity transcript history', () => {
+  should preserve valid JSONL records around corruption with bounded diagnostics', () => {
+  should bound overlong JSONL lines and continue reading later records', async () => {
+  should preserve CRLF byte offsets across large chunked JSONL records', async () => {
+  should cancel an interrupted JSONL stream and release its reader', async () => {
+  should reject when abort cancels a blocked reader that reports done', async () => {
+  should skip history recovery when the current transcript already starts at its first step', async () => {
+  should tolerate missing and malformed optional Git snapshots', async () => {
+
+src/lib/antigravity-transcript-phase.test.ts
+  Antigravity transcript phase classification', () => {
+  should keep tool-leading assistant content as commentary and select the later final response', () => {
+  should select one final assistant response for each user turn', () => {
+
+src/lib/bounded-file-cache.test.ts
+  bounded file cache', () => {
+  should coalesce concurrent reads and invalidate changed files', async () => {
+  should evict least-recently-used entries within byte and entry ceilings', async () => {
+  should not retain a load that was invalidated while in flight', async () => {
+  should retain concurrent loads for independent files', async () => {
+
+src/lib/claude-code-db.test.ts
+  claude code workspace discovery', () => {
+  should resolve the default Claude Code data directory', () => {
+  should list workspace groups from local Claude Code project JSONL files', async () => {
+  should skip null JSONL records without losing valid Claude Code messages', async () => {
+  should list sessions for a workspace and parse a selected transcript', async () => {
+  should list Claude Code sub-agents beneath their parent with metadata titles and models', async () => {
+  should count Claude response fragments once and exclude synthetic user rows from message totals', async () => {
+  should coalesce compacted continuations into one full logical session', async () => {
+  should delete every physical transcript in a compacted session lineage', async () => {
+  should delete only a directly requested Claude Code continuation segment', async () => {
+  should tolerate concurrent parent and child deletes in the same compacted lineage', async () => {
+  should omit metadata-only Claude JSONL files from workspace and session lists', async () => {
+  should prefer a sibling transcript cwd over lossy hyphenated directory decoding', async () => {
+  should preserve the initial project identity when a session later visits another repository', async () => {
+  should keep the project root label when Claude Code sessions use generated worktrees', async () => {
+  should coalesce Claude Code worktree project directories into the root workspace', async () => {
+  should omit raw payloads when requested for large UI responses', async () => {
+  should locate and delete a Claude session by its body session id when the filename differs', async () => {
+  should preserve assistant phases when raw payloads are omitted', async () => {
+  should hide API errors and classify their parent assistant response as commentary', async () => {
+  should classify assistant responses followed by subagent task notifications as commentary', async () => {
+  should classify status responses followed by user-message task notifications as commentary', async () => {
+  should classify an assistant response interrupted by the user as commentary', async () => {
+  should delete a Claude Code session JSONL file', async () => {
+  should parse numeric Claude Code timestamps as epoch milliseconds', async () => {
+  should return empty results when Claude Code data is missing', async () => {
+
+src/lib/claude-code-transcript-phase.test.ts
+  claude code transcript phase helpers', () => {
+  should classify assistant tool-use stop messages as commentary', () => {
+  should classify text emitted after a tool use as a final answer', () => {
+  should classify assistant end-turn messages as final answers', () => {
+  should default assistant messages without a stop reason to final answers', () => {
+  should use a normalized assistant phase when raw payloads were omitted', () => {
+  should leave user messages unphased', () => {
+  should classify compaction summaries and local command envelopes as synthetic', () => {
+  should classify Claude API error messages as synthetic', () => {
+  should classify Claude synthetic assistant placeholders as synthetic', () => {
+
+src/lib/claude-code-transcript.test.ts
+  renderClaudeCodeTranscript', () => {
+  should render metadata, reasoning, tool calls, tool outputs, and messages as markdown', () => {
+  should omit optional metadata, commentary, and tools', () => {
+  should render true plain text when requested', () => {
+  should omit assistant tool-use lead-ins when commentary is disabled', () => {
+  should omit Claude compaction controls and synthetic assistant placeholders from exports', () => {
+
+src/lib/cline-db.test.ts
+  Cline session storage', () => {
+  should resolve the current Cline data directory by default', () => {
+  should discover current Cline sessions across multiple workspaces', async () => {
+  should parse current session messages into normalized transcript phases', async () => {
+  should retain a safe session with missing workspace metadata using an explicit storage fallback', async () => {
+  should read a validated task entry directly and preserve empty transcripts', async () => {
+  should delete the current Cline session directory', async () => {
+  should remove the session directory when index cleanup fails and report the failure', async () => {
+  should render current-session Markdown and plain-text exports', async () => {
+  should ignore the removed VS Code task-history format', async () => {
+  should return empty results for malformed session keys and missing data', async () => {
+
+src/lib/codex-analytics.test.ts
+  getCodexAnalytics', () => {
+  should aggregate global analytics from thread rows and parsed transcript events', async () => {
+  should report median tokens and source-specific breakdowns', async () => {
+  should rank deterministic optimization findings and repeated generic delegation themes', async () => {
+  should include custom tool calls in tool usage analytics', async () => {
+  should restrict analytics to a single derived project', async () => {
+  should build cache keys from DB row metadata without statting rollout files', () => {
+  should reuse the analytics cache without touching rollout files when DB metadata is unchanged', async () => {
+  should cap concurrent transcript analytics work for large thread sets', async () => {
+  should resolve tunable analytics transcript concurrency from explicit config', () => {
+
+src/lib/codex-browser-db.test.ts
+  codex browser db', () => {
+  should preserve concurrent session-index appends while removing deleted threads', () => {
+  should read a WAL database after a clean shutdown removed the sidecar files', async () => {
+  should group live threads into portable project summaries', async () => {
+  should query only aggregate and recent-thread columns for dashboard summaries', async () => {
+  should omit internal guardian subagents from user-facing listings while keeping edge-linked children', async () => {
+  should read rollout activity without blocking the synchronous request path', async () => {
+  should filter project threads in SQLite before hydrating rows', async () => {
+  should select only declared thread columns for project listings', async () => {
+  should include project threads that only exist in the session index and rollout files', async () => {
+  should read fallback rollout stats without allocating the whole file', async () => {
+  should omit fallback threads whose ID resolves to multiple rollout files', async () => {
+  should summarize fallback projects without parsing large irrelevant rollout records', async () => {
+  should sort fallback project threads by rollout activity and omit fallback subagents', async () => {
+  should return project thread rows sorted by update time and include browse metadata', async () => {
+  should reject a browse database with an actionable typed compatibility error', async () => {
+  should report every invalid dynamic-tool field in one compatibility error', async () => {
+  should report every invalid goal field in one compatibility error', async () => {
+  should report every invalid spawn-edge field in one compatibility error', async () => {
+  should batch browse in request order with fallback and missing outcomes without unbounded id parameters', async () => {
+  should preserve one relation across browse chunks without duplicate child edges', async () => {
+  should prefer the Codex session index title over the stored prompt text', async () => {
+  should invalidate session-index metadata when content changes without size or mtime changes', async () => {
+  should retain every model used by a project thread instead of only the final database model', async () => {
+  should give metadata-only subagent threads a navigable display title and preview', async () => {
+  should tolerate browse reads on schemas without optional relation or tool tables', async () => {
+  should skip transcript stat parsing for oversized rollouts in project thread lists', async () => {
+  should defer transcript stats for fast project thread lists when requested', async () => {
+  should keep project thread lists usable when a rollout file is missing', async () => {
+  should delete a thread row and its dependent records without touching the rollout file', async () => {
+  should bulk-delete unique Codex thread ids and preserve rollout files by default', async () => {
+  should make repeated same-id deletion idempotent and report optional cleanup outcomes', async () => {
+  should let a competing writer release its lock before the configured busy timeout expires', async () => {
+  should make concurrent child-process deletes of one id idempotent', async () => {
+  should delete paginated history rows for an individual thread', async () => {
+  should bulk-delete paginated history rows while retaining unrelated threads', async () => {
+  should roll back state and paginated history deletion when history mutation fails', async () => {
+  should delete project paginated history for state and fallback-only threads', async () => {
+  should report stale session-index entries in a dry run without mutating history', async () => {
+  should resolve the configured Codex thread database path', () => {
+  should delete a thread against the live schema even when optional tables are absent', async () => {
+  should delete the rollout session file when requested', async () => {
+  should reject an out-of-tree rollout path before deleting thread data', async () => {
+  should detach history only after a successful ATTACH', async () => {
+  should keep a deleted DB thread from reappearing through the fallback session index', async () => {
+  should remove stale Codex Desktop references when the database row is already gone', async () => {
+  should remove stale Codex Desktop catalog rows when the database row is already gone', async () => {
+  should delete fallback-only threads from the session index and disk', async () => {
+  should delete all threads that match a derived project basename', async () => {
+  should include project names for recent dashboard threads', async () => {
+  should use rollout file activity when dashboard thread timestamps are stale', async () => {
+  should list the most recently active rollout once per project', async () => {
+  should omit recent dashboard threads without a portable project key', async () => {
+  should delete all project session files when requested', async () => {
+  should reject async database callbacks before closing the connection early', async () => {
+  should delete very large projects without exceeding SQLite parameter limits', async () => {
+
+src/lib/codex-browser-export.test.ts
+  renderCodexThreadDownload', () => {
+  should treat wrapped archive file errors as archive-wide failures', () => {
+  should only classify known rollout failures as per-entry export failures', () => {
+  should render a thread export to downloadable markdown content', async () => {
+  should preserve raw JSON bytes with source and conversation filenames', async () => {
+  should apply project-root conversion and username redaction to exported content', async () => {
+  should omit commentary-phase assistant messages when export commentary is disabled', async () => {
+  should zip oversized exports and return a downloadable url instead of inline transcript content', async () => {
+  should zip a single thread export when requested', async () => {
+  should report a missing rollout file instead of surfacing a raw stat error', async () => {
+  should write oversized browser exports into the shared UI export directory when no override is provided', async () => {
+  should bundle multiple thread exports into a single zip download', async () => {
+  should keep every selected thread when batch export filenames would otherwise collide', async () => {
+  should keep exportable threads and record skipped threads in a batch manifest', async () => {
+  should fail a batch export when no selected thread can be exported', async () => {
+  should return a unique zip url for repeated multi-thread exports of the same selection', async () => {
+
+src/lib/codex-cloud.test.ts
+  Codex Cloud client', () => {
+  should report when the Codex CLI executable is missing', async () => {
+  should report a nonzero Codex CLI inventory exit', async () => {
+  should report invalid JSON from the Codex CLI inventory command', async () => {
+  should report a nonzero default Codex CLI refresh after a 401 response', async () => {
+  should explain a second unauthorized response without exposing credentials or response bodies', async () => {
+  should distinguish refresh failures without exposing the refresh error', async () => {
+  should reject malformed Cloud inventory envelopes instead of reporting an empty inventory', async () => {
+  should list all pages with the current-task filter and stop at a repeated cursor', async () => {
+  should preserve the safe generic error for a non-timeout HTTP failure', async () => {
+  should preserve a zero millisecond tool duration', () => {
+  should accept the normalized CLI list shape with project and diff metadata', async () => {
+  should group CLI task summaries by project without loading task transcripts', async () => {
+  should keep unlabeled environments in separate Cloud projects', async () => {
+  should refresh once after an unauthorized response without exposing credentials', async () => {
+  should map only completed canonical events and preserve one terminal final answer', () => {
+  should pair every completed command with a tool call when raw calls are absent', () => {
+  should synthesize only the commands without a matching raw tool call', () => {
+  should prefer canonical reasoning and command output over mirrored raw events', () => {
+  should use output items as the assistant fallback when a turn has other events', () => {
+  should not promote hidden file changes or in-progress commentary to a final answer', () => {
+  should allow a task detail response without leaking environment secrets', async () => {
+  should read diff patch and stats from the current diff turn', async () => {
+  should render filtered Markdown and plain text exports from the normalized Cloud events', () => {
+
+src/lib/codex-dashboard.test.ts
+  Codex dashboard', () => {
+  should normalize nullable display fields at the database boundary', async () => {
+
+src/lib/codex-database.test.ts
+  Codex thread row decoding', () => {
+  should preserve undefined nullable numbers as null in shared row decoding', () => {
+  should treat omitted nullable database fields as null', () => {
+  should report invalid nullable strings through the shared decoder', () => {
+  should canonicalize missing rollouts through existing ancestors and reject escaped parents', async () => {
+
+src/lib/codex-deletion-journal.test.ts
+  should retain a durable intent after an artifact failure and reconcile it without unrelated deletion', async () => {
+  should replay a durable intent after a process exits at each cross-store phase', async () => {
+  \\n').filter(line => line && JSON.parse(line).id !== threadId).join('\\n')); }
+  should report unsafe saved paths without applying any SQL or deleting the journal', async () => {
+  should recover a pending deletion on the next delete request while preserving retained rollouts', async () => {
+  should release the process lock and recover after interrupting real deletion operations', async () => {
+  should serialize different cross-process deletions without restoring index or global-state references', async () => {
+  \n')
+  should report malformed intents individually and still reconcile valid intents', async () => {
+
+src/lib/codex-fallback-index.test.ts
+  Codex fallback index cache', () => {
+  should evict old filesystem index entries while retaining recently used entries', async () => {
+  should reload a fallback row when a session file is replaced with matching size and mtime', async () => {
+
+src/lib/codex-optimization-analysis.test.ts
+  parseCodexOptimizationFile', () => {
+  should identify deterministic context leakage and repeated-work signals', async () => {
+  should leave final-only bounded agent results unflagged', async () => {
+
+src/lib/codex-path-scoped.test.ts
+  Codex path-scoped queries', () => {
+  should apply exact descendant and inclusive time filtering before row hydration', async () => {
+  should keep database thread ids authoritative when a matching fallback session has a different cwd', async () => {
+
+src/lib/codex-rollout-snapshot.test.ts
+  Codex rollout snapshots', () => {
+  should copy and accept a rollout when source identity remains stable', async () => {
+  should reject a source that changes while the snapshot is copied', async () => {
+  should accept metadata churn when the source content still matches the snapshot', async () => {
+  should reject a snapshot when the copy reports a byte mismatch', async () => {
+  should reject a same-size snapshot whose content hash differs', async () => {
+  should classify a missing source during stat as missing', async () => {
+  should classify an unreadable source during copy and preserve its cause', async () => {
+
+src/lib/codex-thread-cache.test.ts
+  getCachedThreadTranscriptPreview', () => {
+  should distinguish equal-size same-name rollouts in different directories', async () => {
+  should retain every model in chronological order and attribute assistant messages after a switch', async () => {
+  should report when a rollout should defer transcript loading', async () => {
+  should return the full transcript when the rollout is below the defer threshold', async () => {
+  should switch to preview mode when a rollout exceeds the configured size threshold', async () => {
+  should return the last visible events for a filtered oversized rollout preview', async () => {
+  should exclude injected user-role context from the server-filtered UI transcript', async () => {
+  should switch to preview mode when a rollout exceeds the default size threshold', async () => {
+  getCachedCodexTranscriptStats', () => {
+  should retry when the rollout changes while statistics are loading', async () => {
+  should reuse cached list statistics without parsing the rollout again', async () => {
+  should cache only transcript statistics for thread listings', async () => {
+
+src/lib/codex-thread-events.test.ts
+  Codex thread events', () => {
+  should share one rollout monitor across clients and release it after the final disconnect', () => {
+  should keep monitors for different rollout files isolated', () => {
+  should ref-count repeated subscriptions even when they use the same callback', () => {
+  should detect a real rollout file change while a live client is connected', async () => {
+  should multiplex thread changes over one stream and release every monitor on abort', async () => {
+
+src/lib/codex-thread-parser.test.ts
+  parseCodexTranscriptFile', () => {
+  should parse structured transcript events and summary stats from a rich Codex session file', async () => {
+  should support bounded preview parsing without raw payloads for oversized transcripts', async () => {
+  should report skipped invalid records when the event limit closes parsing early', async () => {
+  should omit messages that contain no renderable text blocks', async () => {
+  should hide Codex-injected user-role bootstrap context without hiding the actual user prompt', async () => {
+  should support filtered tail preview parsing for oversized transcripts', async () => {
+  should mark malformed exec_command arguments so callers can distinguish parse failure from missing data', async () => {
+  should parse custom tool calls alongside legacy function calls', async () => {
+  should parse token counts and web searches from event messages', async () => {
+  should strip Codex memory citation XML from visible message text', async () => {
+  should strip Codex app directive lines from visible assistant text', async () => {
+
+src/lib/codex-thread-recovery.test.ts
+  codex thread recovery', () => {
+  should not read or rewrite shared state while another process holds the deletion lock', async () => {
+  should retain only the newest recovery backups for each state file', async () => {
+  should refresh top-level project threads and add missing workspace roots', async () => {
+  \n')
+  should backfill saved roots and project order when the cwd is only active', async () => {
+  should preserve corrupt session-index lines while recovering valid threads', async () => {
+
+src/lib/codex-transcript-filter.test.ts
+  Codex transcript filtering', () => {
+  should apply message visibility controls independently', () => {
+  should gate tool and extra events behind their matching controls', () => {
+
+src/lib/codex-transcript-renderer.test.ts
+  codex transcript renderer helpers', () => {
+  should reject when the export destination fails while piping a transcript', async () => {
+  extracts only stable command metadata from tool output', () => {
+  parses exec_command arguments defensively', () => {
+  uses the assistant model name in exported thread content when available', async () => {
+  should fall back to the thread model when inline transcript messages omit their model field', async () => {
+  should omit hidden messages and commentary while exporting every tool record', async () => {
+  should render modern custom tools and generic legacy tools in inline and streaming exports', async () => {
+  should omit Codex app directive lines from clean markdown exports', async () => {
+  should preserve an introductory paragraph before a markdown heading', async () => {
+  should omit memory citation XML and injected context records hidden by the transcript UI', async () => {
+  should support metadata-free transcript export and transformed streaming output', async () => {
+  should clean up temporary files in writeCodexSessionFileExport when an error occurs', async () => {
+
+src/lib/command-code-db.test.ts
+  Command Code filesystem reader', () => {
+  should normalize linear sessions, bind tools, and select final answers per user turn', async () => {
+  should read a targeted session without parsing unrelated malformed files', async () => {
+  should reject an oversized targeted session before reading its contents', async () => {
+  should group sessions by exact recorded cwd and ignore bookkeeping files', async () => {
+  should preserve an epoch-zero workspace timestamp', async () => {
+  should delete a session and its matching sidecars without deleting sibling sessions', async () => {
+  should delete every identical copy of a session', async () => {
+  should delete a malformed target and recover sidecars after the main file is gone', async () => {
+  should fail closed when a matching sidecar is unsafe', async () => {
+  should fail closed for malformed, mismatched, non-linear, and conflicting sessions', async () => {
+
+src/lib/command-code-transcript.test.ts
+  renderCommandCodeTranscript', () => {
+  should render metadata, commentary, tools, and final messages when enabled', () => {
+  should omit commentary, metadata, and tools when disabled', () => {
+  should render plain text output', () => {
+
+src/lib/concurrency.test.ts
+  mapWithConcurrency', () => {
+  should preserve result order while limiting concurrent work', async () => {
+  should fall back to one worker for invalid limits', async () => {
+  should stop starting queued work after a mapper rejects', async () => {
+  createConcurrencyLimiter', () => {
+  should bound independent async jobs through one shared queue', async () => {
+  limiter cancellation', () => {
+  should remove aborted queued work without running it', async () => {
+  should abort active callers but retain capacity until their work settles', async () => {
+  should time out queued work and preserve completed results after a later abort', async () => {
+  should propagate active timeout and drain after rejection cleanup', async () => {
+  should reject pre-aborted work and invalid deadlines without admitting it', async () => {
+
+src/lib/conversation-api.test.ts
+  conversation API handler', () => {
+  should convert supplied payloads through the stable API and preserve artifacts', async () => {
+  should expose ChatGPT Deep Research artifacts through the stable API', async () => {
+  should return payload conversion errors as stable validation responses', async () => {
+  should reject an oversized payload request before conversion', async () => {
+  should enforce the payload limit for a chunked request without Content-Length', async () => {
+  should reject unsupported methods for the payload endpoint', async () => {
+  should reject cross-origin requests before loading conversations', async () => {
+  should export focused evidence through the stable POST envelope', async () => {
+  should identify the exact invalid lens path before loading a conversation', async () => {
+  should reject invalid generated timestamps without loading a conversation', async () => {
+  should return source metadata in a stable envelope', async () => {
+  should accept Command Code as a stable workspace source', async () => {
+  should query conversations for a cwd with the last final answer selector', async () => {
+  should reject a relative cwd instead of resolving it against the server process', async () => {
+  should reject a whitespace-only cwd instead of treating it as global scope', async () => {
+  should accept snake_case JSON options for conversation query clients', async () => {
+  should deduplicate repeated source filters before adapter fan-out', async () => {
+  should allow global list queries without a cwd', async () => {
+  should reject source scopes that do not match the list scope', async () => {
+  should not dispatch GET batch-action paths to the conversation list handler', async () => {
+  should reject unsupported source filters', async () => {
+  should reject unsupported message selectors', async () => {
+  should reject invalid cursors and timestamps', async () => {
+  should reject malformed numeric and boolean JSON options', async () => {
+  should reject non-string JSON cwd options without throwing', async () => {
+  should reject malformed numeric query options', async () => {
+  should reject fractional timestamp query options', async () => {
+  should reject malformed conversation ids instead of throwing', async () => {
+  should reject extra API path segments and include Allow for known resources', async () => {
+  should resolve conversation refs through the API', async () => {
+  should return conversation detail with all messages by default', async () => {
+  should export one conversation with the requested message selector', async () => {
+  should pass through a raw transcript without parsing or rewriting it', async () => {
+  should expose raw transcript headers without sending a body to HEAD probes', async () => {
+  should reject message selectors for raw transcript passthroughs', async () => {
+  should delete supported conversations through the public API', async () => {
+  should forward Cursor session-file preservation through delete requests', async () => {
+  should delete an explicit set of conversations through the public API', async () => {
+  should forward Cursor session-file preservation through batch delete requests', async () => {
+  should reject unsafe destructive ids before reaching delete handlers', async () => {
+  should reject repeated-dot destructive ids before reaching delete handlers', async () => {
+  should return the stable error envelope when a delete adapter throws', async () => {
+  should reject unsafe destructive ids in batch deletes before reaching delete handlers', async () => {
+  should reject unsafe ids in batch exports before reaching source adapters', async () => {
+  should zip an explicit set of conversations through the public API with all messages by default', async () => {
+  should load batch export conversations with bounded concurrency while preserving input order', async () => {
+  should reject unsupported batch export formats', async () => {
+  should report unsupported and missing deletes without deleting anything else', async () => {
+
+src/lib/conversation-data/adapter-helpers.test.ts
+  conversation adapter helpers', () => {
+  should decode POSIX, Windows drive, and UNC file URIs', () => {
+  should preserve malformed percent encoding in file URIs', () => {
+  should apply updated time windows before transcript hydration', () => {
+  should encode conversation ids in portable and UI deep links', () => {
+  should extract a tool namespace without retaining the delimiter', () => {
+  should omit an unavailable canonical model from normalized messages', () => {
+
+src/lib/conversation-data/antigravity-adapter.test.ts
+  antigravity conversation adapter', () => {
+  should expose only the last assistant answer for collection and derive the Gemini model name', async () => {
+  should expose paired live trajectory evidence and invalidate cached messages after a WAL update', async () => {
+  should match conversations that explicitly reference the requested project path', async () => {
+  should assign unique ids when transcript entries reuse a step index and phase', async () => {
+
+src/lib/conversation-data/claude-code-adapter.test.ts
+  Claude Code conversation adapter', () => {
+  should normalize transcript phases, tools, metadata, and message order', async () => {
+  should list path-scoped Claude conversations within an updated-time window', async () => {
+
+src/lib/conversation-data/cline-adapter.test.ts
+  Cline conversation adapter', () => {
+  should list Cline chats for a cwd with the selected final answer', async () => {
+  should resolve Cline task URLs and delete chats through the stable facade', async () => {
+
+src/lib/conversation-data/codex-adapter.test.ts
+  codex conversation adapter', () => {
+  should list matching Codex conversations for a cwd with selected final answers', async () => {
+  should read a Codex conversation detail by id', async () => {
+  should pass through the original Codex JSONL transcript bytes', async () => {
+  should keep Codex conversations available when one rollout file disappears', async () => {
+  should omit centralized hidden Codex bootstrap messages from normalized conversations', async () => {
+  should normalize invalid timestamps, unknown phases, and sparse event sequences', async () => {
+  should omit empty Codex tool outputs from normalized messages', async () => {
+  should resolve Codex UI and native thread references', async () => {
+
+src/lib/conversation-data/command-code-adapter.test.ts
+  Command Code conversation adapter', () => {
+  should apply path matching and message selectors through the stable adapter contract', async () => {
+  should return the selected original JSONL bytes and expose delete operation', async () => {
+
+src/lib/conversation-data/cursor-adapter.test.ts
+  cursorConversationAdapter', () => {
+  should report only confirmed transcript removals and preserve cleanup failures', () => {
+  should refuse custom-directory deletes while Cursor is running', async () => {
+  should classify intermediate assistant progress as commentary', async () => {
+  should list path-scoped Cursor conversations within an updated-time window', async () => {
+
+src/lib/conversation-data/delete-adapter.test.ts
+  conversation delete adapters', () => {
+  should delete Codex conversations and rollout files through the stable facade', async () => {
+  should delete explicit Codex conversation sets through the stable facade', async () => {
+  should count descendant ids deleted by an earlier cascading delete as deleted', async () => {
+  should delete Claude Code sessions through the stable facade without treating ids as paths', async () => {
+  should delete Kiro sessions, index entries, and execution files through the stable facade', async () => {
+  should delete Command Code conversations and sidecars through the stable facade', async () => {
+  should delete Cursor threads through the stable facade using an exact composer id', async () => {
+  should delete Antigravity conversations through the stable facade without accepting unsafe ids', async () => {
+  should delete OpenCode sessions and child sessions through the stable facade', async () => {
+  should keep Qoder delete unsupported until a safe source-specific delete primitive exists', async () => {
+  should return not-found style delete results for missing supported conversations', async () => {
+
+src/lib/conversation-data/evidence.test.ts
+  focused evidence', () => {
+  should validate bounded lenses and reject unknown or unsafe fields with a precise path', () => {
+  should parse shell invocations without matching comments or output substrings', () => {
+  should match every anchor kind with AND semantics inside an anchor', () => {
+  should pair by call id, use explicit ordered fallback, merge retries, and preserve source order', () => {
+  should retain the exact ordered-fallback output for call-id-less calls', () => {
+  should omit mechanical progress while following configured linked tool activity', () => {
+  should produce the same semantic episode for every supported source', () => {
+  should render deterministic, traceable, fence-safe Markdown within the hard budget', () => {
+  should render the body of a matched non-tool message instead of retaining only its trace', () => {
+  should sanitize portable headings and retain a complete ledger at the minimum budget', () => {
+  should project structured arrays, truncate unknown text, and deduplicate diagnostics with accounting', () => {
+  should preserve scalar leaves at the structured depth limit', () => {
+  should bound multi-megabyte outputs before rendering and account for binary payloads', () => {
+  should report only retained invocation retries and reject an impossible total budget', () => {
+
+src/lib/conversation-data/fx-adapter.test.ts
+  FX conversation adapter', () => {
+  should list path-scoped FX conversations with the selected final answer', async () => {
+  should expose commentary and paired tool evidence with monotonic order', async () => {
+  should resolve FX session URLs', async () => {
+  should delete FX sessions through the stable facade', async () => {
+
+src/lib/conversation-data/grok-adapter.test.ts
+  grok conversation adapter', () => {
+  should list Grok conversations for a cwd with selected final answers', async () => {
+  should assign unique monotonic message order values', async () => {
+  should resolve and delete Grok conversations through the stable facade', async () => {
+
+src/lib/conversation-data/grok-bot-adapter.test.ts
+  grok bot conversation adapter', () => {
+  should normalize direct and group chats without inventing model or workspace data', async () => {
+  should keep list reads bounded, expose exact raw bytes, and support delete', async () => {
+
+src/lib/conversation-data/index.test.ts
+  conversation data facade', () => {
+  should keep all-source collection resilient when integrations are not installed', async () => {
+  should warn when all-source collection skips a broken integration', async () => {
+  should render markdown with the requested message selector', () => {
+  should render stable markdown for empty and unknown-role messages', () => {
+  should reject malformed local pagination cursors', async () => {
+  should return an isolated scoped source metadata array', async () => {
+  should keep global chats out of workspace-scoped collection', async () => {
+  should resolve only exact supported UI route prefixes', async () => {
+  should expose Command Code through the stable conversation facade', async () => {
+
+src/lib/conversation-data/kiro-adapter.test.ts
+  Kiro conversation adapter', () => {
+  should normalize paired Kiro command evidence without a result-pairing limitation', () => {
+  should preserve user attachments and classify the final assistant response', async () => {
+
+src/lib/conversation-data/message-selector.test.ts
+  conversation message selection', () => {
+  should return all messages when requested', () => {
+  should select the last assistant final answer for review collection', () => {
+  should select the last assistant message regardless of phase', () => {
+  should not treat commentary as a final answer when no final answer exists', () => {
+  should not expose reasoning as a final-answer fallback', () => {
+
+src/lib/conversation-data/minimax-code-adapter.test.ts
+  MiniMax Code conversation adapter', () => {
+  should list MiniMax Code conversations for a cwd with the selected final answer', async () => {
+  should use the newest transcript message when runtime session activity is stale', async () => {
+  should preserve reasoning and paired tool evidence with monotonic message order', async () => {
+  should resolve MiniMax Code session URLs', async () => {
+  should delete MiniMax Code sessions through the stable facade', async () => {
+
+src/lib/conversation-data/opencode-adapter.test.ts
+  opencodeConversationAdapter', () => {
+  should preserve think-tag literals in user messages', async () => {
+  should list path-scoped OpenCode conversations within an updated-time window', async () => {
+
+src/lib/conversation-data/pagination.test.ts
+  conversation keyset pagination', () => {
+  should continue after the last sort key when newer conversations arrive', () => {
+  should use source and id as deterministic tie breakers', () => {
+  should reject malformed and obsolete offset cursors', () => {
+
+src/lib/conversation-data/path-match.test.ts
+  conversation path matching', () => {
+  should match exact workspace paths', async () => {
+  should match conversations nested under the requested project root', async () => {
+  should not match unrelated projects with the same basename', async () => {
+  should normalize trailing separators and home-prefixed paths', async () => {
+  should match descendants of the filesystem root', async () => {
+  should normalize paths lexically without reading unavailable filesystem targets', async () => {
+
+src/lib/conversation-data/qoder-adapter.test.ts
+  qoder conversation adapter', () => {
+  should expose multiline prompts and Qoder CLI transcript messages through the stable API', async () => {
+
+src/lib/conversation-data/raw-download.test.ts
+  raw conversation downloads', () => {
+  should expose JSON source bytes without parsing or rewriting them', async () => {
+  should reject missing and non-JSON source files', async () => {
+
+src/lib/conversation-payload-antigravity.test.ts
+  parseAntigravityPayload', () => {
+  should parse self-contained Antigravity transcript JSONL', () => {
+  should preserve inline artifacts and reject external or binary Antigravity payloads', () => {
+  should reject duplicate Antigravity conversations and return null for unrelated data', () => {
+
+src/lib/conversation-payload-cline.test.ts
+  Cline payload parser', () => {
+  should parse the stored messages envelope with Cline phases and tools', () => {
+  should return null for unrelated payloads and reject malformed recognized messages', () => {
+
+src/lib/conversation-payload-codex.test.ts
+  parseCodexPayload', () => {
+  should parse a native Codex JSONL transcript into normalized messages', () => {
+  should parse a Codex Cloud task export using the existing Cloud event mapping', () => {
+  should return null for an unrelated payload', () => {
+  should parse raw transcript events without optional session metadata', () => {
+  should reject a recognized Codex payload with an invalid transcript record', () => {
+
+src/lib/conversation-payload-cursor.test.ts
+  parseCursorPayload', () => {
+  should parse a self-contained Cursor composer export into normalized messages', () => {
+  should parse Cursor agent JSONL when an explicit source hint disambiguates roles', () => {
+  should reject malformed and duplicate Cursor conversations', () => {
+
+src/lib/conversation-payload-fx.test.ts
+  parseFxPayload', () => {
+  should parse a self-contained FX checkpoint and event bundle', () => {
+  should reject a recognized FX session without its checkpoint or event log', () => {
+  should reject an event log that has no session metadata', () => {
+  should parse a raw checkpoint object without a wrapper file name', () => {
+  should parse complete committed turns without session metadata', () => {
+  should leave a generic session and messages payload for its native parser', () => {
+  should return null for an unrelated payload', () => {
+
+src/lib/conversation-payload-grok-bot.test.ts
+  parseGrokBotPayload', () => {
+  should parse a self-contained Grok Bot transcript replica blob', () => {
+  should parse exact roster envelopes with inline transcript rows', () => {
+  should accept self-contained replicas without roster ids and reject malformed blobs or duplicates', () => {
+  should reject incomplete roster exports, unsupported schemas and partially malformed batches', () => {
+
+src/lib/conversation-payload-grok.test.ts
+  Grok payload parser', () => {
+  should parse chat history JSONL records with reasoning, tools, and models', () => {
+  should return null for unrelated payloads and reject malformed recognized history', () => {
+
+src/lib/conversation-payload-kiro.test.ts
+  Kiro payload parser', () => {
+  should parse a workspace session with text and image history', () => {
+  should return null for unrelated payloads and reject malformed recognized history', () => {
+
+src/lib/conversation-payload-minimax-code.test.ts
+  parseMiniMaxCodePayload', () => {
+  should parse a MiniMax Code v2 snapshot with reasoning and tool evidence', () => {
+  should parse a self-contained MiniMax messages JSONL envelope', () => {
+  should parse a standalone MiniMax messages log with optional session metadata', () => {
+  should return null for an unrelated payload', () => {
+
+src/lib/conversation-payload-opencode.test.ts
+  parseOpenCodePayload', () => {
+  should parse a self-contained OpenCode session export with reasoning and tools', () => {
+  should split assistant think tags while preserving user literals', () => {
+  should parse OpenCode exported info records and preserve message model IDs', () => {
+  should keep missing timestamps null instead of using the Unix epoch', () => {
+  should reject malformed and duplicate OpenCode sessions', () => {
+
+src/lib/conversation-payload-qoder.test.ts
+  Qoder payload parser', () => {
+  should parse CLI JSONL records with reasoning, tools, and model labels', () => {
+  should parse exported ACP JSON-RPC updates with streamed reasoning and model metadata', () => {
+  should return null for unrelated payloads and reject incomplete recognized payloads', () => {
+
+src/lib/conversation-payload.test.ts
+  portable payload conversion', () => {
+  should bundle and convert every source using only Web runtime APIs', async () => {
+
+src/lib/conversation-zip-export.test.ts
+  createConversationMarkdownZip', () => {
+  should byte-limit multibyte entry names and keep duplicate names unique', async () => {
+  should clean temporary artifacts when building an entry throws', async () => {
+  should retain temporary cleanup failures for reporting without throwing them', async () => {
+
+src/lib/cursor-chat-store.test.ts
+  Cursor chat stores', () => {
+  should decode the persisted model and reasoning effort from modern chat blobs', () => {
+  should resolve a chat store through the trusted workspace path hash', async () => {
+  should reject malformed trusted workspace metadata', async () => {
+
+src/lib/cursor-db.test.ts
+  cursor-db workspace discovery', () => {
+  should preserve malformed percent escapes in workspace URIs', () => {
+  should group duplicate buckets for the same folder under one workspace', async () => {
+  should count distinct threads once even when they appear in multiple buckets', async () => {
+  should defer bubble payload scans until exact thread stats are requested', async () => {
+  should coalesce concurrent workspace discovery for the same Cursor user directory', async () => {
+  should hydrate only the directly requested composer summary', async () => {
+  should count bubbles for composer ids containing colons', async () => {
+  should keep a short composer id separate from a colon-bearing child id', async () => {
+  should diagnose oversized history entries before parsing them', async () => {
+  should tolerate a valid but malformed history entries shape', async () => {
+  should group modern Cursor orchestrators and subagents under their multi-root workspace', async () => {
+  should identify moved root snapshots without conflating their subagents', async () => {
+  should match a workspace by folder basename query', async () => {
+  should surface threads whose workspace bucket no longer exists (via header uri)', async () => {
+  should infer the workspace folder from tool-call paths for headerless orphan threads', async () => {
+  should infer Linux and Windows workspace folders for headerless orphan threads', async () => {
+  should infer the workspace folder from head content for empty headerless threads', async () => {
+  should surface projects that only exist in Cursor file history', async () => {
+  should ignore null global composer heads during workspace discovery', async () => {
+  should ignore SQL null global composer head values during workspace discovery', async () => {
+  should tolerate malformed global composer heads during bounded discovery', async () => {
+  should list threads for a workspace with bubble counts', async () => {
+  should resolve transcript directories from the explicit Cursor user dir', async () => {
+  should resolve transcript directories for a deletion batch in one result map', async () => {
+  should discover a Cursor CLI transcript without a SQLite composer record', async () => {
+  should hydrate a CLI-only thread model from its modern Cursor chat store', async () => {
+  should reject composer ids that escape the agent transcript directory', async () => {
+  should parse JSONC code-workspace files when resolving workspace folders', async () => {
+  should ignore stale code-workspace references without warning', async () => {
+  cursor-db transcript reads', () => {
+  should read an ordered thread head from the global store', async () => {
+  should resolve renderable bubbles in order', async () => {
+  should use SQLite insertion order when a legacy head has no bubble ordering index', async () => {
+  should report omitted bubbles when Cursor truncated the header index', async () => {
+  should append tail messages from Cursor agent transcript files', async () => {
+  should retain missing replay events beside their own turn anchors', async () => {
+  should retain agent tool calls that precede a SQLite final answer', async () => {
+  should use pre-resolved transcript directories without rediscovering them', async () => {
+  should skip stale CLI transcript parsing before reading its contents', async () => {
+  should append all agent transcript messages when no overlap exists', async () => {
+  should not append duplicate bubbles when agent transcript is already covered by SQLite bubbles', async () => {
+  should preserve ordered tail messages from multiple agent transcript files', async () => {
+  should preserve newer text when an agent bubble extends SQLite text', async () => {
+  should merge agent transcript tails without duplicating overlapping tool calls with output', async () => {
+  should warn and continue when agent transcript JSONL lines are malformed', async () => {
+  should stream agent JSONL while preserving physical line numbers', async () => {
+  should return no transcript when an agent JSONL stream cannot be read', async () => {
+  openCursorReadonlyDb', () => {
+  should enable sqlite uri parsing for immutable readonly opens', () => {
+  should build a portable immutable file uri for absolute database paths', () => {
+  should build Windows drive and UNC readonly database URIs', () => {
+  should preserve Windows path semantics in related Cursor directory helpers', () => {
+  should read a WAL database after a clean shutdown removed the -wal/-shm sidecars', async () => {
+  should include committed WAL rows while Cursor still has the database open', async () => {
+  should retry a blocked readonly query while an exclusive writer holds the database', async () => {
+  should reject an asynchronous callback instead of closing its handle early', async () => {
+  parseCursorBubble', () => {
+  should classify user and assistant bubble kinds', () => {
+  should extract thinking text and tool call data', () => {
+  Cursor bounded discovery', () => {
+  should apply inclusive lower and upper bounds to direct and grouped lookups', async () => {
+  should retain upper-bound header-only threads without enumerating global heads', async () => {
+
+src/lib/cursor-id.test.ts
+  Cursor bubble key ranges', () => {
+  should bound a composer prefix before the semicolon terminator', () => {
+
+src/lib/cursor-operation-journal.test.ts
+  should retain failed intent, replay it on restart, and reconcile idempotently', async () => {
+  should persist the exact serialized intent that passed the size check', async () => {
+  should reject concurrent writers and leave unresolved intent available', async () => {
+  should recover a child process killed after each store phase without touching another workspace', async () => {
+  should retain unresolved paths and reject a transcript symlink after a crash', async () => {
+  should retain partial cleanup intent and refuse unsupported journal versions', async () => {
+  should finalize a committed marker without replaying destructive work', async () => {
+  should resume a workspace merge after a child dies with its target bucket updated', async () => {
+  should treat a journal completed by a concurrent reconciler as a successful no-op', async () => {
+  should serialize an explicit cleanup retry and finish its pending journal', async () => {
+
+src/lib/cursor-recovery.test.ts
+  recoverCursorWorkspaceGroup', () => {
+  should report the merge plan without writing during a dry run', async () => {
+  should relink headers to the newest bucket when applied', async () => {
+  should write merged threads into the active bucket composer.composerData for non-migrated layouts', async () => {
+  should retry a same-database write transaction after a competing writer releases the lock', async () => {
+  should restore the target bucket when the global transaction exhausts its retry budget', async () => {
+  should fail closed without creating a missing Cursor database', async () => {
+  pruneCursorThreads', () => {
+  should preserve on-disk transcript directories when session-file deletion is disabled', async () => {
+  should reject transcript directories that escape through a symbolic link', async () => {
+  should reject a transcript symlink to another composer directory inside Cursor projects', async () => {
+  should preview deletion impact without applying', async () => {
+  should delete bubbles and headers when applied', async () => {
+  should fully delete a thread from every bucket and the global store via composer ids', async () => {
+  should delete modern composer headers so removed threads are not rediscovered', async () => {
+  should physically remove every storage bucket for an already-empty workspace', async () => {
+  should reject a bucket symlink even when its target is inside workspace storage', async () => {
+  should remove matching file-history entries without deleting a sibling workspace', async () => {
+  should diagnose corrupt history entries and continue deleting valid siblings', async () => {
+  should skip oversized history entries and report partial cleanup', async () => {
+  should create an atomic prune backup containing legacy global headers', async () => {
+  should count unique transcript directories that were actually removed', async () => {
+  should discover transcript directories when a deletion summary omits them', async () => {
+  should retry a failed transcript cleanup from its target after workspace discovery is gone', async () => {
+  should treat an already-missing workspace storage directory as an idempotent cleanup', async () => {
+  should restore earlier bucket updates when a later bucket mutation fails', async () => {
+  should restore earlier bucket updates when a later bucket remains locked', async () => {
+  should treat underscores in composer ids as literals when deleting bubble keys', async () => {
+  should count, back up, and delete only the requested composer when ids share a colon prefix', async () => {
+  should roll back global thread deletion when a later global mutation fails', async () => {
+
+src/lib/cursor-transcript-phase.test.ts
+  Cursor transcript phase classification', () => {
+  should select the last assistant text in each turn as final', () => {
+  should ignore empty assistant bubbles when selecting a final answer', () => {
+
+src/lib/cursor-transcript.test.ts
+  renderCursorBubble', () => {
+  should render a user bubble as a User section', () => {
+  should omit reasoning unless commentary is enabled', () => {
+  should include reasoning when commentary is enabled', () => {
+  should omit tool calls unless tools are enabled', () => {
+  should not render unknown bubbles as assistant messages', () => {
+  renderCursorToolCall', () => {
+  should render name, arguments, and result', () => {
+  renderCursorTranscript', () => {
+  should render a full transcript with metadata header', () => {
+  should use the thread model for assistant section headings', () => {
+  should include a truncation note when messages were omitted', () => {
+  should return null when there is nothing renderable', () => {
+  should omit invalid timestamp metadata instead of throwing', () => {
+  should omit intermediate assistant progress when commentary is disabled', () => {
+
+src/lib/file-mutation-lock.test.ts
+  should serialize asynchronous actions while allowing timers to release contention', async () => {
+  should release the transaction and handles when its action rejects', async () => {
+  should preserve the action error when lock cleanup also fails', async () => {
+
+src/lib/fx-db.test.ts
+  FX db helpers', () => {
+  should list FX workspaces and sessions with transcript statistics', async () => {
+  should reconstruct checkpoint, committed, and in-progress turns with full tool results', async () => {
+  should omit raw payloads for bounded API hydration', async () => {
+  should delete a session directory and its index and latest references', async () => {
+  should reject unsafe session ids without deleting data', async () => {
+
+src/lib/fx-transcript-phase.test.ts
+  FX transcript phase', () => {
+  should classify completed assistant turns as final answers', () => {
+  should classify tool and in-progress assistant messages as commentary', () => {
+
+src/lib/fx-transcript.test.ts
+  FX transcript rendering', () => {
+  should render metadata, commentary, tool evidence, and final answers', async () => {
+  should omit commentary and tools when export options disable them', async () => {
+
+src/lib/grok-bot-db.test.ts
+  grok bot persistence', () => {
+  should classify only pgrep statuses zero and one as running and stopped', async () => {
+  should fail closed when the Grok Bot running check is unavailable', async () => {
+  should encode persistence keys as unpadded lowercase base32', () => {
+  should list only the active account roster without reading transcript replicas', async () => {
+  should delete one conversation replica and preserve the other roster rows', async () => {
+  should delete an oversized transcript replica without reading it', async () => {
+  should reject malformed active-account metadata and requested replicas', async () => {
+  Grok Bot deletion recovery', () => {
+  should retry a failed replica removal even after its roster row is gone', async () => {
+  should preserve replica bytes and sibling rows when roster replacement fails', async () => {
+  should resume after a process exits following the ${phase} phase`, async () => {
+  crash', () => deleteGrokBotConversation(${JSON.stringify(root)}, ${JSON.stringify(BAMBA_ID)}, async () => false));
+  should refuse replacement replicas and symlinked receipts on retry', async () => {
+  should re-read sibling roster changes made before the stopped-app check completes', async () => {
+  should report the receipt path when only receipt cleanup remains', async () => {
+
+src/lib/grok-db.test.ts
+  grok db helpers', () => {
+  should preserve structured assistant content arrays', async () => {
+  should not duplicate an archived prefix when a compaction checkpoint is missing', async () => {
+  should compare compaction prefixes independently of object key order', async () => {
+  should list Grok workspaces, sessions, and transcript parts from local session files', async () => {
+  should skip null JSONL records without losing valid Grok messages', async () => {
+  should omit Grok sessions that contain only system bootstrap messages', async () => {
+  should rehydrate Grok messages hidden by context compaction', async () => {
+  should use the checkpoint prompt index when compacted history is not the live prefix', async () => {
+  should rehydrate messages across multiple Grok compactions', async () => {
+  should omit raw Grok payloads when requested for large UI responses', async () => {
+  should delete a Grok session directory and active session entry', async () => {
+  should reject unsafe ids in the direct Grok delete primitive', async () => {
+  should delete a basename-matched session without parsing unrelated corrupt transcripts', async () => {
+  should warn when active session state is malformed', async () => {
+  should delete Grok subagent metadata and parent resource references for a session', async () => {
+
+src/lib/grok-transcript-phase.test.ts
+  grok transcript phase helpers', () => {
+  should mark tool-leading Grok assistant text as commentary and the terminal answer as final', () => {
+  should not assign an assistant phase to user text', () => {
+
+src/lib/grok-transcript.test.ts
+  renderGrokTranscript', () => {
+  should render metadata, commentary, tools, and final messages when enabled', () => {
+  should omit progress commentary, metadata, and tools when disabled', () => {
+  should render true plain text output', () => {
+
+src/lib/kiro-db.test.ts
+  kiro workspace discovery', () => {
+  should treat empty timestamps as missing and omit empty sessions from listings', async () => {
+  should resolve the default Kiro data directory', () => {
+  should list workspace groups from Kiro workspace session JSON files', async () => {
+  should list sessions for a workspace and parse a selected transcript', async () => {
+  should always merge explicit Kiro continuation chains under the parent session', async () => {
+  should keep ambiguous Kiro tab branches as physical sessions', async () => {
+  should delete only a directly requested Kiro continuation segment', async () => {
+  should delete a Kiro session file, index entry, and matching execution files', async () => {
+  should preserve stale, mismatched, and out-of-scope execution references during deletion', async () => {
+  should serialize concurrent deletes that update the same session index', async () => {
+  should keep Kiro text blocks in one user entry and append execution assistant messages', async () => {
+  should index execution files in deeper changed storage layouts', async () => {
+  should rehydrate only the selected session execution files after routing', async () => {
+  should serialize cold execution index reads to bound peak memory', async () => {
+  should emit one low-noise diagnostic for malformed session JSON', async () => {
+  should diagnose a session schema mismatch without treating it as history', async () => {
+  should interleave Kiro execution entries at their matching assistant placeholders', async () => {
+  should pair unmatched Kiro placeholders with complete executions in order', async () => {
+  should locate and delete a Kiro session by its body session id when the filename differs', async () => {
+  should return empty results when Kiro data is missing', async () => {
+  should apply inclusive timestamp bounds to session listings', async () => {
+  should avoid hydrating malformed sessions outside the requested timestamp window', async () => {
+  should include older continuation parents needed by an in-window child', async () => {
+  should exclude a bounded root when its newer continuation is outside the upper bound', async () => {
+
+src/lib/kiro-transcript-phase.test.ts
+  kiro transcript phase helpers', () => {
+  should classify the last assistant message before each user turn as final answer', () => {
+  should ignore tool-call entries when computing final assistant messages', () => {
+  should keep assistant progress immediately followed by a tool call out of final answers', () => {
+  should keep Kiro acknowledgement placeholders out of final answers', () => {
+
+src/lib/kiro-transcript.test.ts
+  renderKiroTranscript', () => {
+  should render metadata, messages, and image attachments as markdown', () => {
+  should omit optional metadata while preserving user attachments', () => {
+  should omit assistant commentary attachments while preserving user attachments', () => {
+  should render true plain text when requested', () => {
+  should respect commentary and tool export options', () => {
+  should include paired command calls and outputs only when tools are exported', () => {
+  should keep the final answer for each Kiro user turn when commentary is disabled', () => {
+
+src/lib/local-request-security.test.ts
+  local request security', () => {
+  should reject a non-loopback request URL even when its origin matches', () => {
+  should allow loopback requests with no browser origin', () => {
+  should allow loopback aliases on the same local origin', () => {
+  should allow IPv6 loopback URLs', () => {
+
+src/lib/minimax-code-db.test.ts
+  MiniMax Code db helpers', () => {
+  should list workspaces and sessions from finalized v2 snapshots', async () => {
+  should derive the latest model from snapshot Pi history when record metadata is absent', async () => {
+  should parse chat, reasoning, tool evidence, and final answers while ignoring todo state', async () => {
+  should skip malformed snapshots and sessions without chat messages', async () => {
+  should list and read sessions stored as manifest.json plus messages.jsonl', async () => {
+  should reconstruct compacted sessions from archived context snapshots', async () => {
+  should read the effective model from runtime extra_data_json', async () => {
+  should reject manifest messages sessions without runtime workspace metadata', async () => {
+  should delete a finalized session directory and every authoritative runtime row', async () => {
+  should restore session files and preserve runtime rows when the session is locked', async () => {
+  should reject unsafe session ids without deleting files', async () => {
+
+src/lib/minimax-code-transcript-phase.test.ts
+  MiniMax Code transcript phases', () => {
+  should distinguish tool-use commentary from completed final answers', () => {
+  should not assign assistant phases to user messages', () => {
+
+src/lib/minimax-code-transcript.test.ts
+  MiniMax Code transcript renderer', () => {
+  should render user, reasoning, commentary, tool, and final-answer sections', async () => {
+  should omit commentary and tools while retaining user messages and the final answer', async () => {
+
+src/lib/model-label.test.ts
+  model label formatting', () => {
+  should format common model identifiers for display', () => {
+  should normalize mixed separators without changing numeric versions', () => {
+
+src/lib/opencode-db.test.ts
+  OpenCode bounded session queries', () => {
+  should apply inclusive timestamp bounds before session hydration', async () => {
+  opencode db helpers', () => {
+  should keep database diagnostics quiet unless explicitly enabled', async () => {
+  should resolve the default XDG data directory', () => {
+  should build a read SQLite URI for paths with spaces', () => {
+  should resolve tunable OpenCode database concurrency', () => {
+  should group top-level sessions by project workspace', async () => {
+  should keep set-based workspace counts isolated by project', async () => {
+  should expose global OpenCode sessions as directory workspaces', async () => {
+  should reject blank global session directories and emit one diagnostic per session', async () => {
+  should reject a blank global session during a direct transcript lookup with a diagnostic', async () => {
+  should read a WAL database when its sidecar files do not exist', async () => {
+  should prevent writes through an OpenCode read connection', async () => {
+  should reuse schema validation until the database modification time changes', async () => {
+  should read an OpenCode database from a read-only filesystem', async () => {
+  should coalesce nullable legacy token columns to zero', async () => {
+  should encode workspace file URIs for paths with spaces', async () => {
+  should match workspaces by basename or path query', async () => {
+  should list top-level sessions for a workspace', async () => {
+  should surface an unopenable OpenCode db path instead of reporting empty history', async () => {
+  should fail clearly when the OpenCode schema is incompatible', async () => {
+  should read a session transcript with parsed parts in message order', async () => {
+  should emit one low-noise diagnostic for malformed transcript JSON', async () => {
+  should preserve failed tool errors as tool output', async () => {
+  should delete an OpenCode top-level session with child sessions and transcript rows', async () => {
+  should delete an empty OpenCode project workspace without deleting sibling data', async () => {
+  should delete a global directory workspace while preserving the shared global project', async () => {
+  should reject crafted OpenCode workspace selectors before destructive work', async () => {
+  should preserve the global project when deleting its last session', async () => {
+  should roll back an OpenCode workspace deletion when a row delete fails', async () => {
+  should retain a retry plan when desktop cleanup fails after the database commit', async () => {
+  should preserve desktop path state owned by a surviving workspace', async () => {
+  should delete OpenCode Desktop state for removed sessions', async () => {
+  should delete OpenCode Desktop state even when the database session is already gone', async () => {
+  should ignore a desktop state file that disappears before it can be read', async () => {
+
+src/lib/opencode-think-tags.test.ts
+  splitOpenCodeThinkTaggedText', () => {
+  should extract think tags from visible assistant text', () => {
+  should preserve literal think tags inside fenced code blocks', () => {
+  should preserve literal think tags inside inline code spans', () => {
+  should treat an unterminated think tag as reasoning through the end of the text', () => {
+  should ignore literal closing tags inside fenced code within a reasoning block', () => {
+
+src/lib/opencode-transcript-phase.test.ts
+  opencode transcript phase helpers', () => {
+  should mark the last visible assistant text before each user turn as final answer', () => {
+  should ignore think-only assistant text when choosing final answers', () => {
+  should not mark pre-tool assistant text as a final answer without later visible text', () => {
+
+src/lib/opencode-transcript.test.ts
+  renderOpenCodeTranscript', () => {
+  should render OpenCode sessions as Markdown with metadata, reasoning, tools, and messages', () => {
+  should omit metadata, commentary, and tools when disabled', () => {
+  should omit assistant commentary text when commentary is disabled', () => {
+  should render plain text output', () => {
+  should strip MiniMax think tags from text parts and render them as commentary only when enabled', () => {
+
+src/lib/path-transforms.test.ts
+  applyPathTransforms', () => {
+  should convert project paths before redacting remaining usernames on macOS paths', () => {
+  should remove file URI schemes when converting project paths to relative paths', () => {
+  should render the exact project root as a dot instead of an empty string', () => {
+  should handle Windows-style project paths and redact remaining Windows usernames', () => {
+  should remove file URI schemes for Windows UNC project paths', () => {
+  should not rewrite sibling paths that only share the project-path prefix', () => {
+  should redact remaining Linux home-directory usernames after project-root replacement', () => {
+
+src/lib/portable-path.test.ts
+  portable path helpers', () => {
+  should resolve POSIX and Windows basenames without platform-specific imports', () => {
+
+src/lib/production-ui-server.test.ts
+  production UI server', () => {
+  should resolve only paths inside the client build', () => {
+  should serve built assets and delegate application routes', async () => {
+  should serve generated exports with attachment headers', async () => {
+  should reject cross-origin browser requests before delegating application work', async () => {
+  should reject a non-loopback request even when its Origin matches', async () => {
+  should delegate loopback-alias SSE requests with CORS origin intact', async () => {
+
+src/lib/qoder-acp-client.test.ts
+  loadQoderAcpSession', () => {
+  should collect Qoder session updates from a framed ACP socket', async () => {
+  should distinguish responses from server requests with colliding ids', () => {
+  should keep draining while Qoder session updates are still arriving', async () => {
+  should return null when session load completes without updates', async () => {
+  should enforce the requested Qoder session update limit client-side', async () => {
+  should finish immediately when the requested update limit is reached after load completion', async () => {
+
+src/lib/qoder-db.test.ts
+  qoder workspace discovery', () => {
+  should surface corrupt global-state databases instead of returning empty history', async () => {
+  should resolve the default Qoder user directory', () => {
+  should list Qoder workspaces, sessions, and transcript entries from local history plus state files', async () => {
+  should return empty results when Qoder data is missing', async () => {
+  should return empty results when the Qoder global state database cannot be opened', async () => {
+  should classify Linux directory-open SQLite errors as unavailable global state', () => {
+  should warn and return empty sessions for corrupted Qoder workspace keys', async () => {
+  should merge Qoder CLI JSONL messages with local history and checkpoint operations', async () => {
+  should use the persisted default Qoder model for auto CLI transcripts without task metadata', async () => {
+  should hydrate recent Qoder sessions from ACP when no CLI transcript exists', async () => {
+
+src/lib/qoder-transcript-phase.test.ts
+  Qoder transcript phases', () => {
+  should coalesce consecutive streamed final-answer chunks', () => {
+
+src/lib/qoder-transcript.test.ts
+  renderQoderTranscript', () => {
+  should render metadata, user prompts, and Qoder file operations as markdown', () => {
+  should omit optional metadata and tool calls', () => {
+  should render true plain text when requested', () => {
+  should omit explicit reasoning from an incomplete turn when commentary is disabled', () => {
+
+src/lib/runtime-config.test.ts
+  UI runtime configuration', () => {
+  should expose bounded lifecycle defaults', () => {
+  should parse explicit development and artifact lifecycle controls', () => {
+  should fail loudly for malformed or unsafe lifecycle controls', () => {
+
+src/lib/sha256.test.ts
+  should preserve existing SHA-256 identities for UTF-8 input', async () => {
+
+src/lib/shared.test.ts
+  shared helpers', () => {
+  should normalize home paths', () => {
+  should ignore only missing directories while listing entries', async () => {
+  should percent-encode filesystem paths in file URIs', () => {
+  should clean titles and extracted transcript text', () => {
+  should detect existing files and directories', async () => {
+  should format model labels and inline code safely', () => {
+  should coerce typed JSON helpers safely', () => {
+  should render document sections and metadata in markdown and text formats', () => {
+  should keep markdown code blocks valid when exported content contains backtick fences', () => {
+  should warn about skipped invalid jsonl lines and write export files to disk', async () => {
+
+src/lib/sqlite-error.test.ts
+  retryable SQLite error detection', () => {
+  should recognize supported transient SQLite failures', () => {
+  should reject unrelated errors and non-error values', () => {
+  should classify non-retryable SQLite availability errors separately', () => {
+
+src/lib/sqlite-retry.test.ts
+  sqlite retry helpers', () => {
+  should classify transient sqlite open errors as retryable', () => {
+  should retry retryable sqlite failures before succeeding', async () => {
+  should retry retryable asynchronous action failures', async () => {
+  should report retry details before sleeping', async () => {
+  should not retry non-retryable failures', async () => {
+  should stop retrying after the configured retry budget is exhausted', async () => {
+  should tolerate zero-delay retries with the default asynchronous sleeper', async () => {
+  should let a timer release a database lock during retry backoff', async () => {
+  should retain typed errors and the original cause after retry exhaustion', async () => {
+
+src/lib/transcript-load-limiter.test.ts
+  transcript load limiter', () => {
+  should clamp configured concurrency to the safe maximum', () => {
+  should enforce the concurrency limit within one integration', async () => {
+  should not let blocked Kiro loads consume Codex capacity', async () => {
+  should retain a bounded aggregate concurrency across integrations', async () => {
+  should release a slot after a loader rejects', async () => {
+  should keep transcript load diagnostics quiet unless explicitly enabled', async () => {
+
+src/lib/transcript-phase-browser-safety.test.ts
+  browser-safe transcript phase modules', () => {
+  should not import Node or Bun runtime modules', async () => {
+  \n')) {
+
+src/lib/ui-cache.test.ts
+  ui cache', () => {
+  should cache literal null values without recomputing the loader', async () => {
+  should create the cache directory with owner-only permissions', async () => {
+  should reject a configured cache directory symlink', async () => {
+  should support an explicit development bypass without writing cache files', async () => {
+  should clear every persisted UI cache entry through the supported cache API', async () => {
+  should purge cache entries older than the retention window', async () => {
+  should prune the oldest entries until the cache is within its size ceiling', async () => {
+  should refresh accessed entries so hot cache data survives age eviction', async () => {
+  should not size-evict an in-progress temporary cache write', async () => {
+  should not age-evict temporary cache writes', async () => {
+  should remove temporary files when the final cache rename fails', async () => {
+  should coalesce concurrent cache misses for the same key', async () => {
+  should not resurrect an entry invalidated during an in-flight load', async () => {
+  should register coalescing before concurrent disk cache reads finish', async () => {
+  should keep distinct cache keys separate when they contain path punctuation', async () => {
+  should bound cache filenames for very long keys', async () => {
+  should invalidate only matching cache prefixes', async () => {
+  should treat corrupted cache files as cache misses and rebuild them', async () => {
+  should reject stale cache envelope versions', async () => {
+  should hash iterable cache key parts without delimiter collisions', () => {
+
+src/lib/ui-export-archive.test.ts
+  ui export archive helpers', () => {
+  should sanitize export filenames consistently', () => {
+  should resolve filename collisions with per-base counters', () => {
+  should avoid generated and case-insensitive filename collisions', () => {
+  should prefix archive names with the owning platform', () => {
+  should name batch archives from the project, latest conversation time, and selected thread count', () => {
+  should return text MIME types for export formats', () => {
+
+src/lib/ui-export-files.test.ts
+  ui export file helpers', () => {
+  should use a stable user-private default export directory', () => {
+  should create the export directory with owner-only permissions', async () => {
+  should reject a configured export directory symlink', async () => {
+  should tolerate an export disappearing during stale-file purging', async () => {
+  should resolve request paths inside the configured export directory and reject traversal', async () => {
+  should resolve only readable regular export files', async () => {
+  should build download urls from exported file paths', () => {
+  should report export content types', () => {
+  should purge stale export files while keeping recent ones', async () => {
+  should evict oldest exports until the directory is within its size ceiling', async () => {
+
+src/lib/ui-export-zip.test.ts
+  UI export ZIP helpers', () => {
+  should create zip exports without a system zip executable', async () => {
+  should archive large files and nested export directories', async () => {
+  should skip symbolic links while collecting export directories', async () => {
+  should remove a stale destination when a ZIP input fails', async () => {
+
+src/lib/web-chat.test.ts
+  should preserve nested Web metadata and use outer metadata only as a fallback', async () => {
+  parseWebChatFiles', () => {
+  should extract Gemini research artifacts once and preserve their Markdown exactly', async () => {
+  should extract the selected ChatGPT Deep Research report without rewriting its body', async () => {
+  should fail closed on malformed or conflicting ChatGPT report metadata', async () => {
+  should suppress conflicting ChatGPT report identities and retain selected branches only', async () => {
+  should extract ChatGPT Deep Research artifacts from a native message array', async () => {
+  should keep Gemini document sections out of reasoning while preserving actual thoughts', async () => {
+  should append numbered Gemini works cited once and reuse their browsing tool calls', async () => {
+  should ignore malformed Gemini citations and keep uncited document bodies unchanged', async () => {
+  should extract the selected Qwen Markdown artifact with exact citation expansion', async () => {
+  should preserve Qwen citations inside tilde and longer backtick fences', async () => {
+  should fail closed when Qwen report binding or cited references are ambiguous', async () => {
+  should infer the attached mapping export providers at runtime', async () => {
+  should follow the selected mapping branch and preserve reasoning separately', async () => {
+  should prefer content provider hints over a misleading file name', async () => {
+  should parse native Claude and Grok exports from one multi-file import', async () => {
+  should extract Claude Markdown and JSON artifacts from selected mapping and native message branches', async () => {
+  should extract selected Meta Markdown and JSON artifacts without rewriting their bodies', async () => {
+  /').at(-1)?.split('?')[0]}](${link})`,
+  should fail closed on ambiguous or conflicting Meta artifact bindings', async () => {
+  /').at(-1)}](container:///mnt/data/${path})`,
+  should replay the selected GLM report file operations exactly', async () => {
+  should bind GLM tool events to a selected mapping node when raw message ids differ', async () => {
+  should replay GLM compound report assembly and edits exactly', async () => {
+  should expose a GLM JSON artifact generated from a Markdown appendix', async () => {
+  should fail closed on unsupported or incomplete GLM report mutations', async () => {
+  should split arrays of conversations and parse generic GLM role-content messages', async () => {
+  should keep valid files when another file is invalid', async () => {
+  should classify ChatGPT progress as commentary and tool traffic as tools', async () => {
+  should extract a completed ChatGPT deep-research report from widget state', async () => {
+  should expose attached Grok deep-search browsing as tool calls', async () => {
+  should expose attached Gemini research sources as tool calls', async () => {
+  should detect Gemini research source groups without relying on English labels', async () => {
+  should expose attached Qwen deep-research queries as tool calls', async () => {
+  should keep repeated Qwen searches as distinct paired tool calls', async () => {
+  should expose Amazon Nova deep-research browsing with paired search results', async () => {
+  should parse multiline Nova searches and pair queued results in order', async () => {
+  should keep embedded tool events beside their source turn', async () => {
+  should expose attached Claude web-search and fetch blocks as tool calls', async () => {
+  should expose every attached Claude web-search result under tool calls', async () => {
+  should expose attached ChatGPT research searches as tool calls', async () => {
+  should expose attached ChatGPT research page opens as tool calls', async () => {
+  should expose the attached ChatGPT Deep Research app launch as a tool call', async () => {
+  should retain imported conversations without serializing the normalized conversation again', async () => {
+
+src/package-manifest.test.ts
+  package manifest', () => {
+  should expose one API-driven executable', async () => {
+  should not keep CLI or MCP runtime dependencies', async () => {
+  should keep only direct client dependencies at runtime', async () => {
+  should use one package manifest for root, UI, and direct client workflows', async () => {
+  should own all repository development tooling at the root', async () => {
+  should use Valibot for application validation', async () => {
+  should require the packed bunx smoke test before publishing', async () => {
+  should document every supported source in contributor and UI metadata', async () => {
+  should publish the stable conversation API modules', async () => {
+  should pack the CLI and direct client behind one manifest', async () => {
+  should keep the package file list free of removed CLI files', async () => {
+
+src/package-smoke.test.ts
+  packaged UI smoke helpers', () => {
+  should start the packaged production server explicitly', () => {
+  should bind the packaged UI to its isolated Codex fixture', () => {
+  should derive the packed tarball path from package metadata', () => {
+  should reject Bun fallback responses', () => {
+  should accept the Spiracha SSR app shell', () => {
+  should find a built asset referenced by the app shell', () => {
+
+src/ui/components/analytics-breakdowns.vitest.tsx
+  AnalyticsBreakdowns', () => {
+  should render tool, model, source, and reasoning-effort breakdowns', () => {
+
+src/ui/components/antigravity-conversations-table.vitest.tsx
+  AntigravityConversationsTable', () => {
+  should render Antigravity sub-agents as nested rows beneath their parent', () => {
+  should render the conversation title as a real link for opening in a new tab', () => {
+  should show a locked conversation export when only safe-storage content is available', async () => {
+  should keep local-log transcript export available without keychain unlock', async () => {
+  should not offer a conversation export for artifact-only rows', async () => {
+  should trigger conversation and artifact exports when unlocked', async () => {
+  should trigger conversation delete from the row actions', async () => {
+  should allow selecting multiple conversations and trigger bulk actions', () => {
+  should keep batch export enabled when selected conversations include summary-only rows', () => {
+
+src/ui/components/antigravity-keychain-panel.vitest.tsx
+  AntigravityKeychainPanel', () => {
+  should remain hidden when keychain decryption is unavailable', () => {
+  should unlock transcript exports and refresh dependent conversation data', async () => {
+
+src/ui/components/antigravity-workspaces-table.vitest.tsx
+  AntigravityWorkspacesTable', () => {
+  should render workspace links with the detail route href', () => {
+
+src/ui/components/app-shell.vitest.tsx
+  AppShell', () => {
+  should render navigation items and highlight the active section', () => {
+  should navigate global project searches into the URL-backed Codex inventory filter', () => {
+  should not borrow unrelated route query text for the global project search', () => {
+  should keep Claude Code active on standalone session detail routes', () => {
+  should keep Command Code active on standalone session detail routes', () => {
+  should keep Kiro active on standalone session detail routes', () => {
+  should keep Grok active on standalone session detail routes', () => {
+  should keep Qoder active on standalone session detail routes', () => {
+  should keep Cursor active on standalone thread detail routes', () => {
+  should keep Antigravity active on standalone conversation detail routes', () => {
+  should keep OpenCode active on standalone session detail routes', () => {
+  should keep MiniMax Code active on standalone session detail routes', () => {
+  should keep FX active on standalone session detail routes', () => {
+  should keep Cline active on standalone task detail routes', () => {
+  should keep Web active on imported conversation detail routes', () => {
+
+src/ui/components/cursor-threads-table.vitest.tsx
+  CursorThreadsTable', () => {
+  should render the thread title as a real link for opening in a new tab', () => {
+  should distinguish older moved snapshots from the latest physical record', () => {
+  should allow selecting multiple threads and trigger bulk actions', () => {
+  should nest subagents under their orchestrator and display their models', () => {
+  should trigger single-thread export and delete actions from the row menu', async () => {
+
+src/ui/components/cursor-workspaces-table.vitest.tsx
+  CursorWorkspacesTable', () => {
+  should render workspace links with the detail route href', () => {
+  should expose recover and delete actions from the row menu', async () => {
+  should select multiple workspaces and request batch deletion', () => {
+  should retain both selections when row clicks are batched in one act', () => {
+
+src/ui/components/data-table.vitest.tsx
+  DataTable', () => {
+  should toggle header sorting between ascending and descending order', () => {
+  should support shift-click checkbox selection across a visible row range', () => {
+  should render empty states and invoke row click handlers', () => {
+  should clear selected rows through the custom toolbar action', () => {
+  should discard selection state for rows removed from the data set', () => {
+  should paginate large row sets', () => {
+
+src/ui/components/delete-confirm-dialog.vitest.tsx
+  DeleteConfirmDialog', () => {
+  should submit deleteSessionFiles as false by default', () => {
+  should stay open after confirmation so pending and error states remain visible', () => {
+  should allow threads to opt into a checked delete session files default', () => {
+  should submit the delete session file option when enabled', () => {
+  should reset the delete session file option after the dialog closes and reopens', () => {
+  should show delete errors inside the open dialog', () => {
+
+src/ui/components/display-components.vitest.tsx
+  display components', () => {
+  should render json panels and metadata cards', () => {
+  should truncate breadcrumb labels while preserving the full hover title', () => {
+  should render loading and page headers with optional content', () => {
+  should render a breadcrumb-only page header', () => {
+  should avoid duplicate React keys when breadcrumb labels and destinations repeat', () => {
+
+src/ui/components/evidence-lens-editor.vitest.tsx
+  EvidenceLensEditor', () => {
+  should validate imported JSON and export the current lens as versionable JSON', () => {
+  should ignore invalid numeric context and budget edits', () => {
+  should reset the lens JSON and validation error with the lens value', () => {
+
+src/ui/components/export-dialog.vitest.tsx
+  ExportDialog', () => {
+  should download raw source JSON directly from the stable API', async () => {
+  should hide raw export when a source has no standalone JSON transcript', () => {
+  should offer and download raw Grok Bot transcript JSON', async () => {
+  should offer raw JSON for bulk exports', () => {
+  should submit the bulk raw JSON export callback', () => {
+  should export selected source conversations as raw JSON', async () => {
+  should build, validate, preview, and download focused evidence through the shared flow', async () => {
+  should submit default export options before any changes', async () => {
+  should submit the selected export options', async () => {
+  should disable export submission while pending', () => {
+  should prevent duplicate submissions before pending state propagates', () => {
+  should disable export submission without showing pending text when disabled', () => {
+  should allow disabling tool-call inclusion and closing the dialog', () => {
+  should reset cancelled downloads when the controlled dialog reopens', async () => {
+  should not download focused evidence after the dialog is cancelled', async () => {
+  should mark focused preparation as failed when no export result is returned', async () => {
+  should expose full export lifecycle updates and partial export counts', () => {
+  should submit zip archive when selected', () => {
+  should force zip archive for multi-thread exports', () => {
+  should remember successfully submitted options after closing and reopening', () => {
+  should discard canceled drafts without overwriting submitted defaults', () => {
+  should not persist forced multi-thread zip as the single-thread default', () => {
+  should show export errors inline while dialog remains open', () => {
+  should hide unsupported transcript filters instead of offering ignored options', () => {
+
+src/ui/components/fx-tables.vitest.tsx
+  FX tables', () => {
+  should render workspace metrics and navigation', () => {
+  should expose row and bulk export and delete actions', async () => {
+
+src/ui/components/list-search-input.vitest.tsx
+  ListSearchInput', () => {
+  should update controlled input state without wrapping onChange in a transition', () => {
+
+src/ui/components/minimax-code-tables.vitest.tsx
+  MiniMax Code tables', () => {
+  should render workspace metrics and navigation', () => {
+  should expose row and bulk delete actions alongside export actions', async () => {
+
+src/ui/components/opencode-workspaces-table.vitest.tsx
+  OpenCodeWorkspacesTable', () => {
+  should render a workspace link and expose its delete action', async () => {
+  should request deletion for selected workspaces as a batch', () => {
+
+src/ui/components/optimization-findings.vitest.tsx
+  OptimizationFindings', () => {
+  should explain ranked waste signals and persona candidates', () => {
+  should show a clean state when no deterministic waste signals are present', () => {
+
+src/ui/components/projects-loading-state.vitest.tsx
+  ProjectsLoadingState', () => {
+  should show progress feedback while Codex projects load', () => {
+
+src/ui/components/projects-table.vitest.tsx
+  ProjectsTable', () => {
+  should sort projects by last updated descending by default', () => {
+
+src/ui/components/qoder-sessions-table.vitest.tsx
+  QoderSessionsTable', () => {
+  should show the resolved model label for each session', () => {
+  should allow selecting multiple sessions and trigger batch export', () => {
+
+src/ui/components/recent-threads-list.vitest.tsx
+  RecentThreadsList', () => {
+  should render a right-clickable project link without thread source metadata', () => {
+
+src/ui/components/route-error-panel.vitest.tsx
+  RouteErrorPanel', () => {
+  should render centralized database guidance for every retryable SQLite error', () => {
+  should preserve a route-specific title and error message for unrelated failures', () => {
+
+src/ui/components/selection-actions-toolbar.vitest.tsx
+  SelectionActionsToolbar', () => {
+  should use the selected count when pluralizing action labels', () => {
+  should render useful empty guidance when no batch actions are available', () => {
+
+src/ui/components/source-tables.vitest.tsx
+  source session tables', () => {
+  should render and operate on ${session.title} sessions`, () => {
+  should select Command Code sessions and export from the toolbar or row menu', () => {
+  should render Claude Code sub-agents as nested rows beneath their parent', () => {
+  source workspace tables', () => {
+  should render source workspace metrics and navigation links', () => {
+  should render Command Code session metadata and navigation', () => {
+
+src/ui/components/theme-toggle.vitest.tsx
+  ThemeToggle', () => {
+  should apply the stored theme on mount and toggle it when clicked', () => {
+  should fall back to the system preference when no theme is stored', () => {
+
+src/ui/components/thread-goals-panel.vitest.tsx
+  ThreadGoalsPanel', () => {
+  should show goal status, token progress, and elapsed time', () => {
+  should explain when a thread has no recorded goals', () => {
+
+src/ui/components/thread-tools-panel.vitest.tsx
+  ThreadToolsPanel', () => {
+  should show available definitions and only tool-focused transcript activity', () => {
+  should let deferred tool activity request a full transcript load', () => {
+  should deduplicate logically identical tool schemas with different key order', () => {
+
+src/ui/components/threads-table.vitest.tsx
+  ThreadsTable', () => {
+  should allow selecting multiple threads and trigger bulk actions', () => {
+  should render the thread title as a real link for opening in a new tab', () => {
+  should display every model used by a thread in chronological order', () => {
+  should not render a tools column in the thread list', () => {
+  should render a newer subagent directly beneath its parent as a tree row', () => {
+  should include selected subagents in bulk actions', () => {
+  should show the rollout size in the table', () => {
+  should trigger single-thread export and delete actions from the row menu', async () => {
+  should show up to 100 Codex project threads on one page', () => {
+
+src/ui/components/transcript-controls.vitest.tsx
+  TranscriptControls', () => {
+  should expose every transcript display toggle through labelled controls', () => {
+  should disable raw JSON without disabling the other controls', () => {
+
+src/ui/components/transcript-search.vitest.tsx
+  transcript search', () => {
+  should find visible Claude Code transcript messages after applying text transforms', () => {
+  should expose search navigation with accessible controls', () => {
+  should wrap search navigation and reset the active result when matches change', () => {
+
+src/ui/components/transcript-view.vitest.tsx
+  TranscriptView', () => {
+  should show only final assistant messages with the shared route default', () => {
+  should hide and show tool calls based on the checkbox state passed in', () => {
+  should label a project-root working directory instead of rendering a bare period', () => {
+  should render a tool output exit code with its output text', () => {
+  should render message cards with wrapping constraints for long content', () => {
+  should wrap long tool call commands without painting into adjacent cards', () => {
+  should configure virtualized transcript lists with dynamic measurement for variable-height cards', () => {
+  should scroll to and mark the requested event in non-virtualized transcript lists', () => {
+  should scroll virtualized transcript lists to the requested event index', () => {
+  should handle a new virtualized jump target even when the signal is reused', () => {
+  should hide and show commentary messages independently of final assistant answers', () => {
+  should reveal a MiniMax commentary finding when commentary is enabled', () => {
+  should hide user messages when user messages are disabled', () => {
+  should sort visible transcript events latest first without mutating source order', () => {
+  should update visible event order when an unbound sort control changes', () => {
+  should label system messages as System instead of User', () => {
+  should copy a single event as markdown from the per-card copy action', async () => {
+  should show copy failure feedback when the clipboard API is unavailable', async () => {
+  should show the formatted model name for assistant messages and use it when copying', async () => {
+  should copy selected events as markdown separated by blank lines', async () => {
+  should show individual message checkbox selection immediately', () => {
+  should preserve message checkbox selection after a search result jump is active', () => {
+  should keep selection keys distinct for duplicate tool-call metadata', async () => {
+  should fall back to the thread model label when an assistant message has no per-message model', () => {
+  should copy final assistant answers with the thread model label', async () => {
+  should apply the same path transforms to copied markdown as the rendered transcript', async () => {
+  should apply the same path transforms to bulk copied markdown as the rendered transcript', async () => {
+  should render extra event kinds and raw json when those toggles are enabled', () => {
+  should select all visible events from the sticky toolbar', async () => {
+  should discard hidden selections when filters hide previously selected events', () => {
+
+src/ui/components/ui/tabs.vitest.tsx
+  Tabs', () => {
+  should render rounded pill tabs without height clipping constraints', () => {
+
+src/ui/components/web-chat-artifacts.vitest.tsx
+  should preview the artifact and download its unchanged Markdown', () => {
+  should present and download JSON artifacts with their JSON extension', () => {
+
+src/ui/components/web-chat-dropzone.vitest.tsx
+  WebChatDropzone', () => {
+  should accept multiple dropped JSON files', () => {
+  should support the native multi-file picker and disabled state', () => {
+
+src/ui/components/web-conversations-table.vitest.tsx
+  should link imported conversations to their parsed transcript routes', () => {
+
+src/ui/lib/antigravity-conversation-state.vitest.ts
+  Antigravity conversation state', () => {
+  should reserve Keychain access for safe-storage transcripts', () => {
+
+src/ui/lib/antigravity-server-browser.vitest.ts
+  antigravity-server browser boundary', () => {
+  should not eagerly load filesystem-only export modules', async () => {
+
+src/ui/lib/antigravity-server.vitest.ts
+  antigravity-server', () => {
+  should read cached decryption state without probing Keychain on route entry', async () => {
+  should reacquire an opaque decryption capability for every protected request', async () => {
+  should acquire one decryption capability for a protected batch export', async () => {
+  should map only decryption capability acquisition failures to locked detail state', async () => {
+  should not map an untyped capability-shaped error to locked detail state', async () => {
+  should propagate protected transcript renderer failures unchanged', async () => {
+  should return the resolved Antigravity project group for detail navigation', async () => {
+  should expose metadata and document bodies through separate server functions', async () => {
+  should name multi-conversation exports after the resolved Antigravity project', async () => {
+  should forward every dialog option to Antigravity transcript rendering', async () => {
+  should apply every dialog option and download mode to a single conversation export', async () => {
+  should suppress duplicate conversation markdown when artifacts render the same content', async () => {
+  should reject conversation export when only artifacts are available', async () => {
+  should reject a single Antigravity delete when nothing was removed', async () => {
+  should aggregate bulk Antigravity delete results', async () => {
+  should serialize bulk Antigravity deletes that rewrite the shared summary index', async () => {
+  should reject bulk Antigravity delete when nothing was removed', async () => {
+
+src/ui/lib/antigravity-transcript-events.vitest.ts
+  antigravityMarkdownToThreadEvents', () => {
+  should return no events for empty transcript markdown', () => {
+  should adapt rendered Antigravity transcript markdown into transcript-view events', () => {
+  should adapt Antigravity operation results as tool outputs instead of final answers', () => {
+  should adapt trajectory command metadata into paired command and output events', () => {
+  should parse tool arguments with an indented closing fence', () => {
+  should retain metadata-only command results without inventing placeholder output', () => {
+  should preserve legacy tool output that begins with metadata-like text', () => {
+  should keep markdown headings inside assistant answers visible as assistant text', () => {
+  should not split transcript sections on headings inside fenced code blocks', () => {
+  should recover a timestamped assistant response after an unclosed tool-output fence', () => {
+  should not promote pre-tool assistant text to final answer when the transcript ends after tool use', () => {
+  should bound large tool-output previews while retaining the complete output', () => {
+  getThreadTranscriptStats', () => {
+  should count adapted Antigravity transcript events for metadata panels', () => {
+  should not count Antigravity operation results as final answers', () => {
+  Antigravity transcript event ordering', () => {
+  should keep event sequences unique across sections with many tool calls', () => {
+
+src/ui/lib/claude-code-server.vitest.ts
+  Claude Code server transcript loading', () => {
+  should bound the initial detail payload while preserving the beginning and end', () => {
+  should return a bounded preview for the SSR detail request and full entries only on explicit load', async () => {
+  should load a small detail transcript once while retaining raw payloads', async () => {
+  should use parent-owned continuation behavior for list and delete operations', async () => {
+  should reject a missing Claude Code session delete', async () => {
+  should forward every export option for single and batch Claude Code sessions', async () => {
+
+src/ui/lib/claude-code-transcript-events.vitest.ts
+  claudeCodeTranscriptToThreadEvents', () => {
+  should adapt Claude Code messages, reasoning, tool calls, and tool outputs', () => {
+  should classify assistant tool-use lead-ins as commentary and end turns as final answers', () => {
+  should assign unique monotonically increasing event sequences when entries have many parts', () => {
+  should not expose Claude compaction control entries as thread messages', () => {
+
+src/ui/lib/cline-server.vitest.ts
+  Cline server functions', () => {
+  should list workspaces, tasks, and task detail', async () => {
+  should export one chat or a zip of selected chats', async () => {
+  should delete one or multiple Cline chats', async () => {
+  should reject traversal-style task IDs through the validator before the handler', async () => {
+
+src/ui/lib/cline-transcript-events.vitest.ts
+  Cline transcript events', () => {
+  should map every visible Cline phase to the shared transcript model', () => {
+
+src/ui/lib/codex-cloud-server.vitest.ts
+  Codex Cloud server functions', () => {
+  should expose project and task reads through the Cloud client', async () => {
+  should render and package a Cloud export with the selected options', async () => {
+
+src/ui/lib/codex-queries.vitest.ts
+  threadSnapshotQueryOptions', () => {
+  should reuse the snapshot cache across transcript filter changes', () => {
+  should not passively refresh thread data while live mode is disabled', () => {
+  should expire heavy transcript data sooner without changing global query defaults', () => {
+
+src/ui/lib/codex-server.vitest.ts
+  loadThreadTranscript', () => {
+  should return metadata-only thread snapshots with cached model history', async () => {
+  should load transcript previews through the explicit preview endpoint', async () => {
+  should load the full parsed transcript for explicit thread detail requests', async () => {
+  should forward every export dialog option for single and batch Codex exports', async () => {
+  should export selected Codex rollout files as raw JSON', async () => {
+
+src/ui/lib/codex-thread-event-origin.vitest.ts
+  isAllowedCodexThreadEventOrigin', () => {
+  should allow same-origin and non-browser live streams', () => {
+  should reject unrelated, malformed, and wrong-port origins', () => {
+
+src/ui/lib/codex-thread-events-route.vitest.ts
+  Codex thread events route', () => {
+  should allow the intentional localhost to 127.0.0.1 loopback stream and return CORS headers', async () => {
+  should batch all requested thread IDs once and preserve stream CORS headers', async () => {
+  should return one CORS-enabled 404 when any requested thread is missing', async () => {
+  should preserve unreadable database failures from the batch browse seam', async () => {
+
+src/ui/lib/codex-thread-live-hub.vitest.ts
+  createCodexThreadLiveHub', () => {
+  should isolate the event stream on the alternate loopback origin', () => {
+  should multiplex every tab through one active event stream', () => {
+  transcript-changed', JSON.stringify({ revision: 1, threadId: 'thread-2' }));
+  should release an abandoned port when its lease expires', () => {
+
+src/ui/lib/codex-thread-live.vitest.ts
+  connectCodexThreadLiveUpdates', () => {
+  should subscribe through the shared worker and forward live state changes', () => {
+  should keep live updates isolated from page connections when shared workers are unavailable', () => {
+  transcript-changed');
+  should refresh every active representation of the changed thread', async () => {
+
+src/ui/lib/command-code-queries.vitest.ts
+  should configure Command Code workspace, session, and detail queries', async () => {
+
+src/ui/lib/command-code-server.vitest.ts
+  Command Code server functions', () => {
+  should list workspaces and sessions from the configured projects directory', async () => {
+  should render single and batch exports with the shared download UX contract', async () => {
+  should delete single and batch sessions through the source-specific database primitive', async () => {
+  should serialize batch deletion and reject any missing requested session', async () => {
+  should serialize a transcript detail and reject missing sessions', async () => {
+
+src/ui/lib/command-code-transcript-events.vitest.ts
+  Command Code transcript events', () => {
+  should map reasoning, tools, and messages into transcript events', () => {
+
+src/ui/lib/cursor-delete-result.vitest.ts
+  Cursor delete result helpers', () => {
+  should flatten partial cleanup failures from every workspace result', () => {
+  should return no partial-cleanup message for a complete deletion', () => {
+  should keep a workspace query mounted while cleanup can be retried', () => {
+
+src/ui/lib/cursor-server.vitest.ts
+  findCursorThreadByComposerId', () => {
+  should use the direct composer index instead of scanning workspace groups', async () => {
+  Cursor detail server functions', () => {
+  should keep the route detail payload metadata-only', async () => {
+  should load transcript bodies only through the deferred endpoint', async () => {
+  deleteCursorThreadsFn', () => {
+  should delete selected Cursor threads through the recovery pruning path', async () => {
+  should preserve transcript directories when session-file deletion is disabled', async () => {
+  should refuse to delete Cursor threads while Cursor is running', async () => {
+  should reject traversal and wildcard composer ids before delete work starts', async () => {
+  deleteCursorWorkspaceFn', () => {
+  should delete every Cursor thread in a workspace', async () => {
+  should remove an already-empty Cursor workspace bucket', async () => {
+  should return filesystem cleanup failures after the database deletion succeeds', async () => {
+  should retry cleanup from the returned target after the workspace is no longer discoverable', async () => {
+  should consume a retry token before awaiting cleanup so concurrent replays are rejected', async () => {
+  should validate duplicate batch retry tokens before consuming any token', async () => {
+  deleteCursorWorkspacesFn', () => {
+  should reject workspace deletion batches larger than the retry token capacity', async () => {
+  should delete multiple Cursor workspaces in one request', async () => {
+  should propagate a later workspace deletion failure after preserving the first result', async () => {
+  Cursor export server functions', () => {
+  should use the Cursor workspace path when naming ZIP archives', async () => {
+  should forward every single-thread export option to the renderer', async () => {
+  should forward every batch export option to the renderer', async () => {
+  should use thread titles for files inside batch ZIP exports', async () => {
+
+src/ui/lib/cursor-transcript-events.vitest.ts
+  cursorTranscriptToThreadEvents', () => {
+  should return no events for empty transcripts', () => {
+  should classify a single assistant bubble as a final answer', () => {
+  should flush assistant final-answer runs when unknown bubbles appear between assistant messages', () => {
+  should adapt Cursor bubbles into transcript-view events', () => {
+  should classify Cursor assistant progress as commentary and keep the final answer visible', () => {
+  getCursorThreadTranscriptStats', () => {
+  should count adapted Cursor transcript events for metadata panels', () => {
+  should trim adapted Cursor message text', () => {
+
+src/ui/lib/delete-batch.vitest.ts
+  runDeleteBatch', () => {
+  should wait for every deletion before surfacing partial failures', async () => {
+  should identify failed and successful deletion targets', async () => {
+  requireDeletedItems', () => {
+  should reject missing delete targets consistently', () => {
+
+src/ui/lib/download.vitest.ts
+  downloadUrlFile', () => {
+  should cancel the active download when its owner unmounts', () => {
+  should leave a replacement download active when an older one finishes', () => {
+  should remember cancellation until the owner explicitly resets it', () => {
+  should retry the download url until it becomes available before clicking the anchor', async () => {
+  should delay inline blob url revocation until after the download is triggered', () => {
+  should treat HEAD 405 responses as ready and throw after exhausting retries', async () => {
+  should fail fast for permanent HTTP probe failures', async () => {
+  should abort a pending HEAD fetch without probing again or creating an anchor', async () => {
+  should abort during retry backoff without probing again or creating an anchor', async () => {
+  should report the observable download lifecycle in order', async () => {
+  should report cancellation instead of downloading when aborted during backoff', async () => {
+
+src/ui/lib/error-presentation.vitest.ts
+  error presentation', () => {
+  should handle unknown thrown route values without crashing or exposing paths', () => {
+  should describe SQLite failures without blaming a specific integration', () => {
+  should preserve route-specific titles and non-database error messages', () => {
+  should redact local filesystem paths from generic error details', () => {
+  should preserve web URLs while redacting local paths', () => {
+  should present coded non-retryable SQLite errors as database failures', () => {
+
+src/ui/lib/export-mutation.vitest.ts
+  createExportSelectionMutationInput', () => {
+  should snapshot selected IDs and dialog options for the mutation payload', () => {
+  should reject an export submitted without a selection', () => {
+
+src/ui/lib/formatters.vitest.ts
+  formatters', () => {
+  should format dates in the requested timezone', () => {
+  should use the runtime local timezone by default', () => {
+  should include the year for dates outside the current calendar year', () => {
+  should format supporting display primitives', () => {
+
+src/ui/lib/fx-server.vitest.ts
+  FX server operations', () => {
+  should forward export options for single and batch sessions', async () => {
+  should surface missing sessions instead of exporting an empty transcript', async () => {
+  should delete single and batch sessions from the resolved FX store', async () => {
+
+src/ui/lib/fx-transcript-events.vitest.ts
+  FX transcript events', () => {
+  should preserve user prompts, commentary, tool evidence, and final answers in order', () => {
+
+src/ui/lib/grok-bot-server.vitest.ts
+  Grok Bot server operations', () => {
+  should list, load, export, and delete a chat through the server functions', async () => {
+  should omit optional export sections and reject missing chats', async () => {
+  should report residual deletion cleanup so the dialog can retry', async () => {
+  should omit unknown and invalid dates while preserving text export timestamps', async () => {
+
+src/ui/lib/grok-bot-transcript-events.vitest.ts
+  Grok Bot transcript events', () => {
+  should preserve user and agent attribution while mapping transcript phases', () => {
+  should map tool evidence into shared tool-call and tool-output events', () => {
+
+src/ui/lib/grok-server.vitest.ts
+  Grok server operations', () => {
+  should forward every export option for single and batch Grok sessions', async () => {
+  should aggregate bulk deletes and reject missing single sessions', async () => {
+
+src/ui/lib/grok-transcript-events.vitest.ts
+  grok transcript events', () => {
+  should convert Grok transcript parts into thread events', () => {
+
+src/ui/lib/kiro-server.vitest.ts
+  Kiro server exports', () => {
+  should forward every export option for single and batch Kiro sessions', async () => {
+  should list, load, and delete Kiro sessions through the source database', async () => {
+  should reject missing and empty Kiro session exports', async () => {
+
+src/ui/lib/kiro-transcript-events.vitest.ts
+  kiroTranscriptToThreadEvents', () => {
+  should adapt Kiro text and image message parts', () => {
+  should preserve the already merged Kiro text part from the DB parser', () => {
+  should classify Kiro execution commentary and tool calls', () => {
+  should render Kiro acknowledgement placeholders as commentary without displacing the final answer', () => {
+  should render assistant progress followed by a tool call as commentary', () => {
+  should adapt paired Kiro command calls and outputs with shared call identity', () => {
+  should classify the last assistant message before each user turn as a final answer', () => {
+  should count shell-like Kiro tool names as exec commands', () => {
+
+src/ui/lib/minimax-code-server.vitest.ts
+  MiniMax Code server operations', () => {
+  should forward every export option for single and batch sessions', async () => {
+  should reject missing sessions', async () => {
+  should force ZIP archives for batch exports even when the submitted option is false', async () => {
+  should delete one or multiple MiniMax Code sessions from the resolved v2 stores', async () => {
+
+src/ui/lib/minimax-code-transcript-events.vitest.ts
+  MiniMax Code transcript events', () => {
+  should convert visible text, reasoning, and paired tools into ordered thread events', () => {
+  should preserve long commentary findings so the commentary control can reveal them', () => {
+
+src/ui/lib/mutation-error.vitest.ts
+  getMutationErrorMessage', () => {
+  should expose Error messages and normalize unknown failures', () => {
+
+src/ui/lib/opencode-server.vitest.ts
+  OpenCode export server functions', () => {
+  should forward every single-session export option to the renderer and download helper', async () => {
+  should forward every batch export option to the renderer and download helper', async () => {
+  should list, load, and delete OpenCode sessions through the source database', async () => {
+  should delete one OpenCode workspace without requiring sessions to exist', async () => {
+  should return ordered per-workspace results while deduplicating batch keys', async () => {
+  should keep a workspace delete retryable after desktop cleanup fails', async () => {
+  should reject a missing OpenCode workspace without reporting a successful delete', async () => {
+  should reject missing and empty OpenCode session exports', async () => {
+
+src/ui/lib/opencode-transcript-events.vitest.ts
+  openCodeTranscriptToThreadEvents', () => {
+  should adapt OpenCode parts into transcript-view events', () => {
+  should count OpenCode transcript stats', () => {
+  should treat MiniMax think tags in text parts as reasoning instead of final answers', () => {
+  should normalize think tags in reasoning parts', () => {
+  should assign unique monotonically increasing event sequences for multi-event parts', () => {
+
+src/ui/lib/package-metadata.vitest.ts
+  package metadata', () => {
+  should expose validated build metadata through the package import alias', () => {
+  should fail loudly when required production metadata is missing', () => {
+
+src/ui/lib/qoder-server.vitest.ts
+  Qoder server exports', () => {
+  should forward every export option for single and batch Qoder sessions', async () => {
+  should list and load Qoder sessions through the source database', async () => {
+  should reject missing and empty Qoder session exports', async () => {
+
+src/ui/lib/qoder-transcript-events.vitest.ts
+  qoderTranscriptToThreadEvents', () => {
+  should adapt Qoder prompt and file-operation entries', () => {
+
+src/ui/lib/route-search.vitest.ts
+  route search helpers', () => {
+  should parse text query search params from the URL', () => {
+  should keep text query search params bookmarkable while dropping empty values', () => {
+  should parse analytics project filters from the URL', () => {
+  should keep analytics project filters bookmarkable while dropping the all-projects value', () => {
+  should encode analytics select values so the all-projects sentinel cannot collide with project names', () => {
+  should parse thread transcript filters from the URL', () => {
+  should keep thread transcript filters bookmarkable while dropping false values', () => {
+  should preserve unrelated route search while updating transcript display toggles', () => {
+  should derive transcript display state with false defaults', () => {
+
+src/ui/lib/route-state-reset.vitest.tsx
+  RouteStateResetBoundary', () => {
+  should remount route content when its identity changes', () => {
+
+src/ui/lib/settings-server.vitest.ts
+  settings server', () => {
+  should load saved settings from the request cookie for server rendering', async () => {
+  should use default settings when the request cookie is invalid', async () => {
+  should persist validated settings in an HTTP-only bootstrap cookie', async () => {
+
+src/ui/lib/settings-store.vitest.tsx
+  settings store', () => {
+  should start from server-loaded settings and persist updates in the request cookie', async () => {
+  should expose default settings even without a provider', () => {
+  should expose server-loaded preferences on the first client render', () => {
+  should preserve snapshot identity while settings are unchanged', () => {
+  should use a stable default snapshot during server rendering', () => {
+  should hydrate with the server-loaded settings without rendering defaults first', async () => {
+  should synchronize settings changed in another tab', async () => {
+  should keep optimistic settings when persistence fails and report the failure', async () => {
+  should serialize rapid updates so an older request cannot overwrite a newer cookie', async () => {
+  should report cross-tab synchronization failures without replacing current settings', async () => {
+  should not replace an unsaved local update with an older focus response', async () => {
+  should ignore an older focus response that finishes after a newer response', async () => {
+  should not replace an unsaved local update with a remote broadcast', async () => {
+
+src/ui/lib/settings.vitest.ts
+  settings persistence', () => {
+  should merge partial saved settings with current defaults', () => {
+  should reject malformed and invalid saved settings safely', () => {
+  should serialize settings for the server cookie encoder', () => {
+  should use a stable cookie name', () => {
+
+src/ui/lib/source-queries.vitest.ts
+  source query options', () => {
+  should configure Antigravity workspace, decryption, conversation, and detail queries', async () => {
+  should bound inactive heavy detail query retention without shortening list caches', () => {
+  should configure Claude Code workspace, session, detail, and transcript queries', async () => {
+  should configure Cursor queries with bounded SQLite retries', async () => {
+  should configure Cline workspace, chat, and detail queries', async () => {
+  should configure Grok, Kiro, and Qoder workspace, session, and detail queries', async () => {
+  should configure OpenCode queries with bounded SQLite retries', async () => {
+  should configure FX workspace, session, and detail queries', async () => {
+  should configure MiniMax Code workspace, session, and detail queries', async () => {
+
+src/ui/lib/source-raw-export-server.vitest.ts
+  source raw export server', () => {
+  should load selected raw conversations and render them through the shared exporter', async () => {
+
+src/ui/lib/source-session-export-server.vitest.ts
+  source session export server helpers', () => {
+  should move oversized single-session exports to a download URL', async () => {
+  should keep a single unzipped source session export inline', async () => {
+  should prefix a single source-session archive with its platform', async () => {
+  should zip multiple source session exports', async () => {
+  should preserve raw conversation bytes with source and conversation filenames', async () => {
+
+src/ui/lib/text-filter.vitest.ts
+  matchesTextQuery', () => {
+  should treat an empty query as a match', () => {
+  should match case-insensitively across multiple fields', () => {
+  should require every search term to be present somewhere in the row fields', () => {
+  should ignore nullish values and still match booleans and numbers', () => {
+  should treat whitespace-only queries as a match', () => {
+  should preserve special characters in search tokens', () => {
+
+src/ui/lib/thread-id.vitest.ts
+  isCodexThreadId', () => {
+  should accept UUID-shaped Codex thread ids', () => {
+  should reject non-thread route segments', () => {
+
+src/ui/lib/thread-metadata.vitest.ts
+  formatSandboxPolicy', () => {
+  should surface the policy type from serialized Codex metadata', () => {
+  should preserve readable non-JSON policies and tolerate malformed metadata', () => {
+
+src/ui/lib/thread-transcript-load.vitest.ts
+  thread transcript load helpers', () => {
+  should preserve explicit full-load requests while deferring large transcripts by default', () => {
+  should allow loading a full transcript when the snapshot only has a partial preview', () => {
+  should not load again when the snapshot already has the full transcript', () => {
+  should require an explicit load request and an available transcript file', () => {
+
+src/ui/lib/use-client-ready.vitest.ts
+  useClientReady', () => {
+  should remain false during SSR and enable deferred browser queries after hydration', async () => {
+
+src/ui/lib/web-chat-queries.vitest.ts
+  web chat query options', () => {
+  should load lists, lightweight detail metadata, and deferred events', async () => {
+  should disable detail queries without a conversation id', () => {
+  should expire imported conversation detail and event data sooner than the list cache', () => {
+
+src/ui/lib/web-chat-server.vitest.ts
+  web chat server', () => {
+  should load artifact bodies separately from import and list summaries', async () => {
+  should import summaries and expose the parsed detail by route id', async () => {
+  should surface parser failures without discarding valid imports', async () => {
+  should reject imports beyond the bounded file count', async () => {
+  should reject malformed import payloads through the server validator', async () => {
+  should accept a valid import payload through the server validator', async () => {
+  should validate imported file limits in UTF-8 bytes', async () => {
+  should reject missing parsed conversation ids', async () => {
+
+src/ui/lib/workspace-delete-navigation.vitest.ts
+  workspace delete navigation helpers', () => {
+  should detect when every item in the current workspace was deleted', () => {
+  should keep the current workspace when undeleted items remain', () => {
+  should keep empty workspaces from forcing navigation on unrelated deletes', () => {
+  should navigate to the source index when the deleted workspace no longer exists', () => {
+
+src/ui/routes/-claude-code-index.vitest.tsx
+  should immediately show the Claude Code loading state while the initial route is pending', () => {
+
+src/ui/routes/-command-code-index.vitest.tsx
+  should immediately show the Command Code loading state while the initial route is pending', () => {
+
+src/ui/routes/-cursor-index.vitest.tsx
+  should immediately show the Cursor loading state while the initial route is pending', () => {
+
+src/ui/routes/-cursor-workspace.vitest.tsx
+  should disable workspace discovery refetch while a deletion can be retried', () => {
+
+src/ui/routes/-grok-index.vitest.tsx
+  should immediately show the Grok loading state while the initial route is pending', () => {
+
+src/ui/routes/-kiro-index.vitest.tsx
+  should show a Kiro loading state while the initial workspace route is pending', () => {
+
+src/ui/routes/-minimax-code-index.vitest.tsx
+  should immediately show the MiniMax Code loading state while the initial route is pending', () => {
+
+src/ui/routes/-opencode-index.vitest.tsx
+  should show an OpenCode loading state while the initial workspace route is pending', () => {
+
+src/ui-api-server.test.ts
+  UI API server routes', () => {
+  should serve the stable conversation API from the real TanStack server',
+
+src/ui-suite.test.ts
+  UI tests', () => {
+  should pass the Vitest UI suite',

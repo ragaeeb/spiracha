@@ -63,6 +63,14 @@ const pairOutputEvent = (
     }
 };
 
+/**
+ * Pairs copied events with explicit call IDs when retained, otherwise a bounded
+ * ordered fallback constrained by the order gap. Exact-ID and unmatched-call state
+ * are capped; older calls can be evicted. Confidence records exact, ordered_fallback,
+ * or unpaired and must never upgrade a heuristic match to an exact relationship.
+ * Input events are shallow-copied; pairing is evidence reconstruction, not proof of
+ * a source application's full causal graph.
+ */
 const pairToolEvents = (events: ConversationEvidenceEvent[], maxOrderGap: number) => {
     const paired = events.map((event) => ({ ...event }));
     const callsById = new Map<string, number>();

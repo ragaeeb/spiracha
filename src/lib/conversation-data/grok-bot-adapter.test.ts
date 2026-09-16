@@ -158,7 +158,7 @@ describe('grok bot conversation adapter', () => {
             );
 
             const rawPath = getGrokBotPersistenceFilePath(root, `${accountPrefix}.transcript.replicas.${BAMBA_ID}`);
-            const raw = await grokBotConversationAdapter.getConversationRaw!({
+            const raw = await grokBotConversationAdapter.getConversationRaw({
                 id: BAMBA_ID,
                 locations: { grokBotPersistenceDir: root },
                 source: 'grok-bot',

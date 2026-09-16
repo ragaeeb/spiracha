@@ -14,11 +14,16 @@ export type MetadataEntry = {
 };
 
 export const cleanInlineTitle = (value: string): string => {
-    const firstLine =
-        value
-            .split('\n')
-            .map((line) => line.trim())
-            .find((line) => line.length > 0) ?? '';
+    let firstLine = '';
+    let start = 0;
+    while (start < value.length) {
+        const newline = value.indexOf('\n', start);
+        firstLine = value.slice(start, newline === -1 ? value.length : newline).trim();
+        if (firstLine || newline === -1) {
+            break;
+        }
+        start = newline + 1;
+    }
     const compact = firstLine.replace(/\s+/g, ' ').trim();
 
     if (compact.length <= INLINE_TITLE_MAX_CHARACTERS) {
@@ -66,6 +71,7 @@ export const asBoolean = (value: JsonValue): boolean => {
     return value === true;
 };
 
+const MAX_PARSER_DIAGNOSTIC_SCOPES = 2_048;
 const emittedParserDiagnostics = new Set<string>();
 
 const getParserDiagnosticKey = (source: string, code: string, scope?: string): string =>
@@ -87,6 +93,10 @@ export const warnParserDiagnosticOnce = (
     }
 
     emittedParserDiagnostics.add(key);
+    // Evicted scopes may warn again rather than retaining every path for the process lifetime.
+    if (emittedParserDiagnostics.size > MAX_PARSER_DIAGNOSTIC_SCOPES) {
+        emittedParserDiagnostics.delete(emittedParserDiagnostics.values().next().value!);
+    }
     console.warn(`[spiracha:${source}] ${code}`, details);
 };
 

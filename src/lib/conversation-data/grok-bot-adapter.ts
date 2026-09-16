@@ -8,6 +8,7 @@ import {
 } from '../grok-bot-db';
 import type { GrokBotConversation, GrokBotConversationSummary } from '../grok-bot-payload';
 import { grokBotTranscriptMetadata, normalizeGrokBotTranscript } from '../grok-bot-payload';
+import { getNumericMaximum } from '../numeric-range';
 import { createConversationUiPath, createDeepLinks } from './adapter-helpers';
 import { selectConversationMessages } from './message-selector';
 import type {
@@ -23,7 +24,7 @@ const getPersistenceDir = (options: { locations?: { grokBotPersistenceDir?: stri
 
 const latestTimestamp = (values: Array<number | null>) => {
     const timestamps = values.filter((value): value is number => value !== null);
-    return timestamps.length > 0 ? Math.max(...timestamps) : null;
+    return timestamps.length > 0 ? getNumericMaximum(timestamps) : null;
 };
 
 const buildConversation = (
@@ -41,11 +42,7 @@ const buildConversation = (
 
     return {
         createdAtMs: conversation.roster.createdAtMs,
-        deepLinks: createDeepLinks(
-            'grok-bot',
-            conversation.id,
-            createConversationUiPath('grok-bot-chats', conversation.id),
-        ),
+        deepLinks: createDeepLinks('grok-bot', conversation.id, createConversationUiPath('grok-bot', conversation.id)),
         id: conversation.id,
         matches: [],
         messageCount: transcript ? allMessages.length : null,
@@ -95,10 +92,10 @@ const getGrokBotConversationRaw = async (options: GetConversationOptions) => {
 const deleteGrokBotConversationById = async (options: DeleteConversationOptions) =>
     deleteGrokBotConversation(getPersistenceDir(options), options.id);
 
-export const grokBotConversationAdapter: ConversationAdapter = {
+export const grokBotConversationAdapter = {
     deleteConversation: deleteGrokBotConversationById,
     getConversation: getGrokBotConversation,
     getConversationRaw: getGrokBotConversationRaw,
     listConversations: listGrokBotConversations,
     source: 'grok-bot',
-};
+} satisfies ConversationAdapter<'grok-bot'>;

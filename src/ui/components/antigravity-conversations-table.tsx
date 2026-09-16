@@ -5,7 +5,7 @@ import type { SortingState } from '@tanstack/react-table';
 import { Download, GitFork, LockKeyhole, MoreHorizontal, ScrollText, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
-import { SelectionActionsToolbar } from '#/components/selection-actions-toolbar';
+import { ConversationSelectionActions } from '#/components/selection-actions-toolbar';
 import { Badge } from '#/components/ui/badge';
 import { Button } from '#/components/ui/button';
 import {
@@ -20,6 +20,8 @@ import {
     hasReadableAntigravityConversation,
     isAntigravityConversationLocked,
 } from '#/lib/antigravity-conversation-state';
+import { supportedListAction } from '#/lib/conversation-actions';
+import type { ConversationListSelectionProps } from '#/lib/conversation-selection';
 import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatBytes, formatDateTime, formatNumber } from '#/lib/formatters';
 import { cn } from '#/lib/utils';
@@ -32,7 +34,7 @@ type AntigravityConversationsTableProps = {
     onExportArtifacts: (conversation: AntigravityConversation) => void;
     onExportConversation: (conversation: AntigravityConversation) => void;
     onExportConversations: (conversationIds: string[]) => void;
-};
+} & ConversationListSelectionProps;
 
 type ConversationExportState = {
     canExportConversation: boolean;
@@ -291,8 +293,10 @@ const columns = (
     ] as const;
 
 export function AntigravityConversationsTable({
+    authoritativeRowIds,
     conversations,
     decryptionState,
+    inventoryIdentity,
     onDeleteConversation,
     onDeleteConversations,
     onExportArtifacts,
@@ -307,6 +311,7 @@ export function AntigravityConversationsTable({
 
     return (
         <DataTable
+            authoritativeRowIds={authoritativeRowIds}
             columns={tableColumns}
             data={conversationTree}
             emptyMessage="No Antigravity conversations match the current workspace filter."
@@ -315,22 +320,21 @@ export function AntigravityConversationsTable({
             getRowId={(row) => row.conversationId}
             getSubRows={(row) => row.children}
             initialSorting={defaultSorting}
-            renderToolbar={({ clearSelection, selectedRows }) => {
-                const selectedConversationIds = selectedRows.map((row) => row.conversationId);
-                const hasNonExportableSelection = selectedRows.some(
-                    (row) => !getConversationExportState(row, decryptionState).canExportConversation,
-                );
-                return (
-                    <SelectionActionsToolbar
-                        clearSelection={clearSelection}
-                        exportDisabled={hasNonExportableSelection}
-                        itemLabel="conversation"
-                        selectedCount={selectedRows.length}
-                        onDeleteSelected={() => onDeleteConversations(selectedConversationIds)}
-                        onExportSelected={() => onExportConversations(selectedConversationIds)}
-                    />
-                );
-            }}
+            inventoryIdentity={inventoryIdentity}
+            renderToolbar={({ clearSelection, hiddenSelectedCount, selectedIds, selectedRows }) => (
+                <ConversationSelectionActions
+                    clearSelection={clearSelection}
+                    deleteAction={supportedListAction(() => onDeleteConversations(selectedIds))}
+                    exportAction={supportedListAction(() => onExportConversations(selectedIds), {
+                        disabled: selectedRows.some(
+                            (row) => !getConversationExportState(row, decryptionState).canExportConversation,
+                        ),
+                    })}
+                    hiddenSelectedCount={hiddenSelectedCount}
+                    itemLabel="conversation"
+                    selectedCount={selectedIds.length}
+                />
+            )}
         />
     );
 }

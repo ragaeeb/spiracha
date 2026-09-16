@@ -1,5 +1,5 @@
 import type { ClaudeCodeSessionTranscript } from '@spiracha/lib/claude-code-exporter-types';
-import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/codex-browser-types';
+import type { ThreadEvent, ThreadTranscriptStats } from '@spiracha/lib/conversation-data/conversation-events';
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { Download, Trash2 } from 'lucide-react';
@@ -46,6 +46,7 @@ import {
 } from '#/lib/route-search';
 import { RouteStateResetBoundary } from '#/lib/route-state-reset';
 import { useSettings } from '#/lib/settings-store';
+import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { shouldNavigateToSourceIndexAfterDelete } from '#/lib/workspace-delete-navigation';
 
 export const Route = createFileRoute('/claude-code-sessions/$sessionId')({
@@ -274,13 +275,11 @@ function ClaudeCodeSessionDetailPage() {
     const deleteSessionMutation = useMutation({
         mutationFn: () => deleteClaudeCodeSessionFn({ data: { sessionId: detail.session.sessionId } }),
         onSuccess: async () => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['claude-code-workspaces'] }),
-                queryClient.invalidateQueries({ queryKey: ['claude-code-sessions', detail.session.workspaceKey] }),
-                queryClient.invalidateQueries({ queryKey: ['claude-code-session', detail.session.sessionId] }),
-                queryClient.invalidateQueries({ queryKey: ['claude-code-session', params.sessionId] }),
-                queryClient.invalidateQueries({ queryKey: ['claude-code-session-transcript', params.sessionId] }),
-            ]);
+            await invalidateSourceConversationQueries(queryClient, 'claude-code', {
+                ids: [detail.session.sessionId, params.sessionId],
+                removeDetails: true,
+                workspaceKey: detail.session.workspaceKey,
+            });
             const workspaces = await queryClient.fetchQuery(claudeCodeWorkspacesQueryOptions());
             if (
                 shouldNavigateToSourceIndexAfterDelete(

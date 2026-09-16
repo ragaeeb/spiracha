@@ -1,5 +1,13 @@
-import type { ThreadEvent } from './codex-browser-types';
+import { mapWithConcurrency } from './concurrency';
+import { normalizeCodexEvents } from './conversation-data/codex-messages';
+import type { ThreadEvent } from './conversation-data/conversation-events';
+import { renderSelectedTranscriptExport } from './conversation-data/conversation-export';
+import type { CompactExportFlags } from './conversation-data/export-options';
+import { getNumericMaximum, getNumericMinimum } from './numeric-range';
 import { sha256Hex } from './sha256';
+import { utf8ByteLength } from './utf8-byte-length';
+
+const WEB_CHAT_PARSE_CONCURRENCY = 4;
 
 type JsonRecord = Record<string, unknown>;
 
@@ -113,14 +121,19 @@ const firstString = (...values: unknown[]): string | null => {
     return null;
 };
 
+const normalizeNumericTimestamp = (value: number): number | null => {
+    const milliseconds = value < 10_000_000_000 ? value * 1000 : value;
+    return Number.isFinite(milliseconds) && Math.abs(milliseconds) <= 8_640_000_000_000_000 ? milliseconds : null;
+};
+
 const toTimestampMs = (value: unknown): number | null => {
     if (typeof value === 'number' && Number.isFinite(value)) {
-        return value < 10_000_000_000 ? value * 1000 : value;
+        return normalizeNumericTimestamp(value);
     }
     if (typeof value === 'string') {
         const numeric = Number(value);
         if (Number.isFinite(numeric) && value.trim()) {
-            return numeric < 10_000_000_000 ? numeric * 1000 : numeric;
+            return normalizeNumericTimestamp(numeric);
         }
         const parsed = Date.parse(value);
         return Number.isNaN(parsed) ? null : parsed;
@@ -418,18 +431,16 @@ const getEmbeddedToolEvents = (message: JsonRecord): ImportedToolEvent[] => {
         }
         if (getBlockType(block) === 'tool_result') {
             const outputText = getToolResultText(block.content);
-            return outputText
-                ? [
-                      {
-                          argumentsText: null,
-                          callId: firstString(block.tool_use_id, block.id),
-                          kind: 'output',
-                          name: null,
-                          outputText,
-                          timestamp,
-                      } satisfies ImportedToolEvent,
-                  ]
-                : [];
+            return [
+                {
+                    argumentsText: null,
+                    callId: firstString(block.tool_use_id, block.id),
+                    kind: 'output',
+                    name: null,
+                    outputText,
+                    timestamp,
+                } satisfies ImportedToolEvent,
+            ];
         }
         if (getBlockType(block) !== 'tool_use') {
             return [];
@@ -847,7 +858,7 @@ const getGeminiToolCalls = (rawPayload: unknown): ImportedToolEvent[] => {
         }
         calls.push({
             argumentsText: JSON.stringify({ url: value }),
-            callId: null,
+            callId: `gemini-browse:${value}`,
             kind: 'call',
             name: 'browse_page',
             outputText: null,
@@ -2034,10 +2045,12 @@ const addImportedToolEvents = (messages: NormalizedMessage[], toolEvents: Import
     const toolMessages = toolEvents.flatMap((event) => {
         const text = event.kind === 'call' ? event.argumentsText : event.outputText;
         const key = `${event.kind}\0${event.callId ?? ''}\0${event.name ?? ''}\0${text ?? ''}`;
-        if (seen.has(key)) {
+        if (event.callId && seen.has(key)) {
             return [];
         }
-        seen.add(key);
+        if (event.callId) {
+            seen.add(key);
+        }
         return [
             {
                 id: event.callId,
@@ -2242,17 +2255,27 @@ const classifyAssistantPhases = (messages: NormalizedMessage[]): NormalizedMessa
     }));
 };
 
+const getMappingFallbackId = (mapping: JsonRecord): string | null => {
+    let lastId: string | null = null;
+    let lastLeafId: string | null = null;
+    for (const id of Object.keys(mapping)) {
+        lastId = id;
+        const node = mapping[id];
+        if (isRecord(node) && (!Array.isArray(node.children) || node.children.length === 0)) {
+            lastLeafId = id;
+        }
+    }
+    return lastLeafId ?? lastId;
+};
+
 const getMappingChain = (root: JsonRecord): Array<{ id: string; message: JsonRecord }> => {
     if (!isRecord(root.mapping)) {
         return [];
     }
     const mapping = root.mapping;
-    const leafIds = Object.entries(mapping)
-        .filter(([, node]) => isRecord(node) && (!Array.isArray(node.children) || node.children.length === 0))
-        .map(([id]) => id);
     let currentId = firstString(root.current_node);
     if (!currentId || !isRecord(mapping[currentId])) {
-        currentId = leafIds.at(-1) ?? Object.keys(mapping).at(-1) ?? null;
+        currentId = getMappingFallbackId(mapping);
     }
     const chain: Array<{ id: string; message: JsonRecord }> = [];
     const visited = new Set<string>();
@@ -2263,11 +2286,11 @@ const getMappingChain = (root: JsonRecord): Array<{ id: string; message: JsonRec
             break;
         }
         if (isRecord(node.message)) {
-            chain.unshift({ id: currentId, message: node.message });
+            chain.push({ id: currentId, message: node.message });
         }
         currentId = firstString(node.parent);
     }
-    return chain;
+    return chain.reverse();
 };
 
 const parseMappingConversation = async (root: JsonRecord, fileName: string): Promise<ConversationDraft | null> => {
@@ -2547,18 +2570,20 @@ const parsePayload = async (value: unknown, fileName: string): Promise<Conversat
             const parsed = await parseMessageArrayConversation({ messages: value }, fileName);
             return parsed ? [parsed] : [];
         }
-        return (await Promise.all(value.map((item) => parseConversation(item, fileName)))).filter(
-            (item): item is ConversationDraft => item !== null,
-        );
+        return (
+            await mapWithConcurrency(value, WEB_CHAT_PARSE_CONCURRENCY, (item) => parseConversation(item, fileName))
+        ).filter((item): item is ConversationDraft => item !== null);
     }
     if (!isRecord(value)) {
         return [];
     }
     const conversations = Array.isArray(value.conversations) ? value.conversations : null;
     if (conversations) {
-        return (await Promise.all(conversations.map((item) => parseConversation(item, fileName)))).filter(
-            (item): item is ConversationDraft => item !== null,
-        );
+        return (
+            await mapWithConcurrency(conversations, WEB_CHAT_PARSE_CONCURRENCY, (item) =>
+                parseConversation(item, fileName),
+            )
+        ).filter((item): item is ConversationDraft => item !== null);
     }
     const parsed = await parseConversation(value, fileName);
     return parsed ? [parsed] : [];
@@ -2599,10 +2624,12 @@ const TOOL_LABEL_KEYS = ['query', 'q', 'url', 'ref_id', 'path', 'resource_name',
 
 const getToolArgumentLabel = (value: unknown): string | null => {
     const pending = [value];
-    while (pending.length > 0) {
-        const current = pending.shift();
+    for (let index = 0; index < pending.length; index += 1) {
+        const current = pending[index];
         if (Array.isArray(current)) {
-            pending.push(...current);
+            for (const item of current) {
+                pending.push(item);
+            }
             continue;
         }
         if (!isRecord(current)) {
@@ -2614,13 +2641,15 @@ const getToolArgumentLabel = (value: unknown): string | null => {
                 return label;
             }
         }
-        pending.push(...Object.values(current));
+        for (const item of Object.values(current)) {
+            pending.push(item);
+        }
     }
     return null;
 };
 
 const buildToolEvent = (message: NormalizedMessage, platform: string, sequence: number): ThreadEvent | null => {
-    if (!message.text) {
+    if (!message.text && message.role !== 'tool') {
         return null;
     }
     const raw = { messageId: message.id, platform, source: 'web_import' };
@@ -2690,9 +2719,9 @@ const finalizeConversation = async (draft: ConversationDraft, fileName: string):
     const eventTimestamps = draft.messages
         .map((message) => toTimestampMs(message.timestamp))
         .filter((value): value is number => value !== null);
-    const createdAtMs = draft.createdAtMs ?? (eventTimestamps.length > 0 ? Math.min(...eventTimestamps) : null);
+    const createdAtMs = draft.createdAtMs ?? (eventTimestamps.length > 0 ? getNumericMinimum(eventTimestamps) : null);
     const lastActiveAtMs =
-        draft.updatedAtMs ?? (eventTimestamps.length > 0 ? Math.max(...eventTimestamps) : createdAtMs);
+        draft.updatedAtMs ?? (eventTimestamps.length > 0 ? getNumericMaximum(eventTimestamps) : createdAtMs);
     const identity = draft.sourceConversationId ?? JSON.stringify({ events, fileName, title: draft.title });
     const id = (await sha256Hex(`${draft.platform}\0${identity}`)).slice(0, 32);
     return {
@@ -2708,6 +2737,15 @@ const finalizeConversation = async (draft: ConversationDraft, fileName: string):
         sourceConversationId: draft.sourceConversationId,
         title: draft.title ?? fallbackTitle(draft, fileName),
     };
+};
+
+export const parseWebChatValue = async (value: unknown, fileName: string): Promise<WebChatConversation[]> => {
+    const conversations = new Map<string, WebChatConversation>();
+    for (const draft of await parsePayload(value, fileName)) {
+        const conversation = await finalizeConversation(draft, fileName);
+        conversations.set(conversation.id, conversation);
+    }
+    return [...conversations.values()];
 };
 
 const parseSizedWebChatFiles = async (
@@ -2728,7 +2766,7 @@ const parseSizedWebChatFiles = async (
             errors.push({ fileName: file.name, message: 'No supported web conversation was found.' });
             continue;
         }
-        const bytes = Math.ceil(new TextEncoder().encode(file.content).byteLength / drafts.length);
+        const bytes = Math.ceil(utf8ByteLength(file.content) / drafts.length);
         for (const draft of drafts) {
             const conversation = await finalizeConversation(draft, file.name);
             conversations.set(conversation.id, { bytes, conversation });
@@ -2792,3 +2830,49 @@ export const getImportedWebChatSummary = (id: string): WebChatConversationSummar
     const conversation = getImportedWebChat(id);
     return conversation ? toWebChatSummary(conversation) : null;
 };
+
+export const removeImportedWebChats = (ids: readonly string[]) => {
+    const deletedIds: string[] = [];
+    const missingIds: string[] = [];
+    const seen = new Set<string>();
+    for (const id of ids) {
+        if (seen.has(id)) {
+            continue;
+        }
+        seen.add(id);
+        const entry = importedWebChats.get(id);
+        if (!entry) {
+            missingIds.push(id);
+            continue;
+        }
+        importedWebChats.delete(id);
+        importedWebChatBytes -= entry.bytes;
+        deletedIds.push(id);
+    }
+    return { deletedIds, missingIds };
+};
+
+export const webChatToMessages = (conversation: WebChatConversation) =>
+    normalizeCodexEvents(conversation.events).map((message) => ({
+        ...message,
+        id: message.id.replace(/^codex:/, 'web:'),
+    }));
+
+export const renderImportedWebChat = (conversation: WebChatConversation, options: CompactExportFlags = {}) =>
+    renderSelectedTranscriptExport(
+        {
+            artifacts: conversation.artifacts,
+            bodyAvailability: 'full',
+            messages: webChatToMessages(conversation),
+            metadata: {
+                exported_from: 'web_import',
+                file_name: conversation.fileName,
+                parsed_id: conversation.id,
+                platform: conversation.platform,
+                source_conversation_id: conversation.sourceConversationId,
+            },
+            ...(conversation.model ? { model: conversation.model } : {}),
+            title: conversation.title,
+        },
+        options,
+    );

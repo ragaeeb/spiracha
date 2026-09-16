@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'bun:test';
 import type { CommandCodeSessionTranscript } from './command-code-exporter-types';
 import { renderCommandCodeTranscript } from './command-code-transcript';
+import { toCanonicalMessage } from './conversation-data/adapter-helpers';
 
 const transcript: CommandCodeSessionTranscript = {
     messages: [
-        {
+        toCanonicalMessage({
             createdAtMs: 1_700_000_000_000,
             id: 'user-1',
             metadata: {},
@@ -13,8 +14,8 @@ const transcript: CommandCodeSessionTranscript = {
             role: 'user',
             text: 'Review the exporter.',
             toolEvidence: null,
-        },
-        {
+        }),
+        toCanonicalMessage({
             createdAtMs: 1_700_000_001_000,
             id: 'assistant-progress',
             metadata: {},
@@ -24,8 +25,8 @@ const transcript: CommandCodeSessionTranscript = {
             role: 'assistant',
             text: 'Inspecting the export path.',
             toolEvidence: null,
-        },
-        {
+        }),
+        toCanonicalMessage({
             createdAtMs: 1_700_000_002_000,
             id: 'reasoning-1',
             metadata: {},
@@ -35,8 +36,8 @@ const transcript: CommandCodeSessionTranscript = {
             role: 'assistant',
             text: 'The export should preserve tool order.',
             toolEvidence: null,
-        },
-        {
+        }),
+        toCanonicalMessage({
             createdAtMs: 1_700_000_003_000,
             id: 'tool-call-1',
             metadata: {},
@@ -56,8 +57,8 @@ const transcript: CommandCodeSessionTranscript = {
                 status: 'unknown',
                 workdir: null,
             },
-        },
-        {
+        }),
+        toCanonicalMessage({
             createdAtMs: 1_700_000_004_000,
             id: 'tool-output-1',
             metadata: {},
@@ -77,8 +78,8 @@ const transcript: CommandCodeSessionTranscript = {
                 status: 'succeeded',
                 workdir: null,
             },
-        },
-        {
+        }),
+        toCanonicalMessage({
             createdAtMs: 1_700_000_005_000,
             id: 'assistant-final',
             metadata: {},
@@ -88,7 +89,7 @@ const transcript: CommandCodeSessionTranscript = {
             role: 'assistant',
             text: 'The export path is fixed.',
             toolEvidence: null,
-        },
+        }),
     ],
     rawRecords: [],
     session: {
@@ -126,7 +127,7 @@ describe('renderCommandCodeTranscript', () => {
         expect(markdown).toContain('exported_from: "command_code_sessions"');
         expect(markdown).toContain('Inspecting the export path.');
         expect(markdown).toContain('The export should preserve tool order.');
-        expect(markdown).toContain('Tool: `read_file`');
+        expect(markdown).toContain('read_file');
         expect(markdown).toContain('export const fixed = true;');
         expect(markdown).toContain('The export path is fixed.');
     });
@@ -141,8 +142,8 @@ describe('renderCommandCodeTranscript', () => {
 
         expect(markdown).toContain('Review the exporter.');
         expect(markdown).toContain('The export path is fixed.');
+        expect(markdown).toContain('The export should preserve tool order.');
         expect(markdown).not.toContain('Inspecting the export path.');
-        expect(markdown).not.toContain('The export should preserve tool order.');
         expect(markdown).not.toContain('exported_from');
         expect(markdown).not.toContain('read_file');
         expect(markdown).not.toContain('export const fixed = true;');
@@ -157,7 +158,8 @@ describe('renderCommandCodeTranscript', () => {
         });
 
         expect(text).toContain('Export audit\n============');
-        expect(text).toContain('Muse Spark 1.3 Contributor\n--------------------------\nThe export path is fixed.');
+        expect(text).toContain('Assistant · Final answer · Muse Spark 1.3 Contributor');
+        expect(text).toContain('The export path is fixed.');
         expect(text).not.toContain('#');
         expect(text).not.toContain('`');
     });

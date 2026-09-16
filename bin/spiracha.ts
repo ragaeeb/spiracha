@@ -19,8 +19,9 @@ Commands:
   serve                         Start the local UI server
   list [--cwd <path>]           List conversations as JSON
   get <ref>                     Get one conversation as JSON
-  export <ref> [--raw] [--output <path>]
-                                Export Markdown or the original source transcript
+  export <ref> [--raw] [--output <path>] [--format md|txt]
+                                [--no-commentary] [--no-tools] [--no-metadata]
+                                Export Markdown/plain text or the original source transcript
   evidence <ref> --lens <file> [--output <path>]
                                 Export focused evidence as Markdown
   analytics export [options]    Export provider-neutral goal-span analytics
@@ -36,6 +37,10 @@ List options:
 
 Get/Markdown export options:
   --message-selector <selector> all, last_assistant, or last_final_answer
+  --format <md|txt>             Markdown or plain text (default: md)
+  --no-commentary               Omit assistant commentary
+  --no-tools                    Omit tool calls and outputs
+  --no-metadata                 Omit YAML/plain metadata
 
 Analytics export options:
   --format <json|csv>           Output format (default: json)
@@ -60,7 +65,17 @@ export type SpirachaCliCommand =
           updatedBeforeMs?: number;
       }
     | { command: 'get'; messageSelector?: ConversationMessageSelector; ref: string }
-    | { command: 'export'; messageSelector?: ConversationMessageSelector; output?: string; raw?: true; ref: string }
+    | {
+          command: 'export';
+          includeCommentary?: boolean;
+          includeMetadata?: boolean;
+          includeTools?: boolean;
+          messageSelector?: ConversationMessageSelector;
+          output?: string;
+          outputFormat?: 'md' | 'txt';
+          raw?: true;
+          ref: string;
+      }
     | {
           command: 'evidence';
           lens: string;
@@ -186,6 +201,19 @@ export const parseSpirachaCliArgs = (args: string[]): SpirachaCliCommand => {
             options.raw = true;
             continue;
         }
+        if (option === '--no-commentary' || option === '--no-tools' || option === '--no-metadata') {
+            if (command !== 'export') {
+                throw new Error(`Unknown option "${option}".`);
+            }
+            if (option === '--no-commentary') {
+                options.includeCommentary = false;
+            } else if (option === '--no-tools') {
+                options.includeTools = false;
+            } else {
+                options.includeMetadata = false;
+            }
+            continue;
+        }
 
         const value = requiredValue(args, index, option);
         index += 1;
@@ -228,6 +256,15 @@ export const parseSpirachaCliArgs = (args: string[]): SpirachaCliCommand => {
                     throw new Error(`Unknown option "${option}".`);
                 }
                 options.output = value;
+                break;
+            case '--format':
+                if (command !== 'export') {
+                    throw new Error(`Unknown option "${option}".`);
+                }
+                if (value !== 'md' && value !== 'txt') {
+                    throw new Error(`Unknown export format "${value}".`);
+                }
+                options.outputFormat = value;
                 break;
             case '--updated-after-ms':
                 if (command !== 'list') throw new Error(`Unknown option "${option}".`);
@@ -280,16 +317,37 @@ export const parseSpirachaCliArgs = (args: string[]): SpirachaCliCommand => {
         };
     }
 
-    if (command === 'export' && options.raw && options.messageSelector) {
-        throw new Error('Raw export does not accept "--message-selector".');
+    if (command === 'get') {
+        return {
+            command,
+            ...(options.messageSelector === undefined
+                ? {}
+                : { messageSelector: options.messageSelector as ConversationMessageSelector }),
+            ref,
+        };
+    }
+
+    if (
+        options.raw &&
+        (options.messageSelector ||
+            options.outputFormat ||
+            options.includeCommentary !== undefined ||
+            options.includeMetadata !== undefined ||
+            options.includeTools !== undefined)
+    ) {
+        throw new Error('Raw export does not accept Markdown selection or include options.');
     }
 
     return {
         command,
+        ...(options.includeCommentary === undefined ? {} : { includeCommentary: false as const }),
+        ...(options.includeMetadata === undefined ? {} : { includeMetadata: false as const }),
+        ...(options.includeTools === undefined ? {} : { includeTools: false as const }),
         ...(options.messageSelector === undefined
             ? {}
             : { messageSelector: options.messageSelector as ConversationMessageSelector }),
         ...(options.output === undefined ? {} : { output: options.output as string }),
+        ...(options.outputFormat === undefined ? {} : { outputFormat: options.outputFormat as 'md' | 'txt' }),
         ...(options.raw === undefined ? {} : { raw: true as const }),
         ref,
     };
@@ -399,9 +457,15 @@ export const runSpirachaCli = async (args: string[], dependencies: SpirachaCliDe
                     ? await client.exportConversationRaw({ id: resolved.id, source: resolved.source })
                     : await client.exportConversationMarkdown({
                           id: resolved.id,
+                          ...(parsed.includeCommentary === undefined
+                              ? {}
+                              : { includeCommentary: parsed.includeCommentary }),
+                          ...(parsed.includeMetadata === undefined ? {} : { includeMetadata: parsed.includeMetadata }),
+                          ...(parsed.includeTools === undefined ? {} : { includeTools: parsed.includeTools }),
                           ...(parsed.messageSelector === undefined
                               ? {}
                               : { messageSelector: parsed.messageSelector }),
+                          ...(parsed.outputFormat === undefined ? {} : { outputFormat: parsed.outputFormat }),
                           source: resolved.source,
                       });
                 if (result === null) {

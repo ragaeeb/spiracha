@@ -45,6 +45,7 @@ import {
 } from '#/lib/route-search';
 import { RouteStateResetBoundary } from '#/lib/route-state-reset';
 import { useSettings } from '#/lib/settings-store';
+import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { formatSandboxPolicy } from '#/lib/thread-metadata';
 import { shouldLoadFullThreadTranscript, shouldRequestThreadTranscript } from '#/lib/thread-transcript-load';
 
@@ -776,15 +777,11 @@ function ThreadDetailPageContent() {
                 },
             }),
         onSuccess: async () => {
-            queryClient.removeQueries({ queryKey: ['thread', snapshot.thread.id] });
-            queryClient.removeQueries({ queryKey: ['thread-transcript-preview', snapshot.thread.id] });
-            queryClient.removeQueries({ queryKey: ['thread-transcript', snapshot.thread.id] });
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['analytics'] }),
-                queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
-                queryClient.invalidateQueries({ queryKey: ['project-threads', snapshot.project] }),
-                queryClient.invalidateQueries({ queryKey: ['projects'] }),
-            ]);
+            await invalidateSourceConversationQueries(queryClient, 'codex', {
+                ids: [snapshot.thread.id],
+                removeDetails: true,
+                workspaceKey: snapshot.project,
+            });
 
             navigate({
                 params: {

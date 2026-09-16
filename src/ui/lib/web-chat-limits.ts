@@ -1,0 +1,3 @@
+export const MAX_WEB_CHAT_FILES = 20;
+export const MAX_WEB_CHAT_FILE_BYTES = 25 * 1024 * 1024;
+export const MAX_WEB_CHAT_IMPORT_BYTES = 100 * 1024 * 1024;

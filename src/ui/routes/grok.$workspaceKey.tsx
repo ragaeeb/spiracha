@@ -11,6 +11,7 @@ import { LoadingPanel } from '#/components/loading-panel';
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
 import { Button } from '#/components/ui/button';
+import { conversationListSelection, lookupSelectedItems } from '#/lib/conversation-selection';
 import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { grokSessionsQueryOptions, grokWorkspacesQueryOptions } from '#/lib/grok-queries';
@@ -20,6 +21,7 @@ import {
     exportGrokSessionFn,
     exportGrokSessionsFn,
 } from '#/lib/grok-server';
+import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { matchesTextQuery } from '#/lib/text-filter';
 import { isWorkspaceEmptiedByDelete } from '#/lib/workspace-delete-navigation';
 
@@ -154,14 +156,12 @@ function GrokWorkspacePage() {
             sessionIds.length === 1
                 ? deleteGrokSessionFn({ data: { sessionId: sessionIds[0]! } })
                 : deleteGrokSessionsFn({ data: { sessionIds } }),
-        onSettled: async (_result, _error, sessionIds) => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['grok-workspaces'] }),
-                queryClient.invalidateQueries({ queryKey: ['grok-sessions', workspace.key] }),
-                ...sessionIds.map((sessionId) =>
-                    queryClient.invalidateQueries({ queryKey: ['grok-session', sessionId] }),
-                ),
-            ]);
+        onSettled: async (_result, error, sessionIds) => {
+            await invalidateSourceConversationQueries(queryClient, 'grok', {
+                ids: sessionIds,
+                removeDetails: error == null,
+                workspaceKey: workspace.key,
+            });
         },
         onSuccess: async (_result, sessionIds) => {
             const workspaceEmptied = isWorkspaceEmptiedByDelete(sessions, sessionIds, (session) => session.sessionId);
@@ -186,14 +186,8 @@ function GrokWorkspacePage() {
             ),
         [deferredSearch, sessions],
     );
-    const visibleSessionsById = useMemo(
-        () => new Map(visibleSessions.map((session) => [session.sessionId, session])),
-        [visibleSessions],
-    );
     const lookupSelectedSessions = (sessionIds: string[]) =>
-        sessionIds
-            .map((sessionId) => visibleSessionsById.get(sessionId) ?? null)
-            .filter((session): session is GrokSessionSummary => session !== null);
+        lookupSelectedItems(sessionIds, sessions, (session) => session.sessionId);
     const openExportForSessions = (selectedSessions: GrokSessionSummary[]) => {
         if (selectedSessions.length === 0) {
             return;
@@ -235,6 +229,11 @@ function GrokWorkspacePage() {
             />
 
             <GrokSessionsTable
+                {...conversationListSelection(
+                    'grok',
+                    sessions.map((session) => session.sessionId),
+                    workspace.key,
+                )}
                 sessions={visibleSessions}
                 onDeleteSession={(session) => openDeleteForSessions([session], 'selected')}
                 onDeleteSessions={(sessionIds) => openDeleteForSessions(lookupSelectedSessions(sessionIds), 'selected')}

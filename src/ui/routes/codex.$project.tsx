@@ -20,11 +20,13 @@ import {
     exportThreadsFn,
     recoverProjectThreadsFn,
 } from '#/lib/codex-server';
+import { conversationListSelection, lookupSelectedItems } from '#/lib/conversation-selection';
 import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { getMutationErrorMessage } from '#/lib/mutation-error';
 import { parseTextQuerySearch, withTextQuerySearch } from '#/lib/route-search';
 import { useSettings } from '#/lib/settings-store';
+import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { matchesTextQuery } from '#/lib/text-filter';
 
 type PendingThreadDelete = {
@@ -143,13 +145,12 @@ function ProjectDetailPage() {
 
             return deleteThreadsFn({ data: input });
         },
-        onSuccess: async () => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['analytics'] }),
-                queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
-                queryClient.invalidateQueries({ queryKey: ['project-threads', project] }),
-                queryClient.invalidateQueries({ queryKey: ['projects'] }),
-            ]);
+        onSuccess: async (_result, input) => {
+            await invalidateSourceConversationQueries(queryClient, 'codex', {
+                ids: input.threadIds,
+                removeDetails: true,
+                workspaceKey: project,
+            });
             setPendingDelete(null);
         },
     });
@@ -162,12 +163,7 @@ function ProjectDetailPage() {
                 },
             }),
         onSuccess: async () => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['analytics'] }),
-                queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
-                queryClient.invalidateQueries({ queryKey: ['project-threads', project] }),
-                queryClient.invalidateQueries({ queryKey: ['projects'] }),
-            ]);
+            await invalidateSourceConversationQueries(queryClient, 'codex', { workspaceKey: project });
         },
     });
 
@@ -249,10 +245,8 @@ function ProjectDetailPage() {
             }),
         [deferredSearch, threads],
     );
-    const visibleThreadsById = useMemo(
-        () => new Map(visibleThreads.map((thread) => [thread.thread.id, thread])),
-        [visibleThreads],
-    );
+    const lookupSelectedThreads = (threadIds: string[]) =>
+        lookupSelectedItems(threadIds, threads, (thread) => thread.thread.id);
     const updateSearchInput = (value: string) => {
         startTransition(() => {
             void navigate({
@@ -261,12 +255,6 @@ function ProjectDetailPage() {
                 search: (previous: Record<string, unknown>) => withTextQuerySearch(previous, value),
             });
         });
-    };
-
-    const lookupSelectedThreads = (threadIds: string[]) => {
-        return threadIds
-            .map((threadId) => visibleThreadsById.get(threadId) ?? null)
-            .filter((thread): thread is ThreadListEntry => thread !== null);
     };
 
     if (threadsQuery.isLoading) {
@@ -323,6 +311,11 @@ function ProjectDetailPage() {
             ) : null}
 
             <ThreadsTable
+                {...conversationListSelection(
+                    'codex',
+                    threads.map((thread) => thread.thread.id),
+                    project,
+                )}
                 threads={visibleThreads}
                 onDeleteThread={(thread) => setPendingDelete({ threads: [thread] })}
                 onDeleteThreads={(threadIds) => {

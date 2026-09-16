@@ -2,21 +2,23 @@ import { describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { toCanonicalMessage } from './adapter-helpers';
 import { listConversationSources, listConversations, resolveConversationRef } from './index';
 import { renderConversationMarkdown } from './markdown';
 import type { ConversationMessage } from './types';
 
-const createMessage = (overrides: Partial<ConversationMessage>): ConversationMessage => ({
-    createdAtMs: null,
-    id: 'message',
-    metadata: {},
-    order: 0,
-    phase: 'unknown',
-    role: 'unknown',
-    text: 'text',
-    toolEvidence: null,
-    ...overrides,
-});
+const createMessage = (overrides: Partial<ConversationMessage>): ConversationMessage =>
+    toCanonicalMessage({
+        createdAtMs: null,
+        id: 'message',
+        metadata: {},
+        order: 0,
+        phase: 'unknown',
+        role: 'unknown',
+        text: 'text',
+        toolEvidence: null,
+        ...overrides,
+    });
 
 describe('conversation data facade', () => {
     it('should keep all-source collection resilient when integrations are not installed', async () => {
@@ -111,7 +113,9 @@ describe('conversation data facade', () => {
             { messageSelector: 'last_final_answer' },
         );
 
-        expect(markdown).toBe('# Review thread\n\n## Claude Sonnet 4.5\n\nThe final review result.\n');
+        expect(markdown).toBe(
+            '# Review thread\n\n## Assistant · Final answer · Claude Sonnet 4.5\n\nThe final review result.\n',
+        );
     });
 
     it('should render stable markdown for empty and unknown-role messages', () => {
@@ -120,7 +124,7 @@ describe('conversation data facade', () => {
                 messages: [createMessage({ role: 'unknown', text: '' })],
                 title: null,
             }),
-        ).toBe('# Conversation\n\n## Unknown\n\n_No message content._\n');
+        ).toBe('# Conversation\n\n## Unknown\n');
 
         expect(
             renderConversationMarkdown(
@@ -145,11 +149,17 @@ describe('conversation data facade', () => {
 
     it('should return an isolated scoped source metadata array', async () => {
         const first = await listConversationSources();
-        expect(first).toContainEqual({ label: 'Cline', scope: 'workspace', source: 'cline' });
-        expect(first).toContainEqual({ label: 'MiniMax Code', scope: 'workspace', source: 'minimax-code' });
-        expect(first).toContainEqual({ label: 'Command Code', scope: 'workspace', source: 'command-code' });
-        expect(first).toContainEqual({ label: 'FX', scope: 'workspace', source: 'fx' });
-        expect(first).toContainEqual({ label: 'Grok Bot', scope: 'global', source: 'grok-bot' });
+        expect(first).toContainEqual(expect.objectContaining({ label: 'Cline', scope: 'workspace', source: 'cline' }));
+        expect(first).toContainEqual(
+            expect.objectContaining({ label: 'MiniMax Code', scope: 'workspace', source: 'minimax-code' }),
+        );
+        expect(first).toContainEqual(
+            expect.objectContaining({ label: 'Command Code', scope: 'workspace', source: 'command-code' }),
+        );
+        expect(first).toContainEqual(expect.objectContaining({ label: 'FX', scope: 'workspace', source: 'fx' }));
+        expect(first).toContainEqual(
+            expect.objectContaining({ label: 'Grok Bot', scope: 'global', source: 'grok-bot' }),
+        );
         first.splice(0, first.length);
 
         expect(await listConversationSources()).not.toEqual([]);

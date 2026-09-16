@@ -61,6 +61,8 @@ describe('QoderSessionsTable', () => {
         render(
             <QoderSessionsTable
                 sessions={[buildSession('Qwen 3.7 Max')]}
+                onDeleteSession={vi.fn()}
+                onDeleteSessions={vi.fn()}
                 onExportSession={vi.fn()}
                 onExportSessions={vi.fn()}
             />,
@@ -83,6 +85,8 @@ describe('QoderSessionsTable', () => {
                         title: 'Second Qoder review',
                     },
                 ]}
+                onDeleteSession={vi.fn()}
+                onDeleteSessions={vi.fn()}
                 onExportSession={vi.fn()}
                 onExportSessions={onExportSessions}
             />,
@@ -93,5 +97,32 @@ describe('QoderSessionsTable', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Export selected sessions' }));
 
         expect(onExportSessions).toHaveBeenCalledWith(['task-a.session.execution', 'task-b.session.execution']);
+    });
+
+    it('should allow selecting multiple sessions and trigger batch delete', () => {
+        const onDeleteSessions = vi.fn();
+
+        render(
+            <QoderSessionsTable
+                sessions={[
+                    buildSession('Qwen 3.7 Max'),
+                    {
+                        ...buildSession('Qwen 3.7 Max'),
+                        sessionId: 'task-b.session.execution',
+                        title: 'Second Qoder review',
+                    },
+                ]}
+                onDeleteSession={vi.fn()}
+                onDeleteSessions={onDeleteSessions}
+                onExportSession={vi.fn()}
+                onExportSessions={vi.fn()}
+            />,
+        );
+
+        fireEvent.click(screen.getByRole('checkbox', { name: 'Select row task-a.session.execution' }));
+        fireEvent.click(screen.getByRole('checkbox', { name: 'Select row task-b.session.execution' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Delete selected sessions' }));
+
+        expect(onDeleteSessions).toHaveBeenCalledWith(['task-a.session.execution', 'task-b.session.execution']);
     });
 });

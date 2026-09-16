@@ -61,11 +61,7 @@ const buildConversation = async (
 
     return {
         createdAtMs: session.createdAtMs,
-        deepLinks: createDeepLinks(
-            'grok',
-            session.sessionId,
-            createConversationUiPath('grok-sessions', session.sessionId),
-        ),
+        deepLinks: createDeepLinks('grok', session.sessionId, createConversationUiPath('grok', session.sessionId)),
         id: session.sessionId,
         matches,
         ...(model ? { model } : {}),
@@ -151,10 +147,10 @@ const deleteGrokConversation = async (options: DeleteConversationOptions) => {
     };
 };
 
-export const grokConversationAdapter: ConversationAdapter = {
+export const grokConversationAdapter = {
     deleteConversation: deleteGrokConversation,
     getConversation: getGrokConversation,
     getConversationRaw: getGrokConversationRaw,
     listConversations: listGrokConversations,
     source: 'grok',
-};
+} satisfies ConversationAdapter<'grok'>;

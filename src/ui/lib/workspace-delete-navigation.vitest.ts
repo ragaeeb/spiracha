@@ -12,6 +12,12 @@ describe('workspace delete navigation helpers', () => {
         expect(isWorkspaceEmptiedByDelete(items, ['session-1'], (item) => item.id)).toBe(false);
     });
 
+    it('should stay on the workspace when deleted ids cover only the filtered visible page', () => {
+        const membership = [{ id: 'visible' }, { id: 'hidden' }];
+
+        expect(isWorkspaceEmptiedByDelete(membership, ['visible'], (item) => item.id)).toBe(false);
+    });
+
     it('should keep empty workspaces from forcing navigation on unrelated deletes', () => {
         expect(isWorkspaceEmptiedByDelete([], ['session-1'], (item: { id: string }) => item.id)).toBe(false);
     });

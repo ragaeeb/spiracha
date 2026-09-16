@@ -3,7 +3,9 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createOpenCodeFixture } from '../opencode-test-helpers';
+import { getConversationRaw } from './index';
 import { opencodeConversationAdapter } from './opencode-adapter';
+import { UnsupportedSourceOperationError } from './operation-types';
 
 const tempDirs: string[] = [];
 
@@ -131,5 +133,57 @@ describe('opencodeConversationAdapter', () => {
         expect(conversations[0]?.messages).toEqual([]);
         expect(conversations[0]).not.toHaveProperty('model');
         expect(excluded).toEqual([]);
+    });
+
+    it('should reject original raw for a multi-session OpenCode database', async () => {
+        const tempDir = await mkdtemp(path.join(os.tmpdir(), 'opencode-adapter-raw-'));
+        tempDirs.push(tempDir);
+        const dbPath = path.join(tempDir, 'opencode.db');
+        await createOpenCodeFixture(dbPath, {
+            projects: [
+                { id: 'project-1', worktree: '/repo' },
+                { id: 'project-2', worktree: '/other' },
+            ],
+            sessions: [
+                {
+                    id: 'session-1',
+                    messages: [{ id: 'message-user', parts: [], role: 'user' }],
+                    projectId: 'project-1',
+                    title: 'Selected',
+                },
+                {
+                    id: 'session-sibling',
+                    messages: [
+                        {
+                            id: 'message-sibling',
+                            parts: [{ data: { text: 'secret sibling', type: 'text' }, id: 'part-sibling' }],
+                            role: 'user',
+                        },
+                    ],
+                    projectId: 'project-2',
+                    title: 'Sibling',
+                },
+            ],
+        });
+
+        expect('getConversationRaw' in opencodeConversationAdapter).toBe(false);
+        await expect(
+            getConversationRaw({
+                id: 'session-1',
+                locations: { opencodeDbPath: '/missing/opencode.db' },
+                source: 'opencode',
+            }),
+        ).rejects.toMatchObject({
+            operation: 'original_raw',
+            reasonCode: 'no_native_conversation_file',
+            source: 'opencode',
+        });
+        await expect(
+            getConversationRaw({
+                id: 'session-1',
+                locations: { opencodeDbPath: dbPath },
+                source: 'opencode',
+            }),
+        ).rejects.toBeInstanceOf(UnsupportedSourceOperationError);
     });
 });

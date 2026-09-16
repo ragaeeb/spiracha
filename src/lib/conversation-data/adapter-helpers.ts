@@ -1,11 +1,17 @@
+import { SOURCE_CATALOG } from './source-catalog';
 import type {
+    ContentState,
     ConversationDeepLinks,
+    ConversationDetail,
     ConversationMessage,
     ConversationMessagePhase,
     ConversationMessageRole,
+    ConversationMessageSelector,
+    ConversationMessageVisibility,
     ConversationSource,
     ConversationToolEvidence,
     ListConversationsOptions,
+    MessageProvenance,
 } from './types';
 
 export const isWithinUpdatedWindow = (
@@ -72,8 +78,8 @@ export const createDeepLinks = (
     ui: uiPath,
 });
 
-export const createConversationUiPath = (routeSegment: string, id: string) =>
-    `/${routeSegment}/${encodeURIComponent(id)}`;
+export const createConversationUiPath = (source: ConversationSource, id: string) =>
+    `/${SOURCE_CATALOG[source].detailRouteSegment}/${encodeURIComponent(id)}`;
 
 export const normalizeRole = (role: string | null | undefined): ConversationMessageRole => {
     if (role === 'assistant' || role === 'system' || role === 'tool' || role === 'user') {
@@ -98,33 +104,149 @@ export const normalizeAssistantPhase = (
     return fallback;
 };
 
+export const AVAILABLE_FULL_CONTENT = {
+    representation: 'full',
+    state: 'available',
+} as const satisfies ContentState;
+
+export type CanonicalInclusionBucket =
+    | 'assistant_commentary'
+    | 'assistant_final'
+    | 'reasoning'
+    | 'system'
+    | 'tool_call'
+    | 'tool_output'
+    | 'unknown'
+    | 'user';
+
+export const classifyCanonicalInclusionBucket = (message: {
+    phase: ConversationMessagePhase;
+    role: ConversationMessageRole;
+}): CanonicalInclusionBucket => {
+    if (message.phase === 'tool_call') {
+        return 'tool_call';
+    }
+    if (message.phase === 'tool_output') {
+        return 'tool_output';
+    }
+    if (message.phase === 'reasoning') {
+        return 'reasoning';
+    }
+    if (message.phase === 'commentary') {
+        return 'assistant_commentary';
+    }
+    if (message.role === 'assistant' && message.phase === 'final_answer') {
+        return 'assistant_final';
+    }
+    if (message.role === 'user') {
+        return 'user';
+    }
+    if (message.role === 'system') {
+        return 'system';
+    }
+    return 'unknown';
+};
+
+export type CanonicalRolePhaseIssue =
+    | 'assistant_prose_phase_requires_assistant_role'
+    | 'reasoning_phase_requires_assistant_role'
+    | 'tool_phase_requires_tool_role';
+
+export const canonicalRolePhaseIssues = (message: {
+    phase: ConversationMessagePhase;
+    role: ConversationMessageRole;
+}): CanonicalRolePhaseIssue[] => {
+    if (message.phase === 'tool_call' || message.phase === 'tool_output') {
+        return message.role === 'tool' ? [] : ['tool_phase_requires_tool_role'];
+    }
+    if (message.phase === 'reasoning') {
+        return message.role === 'assistant' ? [] : ['reasoning_phase_requires_assistant_role'];
+    }
+    if (message.phase === 'final_answer' || message.phase === 'commentary') {
+        return message.role === 'assistant' ? [] : ['assistant_prose_phase_requires_assistant_role'];
+    }
+    return [];
+};
+
+const nativeProvenance = (id: string, sourceConversationId: string): MessageProvenance => ({
+    blockIndex: null,
+    branchId: null,
+    origin: 'native',
+    parentMessageId: null,
+    sourceConversationId,
+    sourceRecordId: id,
+});
+
+export const observedToolFieldState = (value: string | null | undefined): ContentState | null =>
+    value == null ? null : AVAILABLE_FULL_CONTENT;
+
+export type ConversationToolEvidenceDraft = Omit<
+    ConversationToolEvidence,
+    'inputContentState' | 'outputContentState'
+> & {
+    inputContentState?: ContentState | null;
+    outputContentState?: ContentState | null;
+};
+
+export const toCanonicalToolEvidence = (
+    tool: ConversationToolEvidenceDraft | null | undefined,
+): ConversationToolEvidence | null => {
+    if (!tool) {
+        return null;
+    }
+    return {
+        ...tool,
+        inputContentState: tool.inputContentState ?? observedToolFieldState(tool.inputText),
+        outputContentState: tool.outputContentState ?? observedToolFieldState(tool.outputText),
+    };
+};
+
+export const conversationReadFields = (options: {
+    includeMessages: boolean;
+    messageSelector?: ConversationMessageSelector | null;
+}): Pick<ConversationDetail, 'bodyAvailability'> => {
+    if (!options.includeMessages) {
+        return {};
+    }
+    return {
+        bodyAvailability: (options.messageSelector ?? 'last_final_answer') === 'all' ? 'full' : 'selected',
+    };
+};
+
 export const createTextMessage = (input: {
+    contentState?: ContentState;
     createdAtMs: number | null;
     id: string;
     model?: string;
     metadata?: Record<string, unknown>;
     order: number;
     phase: ConversationMessagePhase;
+    provenance?: MessageProvenance;
     role: ConversationMessageRole;
+    sourceConversationId?: string;
     text: string | null | undefined;
-    toolEvidence?: ConversationToolEvidence | null;
+    toolEvidence?: ConversationToolEvidenceDraft | null;
+    visibility?: ConversationMessageVisibility;
 }): ConversationMessage[] => {
-    const text = input.text?.trim();
-    if (!text) {
+    const text = input.text ?? '';
+    if (!text && !input.toolEvidence) {
         return [];
     }
 
     return [
         {
+            contentState: input.contentState ?? AVAILABLE_FULL_CONTENT,
             createdAtMs: input.createdAtMs,
             id: input.id,
             ...(input.model ? { model: input.model } : {}),
             metadata: input.metadata ?? {},
             order: input.order,
             phase: input.phase,
+            provenance: input.provenance ?? nativeProvenance(input.id, input.sourceConversationId ?? ''),
             role: input.role,
-            text,
-            toolEvidence: input.toolEvidence ?? null,
+            text: input.text ?? '',
+            toolEvidence: toCanonicalToolEvidence(input.toolEvidence),
+            visibility: input.visibility ?? 'normal',
         },
     ];
 };
@@ -167,9 +289,27 @@ export const getToolNamespace = (name: string): string | null => {
     return delimiterIndex >= 0 ? name.substring(0, delimiterIndex) : null;
 };
 
-export const finalizeMessages = (messages: ConversationMessage[]) => {
+export type CanonicalMessageDraft = Omit<
+    ConversationMessage,
+    'contentState' | 'provenance' | 'toolEvidence' | 'visibility'
+> & {
+    contentState?: ContentState;
+    provenance?: MessageProvenance;
+    toolEvidence?: ConversationToolEvidenceDraft | null;
+    visibility?: ConversationMessageVisibility;
+};
+
+export const toCanonicalMessage = (message: CanonicalMessageDraft): ConversationMessage => ({
+    ...message,
+    contentState: message.contentState ?? AVAILABLE_FULL_CONTENT,
+    provenance: message.provenance ?? nativeProvenance(message.id, ''),
+    toolEvidence: toCanonicalToolEvidence(message.toolEvidence),
+    visibility: message.visibility ?? 'normal',
+});
+
+export const finalizeMessages = (messages: CanonicalMessageDraft[]) => {
     return messages.map((message, index) => ({
-        ...message,
+        ...toCanonicalMessage(message),
         order: index,
     }));
 };

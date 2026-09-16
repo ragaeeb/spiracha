@@ -1,13 +1,20 @@
+import { toCanonicalMessage } from '@spiracha/lib/conversation-data/adapter-helpers';
 import type { ConversationDetail, ConversationMessage } from '@spiracha/lib/conversation-data/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { deleteConversationMock, getConversationMock, listConversationsMock, renderSourceSessionDownloadMock } =
-    vi.hoisted(() => ({
-        deleteConversationMock: vi.fn(),
-        getConversationMock: vi.fn(),
-        listConversationsMock: vi.fn(),
-        renderSourceSessionDownloadMock: vi.fn(),
-    }));
+const {
+    deleteConversationMock,
+    getConversationMock,
+    listConversationsMock,
+    renderSourceSessionDownloadMock,
+    renderSourceSessionsDownloadMock,
+} = vi.hoisted(() => ({
+    deleteConversationMock: vi.fn(),
+    getConversationMock: vi.fn(),
+    listConversationsMock: vi.fn(),
+    renderSourceSessionDownloadMock: vi.fn(),
+    renderSourceSessionsDownloadMock: vi.fn(),
+}));
 
 vi.mock('@tanstack/react-start', () => ({
     createServerFn: () => {
@@ -27,21 +34,30 @@ vi.mock('@spiracha/lib/conversation-data', () => ({
 
 vi.mock('./source-session-export-server', () => ({
     renderSourceSessionDownload: renderSourceSessionDownloadMock,
+    renderSourceSessionsDownload: renderSourceSessionsDownloadMock,
 }));
 
-import { deleteGrokBotChatFn, exportGrokBotChatFn, getGrokBotChatFn, listGrokBotChatsFn } from './grok-bot-server';
+import {
+    deleteGrokBotChatFn,
+    deleteGrokBotChatsFn,
+    exportGrokBotChatFn,
+    exportGrokBotChatsFn,
+    getGrokBotChatFn,
+    listGrokBotChatsFn,
+} from './grok-bot-server';
 
-const message = (overrides: Partial<ConversationMessage>): ConversationMessage => ({
-    createdAtMs: 1_700_000_000_000,
-    id: 'message-id',
-    metadata: {},
-    order: 0,
-    phase: 'final_answer',
-    role: 'assistant',
-    text: 'answer',
-    toolEvidence: null,
-    ...overrides,
-});
+const message = (overrides: Partial<ConversationMessage>): ConversationMessage =>
+    toCanonicalMessage({
+        createdAtMs: 1_700_000_000_000,
+        id: 'message-id',
+        metadata: {},
+        order: 0,
+        phase: 'final_answer',
+        role: 'assistant',
+        text: 'answer',
+        toolEvidence: null,
+        ...overrides,
+    });
 
 const chat = (): ConversationDetail => ({
     createdAtMs: 1_700_000_000_000,
@@ -122,6 +138,12 @@ describe('Grok Bot server operations', () => {
             mimeType: 'text/markdown',
             mode: 'download',
         });
+        renderSourceSessionsDownloadMock.mockResolvedValue({
+            downloadUrl: '/exports/chats.zip',
+            fileName: 'chats.zip',
+            mimeType: 'application/zip',
+            mode: 'download_url',
+        });
     });
 
     it('should list, load, export, and delete a chat through the server functions', async () => {
@@ -143,7 +165,7 @@ describe('Grok Bot server operations', () => {
         } as never);
         const exportRequest = renderSourceSessionDownloadMock.mock.calls[0]?.[0];
         expect(exportRequest.content).toContain('Thinking note');
-        expect(exportRequest.content).toContain('Tool Call');
+        expect(exportRequest.content).toContain('Tool call');
         expect(exportRequest.content).toContain('Bamba Dev Team');
         expect(exportRequest.content).toContain('created_at: "2023-11-14T22:13:20.000Z"');
         expect(exportRequest.content).toContain('last_activity_at: "2023-11-14T22:13:20.050Z"');
@@ -151,7 +173,7 @@ describe('Grok Bot server operations', () => {
         expect(exportRequest.content).toContain('replica_persisted_at: "2023-11-14T22:13:20.100Z"');
         expect(exportRequest.content).toContain('Working on the app');
         expect(exportRequest.content).toContain('notes.md');
-        expect(exportRequest.content).toContain('## Kiwi — 2023-11-14T22:13:20.000Z');
+        expect(exportRequest.content).toContain('## Kiwi');
 
         await expect(deleteGrokBotChatFn({ data: { conversationId: 'chat-id' } } as never)).resolves.toEqual({
             deletedFiles: ['/tmp/chat.blob'],
@@ -172,8 +194,8 @@ describe('Grok Bot server operations', () => {
             },
         } as never);
         const exportRequest = renderSourceSessionDownloadMock.mock.calls[0]?.[0];
-        expect(exportRequest.content).not.toContain('Thinking note');
-        expect(exportRequest.content).not.toContain('Tool Call');
+        expect(exportRequest.content).toContain('Thinking note');
+        expect(exportRequest.content).not.toContain('Tool call');
         expect(exportRequest.content).toContain('Question');
         expect(exportRequest.content).not.toContain('2023-11-14');
         expect(exportRequest.content).not.toContain('Working on the app');
@@ -216,7 +238,70 @@ describe('Grok Bot server operations', () => {
         const content = renderSourceSessionDownloadMock.mock.calls[0]?.[0].content;
         expect(content).not.toContain('created_at:');
         expect(content).not.toContain('replica_persisted_at:');
-        expect(content).toContain('Assistant — 1970-01-01T00:00:00.000Z');
+        expect(content).toContain('Assistant · Final answer');
         expect(content).not.toContain('Invalid Date');
+    });
+
+    it('should export and delete selected Grok Bot chats in a batch', async () => {
+        const first = chat();
+        const second = chat();
+        second.id = 'chat-id-2';
+        second.title = 'Kiwi';
+        getConversationMock.mockImplementation(async (options: { id: string }) =>
+            options.id === 'chat-id-2' ? second : first,
+        );
+        await expect(
+            exportGrokBotChatsFn({
+                data: {
+                    conversationIds: ['chat-id', 'chat-id-2'],
+                    includeCommentary: false,
+                    includeMetadata: true,
+                    includeTools: true,
+                    outputFormat: 'md',
+                    zipArchive: true,
+                },
+            } as never),
+        ).resolves.toEqual({
+            downloadUrl: '/exports/chats.zip',
+            fileName: 'chats.zip',
+            mimeType: 'application/zip',
+            mode: 'download_url',
+        });
+        expect(renderSourceSessionsDownloadMock).toHaveBeenCalledWith({
+            entries: [
+                {
+                    content: expect.stringContaining('Bamba Dev Team'),
+                    cwd: null,
+                    fallbackBaseName: 'grok-bot-chat',
+                    fileBaseName: 'Bamba Dev Team',
+                    sessionId: 'chat-id',
+                    updatedAtMs: 1_700_000_000_100,
+                },
+                {
+                    content: expect.stringContaining('Kiwi'),
+                    cwd: null,
+                    fallbackBaseName: 'grok-bot-chat',
+                    fileBaseName: 'Kiwi',
+                    sessionId: 'chat-id-2',
+                    updatedAtMs: 1_700_000_000_100,
+                },
+            ],
+            fallbackBaseName: 'grok-bot-chats',
+            outputFormat: 'md',
+            platform: 'grok-bot',
+            zipArchive: true,
+        });
+
+        deleteConversationMock
+            .mockResolvedValueOnce({ deletedFiles: ['/tmp/chat.blob'], deletedIds: ['chat-id'] })
+            .mockResolvedValueOnce({ deletedFiles: ['/tmp/chat-2.blob'], deletedIds: ['chat-id-2'] });
+        await expect(
+            deleteGrokBotChatsFn({ data: { conversationIds: ['chat-id', 'chat-id-2'] } } as never),
+        ).resolves.toEqual({
+            deletedFiles: ['/tmp/chat.blob', '/tmp/chat-2.blob'],
+            deletedIds: ['chat-id', 'chat-id-2'],
+        });
+        expect(deleteConversationMock).toHaveBeenNthCalledWith(1, { id: 'chat-id', source: 'grok-bot' });
+        expect(deleteConversationMock).toHaveBeenNthCalledWith(2, { id: 'chat-id-2', source: 'grok-bot' });
     });
 });

@@ -52,7 +52,7 @@ const buildConversation = async (
     const allMessages = transcript ? transcriptToMessages(transcript) : [];
     return {
         createdAtMs: task.createdAtMs,
-        deepLinks: createDeepLinks('cline', task.taskId, createConversationUiPath('cline-tasks', task.taskId)),
+        deepLinks: createDeepLinks('cline', task.taskId, createConversationUiPath('cline', task.taskId)),
         id: task.taskId,
         matches,
         ...(task.modelId ? { model: task.modelId } : {}),
@@ -133,10 +133,10 @@ const deleteClineConversation = async (options: DeleteConversationOptions) => {
     return { deletedFiles: result.deletedFiles, deletedIds: result.deletedTaskIds };
 };
 
-export const clineConversationAdapter: ConversationAdapter = {
+export const clineConversationAdapter = {
     deleteConversation: deleteClineConversation,
     getConversation: getClineConversation,
     getConversationRaw: getClineConversationRaw,
     listConversations: listClineConversations,
     source: 'cline',
-};
+} satisfies ConversationAdapter<'cline'>;

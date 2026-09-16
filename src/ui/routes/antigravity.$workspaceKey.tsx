@@ -23,8 +23,10 @@ import {
     exportAntigravityArtifactsFn,
     exportAntigravityConversationsFn,
 } from '#/lib/antigravity-server';
+import { conversationListSelection, lookupSelectedItems } from '#/lib/conversation-selection';
 import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
+import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { matchesTextQuery } from '#/lib/text-filter';
 import { isWorkspaceEmptiedByDelete } from '#/lib/workspace-delete-navigation';
 
@@ -180,16 +182,12 @@ function AntigravityWorkspacePage() {
             conversationIds.length === 1
                 ? deleteAntigravityConversationFn({ data: { conversationId: conversationIds[0]! } })
                 : deleteAntigravityConversationsFn({ data: { conversationIds } }),
-        onSettled: async (_result, _error, conversationIds) => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['antigravity-workspaces'] }),
-                queryClient.invalidateQueries({ queryKey: ['antigravity-conversations', workspace.key] }),
-                ...conversationIds.map((conversationId) =>
-                    queryClient.invalidateQueries({
-                        queryKey: ['antigravity-conversation', conversationId],
-                    }),
-                ),
-            ]);
+        onSettled: async (_result, error, conversationIds) => {
+            await invalidateSourceConversationQueries(queryClient, 'antigravity', {
+                ids: conversationIds,
+                removeDetails: error == null,
+                workspaceKey: workspace.key,
+            });
         },
         onSuccess: async (result) => {
             const conversationIds = result.deletedConversationIds;
@@ -217,14 +215,8 @@ function AntigravityWorkspacePage() {
             ),
         [conversations, deferredSearch],
     );
-    const visibleConversationsById = useMemo(
-        () => new Map(visibleConversations.map((conversation) => [conversation.conversationId, conversation])),
-        [visibleConversations],
-    );
     const lookupSelectedConversations = (conversationIds: string[]) =>
-        conversationIds
-            .map((conversationId) => visibleConversationsById.get(conversationId) ?? null)
-            .filter((conversation): conversation is AntigravityConversation => conversation !== null);
+        lookupSelectedItems(conversationIds, conversations, (conversation) => conversation.conversationId);
     const openExportForConversations = (selectedConversations: AntigravityConversation[]) => {
         if (selectedConversations.length === 0) {
             return;
@@ -271,6 +263,11 @@ function AntigravityWorkspacePage() {
             <AntigravityKeychainPanel />
 
             <AntigravityConversationsTable
+                {...conversationListSelection(
+                    'antigravity',
+                    conversations.map((conversation) => conversation.conversationId),
+                    workspace.key,
+                )}
                 conversations={visibleConversations}
                 decryptionState={decryptionState}
                 onDeleteConversation={(conversation) => openDeleteForConversations([conversation], 'selected')}

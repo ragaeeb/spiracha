@@ -16,7 +16,8 @@ import {
 import { resolveAntigravityRoots } from './antigravity-exporter-types';
 import { encodeMessage, encodeString, encodeVarint } from './antigravity-protobuf-test-helpers';
 import { ANTIGRAVITY_TRANSCRIPT_MARKDOWN_VERSION } from './antigravity-transcript-contract';
-import { antigravityMarkdownToThreadEvents } from './antigravity-transcript-events';
+import { normalizeAntigravityConversationMessages } from './conversation-data/antigravity-message-normalizer';
+import { canonicalMessagesToThreadEvents } from './conversation-data/conversation-events';
 
 type SummaryFixture = {
     agentId?: string;
@@ -665,17 +666,23 @@ describe('antigravity db discovery', () => {
             transcriptSource: 'overview',
         });
         expect(markdown).toContain('# Recover deleted sessions');
-        expect(markdown).toContain('- exported_from: `antigravity_overview_transcript`');
-        expect(markdown).toContain(`- transcript_schema: \`${ANTIGRAVITY_TRANSCRIPT_MARKDOWN_VERSION}\``);
+        expect(markdown).toContain('exported_from: "antigravity_overview_transcript"');
+        expect(markdown).toContain(`transcript_schema: "${ANTIGRAVITY_TRANSCRIPT_MARKDOWN_VERSION}"`);
         expect(markdown).toContain('## User');
         expect(markdown).toContain('Can I recover deleted chats?');
         expect(markdown).not.toContain('ADDITIONAL_METADATA');
-        expect(markdown).toContain('## Gemini 3.7 Flash');
-        expect(markdown).not.toContain('## Assistant');
+        expect(markdown).toContain('## Assistant · Commentary · Gemini 3.7 Flash');
         expect(markdown).toContain('I will inspect the local Antigravity data directory.');
-        expect(markdown).toContain('### Tool Calls');
-        expect(markdown).toContain('`list_dir`');
-        const parsedEvents = antigravityMarkdownToThreadEvents(markdown);
+        expect(markdown).toContain('## Tool call');
+        expect(markdown).toContain('Tool: list_dir');
+        const parsedEvents = canonicalMessagesToThreadEvents(
+            normalizeAntigravityConversationMessages(
+                conversation!.conversationId,
+                conversation!.transcriptSource,
+                await readAntigravityConversationMessages(conversation!),
+            ),
+            { source: 'antigravity' },
+        );
         expect(parsedEvents).toContainEqual(
             expect.objectContaining({ kind: 'message', role: 'user', text: 'Can I recover deleted chats?' }),
         );
@@ -746,7 +753,7 @@ describe('antigravity db discovery', () => {
         expect(conversation!.transcriptBytes).toBeGreaterThan(0);
         expect(group?.totalBytes).toBe(conversation!.totalBytes);
         expect(markdown).toContain('Full transcript user message.');
-        expect(markdown).toContain('_Model: Claude Sonnet 4.6_');
+        expect(markdown).toContain('## Assistant · Final answer · Claude Sonnet 4.6');
         expect(markdown).toContain('Full transcript assistant answer.');
         expect(markdown).not.toContain('Short transcript only.');
     });
@@ -885,7 +892,14 @@ describe('antigravity db discovery', () => {
             outputFormat: 'txt',
         });
         const messages = await readAntigravityConversationMessages(conversation!);
-        const events = antigravityMarkdownToThreadEvents(markdown);
+        const events = canonicalMessagesToThreadEvents(
+            normalizeAntigravityConversationMessages(
+                conversation!.conversationId,
+                conversation!.transcriptSource,
+                messages,
+            ),
+            { source: 'antigravity' },
+        );
 
         expect(conversation).toMatchObject({
             conversationPath: databasePath,
@@ -926,16 +940,14 @@ describe('antigravity db discovery', () => {
         );
         expect(events).toContainEqual(
             expect.objectContaining({
-                kind: 'message',
-                phase: 'commentary',
-                text: expect.stringContaining('Confirming Test Drive Success'),
+                kind: 'reasoning',
+                summary: expect.arrayContaining([expect.stringContaining('Confirming Test Drive Success')]),
             }),
         );
         expect(events).toContainEqual(
             expect.objectContaining({
-                kind: 'message',
-                phase: 'commentary',
-                text: expect.stringContaining('Clarifying Workflow Steps'),
+                kind: 'reasoning',
+                summary: expect.arrayContaining([expect.stringContaining('Clarifying Workflow Steps')]),
             }),
         );
         expect(
@@ -943,7 +955,7 @@ describe('antigravity db discovery', () => {
                 includeCommentary: false,
                 includeTools: false,
             }),
-        ).not.toContain('Confirming Test Drive Success');
+        ).toContain('Confirming Test Drive Success');
     });
 
     it('should render Antigravity operation results as tool output sections', async () => {
@@ -980,7 +992,8 @@ describe('antigravity db discovery', () => {
         const [conversation] = await listAntigravityConversations([root]);
         const markdown = await renderAntigravityConversationMarkdown(conversation!);
 
-        expect(markdown).toContain('## Tool: VIEW_FILE');
+        expect(markdown).toContain('## Tool output');
+        expect(markdown).toContain('Tool: VIEW_FILE');
         expect(markdown).toContain('File Path: `file://README.md`');
         expect(markdown).not.toContain('## Assistant\n\n_Timestamp: 2026-06-07T03:10:07Z_');
     });
@@ -1033,10 +1046,11 @@ describe('antigravity db discovery', () => {
 
         expect(text).toContain('Audit exports\n=============');
         expect(text).toContain('User\n----\nAudit the export path.');
-        expect(text).toContain('Assistant\n---------\nThe export path is fixed.');
+        expect(text).toContain('Assistant · Final answer');
+        expect(text).toContain('The export path is fixed.');
         expect(text).not.toContain('Inspecting the export path.');
         expect(text).not.toContain('exported_from');
-        expect(text).not.toContain('Inspecting the renderer.');
+        expect(text).toContain('Inspecting the renderer.');
         expect(text).not.toContain('view_file');
         expect(text).not.toContain('Hidden tool output');
         expect(text).not.toContain('#');

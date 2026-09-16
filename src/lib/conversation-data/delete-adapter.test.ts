@@ -153,7 +153,7 @@ describe('conversation delete adapters', () => {
             source: 'codex',
         });
 
-        expect(result).toEqual({
+        expect(result).toMatchObject({
             deletedFiles: threads.map((thread) => thread.sessionFile),
             deletedIds: threads.map((thread) => thread.threadId),
             missingIds: [],
@@ -163,6 +163,7 @@ describe('conversation delete adapters', () => {
                 deletedIds: [thread.threadId],
                 id: thread.threadId,
             })),
+            summary: { cancelled: 0, cleanupPending: 0, deleted: 2, failed: 0, missing: 0 },
         });
         await Promise.all(
             threads.map(async (thread) => {
@@ -181,6 +182,10 @@ describe('conversation delete adapters', () => {
         });
 
         expect(result?.missingIds).toEqual([]);
+        expect(result?.outcomes).toEqual([
+            expect.objectContaining({ coveredBy: null, id: 'session-delete', status: 'deleted' }),
+            expect.objectContaining({ coveredBy: 'session-delete', id: 'session-child', status: 'deleted' }),
+        ]);
         expect(result?.results).toEqual([
             expect.objectContaining({ deleted: true, id: 'session-delete' }),
             expect.objectContaining({ deleted: true, id: 'session-child' }),
@@ -243,7 +248,7 @@ describe('conversation delete adapters', () => {
             source: 'command-code',
         });
 
-        expect(result).toEqual({
+        expect(result).toMatchObject({
             deletedFiles: deletedIds.flatMap((_id, index) => [
                 sidecarPaths[index * 2]!,
                 sidecarPaths[index * 2 + 1]!,
@@ -257,6 +262,7 @@ describe('conversation delete adapters', () => {
                 deletedIds: [id],
                 id,
             })),
+            summary: { cancelled: 0, cleanupPending: 0, deleted: 2, failed: 0, missing: 0 },
         });
         expect(await Bun.file(siblingPath).exists()).toBe(true);
         await expect(
@@ -361,8 +367,53 @@ describe('conversation delete adapters', () => {
         }
     });
 
-    it('should keep Qoder delete unsupported until a safe source-specific delete primitive exists', async () => {
-        await expect(deleteConversation({ id: 'session-delete', source: 'qoder' })).resolves.toBeNull();
+    it('should delete uniquely owned Qoder sessions through the stable facade', async () => {
+        const tempRoot = await makeTempRoot('conversation-delete-qoder-');
+        const project = path.join(tempRoot, 'project');
+        const globalStateDb = path.join(tempRoot, 'globalStorage', 'state.vscdb');
+        const workspaceStorageDir = path.join(tempRoot, 'workspaceStorage');
+        const qoderCliProjectsDir = path.join(tempRoot, 'cli', 'projects');
+        await mkdir(path.dirname(globalStateDb), { recursive: true });
+        await mkdir(workspaceStorageDir, { recursive: true });
+        await mkdir(qoderCliProjectsDir, { recursive: true });
+        const db = new Database(globalStateDb, { create: true, strict: true });
+        db.run('create table ItemTable (key text primary key, value text)');
+        db.run('insert into ItemTable (key, value) values (?, ?)', [
+            'aicoding.questTaskListSnapshot',
+            JSON.stringify({
+                folders: {
+                    [project]: {
+                        tasks: [{ executionSessionId: 'task-a.session.execution', id: 'task-a', title: 'Owned' }],
+                    },
+                },
+            }),
+        ]);
+        db.run('insert into ItemTable (key, value) values (?, ?)', [
+            'lingma.chat.localHistory.ws-a.quest',
+            JSON.stringify([{ id: 'history-1', sessionId: 'task-a.session.execution', title: 'Prompt' }]),
+        ]);
+        db.close();
+
+        const result = await deleteConversation({
+            id: 'task-a.session.execution',
+            locations: {
+                qoderCliProjectsDir,
+                qoderGlobalStateDb: globalStateDb,
+                qoderWorkspaceStorageDir: workspaceStorageDir,
+            },
+            source: 'qoder',
+        });
+
+        expect(result).toEqual({ deletedFiles: [], deletedIds: ['task-a.session.execution'] });
+        const remaining = new Database(globalStateDb, { readonly: true, strict: true });
+        try {
+            const history = remaining
+                .query("select value from ItemTable where key = 'lingma.chat.localHistory.ws-a.quest'")
+                .get() as { value: string };
+            expect(JSON.parse(history.value)).toEqual([]);
+        } finally {
+            remaining.close();
+        }
     });
 
     it('should return not-found style delete results for missing supported conversations', async () => {

@@ -14,6 +14,7 @@ import { projectsQueryOptions } from '#/lib/codex-queries';
 import { deleteProjectFn } from '#/lib/codex-server';
 import { getMutationErrorMessage } from '#/lib/mutation-error';
 import { parseTextQuerySearch, withTextQuerySearch } from '#/lib/route-search';
+import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { matchesTextQuery } from '#/lib/text-filter';
 
 export const Route = createFileRoute('/codex/')({
@@ -39,12 +40,8 @@ function ProjectsPage() {
 
     const deleteProjectMutation = useMutation({
         mutationFn: (input: { deleteSessionFiles: boolean; project: string }) => deleteProjectFn({ data: input }),
-        onSuccess: async () => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['analytics'] }),
-                queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
-                queryClient.invalidateQueries({ queryKey: ['projects'] }),
-            ]);
+        onSuccess: async (_result, input) => {
+            await invalidateSourceConversationQueries(queryClient, 'codex', { workspaceKey: input.project });
             setPendingDelete(null);
         },
     });

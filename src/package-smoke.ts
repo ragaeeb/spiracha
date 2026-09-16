@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createCodexBrowserFixture } from './lib/codex-test-helpers';
 import { geminiResearchPayload, payloadSourceFixtures } from './lib/conversation-payload-test-helpers';
+import { buildIsolatedRuntimeEnv } from './lib/isolated-runtime-test-helpers';
 
 type PackageManifest = {
     name: string;
@@ -26,7 +27,7 @@ export const buildPackagedUiProcessEnv = (
     port: number,
     codexDbPath: string,
 ): NodeJS.ProcessEnv => ({
-    ...environment,
+    ...buildIsolatedRuntimeEnv(environment, path.dirname(codexDbPath)),
     PORT: String(port),
     SPIRACHA_CODEX_DB: codexDbPath,
 });
@@ -239,7 +240,7 @@ for (const fixture of await Bun.file('payload-fixtures.json').json()) {
 const [web] = await convertConversationPayload({ payload: {
     title: 'Consumer test', model: 'openai/gpt-5', messages: [{ role: 'assistant', content: 'Installed SDK works.' }],
 } });
-if (web.source !== 'web' || web.markdown !== '# Consumer test\\n\\n## GPT 5\\n\\nInstalled SDK works.\\n') {
+if (web.source !== 'web' || web.markdown !== '# Consumer test\\n\\n## Assistant · Final answer · GPT 5\\n\\nInstalled SDK works.\\n') {
     throw new Error('Installed SDK payload conversion did not preserve normalized Markdown.');
 }
 const records = [

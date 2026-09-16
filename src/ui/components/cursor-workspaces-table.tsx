@@ -3,7 +3,7 @@ import { Link } from '@tanstack/react-router';
 import { MoreHorizontal, RefreshCcw, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
-import { SelectionActionsToolbar } from '#/components/selection-actions-toolbar';
+import { ConversationSelectionActions } from '#/components/selection-actions-toolbar';
 import { Badge } from '#/components/ui/badge';
 import { Button } from '#/components/ui/button';
 import {
@@ -12,6 +12,7 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu';
+import { supportedListAction } from '#/lib/conversation-actions';
 import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatDateTime, formatNumber } from '#/lib/formatters';
 
@@ -148,12 +149,16 @@ export const CursorWorkspacesTable = ({
             emptyMessage="No Cursor workspaces match the current search."
             enableRowSelection
             getRowId={getCursorWorkspaceRowId}
-            renderToolbar={({ clearSelection, selectedRows }) => (
-                <SelectionActionsToolbar
+            renderToolbar={({ clearSelection, selectedIds, selectedRows }) => (
+                <ConversationSelectionActions
                     clearSelection={clearSelection}
+                    deleteAction={supportedListAction(() => onDeleteWorkspaces(selectedRows))}
+                    exportAction={{
+                        reason: 'Workspace inventory does not export conversations.',
+                        state: 'not_applicable',
+                    }}
                     itemLabel="workspace"
-                    selectedCount={selectedRows.length}
-                    onDeleteSelected={() => onDeleteWorkspaces(selectedRows)}
+                    selectedCount={selectedIds.length}
                 />
             )}
         />

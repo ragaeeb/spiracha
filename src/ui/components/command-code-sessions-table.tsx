@@ -4,7 +4,7 @@ import type { SortingState } from '@tanstack/react-table';
 import { Download, MoreHorizontal, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { DataTable } from '#/components/data-table';
-import { SelectionActionsToolbar } from '#/components/selection-actions-toolbar';
+import { ConversationSelectionActions } from '#/components/selection-actions-toolbar';
 import { Button } from '#/components/ui/button';
 import {
     DropdownMenu,
@@ -12,6 +12,8 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu';
+import { supportedListAction } from '#/lib/conversation-actions';
+import type { ConversationListSelectionProps } from '#/lib/conversation-selection';
 import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatDateTime, formatNumber } from '#/lib/formatters';
 
@@ -21,7 +23,7 @@ type CommandCodeSessionsTableProps = {
     onExportSession: (session: CommandCodeSessionSummary) => void;
     onExportSessions: (sessionIds: string[]) => void;
     sessions: CommandCodeSessionSummary[];
-};
+} & ConversationListSelectionProps;
 
 const columnHelper = createDataTableColumnHelper<CommandCodeSessionSummary>();
 const defaultSorting: SortingState = [{ desc: true, id: 'updated' }];
@@ -105,6 +107,8 @@ const buildColumns = (
     ] as const;
 
 export function CommandCodeSessionsTable({
+    authoritativeRowIds,
+    inventoryIdentity,
     onDeleteSession,
     onDeleteSessions,
     onExportSession,
@@ -115,20 +119,24 @@ export function CommandCodeSessionsTable({
 
     return (
         <DataTable
+            authoritativeRowIds={authoritativeRowIds}
             columns={columns}
             data={sessions}
             emptyMessage="No Command Code sessions match the current workspace filter."
             enableRowSelection
             getRowId={(row) => row.sessionId}
             initialSorting={defaultSorting}
-            renderToolbar={({ clearSelection, selectedRows }) => (
-                <SelectionActionsToolbar
+            inventoryIdentity={inventoryIdentity}
+            renderToolbar={({ clearSelection, hiddenSelectedCount, selectedIds, selectedRows }) => (
+                <ConversationSelectionActions
                     clearSelection={clearSelection}
-                    exportDisabled={selectedRows.some((row) => row.renderableMessageCount === 0)}
+                    deleteAction={supportedListAction(() => onDeleteSessions(selectedIds))}
+                    exportAction={supportedListAction(() => onExportSessions(selectedIds), {
+                        disabled: selectedRows.some((row) => row.renderableMessageCount === 0),
+                    })}
+                    hiddenSelectedCount={hiddenSelectedCount}
                     itemLabel="session"
-                    selectedCount={selectedRows.length}
-                    onDeleteSelected={() => onDeleteSessions(selectedRows.map((row) => row.sessionId))}
-                    onExportSelected={() => onExportSessions(selectedRows.map((row) => row.sessionId))}
+                    selectedCount={selectedIds.length}
                 />
             )}
         />

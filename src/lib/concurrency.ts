@@ -1,3 +1,10 @@
+/**
+ * Maps with bounded admission and returns results in input order. On a worker
+ * failure, stops admitting new items, waits for already admitted work to settle,
+ * then throws a rejected worker's error. Completed side effects are not rolled back;
+ * this is not cancellation of running callbacks or a transactional batch primitive.
+ * Empty input returns []; the concurrency limit is normalized to at least one.
+ */
 export const mapWithConcurrency = async <T, TResult>(
     values: T[],
     limit: number,
@@ -36,12 +43,83 @@ export const mapWithConcurrency = async <T, TResult>(
     return results;
 };
 
+export type SettledMapResult<T> =
+    | { status: 'fulfilled'; value: T }
+    | { status: 'rejected'; reason: unknown }
+    | { status: 'cancelled' };
+
+/**
+ * Maps with bounded admission and returns every slot in input order. Mapper
+ * rejection does not discard sibling results. Abort stops new admissions, awaits
+ * started work, and labels only unstarted slots cancelled.
+ */
+export const mapSettledWithConcurrency = async <T, TResult>(
+    values: T[],
+    limit: number,
+    mapper: (value: T, index: number) => Promise<TResult>,
+    signal?: AbortSignal,
+): Promise<Array<SettledMapResult<TResult>>> => {
+    const results = new Array<SettledMapResult<TResult>>(values.length);
+    if (values.length === 0) {
+        return results;
+    }
+    if (signal?.aborted) {
+        return values.map(() => ({ status: 'cancelled' as const }));
+    }
+
+    const requestedLimit = Number.isFinite(limit) ? Math.floor(limit) : 1;
+    const workerLimit = Math.max(1, requestedLimit);
+    let nextIndex = 0;
+    let admitting = true;
+    const stopAdmitting = () => {
+        admitting = false;
+    };
+    signal?.addEventListener('abort', stopAdmitting, { once: true });
+
+    const worker = async () => {
+        while (admitting) {
+            const currentIndex = nextIndex;
+            if (currentIndex >= values.length) {
+                return;
+            }
+            nextIndex += 1;
+            try {
+                results[currentIndex] = {
+                    status: 'fulfilled',
+                    value: await mapper(values[currentIndex]!, currentIndex),
+                };
+            } catch (reason) {
+                results[currentIndex] = { reason, status: 'rejected' };
+            }
+        }
+    };
+
+    try {
+        await Promise.all(Array.from({ length: Math.min(workerLimit, values.length) }, () => worker()));
+    } finally {
+        signal?.removeEventListener('abort', stopAdmitting);
+    }
+
+    for (let index = 0; index < results.length; index += 1) {
+        results[index] ??= { status: 'cancelled' };
+    }
+    return results;
+};
+
 export type ConcurrencyOptions = {
     signal?: AbortSignal;
     /** Deadline includes time spent queued. Active work retains its slot until settlement. */
     timeoutMs?: number;
 };
 
+/**
+ * Creates a FIFO limiter with at least one active slot. A submitted task owns its
+ * slot until its returned promise settles, including cleanup. Abort/timeout can
+ * reject the caller immediately, but cannot forcibly stop active work or release
+ * its slot early; tasks must observe their signal and settle after cleanup.
+ * A deadline includes queue time. Pre-aborted or canceled queued tasks never run.
+ * Do not detach work from the task promise or treat rejection as resource release.
+ */
 export const createConcurrencyLimiter = (limit: number) => {
     const workerLimit = Math.max(1, Number.isFinite(limit) ? Math.floor(limit) : 1);
     const queue = new Set<() => void>();

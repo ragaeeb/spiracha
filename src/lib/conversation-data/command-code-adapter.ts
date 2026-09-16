@@ -33,7 +33,7 @@ const buildConversation = (
     deepLinks: createDeepLinks(
         'command-code',
         summary.sessionId,
-        createConversationUiPath('command-code-sessions', summary.sessionId),
+        createConversationUiPath('command-code', summary.sessionId),
     ),
     id: summary.sessionId,
     matches,
@@ -61,7 +61,7 @@ const listCommandCodeConversations = async (options: ListConversationsOptions) =
 
     const projectsDir = getProjectsDir(options);
     if (options.includeMessages) {
-        const summaries = await listCommandCodeSessionSummaries(projectsDir);
+        const summaries = await listCommandCodeSessionSummaries(projectsDir, options.cwd);
         const conversations: ConversationDetail[] = [];
         for (const summary of summaries) {
             const match = await getConversationPathMatch(options.cwd, summary.worktree);
@@ -77,7 +77,7 @@ const listCommandCodeConversations = async (options: ListConversationsOptions) =
         return conversations;
     }
 
-    const summaries = await listCommandCodeSessionSummaries(projectsDir);
+    const summaries = await listCommandCodeSessionSummaries(projectsDir, options.cwd);
     const conversations: ConversationDetail[] = [];
     for (const summary of summaries) {
         const match = await getConversationPathMatch(options.cwd, summary.worktree);
@@ -116,15 +116,17 @@ const getCommandCodeConversationRaw = async (options: GetConversationRawOptions)
 const deleteCommandCodeConversation = async (options: DeleteConversationOptions) => {
     const result = await deleteCommandCodeSession(getProjectsDir(options), options.id);
     return {
+        ...(result.cleanupFailures?.length ? { cleanupFailures: result.cleanupFailures } : {}),
         deletedFiles: result.deletedFiles,
         deletedIds: result.deletedSessionIds,
+        ...(result.receiptId ? { receiptId: result.receiptId } : {}),
     };
 };
 
-export const commandCodeConversationAdapter: ConversationAdapter = {
+export const commandCodeConversationAdapter = {
     deleteConversation: deleteCommandCodeConversation,
     getConversation: getCommandCodeConversation,
     getConversationRaw: getCommandCodeConversationRaw,
     listConversations: listCommandCodeConversations,
     source: 'command-code',
-};
+} satisfies ConversationAdapter<'command-code'>;

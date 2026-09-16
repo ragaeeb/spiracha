@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'bun:test';
-import type { ThreadEvent } from './codex-browser-types';
-import { getImportedWebChat, importWebChatFiles, parseWebChatFiles } from './web-chat';
+import type { ThreadEvent } from './conversation-data/conversation-events';
+import {
+    getImportedWebChat,
+    importWebChatFiles,
+    parseWebChatFiles,
+    removeImportedWebChats,
+    renderImportedWebChat,
+} from './web-chat';
 
 const isAssistantMessage = (event: ThreadEvent): event is Extract<ThreadEvent, { kind: 'message' }> =>
     event.kind === 'message' && event.role === 'assistant';
@@ -2356,5 +2362,63 @@ describe('parseWebChatFiles', () => {
         } finally {
             JSON.stringify = originalStringify;
         }
+    });
+
+    it('should remove imported chats by parsed id and report eviction misses', async () => {
+        const first = await importWebChatFiles([
+            {
+                content: JSON.stringify(
+                    createMappingExport({ conversationId: 'keep-me', model: 'gpt-5', title: 'Keep' }),
+                ),
+                name: 'keep.json',
+            },
+        ]);
+        const second = await importWebChatFiles([
+            {
+                content: JSON.stringify(
+                    createMappingExport({ conversationId: 'drop-me', model: 'gpt-5', title: 'Drop' }),
+                ),
+                name: 'drop.json',
+            },
+        ]);
+        const keepId = first.conversations[0]!.id;
+        const dropId = second.conversations[0]!.id;
+
+        expect(removeImportedWebChats([dropId, 'already-gone', dropId])).toEqual({
+            deletedIds: [dropId],
+            missingIds: ['already-gone'],
+        });
+        expect(getImportedWebChat(dropId)).toBeNull();
+        expect(getImportedWebChat(keepId)?.title).toBe('Keep');
+        expect(getImportedWebChat(second.conversations[0]!.sourceConversationId!)).toBeNull();
+    });
+
+    it('should export retained chats through the shared renderer using the parsed id', async () => {
+        const imported = await importWebChatFiles([
+            {
+                content: JSON.stringify(
+                    createMappingExport({ conversationId: 'export-me', model: 'gpt-5', title: 'Export me' }),
+                ),
+                name: 'export.json',
+            },
+        ]);
+        const conversation = getImportedWebChat(imported.conversations[0]!.id);
+        expect(conversation).not.toBeNull();
+        const markdown = renderImportedWebChat(conversation!, {
+            includeCommentary: false,
+            includeMetadata: true,
+            includeTools: true,
+            outputFormat: 'md',
+        });
+
+        expect(markdown).toContain('# Export me');
+        expect(markdown).toContain('exported_from: "web_import"');
+        expect(markdown).toContain(`parsed_id: "${conversation!.id}"`);
+        expect(markdown).toContain('## User');
+        expect(markdown).toContain('Question');
+        expect(markdown).toContain('## Assistant · Final answer · GPT 5');
+        expect(markdown).toContain('Answer');
+        expect(markdown).toContain(`source_conversation_id: "${conversation!.sourceConversationId}"`);
+        removeImportedWebChats([conversation!.id]);
     });
 });

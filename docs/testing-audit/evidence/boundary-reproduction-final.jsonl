@@ -1,0 +1,9 @@
+{"check":"coverage","name":"empty report","rejected":"Invalid LCOV report: missing completed source records."}
+{"check":"coverage","name":"non-LCOV input","rejected":"Invalid LCOV report: missing completed source records."}
+{"check":"coverage","name":"NaN hits","rejected":"Invalid LCOV LH count."}
+{"check":"coverage","name":"hits greater than lines","rejected":"Invalid LCOV hit/total counts for src/lib/example.ts."}
+{"check":"coverage","name":"rounded below threshold","rejected":"Coverage check failed for root: 89999/100000 covered lines is below 90% (displayed: 90%)."}
+{"check":"cache","priorRead":"stale","newReadResult":"fresh","newReadBeforeOldReleased":"fresh"}
+{"check":"pagination","name":"long ASCII ID","roundTrip":true,"cursorCharacters":2755,"idCharacters":2048}
+{"check":"pagination","name":"Unicode ID","roundTrip":true,"cursorCharacters":4120,"idCharacters":1024}
+{"check":"pagination","name":"unsafe timestamp","roundTrip":true,"cursorCharacters":23,"idCharacters":1}

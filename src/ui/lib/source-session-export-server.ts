@@ -1,22 +1,17 @@
-import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
 import type { ConversationRawDownload, ConversationSource } from '@spiracha/lib/conversation-data/types';
+import { writeExportArchive } from '@spiracha/lib/export-archive';
+import type { RawInlineDownload } from '@spiracha/lib/raw-export-contract';
 import { resolveUiRuntimeConfig } from '@spiracha/lib/runtime-config';
-import type { ExportPlatform } from '@spiracha/lib/ui-export-archive';
 import {
     buildBatchExportBaseName,
     buildConversationExportBaseName,
-    buildExportArchiveBaseName,
     buildRawConversationExportFileName,
     getExportMimeType,
     getExportPlatformName,
     resolveUniqueExportFileBaseName,
+    resolveUniqueRawExportFileName,
     sanitizeExportFileName,
 } from '@spiracha/lib/ui-export-archive';
-import { buildUiExportDownloadUrl, ensureUiExportDir } from '@spiracha/lib/ui-export-files';
-import { zipExportDirectory } from '@spiracha/lib/ui-export-zip';
 
 type ExportFormat = 'md' | 'txt';
 
@@ -26,7 +21,7 @@ type RenderSourceSessionDownloadOptions = {
     fallbackBaseName: string;
     largeExportThresholdBytes?: number;
     outputFormat: ExportFormat;
-    platform: ExportPlatform;
+    platform: string;
     sessionId: string;
     updatedAtMs: number | null;
     zipArchive: boolean;
@@ -45,7 +40,7 @@ type RenderSourceSessionsDownloadOptions = {
     entries: RenderedSourceSession[];
     fallbackBaseName: string;
     outputFormat: ExportFormat;
-    platform: ExportPlatform;
+    platform: string;
     zipArchive: boolean;
 };
 
@@ -60,56 +55,88 @@ type RawConversationExportEntry = {
 
 type RawConversationExportOptions = {
     downloads: RawConversationExportEntry[];
+    largeExportThresholdBytes?: number;
     source: ConversationSource;
 };
 
-const rawConversationExportBaseName = (source: ConversationSource, id: string) =>
-    buildRawConversationExportFileName(source, id).slice(0, -'.json'.length);
+const toDownloadUrl = async (
+    archive: Awaited<ReturnType<typeof writeExportArchive>>,
+): Promise<{ downloadUrl: string; fileName: string; mimeType: string; mode: 'download_url' }> => {
+    if (!('downloadUrl' in archive)) {
+        throw new Error('expected a zip download URL');
+    }
+    return {
+        downloadUrl: archive.downloadUrl,
+        fileName: archive.fileName,
+        mimeType: archive.mimeType,
+        mode: 'download_url',
+    };
+};
 
-export const renderRawConversationDownloads = async ({ downloads, source }: RawConversationExportOptions) => {
+export const renderRawConversationDownloads = async ({
+    downloads,
+    largeExportThresholdBytes = resolveUiRuntimeConfig().largeExportThresholdBytes,
+    source,
+}: RawConversationExportOptions) => {
     if (downloads.length === 0) {
         throw new Error('No raw conversations selected for export');
     }
 
-    if (downloads.length === 1) {
+    if (downloads.length === 1 && downloads[0]!.download.blob.size <= largeExportThresholdBytes) {
         const entry = downloads[0]!;
         return {
-            content: await entry.download.blob.text(),
-            fileName: buildRawConversationExportFileName(source, entry.id),
+            contentBase64: Buffer.from(await entry.download.blob.arrayBuffer()).toString('base64'),
+            fileName: buildRawConversationExportFileName(source, entry.id, entry.download.fileName),
             mimeType: entry.download.mimeType,
-            mode: 'download' as const,
-        };
+            mode: 'download_base64',
+        } satisfies RawInlineDownload;
     }
 
-    const archiveBaseName = buildExportArchiveBaseName(
-        getExportPlatformName(source),
-        `raw-json-threads-${downloads.length}`,
-    );
-    const exportDir = await ensureUiExportDir();
-    const workspaceDir = await mkdtemp(path.join(os.tmpdir(), `${archiveBaseName}-`));
-    const zipPath = path.join(exportDir, `${archiveBaseName}-${randomUUID()}.zip`);
     const usedBaseNames = new Map<string, number>();
-
-    try {
-        for (const entry of downloads) {
-            const fileBaseName = resolveUniqueExportFileBaseName(
-                rawConversationExportBaseName(source, entry.id),
-                usedBaseNames,
-            );
-            await Bun.write(path.join(workspaceDir, `${fileBaseName}.json`), await entry.download.blob.arrayBuffer());
-        }
-
-        await zipExportDirectory(workspaceDir, zipPath);
-    } finally {
-        await rm(workspaceDir, { force: true, recursive: true });
+    const members = [];
+    for (const entry of downloads) {
+        const fileName = resolveUniqueRawExportFileName(
+            buildRawConversationExportFileName(source, entry.id, entry.download.fileName),
+            usedBaseNames,
+        );
+        members.push({
+            bytes: new Uint8Array(await entry.download.blob.arrayBuffer()),
+            relativePath: fileName,
+            requestedId: entry.id,
+        });
     }
 
-    return {
-        downloadUrl: buildUiExportDownloadUrl(zipPath),
-        fileName: `${archiveBaseName}.zip`,
-        mimeType: 'application/zip',
-        mode: 'download_url' as const,
-    };
+    const isBatch = downloads.length > 1;
+    return toDownloadUrl(
+        await writeExportArchive({
+            baseName: `raw-threads-${downloads.length}`,
+            destination: { mode: 'download_url' },
+            ...(isBatch
+                ? {
+                      manifest: {
+                          entries: members.map((member) => ({
+                              error: null,
+                              memberNames: [member.relativePath],
+                              omissionSummary: null,
+                              requestedId: member.requestedId,
+                              status: 'exported' as const,
+                          })),
+                          failedCount: 0,
+                          failurePolicy: 'partial' as const,
+                          kind: 'batch_original_raw',
+                          missingCount: 0,
+                          options: {},
+                          requestedCount: members.length,
+                          schemaVersion: 1,
+                          source,
+                          successCount: members.length,
+                      },
+                  }
+                : {}),
+            members: members.map(({ bytes, relativePath }) => ({ bytes, relativePath })),
+            platform: getExportPlatformName(source),
+        }),
+    );
 };
 
 export const renderSourceSessionDownload = async ({
@@ -143,24 +170,14 @@ export const renderSourceSessionDownload = async ({
         };
     }
 
-    const archiveBaseName = buildExportArchiveBaseName(platform, safeBaseName);
-    const exportDir = await ensureUiExportDir();
-    const workspaceDir = await mkdtemp(path.join(os.tmpdir(), `${archiveBaseName}-`));
-    const zipPath = path.join(exportDir, `${archiveBaseName}-${randomUUID()}.zip`);
-
-    try {
-        await Bun.write(path.join(workspaceDir, `${safeBaseName}.${outputFormat}`), content);
-        await zipExportDirectory(workspaceDir, zipPath);
-    } finally {
-        await rm(workspaceDir, { force: true, recursive: true });
-    }
-
-    return {
-        downloadUrl: buildUiExportDownloadUrl(zipPath),
-        fileName: `${archiveBaseName}.zip`,
-        mimeType: 'application/zip',
-        mode: 'download_url' as const,
-    };
+    return toDownloadUrl(
+        await writeExportArchive({
+            baseName: safeBaseName,
+            destination: { mode: 'download_url' },
+            members: [{ bytes: content, relativePath: `${safeBaseName}.${outputFormat}` }],
+            platform,
+        }),
+    );
 };
 
 export const renderSourceSessionsDownload = async ({
@@ -188,29 +205,43 @@ export const renderSourceSessionsDownload = async ({
         });
     }
 
-    const safeBaseName = buildBatchExportBaseName(entries, fallbackBaseName);
-    const archiveBaseName = buildExportArchiveBaseName(platform, safeBaseName);
-    const exportDir = await ensureUiExportDir();
-    const workspaceDir = await mkdtemp(path.join(os.tmpdir(), `${archiveBaseName}-`));
-    const zipPath = path.join(exportDir, `${archiveBaseName}-${randomUUID()}.zip`);
     const usedBaseNames = new Map<string, number>();
+    const members = entries.map((entry) => {
+        const fileBaseName = resolveUniqueExportFileBaseName(
+            toSafeSourceExportName(entry.fileBaseName, entry.fallbackBaseName),
+            usedBaseNames,
+        );
+        return {
+            bytes: entry.content,
+            relativePath: `${fileBaseName}.${outputFormat}`,
+            requestedId: entry.sessionId,
+        };
+    });
 
-    try {
-        for (const entry of entries) {
-            const baseName = toSafeSourceExportName(entry.fileBaseName, entry.fallbackBaseName);
-            const fileBaseName = resolveUniqueExportFileBaseName(baseName, usedBaseNames);
-            await Bun.write(path.join(workspaceDir, `${fileBaseName}.${outputFormat}`), entry.content);
-        }
-
-        await zipExportDirectory(workspaceDir, zipPath);
-    } finally {
-        await rm(workspaceDir, { force: true, recursive: true });
-    }
-
-    return {
-        downloadUrl: buildUiExportDownloadUrl(zipPath),
-        fileName: `${archiveBaseName}.zip`,
-        mimeType: 'application/zip',
-        mode: 'download_url' as const,
-    };
+    return toDownloadUrl(
+        await writeExportArchive({
+            baseName: buildBatchExportBaseName(entries, fallbackBaseName),
+            destination: { mode: 'download_url' },
+            manifest: {
+                entries: members.map((member) => ({
+                    error: null,
+                    memberNames: [member.relativePath],
+                    omissionSummary: null,
+                    requestedId: member.requestedId,
+                    status: 'exported',
+                })),
+                failedCount: 0,
+                failurePolicy: 'partial',
+                kind: 'batch_normalized_export',
+                missingCount: 0,
+                options: { outputFormat },
+                requestedCount: members.length,
+                schemaVersion: 1,
+                source: platform,
+                successCount: members.length,
+            },
+            members: members.map(({ bytes, relativePath }) => ({ bytes, relativePath })),
+            platform,
+        }),
+    );
 };

@@ -1,0 +1,1878 @@
+{
+    "audit_date": "2026-09-15",
+    "baseline_commit": "b929a9d1f54300909a907d0b3407eabdbf359b59",
+    "blockers": [
+        {
+            "detail": "Bun, rtk, installed app dependencies, Biome and Playwright are unavailable; container DNS prevents dependency download. Seven required Bun commands were attempted and exited 127. This is not an application test failure.",
+            "id": "B-01",
+            "title": "Canonical toolchain unavailable"
+        },
+        {
+            "detail": "bin/spiracha.ts is named by package.json/build/package scripts but absent from the input ZIP. The existing package-manifest test already checks this. Restore the actual upstream file; do not fabricate a replacement or resurrect removed legacy surfaces.",
+            "id": "B-02",
+            "title": "Original CLI input missing from supplied archive"
+        },
+        {
+            "detail": "Hidden CI/ignore metadata may have been omitted by archive creation. No claim is made about the current upstream hosted CI or .gitignore.",
+            "id": "B-03",
+            "title": "Repository metadata provenance incomplete"
+        }
+    ],
+    "counts": {
+        "by_priority": {
+            "P0": 1,
+            "P1": 46,
+            "P2": 32
+        },
+        "by_status": {
+            "implemented": 32,
+            "partial": 5,
+            "pending": 42
+        },
+        "code_patches": 19,
+        "findings": 79
+    },
+    "findings": [
+        {
+            "acceptance_criteria": "All four cases reject; a completed included record with real lines still summarizes normally.",
+            "complexity_score": 2,
+            "confidence_percent": 100,
+            "existing_coverage_credit": "The existing coverage tests check ordinary totals and configured exclusions, not fail-closed absence of evidence.",
+            "id": "TG-001",
+            "implementation_notes": [
+                "Require completed LCOV source records and at least one included measurable line.",
+                "Test empty, non-LCOV, excluded-only and zero-line reports.",
+                "Keep display percentages separate from gate validity."
+            ],
+            "layers": ["unit", "tooling"],
+            "observed_gap": "Baseline summarizeLcovReport treats absent measurable lines as 100%; an empty report and arbitrary text were independently accepted. This can make a failed coverage collection look green.",
+            "patches": ["PATCH-01"],
+            "priority": "P0",
+            "rank": 1,
+            "risk_or_open_decision": "Recheck the actual Bun and Vitest LCOV dialects before merging.",
+            "source_files": ["src/coverage-check.ts", "src/coverage-check.test.ts"],
+            "status": "implemented",
+            "title": "Coverage gate accepts empty or non-measurable reports",
+            "verification": "Supplemental evidence is mapped in the patch note; canonical Bun/Vitest/Playwright execution is blocked."
+        },
+        {
+            "acceptance_criteria": "89999/100000 fails although the display is 90; 90/100 passes.",
+            "complexity_score": 1,
+            "confidence_percent": 100,
+            "existing_coverage_credit": "Existing tests verify summary rendering, not the raw ratio immediately below the cutoff.",
+            "id": "TG-002",
+            "implementation_notes": [
+                "Extract assertCoverageThreshold and compare raw lineHits / lineTotal.",
+                "Keep two-decimal presentation unchanged.",
+                "Assert just below, exactly at and above 90%."
+            ],
+            "layers": ["unit", "tooling"],
+            "observed_gap": "The baseline CLI compares a percentage rounded to two decimals. A true 89.999% displays as 90% and passes the 90% gate.",
+            "patches": ["PATCH-01"],
+            "priority": "P1",
+            "rank": 2,
+            "risk_or_open_decision": "",
+            "source_files": ["src/coverage-check.ts"],
+            "status": "implemented",
+            "title": "Rounded percentages can pass a below-threshold build",
+            "verification": "Supplemental evidence is mapped in the patch note; canonical Bun/Vitest/Playwright execution is blocked."
+        },
+        {
+            "acceptance_criteria": "Every malformed table entry fails explicitly; valid CRLF/Windows records remain supported.",
+            "complexity_score": 2,
+            "confidence_percent": 100,
+            "existing_coverage_credit": "Ordinary LF/LH/FNF/FNH summaries already have examples.",
+            "id": "TG-003",
+            "implementation_notes": [
+                "Reject duplicate/missing/negative/fractional/non-numeric/unsafe counts and hits greater than totals.",
+                "Require paired optional function counters and unique included source records.",
+                "Normalize Windows separators before exclusion and duplicate checks."
+            ],
+            "layers": ["unit", "tooling"],
+            "observed_gap": "Baseline NaN hit counts survive parsing and do not fail a less-than comparison; hits greater than totals also produce accepted nonsense.",
+            "patches": ["PATCH-01"],
+            "priority": "P1",
+            "rank": 3,
+            "risk_or_open_decision": "This is not a full LCOV grammar or DA/FN-to-summary consistency validator.",
+            "source_files": ["src/coverage-check.ts"],
+            "status": "implemented",
+            "title": "Malformed LCOV counters can bypass or distort the gate",
+            "verification": "Supplemental evidence is mapped in the patch note; canonical Bun/Vitest/Playwright execution is blocked."
+        },
+        {
+            "acceptance_criteria": "New get returns fresh data before old load is released; old work cannot seed the current cache.",
+            "complexity_score": 2,
+            "confidence_percent": 100,
+            "existing_coverage_credit": "Existing tests cover ordinary invalidation and cache reuse, but not a second get before the old promise resolves.",
+            "id": "TG-004",
+            "implementation_notes": [
+                "Include invalidation generation in the in-flight key.",
+                "Use barriers to start old load, invalidate, and resolve the fresh read before releasing the old load.",
+                "Repeat for path and global invalidation and clean all promises in finally."
+            ],
+            "layers": ["unit", "integration"],
+            "observed_gap": "A controlled baseline interleaving reproduced a post-invalidation get waiting on, then receiving, the pre-invalidation load. New work must not join an invalidated generation.",
+            "patches": ["PATCH-06"],
+            "priority": "P1",
+            "rank": 4,
+            "risk_or_open_decision": "This does not cancel old loaders or promise linearizable snapshots across filesystem writes.",
+            "source_files": ["src/lib/bounded-file-cache.ts"],
+            "status": "implemented",
+            "title": "Cache invalidation reuses an older in-flight loader",
+            "verification": "Supplemental evidence is mapped in the patch note; canonical Bun/Vitest/Playwright execution is blocked."
+        },
+        {
+            "acceptance_criteria": "Malformed success responses reject with SpirachaClientError; ordinary well-formed responses remain compatible.",
+            "complexity_score": 2,
+            "confidence_percent": 100,
+            "existing_coverage_credit": "Ordinary API error statuses and well-formed envelopes are already tested.",
+            "id": "TG-012",
+            "implementation_notes": [
+                "Validate top-level parsed unknown before accessing it.",
+                "Reject missing/null success data using SpirachaClientError.",
+                "Exercise null, arrays, strings, booleans and numbers through a real ephemeral HTTP server."
+            ],
+            "layers": ["unit", "integration"],
+            "observed_gap": "ReadJsonEnvelope previously cast any JSON value; null/array/primitive envelopes and null data did not have a consistently typed client error contract.",
+            "patches": ["PATCH-04"],
+            "priority": "P1",
+            "rank": 5,
+            "risk_or_open_decision": "Nested DTO schema validation is intentionally not solved here; TG-052.",
+            "source_files": ["src/client.ts"],
+            "status": "implemented",
+            "title": "Malformed success envelopes leak untyped failures or falsely typed values",
+            "verification": "Supplemental evidence is mapped in the patch note; canonical Bun/Vitest/Playwright execution is blocked."
+        },
+        {
+            "acceptance_criteria": "Generated valid boundary cursors decode and paginate; ID length 2049 and encoded length 18001 reject.",
+            "complexity_score": 2,
+            "confidence_percent": 100,
+            "existing_coverage_credit": "Existing cursor examples cover ordinary ASCII identifiers and malformed inputs.",
+            "id": "TG-016",
+            "implementation_notes": [
+                "Align decoded ID cap with the API 2048-character contract.",
+                "Bound encoded length at 18000 to allow worst-case JSON escaping plus base64 without removing bounds.",
+                "Test long ASCII, CJK, surrogate-pair emoji and control-character IDs."
+            ],
+            "layers": ["unit"],
+            "observed_gap": "Baseline encode followed by decode rejects an API-valid 2048-character ID; a 1024-CJK ID also exceeds the old 2048 encoded-character limit.",
+            "patches": ["PATCH-18"],
+            "priority": "P1",
+            "rank": 6,
+            "risk_or_open_decision": "Long request URLs may exceed intermediary defaults; TG-076 requires deployment-boundary review.",
+            "source_files": ["src/lib/conversation-data/pagination.ts", "src/lib/conversation-api.ts"],
+            "status": "implemented",
+            "title": "Generated cursors do not round-trip supported long or Unicode IDs",
+            "verification": "Supplemental evidence is mapped in the patch note; canonical Bun/Vitest/Playwright execution is blocked."
+        },
+        {
+            "acceptance_criteria": "Local and HTTP results match across multiple pages and selectors; server and fixture are always removed.",
+            "complexity_score": 3,
+            "confidence_percent": 100,
+            "existing_coverage_credit": "There are substantial SDK, API and adapter suites; this adds a joined seam rather than replacing them.",
+            "id": "TG-010",
+            "implementation_notes": [
+                "Start Bun.serve on an ephemeral loopback port with a real Codex fixture DB/rollouts.",
+                "Inject explicit fixture locations into the production registry, not fake DTOs.",
+                "Compare local and HTTP pagination, details and Markdown for all three selectors."
+            ],
+            "layers": ["integration"],
+            "observed_gap": "Mocked transports and adapter tests cannot detect mismatches across client URL construction, real routing, SQLite inventory and rollout normalization.",
+            "patches": ["PATCH-14"],
+            "priority": "P1",
+            "rank": 7,
+            "risk_or_open_decision": "Only Codex is covered by the added fixture integration; TG-043 covers the other sources.",
+            "source_files": ["src/client.ts", "src/lib/conversation-api.ts", "src/lib/conversation-data/index.ts"],
+            "status": "implemented",
+            "title": "Public local and HTTP clients lack real storage parity integration",
+            "verification": "Supplemental evidence is mapped in the patch note; canonical Bun/Vitest/Playwright execution is blocked."
+        },
+        {
+            "acceptance_criteria": "The browser download equals the fixture exactly, not merely a substring.",
+            "complexity_score": 3,
+            "confidence_percent": 100,
+            "existing_coverage_credit": "Artifact parsing and component behavior already have examples.",
+            "id": "TG-026",
+            "implementation_notes": [
+                "Import a fixture artifact containing CRLF, Unicode and significant whitespace.",
+                "Wait for the actual download event and inspect failure/suggested filename.",
+                "Save under the test output directory and compare Buffer bytes."
+            ],
+            "layers": ["E2E"],
+            "observed_gap": "A component click/mock cannot prove a browser receives a successful artifact download with its original bytes and filename.",
+            "patches": ["PATCH-16"],
+            "priority": "P1",
+            "rank": 8,
+            "risk_or_open_decision": "First execution is blocked on the optional browser toolchain.",
+            "source_files": ["testing/e2e/web-import.e2e.ts", "src/ui/routes/web-chats.$conversationId.tsx"],
+            "status": "partial",
+            "title": "No browser download assertion for original artifact bytes",
+            "verification": "Supplemental evidence is mapped in the patch note; canonical Bun/Vitest/Playwright execution is blocked."
+        },
+        {
+            "acceptance_criteria": "Compiled UI and actual fixture storage produce a readable Markdown download.",
+            "complexity_score": 3,
+            "confidence_percent": 100,
+            "existing_coverage_credit": "Export dialog and server export units already exist.",
+            "id": "TG-027",
+            "implementation_notes": [
+                "Navigate to a real fixture-backed Codex thread.",
+                "Open Export, disable ZIP and submit the dialog.",
+                "Await a successful .md download and assert a known original transcript line."
+            ],
+            "layers": ["E2E"],
+            "observed_gap": "The source detail route, persisted export controls, server export and browser download are not exercised as a complete built-app workflow.",
+            "patches": ["PATCH-16"],
+            "priority": "P1",
+            "rank": 9,
+            "risk_or_open_decision": "Exact native-renderer bytes remain lower-layer contracts; this browser test checks the seam.",
+            "source_files": ["testing/e2e/codex-export.e2e.ts", "src/ui/routes/threads.$threadId.tsx"],
+            "status": "partial",
+            "title": "No browser native conversation export-dialog journey",
+            "verification": "Supplemental evidence is mapped in the patch note; canonical Bun/Vitest/Playwright execution is blocked."
+        },
+        {
+            "acceptance_criteria": "Both journeys leave the original conversation unchanged.",
+            "complexity_score": 3,
+            "confidence_percent": 100,
+            "existing_coverage_credit": "The original suite covers lower-layer deletion extensively.",
+            "id": "TG-028",
+            "implementation_notes": [
+                "Compare API detail before and after cancelling the browser confirmation.",
+                "Send a hostile-origin DELETE to the running production server.",
+                "Assert 403 and record still present."
+            ],
+            "layers": ["E2E", "security"],
+            "observed_gap": "Component cancellation and direct-handler security tests do not prove the built app leaves storage intact.",
+            "patches": ["PATCH-16"],
+            "priority": "P1",
+            "rank": 10,
+            "risk_or_open_decision": "This deliberately does not claim confirmed deletion/recovery coverage; TG-044 and TG-045.",
+            "source_files": ["testing/e2e/codex-export.e2e.ts"],
+            "status": "partial",
+            "title": "No real-browser delete-cancel or production hostile-origin safety journey",
+            "verification": "Supplemental evidence is mapped in the patch note; canonical Bun/Vitest/Playwright execution is blocked."
+        },
+        {
+            "acceptance_criteria": "Run the compiled app in Chromium using only fixture histories and observe the complete journey.",
+            "complexity_score": 4,
+            "confidence_percent": 100,
+            "existing_coverage_credit": "Parser/server/component tests are extensive and are retained.",
+            "id": "TG-025",
+            "implementation_notes": [
+                "Add isolated Playwright production-server infrastructure and a file upload flow.",
+                "Assert loaded title/transcript, direct reload and metadata.",
+                "Fail on uncaught browser errors and deny external browser network."
+            ],
+            "layers": ["E2E"],
+            "observed_gap": "The archive has no browser harness; component tests cannot prove built route navigation, server import, hydration and direct reload work together.",
+            "patches": ["PATCH-16"],
+            "priority": "P1",
+            "rank": 11,
+            "risk_or_open_decision": "Playwright dependency/lock installation and first real browser run are still required.",
+            "source_files": ["testing/e2e/web-import.e2e.ts", "src/ui/routes/web-chats.$conversationId.tsx"],
+            "status": "partial",
+            "title": "No production-browser import, hydration and reload journey",
+            "verification": "Supplemental evidence is mapped in the patch note; canonical Bun/Vitest/Playwright execution is blocked."
+        },
+        {
+            "acceptance_criteria": "Every compiled fixture converts in both browser contexts without runtime shims.",
+            "complexity_score": 4,
+            "confidence_percent": 100,
+            "existing_coverage_credit": "Existing package-smoke already checks compiled payload consumers in both Bun and Node, including declarations; those are not missing.",
+            "id": "TG-029",
+            "implementation_notes": [
+                "Serve the actual dist/payload JavaScript graph, not source mocks.",
+                "Run all 12 portable-source fixtures in an isolated HTML page and a module Worker.",
+                "Assert no Bun/Buffer/process globals and exact direct/Worker output equality; clean workers and object URLs."
+            ],
+            "layers": ["E2E", "portability"],
+            "observed_gap": "Node execution cannot establish that the compiled graph avoids Node/Bun globals and runs in real browser/module Worker environments.",
+            "patches": ["PATCH-17"],
+            "priority": "P1",
+            "rank": 12,
+            "risk_or_open_decision": "Requires PATCH-16 and its PATCH-15 dependency; not a Cloudflare deployment test.",
+            "source_files": ["src/build-payload.ts", "testing/e2e/payload-portability.e2e.ts"],
+            "status": "partial",
+            "title": "Portable payload package is not exercised in a browser or module Worker",
+            "verification": "Supplemental evidence is mapped in the patch note; canonical Bun/Vitest/Playwright execution is blocked."
+        },
+        {
+            "acceptance_criteria": "A deliberately untested eligible module fails the gate even when all imported modules show 100%.",
+            "complexity_score": 3,
+            "confidence_percent": 99,
+            "existing_coverage_credit": "Bun coverage and the current aggregate gate exist; PATCH-01 rejects empty reports but cannot discover absent files.",
+            "id": "TG-038",
+            "implementation_notes": [
+                "Generate an eligible production-module manifest excluding generated/type-only/build/fixture files by documented policy.",
+                "Compare eligible files to normalized LCOV paths and fail unexplained omissions.",
+                "Add tests for unloaded modules, exclusions, Windows paths and duplicate records; avoid importing side-effecting modules just to inflate the denominator."
+            ],
+            "layers": ["tooling", "coverage"],
+            "observed_gap": "The gate only summarizes records emitted by the coverage runner. The static inventory has 100 modules without an obvious direct/adjacent test reference; this is a triage queue, not a measured zero-coverage list.",
+            "patches": [],
+            "priority": "P1",
+            "rank": 13,
+            "risk_or_open_decision": "Policy and runtime instrumentation support need confirmation with the project’s actual Bun version.",
+            "source_files": ["src/coverage-check.ts", "vitest.config.ts", "src/ui-suite.test.ts"],
+            "status": "pending",
+            "title": "Coverage denominator omits modules never loaded by tests",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "An uncovered destructive/error branch or critically under-covered file cannot be masked by easy high-coverage modules.",
+            "complexity_score": 3,
+            "confidence_percent": 99,
+            "existing_coverage_credit": "The existing 90% line gate remains useful and should not be reduced.",
+            "id": "TG-039",
+            "implementation_notes": [
+                "Agree separate thresholds for mutation/security/parser modules and broader app coverage.",
+                "Parse supported branch/function records, test absent branch records and exact threshold boundaries.",
+                "Establish an initial honest baseline and ratchet it rather than adding broad exclusions."
+            ],
+            "layers": ["tooling", "coverage"],
+            "observed_gap": "Profiles enforce only aggregate line coverage; function percentages are displayed but not gated and branch counts are not parsed.",
+            "patches": [],
+            "priority": "P1",
+            "rank": 14,
+            "risk_or_open_decision": "Do not invent current percentages; none were measured in this environment.",
+            "source_files": ["src/coverage-check.ts", "vitest.config.ts"],
+            "status": "pending",
+            "title": "Aggregate line coverage alone misses critical branches and low-coverage files",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "Import, mutation and deferred-load decision logic has named tests and an accountable coverage policy.",
+            "complexity_score": 3,
+            "confidence_percent": 99,
+            "existing_coverage_credit": "Many components and server functions are tested indirectly; exclusion does not imply no tests.",
+            "id": "TG-040",
+            "implementation_notes": [
+                "Classify generated wiring versus handwritten decisions.",
+                "Extract decision-bearing route helpers where useful, add direct integration tests and selectively include them in coverage.",
+                "Keep generated routeTree excluded and never edit it manually."
+            ],
+            "layers": ["unit", "integration", "UI"],
+            "observed_gap": "UI coverage excludes all routes and the root gate additionally excludes codex-server/codex-queries. Some orchestration can regress without affecting the gate.",
+            "patches": [],
+            "priority": "P1",
+            "rank": 15,
+            "risk_or_open_decision": "Avoid chasing framework-generated coverage; prioritize application branches.",
+            "source_files": [
+                "vitest.config.ts",
+                "src/coverage-check.ts",
+                "src/ui/routes/web.index.tsx",
+                "src/ui/lib/codex-server.ts"
+            ],
+            "status": "pending",
+            "title": "UI exclusions hide route orchestration and critical server bridges",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "Every registered source has at least one fixture-backed public-surface contract case without reading the developer’s home.",
+            "complexity_score": 4,
+            "confidence_percent": 99,
+            "existing_coverage_credit": "Each source already has significant adapter/storage fixtures and contract tests.",
+            "id": "TG-043",
+            "implementation_notes": [
+                "Reuse source fixtures behind a shared local-and-HTTP conformance harness.",
+                "Parameterize documented capabilities rather than asserting unsupported operations succeed.",
+                "Compare ordering, selectors, title/model metadata, raw bytes and domain-not-found behavior on fresh reads."
+            ],
+            "layers": ["integration"],
+            "observed_gap": "The new joined integration covers Codex only; the other 12 native sources have different schemas, selectors and raw-export capabilities.",
+            "patches": [],
+            "priority": "P1",
+            "rank": 16,
+            "risk_or_open_decision": "Fixtures must stay source-realistic; do not force all sources into Codex semantics.",
+            "source_files": [
+                "src/lib/conversation-data/index.ts",
+                "src/client.storage-integration.test.ts",
+                "src/lib/conversation-data/types.ts"
+            ],
+            "status": "pending",
+            "title": "Real local/HTTP source conformance stops at the new Codex fixture",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "Confirmed deletion reaches real storage exactly as requested and UI caches do not resurrect the record.",
+            "complexity_score": 4,
+            "confidence_percent": 99,
+            "existing_coverage_credit": "Lower-layer deletion/journal tests are substantial.",
+            "id": "TG-044",
+            "implementation_notes": [
+                "Create a dedicated disposable fixture per destructive test.",
+                "Confirm deletion with session-file option on/off and assert UI list/detail behavior after reload.",
+                "Reopen DB/files outside the UI and verify targeted removal plus unrelated-record preservation."
+            ],
+            "layers": ["E2E", "filesystem"],
+            "observed_gap": "The staged browser tests deliberately cover cancellation and denial, not confirmation with actual storage changes.",
+            "patches": [],
+            "priority": "P1",
+            "rank": 17,
+            "risk_or_open_decision": "Never reuse a developer server; keep this separate from shared read-only browser fixtures.",
+            "source_files": [
+                "src/ui/routes/threads.$threadId.tsx",
+                "src/lib/codex-thread-mutations.ts",
+                "testing/e2e/codex-export.e2e.ts"
+            ],
+            "status": "pending",
+            "title": "Confirmed browser deletion is not covered end to end",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "Updates reach both tabs without duplicate application, and all connections close when the last subscriber leaves.",
+            "complexity_score": 4,
+            "confidence_percent": 99,
+            "existing_coverage_credit": "Existing live client/transport tests already cover many mocked lifecycle cases.",
+            "id": "TG-048",
+            "implementation_notes": [
+                "Open two tabs on the same fixture thread and observe one shared connection where supported.",
+                "Close subscribers and assert monitor release.",
+                "Disable/unavailable SharedWorker in a separate context and exercise the documented fallback."
+            ],
+            "layers": ["E2E"],
+            "observed_gap": "Mock clients cannot prove browser worker creation, tab subscriber lifetimes and fallback behavior with the built worker asset.",
+            "patches": [],
+            "priority": "P1",
+            "rank": 18,
+            "risk_or_open_decision": "Worker support differs by browser; capability-specific expectations are needed.",
+            "source_files": ["src/ui/lib/codex-thread-live.worker.ts", "src/ui/lib/codex-thread-live.ts"],
+            "status": "pending",
+            "title": "Real SharedWorker and fallback live streaming are untested across browser tabs",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "Wrong MIME responses reject before returning an archive blob.",
+            "complexity_score": 1,
+            "confidence_percent": 98,
+            "existing_coverage_credit": "The SDK already handles failing status codes and valid archive responses.",
+            "id": "TG-013",
+            "implementation_notes": [
+                "Normalize and require application/zip after a successful response.",
+                "Test HTML/JSON/plain-text success responses and keep typed errors.",
+                "Preserve existing missing-conversation semantics."
+            ],
+            "layers": ["unit", "integration"],
+            "observed_gap": "A deployment returning HTML or JSON with HTTP 200 can be wrapped as a ZIP download without a useful SDK error.",
+            "patches": ["PATCH-04"],
+            "priority": "P1",
+            "rank": 19,
+            "risk_or_open_decision": "Intentional contract tightening: proxies must preserve application/zip. ZIP signature/CRC validation is not added.",
+            "source_files": ["src/client.ts"],
+            "status": "implemented",
+            "title": "A successful non-ZIP response is accepted as an archive",
+            "verification": "Supplemental evidence is mapped in the patch note; canonical Bun/Vitest/Playwright execution is blocked."
+        },
+        {
+            "acceptance_criteria": "All hostile matrix entries deny and the intended three loopback spellings remain accepted.",
+            "complexity_score": 2,
+            "confidence_percent": 98,
+            "existing_coverage_credit": "The request-security implementation and basic same-origin/rejection tests already exist; no new authentication model is introduced.",
+            "id": "TG-006",
+            "implementation_notes": [
+                "Add table-driven hostile Origin and Host cases.",
+                "Preserve accepted localhost, IPv4 and IPv6 aliases on matching scheme/port.",
+                "Include malformed URLs and normalized default ports."
+            ],
+            "layers": ["unit", "security"],
+            "observed_gap": "Existing examples do not form a contract over opaque origins, userinfo tricks, subdomains, alternate host syntax, ports and scheme mismatches.",
+            "patches": ["PATCH-02"],
+            "priority": "P1",
+            "rank": 20,
+            "risk_or_open_decision": "Direct Request construction does not replace actual server/proxy URL normalization testing; see TG-076.",
+            "source_files": ["src/lib/local-request-security.ts"],
+            "status": "implemented",
+            "title": "Loopback security lacks a systematic hostile-origin matrix",
+            "verification": "Supplemental evidence is mapped in the patch note; canonical Bun/Vitest/Playwright execution is blocked."
+        },
+        {
+            "acceptance_criteria": "No deletion call occurs for an invalid or oversized request; valid deduplicated IDs retain first-seen order.",
+            "complexity_score": 2,
+            "confidence_percent": 98,
+            "existing_coverage_credit": "The API has extensive validation examples and deletion tests; the new tests assert zero dependency calls for an invalid entire batch.",
+            "id": "TG-007",
+            "implementation_notes": [
+                "Place an invalid item after a valid ID and spy on the mutation dependency.",
+                "Test the 200-item cap before deduplication and stable trimming/deduplication order.",
+                "Assert response status/envelope and no mutation on rejection."
+            ],
+            "layers": ["unit", "integration"],
+            "observed_gap": "The safety invariant is easy to regress when validating IDs while iterating: a valid prefix could be deleted before an invalid later element is noticed.",
+            "patches": ["PATCH-05"],
+            "priority": "P1",
+            "rank": 21,
+            "risk_or_open_decision": "",
+            "source_files": ["src/lib/conversation-api.ts"],
+            "status": "implemented",
+            "title": "Whole-batch validation must precede any destructive side effect",
+            "verification": "Supplemental evidence is mapped in the patch note; canonical Bun/Vitest/Playwright execution is blocked."
+        },
+        {
+            "acceptance_criteria": "API returns 404 and HTTP client returns null; no partial download is returned.",
+            "complexity_score": 2,
+            "confidence_percent": 98,
+            "existing_coverage_credit": "Basic ZIP and missing-single-item paths already exist.",
+            "id": "TG-008",
+            "implementation_notes": [
+                "Assert mixed missing/existing input returns conversation_not_found before ZIP delivery.",
+                "Repeat through real HTTP SDK and fixture-backed storage.",
+                "Keep this separate from intentionally partial deletion results."
+            ],
+            "layers": ["unit", "integration"],
+            "observed_gap": "A batch with existing and missing IDs must not silently deliver a partial ZIP while appearing successful.",
+            "patches": ["PATCH-05", "PATCH-14"],
+            "priority": "P1",
+            "rank": 22,
+            "risk_or_open_decision": "",
+            "source_files": ["src/lib/conversation-api.ts", "src/client.ts"],
+            "status": "implemented",
+            "title": "Batch export needs an explicit all-or-nothing missing-item assertion",
+            "verification": "Supplemental evidence is mapped in the patch note; canonical Bun/Vitest/Playwright execution is blocked."
+        },
+        {
+            "acceptance_criteria": "Every original byte is preserved through API and public HTTP SDK.",
+            "complexity_score": 2,
+            "confidence_percent": 98,
+            "existing_coverage_credit": "Raw export and download helpers already have unit examples.",
+            "id": "TG-011",
+            "implementation_notes": [
+                "Read the fixture rollout with Bun.file and compare its Uint8Array to the downloaded blob.",
+                "Verify the actual source route rather than a stubbed response.",
+                "Keep Markdown normalization assertions separate."
+            ],
+            "layers": ["integration"],
+            "observed_gap": "A text-only comparison can hide CRLF, encoding or binary transformations across Response/blob transport.",
+            "patches": ["PATCH-14"],
+            "priority": "P1",
+            "rank": 23,
+            "risk_or_open_decision": "",
+            "source_files": ["src/client.ts", "src/lib/conversation-api.ts"],
+            "status": "implemented",
+            "title": "Raw HTTP export needs byte equality against the original rollout",
+            "verification": "Supplemental evidence is mapped in the patch note; canonical Bun/Vitest/Playwright execution is blocked."
+        },
+        {
+            "acceptance_criteria": "Invalid aggregate/count selections do not call text(); per-file errors preserve readable valid files and input order.",
+            "complexity_score": 2,
+            "confidence_percent": 98,
+            "existing_coverage_credit": "Server import and parser limits already have tests.",
+            "id": "TG-020",
+            "implementation_notes": [
+                "Extract portable client preparation and common limits without importing a server module into browser-only tests.",
+                "Test 20 files, 25 MiB/file and 100 MiB aggregate at/beyond boundaries using synthetic File-like objects.",
+                "Preserve existing server exports and route behavior."
+            ],
+            "layers": ["unit", "UI"],
+            "observed_gap": "Client file count/size/read preparation lives in route code excluded from UI coverage, making no-read-on-invalid-selection behavior hard to test.",
+            "patches": ["PATCH-12"],
+            "priority": "P1",
+            "rank": 24,
+            "risk_or_open_decision": "",
+            "source_files": ["src/ui/routes/web.index.tsx", "src/ui/lib/web-chat-server.ts"],
+            "status": "implemented",
+            "title": "Browser import preflight boundaries are buried in an excluded route",
+            "verification": "Supplemental evidence is mapped in the patch note; canonical Bun/Vitest/Playwright execution is blocked."
+        },
+        {
+            "acceptance_criteria": "One read rejection yields one error while other readable files continue into the import payload.",
+            "complexity_score": 2,
+            "confidence_percent": 98,
+            "existing_coverage_credit": "Partial parse/server errors exist, but a client filesystem read rejection occurs before those paths.",
+            "id": "TG-021",
+            "implementation_notes": [
+                "Catch read failures per file and return a typed file error.",
+                "Preserve successful payloads and deterministic order while reads complete out of order.",
+                "Deduplicate by filename plus message rather than filename alone."
+            ],
+            "layers": ["unit", "UI"],
+            "observed_gap": "The original Promise.all rejects on one unreadable file, losing the valid files that could have been imported.",
+            "patches": ["PATCH-12"],
+            "priority": "P1",
+            "rank": 25,
+            "risk_or_open_decision": "",
+            "source_files": ["src/ui/routes/web.index.tsx", "src/ui/lib/web-chat-import.ts"],
+            "status": "implemented",
+            "title": "One File.text failure discards otherwise readable selected imports",
+            "verification": "Supplemental evidence is mapped in the patch note; canonical Bun/Vitest/Playwright execution is blocked."
+        },
+        {
+            "acceptance_criteria": "Limits apply to unique normalized IDs and denied-origin requests do not open storage.",
+            "complexity_score": 2,
+            "confidence_percent": 98,
+            "existing_coverage_credit": "The existing indirect route test already covers normal SSE wiring and several errors; the route is not wholly untested.",
+            "id": "TG-023",
+            "implementation_notes": [
+                "Extend that existing suite, not a competing mock-heavy duplicate.",
+                "Test 65 unique IDs reject and 64/duplicated IDs succeed with stable deduplication.",
+                "Assert hostile Origin produces 403 with zero database/stream dependency calls."
+            ],
+            "layers": ["unit", "UI"],
+            "observed_gap": "The live route needs explicit boundary evidence for 64 unique IDs, duplicates, trimming and early rejection before storage resolution.",
+            "patches": ["PATCH-11"],
+            "priority": "P1",
+            "rank": 26,
+            "risk_or_open_decision": "",
+            "source_files": [
+                "src/ui/routes/api.v1.codex.threads.events.ts",
+                "src/ui/lib/codex-thread-events-route.vitest.ts"
+            ],
+            "status": "implemented",
+            "title": "Live route unique-ID ceiling and denied-origin no-I/O contract need direct tests",
+            "verification": "Supplemental evidence is mapped in the patch note; canonical Bun/Vitest/Playwright execution is blocked."
+        },
+        {
+            "acceptance_criteria": "Secret/proxy/preload sentinels are absent; all controlled data paths lie beneath the fixture root; source DB override remains explicit.",
+            "complexity_score": 3,
+            "confidence_percent": 98,
+            "existing_coverage_credit": "The smoke suite already runs an app and package consumers in fixtures; the missing assertion is exhaustive environment isolation.",
+            "id": "TG-005",
+            "implementation_notes": [
+                "Whitelist essential process-launch variables instead of copying all environment keys.",
+                "Set HOME/profile/XDG/AppData/temp/cache and every documented source/auth/socket/CLI path under one non-root fixture directory.",
+                "Exercise the real helper and update its existing smoke assertion."
+            ],
+            "layers": ["integration", "tooling"],
+            "observed_gap": "The supplied smoke environment spreads process.env and changes only a subset of paths. A real app process can discover unrelated local histories or inherit credentials/preload options.",
+            "patches": ["PATCH-15"],
+            "priority": "P1",
+            "rank": 27,
+            "risk_or_open_decision": "Audit other existing fixture helpers separately; this patch covers smoke and its reusable helper, not every test process.",
+            "source_files": ["src/package-smoke.ts", "src/lib/isolated-runtime-test-helpers.ts"],
+            "status": "implemented",
+            "title": "Smoke subprocess inherits developer homes, source locations and credentials",
+            "verification": "Supplemental evidence is mapped in the patch note; canonical Bun/Vitest/Playwright execution is blocked."
+        },
+        {
+            "acceptance_criteria": "Failed work is not reported as saved/exported and retry succeeds without requiring a full app restart.",
+            "complexity_score": 3,
+            "confidence_percent": 98,
+            "existing_coverage_credit": "Client/unit tests exercise several rejected fetch paths.",
+            "id": "TG-064",
+            "implementation_notes": [
+                "Abort targeted fixture requests or return controlled 500 responses at actual browser boundaries.",
+                "Interrupt a download after headers and assert visible error/retry state.",
+                "Retry against a healthy fixture and verify controls recover without duplicate artifacts."
+            ],
+            "layers": ["E2E"],
+            "observed_gap": "Happy-path browser downloads cannot establish that network/server interruptions avoid false success notifications and stale loading controls.",
+            "patches": [],
+            "priority": "P1",
+            "rank": 28,
+            "risk_or_open_decision": "Keep network interception limited to the fault being injected; do not mock the whole app.",
+            "source_files": ["src/ui/lib/evidence-export.ts", "src/ui/components/export-dialog.tsx", "testing/e2e"],
+            "status": "pending",
+            "title": "Browser network failure and interrupted download need honest error states",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "Public state matches the documented recovery outcome with no resurrection or unrelated deletion after repeated restarts.",
+            "complexity_score": 5,
+            "confidence_percent": 98,
+            "existing_coverage_credit": "The original Codex/Cursor journals already have real fresh-process crashes, replay, locking and idempotence tests. Do not rebuild them from scratch.",
+            "id": "TG-045",
+            "implementation_notes": [
+                "Reuse existing journal failpoint fixtures and kill the fixture app after durable intent but before completion.",
+                "Start a new app against the same isolated root.",
+                "Read public list/detail endpoints and UI after reconciliation, including a second restart."
+            ],
+            "layers": ["integration", "E2E"],
+            "observed_gap": "Existing crash/replay units do not by themselves prove app startup, route caches and browser state expose reconciled storage consistently.",
+            "patches": [],
+            "priority": "P1",
+            "rank": 29,
+            "risk_or_open_decision": "Production failpoint hooks, if needed, must be test-only and not remotely controllable.",
+            "source_files": [
+                "src/lib/codex-deletion-journal.ts",
+                "src/lib/cursor-operation-journal.ts",
+                "src/lib/production-ui-server.ts"
+            ],
+            "status": "pending",
+            "title": "Crash recovery is not verified through a freshly started app and public API",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "Oversized batch/evidence/query bodies are rejected before large parsing or side effects.",
+            "complexity_score": 3,
+            "confidence_percent": 97,
+            "existing_coverage_credit": "The original payload endpoint already tests both Content-Length and oversized chunked streams with cancellation.",
+            "id": "TG-051",
+            "implementation_notes": [
+                "Inventory JSON routes and define appropriate per-route byte ceilings.",
+                "Test missing/lying Content-Length and streaming overflow before invoking dependencies.",
+                "Verify cancellation and consistent error envelopes without relaxing item-count/lens validation."
+            ],
+            "layers": ["integration", "security"],
+            "observed_gap": "The portable payload endpoint has a 64 MiB bounded reader, but other JSON helpers use request.json; item limits after parse do not bound pre-parse allocation.",
+            "patches": [],
+            "priority": "P1",
+            "rank": 30,
+            "risk_or_open_decision": "This requires an explicit request-budget design, not simply applying the payload’s large limit everywhere.",
+            "source_files": ["src/lib/conversation-api.ts"],
+            "status": "pending",
+            "title": "Other JSON endpoints need explicit request-body budget and streaming tests",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "Rendering cannot execute fixture payloads, and security changes do not silently corrupt archival exports.",
+            "complexity_score": 3,
+            "confidence_percent": 97,
+            "existing_coverage_credit": "Escaping/parsing/component tests may cover isolated fragments; the compiled render surface is not browser-tested.",
+            "id": "TG-066",
+            "implementation_notes": [
+                "Import synthetic HTML/script/event-handler/javascript-link/fence-breakout content.",
+                "Observe browser dialogs, window markers and unexpected network/navigation.",
+                "Assert inert display while original raw/Markdown exports preserve original content where documented."
+            ],
+            "layers": ["E2E", "security"],
+            "observed_gap": "Untrusted imported transcript text and links should not execute script or navigate dangerous schemes merely by rendering.",
+            "patches": [],
+            "priority": "P1",
+            "rank": 31,
+            "risk_or_open_decision": "Do not conflate safe UI rendering with rewriting every exported Markdown document.",
+            "source_files": ["src/ui/components", "src/ui/routes/web-chats.$conversationId.tsx"],
+            "status": "pending",
+            "title": "Hostile transcript rendering needs browser execution-safety tests",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "Each degraded storage state has a stable public result and recovery action without page crashes.",
+            "complexity_score": 3,
+            "confidence_percent": 97,
+            "existing_coverage_credit": "Fallback indexing, absent DB and deferred-load units already exist.",
+            "id": "TG-077",
+            "implementation_notes": [
+                "Start fixture app with no DB but valid rollouts, then with unreadable/missing rollout after list metadata is loaded.",
+                "Read list/detail/export through HTTP and browser.",
+                "Assert meaningful unavailable/deferred UI, correct fallback inventory and no fabricated content."
+            ],
+            "layers": ["integration", "E2E"],
+            "observed_gap": "Adapter fallbacks and component errors can each pass while the full metadata-to-export journey fails when storage changes between stages.",
+            "patches": [],
+            "priority": "P1",
+            "rank": 32,
+            "risk_or_open_decision": "",
+            "source_files": [
+                "src/lib/codex-fallback-index.ts",
+                "src/lib/codex-thread-cache.ts",
+                "src/ui/routes/threads.$threadId.tsx"
+            ],
+            "status": "pending",
+            "title": "Missing/unreadable DB and deferred rollout errors need complete UI/API journeys",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "No record is lost, duplicated or corrupted across the agreed reconnect semantics.",
+            "complexity_score": 4,
+            "confidence_percent": 97,
+            "existing_coverage_credit": "There are existing SSE helper and parser tests, including shared monitor cleanup.",
+            "id": "TG-049",
+            "implementation_notes": [
+                "Append fixture records at byte boundaries that split multibyte text and SSE framing.",
+                "Disconnect/reconnect deterministically and append more records.",
+                "Assert visible ordering, deduplication, final state and bounded reconnect attempts."
+            ],
+            "layers": ["integration", "E2E"],
+            "observed_gap": "Transport mocks do not exercise actual incremental UTF-8 framing, file appends and reconnect after connection loss.",
+            "patches": [],
+            "priority": "P1",
+            "rank": 33,
+            "risk_or_open_decision": "Use server-controlled barriers/events, not timing-sensitive arbitrary sleeps.",
+            "source_files": ["src/lib/codex-thread-events.ts", "src/ui/lib/codex-thread-live.ts"],
+            "status": "pending",
+            "title": "Real SSE append and reconnect need browser-level sequence invariants",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "No active monitor, reader or timer remains after the last disconnected client.",
+            "complexity_score": 4,
+            "confidence_percent": 97,
+            "existing_coverage_credit": "The helper cancellation paths are already unit-tested; PATCH-11 tests exact signal wiring.",
+            "id": "TG-050",
+            "implementation_notes": [
+                "Open a real fixture SSE connection, wait for subscription, then abort/close the client socket.",
+                "Observe monitor/subscriber counts through a test-only seam.",
+                "Repeat many connect/disconnect cycles and assert return to baseline and prompt child shutdown."
+            ],
+            "layers": ["integration", "resource"],
+            "observed_gap": "Passing an AbortSignal in a mocked route does not prove a closed TCP/browser request releases filesystem monitors and stream readers.",
+            "patches": [],
+            "priority": "P1",
+            "rank": 34,
+            "risk_or_open_decision": "Resource counters should not become a public production endpoint.",
+            "source_files": ["src/lib/codex-thread-events.ts", "src/ui/routes/api.v1.codex.threads.events.ts"],
+            "status": "pending",
+            "title": "Actual HTTP disconnect cleanup lacks a socket-to-monitor integration assertion",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "Only authorized target data changes and public state agrees after reopen for every supported adapter.",
+            "complexity_score": 4,
+            "confidence_percent": 97,
+            "existing_coverage_credit": "Codex and Cursor have particularly strong mutation/recovery suites; unsupported deletion sources must remain unsupported.",
+            "id": "TG-075",
+            "implementation_notes": [
+                "For each deletion-capable adapter, seed target, sibling and unrelated-workspace records/files.",
+                "Delete through public HTTP/local surfaces, reopen storage in a fresh process and inspect all sentinels.",
+                "Assert idempotent repeat deletion and per-source cleanup semantics."
+            ],
+            "layers": ["integration", "filesystem"],
+            "observed_gap": "Source-specific deletion tests do not uniformly show, via reopened public state, that unrelated workspace files/records survive all supported mutations.",
+            "patches": [],
+            "priority": "P1",
+            "rank": 35,
+            "risk_or_open_decision": "Shared fixture utilities must not normalize away source-specific ownership rules.",
+            "source_files": ["src/lib/conversation-data/index.ts", "src/lib/conversation-data/*-adapter.ts"],
+            "status": "pending",
+            "title": "Destructive source adapters need public-surface preservation invariants",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "Malformed bytes never reach the converter and produce a client-facing validation error.",
+            "complexity_score": 2,
+            "confidence_percent": 96,
+            "existing_coverage_credit": "The original API suite already tests Content-Length and chunked 64 MiB overflow with stream cancellation. Those are not claimed as missing.",
+            "id": "TG-014",
+            "implementation_notes": [
+                "Supply an invalid UTF-8 byte sequence with a converter spy.",
+                "Assert validation status and zero conversion calls.",
+                "Preserve the existing bounded-body tests unchanged."
+            ],
+            "layers": ["unit", "integration"],
+            "observed_gap": "The payload transport needs a direct assertion that malformed UTF-8 is rejected without invoking conversion, rather than being replacement-decoded into a different conversation.",
+            "patches": ["PATCH-05"],
+            "priority": "P1",
+            "rank": 36,
+            "risk_or_open_decision": "",
+            "source_files": ["src/lib/conversation-api.ts"],
+            "status": "implemented",
+            "title": "Invalid UTF-8 must fail before portable payload conversion",
+            "verification": "Supplemental evidence is mapped in the patch note; canonical Bun/Vitest/Playwright execution is blocked."
+        },
+        {
+            "acceptance_criteria": "Private directory contracts are verified on real temporary paths with reliable cleanup.",
+            "complexity_score": 2,
+            "confidence_percent": 96,
+            "existing_coverage_credit": "Related export/file-lock tests already cover several file-level symlink and hardlink cases.",
+            "id": "TG-015",
+            "implementation_notes": [
+                "Create nested directories and assert 0700/idempotence on POSIX.",
+                "Repair permissive directories without altering unrelated regular files or symlink targets.",
+                "Test assert-only behavior on missing paths and skip only unsupported OS semantics."
+            ],
+            "layers": ["unit", "filesystem"],
+            "observed_gap": "The helper lacks a dedicated suite asserting mode repair and leaf non-directory/symlink safety using actual files.",
+            "patches": ["PATCH-03"],
+            "priority": "P1",
+            "rank": 37,
+            "risk_or_open_decision": "Ancestor symlink races and platform ACL behavior are separate decisions, TG-054.",
+            "source_files": ["src/lib/private-runtime-directory.ts"],
+            "status": "implemented",
+            "title": "Private runtime directory invariants have no focused filesystem suite",
+            "verification": "Supplemental evidence is mapped in the patch note; canonical Bun/Vitest/Playwright execution is blocked."
+        },
+        {
+            "acceptance_criteria": "All expected bodies appear exactly once under safe distinct names and remain readable after temporary files are removed.",
+            "complexity_score": 2,
+            "confidence_percent": 96,
+            "existing_coverage_credit": "The existing resolver already handles NFC/case/literal-suffix collisions; this audit does not claim an existing overwrite defect.",
+            "id": "TG-018",
+            "implementation_notes": [
+                "Build real archives, unzip with fflate and map every body back to its input.",
+                "Include NFC, case variants, an existing suffixed name and unsafe path punctuation.",
+                "Compare NUL/CRLF/emoji bytes and read the blob after cleanup."
+            ],
+            "layers": ["integration"],
+            "observed_gap": "Unique-looking entry names alone do not prove that all original Markdown bodies survive case/Unicode/literal-suffix collisions.",
+            "patches": ["PATCH-09"],
+            "priority": "P1",
+            "rank": 38,
+            "risk_or_open_decision": "",
+            "source_files": ["src/lib/conversation-zip-export.ts", "src/lib/ui-export-zip.ts"],
+            "status": "implemented",
+            "title": "ZIP tests need body-level proof for colliding filenames",
+            "verification": "Supplemental evidence is mapped in the patch note; canonical Bun/Vitest/Playwright execution is blocked."
+        },
+        {
+            "acceptance_criteria": "Exact Markdown output and unchanged input are asserted for all focused fixtures.",
+            "complexity_score": 2,
+            "confidence_percent": 96,
+            "existing_coverage_credit": "Provider-specific transcript and payload suites already check substantial rendered content.",
+            "id": "TG-019",
+            "implementation_notes": [
+                "Add exact full-string assertions for roles, titles, newlines and model labels.",
+                "Include Unicode, fences and non-mutating input.",
+                "Test no-final-answer behavior, maximum message order rather than array position, and empty transcript distinctions."
+            ],
+            "layers": ["unit"],
+            "observed_gap": "Source/export snapshots exercise this renderer indirectly but do not isolate its role/title/model/newline and selector contracts.",
+            "patches": ["PATCH-08"],
+            "priority": "P1",
+            "rank": 39,
+            "risk_or_open_decision": "These are contract tests, not a new Markdown sanitizer or provider renderer rewrite.",
+            "source_files": ["src/lib/conversation-data/markdown.ts"],
+            "status": "implemented",
+            "title": "Normalized Markdown renderer lacks exact contract-focused tests",
+            "verification": "Supplemental evidence is mapped in the patch note; canonical Bun/Vitest/Playwright execution is blocked."
+        },
+        {
+            "acceptance_criteria": "Repeated deterministic interleavings preserve storage and publish a consistent error/snapshot contract.",
+            "complexity_score": 4,
+            "confidence_percent": 96,
+            "existing_coverage_credit": "The existing lock suite already tests concurrency and cleanup, and PATCH-06 closes one in-flight cache race.",
+            "id": "TG-047",
+            "implementation_notes": [
+                "Coordinate two fixture processes with IPC barriers rather than sleeps.",
+                "Overlap list/detail/export with mutation and reopen storage.",
+                "Assert results obey a documented before-or-after policy, never mixed corrupt bytes or resurrected deleted data."
+            ],
+            "layers": ["integration"],
+            "observed_gap": "Lock-unit correctness and cache-unit invalidation do not establish end-to-end behavior when independent app/client processes read and mutate the same fixture.",
+            "patches": [],
+            "priority": "P1",
+            "rank": 40,
+            "risk_or_open_decision": "Do not demand stronger transactional guarantees than adapters promise without an explicit design decision.",
+            "source_files": [
+                "src/lib/file-mutation-lock.ts",
+                "src/lib/conversation-data/index.ts",
+                "src/lib/bounded-file-cache.ts"
+            ],
+            "status": "pending",
+            "title": "Concurrent public reads and deletes lack cross-process freshness tests",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "Every input has the expected result and cleanup failure remains visible in the response.",
+            "complexity_score": 2,
+            "confidence_percent": 95,
+            "existing_coverage_credit": "Source deletion and cleanup helpers have existing tests.",
+            "id": "TG-009",
+            "implementation_notes": [
+                "Inject mixed deleted/not-found/cleanup-error outcomes.",
+                "Assert HTTP 200 for a completed batch with typed per-item results.",
+                "Preserve IDs and cleanup details without pretending failed cleanup succeeded."
+            ],
+            "layers": ["unit", "integration"],
+            "observed_gap": "Mixed success, missing records and cleanup errors need explicit per-item semantics rather than accidental rejection of the entire batch.",
+            "patches": ["PATCH-05"],
+            "priority": "P1",
+            "rank": 41,
+            "risk_or_open_decision": "",
+            "source_files": ["src/lib/conversation-api.ts"],
+            "status": "implemented",
+            "title": "Partial deletion and cleanup errors need a stable batch response contract",
+            "verification": "Supplemental evidence is mapped in the patch note; canonical Bun/Vitest/Playwright execution is blocked."
+        },
+        {
+            "acceptance_criteria": "The deployed route boundary preserves ID/origin validation and gives controlled errors for unsupported URL sizes/encodings.",
+            "complexity_score": 3,
+            "confidence_percent": 95,
+            "existing_coverage_credit": "There are many handler and origin tests; PATCH-02/05 add more direct matrices.",
+            "id": "TG-076",
+            "implementation_notes": [
+                "Send actual socket/HTTP requests through the production server for encoded separators, double encoding, malformed escapes and unusual Host/Origin spellings.",
+                "Test long valid cursor URLs within the chosen server/proxy budget.",
+                "Assert consistent route rejection without unexpected data access."
+            ],
+            "layers": ["integration", "security"],
+            "observed_gap": "Direct Request construction omits server/router normalization of percent encodings, path prefixes, Host spelling and long cursor URLs.",
+            "patches": [],
+            "priority": "P1",
+            "rank": 42,
+            "risk_or_open_decision": "Do not claim a bypass until reproduced through the actual transport.",
+            "source_files": [
+                "src/lib/production-ui-server.ts",
+                "src/lib/conversation-api.ts",
+                "src/lib/local-request-security.ts"
+            ],
+            "status": "pending",
+            "title": "Real server URL normalization and encoded-path security need joined tests",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "Every stage either returns a complete readable blob or fails without leaked artifacts or masked primary errors.",
+            "complexity_score": 3,
+            "confidence_percent": 94,
+            "existing_coverage_credit": "Existing cleanup helpers and PATCH-09 cover normal integrity and cleanup ordering.",
+            "id": "TG-056",
+            "implementation_notes": [
+                "Inject narrow stage failures while using actual temporary output directories.",
+                "Assert no orphan files and preservation of the primary failure when cleanup also fails.",
+                "Confirm a subsequent export works after each failure."
+            ],
+            "layers": ["integration", "filesystem"],
+            "observed_gap": "Helper cleanup-order tests do not exhaust failures while rendering, writing entries, compressing, reading the final archive and removing the output directory.",
+            "patches": [],
+            "priority": "P1",
+            "rank": 43,
+            "risk_or_open_decision": "Avoid broad module mocks that skip the cleanup code being tested.",
+            "source_files": [
+                "src/lib/conversation-zip-export.ts",
+                "src/lib/ui-export-archive.ts",
+                "src/lib/ui-export-zip.ts"
+            ],
+            "status": "pending",
+            "title": "ZIP pipeline cleanup needs injected failures at actual pipeline stages",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "Each documented stage has an invariant-preserving failure and retry result, not merely an error string assertion.",
+            "complexity_score": 5,
+            "confidence_percent": 94,
+            "existing_coverage_credit": "There are existing crash tests and a transcript renderer disk-full test; basic disk-full coverage is not claimed absent everywhere.",
+            "id": "TG-046",
+            "implementation_notes": [
+                "Introduce a narrowly injected filesystem fault seam or controlled child filesystem wrapper.",
+                "Fail write, sync, rename and removal at each journal stage with ENOSPC/EROFS/EACCES.",
+                "Assert primary error preservation, durable intent visibility, lock release and successful replay after restoring storage."
+            ],
+            "layers": ["integration", "filesystem"],
+            "observed_gap": "Permission/disk-full/fsync/rename failures at each durable boundary can differ from process interruption and deserve explicit recovery outcomes.",
+            "patches": [],
+            "priority": "P1",
+            "rank": 44,
+            "risk_or_open_decision": "Use deterministic failpoints; filling the host disk or changing real home permissions is unacceptable.",
+            "source_files": [
+                "src/lib/codex-deletion-journal.ts",
+                "src/lib/cursor-operation-journal.ts",
+                "src/lib/file-mutation-lock.ts"
+            ],
+            "status": "pending",
+            "title": "Journal durability needs a cross-stage storage-fault matrix",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "Resource use stays within an agreed envelope and over-limit work fails early with cleanup.",
+            "complexity_score": 4,
+            "confidence_percent": 90,
+            "existing_coverage_credit": "There are existing bounded retention, concurrency and payload-size tests.",
+            "id": "TG-057",
+            "implementation_notes": [
+                "Generate deterministic near-limit synthetic inputs outside the fast unit suite.",
+                "Measure peak RSS/heap, elapsed time and event-loop responsiveness in an isolated process.",
+                "Test several concurrent requests and document hardware-tolerant regression budgets."
+            ],
+            "layers": ["integration", "performance"],
+            "observed_gap": "200-conversation exports and concurrent large file reads can allocate much more than fixture-scale tests reveal; current source-byte limits do not establish peak memory.",
+            "patches": [],
+            "priority": "P1",
+            "rank": 45,
+            "risk_or_open_decision": "Do not assert an arbitrary universal millisecond or memory threshold without a measured baseline.",
+            "source_files": [
+                "src/lib/conversation-zip-export.ts",
+                "src/lib/web-chat.ts",
+                "src/ui/lib/web-chat-import.ts"
+            ],
+            "status": "pending",
+            "title": "Large export/import resource budgets lack repeatable stress evidence",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "Accepted and rejected ancestor/race cases are explicit and protected paths cannot be redirected outside the fixture.",
+            "complexity_score": 4,
+            "confidence_percent": 87,
+            "existing_coverage_credit": "Leaf symlink/hardlink protections already exist; PATCH-03 adds focused directory tests.",
+            "id": "TG-054",
+            "implementation_notes": [
+                "Document trusted root/ancestor assumptions first.",
+                "Build controlled ancestor symlink and rename-race fixtures without touching external data.",
+                "Use realpath/handle-relative checks only where the chosen contract requires them and retest legitimate symlinked home setups."
+            ],
+            "layers": ["integration", "security"],
+            "observed_gap": "Leaf lstat checks do not establish whether symlinked ancestors or a concurrent path replacement are acceptable within the same-user threat model.",
+            "patches": [],
+            "priority": "P1",
+            "rank": 46,
+            "risk_or_open_decision": "Do not label this an exploitable remote vulnerability without confirming the threat model.",
+            "source_files": ["src/lib/private-runtime-directory.ts", "src/lib/ui-export-files.ts"],
+            "status": "pending",
+            "title": "Private directory ancestor symlinks and TOCTOU policy are unspecified",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "A documented upstream CI matrix executes the intended suites and fails for a deliberately broken regression.",
+            "complexity_score": 3,
+            "confidence_percent": 85,
+            "existing_coverage_credit": "Local verification scripts already exist. Upstream may have CI omitted by archive/export rules.",
+            "id": "TG-041",
+            "implementation_notes": [
+                "First inspect the real repository’s existing CI rather than blindly creating a duplicate workflow.",
+                "Ensure frozen-lock install, lint, typecheck, unit/UI, coverage, build, package smoke and an isolated browser job are required appropriately.",
+                "Add controlled artifact retention and Linux/macOS/Windows coverage for platform-specific behavior."
+            ],
+            "layers": ["tooling", "CI"],
+            "observed_gap": "No .github/workflow files are present in the supplied ZIP, so hosted CI triggers, required checks and runtime matrices are unknown.",
+            "patches": [],
+            "priority": "P1",
+            "rank": 47,
+            "risk_or_open_decision": "This is a verification gap in available inputs, not a claim that hosted CI is absent.",
+            "source_files": ["package.json", "AGENTS.md"],
+            "status": "pending",
+            "title": "CI enforcement and runtime matrix cannot be established from the archive",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "Invalid input never fetches; invalid responses produce controlled errors; valid data is returned.",
+            "complexity_score": 1,
+            "confidence_percent": 100,
+            "existing_coverage_credit": "Evidence lens validation and export behavior have extensive lower-layer tests.",
+            "id": "TG-022",
+            "implementation_notes": [
+                "Validate parsed unknown top-level envelopes.",
+                "Test lens validation before fetch, encoded target IDs, immutable request body, invalid JSON, empty data, HTTP fallback errors and network rejection.",
+                "Keep ordinary evidence semantics unchanged."
+            ],
+            "layers": ["unit", "UI"],
+            "observed_gap": "Parsed JSON is cast before object validation, so null or primitive responses can fail via accidental property access instead of the intended error.",
+            "patches": ["PATCH-10"],
+            "priority": "P2",
+            "rank": 48,
+            "risk_or_open_decision": "Truthy wrong nested data remains a contract decision; TG-052.",
+            "source_files": ["src/ui/lib/evidence-export.ts"],
+            "status": "implemented",
+            "title": "Evidence export client lacks direct malformed-response coverage",
+            "verification": "Supplemental evidence is mapped in the patch note; canonical Bun/Vitest/Playwright execution is blocked."
+        },
+        {
+            "acceptance_criteria": "Generated outputs are ignored without hiding source tests or committed fixture data.",
+            "complexity_score": 1,
+            "confidence_percent": 100,
+            "existing_coverage_credit": "This is an archive-context observation, not proof that the upstream GitHub repository lacks a .gitignore.",
+            "id": "TG-037",
+            "implementation_notes": [
+                "Add minimal rules for node_modules, dist, coverage, Playwright reports, test results and .DS_Store.",
+                "On upstream drift merge these patterns into existing rules.",
+                "Keep synthetic audit evidence separate from actual browser traces."
+            ],
+            "layers": ["tooling"],
+            "observed_gap": "No .gitignore is present in the supplied archive; installing dependencies or running browser/coverage tools can leave large or sensitive outputs available for accidental staging.",
+            "patches": ["PATCH-19"],
+            "priority": "P2",
+            "rank": 49,
+            "risk_or_open_decision": "Do not overwrite an existing upstream .gitignore wholesale.",
+            "source_files": [".gitignore"],
+            "status": "implemented",
+            "title": "Archive lacks ignore rules for generated test evidence and dependencies",
+            "verification": "Supplemental evidence is mapped in the patch note; canonical Bun/Vitest/Playwright execution is blocked."
+        },
+        {
+            "acceptance_criteria": "Every emitted timestamp is decoder-valid and the generated cursor advances without losing the next row.",
+            "complexity_score": 2,
+            "confidence_percent": 100,
+            "existing_coverage_credit": "NaN/Infinity/negative timestamp handling already exists and receives extra regression coverage.",
+            "id": "TG-017",
+            "implementation_notes": [
+                "Normalize timestamps once for ordering and cursor generation using safe integer floor or zero.",
+                "Test Number.MAX_VALUE and paging into the next item.",
+                "Keep negative/null/non-finite fallback consistent."
+            ],
+            "layers": ["unit"],
+            "observed_gap": "A very large finite updatedAtMs is encoded although the decoder requires a safe integer; a generated nextCursor then cannot be consumed.",
+            "patches": ["PATCH-18"],
+            "priority": "P2",
+            "rank": 50,
+            "risk_or_open_decision": "Corrupt giant timestamps now sort with zero/unknown values rather than ahead of real dates.",
+            "source_files": ["src/lib/conversation-data/pagination.ts"],
+            "status": "implemented",
+            "title": "Finite but unsafe timestamps can produce self-invalidating cursors",
+            "verification": "Supplemental evidence is mapped in the patch note; canonical Bun/Vitest/Playwright execution is blocked."
+        },
+        {
+            "acceptance_criteria": "Users see an accurate recovery action instead of a blank page, crash or another conversation’s content.",
+            "complexity_score": 3,
+            "confidence_percent": 99,
+            "existing_coverage_credit": "Existing web-store units cover retention and limits; PATCH-16 covers reload while the item still exists.",
+            "id": "TG-062",
+            "implementation_notes": [
+                "Use a small test-configured retention budget or deterministic eviction fixtures.",
+                "Open an imported detail, evict/restart, then navigate/reload/back.",
+                "Assert a recoverable expired/not-found UI and no stale transcript from client cache."
+            ],
+            "layers": ["E2E"],
+            "observed_gap": "In-memory imports are intentionally bounded and process-local; browser reload/deep links after eviction or restart need an understandable failure state.",
+            "patches": [],
+            "priority": "P2",
+            "rank": 51,
+            "risk_or_open_decision": "",
+            "source_files": ["src/lib/web-chat.ts", "src/ui/routes/web-chats.$conversationId.tsx"],
+            "status": "pending",
+            "title": "Web-store eviction and stale deep links are not exercised in the browser",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "All supported input gestures reach the same validated import pipeline exactly once.",
+            "complexity_score": 3,
+            "confidence_percent": 99,
+            "existing_coverage_credit": "Component events and the staged direct input upload already cover basic imports.",
+            "id": "TG-063",
+            "implementation_notes": [
+                "Exercise accessible keyboard activation and actual drag/drop DataTransfer.",
+                "Repeat the same file after an error and after success.",
+                "Verify input reset, disabled/loading states and duplicate error behavior without double submission."
+            ],
+            "layers": ["E2E", "accessibility"],
+            "observed_gap": "setInputFiles covers one browser input path but not drag/drop, keyboard activation or selecting the same filename after a prior attempt.",
+            "patches": [],
+            "priority": "P2",
+            "rank": 52,
+            "risk_or_open_decision": "Inspect actual component extraction on upstream drift; some behavior may remain in the route.",
+            "source_files": ["src/ui/routes/web.index.tsx"],
+            "status": "pending",
+            "title": "Real file chooser/drop/keyboard/reselection behavior remains uncovered",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "The supported platform matrix has explicit passing contracts and documented capability exceptions.",
+            "complexity_score": 3,
+            "confidence_percent": 99,
+            "existing_coverage_credit": "Existing tests have some platform branches and the new POSIX mode tests skip Windows appropriately.",
+            "id": "TG-069",
+            "implementation_notes": [
+                "After Chromium is stable, add Firefox/WebKit projects for critical journeys.",
+                "Add at least one narrow viewport/keyboard path and run platform-sensitive filesystem tests on Windows/macOS.",
+                "Record supported-versus-unsupported feature behavior rather than silently skipping failures."
+            ],
+            "layers": ["E2E", "portability"],
+            "observed_gap": "The staged harness defines only Desktop Chrome; WebKit/Firefox, mobile viewport and Windows filesystem semantics are not covered by it.",
+            "patches": [],
+            "priority": "P2",
+            "rank": 53,
+            "risk_or_open_decision": "Avoid multiplying all heavy stress tests across every matrix cell.",
+            "source_files": ["testing/e2e/playwright.config.ts", "src/lib/private-runtime-directory.ts"],
+            "status": "pending",
+            "title": "Browser and operating-system compatibility matrix remains Chromium-only",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "Every route publishes the intended method contract without invoking normal data work.",
+            "complexity_score": 1,
+            "confidence_percent": 98,
+            "existing_coverage_credit": "The API already has route and error tests.",
+            "id": "TG-030",
+            "implementation_notes": [
+                "Table-test 11 stable routes with an unsupported method.",
+                "Assert 405, exact Allow and safety headers.",
+                "Keep method rejection separate from origin rejection."
+            ],
+            "layers": ["unit"],
+            "observed_gap": "Individual method errors do not lock down the supported method set for every stable route.",
+            "patches": ["PATCH-05"],
+            "priority": "P2",
+            "rank": 54,
+            "risk_or_open_decision": "",
+            "source_files": ["src/lib/conversation-api.ts"],
+            "status": "implemented",
+            "title": "API method dispatch needs a complete Allow-header matrix",
+            "verification": "Supplemental evidence is mapped in the patch note; canonical Bun/Vitest/Playwright execution is blocked."
+        },
+        {
+            "acceptance_criteria": "Only this test’s temporary artifacts determine its pass/fail result.",
+            "complexity_score": 1,
+            "confidence_percent": 98,
+            "existing_coverage_credit": "The cleanup behavior itself already has coverage.",
+            "id": "TG-035",
+            "implementation_notes": [
+                "Narrow the assertion to the unique project prefix created by this test.",
+                "Retain actual cleanup checks rather than ignoring filesystem errors.",
+                "Add empty selection and cleanup ordering contract cases in the new integrity suite."
+            ],
+            "layers": ["unit", "isolation"],
+            "observed_gap": "The existing cleanup check observes a broad global temporary prefix; a parallel test can legitimately own another matching directory.",
+            "patches": ["PATCH-09"],
+            "priority": "P2",
+            "rank": 55,
+            "risk_or_open_decision": "",
+            "source_files": ["src/lib/conversation-zip-export.test.ts"],
+            "status": "implemented",
+            "title": "ZIP cleanup assertion can fail because of another test’s temporary directory",
+            "verification": "Supplemental evidence is mapped in the patch note; canonical Bun/Vitest/Playwright execution is blocked."
+        },
+        {
+            "acceptance_criteria": "Generated URLs round-trip parameters without altering the supplied IDs.",
+            "complexity_score": 1,
+            "confidence_percent": 98,
+            "existing_coverage_credit": "Other live client/fallback tests already exist.",
+            "id": "TG-036",
+            "implementation_notes": [
+                "Table-test three host aliases including IPv6 brackets.",
+                "Assert HTTP/HTTPS and port behavior, reserved/Unicode IDs, cleared old query/hash, readonly inputs and empty selection.",
+                "Keep origin policy distinct from URL construction."
+            ],
+            "layers": ["unit", "UI"],
+            "observed_gap": "Loopback alias, protocol/port and special event ID behavior is important for live reconnect but only indirectly exercised.",
+            "patches": ["PATCH-13"],
+            "priority": "P2",
+            "rank": 56,
+            "risk_or_open_decision": "",
+            "source_files": ["src/ui/lib/codex-thread-live-url.ts"],
+            "status": "implemented",
+            "title": "Live-stream URL generation lacks an explicit browser-safe encoding suite",
+            "verification": "Supplemental evidence is mapped in the patch note; canonical Bun/Vitest/Playwright execution is blocked."
+        },
+        {
+            "acceptance_criteria": "Concatenated pages equal the intended stable order exactly and terminate with correct metadata.",
+            "complexity_score": 2,
+            "confidence_percent": 98,
+            "existing_coverage_credit": "Baseline pagination and cursor validation already have unit examples.",
+            "id": "TG-033",
+            "implementation_notes": [
+                "Build 97 deterministic tied records spanning every registered source.",
+                "Traverse with page sizes 1,2,7,16,97,200 and assert no mutation, duplicate or omission.",
+                "Test removed cursor rows, exact boundaries and malformed cursor/limit tables."
+            ],
+            "layers": ["unit"],
+            "observed_gap": "A few page examples can miss duplicate/omitted records at equal timestamps across sources and ID tie breakers.",
+            "patches": ["PATCH-07"],
+            "priority": "P2",
+            "rank": 57,
+            "risk_or_open_decision": "",
+            "source_files": ["src/lib/conversation-data/pagination.ts"],
+            "status": "implemented",
+            "title": "Keyset pagination needs full tied-data traversal invariants",
+            "verification": "Supplemental evidence is mapped in the patch note; canonical Bun/Vitest/Playwright execution is blocked."
+        },
+        {
+            "acceptance_criteria": "Persisted settings have consistent server/client behavior and malformed stored state falls back safely.",
+            "complexity_score": 3,
+            "confidence_percent": 98,
+            "existing_coverage_credit": "Existing settings/preferences tests remain valuable.",
+            "id": "TG-065",
+            "implementation_notes": [
+                "Change path conversion/redaction and theme settings in a browser.",
+                "Reload and open another relevant route/context with the same storage.",
+                "Assert rendered/exported effects and no hydration mismatch; test invalid old stored values."
+            ],
+            "layers": ["E2E"],
+            "observed_gap": "Component/storage-unit tests do not prove cookies/preferences are consumed consistently during SSR, reload and navigation.",
+            "patches": [],
+            "priority": "P2",
+            "rank": 58,
+            "risk_or_open_decision": "",
+            "source_files": ["src/ui/routes/settings.tsx", "src/ui/routes/__root.tsx"],
+            "status": "pending",
+            "title": "Settings persistence and server hydration need real-browser assertions",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "Core import/export/delete journeys work without a pointer and have no agreed critical accessibility violations.",
+            "complexity_score": 3,
+            "confidence_percent": 98,
+            "existing_coverage_credit": "Existing component role/label assertions provide a useful baseline.",
+            "id": "TG-067",
+            "implementation_notes": [
+                "Test keyboard-only open/close/confirm/cancel with focus returning to the trigger.",
+                "Check error announcements and reachable virtualized controls.",
+                "Add an accessibility scanner only after resolving a root-manifest dependency and review findings manually."
+            ],
+            "layers": ["E2E", "accessibility"],
+            "observed_gap": "jsdom cannot fully verify focus trapping, restoration, scrolling and browser accessibility semantics under real navigation.",
+            "patches": [],
+            "priority": "P2",
+            "rank": 59,
+            "risk_or_open_decision": "Do not install a second application dependency graph under testing/.",
+            "source_files": [
+                "src/ui/components/export-dialog.tsx",
+                "src/ui/components/ui/alert-dialog.tsx",
+                "src/ui/components"
+            ],
+            "status": "pending",
+            "title": "Dialogs and virtualized views need keyboard/focus/accessibility browser coverage",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "Large conversations stay responsive and preserve full content when requested.",
+            "complexity_score": 4,
+            "confidence_percent": 98,
+            "existing_coverage_credit": "Existing unit/component tests cover deferred preview and virtualized rendering logic.",
+            "id": "TG-068",
+            "implementation_notes": [
+                "Generate large synthetic rollouts/artifacts behind fixture routes.",
+                "Assert lightweight initial payload and explicit full-load behavior after hydration.",
+                "Scroll/search/filter across boundaries and measure bounded DOM/memory without dropping or reordering events."
+            ],
+            "layers": ["E2E", "performance"],
+            "observed_gap": "Large payloads are intentionally deferred; browser hydration, fetch timing, virtual scroll/search and memory need joined verification.",
+            "patches": [],
+            "priority": "P2",
+            "rank": 60,
+            "risk_or_open_decision": "Use a separate stress tier so fast CI tests remain deterministic.",
+            "source_files": [
+                "src/ui/routes/threads.$threadId.tsx",
+                "src/ui/routes/cursor-threads.$composerId.tsx",
+                "src/ui/routes/antigravity-conversations.$conversationId.tsx"
+            ],
+            "status": "pending",
+            "title": "Large deferred/virtualized transcripts lack browser resource and ordering tests",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "The shipped package works from a clean consumer directory with only declared artifacts.",
+            "complexity_score": 4,
+            "confidence_percent": 97,
+            "existing_coverage_credit": "Existing package-smoke already checks package installation, CLI/app health, Bun and Node payload consumers and declarations.",
+            "id": "TG-070",
+            "implementation_notes": [
+                "Restore the original missing CLI input first.",
+                "Start the packed package from an isolated consumer root using the safe environment helper.",
+                "Run a small import/export browser smoke and assert no dependence on repository src, development caches or undeclared files."
+            ],
+            "layers": ["integration", "E2E", "packaging"],
+            "observed_gap": "The new browser harness runs the repository production build, not the exact packed/installed artifact a user receives.",
+            "patches": [],
+            "priority": "P2",
+            "rank": 61,
+            "risk_or_open_decision": "Do not recreate legacy entrypoints or replace the missing CLI with a stub to make this pass.",
+            "source_files": ["src/package-smoke.ts", "src/build-server.ts", "src/build-payload.ts"],
+            "status": "pending",
+            "title": "Installed-package app smoke needs browser-level reproducibility evidence",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "Each case is independent of prior implementation overrides and user database configuration.",
+            "complexity_score": 1,
+            "confidence_percent": 96,
+            "existing_coverage_credit": "SSE helper tests already cover subscriber cancellation and shared monitor cleanup.",
+            "id": "TG-024",
+            "implementation_notes": [
+                "Reset mocks and install deterministic default implementations per case.",
+                "Stub/restore database environment explicitly.",
+                "Assert route passes the exact incoming abort signal to the stream factory."
+            ],
+            "layers": ["unit", "UI"],
+            "observed_gap": "Inherited SPIRACHA_CODEX_DB and retained mock implementations can make tests environment/order dependent; explicit AbortSignal forwarding also needs an assertion.",
+            "patches": ["PATCH-11"],
+            "priority": "P2",
+            "rank": 62,
+            "risk_or_open_decision": "This is route wiring, not a real socket disconnect proof; TG-050.",
+            "source_files": ["src/ui/lib/codex-thread-events-route.vitest.ts"],
+            "status": "implemented",
+            "title": "Live route test globals and abort wiring can leak across cases",
+            "verification": "Supplemental evidence is mapped in the patch note; canonical Bun/Vitest/Playwright execution is blocked."
+        },
+        {
+            "acceptance_criteria": "Domain absence returns null where documented; route/method failures stay typed exceptions.",
+            "complexity_score": 2,
+            "confidence_percent": 96,
+            "existing_coverage_credit": "The baseline has individual domain-error examples; the missing assertion is consistent behavior across read/download/delete methods.",
+            "id": "TG-031",
+            "implementation_notes": [
+                "Table-test detail, Markdown, raw and ZIP domain-not-found versus route-not-found.",
+                "Test ordinary 405 for both single and batch deletion.",
+                "Preserve domain null/unsupported semantics only for matching typed error codes."
+            ],
+            "layers": ["unit", "integration"],
+            "observed_gap": "Broad null/unsupported handling can accidentally hide an unknown API route or ordinary method_not_allowed response.",
+            "patches": ["PATCH-04"],
+            "priority": "P2",
+            "rank": 63,
+            "risk_or_open_decision": "",
+            "source_files": ["src/client.ts"],
+            "status": "implemented",
+            "title": "SDK must distinguish domain 404/405 from missing or misrouted endpoints",
+            "verification": "Supplemental evidence is mapped in the patch note; canonical Bun/Vitest/Playwright execution is blocked."
+        },
+        {
+            "acceptance_criteria": "Failed loads do not poison later reads and changed file identities do not return stale content.",
+            "complexity_score": 2,
+            "confidence_percent": 96,
+            "existing_coverage_credit": "Existing tests exercise basic TTL/size/invalidation behavior.",
+            "id": "TG-034",
+            "implementation_notes": [
+                "Add rejected/null loader retries, missing/directory cases, delete/recreate and parser-key salts.",
+                "Replace a file atomically with same-size content to exercise identity fingerprints.",
+                "Test zero/oversize budgets and invalid ceilings."
+            ],
+            "layers": ["unit", "filesystem"],
+            "observed_gap": "Happy-path reuse does not prove failures are retryable, absent files avoid parsing or atomic same-size replacement invalidates cached content.",
+            "patches": ["PATCH-06"],
+            "priority": "P2",
+            "rank": 64,
+            "risk_or_open_decision": "Memory accounting still estimates source bytes, not full retained object size; TG-061.",
+            "source_files": ["src/lib/bounded-file-cache.ts"],
+            "status": "implemented",
+            "title": "Cache failure, fingerprint and byte-budget edges need direct coverage",
+            "verification": "Supplemental evidence is mapped in the patch note; canonical Bun/Vitest/Playwright execution is blocked."
+        },
+        {
+            "acceptance_criteria": "The agreed compatibility policy is explicit and malformed required fields cannot masquerade as a successful typed result.",
+            "complexity_score": 3,
+            "confidence_percent": 96,
+            "existing_coverage_credit": "Well-formed result DTOs and typed server errors already have tests.",
+            "id": "TG-052",
+            "implementation_notes": [
+                "Decide whether the public client trusts same-version servers or validates critical DTOs.",
+                "Add lightweight schemas for lists, page metadata, detail and evidence outputs if required.",
+                "Table-test arrays/scalars/missing fields and preserve forward-compatible optional fields."
+            ],
+            "layers": ["unit", "integration"],
+            "observed_gap": "PATCH-04/10 reject non-object envelopes, but truthy data with the wrong nested shape may still be returned under a strong TypeScript type.",
+            "patches": [],
+            "priority": "P2",
+            "rank": 65,
+            "risk_or_open_decision": "Schema strictness can break older/newer clients; avoid over-restricting extension fields.",
+            "source_files": ["src/client.ts", "src/ui/lib/evidence-export.ts"],
+            "status": "pending",
+            "title": "HTTP response validation stops at the top-level envelope",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "Any discovered regression is reproducible from a seed and promoted to a focused contract test.",
+            "complexity_score": 4,
+            "confidence_percent": 96,
+            "existing_coverage_credit": "The archive already contains extensive real/provider fixture and malformed-input tests; fuzzing complements them.",
+            "id": "TG-058",
+            "implementation_notes": [
+                "Build bounded source-aware generators with recorded random seeds.",
+                "Assert no mutation, deterministic output, bounded errors and preservation of meaningful message order/content.",
+                "Shrink failures into committed provider fixtures and run a small fixed seed corpus in CI."
+            ],
+            "layers": ["unit", "property"],
+            "observed_gap": "Handwritten examples cannot span malformed nesting, ordering, Unicode and role/tool combinations across all provider grammars.",
+            "patches": [],
+            "priority": "P2",
+            "rank": 66,
+            "risk_or_open_decision": "Keep grammars bounded; unrestricted random JSON mostly exercises trivial rejection.",
+            "source_files": [
+                "src/lib/conversation-payload.ts",
+                "src/lib/web-chat.ts",
+                "src/lib/codex-transcript-records.ts"
+            ],
+            "status": "pending",
+            "title": "Parser fixture examples need seed-reproducible property and grammar fuzzing",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "UTF-8 filenames and raw bytes survive; invalid encodings use a safe fallback; URL prefix is retained.",
+            "complexity_score": 2,
+            "confidence_percent": 95,
+            "existing_coverage_credit": "There are existing basic filename and URL construction tests.",
+            "id": "TG-032",
+            "implementation_notes": [
+                "Test filename* precedence over quoted filename and malformed encoding fallback.",
+                "Compare downloaded raw bytes including 0xFF/CRLF.",
+                "Assert a prefixed base URL retains path but clears stale query/fragment."
+            ],
+            "layers": ["unit", "integration"],
+            "observed_gap": "Download filename decoding can regress on UTF-8 names or malformed percent escapes, and base URL query state can bleed into requests.",
+            "patches": ["PATCH-04"],
+            "priority": "P2",
+            "rank": 67,
+            "risk_or_open_decision": "",
+            "source_files": ["src/client.ts"],
+            "status": "implemented",
+            "title": "Content-Disposition precedence and malformed encodings need SDK assertions",
+            "verification": "Supplemental evidence is mapped in the patch note; canonical Bun/Vitest/Playwright execution is blocked."
+        },
+        {
+            "acceptance_criteria": "All expected suites run once in the agreed pipeline, and focused/skipped tests cannot silently reduce required coverage.",
+            "complexity_score": 2,
+            "confidence_percent": 94,
+            "existing_coverage_credit": "The wrapper already ensures UI failures propagate; PATCH-16 uses .e2e.ts names to avoid default Bun suffixes.",
+            "id": "TG-042",
+            "implementation_notes": [
+                "Create a small suite-inventory assertion and document root/UI/browser ownership.",
+                "Test child exit propagation and ensure browser specs are excluded from root discovery.",
+                "Decide whether duplicate UI execution is deliberate; retain an explicit complete command if separating jobs."
+            ],
+            "layers": ["tooling"],
+            "observed_gap": "Root Bun runs a wrapper that launches Vitest, while coverage then launches the UI coverage run again. New browser files must not be auto-discovered by Bun.",
+            "patches": [],
+            "priority": "P2",
+            "rank": 68,
+            "risk_or_open_decision": "Changing scripts needs CI coordination and root manifest review, not an unverified offline edit.",
+            "source_files": [
+                "src/ui-suite.test.ts",
+                "vitest.config.ts",
+                "package.json",
+                "testing/e2e/playwright.config.ts"
+            ],
+            "status": "pending",
+            "title": "Test discovery and nested UI execution need a deterministic contract",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "The documented Worker target executes the compiled package with no Node/Bun compatibility shims.",
+            "complexity_score": 3,
+            "confidence_percent": 94,
+            "existing_coverage_credit": "Existing Bun/Node consumers and staged browser/Worker cases provide broad portable-runtime evidence.",
+            "id": "TG-071",
+            "implementation_notes": [
+                "Create a minimal isolated Cloudflare-compatible test consumer using the compiled package export.",
+                "Convert the fixed provider fixture set without network/filesystem access.",
+                "Assert package resolution, crypto/text APIs and typed invalid-input behavior."
+            ],
+            "layers": ["integration", "portability"],
+            "observed_gap": "Browser module Workers and Node do not exercise the specific Worker deployment/module-resolution constraints named in the README.",
+            "patches": [],
+            "priority": "P2",
+            "rank": 69,
+            "risk_or_open_decision": "Resolve the external test tool dependency in the root lockfile; deployment credentials must not be required for routine CI.",
+            "source_files": [
+                "src/build-payload.ts",
+                "src/lib/conversation-payload.ts",
+                "testing/e2e/payload-portability.e2e.ts"
+            ],
+            "status": "pending",
+            "title": "Cloudflare-specific payload portability is not established by browser Workers",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "Focused and full randomized runs agree without developer-path access, leaked workers or cross-test temporary-file assertions.",
+            "complexity_score": 3,
+            "confidence_percent": 94,
+            "existing_coverage_credit": "PATCH-09/11/15 close specific observed isolation weaknesses; many existing suites already clean up correctly.",
+            "id": "TG-079",
+            "implementation_notes": [
+                "Inventory environment/fetch/time/module mocks and ensure restoration in hooks/finally.",
+                "Run supported randomized seeds and parallel stress for fixture-heavy suites.",
+                "Check child processes, sockets and owned temp directories return to baseline, recording failing seeds."
+            ],
+            "layers": ["tooling", "isolation"],
+            "observed_gap": "Global env/fetch mocks, temporary directories and subprocesses can create order-dependent passes or leaks even when focused tests pass.",
+            "patches": [],
+            "priority": "P2",
+            "rank": 70,
+            "risk_or_open_decision": "Do not fix flakes by adding retries or weakening assertions before identifying the shared state.",
+            "source_files": [
+                "src/client.test.ts",
+                "src/ui/vitest.setup.ts",
+                "src/ui/lib/codex-thread-events-route.vitest.ts",
+                "src/lib/*-test-helpers.ts"
+            ],
+            "status": "pending",
+            "title": "Suite-wide global state and teardown reliability need randomized-order auditing",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "Controlled process/network failures are bounded and surface actionable safe errors without consulting real credentials.",
+            "complexity_score": 4,
+            "confidence_percent": 94,
+            "existing_coverage_credit": "Cloud request normalization and authentication paths already have mocked unit coverage.",
+            "id": "TG-073",
+            "implementation_notes": [
+                "Use a fixture executable and local stub HTTP server with no actual user login.",
+                "Exercise expired token refresh, timeout, cancellation, stderr/output limits and malformed JSON.",
+                "Assert token redaction and no shell interpolation of untrusted task IDs."
+            ],
+            "layers": ["integration"],
+            "observed_gap": "Function mocks do not cover a real fake-CLI subprocess emitting malformed/huge output or a delayed HTTP auth-refresh sequence.",
+            "patches": [],
+            "priority": "P2",
+            "rank": 71,
+            "risk_or_open_decision": "Preserve the design that Codex CLI owns login refresh; do not add a second auth implementation.",
+            "source_files": ["src/lib/codex-cloud.ts", "src/lib/codex-cloud-transcript.ts"],
+            "status": "pending",
+            "title": "Cloud auth refresh needs process-and-HTTP seam tests without credentials",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "Invalid or incomplete frames cannot hang the request or grow memory without bound; valid fragmented frames still work.",
+            "complexity_score": 4,
+            "confidence_percent": 94,
+            "existing_coverage_credit": "Existing tests cover framed updates, ID collisions, drain-after-load, empty completion and client-side limits.",
+            "id": "TG-074",
+            "implementation_notes": [
+                "Use a local fixture socket with deterministic byte fragmentation and malformed headers/lengths.",
+                "Add oversized frames, truncated UTF-8/JSON, duplicate responses and peer half-close.",
+                "Assert bounded buffering, useful errors, cancellation and socket cleanup."
+            ],
+            "layers": ["integration", "property"],
+            "observed_gap": "The current socket examples do not exhaust split/invalid frame boundaries, oversized declared lengths and premature half-closes.",
+            "patches": [],
+            "priority": "P2",
+            "rank": 72,
+            "risk_or_open_decision": "",
+            "source_files": ["src/lib/qoder-acp-client.ts", "src/lib/qoder-acp-client.test.ts"],
+            "status": "pending",
+            "title": "Qoder ACP framing needs malformed/oversized/half-close fuzz cases",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "The support matrix maps every variant to a passing fixture-backed list/detail/raw behavior or a controlled unsupported result.",
+            "complexity_score": 4,
+            "confidence_percent": 92,
+            "existing_coverage_credit": "Existing DB suites already use real SQLite fixtures and cover multiple fallback/error conditions.",
+            "id": "TG-060",
+            "implementation_notes": [
+                "Catalog supported schema variants from current adapters and checked-in fixtures.",
+                "Build minimal real databases for each capability combination, including read-only and WAL sidecars.",
+                "Verify graceful unsupported-schema reporting and no accidental migration/mutation."
+            ],
+            "layers": ["integration", "portability"],
+            "observed_gap": "Individual schema fixtures do not clearly enumerate supported historical/current optional columns, absent tables and platform error variants.",
+            "patches": [],
+            "priority": "P2",
+            "rank": 73,
+            "risk_or_open_decision": "Do not fabricate support for unknown upstream schema versions.",
+            "source_files": ["src/lib/codex-database.ts", "src/lib/cursor-db.ts", "src/lib/opencode-db.ts"],
+            "status": "pending",
+            "title": "SQLite schema compatibility needs an explicit real-file version matrix",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "Complexity limits are documented, enforced before excessive work and consistent between text and object inputs.",
+            "complexity_score": 3,
+            "confidence_percent": 91,
+            "existing_coverage_credit": "Existing suites already exercise cycles and JSON/payload limits; do not relabel those as missing.",
+            "id": "TG-059",
+            "implementation_notes": [
+                "Inventory recursion, node-count and string budgets for already-materialized objects.",
+                "Test deeply nested but acyclic structures and wide arrays at boundaries.",
+                "Require controlled typed errors rather than stack overflow or pathological traversal."
+            ],
+            "layers": ["unit", "security"],
+            "observed_gap": "Caller-supplied objects can bypass byte-oriented text limits; deep nesting or enormous embedded arrays deserve distinct complexity tests.",
+            "patches": [],
+            "priority": "P2",
+            "rank": 74,
+            "risk_or_open_decision": "Confirm the actual helper path during implementation; normalization may be distributed across payload modules.",
+            "source_files": ["src/lib/conversation-payload.ts", "src/lib/web-chat.ts"],
+            "status": "pending",
+            "title": "Deep materialized payloads need explicit recursion and complexity contracts",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "No sentinel secret leaks into user-facing responses or retained logs/artifacts outside the adopted diagnostic policy.",
+            "complexity_score": 3,
+            "confidence_percent": 91,
+            "existing_coverage_credit": "PATCH-05 verifies generic client-facing internal errors, and the browser harness uses synthetic data only.",
+            "id": "TG-072",
+            "implementation_notes": [
+                "Define allowed diagnostic fields and redaction rules for paths/tokens/content.",
+                "Inject sentinel secrets into controlled errors and capture logs.",
+                "Document CI trace access/retention and enforce fixture-only browser environments."
+            ],
+            "layers": ["integration", "security"],
+            "observed_gap": "Generic HTTP 500 bodies are tested, but original errors may still be logged; traces/screenshots can contain conversation text and auth-related context.",
+            "patches": [],
+            "priority": "P2",
+            "rank": 75,
+            "risk_or_open_decision": "Logging tradeoffs need an explicit policy; avoid stripping information required for safe recovery.",
+            "source_files": [
+                "src/lib/conversation-api.ts",
+                "testing/e2e/playwright.config.ts",
+                "src/lib/codex-cloud.ts"
+            ],
+            "status": "pending",
+            "title": "Error logs and retained browser artifacts need a privacy contract",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "Downloaded archive entry names remain distinct and usable on supported platforms without losing content.",
+            "complexity_score": 2,
+            "confidence_percent": 88,
+            "existing_coverage_credit": "Filename sanitization and collision logic already have substantial tests; PATCH-09 adds archive body integrity.",
+            "id": "TG-078",
+            "implementation_notes": [
+                "Locate the actual filename-byte budget and test Windows reserved basenames with/without extensions.",
+                "Combine multi-byte truncation with case/NFC collisions and suffix assignment.",
+                "Extract generated archives on supported OS fixtures if portable extraction is part of the contract."
+            ],
+            "layers": ["unit", "portability"],
+            "observed_gap": "Path punctuation/Unicode collision tests do not necessarily cover CON/PRN/AUX, trailing dots/spaces and truncation near the filename byte limit.",
+            "patches": [],
+            "priority": "P2",
+            "rank": 76,
+            "risk_or_open_decision": "This is a portability gap hypothesis; verify upstream tests and exact limit before changing naming conventions.",
+            "source_files": [
+                "src/lib/ui-export-files.ts",
+                "src/lib/ui-export-archive.ts",
+                "src/lib/conversation-zip-export.ts"
+            ],
+            "status": "pending",
+            "title": "Export filename portability needs Windows reserved-name boundary cases",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "The cache budget is accurately named/documented and measured behavior matches that contract.",
+            "complexity_score": 3,
+            "confidence_percent": 88,
+            "existing_coverage_credit": "Cache eviction/byte admission and PATCH-06 edge tests exist.",
+            "id": "TG-061",
+            "implementation_notes": [
+                "Document whether maxBytes means source bytes or estimated retained object bytes.",
+                "Add expansion-heavy loader fixtures and eviction/admission assertions.",
+                "Measure process memory separately if a true memory budget is required; introduce a weight callback only with a clear contract."
+            ],
+            "layers": ["unit", "performance"],
+            "observed_gap": "File size is a useful admission estimate but parsed objects can expand or retain extra data; naming can imply a stronger memory guarantee than implemented.",
+            "patches": [],
+            "priority": "P2",
+            "rank": 77,
+            "risk_or_open_decision": "Do not treat object-size expansion alone as a bug if the documented budget is source bytes.",
+            "source_files": ["src/lib/bounded-file-cache.ts"],
+            "status": "pending",
+            "title": "Cache maxBytes is not demonstrated as a retained-memory bound",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "No unreviewed path follows a symlink outside the allowed static root under the adopted policy.",
+            "complexity_score": 3,
+            "confidence_percent": 83,
+            "existing_coverage_credit": "Production server tests already cover ordinary assets and path handling.",
+            "id": "TG-055",
+            "implementation_notes": [
+                "Inspect actual static-file dispatch and document the trusted-build assumption.",
+                "Serve a fixture dist tree containing an internal symlink to an outside sentinel.",
+                "Assert the chosen rejection/containment contract and preserve legitimate asset behavior."
+            ],
+            "layers": ["integration", "security"],
+            "observed_gap": "Lexical path.resolve containment alone cannot prove containment after a symlink; the practical risk depends on whether build output is trusted and writable.",
+            "patches": [],
+            "priority": "P2",
+            "rank": 78,
+            "risk_or_open_decision": "This is a medium-confidence hardening opportunity, not a demonstrated production data leak.",
+            "source_files": ["src/lib/production-ui-server.ts"],
+            "status": "pending",
+            "title": "Static asset realpath containment is not exercised against symlinked build files",
+            "verification": "Static review only; proposal is not implemented or executed."
+        },
+        {
+            "acceptance_criteria": "Documented cancellation stops work where supported and cannot return a misleading successful or null result.",
+            "complexity_score": 3,
+            "confidence_percent": 82,
+            "existing_coverage_credit": "Ordinary network failure/status handling is tested.",
+            "id": "TG-053",
+            "implementation_notes": [
+                "Decide whether caller-provided AbortSignal belongs on client defaults, operation options or both.",
+                "Add delayed-response/stream tests with abort before connect and during body transfer.",
+                "Verify typed abort errors and cleanup without converting cancellation into not-found."
+            ],
+            "layers": ["unit", "integration"],
+            "observed_gap": "Long local/HTTP exports can outlive a caller’s intent; the current API does not expose an obvious unified cancellation/timeout option.",
+            "patches": [],
+            "priority": "P2",
+            "rank": 79,
+            "risk_or_open_decision": "This is a design-dependent improvement, not a reproduced API bug.",
+            "source_files": ["src/client.ts"],
+            "status": "pending",
+            "title": "SDK timeout and cancellation behavior has no explicit public contract",
+            "verification": "Static review only; proposal is not implemented or executed."
+        }
+    ],
+    "input_archive": "spiracha-v2.9.0.zip",
+    "input_sha256": "32d02a27710845078582d8d59923f55f800e98ccc73f2951bbcef8d1e94c1157",
+    "scope": "Static review of the supplied archive plus implemented targeted regressions and limited supplemental execution. Not an assertion that every possible gap was found.",
+    "scoring": {
+        "complexity": {
+            "1": "One narrow test or guard, no new environment.",
+            "2": "Small focused suite or helper change.",
+            "3": "Multiple modules or joined fixture/transport integration.",
+            "4": "Browser/process/platform matrix or substantial harness work.",
+            "5": "Crash/durability/resource orchestration needing careful design."
+        },
+        "confidence": "0-100 confidence that the stated gap/opportunity exists in this archive, not probability that an unexecuted patch passes. 100 may reflect directly observed absence of an E2E harness or a deterministic reproduction; lower values indicate policy/input uncertainty.",
+        "priority": {
+            "P0": "False-green verification or equivalent release-blocking assurance failure.",
+            "P1": "Data integrity, destructive-operation safety, primary workflows, security boundaries, or broad assurance holes.",
+            "P2": "Important edge cases, portability, maintainability, observability or design-dependent hardening.",
+            "P3": "Optional polish (no entries assigned in this audit)."
+        },
+        "sort": "Priority first, then higher confidence, then lower complexity, then stable finding ID. IDs remain stable and are not the rank.",
+        "status": {
+            "implemented": "Code/test patch exists; canonical execution remains unverified unless explicitly stated.",
+            "partial": "Browser code exists, but dependency/lock setup and first browser execution remain outstanding.",
+            "pending": "Reviewed improvement with detailed implementation specification, not implemented."
+        }
+    }
+}

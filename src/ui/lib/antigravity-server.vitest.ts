@@ -10,6 +10,7 @@ const {
     probeAntigravityDecryptionStateMock,
     renderAntigravityArtifactsMarkdownMock,
     renderAntigravityConversationMarkdownMock,
+    readAntigravityConversationMessagesMock,
     renderSourceSessionsDownloadMock,
     resolveAntigravityProjectNamesMock,
     resolveAntigravityRootsMock,
@@ -22,6 +23,7 @@ const {
     listAntigravityConversationsMock: vi.fn(),
     listAntigravityWorkspaceGroupsMock: vi.fn(),
     probeAntigravityDecryptionStateMock: vi.fn(),
+    readAntigravityConversationMessagesMock: vi.fn(),
     renderAntigravityArtifactsMarkdownMock: vi.fn(),
     renderAntigravityConversationMarkdownMock: vi.fn(),
     renderSourceSessionsDownloadMock: vi.fn(),
@@ -48,7 +50,9 @@ vi.mock('@spiracha/lib/antigravity-db', () => ({
     listAntigravityConversations: listAntigravityConversationsMock,
     listAntigravityConversationsForGroup: vi.fn(),
     listAntigravityWorkspaceGroups: listAntigravityWorkspaceGroupsMock,
+    readAntigravityConversationMessages: readAntigravityConversationMessagesMock,
     renderAntigravityArtifactsMarkdown: renderAntigravityArtifactsMarkdownMock,
+    renderAntigravityCanonicalTranscript: vi.fn(),
     renderAntigravityConversationMarkdown: renderAntigravityConversationMarkdownMock,
 }));
 
@@ -149,6 +153,7 @@ describe('antigravity-server', () => {
         withAntigravityDecryptionCapabilityMock.mockImplementation(async (action: (capability: unknown) => unknown) =>
             action({ decryptSafeStoragePayload: vi.fn() }),
         );
+        readAntigravityConversationMessagesMock.mockResolvedValue([]);
         renderSourceSessionsDownloadMock.mockImplementation(async ({ entries }) => ({
             fileName: `${entries[0]?.cwd}-threads-${entries.length}.zip`,
             mode: 'download_url',

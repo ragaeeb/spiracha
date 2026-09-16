@@ -1,5 +1,4 @@
 import path from 'node:path';
-import { mapWithConcurrency } from './concurrency';
 import {
     type ConversationDetail,
     type ConversationIdSetOptions,
@@ -18,17 +17,29 @@ import {
     type ListConversationsOptions,
     listConversationSources,
     listConversations,
+    OriginalRepresentationUnavailableError,
     resolveConversationRef,
+    SourceChangedError,
+    SourceMutationConflictError,
+    UnsupportedSourceOperationError,
 } from './conversation-data';
+import { conversationReadFields } from './conversation-data/adapter-helpers';
 import { validateEvidenceLens } from './conversation-data/evidence-lens';
 import { buildEvidenceExport } from './conversation-data/evidence-markdown';
+import type { CompactExportFlags } from './conversation-data/export-options';
 import { renderConversationMarkdown } from './conversation-data/markdown';
+import { IncompleteTranscriptError } from './conversation-data/operation-types';
 import { decodeConversationCursor } from './conversation-data/pagination';
 import { ConversationPayloadError, convertConversationPayload } from './conversation-payload';
 import type { ConvertConversationPayloadOptions } from './conversation-payload-types';
-import { createConversationMarkdownZip } from './conversation-zip-export';
+import { AtomicExportError, assembleExportBatch, EmptyPartialExportError, writeExportArchive } from './export-archive';
 import { isAllowedLocalRequestOrigin } from './local-request-security';
-import { buildRawConversationExportFileName, getExportPlatformName } from './ui-export-archive';
+import {
+    buildBatchExportBaseName,
+    buildRawConversationExportFileName,
+    getExportPlatformName,
+    sanitizeExportFileName,
+} from './ui-export-archive';
 
 type ConversationApiDependencies = {
     buildEvidenceExport?: typeof buildEvidenceExport;
@@ -46,14 +57,17 @@ type ConversationApiDependencies = {
 type ApiErrorCode =
     | 'conversation_not_found'
     | 'origin_not_allowed'
+    | 'incomplete_transcript'
     | 'internal_error'
     | 'method_not_allowed'
+    | 'mutation_conflict'
     | 'not_found'
+    | 'original_representation_unavailable'
+    | 'source_changed'
     | 'unsupported_operation'
     | 'validation_error';
 type ParseResult<T> = { error: Response } | { value: T };
 
-const BATCH_LOAD_CONCURRENCY = 4;
 const MAX_ID_BATCH_SIZE = 200;
 const MAX_ID_LENGTH = 2048;
 const MAX_LIMIT = 200;
@@ -206,6 +220,59 @@ const parseMessageSelector = (
 
 const invalidFieldResponse = (field: string, value: unknown, message: string) =>
     errorResponse('validation_error', message, 400, { field, value });
+
+const parseOptionalBooleanParam = (value: string | null, field: string): ParseResult<boolean | undefined> => {
+    if (value === null) {
+        return { value: undefined };
+    }
+    if (value === 'true' || value === '1') {
+        return { value: true };
+    }
+    if (value === 'false' || value === '0') {
+        return { value: false };
+    }
+    return { error: invalidFieldResponse(field, value, `\`${field}\` must be a boolean.`) };
+};
+
+const parseExportFormat = (value: string | null): ParseResult<CompactExportFlags['outputFormat']> => {
+    if (!value) {
+        return { value: undefined };
+    }
+    if (value === 'md' || value === 'txt') {
+        return { value };
+    }
+    return { error: invalidFieldResponse('format', value, '`format` must be "md" or "txt".') };
+};
+
+const parseExportFlags = (url: URL): ParseResult<CompactExportFlags> => {
+    const includeCommentary = parseOptionalBooleanParam(
+        url.searchParams.get('include_commentary'),
+        'include_commentary',
+    );
+    if ('error' in includeCommentary) {
+        return includeCommentary;
+    }
+    const includeMetadata = parseOptionalBooleanParam(url.searchParams.get('include_metadata'), 'include_metadata');
+    if ('error' in includeMetadata) {
+        return includeMetadata;
+    }
+    const includeTools = parseOptionalBooleanParam(url.searchParams.get('include_tools'), 'include_tools');
+    if ('error' in includeTools) {
+        return includeTools;
+    }
+    const outputFormat = parseExportFormat(url.searchParams.get('format') ?? url.searchParams.get('output_format'));
+    if ('error' in outputFormat) {
+        return outputFormat;
+    }
+    return {
+        value: {
+            ...(includeCommentary.value === undefined ? {} : { includeCommentary: includeCommentary.value }),
+            ...(includeMetadata.value === undefined ? {} : { includeMetadata: includeMetadata.value }),
+            ...(includeTools.value === undefined ? {} : { includeTools: includeTools.value }),
+            ...(outputFormat.value === undefined ? {} : { outputFormat: outputFormat.value }),
+        },
+    };
+};
 
 const normalizeLimit = (value: number | undefined): number | undefined => {
     if (value === undefined) {
@@ -387,8 +454,15 @@ const getDeps = (dependencies: ConversationApiDependencies) => ({
 const handleSources = async (dependencies: ReturnType<typeof getDeps>) => {
     return jsonResponse({
         data: await dependencies.listConversationSources(),
+        meta: { schema_version: 1 },
     });
 };
+
+const withReadFields = (
+    conversation: ConversationDetail,
+    options: { includeMessages: boolean; messageSelector?: ConversationMessageSelector },
+): ConversationDetail =>
+    conversation.bodyAvailability ? conversation : { ...conversation, ...conversationReadFields(options) };
 
 const handleListConversations = async (url: URL, dependencies: ReturnType<typeof getDeps>) => {
     const result = buildListOptions(url);
@@ -398,7 +472,12 @@ const handleListConversations = async (url: URL, dependencies: ReturnType<typeof
 
     const page = await dependencies.listConversations(result.value);
     return jsonResponse({
-        data: page.data,
+        data: page.data.map((conversation) =>
+            withReadFields(conversation, {
+                includeMessages: result.value.includeMessages === true,
+                messageSelector: result.value.messageSelector ?? 'last_final_answer',
+            }),
+        ),
         meta: normalizeMeta(page.meta),
     });
 };
@@ -514,7 +593,12 @@ const handleGetConversation = async (
         });
     }
 
-    return jsonResponse({ data: conversation });
+    return jsonResponse({
+        data: withReadFields(conversation, {
+            includeMessages: true,
+            messageSelector: result.value.messageSelector ?? 'all',
+        }),
+    });
 };
 
 const handleExportConversation = async (
@@ -528,7 +612,15 @@ const handleExportConversation = async (
         return result.error;
     }
 
-    const conversation = await dependencies.getConversation(result.value);
+    const flags = parseExportFlags(url);
+    if ('error' in flags) {
+        return flags.error;
+    }
+
+    const conversation = await dependencies.getConversation({
+        ...result.value,
+        messageSelector: 'all',
+    });
     if (!conversation) {
         return errorResponse('conversation_not_found', 'No conversation exists for that source and id.', 404, {
             id: result.value.id,
@@ -536,18 +628,27 @@ const handleExportConversation = async (
         });
     }
 
-    return new Response(
-        dependencies.renderConversationMarkdown(conversation, {
-            messageSelector: result.value.messageSelector,
-        }),
-        {
-            headers: {
-                'Cache-Control': 'no-store',
-                'Content-Type': 'text/markdown; charset=utf-8',
-                'X-Content-Type-Options': 'nosniff',
+    try {
+        const format = flags.value.outputFormat ?? 'md';
+        return new Response(
+            dependencies.renderConversationMarkdown(conversation, {
+                messageSelector: result.value.messageSelector,
+                ...flags.value,
+            }),
+            {
+                headers: {
+                    'Cache-Control': 'no-store',
+                    'Content-Type': format === 'txt' ? 'text/plain; charset=utf-8' : 'text/markdown; charset=utf-8',
+                    'X-Content-Type-Options': 'nosniff',
+                },
             },
-        },
-    );
+        );
+    } catch (error) {
+        if (error instanceof IncompleteTranscriptError) {
+            return errorResponse('incomplete_transcript', error.message, 409);
+        }
+        throw error;
+    }
 };
 
 const handleRawConversation = async (
@@ -565,24 +666,48 @@ const handleRawConversation = async (
     if (url.search) {
         return errorResponse('validation_error', 'Raw transcript exports do not accept query parameters.', 400);
     }
-    const download = await dependencies.getConversationRaw({ id: result.value.id, source: result.value.source });
-    if (!download) {
-        return errorResponse('conversation_not_found', 'No raw transcript exists for that source and id.', 404, {
-            id: result.value.id,
-            source: result.value.source,
+    try {
+        const download = await dependencies.getConversationRaw({ id: result.value.id, source: result.value.source });
+        if (!download) {
+            return errorResponse('conversation_not_found', 'No raw transcript exists for that source and id.', 404, {
+                id: result.value.id,
+                source: result.value.source,
+            });
+        }
+
+        const fileName = buildRawConversationExportFileName(result.value.source, result.value.id, download.fileName);
+
+        return new Response(includeBody ? download.blob : null, {
+            headers: {
+                'Cache-Control': 'no-store',
+                'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+                'Content-Type': download.mimeType,
+                'X-Content-Type-Options': 'nosniff',
+            },
         });
+    } catch (error) {
+        if (error instanceof UnsupportedSourceOperationError) {
+            return errorResponse('unsupported_operation', error.message, 422, {
+                operation: error.operation,
+                reason_code: error.reasonCode,
+                source: error.source,
+            });
+        }
+        if (error instanceof OriginalRepresentationUnavailableError) {
+            return errorResponse('original_representation_unavailable', error.message, 409, {
+                id: error.id,
+                source: error.source,
+            });
+        }
+        if (error instanceof SourceChangedError) {
+            return errorResponse('source_changed', error.message, 409, {
+                id: result.value.id,
+                reason_code: error.reasonCode,
+                source: result.value.source,
+            });
+        }
+        throw error;
     }
-
-    const fileName = buildRawConversationExportFileName(result.value.source, result.value.id);
-
-    return new Response(includeBody ? download.blob : null, {
-        headers: {
-            'Cache-Control': 'no-store',
-            'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`,
-            'Content-Type': download.mimeType,
-            'X-Content-Type-Options': 'nosniff',
-        },
-    });
 };
 
 const handleExportEvidence = async (
@@ -644,6 +769,14 @@ const handleExportEvidence = async (
     });
 };
 
+const mutationConflictResponse = (error: SourceMutationConflictError) =>
+    errorResponse('mutation_conflict', error.message, 409, {
+        id: error.id,
+        reason_code: error.reasonCode,
+        source: error.source,
+        ...error.details,
+    });
+
 const handleDeleteConversation = async (
     source: string | undefined,
     id: string | undefined,
@@ -655,26 +788,33 @@ const handleDeleteConversation = async (
         return result.error;
     }
 
-    const deleteResult = await dependencies.deleteConversation(result.value);
-    if (!deleteResult) {
-        return errorResponse(
-            'unsupported_operation',
-            `Deleting ${result.value.source} conversations is not supported by the stable API.`,
-            405,
-            {
+    try {
+        const deleteResult = await dependencies.deleteConversation(result.value);
+        if (!deleteResult) {
+            return errorResponse(
+                'unsupported_operation',
+                `Deleting ${result.value.source} conversations is not supported by the stable API.`,
+                405,
+                {
+                    source: result.value.source,
+                },
+            );
+        }
+
+        if (deleteResult.deletedIds.length === 0) {
+            return errorResponse('conversation_not_found', 'No conversation exists for that source and id.', 404, {
+                id: result.value.id,
                 source: result.value.source,
-            },
-        );
-    }
+            });
+        }
 
-    if (deleteResult.deletedIds.length === 0) {
-        return errorResponse('conversation_not_found', 'No conversation exists for that source and id.', 404, {
-            id: result.value.id,
-            source: result.value.source,
-        });
+        return jsonResponse({ data: deleteResult });
+    } catch (error) {
+        if (error instanceof SourceMutationConflictError) {
+            return mutationConflictResponse(error);
+        }
+        throw error;
     }
-
-    return jsonResponse({ data: deleteResult });
 };
 
 const parseJsonBody = async (request: Request): Promise<ParseResult<Record<string, unknown>>> => {
@@ -752,6 +892,26 @@ const parseJsonIdsOption = (body: Record<string, unknown>): ParseResult<string[]
     return { value: ids };
 };
 
+const parseJsonFailurePolicy = (body: Record<string, unknown>): ParseResult<'atomic' | 'partial'> => {
+    const failurePolicy = getStringOption(body, 'failurePolicy', 'failure_policy');
+    if ('error' in failurePolicy) {
+        return failurePolicy;
+    }
+    if (failurePolicy.value === undefined || failurePolicy.value === 'atomic') {
+        return { value: 'atomic' };
+    }
+    if (failurePolicy.value === 'partial') {
+        return { value: 'partial' };
+    }
+    return {
+        error: invalidFieldResponse(
+            'failure_policy',
+            failurePolicy.value,
+            '`failure_policy` must be "atomic" or "partial".',
+        ),
+    };
+};
+
 const parseJsonExportFormat = (body: Record<string, unknown>): ParseResult<'md'> => {
     const outputFormat = getStringOption(body, 'outputFormat', 'output_format');
     if ('error' in outputFormat) {
@@ -814,8 +974,14 @@ const parseExportConversationsBody = async (request: Request): Promise<ParseResu
         return messageSelector;
     }
 
+    const failurePolicy = parseJsonFailurePolicy(body.value);
+    if ('error' in failurePolicy) {
+        return failurePolicy;
+    }
+
     return {
         value: {
+            failurePolicy: failurePolicy.value,
             ids: idSet.value.ids,
             messageSelector: messageSelector.value,
             outputFormat: outputFormat.value,
@@ -844,35 +1010,35 @@ const handleDeleteConversations = async (request: Request, dependencies: ReturnT
         ...(deleteSessionFiles.value === undefined ? {} : { deleteSessionFiles: deleteSessionFiles.value }),
     };
 
-    const deleteResult = await dependencies.deleteConversations(deleteOptions);
-    if (!deleteResult) {
-        return errorResponse(
-            'unsupported_operation',
-            `Deleting ${result.value.source} conversations is not supported by the stable API.`,
-            405,
-            {
+    try {
+        const deleteResult = await dependencies.deleteConversations(deleteOptions);
+        if (!deleteResult) {
+            return errorResponse(
+                'unsupported_operation',
+                `Deleting ${result.value.source} conversations is not supported by the stable API.`,
+                405,
+                {
+                    source: result.value.source,
+                },
+            );
+        }
+
+        const hasNonMissingOutcome = deleteResult.outcomes?.some((outcome) => outcome.status !== 'missing') ?? false;
+        if (deleteResult.deletedIds.length === 0 && !hasNonMissingOutcome) {
+            return errorResponse('conversation_not_found', 'No conversations exist for that source and id set.', 404, {
+                ids: result.value.ids,
                 source: result.value.source,
-            },
-        );
-    }
+            });
+        }
 
-    if (deleteResult.deletedIds.length === 0) {
-        return errorResponse('conversation_not_found', 'No conversations exist for that source and id set.', 404, {
-            ids: result.value.ids,
-            source: result.value.source,
-        });
+        return jsonResponse({ data: deleteResult });
+    } catch (error) {
+        if (error instanceof SourceMutationConflictError) {
+            return mutationConflictResponse(error);
+        }
+        throw error;
     }
-
-    return jsonResponse({ data: deleteResult });
 };
-
-const getConversationZipEntry = (conversation: ConversationDetail, markdown: string) => ({
-    cwd: conversation.workspacePath,
-    fallbackBaseName: `${conversation.source}-${conversation.id}`,
-    markdown,
-    title: conversation.title,
-    updatedAtMs: conversation.updatedAtMs,
-});
 
 const handleExportConversations = async (request: Request, dependencies: ReturnType<typeof getDeps>) => {
     const result = await parseExportConversationsBody(request);
@@ -880,54 +1046,78 @@ const handleExportConversations = async (request: Request, dependencies: ReturnT
         return result.error;
     }
 
-    const loaded = await mapWithConcurrency(result.value.ids, BATCH_LOAD_CONCURRENCY, async (id) => {
-        const conversation = await dependencies.getConversation({
-            id,
-            messageSelector: result.value.messageSelector,
+    const failurePolicy = result.value.failurePolicy ?? 'atomic';
+    const zipMeta: Array<{ cwd: string | null; updatedAtMs: number | null }> = [];
+
+    try {
+        const assembled = await assembleExportBatch({
+            failurePolicy,
+            kind: 'batch_normalized_export',
+            load: async (id) => {
+                const conversation = await dependencies.getConversation({
+                    id,
+                    messageSelector: 'all',
+                    source: result.value.source,
+                });
+                if (!conversation) {
+                    return null;
+                }
+                zipMeta.push({
+                    cwd: conversation.workspacePath,
+                    updatedAtMs: conversation.updatedAtMs,
+                });
+                const fileBaseName =
+                    sanitizeExportFileName(conversation.title?.trim() || '') ||
+                    sanitizeExportFileName(`${conversation.source}-${conversation.id}`) ||
+                    'conversation';
+                return {
+                    members: [
+                        {
+                            bytes: dependencies.renderConversationMarkdown(conversation, {
+                                messageSelector: result.value.messageSelector,
+                            }),
+                            relativePath: `${fileBaseName}.md`,
+                        },
+                    ],
+                };
+            },
+            options: {
+                failurePolicy,
+                messageSelector: result.value.messageSelector,
+                outputFormat: result.value.outputFormat,
+            },
+            requestedIds: result.value.ids,
             source: result.value.source,
         });
-        if (!conversation) {
-            return { entry: null, id };
+
+        const zip = await writeExportArchive({
+            baseName: buildBatchExportBaseName(zipMeta, `${result.value.source}-conversations`),
+            destination: { mode: 'blob' },
+            manifest: assembled.manifest,
+            members: assembled.members,
+            platform: getExportPlatformName(result.value.source),
+        });
+        if ('downloadUrl' in zip) {
+            throw new Error('Expected an in-memory conversation archive');
         }
 
-        return {
-            entry: getConversationZipEntry(
-                conversation,
-                dependencies.renderConversationMarkdown(conversation, {
-                    messageSelector: result.value.messageSelector,
-                }),
-            ),
-            id,
-        };
-    });
-    const missingIds = loaded.filter(({ entry }) => !entry).map(({ id }) => id);
-
-    if (missingIds.length > 0) {
-        return errorResponse(
-            'conversation_not_found',
-            'Some conversations do not exist for that source and id set.',
-            404,
-            {
-                ids: missingIds,
-                source: result.value.source,
+        return new Response(zip.blob, {
+            headers: {
+                'Cache-Control': 'no-store',
+                'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(zip.fileName)}`,
+                'Content-Type': zip.mimeType,
+                'X-Content-Type-Options': 'nosniff',
             },
-        );
+        });
+    } catch (error) {
+        if (error instanceof AtomicExportError || error instanceof EmptyPartialExportError) {
+            return errorResponse('conversation_not_found', error.message, 404, {
+                ids: error instanceof AtomicExportError ? error.missingIds : result.value.ids,
+                source: result.value.source,
+            });
+        }
+        throw error;
     }
-
-    const zip = await createConversationMarkdownZip({
-        entries: loaded.flatMap(({ entry }) => (entry ? [entry] : [])),
-        fallbackProjectName: `${result.value.source}-conversations`,
-        platform: getExportPlatformName(result.value.source),
-    });
-
-    return new Response(zip.blob, {
-        headers: {
-            'Cache-Control': 'no-store',
-            'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(zip.fileName)}`,
-            'Content-Type': zip.mimeType,
-            'X-Content-Type-Options': 'nosniff',
-        },
-    });
 };
 
 const handleResolve = async (url: URL, dependencies: ReturnType<typeof getDeps>) => {
@@ -1211,7 +1401,12 @@ const handleConversationQuery = async (request: Request, dependencies: ReturnTyp
 
     const page = await dependencies.listConversations(options);
     return jsonResponse({
-        data: page.data,
+        data: page.data.map((conversation) =>
+            withReadFields(conversation, {
+                includeMessages: options.includeMessages === true,
+                messageSelector: options.messageSelector ?? 'last_final_answer',
+            }),
+        ),
         meta: normalizeMeta(page.meta),
     });
 };

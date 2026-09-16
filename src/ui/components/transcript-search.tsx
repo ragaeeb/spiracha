@@ -1,4 +1,4 @@
-import type { MessageEvent, ThreadEvent } from '@spiracha/lib/codex-browser-types';
+import type { MessageEvent, ThreadEvent } from '@spiracha/lib/conversation-data/conversation-events';
 import { ChevronDown, ChevronUp, Search } from 'lucide-react';
 import type { KeyboardEvent } from 'react';
 import { useEffect, useState } from 'react';

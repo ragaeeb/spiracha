@@ -5,6 +5,7 @@ import {
     resolveQoderGlobalStateDb,
     resolveQoderWorkspaceStorageDir,
 } from '../qoder-exporter-types';
+import { deleteQoderConversation as deleteQoderConversationRecord } from '../qoder-mutations';
 import { readQoderSessionTranscript } from '../qoder-session-transcript';
 import { listQoderSessionsForGroup, listQoderWorkspaceGroups } from '../qoder-sessions';
 import { normalizeQoderTranscriptEntries } from '../qoder-transcript-parser';
@@ -18,6 +19,7 @@ import type {
     ConversationAdapter,
     ConversationDetail,
     ConversationPathMatch,
+    DeleteConversationOptions,
     GetConversationOptions,
     ListConversationsOptions,
 } from './types';
@@ -84,11 +86,7 @@ const buildConversation = async (
 
     return {
         createdAtMs: session.createdAtMs,
-        deepLinks: createDeepLinks(
-            'qoder',
-            session.sessionId,
-            createConversationUiPath('qoder-sessions', session.sessionId),
-        ),
+        deepLinks: createDeepLinks('qoder', session.sessionId, createConversationUiPath('qoder', session.sessionId)),
         id: session.sessionId,
         matches,
         ...(session.model ? { model: session.model } : {}),
@@ -200,9 +198,17 @@ const getQoderConversationRaw = async (options: GetConversationOptions) => {
     return filePath ? createRawConversationDownload(filePath) : null;
 };
 
-export const qoderConversationAdapter: ConversationAdapter = {
+const deleteQoderConversationById = async (options: DeleteConversationOptions) => {
+    const locations = getQoderLocations(options);
+    return deleteQoderConversationRecord(options.id, locations, {
+        ...(options.locations?.qoderGlobalStateDb ? { isWriterRunning: async () => false } : {}),
+    });
+};
+
+export const qoderConversationAdapter = {
+    deleteConversation: deleteQoderConversationById,
     getConversation: getQoderConversation,
     getConversationRaw: getQoderConversationRaw,
     listConversations: listQoderConversations,
     source: 'qoder',
-};
+} satisfies ConversationAdapter<'qoder'>;

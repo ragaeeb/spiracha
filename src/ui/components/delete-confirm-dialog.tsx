@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import {
     AlertDialog,
     AlertDialogCancel,
@@ -19,6 +19,7 @@ type DeleteConfirmDialogProps = {
     description: string;
     errorMessage?: string | null;
     open: boolean;
+    pending?: boolean;
     showDeleteSessionFilesOption?: boolean;
     title: string;
     onConfirm: (options: { deleteSessionFiles: boolean }) => void;
@@ -33,6 +34,7 @@ export function DeleteConfirmDialog({
     description,
     errorMessage = null,
     open,
+    pending = false,
     showDeleteSessionFilesOption = false,
     title,
     onConfirm,
@@ -41,12 +43,23 @@ export function DeleteConfirmDialog({
     const checkboxId = useId();
     const checkboxDescriptionId = useId();
     const [deleteSessionFiles, setDeleteSessionFiles] = useState(defaultDeleteSessionFiles);
+    const [submitted, setSubmitted] = useState(false);
+    const previousPending = useRef(pending);
+    const confirmDisabled = pending || submitted;
 
     useEffect(() => {
         if (!open) {
             setDeleteSessionFiles(defaultDeleteSessionFiles);
+            setSubmitted(false);
         }
     }, [defaultDeleteSessionFiles, open]);
+
+    useEffect(() => {
+        if ((previousPending.current && !pending) || errorMessage) {
+            setSubmitted(false);
+        }
+        previousPending.current = pending;
+    }, [errorMessage, pending]);
 
     return (
         <AlertDialog open={open} onOpenChange={onOpenChange}>
@@ -81,8 +94,15 @@ export function DeleteConfirmDialog({
                     <AlertDialogCancel className="border-[var(--border)]">Cancel</AlertDialogCancel>
                     <Button
                         className="bg-[var(--destructive)] text-[var(--destructive-foreground)] hover:bg-[var(--destructive)]/90"
+                        disabled={confirmDisabled}
                         type="button"
-                        onClick={() => onConfirm({ deleteSessionFiles })}
+                        onClick={() => {
+                            if (confirmDisabled) {
+                                return;
+                            }
+                            setSubmitted(true);
+                            onConfirm({ deleteSessionFiles });
+                        }}
                     >
                         {confirmLabel}
                     </Button>

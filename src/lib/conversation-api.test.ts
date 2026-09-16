@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'bun:test';
+import { unzipSync } from 'fflate';
 import { handleConversationApiRequest } from './conversation-api';
-import type { ConversationDetail } from './conversation-data/types';
+import { OriginalRepresentationUnavailableError, SourceChangedError } from './conversation-data';
+import { toCanonicalMessage } from './conversation-data/adapter-helpers';
+import type { ConversationDetail, ConversationSourceInfo } from './conversation-data/types';
 import { chatgptResearchPayload, chatgptResearchReport } from './conversation-payload-test-helpers';
 import type { ConvertedConversation } from './conversation-payload-types';
 
 const conversation = {
+    bodyAvailability: 'full',
     createdAtMs: 1,
     deepLinks: {
         native: 'codex://threads/thread-1',
@@ -15,7 +19,7 @@ const conversation = {
     matches: [],
     messageCount: 1,
     messages: [
-        {
+        toCanonicalMessage({
             createdAtMs: 2,
             id: 'message-1',
             metadata: {},
@@ -24,7 +28,7 @@ const conversation = {
             role: 'assistant',
             text: 'Collected review output.',
             toolEvidence: null,
-        },
+        }),
     ],
     metadata: {},
     source: 'codex',
@@ -318,17 +322,92 @@ describe('conversation API handler', () => {
         const response = await handleConversationApiRequest(createRequest('/api/v1/sources'), {
             listConversationSources: async () => [
                 {
+                    detailRouteSegment: 'threads',
+                    exportPlatform: 'codex',
+                    inventoryPath: '/codex',
                     label: 'Codex',
+                    operations: {
+                        batch_delete: { owner: 'source_mutator', state: 'supported' },
+                        delete: { owner: 'source_mutator', state: 'supported' },
+                        detail: { owner: 'source_reader', state: 'supported' },
+                        list: { owner: 'source_reader', state: 'supported' },
+                        original_raw: { owner: 'source_reader', state: 'supported' },
+                    },
                     scope: 'workspace',
                     source: 'codex',
-                },
+                } satisfies ConversationSourceInfo,
             ],
         });
 
         expect(response.status).toBe(200);
         await expect(response.json()).resolves.toEqual({
-            data: [{ label: 'Codex', scope: 'workspace', source: 'codex' }],
+            data: [
+                {
+                    detailRouteSegment: 'threads',
+                    exportPlatform: 'codex',
+                    inventoryPath: '/codex',
+                    label: 'Codex',
+                    operations: {
+                        batch_delete: { owner: 'source_mutator', state: 'supported' },
+                        delete: { owner: 'source_mutator', state: 'supported' },
+                        detail: { owner: 'source_reader', state: 'supported' },
+                        list: { owner: 'source_reader', state: 'supported' },
+                        original_raw: { owner: 'source_reader', state: 'supported' },
+                    },
+                    scope: 'workspace',
+                    source: 'codex',
+                },
+            ],
+            meta: { schema_version: 1 },
         });
+    });
+
+    it('should publish declared source operations without inventing exceptions', async () => {
+        const response = await handleConversationApiRequest(createRequest('/api/v1/sources'));
+        const body = (await response.json()) as {
+            data: ConversationSourceInfo[];
+            meta: { schema_version: number };
+        };
+
+        expect(response.status).toBe(200);
+        expect(body.meta).toEqual({ schema_version: 1 });
+        expect(body.data.map((entry) => entry.source).sort()).toEqual([
+            'antigravity',
+            'claude-code',
+            'cline',
+            'codex',
+            'command-code',
+            'cursor',
+            'fx',
+            'grok',
+            'grok-bot',
+            'kiro',
+            'minimax-code',
+            'opencode',
+            'qoder',
+        ]);
+        expect(body.data.find((entry) => entry.source === 'opencode')?.operations.original_raw).toEqual({
+            reason: 'OpenCode stores conversations in shared relational tables with no standalone native conversation file.',
+            reasonCode: 'no_native_conversation_file',
+            state: 'unsupported',
+        });
+        expect(body.data.find((entry) => entry.source === 'cursor')?.operations.original_raw).toEqual({
+            owner: 'source_reader',
+            state: 'supported',
+        });
+        expect(body.data.find((entry) => entry.source === 'qoder')?.operations.delete).toEqual({
+            owner: 'source_mutator',
+            state: 'supported',
+        });
+        expect(body.data.find((entry) => entry.source === 'codex')?.operations.normalized_export).toEqual({
+            owner: 'common_service',
+            state: 'supported',
+        });
+        expect(body.data.find((entry) => entry.source === 'codex')?.operations.deletion_reconciliation).toEqual({
+            owner: 'source_mutator',
+            state: 'supported',
+        });
+        expect(body.data.find((entry) => entry.source === 'cline')?.operations.deletion_reconciliation).toBeUndefined();
     });
 
     it('should accept Command Code as a stable workspace source', async () => {
@@ -705,7 +784,7 @@ describe('conversation API handler', () => {
                 getConversation: async (options) => {
                     expect(options).toEqual({
                         id: 'thread-1',
-                        messageSelector: 'last_final_answer',
+                        messageSelector: 'all',
                         source: 'codex',
                     });
                     return conversation;
@@ -723,6 +802,30 @@ describe('conversation API handler', () => {
         await expect(response.text()).resolves.toBe('# Thread 1\n');
     });
 
+    it('should pass compact export flags through Markdown export', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest(
+                '/api/v1/conversations/codex/thread-1/export?include_commentary=false&include_tools=false&format=txt',
+            ),
+            {
+                getConversation: async () => conversation,
+                renderConversationMarkdown: (_renderedConversation, options) => {
+                    expect(options).toEqual({
+                        includeCommentary: false,
+                        includeTools: false,
+                        messageSelector: 'all',
+                        outputFormat: 'txt',
+                    });
+                    return 'Thread 1\n';
+                },
+            },
+        );
+
+        expect(response.status).toBe(200);
+        expect(response.headers.get('Content-Type')).toBe('text/plain; charset=utf-8');
+        await expect(response.text()).resolves.toBe('Thread 1\n');
+    });
+
     it('should pass through a raw transcript without parsing or rewriting it', async () => {
         const original = '{"z":1, "spacing":  true}\n';
         const response = await handleConversationApiRequest(createRequest('/api/v1/conversations/codex/thread-1/raw'), {
@@ -737,9 +840,26 @@ describe('conversation API handler', () => {
         });
 
         expect(response.status).toBe(200);
-        expect(response.headers.get('Content-Disposition')).toBe("attachment; filename*=UTF-8''codex-thread-1.json");
+        expect(response.headers.get('Content-Disposition')).toBe("attachment; filename*=UTF-8''messages.jsonl");
         expect(response.headers.get('Content-Type')).toBe('application/x-ndjson');
         await expect(response.text()).resolves.toBe(original);
+    });
+
+    it('should preserve binary raw bytes and the native blob extension over HTTP', async () => {
+        const original = new Uint8Array([0, 255, 192, 65, 13, 10]);
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/grok-bot/chat-1/raw'),
+            {
+                getConversationRaw: async () => ({
+                    blob: new Blob([original]),
+                    fileName: '../replica.blob',
+                    mimeType: 'application/json',
+                }),
+            },
+        );
+        expect(response.status).toBe(200);
+        expect(response.headers.get('Content-Disposition')).toBe("attachment; filename*=UTF-8''replica.blob");
+        expect(new Uint8Array(await response.arrayBuffer())).toEqual(original);
     });
 
     it('should expose raw transcript headers without sending a body to HEAD probes', async () => {
@@ -755,7 +875,7 @@ describe('conversation API handler', () => {
         );
 
         expect(response.status).toBe(200);
-        expect(response.headers.get('Content-Disposition')).toBe("attachment; filename*=UTF-8''codex-thread-1.json");
+        expect(response.headers.get('Content-Disposition')).toBe("attachment; filename*=UTF-8''thread%201.jsonl");
         await expect(response.text()).resolves.toBe('');
     });
 
@@ -773,6 +893,62 @@ describe('conversation API handler', () => {
 
         expect(response.status).toBe(400);
         expect(loaded).toBe(false);
+    });
+
+    it('should reject OpenCode raw as an unsupported operation before source I/O', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/opencode/session-1/raw'),
+        );
+
+        expect(response.status).toBe(422);
+        await expect(response.json()).resolves.toMatchObject({
+            error: {
+                code: 'unsupported_operation',
+                details: {
+                    operation: 'original_raw',
+                    reason_code: 'no_native_conversation_file',
+                    source: 'opencode',
+                },
+            },
+        });
+    });
+
+    it('should refuse a raw transcript whose source file changed during the read', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/cursor/thread-1/raw'),
+            {
+                getConversationRaw: async () => {
+                    throw new SourceChangedError();
+                },
+            },
+        );
+
+        expect(response.status).toBe(409);
+        await expect(response.json()).resolves.toMatchObject({
+            error: {
+                code: 'source_changed',
+                details: { id: 'thread-1', reason_code: 'source_changed', source: 'cursor' },
+            },
+        });
+    });
+
+    it('should distinguish missing native files from a missing conversation', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/cursor/thread-1/raw'),
+            {
+                getConversationRaw: async () => {
+                    throw new OriginalRepresentationUnavailableError('cursor', 'thread-1');
+                },
+            },
+        );
+
+        expect(response.status).toBe(409);
+        await expect(response.json()).resolves.toMatchObject({
+            error: {
+                code: 'original_representation_unavailable',
+                details: { id: 'thread-1', source: 'cursor' },
+            },
+        });
     });
 
     it('should delete supported conversations through the public API', async () => {
@@ -833,9 +1009,31 @@ describe('conversation API handler', () => {
                         source: 'opencode',
                     });
                     return {
+                        affectedIds: ['session-1', 'session-2'],
                         deletedFiles: ['/tmp/opencode.db'],
                         deletedIds: ['session-1', 'session-2'],
                         missingIds: [],
+                        outcomes: [
+                            {
+                                affectedIds: ['session-1'],
+                                coveredBy: null,
+                                deletedFiles: ['/tmp/opencode.db'],
+                                id: 'session-1',
+                                status: 'deleted' as const,
+                            },
+                            {
+                                affectedIds: ['session-2'],
+                                coveredBy: null,
+                                deletedFiles: [],
+                                id: 'session-2',
+                                status: 'deleted' as const,
+                            },
+                        ],
+                        request: {
+                            duplicateCount: 0,
+                            ids: ['session-1', 'session-2'],
+                            uniqueIds: ['session-1', 'session-2'],
+                        },
                         results: [
                             {
                                 deleted: true,
@@ -850,6 +1048,7 @@ describe('conversation API handler', () => {
                                 id: 'session-2',
                             },
                         ],
+                        summary: { cancelled: 0, cleanupPending: 0, deleted: 2, failed: 0, missing: 0 },
                     };
                 },
             },
@@ -873,7 +1072,16 @@ describe('conversation API handler', () => {
             {
                 deleteConversations: async (options) => {
                     expect(options).toEqual({ deleteSessionFiles: false, ids: ['thread-1'], source: 'cursor' });
-                    return { deletedFiles: [], deletedIds: [], missingIds: ['thread-1'], results: [] };
+                    return {
+                        affectedIds: [],
+                        deletedFiles: [],
+                        deletedIds: [],
+                        missingIds: ['thread-1'],
+                        outcomes: [{ affectedIds: [], deletedFiles: [], id: 'thread-1', status: 'missing' as const }],
+                        request: { duplicateCount: 0, ids: ['thread-1'], uniqueIds: ['thread-1'] },
+                        results: [],
+                        summary: { cancelled: 0, cleanupPending: 0, deleted: 0, failed: 0, missing: 1 },
+                    };
                 },
             },
         );
@@ -960,7 +1168,16 @@ describe('conversation API handler', () => {
             {
                 deleteConversations: async () => {
                     called = true;
-                    return { deletedFiles: [], deletedIds: [], missingIds: [], results: [] };
+                    return {
+                        affectedIds: [],
+                        deletedFiles: [],
+                        deletedIds: [],
+                        missingIds: [],
+                        outcomes: [],
+                        request: { duplicateCount: 0, ids: [], uniqueIds: [] },
+                        results: [],
+                        summary: { cancelled: 0, cleanupPending: 0, deleted: 0, failed: 0, missing: 0 },
+                    };
                 },
             },
         );
@@ -1029,6 +1246,54 @@ describe('conversation API handler', () => {
         expect(renderedSelectors).toEqual(['all', 'all']);
         const bytes = new Uint8Array(await response.arrayBuffer());
         expect(Array.from(bytes.slice(0, 2))).toEqual([0x50, 0x4b]);
+    });
+
+    it('should refuse atomic batch export when any requested conversation is missing', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/export', {
+                body: JSON.stringify({ ids: ['thread-1', 'missing'], source: 'grok' }),
+                method: 'POST',
+            }),
+            {
+                getConversation: async (options) => (options.id === 'missing' ? null : conversation),
+            },
+        );
+
+        expect(response.status).toBe(404);
+        await expect(response.json()).resolves.toMatchObject({
+            error: {
+                code: 'conversation_not_found',
+                details: { ids: ['missing'], source: 'grok' },
+            },
+        });
+    });
+
+    it('should publish a partial batch zip with a generated manifest when some ids are missing', async () => {
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/export', {
+                body: JSON.stringify({
+                    failure_policy: 'partial',
+                    ids: ['thread-1', 'missing'],
+                    source: 'grok',
+                }),
+                method: 'POST',
+            }),
+            {
+                getConversation: async (options) =>
+                    options.id === 'missing' ? null : { ...conversation, id: options.id, title: options.id },
+                renderConversationMarkdown: (rendered) => `# ${rendered.title ?? rendered.model ?? 'conversation'}`,
+            },
+        );
+
+        expect(response.status).toBe(200);
+        const archive = unzipSync(new Uint8Array(await response.arrayBuffer()));
+        expect(Object.keys(archive).sort()).toEqual(['spiracha-manifest.json', 'thread-1.md'].sort());
+        const manifest = JSON.parse(Buffer.from(archive['spiracha-manifest.json']!).toString()) as {
+            failurePolicy: string;
+            missingCount: number;
+            successCount: number;
+        };
+        expect(manifest).toMatchObject({ failurePolicy: 'partial', missingCount: 1, successCount: 1 });
     });
 
     it('should load batch export conversations with bounded concurrency while preserving input order', async () => {
