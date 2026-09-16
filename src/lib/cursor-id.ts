@@ -12,6 +12,11 @@ export const assertSafeCursorComposerId = (value: string): void => {
 
 // The semicolon terminator is the next code point after the colon, so this half-open range
 // requires BINARY collation on the key column to remain an indexed prefix scan.
+export const getCursorComposerDataKeyRange = (): { end: string; start: string } => ({
+    end: 'composerData;',
+    start: 'composerData:',
+});
+
 export const getCursorBubbleKeyRange = (composerId: string): { end: string; start: string } => ({
     end: `bubbleId:${composerId};`,
     start: `bubbleId:${composerId}:`,

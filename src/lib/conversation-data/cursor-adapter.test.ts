@@ -160,6 +160,90 @@ describe('cursorConversationAdapter', () => {
         expect(excluded).toEqual([]);
     });
 
+    it('should reuse one Cursor discovery for repeated path-scoped lists including time filters', async () => {
+        const userDir = await mkdtemp(path.join(os.tmpdir(), 'cursor-adapter-reuse-'));
+        tempDirs.push(userDir);
+        await createCursorFixture(userDir, {
+            buckets: [
+                {
+                    bucketId: 'bucket-1',
+                    composerIds: ['thread-in-window'],
+                    folder: 'file:///repo',
+                    threadsInComposerData: true,
+                },
+                {
+                    bucketId: 'bucket-2',
+                    composerIds: ['other-workspace-thread'],
+                    folder: 'file:///other',
+                    threadsInComposerData: true,
+                },
+            ],
+            headerLinks: [
+                { bucketId: 'bucket-1', composerId: 'thread-in-window', uriPath: '/repo' },
+                { bucketId: 'bucket-2', composerId: 'other-workspace-thread', uriPath: '/other' },
+            ],
+            threads: [
+                {
+                    bubbles: [{ bubbleId: 'u1', text: 'Scoped thread', type: 1 }],
+                    composerId: 'thread-in-window',
+                    lastUpdatedAt: 200,
+                    name: 'Scoped Cursor thread',
+                },
+                {
+                    bubbles: [{ bubbleId: 'u2', text: 'Other workspace', type: 1 }],
+                    composerId: 'other-workspace-thread',
+                    lastUpdatedAt: 250,
+                    name: 'Other workspace thread',
+                },
+            ],
+        });
+
+        const { Database } = await import('bun:sqlite');
+        const originalQuery = Database.prototype.query;
+        let headScanCount = 0;
+        Database.prototype.query = function (this: InstanceType<typeof Database>, sql: string) {
+            if (
+                sql.includes("SELECT substr(key, length('composerData:') + 1) AS id") &&
+                sql.includes('FROM cursorDiskKV')
+            ) {
+                headScanCount += 1;
+            }
+            return originalQuery.call(this, sql);
+        } as typeof originalQuery;
+
+        try {
+            const first = await cursorConversationAdapter.listConversations({
+                cwd: '/repo',
+                includeMessages: false,
+                locations: { cursorUserDir: userDir },
+                updatedAfterMs: 100,
+                updatedBeforeMs: 300,
+            });
+            const second = await cursorConversationAdapter.listConversations({
+                cwd: '/repo',
+                includeMessages: false,
+                locations: { cursorUserDir: userDir },
+                updatedAfterMs: 100,
+                updatedBeforeMs: 300,
+            });
+            const otherWorkspace = await cursorConversationAdapter.listConversations({
+                cwd: '/other',
+                locations: { cursorUserDir: userDir },
+            });
+
+            expect(first.map(({ id, workspacePath }) => ({ id, workspacePath }))).toEqual([
+                { id: 'thread-in-window', workspacePath: '/repo' },
+            ]);
+            expect(second.map(({ id }) => id)).toEqual(['thread-in-window']);
+            expect(otherWorkspace.map(({ id, workspacePath }) => ({ id, workspacePath }))).toEqual([
+                { id: 'other-workspace-thread', workspacePath: '/other' },
+            ]);
+            expect(headScanCount).toBe(1);
+        } finally {
+            Database.prototype.query = originalQuery;
+        }
+    });
+
     it('should export discovered agent transcript JSONL files and never the shared database', async () => {
         const userDir = await mkdtemp(path.join(os.tmpdir(), 'cursor-adapter-raw-'));
         tempDirs.push(userDir);
