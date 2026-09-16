@@ -210,6 +210,7 @@ function ClaudeCodeWorkspacePage() {
                     sessions.map((session) => session.sessionId),
                     workspace.key,
                 )}
+                authoritativeRows={sessions}
                 sessions={visibleSessions}
                 onDeleteSession={(session) => openDeleteForSessions([session])}
                 onDeleteSessions={(sessionIds) => openDeleteForSessions(lookupSelectedSessions(sessionIds))}

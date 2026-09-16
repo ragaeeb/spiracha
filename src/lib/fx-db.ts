@@ -386,6 +386,7 @@ const removeLatestReferences = async (sessionsDir: string, sessionId: string): P
 export const deleteFxSession = async (
     dataDir: string = resolveFxDataDir(),
     sessionId: string,
+    hooks: { beforeIndexWrite?: () => Promise<void> } = {},
 ): Promise<DeleteFxSessionResult> => {
     if (!isSafeSessionId(sessionId)) {
         return { deletedFiles: [], deletedSessionIds: [] };
@@ -396,17 +397,24 @@ export const deleteFxSession = async (
         if (!(await Bun.file(path.join(sessionDir, 'session.json')).exists())) {
             return { deletedFiles: [], deletedSessionIds: [] };
         }
-        const indexUpdates = (
-            await Promise.all([
-                prepareSessionIndexRemoval(path.join(sessionsDir, 'index.json'), sessionId),
-                prepareSessionIndexRemoval(path.join(sessionsDir, 'relationship-migration-index.json'), sessionId),
-            ])
-        ).filter((update) => update !== null);
+        const indexPaths = [
+            path.join(sessionsDir, 'index.json'),
+            path.join(sessionsDir, 'relationship-migration-index.json'),
+        ];
+        await Promise.all(indexPaths.map((indexPath) => prepareSessionIndexRemoval(indexPath, sessionId)));
         const deletedFiles = await listFilesRecursively(sessionDir);
         const quarantineDir = path.join(sessionsDir, `.spiracha-delete-${sessionId}-${randomUUID()}`);
         await rename(sessionDir, quarantineDir);
         try {
-            await mapWithConcurrency(indexUpdates, 1, writeSessionIndexRemoval);
+            await hooks.beforeIndexWrite?.();
+            // Re-read the live index immediately before each write. This narrows the
+            // external-writer race; it is not an atomic lock against FX.
+            await mapWithConcurrency(indexPaths, 1, async (indexPath) => {
+                const update = await prepareSessionIndexRemoval(indexPath, sessionId);
+                if (update) {
+                    await writeSessionIndexRemoval(update);
+                }
+            });
             deletedFiles.push(...(await removeLatestReferences(sessionsDir, sessionId)));
             await rm(quarantineDir, { force: true, recursive: true });
         } catch (error) {

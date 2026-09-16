@@ -8,6 +8,11 @@ import { ListSearchInput } from '#/components/list-search-input';
 import { LoadingPanel } from '#/components/loading-panel';
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
+import {
+    applySettledDeleteSelection,
+    retryableDeleteIds,
+    settledDeleteItemsFromUnknown,
+} from '#/lib/conversation-actions';
 import { conversationListSelection, lookupSelectedItems } from '#/lib/conversation-selection';
 import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
@@ -132,13 +137,32 @@ const GrokBotPage = () => {
             conversationIds.length === 1
                 ? deleteGrokBotChatFn({ data: { conversationId: conversationIds[0]! } })
                 : deleteGrokBotChatsFn({ data: { conversationIds } }),
-        onSettled: async (_result, error, conversationIds) => {
+        onSettled: async (result, error, conversationIds) => {
+            const items = settledDeleteItemsFromUnknown(result);
+            const fullyDeleted = items
+                ? items.every((outcome) => outcome.status === 'deleted' || outcome.status === 'missing')
+                : error == null;
             await invalidateSourceConversationQueries(queryClient, 'grok-bot', {
                 ids: conversationIds,
-                removeDetails: error == null,
+                removeDetails: fullyDeleted,
             });
         },
-        onSuccess: () => setPendingDelete(null),
+        onSuccess: (result, conversationIds) => {
+            const items = settledDeleteItemsFromUnknown(result);
+            if (!items) {
+                setPendingDelete(null);
+                return;
+            }
+            const retryIds = retryableDeleteIds(items);
+            if (retryIds.length > 0) {
+                setPendingDelete((current) =>
+                    current ? { chats: current.chats.filter((chat) => retryIds.includes(chat.id)) } : null,
+                );
+                return;
+            }
+            applySettledDeleteSelection(conversationIds, items);
+            setPendingDelete(null);
+        },
     });
 
     return (

@@ -76,6 +76,13 @@ const truncateExportName = (value: string, maxBytes: number): string => {
     return result;
 };
 
+export const NORMALIZED_EXPORT_BASE_NAME_BYTE_LIMIT = 120;
+
+export const boundNormalizedExportBaseName = (title: string | null | undefined, fallback: string) => {
+    const sanitized = sanitizeExportFileName(title?.trim() || '') || sanitizeExportFileName(fallback) || 'conversation';
+    return truncateExportName(sanitized, NORMALIZED_EXPORT_BASE_NAME_BYTE_LIMIT) || 'conversation';
+};
+
 export const buildExportArchiveBaseName = (platform: string, baseName: string) =>
     truncateExportName(`${platform}_${sanitizeExportFileName(baseName) || 'export'}`, 150);
 

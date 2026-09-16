@@ -1,5 +1,5 @@
 import type { ConversationRawDownload, ConversationSource } from '@spiracha/lib/conversation-data/types';
-import { writeExportArchive } from '@spiracha/lib/export-archive';
+import { EXPORT_ARCHIVE_MANIFEST_FILE, writeExportArchive } from '@spiracha/lib/export-archive';
 import type { RawInlineDownload } from '@spiracha/lib/raw-export-contract';
 import { resolveUiRuntimeConfig } from '@spiracha/lib/runtime-config';
 import {
@@ -92,7 +92,7 @@ export const renderRawConversationDownloads = async ({
         } satisfies RawInlineDownload;
     }
 
-    const usedBaseNames = new Map<string, number>();
+    const usedBaseNames = new Map<string, number>([[EXPORT_ARCHIVE_MANIFEST_FILE.normalize('NFC').toLowerCase(), 1]]);
     const members = [];
     for (const entry of downloads) {
         const fileName = resolveUniqueRawExportFileName(
@@ -205,7 +205,7 @@ export const renderSourceSessionsDownload = async ({
         });
     }
 
-    const usedBaseNames = new Map<string, number>();
+    const usedBaseNames = new Map<string, number>([[EXPORT_ARCHIVE_MANIFEST_FILE.normalize('NFC').toLowerCase(), 1]]);
     const members = entries.map((entry) => {
         const fileBaseName = resolveUniqueExportFileBaseName(
             toSafeSourceExportName(entry.fileBaseName, entry.fallbackBaseName),

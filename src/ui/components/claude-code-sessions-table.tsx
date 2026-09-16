@@ -13,7 +13,7 @@ import {
     DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu';
 import { supportedListAction } from '#/lib/conversation-actions';
-import type { ConversationListSelectionProps } from '#/lib/conversation-selection';
+import type { ConversationListInventoryProps } from '#/lib/conversation-selection';
 import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatDateTime, formatModelLabel, formatNumber, formatTokens } from '#/lib/formatters';
 import { cn } from '#/lib/utils';
@@ -24,7 +24,7 @@ type ClaudeCodeSessionsTableProps = {
     onExportSession: (session: ClaudeCodeSessionSummary) => void;
     onExportSessions: (sessionIds: string[]) => void;
     sessions: ClaudeCodeSessionSummary[];
-} & ConversationListSelectionProps;
+} & ConversationListInventoryProps<ClaudeCodeSessionSummary>;
 
 type ClaudeCodeSessionTreeNode = ClaudeCodeSessionSummary & {
     children: ClaudeCodeSessionTreeNode[];
@@ -197,6 +197,7 @@ const columns = (
 
 export function ClaudeCodeSessionsTable({
     authoritativeRowIds,
+    authoritativeRows,
     inventoryIdentity,
     onDeleteSession,
     onDeleteSessions,
@@ -206,10 +207,15 @@ export function ClaudeCodeSessionsTable({
 }: ClaudeCodeSessionsTableProps) {
     const tableColumns = useMemo(() => columns(onDeleteSession, onExportSession), [onDeleteSession, onExportSession]);
     const sessionTreeRoots = useMemo(() => getSessionTreeRoots(sessions), [sessions]);
+    const inventoryTree = useMemo(
+        () => getSessionTreeRoots(authoritativeRows ?? sessions),
+        [authoritativeRows, sessions],
+    );
 
     return (
         <DataTable
             authoritativeRowIds={authoritativeRowIds}
+            authoritativeRows={inventoryTree}
             columns={tableColumns}
             data={sessionTreeRoots}
             emptyMessage="No Claude Code sessions match the current workspace filter."

@@ -3,6 +3,10 @@ export type ConversationListSelectionProps = {
     inventoryIdentity?: string;
 };
 
+export type ConversationListInventoryProps<T> = ConversationListSelectionProps & {
+    authoritativeRows?: T[];
+};
+
 export type SelectionSummary = {
     hiddenCount: number;
     selectedCount: number;

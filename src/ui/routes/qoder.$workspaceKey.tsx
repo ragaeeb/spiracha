@@ -11,6 +11,12 @@ import { PageHeader } from '#/components/page-header';
 import { QoderSessionsTable } from '#/components/qoder-sessions-table';
 import { RouteErrorPanel } from '#/components/route-error-panel';
 import { Button } from '#/components/ui/button';
+import {
+    applySettledDeleteSelection,
+    retryableDeleteIds,
+    type SettledDeleteItem,
+    settledDeleteItemsFromUnknown,
+} from '#/lib/conversation-actions';
 import { conversationListSelection, lookupSelectedItems } from '#/lib/conversation-selection';
 import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
@@ -23,7 +29,6 @@ import {
 } from '#/lib/qoder-server';
 import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { matchesTextQuery } from '#/lib/text-filter';
-import { isWorkspaceEmptiedByDelete } from '#/lib/workspace-delete-navigation';
 
 type PendingSessionDelete = { scope: 'all' | 'selected'; sessions: QoderSessionSummary[] };
 type PendingSessionExport = {
@@ -94,6 +99,8 @@ const QoderWorkspacePage = () => {
     const [pendingExport, setPendingExport] = useState<PendingSessionExport | null>(null);
     const deferredSearch = useDeferredValue(searchInput);
 
+    const [cleanupStatus, setCleanupStatus] = useState<string | null>(null);
+
     const exportMutation = useMutation({
         mutationFn: async ({ ids, options }: ExportSelectionMutationInput) => {
             const download =
@@ -135,15 +142,55 @@ const QoderWorkspacePage = () => {
             sessionIds.length === 1
                 ? deleteQoderSessionFn({ data: { sessionId: sessionIds[0]! } })
                 : deleteQoderSessionsFn({ data: { sessionIds } }),
-        onSettled: async (_result, error, sessionIds) => {
+        onSettled: async (result, error, sessionIds) => {
+            const items = settledDeleteItemsFromUnknown(result);
+            const fullyDeleted = items
+                ? items.every((outcome) => outcome.status === 'deleted' || outcome.status === 'missing')
+                : error == null &&
+                  !(
+                      typeof result === 'object' &&
+                      result !== null &&
+                      'cleanupFailures' in result &&
+                      Array.isArray(result.cleanupFailures) &&
+                      result.cleanupFailures.length > 0
+                  );
             await invalidateSourceConversationQueries(queryClient, 'qoder', {
                 ids: sessionIds,
-                removeDetails: error == null,
+                removeDetails: fullyDeleted,
                 workspaceKey: workspace.key,
             });
         },
-        onSuccess: async (_result, sessionIds) => {
-            const workspaceEmptied = isWorkspaceEmptiedByDelete(sessions, sessionIds, (session) => session.sessionId);
+        onSuccess: async (result, sessionIds) => {
+            const items: SettledDeleteItem[] =
+                settledDeleteItemsFromUnknown(result) ??
+                (typeof result === 'object' &&
+                result !== null &&
+                'cleanupFailures' in result &&
+                Array.isArray(result.cleanupFailures) &&
+                result.cleanupFailures.length > 0
+                    ? sessionIds.map((id) => ({ id, status: 'cleanup_pending' as const }))
+                    : sessionIds.map((id) => ({ id, status: 'deleted' as const })));
+            const retryIds = retryableDeleteIds(items);
+            if (retryIds.length > 0) {
+                setCleanupStatus(
+                    `Logical deletion finished; file cleanup remains for ${retryIds.length} session${retryIds.length === 1 ? '' : 's'}. Keep Qoder stopped and retry.`,
+                );
+                setPendingDelete((current) =>
+                    current
+                        ? {
+                              scope: 'selected',
+                              sessions: current.sessions.filter((session) => retryIds.includes(session.sessionId)),
+                          }
+                        : null,
+                );
+                return;
+            }
+            setCleanupStatus(null);
+            const remainingIds = applySettledDeleteSelection(
+                sessions.map((session) => session.sessionId),
+                items,
+            );
+            const workspaceEmptied = remainingIds.length === 0;
             setPendingDelete(null);
             if (workspaceEmptied) {
                 await navigate({ to: '/qoder' });
@@ -223,6 +270,7 @@ const QoderWorkspacePage = () => {
                     sessions.map((session) => session.sessionId),
                     workspace.key,
                 )}
+                authoritativeRows={sessions}
                 sessions={visibleSessions}
                 onDeleteSession={(session) => openDelete([session], 'selected')}
                 onDeleteSessions={(sessionIds) => openDelete(lookupSelectedSessions(sessionIds), 'selected')}
@@ -258,7 +306,7 @@ const QoderWorkspacePage = () => {
             <DeleteConfirmDialog
                 confirmLabel={getDeleteConfirmLabel(pendingDelete, deleteMutation.isPending)}
                 description={getDeleteDescription(pendingDelete)}
-                errorMessage={deleteMutation.isError ? (deleteMutation.error as Error).message : null}
+                errorMessage={deleteMutation.isError ? (deleteMutation.error as Error).message : cleanupStatus}
                 open={pendingDelete !== null}
                 title={getDeleteTitle(pendingDelete)}
                 onConfirm={() =>
@@ -267,6 +315,7 @@ const QoderWorkspacePage = () => {
                 onOpenChange={(open) => {
                     if (!open) {
                         setPendingDelete(null);
+                        setCleanupStatus(null);
                         deleteMutation.reset();
                     }
                 }}

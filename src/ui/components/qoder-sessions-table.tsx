@@ -13,7 +13,7 @@ import {
     DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu';
 import { supportedListAction } from '#/lib/conversation-actions';
-import type { ConversationListSelectionProps } from '#/lib/conversation-selection';
+import type { ConversationListInventoryProps } from '#/lib/conversation-selection';
 import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatDateTime, formatNumber } from '#/lib/formatters';
 
@@ -23,7 +23,7 @@ type QoderSessionsTableProps = {
     onExportSession: (session: QoderSessionSummary) => void;
     onExportSessions: (sessionIds: string[]) => void;
     sessions: QoderSessionSummary[];
-} & ConversationListSelectionProps;
+} & ConversationListInventoryProps<QoderSessionSummary>;
 
 const columnHelper = createDataTableColumnHelper<QoderSessionSummary>();
 const defaultSorting: SortingState = [{ desc: true, id: 'lastActive' }];
@@ -117,6 +117,7 @@ const columns = (
 
 export const QoderSessionsTable = ({
     authoritativeRowIds,
+    authoritativeRows,
     inventoryIdentity,
     onDeleteSession,
     onDeleteSessions,
@@ -129,6 +130,7 @@ export const QoderSessionsTable = ({
     return (
         <DataTable
             authoritativeRowIds={authoritativeRowIds}
+            authoritativeRows={authoritativeRows}
             columns={tableColumns}
             data={sessions}
             emptyMessage="No Qoder sessions match the current workspace filter."

@@ -12,9 +12,6 @@ import type { MessageEvent, ThreadEvent, ToolCallEvent, ToolOutputEvent } from '
 import type { ConversationMessage, ConversationMessagePhase } from './types';
 
 const assistantPhase = (event: MessageEvent): ConversationMessagePhase => {
-    if (event.isHiddenByDefault) {
-        return 'commentary';
-    }
     if (!event.phase) {
         return 'final_answer';
     }

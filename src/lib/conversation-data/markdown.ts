@@ -22,8 +22,11 @@ export const renderConversationMarkdown = (
     options: {
         messageSelector?: ConversationMessageSelector;
     } & CompactExportFlags = {},
-) =>
-    renderNormalizedExport(conversation, {
-        ...renderConversationMarkdownOptions(options.messageSelector),
+) => {
+    const defaults = renderConversationMarkdownOptions(options.messageSelector);
+    return renderNormalizedExport(conversation, {
+        ...defaults,
         ...options,
+        format: options.outputFormat ?? defaults.format,
     });
+};

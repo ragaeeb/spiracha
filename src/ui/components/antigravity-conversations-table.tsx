@@ -21,7 +21,7 @@ import {
     isAntigravityConversationLocked,
 } from '#/lib/antigravity-conversation-state';
 import { supportedListAction } from '#/lib/conversation-actions';
-import type { ConversationListSelectionProps } from '#/lib/conversation-selection';
+import type { ConversationListInventoryProps } from '#/lib/conversation-selection';
 import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatBytes, formatDateTime, formatNumber } from '#/lib/formatters';
 import { cn } from '#/lib/utils';
@@ -34,7 +34,7 @@ type AntigravityConversationsTableProps = {
     onExportArtifacts: (conversation: AntigravityConversation) => void;
     onExportConversation: (conversation: AntigravityConversation) => void;
     onExportConversations: (conversationIds: string[]) => void;
-} & ConversationListSelectionProps;
+} & ConversationListInventoryProps<AntigravityConversation>;
 
 type ConversationExportState = {
     canExportConversation: boolean;
@@ -294,6 +294,7 @@ const columns = (
 
 export function AntigravityConversationsTable({
     authoritativeRowIds,
+    authoritativeRows,
     conversations,
     decryptionState,
     inventoryIdentity,
@@ -308,10 +309,15 @@ export function AntigravityConversationsTable({
         [decryptionState, onDeleteConversation, onExportArtifacts, onExportConversation],
     );
     const conversationTree = useMemo(() => getConversationTreeRoots(conversations), [conversations]);
+    const inventoryTree = useMemo(
+        () => getConversationTreeRoots(authoritativeRows ?? conversations),
+        [authoritativeRows, conversations],
+    );
 
     return (
         <DataTable
             authoritativeRowIds={authoritativeRowIds}
+            authoritativeRows={inventoryTree}
             columns={tableColumns}
             data={conversationTree}
             emptyMessage="No Antigravity conversations match the current workspace filter."

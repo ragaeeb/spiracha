@@ -13,7 +13,7 @@ import {
     DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu';
 import { supportedListAction } from '#/lib/conversation-actions';
-import type { ConversationListSelectionProps } from '#/lib/conversation-selection';
+import type { ConversationListInventoryProps } from '#/lib/conversation-selection';
 import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatDateTime, formatNumber } from '#/lib/formatters';
 
@@ -23,7 +23,7 @@ type KiroSessionsTableProps = {
     onExportSession: (session: KiroSessionSummary) => void;
     onExportSessions: (sessionIds: string[]) => void;
     sessions: KiroSessionSummary[];
-} & ConversationListSelectionProps;
+} & ConversationListInventoryProps<KiroSessionSummary>;
 
 const columnHelper = createDataTableColumnHelper<KiroSessionSummary>();
 const defaultSorting: SortingState = [{ desc: true, id: 'lastActive' }];
@@ -116,6 +116,7 @@ const columns = (
 
 export const KiroSessionsTable = ({
     authoritativeRowIds,
+    authoritativeRows,
     inventoryIdentity,
     onDeleteSession,
     onDeleteSessions,
@@ -128,6 +129,7 @@ export const KiroSessionsTable = ({
     return (
         <DataTable
             authoritativeRowIds={authoritativeRowIds}
+            authoritativeRows={authoritativeRows}
             columns={tableColumns}
             data={sessions}
             emptyMessage="No Kiro sessions match the current workspace filter."

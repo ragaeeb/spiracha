@@ -1,5 +1,9 @@
 import { cleanupConversationZipArtifacts, type ExportArchiveManifest, writeExportArchive } from './export-archive';
-import { buildBatchExportBaseName, resolveUniqueExportFileBaseName, sanitizeExportFileName } from './ui-export-archive';
+import {
+    boundNormalizedExportBaseName,
+    buildBatchExportBaseName,
+    resolveUniqueExportFileBaseName,
+} from './ui-export-archive';
 
 type ConversationMarkdownZipEntry = {
     cwd: string | null;
@@ -19,22 +23,6 @@ type ConversationMarkdownZipOptions = {
     source?: string;
 };
 
-const EXPORT_BASE_NAME_BYTE_LIMIT = 120;
-
-const truncateUtf8 = (value: string, maxBytes: number) => {
-    let bytes = 0;
-    let result = '';
-    for (const character of value) {
-        const characterBytes = Buffer.byteLength(character);
-        if (bytes + characterBytes > maxBytes) {
-            break;
-        }
-        bytes += characterBytes;
-        result += character;
-    }
-    return result;
-};
-
 export type ConversationMarkdownZip = {
     blob: Blob;
     fileName: string;
@@ -44,10 +32,7 @@ export type ConversationMarkdownZip = {
 export type { ConversationZipCleanupFailure } from './export-archive';
 export { cleanupConversationZipArtifacts };
 
-const toSafeFileBaseName = (value: string | null, fallback: string) => {
-    const sanitized = sanitizeExportFileName(value?.trim() || '') || sanitizeExportFileName(fallback) || 'conversation';
-    return truncateUtf8(sanitized, EXPORT_BASE_NAME_BYTE_LIMIT) || 'conversation';
-};
+const toSafeFileBaseName = (value: string | null, fallback: string) => boundNormalizedExportBaseName(value, fallback);
 
 /**
  * Names Markdown members, writes a generated batch manifest, and archives through

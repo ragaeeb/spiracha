@@ -19,5 +19,9 @@ describe('username redaction boundaries', () => {
         expect(applyPathTransforms('/Users/Alice Smith/repo/file', settings)).toBe('~/repo/file');
         expect(applyPathTransforms(String.raw`C:\Users\Alice Smith\repo\file`, settings)).toBe(String.raw`~\repo\file`);
         expect(applyPathTransforms('/home/alice and /home/bob', settings)).toBe('~ and ~');
+        expect(applyPathTransforms('/Users/John Doe', settings)).toBe('~');
+        expect(applyPathTransforms('/Users/John Doe.', settings)).toBe('~.');
+        expect(applyPathTransforms(String.raw`C:\Users\Jane Smith`, settings)).toBe('~');
+        expect(applyPathTransforms(String.raw`C:\Users\Jane Smith)`, settings)).toBe('~)');
     });
 });

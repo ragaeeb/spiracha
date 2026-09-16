@@ -1,4 +1,4 @@
-import { conversationReadFields } from './adapter-helpers';
+import { bindMessageProvenance, conversationReadFields } from './adapter-helpers';
 import { antigravityConversationAdapter } from './antigravity-adapter';
 import { claudeCodeConversationAdapter } from './claude-code-adapter';
 import { clineConversationAdapter } from './cline-adapter';
@@ -273,8 +273,15 @@ export const listConversations = async (options: ListConversationsOptions): Prom
 const withReadFields = (
     conversation: ConversationDetail,
     readOptions: { includeMessages: boolean; messageSelector?: ListConversationsOptions['messageSelector'] },
-): ConversationDetail =>
-    conversation.bodyAvailability ? conversation : { ...conversation, ...conversationReadFields(readOptions) };
+): ConversationDetail => {
+    const withProvenance = {
+        ...conversation,
+        messages: bindMessageProvenance(conversation.messages, conversation.id),
+    };
+    return withProvenance.bodyAvailability
+        ? withProvenance
+        : { ...withProvenance, ...conversationReadFields(readOptions) };
+};
 
 export const getConversation = async (options: GetConversationOptions) => {
     const conversation = await getAdapter(options.source).getConversation(options);

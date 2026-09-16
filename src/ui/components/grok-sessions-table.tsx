@@ -13,7 +13,7 @@ import {
     DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu';
 import { supportedListAction } from '#/lib/conversation-actions';
-import type { ConversationListSelectionProps } from '#/lib/conversation-selection';
+import type { ConversationListInventoryProps } from '#/lib/conversation-selection';
 import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatDateTime, formatNumber } from '#/lib/formatters';
 
@@ -23,7 +23,7 @@ type GrokSessionsTableProps = {
     onExportSession: (session: GrokSessionSummary) => void;
     onExportSessions: (sessionIds: string[]) => void;
     sessions: GrokSessionSummary[];
-} & ConversationListSelectionProps;
+} & ConversationListInventoryProps<GrokSessionSummary>;
 
 const columnHelper = createDataTableColumnHelper<GrokSessionSummary>();
 const defaultSorting: SortingState = [{ desc: true, id: 'lastActive' }];
@@ -114,6 +114,7 @@ const columns = (
 
 export const GrokSessionsTable = ({
     authoritativeRowIds,
+    authoritativeRows,
     inventoryIdentity,
     onDeleteSession,
     onDeleteSessions,
@@ -126,6 +127,7 @@ export const GrokSessionsTable = ({
     return (
         <DataTable
             authoritativeRowIds={authoritativeRowIds}
+            authoritativeRows={authoritativeRows}
             columns={tableColumns}
             data={sessions}
             emptyMessage="No Grok sessions match the current workspace filter."

@@ -11,7 +11,12 @@ import { listQoderSessionsForGroup, listQoderWorkspaceGroups } from '../qoder-se
 import { normalizeQoderTranscriptEntries } from '../qoder-transcript-parser';
 import { cleanInlineTitle } from '../shared-text';
 import { runWithTranscriptLoadLimit } from '../transcript-load-limiter';
-import { createConversationUiPath, createDeepLinks, isWithinUpdatedWindow } from './adapter-helpers';
+import {
+    bindMessageProvenance,
+    createConversationUiPath,
+    createDeepLinks,
+    isWithinUpdatedWindow,
+} from './adapter-helpers';
 import { selectConversationMessages } from './message-selector';
 import { getConversationPathMatch } from './path-match';
 import { createRawConversationDownload } from './raw-download';
@@ -72,7 +77,7 @@ const buildConversation = async (
               },
           )))
         : null;
-    const allMessages = transcript ? transcriptToMessages(transcript) : [];
+    const allMessages = transcript ? bindMessageProvenance(transcriptToMessages(transcript), session.sessionId) : [];
     const messages = options.includeMessages
         ? selectConversationMessages(allMessages, options.messageSelector ?? 'last_final_answer')
         : [];
@@ -200,9 +205,7 @@ const getQoderConversationRaw = async (options: GetConversationOptions) => {
 
 const deleteQoderConversationById = async (options: DeleteConversationOptions) => {
     const locations = getQoderLocations(options);
-    return deleteQoderConversationRecord(options.id, locations, {
-        ...(options.locations?.qoderGlobalStateDb ? { isWriterRunning: async () => false } : {}),
-    });
+    return deleteQoderConversationRecord(options.id, locations);
 };
 
 export const qoderConversationAdapter = {

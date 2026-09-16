@@ -212,6 +212,7 @@ const CommandCodeWorkspacePage = () => {
                     sessions.map((session) => session.sessionId),
                     workspace.key,
                 )}
+                authoritativeRows={sessions}
                 sessions={visibleSessions}
                 onDeleteSession={(session) => openDeleteForSessions([session], 'selected')}
                 onDeleteSessions={(sessionIds) => openDeleteForSessions(lookupSelectedSessions(sessionIds), 'selected')}

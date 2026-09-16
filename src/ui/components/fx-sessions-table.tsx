@@ -13,7 +13,7 @@ import {
     DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu';
 import { supportedListAction } from '#/lib/conversation-actions';
-import type { ConversationListSelectionProps } from '#/lib/conversation-selection';
+import type { ConversationListInventoryProps } from '#/lib/conversation-selection';
 import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatDateTime, formatNumber } from '#/lib/formatters';
 
@@ -23,7 +23,7 @@ type FxSessionsTableProps = {
     onExportSession: (session: FxSessionSummary) => void;
     onExportSessions: (sessionIds: string[]) => void;
     sessions: FxSessionSummary[];
-} & ConversationListSelectionProps;
+} & ConversationListInventoryProps<FxSessionSummary>;
 
 const columnHelper = createDataTableColumnHelper<FxSessionSummary>();
 const defaultSorting: SortingState = [{ desc: true, id: 'lastActive' }];
@@ -110,6 +110,7 @@ const buildColumns = (
 
 export const FxSessionsTable = ({
     authoritativeRowIds,
+    authoritativeRows,
     inventoryIdentity,
     onDeleteSession,
     onDeleteSessions,
@@ -121,6 +122,7 @@ export const FxSessionsTable = ({
     return (
         <DataTable
             authoritativeRowIds={authoritativeRowIds}
+            authoritativeRows={authoritativeRows}
             columns={columns}
             data={sessions}
             emptyMessage="No FX sessions match the current workspace filter."

@@ -357,6 +357,25 @@ describe('conversation client', () => {
         }
     });
 
+    it('should treat an explicit empty sources filter as an empty page without collecting', async () => {
+        const server = Bun.serve({
+            fetch() {
+                throw new Error('HTTP list must not run for sources:[]');
+            },
+            port: 0,
+        });
+
+        try {
+            const http = createConversationClient({ baseUrl: `http://127.0.0.1:${server.port}`, mode: 'http' });
+            const local = createConversationClient({ mode: 'local' });
+            const empty = { data: [], meta: { hasNext: false, nextCursor: null } };
+            await expect(http.listConversations({ cwd: '/repo', sources: [] })).resolves.toEqual(empty);
+            await expect(local.listConversations({ cwd: '/repo', sources: [] })).resolves.toEqual(empty);
+        } finally {
+            server.stop(true);
+        }
+    });
+
     it('should surface HTTP API failures with status and message', async () => {
         const server = Bun.serve({
             fetch() {

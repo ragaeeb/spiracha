@@ -149,6 +149,41 @@ describe('DataTable', () => {
         expect(screen.getByText('row-1 hidden:1')).toBeTruthy();
     });
 
+    it('should compute toolbar selectedRows from authoritative inventory when a selected row is filtered away', () => {
+        const renderToolbar = ({ selectedIds, selectedRows }: { selectedIds: string[]; selectedRows: Row[] }) => (
+            <span>{`${selectedIds.join(',')}:${selectedRows.map((row) => row.model).join(',') || 'none'}`}</span>
+        );
+        const { rerender } = render(
+            <DataTable
+                authoritativeRowIds={rows.map((row) => row.id)}
+                authoritativeRows={rows}
+                columns={columns}
+                data={rows}
+                emptyMessage="No rows"
+                enableRowSelection
+                getRowId={(row) => row.id}
+                renderToolbar={renderToolbar}
+            />,
+        );
+        fireEvent.click(screen.getByRole('checkbox', { name: 'Select row row-1' }));
+        expect(screen.getByText('row-1:gpt-5.5')).toBeTruthy();
+
+        rerender(
+            <DataTable
+                authoritativeRowIds={rows.map((row) => row.id)}
+                authoritativeRows={rows}
+                columns={columns}
+                data={rows.slice(1)}
+                emptyMessage="No rows"
+                enableRowSelection
+                getRowId={(row) => row.id}
+                renderToolbar={renderToolbar}
+            />,
+        );
+
+        expect(screen.getByText('row-1:gpt-5.5')).toBeTruthy();
+    });
+
     it('should drop selected ids that leave the authoritative membership', () => {
         const renderToolbar = ({ selectedIds }: { selectedIds: string[] }) => (
             <span>{selectedIds.join(',') || 'none'}</span>

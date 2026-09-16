@@ -13,7 +13,7 @@ import {
     DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu';
 import { supportedListAction } from '#/lib/conversation-actions';
-import type { ConversationListSelectionProps } from '#/lib/conversation-selection';
+import type { ConversationListInventoryProps } from '#/lib/conversation-selection';
 import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatDateTime, formatNumber } from '#/lib/formatters';
 
@@ -23,7 +23,7 @@ type CommandCodeSessionsTableProps = {
     onExportSession: (session: CommandCodeSessionSummary) => void;
     onExportSessions: (sessionIds: string[]) => void;
     sessions: CommandCodeSessionSummary[];
-} & ConversationListSelectionProps;
+} & ConversationListInventoryProps<CommandCodeSessionSummary>;
 
 const columnHelper = createDataTableColumnHelper<CommandCodeSessionSummary>();
 const defaultSorting: SortingState = [{ desc: true, id: 'updated' }];
@@ -108,6 +108,7 @@ const buildColumns = (
 
 export function CommandCodeSessionsTable({
     authoritativeRowIds,
+    authoritativeRows,
     inventoryIdentity,
     onDeleteSession,
     onDeleteSessions,
@@ -120,6 +121,7 @@ export function CommandCodeSessionsTable({
     return (
         <DataTable
             authoritativeRowIds={authoritativeRowIds}
+            authoritativeRows={authoritativeRows}
             columns={columns}
             data={sessions}
             emptyMessage="No Command Code sessions match the current workspace filter."

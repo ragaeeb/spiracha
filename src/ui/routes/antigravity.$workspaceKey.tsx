@@ -268,6 +268,7 @@ function AntigravityWorkspacePage() {
                     conversations.map((conversation) => conversation.conversationId),
                     workspace.key,
                 )}
+                authoritativeRows={conversations}
                 conversations={visibleConversations}
                 decryptionState={decryptionState}
                 onDeleteConversation={(conversation) => openDeleteForConversations([conversation], 'selected')}

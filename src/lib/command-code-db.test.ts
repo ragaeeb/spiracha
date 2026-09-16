@@ -409,7 +409,7 @@ describe('Command Code filesystem reader', () => {
         expect(await Bun.file(outsidePath).exists()).toBe(true);
     });
 
-    it('should fail closed for malformed, mismatched, non-linear, and conflicting sessions', async () => {
+    it('should fail closed for malformed, mismatched, and non-linear sessions', async () => {
         const root = await makeRoot();
         const cwd = '/workspace/project';
         const brokenDirectory = path.join(root, 'broken');
@@ -442,21 +442,73 @@ describe('Command Code filesystem reader', () => {
             ),
         ]);
         await expect(listCommandCodeSessionSummaries(parentRoot)).rejects.toThrow('parent');
+    });
 
-        const duplicateRoot = await makeRoot();
-        const duplicateId = 'duplicate-session';
-        const duplicateRecords = makeLinearRecords(duplicateId, cwd, [
-            messageRecord('message-1', null, 'user', [{ text: 'one', type: 'text' }], '2026-09-14T10:00:01Z'),
-        ]);
-        await writeSession(duplicateRoot, 'a', duplicateId, duplicateRecords);
+    it('should keep listing workspaces when a session id has diverged copies', async () => {
+        const root = await makeRoot();
+        const sessionId = 'Q9w8C-G2Xu7T6N991wY_c';
         await writeSession(
-            duplicateRoot,
-            'b',
-            duplicateId,
-            makeLinearRecords(duplicateId, cwd, [
-                messageRecord('message-1', null, 'user', [{ text: 'different', type: 'text' }], '2026-09-14T10:00:01Z'),
+            root,
+            'project-a',
+            sessionId,
+            makeLinearRecords(sessionId, '/workspace/project-a', [
+                messageRecord(
+                    'message-1',
+                    null,
+                    'user',
+                    [{ text: 'older copy', type: 'text' }],
+                    '2026-09-14T10:00:01Z',
+                ),
             ]),
         );
-        await expect(listCommandCodeSessionSummaries(duplicateRoot)).rejects.toThrow('conflicting copies');
+        await writeSession(
+            root,
+            'project-b',
+            sessionId,
+            makeLinearRecords(sessionId, '/workspace/project-b', [
+                messageRecord(
+                    'message-1',
+                    null,
+                    'user',
+                    [{ text: 'newer copy', type: 'text' }],
+                    '2026-09-14T11:00:01Z',
+                ),
+            ]),
+        );
+
+        const groups = await listCommandCodeWorkspaceGroups(root);
+        expect(groups.map((group) => group.worktree).sort()).toEqual(['/workspace/project-a', '/workspace/project-b']);
+        expect(groups.every((group) => group.sessionCount === 1)).toBe(true);
+
+        const transcript = await readCommandCodeSessionTranscript(root, sessionId);
+        expect(transcript?.session.title).toBe('newer copy');
+        expect(transcript?.session.filePath).toContain(`${path.sep}project-b${path.sep}`);
+    });
+
+    it('should keep the later copy when diverged files share a workspace', async () => {
+        const root = await makeRoot();
+        const sessionId = 'same-workspace-fork';
+        const cwd = '/workspace/project';
+        await writeSession(
+            root,
+            'copy-a',
+            sessionId,
+            makeLinearRecords(sessionId, cwd, [
+                messageRecord('message-1', null, 'user', [{ text: 'stale', type: 'text' }], '2026-09-14T10:00:01Z'),
+            ]),
+        );
+        await writeSession(
+            root,
+            'copy-b',
+            sessionId,
+            makeLinearRecords(sessionId, cwd, [
+                messageRecord('message-1', null, 'user', [{ text: 'fresh', type: 'text' }], '2026-09-14T12:00:01Z'),
+            ]),
+        );
+
+        await expect(listCommandCodeSessionSummaries(root)).resolves.toMatchObject([
+            { filePath: expect.stringContaining(`${path.sep}copy-b${path.sep}`), sessionId, title: 'fresh' },
+        ]);
+        await expect(listCommandCodeWorkspaceGroups(root)).resolves.toMatchObject([{ sessionCount: 1, worktree: cwd }]);
     });
 });

@@ -6,7 +6,7 @@ import { parseCodexTranscriptFile } from '../codex-thread-parser';
 import type { ThreadRow } from '../codex-thread-types';
 import { cleanInlineTitle } from '../shared-text';
 import { runWithTranscriptLoadLimit } from '../transcript-load-limiter';
-import { createConversationUiPath, createDeepLinks } from './adapter-helpers';
+import { bindMessageProvenance, createConversationUiPath, createDeepLinks } from './adapter-helpers';
 import { normalizeCodexEvents } from './codex-messages';
 import { selectConversationMessages } from './message-selector';
 import { getConversationPathMatch } from './path-match';
@@ -56,7 +56,7 @@ const readCodexMessages = async (thread: ThreadRow): Promise<ConversationMessage
         throw error;
     }
 
-    return normalizeCodexEvents(transcript.events);
+    return bindMessageProvenance(normalizeCodexEvents(transcript.events), thread.id);
 };
 
 const buildCodexConversation = async (

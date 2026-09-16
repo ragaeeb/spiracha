@@ -297,11 +297,27 @@ describe('Grok Bot server operations', () => {
             .mockResolvedValueOnce({ deletedFiles: ['/tmp/chat-2.blob'], deletedIds: ['chat-id-2'] });
         await expect(
             deleteGrokBotChatsFn({ data: { conversationIds: ['chat-id', 'chat-id-2'] } } as never),
-        ).resolves.toEqual({
+        ).resolves.toMatchObject({
             deletedFiles: ['/tmp/chat.blob', '/tmp/chat-2.blob'],
             deletedIds: ['chat-id', 'chat-id-2'],
+            missingIds: [],
+            summary: { cleanupPending: 0, deleted: 2, failed: 0, missing: 0 },
         });
         expect(deleteConversationMock).toHaveBeenNthCalledWith(1, { id: 'chat-id', source: 'grok-bot' });
         expect(deleteConversationMock).toHaveBeenNthCalledWith(2, { id: 'chat-id-2', source: 'grok-bot' });
+
+        deleteConversationMock.mockResolvedValueOnce({ deletedFiles: [], deletedIds: [] }).mockResolvedValueOnce({
+            cleanupFailures: [{ error: 'replica busy', path: '/tmp/replica.blob', phase: 'transcript-replica' }],
+            deletedFiles: [],
+            deletedIds: ['chat-id-2'],
+            receiptId: 'receipt-2',
+        });
+        const retry = await deleteGrokBotChatsFn({
+            data: { conversationIds: ['chat-id', 'chat-id-2'] },
+        } as never);
+        expect(retry.outcomes.map((outcome) => [outcome.id, outcome.status])).toEqual([
+            ['chat-id', 'missing'],
+            ['chat-id-2', 'cleanup_pending'],
+        ]);
     });
 });

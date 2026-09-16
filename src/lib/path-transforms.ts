@@ -37,6 +37,10 @@ const redactRemainingUsernames = (text: string) => {
         text
             // Prefer complete path components so spaces in usernames remain redacted.
             .replace(/(?:[A-Za-z]:[\\/]+Users[\\/]+|\/(?:home|Users)\/)[^/\\\r\n`"<>]*[^\s/\\`"<>](?=[/\\])/gu, '~')
+            .replace(
+                /(?:[A-Za-z]:[\\/]+Users[\\/]+|\/(?:home|Users)\/)(?:[A-Z][^/\\\s`"'<>()[\]{};,.!?]+ )+[A-Z][^/\\\s`"'<>()[\]{};,.!?]+(?=$|[.,;:!?)\]])/gu,
+                '~',
+            )
             .replace(/\/home\/[^/\\\s`"'<>()[\]{};,]+(?=[/\\\s`"'<>()[\]{};,]|$)/gu, '~')
             .replace(/\/Users\/[^/\\\s`"'<>()[\]{};,]+(?=[/\\\s`"'<>()[\]{};,]|$)/gu, '~')
             .replace(/[A-Za-z]:[\\/]+Users[\\/]+[^\\/\s`"'<>()[\]{};,]+(?=[\\/\s`"'<>()[\]{};,]|$)/gu, '~')

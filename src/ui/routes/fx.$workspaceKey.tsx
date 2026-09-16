@@ -174,6 +174,7 @@ const FxWorkspacePage = () => {
                     sessions.map((session) => session.sessionId),
                     workspace.key,
                 )}
+                authoritativeRows={sessions}
                 sessions={visibleSessions}
                 onDeleteSession={(session) => openDelete([session], 'selected')}
                 onDeleteSessions={(ids) => openDelete(lookupSessions(ids), 'selected')}

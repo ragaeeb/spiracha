@@ -13,7 +13,7 @@ import {
     DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu';
 import { supportedListAction } from '#/lib/conversation-actions';
-import type { ConversationListSelectionProps } from '#/lib/conversation-selection';
+import type { ConversationListInventoryProps } from '#/lib/conversation-selection';
 import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatBytes, formatDateTime, formatModelLabel, formatNumber } from '#/lib/formatters';
 import { cn } from '#/lib/utils';
@@ -24,7 +24,7 @@ type CursorThreadsTableProps = {
     onExportThread: (thread: CursorThreadSummary) => void;
     onExportThreads: (composerIds: string[]) => void;
     threads: CursorThreadSummary[];
-} & ConversationListSelectionProps;
+} & ConversationListInventoryProps<CursorThreadSummary>;
 
 type CursorThreadTreeNode = CursorThreadSummary & { children: CursorThreadTreeNode[] };
 
@@ -181,6 +181,7 @@ const columns = (
 
 export const CursorThreadsTable = ({
     authoritativeRowIds,
+    authoritativeRows,
     inventoryIdentity,
     onDeleteThread,
     onDeleteThreads,
@@ -190,10 +191,15 @@ export const CursorThreadsTable = ({
 }: CursorThreadsTableProps) => {
     const tableColumns = useMemo(() => columns(onDeleteThread, onExportThread), [onDeleteThread, onExportThread]);
     const threadTreeRoots = useMemo(() => getCursorThreadTreeRoots(threads), [threads]);
+    const inventoryTree = useMemo(
+        () => getCursorThreadTreeRoots(authoritativeRows ?? threads),
+        [authoritativeRows, threads],
+    );
 
     return (
         <DataTable
             authoritativeRowIds={authoritativeRowIds}
+            authoritativeRows={inventoryTree}
             columns={tableColumns}
             data={threadTreeRoots}
             emptyMessage="No Cursor threads match the current workspace filter."

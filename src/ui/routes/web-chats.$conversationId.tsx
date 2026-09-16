@@ -92,6 +92,7 @@ const downloadWebChatExport = async (
     conversationId: string,
     options: ExportDialogOptions,
     cancellation: ReturnType<typeof useDownloadCancellation>,
+    callbacks: ExportLifecycleCallbacks,
 ) => {
     const download = await exportWebChatFn({
         data: {
@@ -104,10 +105,14 @@ const downloadWebChatExport = async (
         },
     });
     if (download.mode === 'download') {
-        downloadTextFile(download.fileName, download.content, download.mimeType);
+        downloadTextFile(download.fileName, download.content, download.mimeType, {
+            onStateChange: callbacks.onDownloadStateChange,
+        });
         return;
     }
-    await downloadUrlFileWithCancellation(cancellation, download.fileName, download.downloadUrl);
+    await downloadUrlFileWithCancellation(cancellation, download.fileName, download.downloadUrl, {
+        onStateChange: callbacks.onDownloadStateChange,
+    });
 };
 
 const WebChatDetailPage = () => {
@@ -135,8 +140,8 @@ const WebChatDetailPage = () => {
         });
     };
     const exportMutation = useMutation({
-        mutationFn: ({ options }: { callbacks: ExportLifecycleCallbacks; options: ExportDialogOptions }) =>
-            downloadWebChatExport(conversationId, options, downloadCancellation),
+        mutationFn: ({ options, callbacks }: { callbacks: ExportLifecycleCallbacks; options: ExportDialogOptions }) =>
+            downloadWebChatExport(conversationId, options, downloadCancellation, callbacks),
         onSuccess: () => setExportOpen(false),
     });
     const deleteMutation = useMutation({

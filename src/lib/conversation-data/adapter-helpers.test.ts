@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import {
+    bindMessageProvenance,
     canonicalRolePhaseIssues,
     classifyCanonicalInclusionBucket,
     conversationReadFields,
@@ -203,5 +204,30 @@ describe('conversation adapter helpers', () => {
         expect(conversationReadFields({ includeMessages: true, messageSelector: 'last_final_answer' })).toEqual({
             bodyAvailability: 'selected',
         });
+    });
+
+    it('should bind empty provenance to the originating conversation identity', () => {
+        const [left] = createTextMessage({
+            createdAtMs: 1,
+            id: 'shared-record',
+            order: 0,
+            phase: 'final_answer',
+            role: 'assistant',
+            text: 'one',
+        });
+        const [right] = createTextMessage({
+            createdAtMs: 1,
+            id: 'shared-record',
+            order: 0,
+            phase: 'final_answer',
+            role: 'assistant',
+            text: 'two',
+        });
+        expect(bindMessageProvenance([left!], 'conversation-a')[0]?.provenance.sourceConversationId).toBe(
+            'conversation-a',
+        );
+        expect(bindMessageProvenance([right!], 'conversation-b')[0]?.provenance.sourceConversationId).toBe(
+            'conversation-b',
+        );
     });
 });

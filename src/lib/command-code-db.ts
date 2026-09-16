@@ -626,23 +626,41 @@ const readCommandCodeSessionFile = async (filePath: string): Promise<ParsedComma
     );
 };
 
+const preferCommandCodeCopy = <T extends { rawHash: string; session: CommandCodeSessionSummary }>(
+    left: T,
+    right: T,
+): T => {
+    if (left.rawHash === right.rawHash) {
+        return left;
+    }
+    const lastActiveDelta = (right.session.lastActiveAtMs ?? 0) - (left.session.lastActiveAtMs ?? 0);
+    if (lastActiveDelta !== 0) {
+        return lastActiveDelta > 0 ? right : left;
+    }
+    return right.session.filePath.localeCompare(left.session.filePath) > 0 ? right : left;
+};
+
 const resolveDuplicateSessions = (sessions: ParsedCommandCodeSession[]): ParsedCommandCodeSession[] => {
     const byId = new Map<string, ParsedCommandCodeSession>();
     for (const session of [...sessions].sort((left, right) =>
         left.session.filePath.localeCompare(right.session.filePath),
     )) {
         const previous = byId.get(session.session.sessionId);
-        if (!previous) {
-            byId.set(session.session.sessionId, session);
-            continue;
-        }
-        if (previous.rawHash !== session.rawHash) {
-            throw new Error(
-                `Command Code session ${session.session.sessionId} has conflicting copies in ${previous.session.filePath} and ${session.session.filePath}.`,
-            );
-        }
+        byId.set(session.session.sessionId, previous ? preferCommandCodeCopy(previous, session) : session);
     }
     return [...byId.values()];
+};
+
+const collapseListedCommandCodeSessions = (summaries: ParsedCommandCodeSummary[]): CommandCodeSessionSummary[] => {
+    const byIdAndWorkspace = new Map<string, ParsedCommandCodeSummary>();
+    for (const summary of [...summaries].sort((left, right) =>
+        left.session.filePath.localeCompare(right.session.filePath),
+    )) {
+        const key = `${summary.session.sessionId}\0${summary.session.workspaceKey}`;
+        const previous = byIdAndWorkspace.get(key);
+        byIdAndWorkspace.set(key, previous ? preferCommandCodeCopy(previous, summary) : summary);
+    }
+    return [...byIdAndWorkspace.values()].map(({ session }) => session);
 };
 
 const readAllCommandCodeSessionSummaries = async (
@@ -664,17 +682,7 @@ const readAllCommandCodeSessionSummaries = async (
             scoped.push(summary);
         }
     }
-    const byId = new Map<string, ParsedCommandCodeSummary>();
-    for (const summary of scoped) {
-        const previous = byId.get(summary.session.sessionId);
-        if (previous && previous.rawHash !== summary.rawHash) {
-            throw new Error(
-                `Command Code session ${summary.session.sessionId} has conflicting copies in ${previous.session.filePath} and ${summary.session.filePath}.`,
-            );
-        }
-        byId.set(summary.session.sessionId, previous ?? summary);
-    }
-    return [...byId.values()].map(({ session }) => session);
+    return collapseListedCommandCodeSessions(scoped);
 };
 
 const readCommandCodeSessionCopies = async (

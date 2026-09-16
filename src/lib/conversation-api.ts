@@ -35,10 +35,10 @@ import type { ConvertConversationPayloadOptions } from './conversation-payload-t
 import { AtomicExportError, assembleExportBatch, EmptyPartialExportError, writeExportArchive } from './export-archive';
 import { isAllowedLocalRequestOrigin } from './local-request-security';
 import {
+    boundNormalizedExportBaseName,
     buildBatchExportBaseName,
     buildRawConversationExportFileName,
     getExportPlatformName,
-    sanitizeExportFileName,
 } from './ui-export-archive';
 
 type ConversationApiDependencies = {
@@ -801,7 +801,7 @@ const handleDeleteConversation = async (
             );
         }
 
-        if (deleteResult.deletedIds.length === 0) {
+        if (deleteResult.deletedIds.length === 0 && !deleteResult.receiptId && !deleteResult.cleanupFailures?.length) {
             return errorResponse('conversation_not_found', 'No conversation exists for that source and id.', 404, {
                 id: result.value.id,
                 source: result.value.source,
@@ -1066,17 +1066,19 @@ const handleExportConversations = async (request: Request, dependencies: ReturnT
                     cwd: conversation.workspacePath,
                     updatedAtMs: conversation.updatedAtMs,
                 });
-                const fileBaseName =
-                    sanitizeExportFileName(conversation.title?.trim() || '') ||
-                    sanitizeExportFileName(`${conversation.source}-${conversation.id}`) ||
-                    'conversation';
+                const outputFormat = result.value.outputFormat ?? 'md';
+                const fileBaseName = boundNormalizedExportBaseName(
+                    conversation.title,
+                    `${conversation.source}-${conversation.id}`,
+                );
                 return {
                     members: [
                         {
                             bytes: dependencies.renderConversationMarkdown(conversation, {
                                 messageSelector: result.value.messageSelector,
+                                outputFormat,
                             }),
-                            relativePath: `${fileBaseName}.md`,
+                            relativePath: `${fileBaseName}.${outputFormat}`,
                         },
                     ],
                 };

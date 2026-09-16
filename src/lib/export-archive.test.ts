@@ -115,6 +115,46 @@ describe('assembleExportBatch', () => {
         expect(assembled.manifest.failedCount).toBe(1);
     });
 
+    it('should allocate duplicate and reserved manifest names before writing members', async () => {
+        const assembled = await assembleExportBatch({
+            failurePolicy: 'atomic',
+            kind: 'batch_normalized_export',
+            load: async (id) => ({
+                members: [{ bytes: id, relativePath: id === 'first' ? 'notes.md' : 'Notes.md' }],
+            }),
+            options: {},
+            requestedIds: ['first', 'second'],
+            source: 'codex',
+        });
+        expect(assembled.members.map((member) => member.relativePath)).toEqual(['notes.md', 'Notes-2.md']);
+        expect(assembled.manifest.entries.map((entry) => entry.memberNames)).toEqual([['notes.md'], ['Notes-2.md']]);
+
+        const reserved = await assembleExportBatch({
+            failurePolicy: 'atomic',
+            kind: 'batch_original_raw',
+            load: async () => ({
+                members: [{ bytes: 'raw-bytes', relativePath: EXPORT_ARCHIVE_MANIFEST_FILE }],
+            }),
+            options: {},
+            requestedIds: ['raw-1'],
+            source: 'codex',
+        });
+        expect(reserved.manifest.entries[0]?.memberNames).toEqual(['spiracha-manifest-2.json']);
+        const archive = await writeExportArchive({
+            baseName: 'reserved-raw',
+            destination: { mode: 'blob' },
+            manifest: reserved.manifest,
+            members: reserved.members,
+            platform: 'codex',
+        });
+        if (!('blob' in archive)) {
+            throw new Error('Expected an in-memory archive');
+        }
+        const unzipped = unzipSync(new Uint8Array(await archive.blob.arrayBuffer()));
+        expect(Buffer.from(unzipped[EXPORT_ARCHIVE_MANIFEST_FILE]!).toString('utf8')).toContain('raw-1');
+        expect(Buffer.from(unzipped['spiracha-manifest-2.json']!).toString('utf8')).toBe('raw-bytes');
+    });
+
     it('should reject a partial batch with zero successful conversations', async () => {
         await expect(
             assembleExportBatch({

@@ -57,9 +57,16 @@ Raw export does not merge a parent lineage into a synthetic source file.
 
 ## Interpret results before retrying
 
-A successful result can include `cleanupFailures`: authoritative records may
-already be gone while secondary cleanup remains. Inspect `deletedIds`,
-`deletedFiles`, and each cleanup phase rather than checking only HTTP status.
+A successful result can include `cleanupFailures` and `receiptId`:
+authoritative records may already be gone while secondary cleanup remains.
+Inspect `deletedIds`, `deletedFiles`, per-item `outcomes` (`deleted`,
+`missing`, `failed`, `cleanup_pending`, `cancelled`), and each cleanup phase
+rather than checking only HTTP status.
+
+Writer-running and concurrent-modification conflicts throw
+`SourceMutationConflictError` (HTTP 409 `mutation_conflict`) with no-effect
+semantics when they occur before commit. After a logical commit, file-identity
+conflicts are retained as cleanup-pending results with the durable receipt.
 
 Batch deletion is not one transaction. Mixed deleted, missing, failed, cleanup-pending, and cancelled outcomes return in a 200 envelope that retains every started item. A batch whose unique IDs are all missing returns 404. Abort stops only unstarted work. Re-read state and use the applicable recovery protocol before retrying.
 

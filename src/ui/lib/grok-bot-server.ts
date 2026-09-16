@@ -1,10 +1,10 @@
 import { renderSelectedTranscriptExport } from '@spiracha/lib/conversation-data/conversation-export';
+import { settleDeleteBatch } from '@spiracha/lib/conversation-data/mutation-executor';
 import type { ConversationDetail, ConversationMessage } from '@spiracha/lib/conversation-data/types';
 import type { JsonValue } from '@spiracha/lib/shared-text';
 import { createServerFn } from '@tanstack/react-start';
 import type { InferOutput } from 'valibot';
 import { array, boolean, maxLength, minLength, object, optional, picklist, pipe, regex, string } from 'valibot';
-import { runDeleteBatch } from './delete-batch';
 import { renderSourceSessionDownload, renderSourceSessionsDownload } from './source-session-export-server';
 
 const conversationIdSchema = pipe(string(), regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u));
@@ -214,9 +214,14 @@ export const deleteGrokBotChatFn = createServerFn({ method: 'POST' })
 export const deleteGrokBotChatsFn = createServerFn({ method: 'POST' })
     .validator(deleteChatsSchema)
     .handler(async ({ data }) => {
-        const results = await runDeleteBatch(data.conversationIds, deleteLoadedGrokBotChat, { concurrency: 1 });
-        return {
-            deletedFiles: [...new Set(results.flatMap((result) => result.deletedFiles))],
-            deletedIds: [...new Set(results.flatMap((result) => result.deletedIds))],
-        };
+        const { deleteConversation } = await import('@spiracha/lib/conversation-data');
+        return settleDeleteBatch({
+            concurrency: 1,
+            deleteOne: async (conversationId) =>
+                (await deleteConversation({ id: conversationId, source: 'grok-bot' })) ?? {
+                    deletedFiles: [],
+                    deletedIds: [],
+                },
+            ids: data.conversationIds,
+        });
     });

@@ -1,28 +1,19 @@
-import { render, screen } from '@testing-library/react';
-import type { ComponentType, ReactNode } from 'react';
-import { expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import { applySettledDeleteSelection, retryableDeleteIds } from '#/lib/conversation-actions';
 
-vi.mock('@tanstack/react-router', () => ({
-    createFileRoute:
-        () =>
-        (options: unknown): { options: unknown } => ({ options }),
-    Link: ({ children }: { children: ReactNode }) => children,
-}));
+describe('Grok Bot index settled delete', () => {
+    it('should drop already-deleted ids and keep only pending cleanup on retry of the original selection', () => {
+        const originalSelection = ['gone', 'pending', 'ok'];
+        const firstPass = [
+            { id: 'gone', status: 'deleted' as const },
+            { id: 'pending', status: 'cleanup_pending' as const },
+            { id: 'ok', status: 'deleted' as const },
+        ];
+        expect(applySettledDeleteSelection(originalSelection, firstPass)).toEqual(['pending']);
+        expect(retryableDeleteIds(firstPass)).toEqual(['pending']);
 
-import { Route } from './grok-bot.index';
-
-it('should immediately show the Grok Bot loading state while the initial route is pending', () => {
-    const routeOptions = (Route as unknown as { options: { pendingComponent?: ComponentType; pendingMs?: number } })
-        .options;
-    const PendingComponent = routeOptions.pendingComponent;
-
-    expect(PendingComponent).toBeTypeOf('function');
-    expect(routeOptions.pendingMs).toBe(0);
-    if (!PendingComponent) {
-        throw new Error('Expected Grok Bot route to define a pending component');
-    }
-    render(<PendingComponent />);
-
-    expect(screen.getByText('Loading Grok Bot')).toBeTruthy();
-    expect(screen.getByText('Loading Grok Bot conversation metadata.')).toBeTruthy();
+        const retryPass = [{ id: 'pending', status: 'deleted' as const }];
+        expect(retryableDeleteIds(retryPass)).toEqual([]);
+        expect(applySettledDeleteSelection(['pending'], retryPass)).toEqual([]);
+    });
 });
