@@ -100,6 +100,19 @@ type ClaudeArtifactCandidate = {
     title: string;
 };
 
+type ClaudeArtifactAppend = {
+    content: string;
+    id: string | null;
+    path: string;
+};
+
+type ClaudeArtifactState = {
+    artifact: WebChatArtifact;
+    createdContent: string;
+    id: string | null;
+    path: string;
+};
+
 const isRecord = (value: unknown): value is JsonRecord =>
     typeof value === 'object' && value !== null && !Array.isArray(value);
 
@@ -1128,51 +1141,128 @@ const getClaudeArtifactCandidate = (block: unknown): ClaudeArtifactCandidate | n
     };
 };
 
-const isSameClaudeArtifact = (
-    candidate: ClaudeArtifactCandidate,
-    existing: { artifact: WebChatArtifact; id: string | null; path: string },
-): boolean =>
+const getClaudeArtifactAppend = (block: unknown): ClaudeArtifactAppend | null => {
+    if (!isRecord(block) || getBlockType(block) !== 'tool_use') {
+        return null;
+    }
+    if (firstString(block.name)?.toLowerCase() !== 'bash_tool') {
+        return null;
+    }
+    const input = isRecord(block.input) ? block.input : null;
+    const command = typeof input?.command === 'string' ? input.command : null;
+    const header = command?.match(/^cat >> ([^\s;&|<>()"'`$\\]+) << (['"])([A-Za-z_][A-Za-z0-9_]*)\2(\r\n|\n)/u);
+    if (!command || !header) {
+        return null;
+    }
+    const [, path, , delimiter, newline] = header;
+    const bodyStart = header[0].length;
+    const closingPrefix = `${newline}${delimiter}`;
+    const closingIndex = command.indexOf(closingPrefix, bodyStart);
+    if (closingIndex === -1) {
+        return null;
+    }
+    const delimiterEnd = closingIndex + closingPrefix.length;
+    const afterDelimiter = command.slice(delimiterEnd);
+    if (afterDelimiter && !afterDelimiter.startsWith(newline)) {
+        return null;
+    }
+    const suffix = afterDelimiter.startsWith(newline) ? afterDelimiter.slice(newline.length) : afterDelimiter;
+    if (suffix && suffix !== 'echo OK' && suffix !== `wc -c ${path}`) {
+        return null;
+    }
+    return {
+        content: command.slice(bodyStart, closingIndex + newline.length),
+        id: asString(block.id),
+        path,
+    };
+};
+
+const isSameClaudeArtifact = (candidate: ClaudeArtifactCandidate, existing: ClaudeArtifactState): boolean =>
     existing.id === candidate.id &&
     existing.path === candidate.path &&
     existing.artifact.title === candidate.title &&
-    existing.artifact.content === candidate.content;
+    existing.createdContent === candidate.content;
+
+const getClaudeFailedToolUseIds = (blocks: unknown[]): Set<string> =>
+    new Set(
+        blocks.flatMap((block) =>
+            isRecord(block) &&
+            getBlockType(block) === 'tool_result' &&
+            block.is_error === true &&
+            typeof block.tool_use_id === 'string'
+                ? [block.tool_use_id]
+                : [],
+        ),
+    );
+
+const nextClaudeArtifactId = (baseId: string, usedIds: Set<string>): string => {
+    let id = baseId;
+    let suffix = 2;
+    while (usedIds.has(id)) {
+        id = `${baseId}:${suffix}`;
+        suffix += 1;
+    }
+    usedIds.add(id);
+    return id;
+};
+
+const addClaudeArtifactCandidate = (
+    candidate: ClaudeArtifactCandidate,
+    candidates: ClaudeArtifactState[],
+    usedIds: Set<string>,
+    failedToolUseIds: Set<string>,
+): void => {
+    if (candidate.id && failedToolUseIds.has(candidate.id)) {
+        return;
+    }
+    // ponytail: O(n²) duplicate scan is bounded by the few file artifacts in a chat.
+    if (candidates.some((existing) => isSameClaudeArtifact(candidate, existing))) {
+        return;
+    }
+    const artifactId = nextClaudeArtifactId(candidate.id ?? `claude-artifact-${candidates.length + 1}`, usedIds);
+    candidates.push({
+        artifact: { content: candidate.content, id: artifactId, title: candidate.title },
+        createdContent: candidate.content,
+        id: candidate.id,
+        path: candidate.path,
+    });
+};
+
+const appendClaudeArtifact = (
+    append: ClaudeArtifactAppend | null,
+    candidates: ClaudeArtifactState[],
+    failedToolUseIds: Set<string>,
+    seenAppendIds: Set<string>,
+): void => {
+    if (!append || (append.id && failedToolUseIds.has(append.id))) {
+        return;
+    }
+    if (append.id && seenAppendIds.has(append.id)) {
+        return;
+    }
+    if (append.id) {
+        seenAppendIds.add(append.id);
+    }
+    const existing = candidates.findLast((item) => item.path === append.path);
+    if (existing) {
+        existing.artifact.content += append.content;
+    }
+};
 
 const getClaudeArtifacts = (sourceMessages: SourceMessage[]): WebChatArtifact[] => {
-    const candidates: Array<{
-        artifact: WebChatArtifact;
-        id: string | null;
-        path: string;
-    }> = [];
+    const candidates: ClaudeArtifactState[] = [];
     const usedIds = new Set<string>();
-    const nextArtifactId = (baseId: string): string => {
-        let id = baseId;
-        let suffix = 2;
-        while (usedIds.has(id)) {
-            id = `${baseId}:${suffix}`;
-            suffix += 1;
-        }
-        usedIds.add(id);
-        return id;
-    };
+    const blocks = sourceMessages.flatMap(({ message }) => getClaudeContentBlocks(message));
+    const failedToolUseIds = getClaudeFailedToolUseIds(blocks);
+    const seenAppendIds = new Set<string>();
 
-    for (const { message } of sourceMessages) {
-        const blocks = getClaudeContentBlocks(message);
-        for (const block of blocks) {
-            const candidate = getClaudeArtifactCandidate(block);
-            if (!candidate) {
-                continue;
-            }
-            // ponytail: O(n²) duplicate scan is bounded by the few file artifacts in a chat export.
-            if (candidates.some((existing) => isSameClaudeArtifact(candidate, existing))) {
-                continue;
-            }
-            const artifactId = nextArtifactId(candidate.id ?? `claude-artifact-${candidates.length + 1}`);
-            candidates.push({
-                artifact: { content: candidate.content, id: artifactId, title: candidate.title },
-                id: candidate.id,
-                path: candidate.path,
-            });
+    for (const block of blocks) {
+        const candidate = getClaudeArtifactCandidate(block);
+        if (candidate) {
+            addClaudeArtifactCandidate(candidate, candidates, usedIds, failedToolUseIds);
+            continue;
         }
+        appendClaudeArtifact(getClaudeArtifactAppend(block), candidates, failedToolUseIds, seenAppendIds);
     }
     return candidates.map(({ artifact }) => artifact);
 };
