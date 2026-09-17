@@ -156,7 +156,7 @@ export const createNativeRawDownload = async (
     );
 
     return {
-        blob: new Blob([zipSync(files, { level: 0 })], { type: 'application/zip' }),
+        blob: new Blob([zipSync(files, { level: 9 })], { type: 'application/zip' }),
         fileName: path.basename(archiveFileName),
         mimeType: 'application/zip',
     };

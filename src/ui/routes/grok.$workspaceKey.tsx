@@ -127,6 +127,7 @@ function GrokWorkspacePage() {
                               outputFormat: options.outputFormat,
                               sessionId: ids[0]!,
                               zipArchive: options.zipArchive,
+                              zipPassword: options.zipPassword,
                           },
                       })
                     : await exportGrokSessionsFn({
@@ -137,6 +138,7 @@ function GrokWorkspacePage() {
                               outputFormat: options.outputFormat,
                               sessionIds: [...ids],
                               zipArchive: options.zipArchive,
+                              zipPassword: options.zipPassword,
                           },
                       });
             if (download.mode === 'download') {

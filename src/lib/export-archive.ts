@@ -111,6 +111,21 @@ const isSafeArchiveMemberName = (value: string) =>
     !value.includes('\0') &&
     !/[\\/]/u.test(value);
 
+const MANIFEST_OPTION_KEYS = [
+    'failurePolicy',
+    'includeCommentary',
+    'includeMetadata',
+    'includeTools',
+    'messageSelector',
+    'outputFormat',
+] as const;
+
+const safeManifestOptions = (options: Record<string, unknown>) =>
+    Object.fromEntries(MANIFEST_OPTION_KEYS.flatMap((key) => (key in options ? [[key, options[key]]] : []))) as Record<
+        string,
+        unknown
+    >;
+
 export const cleanupConversationZipArtifacts = async (
     workspaceDir: string,
     zipPath?: string | null,
@@ -189,7 +204,7 @@ const buildManifest = ({
     failurePolicy,
     kind,
     missingCount: entries.filter((entry) => entry.status === 'missing').length,
-    options,
+    options: safeManifestOptions(options),
     requestedCount: entries.length,
     schemaVersion: EXPORT_ARCHIVE_MANIFEST_SCHEMA_VERSION,
     source,
@@ -266,7 +281,7 @@ const withGeneratedManifest = (
     ...(manifest
         ? [
               {
-                  bytes: `${JSON.stringify(manifest, null, 2)}\n`,
+                  bytes: `${JSON.stringify({ ...manifest, options: safeManifestOptions(manifest.options) }, null, 2)}\n`,
                   generated: true,
                   relativePath: EXPORT_ARCHIVE_MANIFEST_FILE,
               } satisfies ExportArchiveMember,
@@ -319,6 +334,7 @@ export const writeExportArchive = async ({
     members,
     platform,
     signal,
+    zipPassword,
 }: {
     baseName: string;
     destination: { mode: 'blob' } | { exportDir?: string; mode: 'download_url' };
@@ -326,6 +342,7 @@ export const writeExportArchive = async ({
     members: readonly ExportArchiveMember[];
     platform: string;
     signal?: AbortSignal;
+    zipPassword?: string;
 }): Promise<ExportArchiveBlob | ExportArchiveDownloadUrl> => {
     if (members.length === 0 && !manifest) {
         throw new Error('No conversations selected for export');
@@ -359,7 +376,7 @@ export const writeExportArchive = async ({
         await mkdir(entriesDir, { mode: 0o700 });
         await writeArchiveMembers(entriesDir, archiveMembers, signal);
         throwIfAborted(signal);
-        await zipExportDirectory(entriesDir, zipPath);
+        await zipExportDirectory(entriesDir, zipPath, zipPassword);
         throwIfAborted(signal);
         const archive = await publishedArchive(destination, zipPath, `${archiveBaseName}.zip`);
         published = true;

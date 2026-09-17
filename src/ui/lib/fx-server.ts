@@ -11,6 +11,7 @@ const exportOptionsSchema = {
     includeTools: optional(boolean(), true),
     outputFormat: optional(picklist(['md', 'txt']), 'md'),
     zipArchive: optional(boolean(), false),
+    zipPassword: optional(string(), ''),
 };
 const exportSessionSchema = object({ ...exportOptionsSchema, sessionId: pipe(string(), minLength(1)) });
 const exportSessionsSchema = object({
@@ -69,6 +70,7 @@ export const exportFxSessionFn = createServerFn({ method: 'POST' })
             sessionId: transcript.session.sessionId,
             updatedAtMs: transcript.session.lastActiveAtMs,
             zipArchive: data.zipArchive,
+            zipPassword: data.zipPassword,
         });
     });
 
@@ -99,6 +101,7 @@ export const exportFxSessionsFn = createServerFn({ method: 'POST' })
             outputFormat: data.outputFormat,
             platform: 'fx',
             zipArchive: true,
+            zipPassword: data.zipPassword,
         });
     });
 

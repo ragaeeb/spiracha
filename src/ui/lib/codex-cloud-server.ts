@@ -16,6 +16,7 @@ const exportSchema = object({
     outputFormat: picklist(['md', 'txt']),
     taskId: pipe(string(), minLength(1)),
     zipArchive: optional(boolean(), false),
+    zipPassword: optional(string(), ''),
 });
 
 const getCodexCloudClient = async () => {
@@ -46,6 +47,7 @@ const exportTasksSchema = object({
     outputFormat: picklist(['md', 'txt']),
     taskIds: pipe(array(pipe(string(), minLength(1))), minLength(1)),
     zipArchive: optional(boolean(), false),
+    zipPassword: optional(string(), ''),
 });
 
 const cloudExportOptions = (data: {
@@ -87,6 +89,7 @@ export const exportCodexCloudTaskFn = createServerFn({ method: 'POST' })
             sessionId: entry.sessionId,
             updatedAtMs: entry.updatedAtMs,
             zipArchive: data.zipArchive,
+            zipPassword: data.zipPassword,
         });
     });
 
@@ -105,5 +108,6 @@ export const exportCodexCloudTasksFn = createServerFn({ method: 'POST' })
             outputFormat: data.outputFormat,
             platform: 'codex',
             zipArchive: data.zipArchive,
+            zipPassword: data.zipPassword,
         });
     });

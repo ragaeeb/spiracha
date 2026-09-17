@@ -125,6 +125,7 @@ const MiniMaxCodeWorkspacePage = () => {
                               outputFormat: options.outputFormat,
                               sessionId: ids[0]!,
                               zipArchive: options.zipArchive,
+                              zipPassword: options.zipPassword,
                           },
                       })
                     : await exportMiniMaxCodeSessionsFn({
@@ -135,6 +136,7 @@ const MiniMaxCodeWorkspacePage = () => {
                               outputFormat: options.outputFormat,
                               sessionIds: [...ids],
                               zipArchive: options.zipArchive,
+                              zipPassword: options.zipPassword,
                           },
                       });
             if (download.mode === 'download') {

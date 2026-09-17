@@ -103,6 +103,7 @@ const FxWorkspacePage = () => {
                 includeTools: options.includeTools,
                 outputFormat: options.outputFormat,
                 zipArchive: options.zipArchive,
+                zipPassword: options.zipPassword,
             };
             const download =
                 ids.length === 1

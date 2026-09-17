@@ -39,6 +39,7 @@ const exportOptionsSchema = {
     includeTools: optional(boolean(), true),
     outputFormat: optional(picklist(['md', 'txt']), 'md'),
     zipArchive: optional(boolean(), false),
+    zipPassword: optional(string(), ''),
 };
 
 const exportSchema = object({
@@ -159,6 +160,7 @@ export const exportWebChatFn = createServerFn({ method: 'POST' })
             sessionId: conversation.id,
             updatedAtMs: conversation.lastActiveAtMs,
             zipArchive: data.zipArchive,
+            zipPassword: data.zipPassword,
         });
     });
 
@@ -184,6 +186,7 @@ export const exportWebChatsFn = createServerFn({ method: 'POST' })
             outputFormat: data.outputFormat,
             platform: 'web',
             zipArchive: data.zipArchive,
+            zipPassword: data.zipPassword,
         });
     });
 

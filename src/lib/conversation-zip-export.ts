@@ -21,6 +21,7 @@ type ConversationMarkdownZipOptions = {
     platform: string;
     signal?: AbortSignal;
     source?: string;
+    zipPassword?: string;
 };
 
 export type ConversationMarkdownZip = {
@@ -45,6 +46,7 @@ export const createConversationMarkdownZip = async ({
     platform,
     signal,
     source = platform,
+    zipPassword,
 }: ConversationMarkdownZipOptions): Promise<ConversationMarkdownZip> => {
     if (entries.length === 0) {
         throw new Error('No conversations selected for export');
@@ -86,6 +88,7 @@ export const createConversationMarkdownZip = async ({
         members: members.map(({ bytes, relativePath }) => ({ bytes, relativePath })),
         platform,
         signal,
+        zipPassword,
     });
     if ('downloadUrl' in archive) {
         throw new Error('Expected an in-memory conversation archive');

@@ -1,8 +1,8 @@
-import { DEFAULT_EXPORT_DIALOG_OPTIONS, type ExportDialogOptions } from '#/lib/export-options';
+import { DEFAULT_EXPORT_DIALOG_OPTIONS, type PersistedExportDialogOptions } from '#/lib/export-options';
 
 export type Settings = {
     convertToProjectRoot: boolean;
-    exportDefaults: ExportDialogOptions;
+    exportDefaults: PersistedExportDialogOptions;
     redactUsername: boolean;
 };
 
@@ -19,7 +19,7 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
 
 const booleanOrDefault = (value: unknown, fallback: boolean) => (typeof value === 'boolean' ? value : fallback);
 
-const parseExportDefaults = (value: unknown): ExportDialogOptions => {
+const parseExportDefaults = (value: unknown): PersistedExportDialogOptions => {
     const record = asRecord(value);
     if (!record) {
         return DEFAULT_EXPORT_DIALOG_OPTIONS;

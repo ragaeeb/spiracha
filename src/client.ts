@@ -437,12 +437,14 @@ const buildBatchBody = ({
     messageSelector,
     outputFormat,
     source,
+    zipPassword,
 }: ExportConversationsZipOptions) => ({
     failure_policy: failurePolicy,
     ids,
     message_selector: messageSelector,
     output_format: outputFormat,
     source,
+    zip_password: zipPassword,
 });
 
 const exportLocalConversationsZip = async (
@@ -501,6 +503,7 @@ const exportLocalConversationsZip = async (
             manifest: assembled.manifest,
             members: assembled.members,
             platform: getExportPlatformName(options.source),
+            zipPassword: options.zipPassword,
         });
         if ('downloadUrl' in archive) {
             throw new Error('Expected an in-memory conversation archive');

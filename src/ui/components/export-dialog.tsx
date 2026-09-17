@@ -27,7 +27,12 @@ import {
     useDownloadCancellation,
 } from '#/lib/download';
 import { requestEvidenceExport } from '#/lib/evidence-export';
-import type { ExportDialogOptions, ExportLifecycleCallbacks } from '#/lib/export-options';
+import {
+    type ExportDialogOptions,
+    type ExportLifecycleCallbacks,
+    readStoredZipPassword,
+    storeZipPassword,
+} from '#/lib/export-options';
 import { useSettings } from '#/lib/settings-store';
 import { exportRawConversationsFn } from '#/lib/source-raw-export-server';
 import { EvidenceLensEditor } from './evidence-lens-editor';
@@ -38,7 +43,7 @@ type ExportDialogProps = {
     forceZipArchive?: boolean;
     focusedEvidenceTarget?: { id: string; source: ConversationSource };
     open: boolean;
-    onRawJsonExport?: (callbacks: ExportLifecycleCallbacks) => void;
+    onRawJsonExport?: (options: ExportDialogOptions, callbacks: ExportLifecycleCallbacks) => void;
     pending?: boolean;
     rawExport?: { ids: readonly string[]; source: ConversationSource };
     skippedThreadCount?: number;
@@ -133,22 +138,42 @@ const FullExportControls = ({
                 </span>
             </div>
         ) : null}
-        <div className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--panel-secondary)] p-3">
-            <Checkbox
-                aria-label="Zip archive"
-                aria-describedby={zipDescriptionId}
-                checked={effectiveZipArchive}
-                disabled={forceZipArchive}
-                onCheckedChange={(checked) => onChange({ zipArchive: checked === true })}
-            />
-            <span className="space-y-1">
-                <span className="block font-medium text-sm">Zip archive</span>
-                <span className="block text-[var(--muted-foreground)] text-sm" id={zipDescriptionId}>
-                    {forceZipArchive
-                        ? 'Required when exporting multiple threads.'
-                        : 'Downloads the exported transcript inside a .zip archive.'}
+        <div className="space-y-3 rounded-2xl border border-[var(--border)] bg-[var(--panel-secondary)] p-3">
+            <div className="flex items-start gap-3">
+                <Checkbox
+                    aria-label="Zip archive"
+                    aria-describedby={zipDescriptionId}
+                    checked={effectiveZipArchive}
+                    disabled={forceZipArchive}
+                    onCheckedChange={(checked) => onChange({ zipArchive: checked === true })}
+                />
+                <span className="space-y-1">
+                    <span className="block font-medium text-sm">Zip archive</span>
+                    <span className="block text-[var(--muted-foreground)] text-sm" id={zipDescriptionId}>
+                        {forceZipArchive
+                            ? 'Required when exporting multiple threads.'
+                            : 'Downloads the exported transcript inside a .zip archive.'}
+                    </span>
                 </span>
-            </span>
+            </div>
+            {effectiveZipArchive ? (
+                <div className="space-y-2 pl-7">
+                    <label className="font-medium text-sm" htmlFor="zip-password">
+                        ZIP password (optional)
+                    </label>
+                    <input
+                        autoComplete="new-password"
+                        className="flex h-9 w-full rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-[var(--foreground)] text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        id="zip-password"
+                        onChange={(event) => onChange({ zipPassword: event.target.value })}
+                        type="password"
+                        value={options.zipPassword}
+                    />
+                    <p className="text-[var(--muted-foreground)] text-sm">
+                        Uses AES-256 encryption. Leave blank for an unprotected archive.
+                    </p>
+                </div>
+            ) : null}
         </div>
     </>
 );
@@ -344,7 +369,10 @@ export function ExportDialog({
     onOpenChange,
 }: ExportDialogProps) {
     const { settings, updateSetting } = useSettings();
-    const [options, setOptions] = useState<ExportDialogOptions>(settings.exportDefaults);
+    const [options, setOptions] = useState<ExportDialogOptions>(() => ({
+        ...settings.exportDefaults,
+        zipPassword: readStoredZipPassword(),
+    }));
     const [submitted, setSubmitted] = useState(false);
     const [mode, setMode] = useState<ExportMode>('full');
     const [lens, setLens] = useState<EvidenceLens>(DEFAULT_EVIDENCE_LENS);
@@ -378,7 +406,10 @@ export function ExportDialog({
     useEffect(() => {
         if (!open) {
             submissionToken.current += 1;
-            setOptions(settings.exportDefaults);
+            setOptions({
+                ...settings.exportDefaults,
+                zipPassword: readStoredZipPassword(),
+            });
             setSubmitted(false);
             submissionInProgress.current = false;
             setMode('full');
@@ -450,7 +481,7 @@ export function ExportDialog({
                 throw new Error('Original raw export is unavailable for this selection.');
             }
             const download = await exportRawConversationsFn({
-                data: { ids: [...target.ids], source: target.source },
+                data: { ids: [...target.ids], source: target.source, zipPassword: options.zipPassword },
             });
             if (download.mode === 'download_base64') {
                 downloadRawBase64File(download.fileName, download.contentBase64, download.mimeType, {
@@ -476,7 +507,7 @@ export function ExportDialog({
         }
 
         if (onRawJsonExport) {
-            onRawJsonExport({ onDownloadStateChange: setDownloadState });
+            onRawJsonExport(options, { onDownloadStateChange: setDownloadState });
             return;
         }
 
@@ -503,7 +534,13 @@ export function ExportDialog({
             await submitRawExport();
             return;
         }
-        updateSetting('exportDefaults', options);
+        updateSetting('exportDefaults', {
+            includeCommentary: options.includeCommentary,
+            includeMetadata: options.includeMetadata,
+            includeTools: options.includeTools,
+            outputFormat: options.outputFormat,
+            zipArchive: options.zipArchive,
+        });
         onExport({ ...options, zipArchive: effectiveZipArchive }, { onDownloadStateChange: setDownloadState });
     };
 
@@ -540,7 +577,12 @@ export function ExportDialog({
                             setPreview(null);
                             setExportError(null);
                         }}
-                        onOptionsChange={(nextOptions) => setOptions((current) => ({ ...current, ...nextOptions }))}
+                        onOptionsChange={(nextOptions) => {
+                            if (nextOptions.zipPassword !== undefined) {
+                                storeZipPassword(nextOptions.zipPassword);
+                            }
+                            setOptions((current) => ({ ...current, ...nextOptions }));
+                        }}
                     />
                 </div>
 

@@ -29,6 +29,7 @@ const exportSchema = object({
     includeTools: optional(boolean(), true),
     outputFormat: optional(picklist(['md', 'txt']), 'md'),
     zipArchive: optional(boolean(), false),
+    zipPassword: optional(string(), ''),
 });
 
 const exportConversationsSchema = object({
@@ -38,6 +39,7 @@ const exportConversationsSchema = object({
     includeTools: optional(boolean(), true),
     outputFormat: optional(picklist(['md', 'txt']), 'md'),
     zipArchive: optional(boolean(), true),
+    zipPassword: optional(string(), ''),
 });
 
 const deleteConversationsSchema = object({
@@ -353,6 +355,7 @@ export const exportAntigravityConversationFn = createServerFn({ method: 'POST' }
             includeTools: data.includeTools,
             outputFormat: data.outputFormat,
             zipArchive: data.zipArchive,
+            zipPassword: data.zipPassword,
         });
     });
 
@@ -419,6 +422,7 @@ export const exportAntigravityConversations = async (input: InferInput<typeof ex
         outputFormat: data.outputFormat,
         platform: 'antigravity',
         zipArchive: data.zipArchive,
+        zipPassword: data.zipPassword,
     });
 };
 

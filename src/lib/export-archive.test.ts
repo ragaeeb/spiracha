@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { BlobReader, ZipReader } from '@zip.js/zip.js';
 import { unzipSync } from 'fflate';
 import {
     AtomicExportError,
@@ -53,6 +54,19 @@ describe('assembleExportBatch', () => {
             successCount: 2,
         });
         expect(assembled.manifest.entries.map((entry) => entry.requestedId)).toEqual(['b', 'a']);
+    });
+
+    it('should whitelist manifest options instead of retaining a ZIP password', async () => {
+        const assembled = await assembleExportBatch({
+            failurePolicy: 'atomic',
+            kind: 'batch_normalized_export',
+            load: async () => ({ members: [{ bytes: 'ok', relativePath: 'ok.md' }] }),
+            options: { includeTools: true, outputFormat: 'md', zipPassword: 'do-not-persist' },
+            requestedIds: ['ok'],
+            source: 'grok',
+        });
+
+        expect(assembled.manifest.options).toEqual({ includeTools: true, outputFormat: 'md' });
     });
 
     it('should refuse to publish an atomic batch when any requested id is missing', async () => {
@@ -223,6 +237,47 @@ describe('writeExportArchive', () => {
             }),
         ).rejects.toThrow(/aborted/i);
         expect((await readdir(exportDir)).filter((name) => name.endsWith('.zip'))).toEqual([]);
+    });
+
+    it('should encrypt every archive member, including the manifest, without leaking the password', async () => {
+        const password = 'archive password';
+        const result = await writeExportArchive({
+            baseName: 'protected',
+            destination: { mode: 'blob' },
+            manifest: {
+                entries: [],
+                failedCount: 0,
+                failurePolicy: 'atomic',
+                kind: 'batch_normalized_export',
+                missingCount: 0,
+                options: { outputFormat: 'md', zipPassword: password },
+                requestedCount: 0,
+                schemaVersion: 1,
+                source: 'grok',
+                successCount: 0,
+            },
+            members: [{ bytes: '# Secret\n', relativePath: 'secret.md' }],
+            platform: 'grok',
+            zipPassword: password,
+        });
+        if (!('blob' in result)) {
+            throw new Error('expected an in-memory archive');
+        }
+
+        const reader = new ZipReader(new BlobReader(result.blob));
+        const entries = await reader.getEntries();
+        expect(entries).toHaveLength(2);
+        expect(entries.every((entry) => entry.encrypted)).toBe(true);
+        const manifestEntry = entries.find((entry) => entry.filename === EXPORT_ARCHIVE_MANIFEST_FILE);
+        if (!manifestEntry || manifestEntry.directory) {
+            throw new Error('expected an encrypted manifest file entry');
+        }
+        const manifest = JSON.parse(
+            new TextDecoder().decode(new Uint8Array(await manifestEntry.arrayBuffer({ password }))),
+        ) as { options: Record<string, unknown> };
+        expect(manifest.options).toEqual({ outputFormat: 'md' });
+        expect(JSON.stringify(manifest)).not.toContain(password);
+        await reader.close();
     });
 });
 

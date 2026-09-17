@@ -91,7 +91,7 @@ describe('package manifest', () => {
     it('should keep only direct client dependencies at runtime', async () => {
         const manifest = await readPackageManifest();
 
-        expect(manifest.dependencies).toEqual({ fflate: '0.8.3' });
+        expect(manifest.dependencies).toEqual({ '@zip.js/zip.js': '^2.15.0', fflate: '0.8.3' });
 
         for (const dependencyName of requiredUiDevelopmentDependencies) {
             expect(manifest.devDependencies?.[dependencyName], dependencyName).toBeDefined();

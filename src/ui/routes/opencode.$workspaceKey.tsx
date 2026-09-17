@@ -140,6 +140,7 @@ function OpenCodeWorkspaceContent({
                               outputFormat: options.outputFormat,
                               sessionId: ids[0]!,
                               zipArchive: options.zipArchive,
+                              zipPassword: options.zipPassword,
                           },
                       })
                     : await exportOpenCodeSessionsFn({
@@ -150,6 +151,7 @@ function OpenCodeWorkspaceContent({
                               outputFormat: options.outputFormat,
                               sessionIds: [...ids],
                               zipArchive: options.zipArchive,
+                              zipPassword: options.zipPassword,
                           },
                       });
             if (download.mode === 'download') {

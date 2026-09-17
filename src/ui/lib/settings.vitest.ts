@@ -45,10 +45,24 @@ describe('settings persistence', () => {
                     includeTools: 1,
                     outputFormat: 'html',
                     zipArchive: 'yes',
+                    zipPassword: 'secret',
                 },
                 redactUsername: 1,
             }),
         ).toEqual(DEFAULT_SETTINGS);
+    });
+
+    it('should keep ZIP passwords out of cookie-backed settings', () => {
+        const settings = normalizeSettings({
+            ...DEFAULT_SETTINGS,
+            exportDefaults: {
+                ...DEFAULT_SETTINGS.exportDefaults,
+                zipPassword: 'secret',
+            },
+        });
+
+        expect(settings).toEqual(DEFAULT_SETTINGS);
+        expect(serializeSettings(settings)).not.toContain('secret');
     });
 
     it('should serialize settings for the server cookie encoder', () => {

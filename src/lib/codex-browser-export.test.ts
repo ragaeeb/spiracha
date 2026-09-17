@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { BlobReader, ZipReader } from '@zip.js/zip.js';
 import { strFromU8, unzipSync } from 'fflate';
 import {
     isArchiveWideFailure,
@@ -125,6 +126,35 @@ describe('renderCodexThreadDownload', () => {
         expect(download.content).toContain('## Tool');
         expect(download.content).toContain('Tool: exec');
         expect(download.content).toContain('Modern tool output');
+    });
+
+    it('should archive a small single-thread export when a ZIP password is supplied', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-export-password-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexFixture(tempRoot);
+
+        const download = await renderCodexThreadDownload({
+            dbPath: fixture.dbPath,
+            includeCommentary: true,
+            includeMetadata: true,
+            includeTools: true,
+            largeExportThresholdBytes: 1_000_000,
+            outputFormat: 'md',
+            publicExportDir: tempRoot,
+            threadId: fixture.threadId,
+            zipPassword: 'codex password',
+        });
+
+        expect(download.mode).toBe('download_url');
+        if (download.mode !== 'download_url') {
+            throw new Error('expected a password-protected zip download');
+        }
+        const archive = await Bun.file(path.join(tempRoot, path.basename(download.downloadUrl))).arrayBuffer();
+        const reader = new ZipReader(new BlobReader(new Blob([archive])));
+        const entries = await reader.getEntries();
+        expect(entries).toHaveLength(1);
+        expect(entries[0]?.encrypted).toBe(true);
+        await reader.close();
     });
 
     it('should preserve raw JSON bytes with source and conversation filenames', async () => {

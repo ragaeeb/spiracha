@@ -37,6 +37,7 @@ type RenderCodexThreadDownloadInput = {
     publicExportDir?: string;
     threadId: string;
     zipArchive?: boolean;
+    zipPassword?: string;
 };
 
 type RenderCodexThreadsDownloadInput = Omit<RenderCodexThreadDownloadInput, 'threadId'> & {
@@ -355,6 +356,7 @@ export const renderCodexThreadDownload = async (
 
                 if (
                     input.zipArchive ||
+                    (input.zipPassword !== undefined && input.zipPassword !== '') ||
                     rollout.before.sizeBytes >
                         (input.largeExportThresholdBytes ?? resolveUiRuntimeConfig().largeExportThresholdBytes)
                 ) {
@@ -364,6 +366,7 @@ export const renderCodexThreadDownload = async (
                         destination: { exportDir, mode: 'download_url' },
                         members: [{ bytes: content, relativePath: fileName }],
                         platform: 'codex',
+                        zipPassword: input.zipPassword,
                     });
                     const download = toCodexDownloadUrl(archive);
                     logExportEvent('info', 'single_zip_ready', {
@@ -558,6 +561,7 @@ export const renderCodexThreadsDownload = async (
             },
             members,
             platform: 'codex',
+            zipPassword: input.zipPassword,
         });
         const download = toCodexDownloadUrl(archive);
         logExportEvent('info', 'batch_ready', {

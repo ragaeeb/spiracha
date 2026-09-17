@@ -10,6 +10,7 @@
         "url": "https://github.com/ragaeeb/spiracha/issues"
     },
     "dependencies": {
+        "@zip.js/zip.js": "^2.15.0",
         "fflate": "0.8.3"
     },
     "description": "Browse and expose local Codex, Claude Code, Command Code, Grok, Grok Bot, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode conversation history through a local UI and stable data API.",

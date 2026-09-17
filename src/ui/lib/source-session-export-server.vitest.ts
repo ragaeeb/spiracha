@@ -9,6 +9,10 @@ import {
     renderSourceSessionsDownload,
 } from './source-session-export-server';
 
+const { zipExportDirectoryMock } = vi.hoisted(() => ({
+    zipExportDirectoryMock: vi.fn(),
+}));
+
 vi.mock('@spiracha/lib/ui-export-archive', async () => {
     const actual = await vi.importActual<typeof import('@spiracha/lib/ui-export-archive')>(
         '@spiracha/lib/ui-export-archive',
@@ -18,10 +22,7 @@ vi.mock('@spiracha/lib/ui-export-archive', async () => {
 
 vi.mock('@spiracha/lib/ui-export-zip', () => {
     return {
-        zipExportDirectory: vi.fn(async (_sourceDirectory: string, zipPath: string) => {
-            const fs = await import('node:fs/promises');
-            await fs.writeFile(zipPath, 'zip');
-        }),
+        zipExportDirectory: zipExportDirectoryMock,
     };
 });
 
@@ -30,6 +31,11 @@ let previousExportDir: string | undefined;
 let bunWriteMock: ReturnType<typeof vi.fn>;
 
 beforeEach(async () => {
+    zipExportDirectoryMock.mockReset();
+    zipExportDirectoryMock.mockImplementation(async (_sourceDirectory: string, zipPath: string) => {
+        const fs = await import('node:fs/promises');
+        await fs.writeFile(zipPath, 'zip');
+    });
     previousExportDir = process.env[UI_EXPORT_DIR_ENV];
     exportDir = await mkdtemp(path.join(os.tmpdir(), 'spiracha-source-session-export-test-'));
     process.env[UI_EXPORT_DIR_ENV] = exportDir;
@@ -78,6 +84,24 @@ describe('source session export server helpers', () => {
             throw new Error('expected a zip download URL');
         }
         expect(result.fileName).toBe('claude_spiracha-2026-05-17-1712-019e36d7.zip');
+    });
+
+    it('should forward a ZIP password to the shared archive writer', async () => {
+        const result = await renderSourceSessionDownload({
+            content: '# Protected session',
+            cwd: '/Users/example/workspace/spiracha',
+            fallbackBaseName: 'source-session',
+            largeExportThresholdBytes: 1_000_000,
+            outputFormat: 'md',
+            platform: 'claude',
+            sessionId: '019e36d7-ba2d-7fa1-b662-3f70fbbda248',
+            updatedAtMs: Date.UTC(2026, 4, 17, 17, 12),
+            zipArchive: false,
+            zipPassword: '  passphrase  ',
+        });
+
+        expect(result.mode).toBe('download_url');
+        expect(zipExportDirectoryMock).toHaveBeenCalledWith(expect.any(String), expect.any(String), '  passphrase  ');
     });
 
     it('should keep a single unzipped source session export inline', async () => {
@@ -223,5 +247,26 @@ describe('source session export server helpers', () => {
         expect((await stat(resolveDownloadPath(batch.downloadUrl))).isFile()).toBe(true);
         expect(new TextDecoder().decode(bunWriteMock.mock.calls[0]?.[1] as ArrayBuffer)).toBe(firstContent);
         expect(new TextDecoder().decode(bunWriteMock.mock.calls[1]?.[1] as ArrayBuffer)).toBe(secondContent);
+    });
+
+    it('should archive a small raw conversation when a ZIP password is supplied', async () => {
+        const result = await renderRawConversationDownloads({
+            downloads: [
+                {
+                    download: {
+                        blob: new Blob(['raw bytes']),
+                        fileName: 'messages.jsonl',
+                        mimeType: 'application/x-ndjson',
+                    },
+                    id: 'task-1',
+                },
+            ],
+            largeExportThresholdBytes: 1_000_000,
+            source: 'cline',
+            zipPassword: 'raw password',
+        });
+
+        expect(result.mode).toBe('download_url');
+        expect(zipExportDirectoryMock).toHaveBeenCalledWith(expect.any(String), expect.any(String), 'raw password');
     });
 });

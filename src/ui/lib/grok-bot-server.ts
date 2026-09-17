@@ -19,6 +19,7 @@ const exportOptionsSchema = {
     includeTools: optional(boolean(), true),
     outputFormat: optional(picklist(['md', 'txt']), 'md'),
     zipArchive: optional(boolean(), false),
+    zipPassword: optional(string(), ''),
 };
 
 const exportSchema = object({
@@ -179,6 +180,7 @@ export const exportGrokBotChatFn = createServerFn({ method: 'POST' })
             sessionId: conversation.id,
             updatedAtMs: conversation.updatedAtMs,
             zipArchive: data.zipArchive,
+            zipPassword: data.zipPassword,
         });
     });
 
@@ -204,6 +206,7 @@ export const exportGrokBotChatsFn = createServerFn({ method: 'POST' })
             outputFormat: data.outputFormat,
             platform: 'grok-bot',
             zipArchive: data.zipArchive,
+            zipPassword: data.zipPassword,
         });
     });
 

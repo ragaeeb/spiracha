@@ -220,7 +220,12 @@ describe('conversation client', () => {
             expect(packResult.exitCode, packResult.stderrText).toBe(0);
             const installedFflateDirectory = path.join(process.cwd(), 'node_modules/fflate');
             const consumerFflateDirectory = path.join(tempRoot, 'fflate');
-            await cp(installedFflateDirectory, consumerFflateDirectory, { recursive: true });
+            const installedZipJsDirectory = path.join(process.cwd(), 'node_modules/@zip.js/zip.js');
+            const consumerZipJsDirectory = path.join(tempRoot, 'zip.js');
+            await Promise.all([
+                cp(installedFflateDirectory, consumerFflateDirectory, { recursive: true }),
+                cp(installedZipJsDirectory, consumerZipJsDirectory, { recursive: true }),
+            ]);
             const fflateManifestPath = path.join(consumerFflateDirectory, 'package.json');
             const fflateManifest = (await Bun.file(fflateManifestPath).json()) as Record<string, unknown>;
             delete fflateManifest.devDependencies;
@@ -233,7 +238,10 @@ describe('conversation client', () => {
                         dependencies: {
                             spiracha: `file:${packagePath}`,
                         },
-                        overrides: { fflate: `file:${consumerFflateDirectory}` },
+                        overrides: {
+                            '@zip.js/zip.js': `file:${consumerZipJsDirectory}`,
+                            fflate: `file:${consumerFflateDirectory}`,
+                        },
                         private: true,
                         type: 'module',
                     },
@@ -579,6 +587,7 @@ describe('conversation client', () => {
             const download = await client.exportConversationsZip({
                 ids: ['session-1', 'session-2'],
                 source: 'grok',
+                zipPassword: '  client password 🔐  ',
             });
 
             expect(download).not.toBeNull();
@@ -590,6 +599,7 @@ describe('conversation client', () => {
                     body: {
                         ids: ['session-1', 'session-2'],
                         source: 'grok',
+                        zip_password: '  client password 🔐  ',
                     },
                     method: 'POST',
                     pathname: '/api/v1/conversations/export',

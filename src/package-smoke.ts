@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { BlobReader, ZipReader } from '@zip.js/zip.js';
 import { createCodexBrowserFixture } from './lib/codex-test-helpers';
 import { geminiResearchPayload, payloadSourceFixtures } from './lib/conversation-payload-test-helpers';
 import { buildIsolatedRuntimeEnv } from './lib/isolated-runtime-test-helpers';
@@ -275,6 +276,29 @@ try {
         try {
             const probe = await waitForServer(url);
             await verifyPackagedUi(url, probe);
+            const exportResponse = await fetch(new URL('/api/v1/conversations/export', url), {
+                body: JSON.stringify({
+                    ids: [codexFixture.threads[0]!.threadId],
+                    source: 'codex',
+                    zip_password: 'packaged smoke password',
+                }),
+                headers: { 'Content-Type': 'application/json' },
+                method: 'POST',
+            });
+            if (!exportResponse.ok) {
+                throw new Error('Packaged Spiracha ZIP export returned an error.');
+            }
+            const reader = new ZipReader(new BlobReader(await exportResponse.blob()));
+            const entries = await reader.getEntries();
+            if (entries.length !== 2 || entries.some((entry) => !entry.encrypted)) {
+                throw new Error('Packaged Spiracha ZIP export was not encrypted member-by-member.');
+            }
+            const archiveEntry = entries.find((entry) => !entry.directory);
+            if (!archiveEntry || archiveEntry.directory) {
+                throw new Error('Packaged Spiracha ZIP export had no file entries.');
+            }
+            await archiveEntry.arrayBuffer({ password: 'packaged smoke password' });
+            await reader.close();
         } catch (error) {
             proc.kill('SIGTERM');
             const [stdoutText, stderrText] = await Promise.all([stdoutPromise, stderrPromise]);

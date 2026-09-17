@@ -19,6 +19,7 @@ const exportSessionSchema = object({
     outputFormat: optional(picklist(['md', 'txt']), 'md'),
     sessionId: pipe(string(), minLength(1)),
     zipArchive: optional(boolean(), false),
+    zipPassword: optional(string(), ''),
 });
 
 const exportSessionsSchema = object({
@@ -28,6 +29,7 @@ const exportSessionsSchema = object({
     outputFormat: optional(picklist(['md', 'txt']), 'md'),
     sessionIds: pipe(array(pipe(string(), minLength(1))), minLength(1)),
     zipArchive: optional(boolean(), true),
+    zipPassword: optional(string(), ''),
 });
 
 export const listQoderWorkspacesFn = createServerFn({ method: 'GET' }).handler(async () => {
@@ -99,6 +101,7 @@ export const exportQoderSessionFn = createServerFn({ method: 'POST' })
             sessionId: transcript.session.sessionId,
             updatedAtMs: transcript.session.lastActiveAtMs,
             zipArchive: data.zipArchive,
+            zipPassword: data.zipPassword,
         });
     });
 
@@ -137,6 +140,7 @@ export const exportQoderSessionsFn = createServerFn({ method: 'POST' })
             outputFormat: data.outputFormat,
             platform: 'qoder',
             zipArchive: data.zipArchive,
+            zipPassword: data.zipPassword,
         });
     });
 

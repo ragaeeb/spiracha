@@ -51,6 +51,7 @@ const exportSchema = object({
     redactUsername: boolean(),
     threadId: pipe(string(), minLength(1)),
     zipArchive: optional(boolean(), false),
+    zipPassword: optional(string(), ''),
 });
 
 const exportThreadsSchema = object({
@@ -62,10 +63,12 @@ const exportThreadsSchema = object({
     redactUsername: boolean(),
     threadIds: pipe(array(pipe(string(), minLength(1))), minLength(1)),
     zipArchive: optional(boolean(), true),
+    zipPassword: optional(string(), ''),
 });
 
 const exportRawThreadsSchema = object({
     threadIds: pipe(array(pipe(string(), minLength(1))), minLength(1)),
+    zipPassword: optional(string(), ''),
 });
 
 const getDbPath = async () => {
@@ -251,6 +254,7 @@ export const exportThreadFn = createServerFn({ method: 'POST' })
             },
             threadId: data.threadId,
             zipArchive: data.zipArchive,
+            zipPassword: data.zipPassword,
         });
     });
 
@@ -270,6 +274,7 @@ export const exportThreadsFn = createServerFn({ method: 'POST' })
             },
             threadIds: data.threadIds,
             zipArchive: data.zipArchive,
+            zipPassword: data.zipPassword,
         });
     });
 
@@ -288,6 +293,7 @@ export const exportRawThreadsFn = createServerFn({ method: 'POST' })
                 includeTools: false,
                 outputFormat: 'json',
                 threadId: data.threadIds[0]!,
+                zipPassword: data.zipPassword,
             });
         }
 
@@ -299,6 +305,7 @@ export const exportRawThreadsFn = createServerFn({ method: 'POST' })
             outputFormat: 'json',
             threadIds: data.threadIds,
             zipArchive: true,
+            zipPassword: data.zipPassword,
         });
     });
 

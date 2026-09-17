@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as download from '#/lib/download';
+import { ZIP_PASSWORD_STORAGE_KEY } from '#/lib/export-options';
 import { SettingsProvider } from '#/lib/settings-store';
 import { ExportDialog } from './export-dialog';
 
@@ -48,7 +49,7 @@ describe('ExportDialog', () => {
                 }),
             );
             expect(exportRawConversationsFnMock).toHaveBeenCalledWith({
-                data: { ids: ['thread-1'], source: 'codex' },
+                data: { ids: ['thread-1'], source: 'codex', zipPassword: '' },
             });
         } finally {
             HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
@@ -106,7 +107,7 @@ describe('ExportDialog', () => {
                 }),
             );
             expect(exportRawConversationsFnMock).toHaveBeenCalledWith({
-                data: { ids: ['chat-1'], source: 'grok-bot' },
+                data: { ids: ['chat-1'], source: 'grok-bot', zipPassword: '' },
             });
         } finally {
             HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
@@ -150,7 +151,9 @@ describe('ExportDialog', () => {
             fireEvent.click(screen.getByText('Raw JSON'));
             fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
 
-            expect(onRawJsonExport).toHaveBeenCalledWith({ onDownloadStateChange: expect.any(Function) });
+            expect(onRawJsonExport).toHaveBeenCalledWith(expect.objectContaining({ zipPassword: '' }), {
+                onDownloadStateChange: expect.any(Function),
+            });
         } finally {
             HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
         }
@@ -183,7 +186,7 @@ describe('ExportDialog', () => {
 
             await waitFor(() =>
                 expect(exportRawConversationsFnMock).toHaveBeenCalledWith({
-                    data: { ids: ['task-1', 'task-2'], source: 'cline' },
+                    data: { ids: ['task-1', 'task-2'], source: 'cline', zipPassword: '' },
                 }),
             );
             expect(downloadUrlFile).toHaveBeenCalledWith(
@@ -501,6 +504,34 @@ describe('ExportDialog', () => {
             }),
             expect.any(Object),
         );
+    });
+
+    it('should remember the ZIP password in local storage and restore it on reopen', () => {
+        const onExport = vi.fn();
+        const renderDialog = (open: boolean) => (
+            <SettingsProvider>
+                <ExportDialog open={open} onExport={onExport} onOpenChange={vi.fn()} />
+            </SettingsProvider>
+        );
+        const { rerender } = render(renderDialog(true));
+
+        expect(screen.queryByLabelText('ZIP password (optional)')).toBeNull();
+        fireEvent.click(screen.getByRole('checkbox', { name: /zip archive/i }));
+        const passwordInput = screen.getByLabelText('ZIP password (optional)') as HTMLInputElement;
+        const password = '  reusable password 🔐  ';
+        fireEvent.change(passwordInput, { target: { value: password } });
+
+        expect(window.localStorage.getItem(ZIP_PASSWORD_STORAGE_KEY)).toBe(password);
+        fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
+        expect(onExport).toHaveBeenCalledWith(
+            expect.objectContaining({ zipArchive: true, zipPassword: password }),
+            expect.any(Object),
+        );
+
+        rerender(renderDialog(false));
+        rerender(renderDialog(true));
+
+        expect((screen.getByLabelText('ZIP password (optional)') as HTMLInputElement).value).toBe(password);
     });
 
     it('should force zip archive for multi-thread exports', () => {
