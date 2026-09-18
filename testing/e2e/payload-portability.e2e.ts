@@ -1,4 +1,3 @@
-import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { payloadSourceFixtures } from '../../src/lib/conversation-payload-test-helpers';
 import { expect, test } from './fixtures';
@@ -17,7 +16,7 @@ for (const fixture of payloadSourceFixtures) {
                 await route.abort();
                 return;
             }
-            await route.fulfill({ body: await readFile(target), contentType: 'text/javascript' });
+            await route.fulfill({ body: await Bun.file(target).arrayBuffer(), contentType: 'text/javascript' });
         });
         await context.route('**/audit-payload-page', (route) =>
             route.fulfill({
