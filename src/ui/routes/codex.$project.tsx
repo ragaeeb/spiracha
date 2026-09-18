@@ -179,7 +179,7 @@ function ProjectDetailPage() {
             });
 
             const download = raw
-                ? await exportRawThreadsFn({ data: { threadIds: [...ids] } })
+                ? await exportRawThreadsFn({ data: { threadIds: [...ids], zipPassword: options.zipPassword } })
                 : ids.length === 1
                   ? await exportThreadFn({
                         data: {
@@ -392,12 +392,12 @@ function ProjectDetailPage() {
                         );
                     }
                 }}
-                onRawJsonExport={(callbacks) => {
+                onRawJsonExport={(options, callbacks) => {
                     if (pendingExport) {
                         exportThreadMutation.mutate({
                             ids: pendingExport.threadIds,
                             onDownloadStateChange: callbacks.onDownloadStateChange,
-                            options: settings.exportDefaults,
+                            options,
                             raw: true,
                         });
                     }

@@ -220,7 +220,12 @@ describe('conversation client', () => {
             expect(packResult.exitCode, packResult.stderrText).toBe(0);
             const installedFflateDirectory = path.join(process.cwd(), 'node_modules/fflate');
             const consumerFflateDirectory = path.join(tempRoot, 'fflate');
-            await cp(installedFflateDirectory, consumerFflateDirectory, { recursive: true });
+            const installedZipJsDirectory = path.join(process.cwd(), 'node_modules/@zip.js/zip.js');
+            const consumerZipJsDirectory = path.join(tempRoot, 'zip.js');
+            await Promise.all([
+                cp(installedFflateDirectory, consumerFflateDirectory, { recursive: true }),
+                cp(installedZipJsDirectory, consumerZipJsDirectory, { recursive: true }),
+            ]);
             const fflateManifestPath = path.join(consumerFflateDirectory, 'package.json');
             const fflateManifest = (await Bun.file(fflateManifestPath).json()) as Record<string, unknown>;
             delete fflateManifest.devDependencies;
@@ -233,7 +238,10 @@ describe('conversation client', () => {
                         dependencies: {
                             spiracha: `file:${packagePath}`,
                         },
-                        overrides: { fflate: `file:${consumerFflateDirectory}` },
+                        overrides: {
+                            '@zip.js/zip.js': `file:${consumerZipJsDirectory}`,
+                            fflate: `file:${consumerFflateDirectory}`,
+                        },
                         private: true,
                         type: 'module',
                     },
@@ -352,6 +360,25 @@ describe('conversation client', () => {
                 data: [],
                 meta: { hasNext: false, nextCursor: null },
             });
+        } finally {
+            server.stop(true);
+        }
+    });
+
+    it('should treat an explicit empty sources filter as an empty page without collecting', async () => {
+        const server = Bun.serve({
+            fetch() {
+                throw new Error('HTTP list must not run for sources:[]');
+            },
+            port: 0,
+        });
+
+        try {
+            const http = createConversationClient({ baseUrl: `http://127.0.0.1:${server.port}`, mode: 'http' });
+            const local = createConversationClient({ mode: 'local' });
+            const empty = { data: [], meta: { hasNext: false, nextCursor: null } };
+            await expect(http.listConversations({ cwd: '/repo', sources: [] })).resolves.toEqual(empty);
+            await expect(local.listConversations({ cwd: '/repo', sources: [] })).resolves.toEqual(empty);
         } finally {
             server.stop(true);
         }
@@ -560,6 +587,7 @@ describe('conversation client', () => {
             const download = await client.exportConversationsZip({
                 ids: ['session-1', 'session-2'],
                 source: 'grok',
+                zipPassword: '  client password 🔐  ',
             });
 
             expect(download).not.toBeNull();
@@ -571,6 +599,7 @@ describe('conversation client', () => {
                     body: {
                         ids: ['session-1', 'session-2'],
                         source: 'grok',
+                        zip_password: '  client password 🔐  ',
                     },
                     method: 'POST',
                     pathname: '/api/v1/conversations/export',

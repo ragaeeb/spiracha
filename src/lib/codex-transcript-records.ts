@@ -287,6 +287,10 @@ export const parseCodexTranscriptRecord = (
         return buildEventMessage(payload, payloadType, includeRaw ? parsed : {}, sequence, timestamp);
     }
 
+    if (parsed.type === 'message') {
+        return createMessageEvent(parsed, includeRaw ? parsed : {}, sequence, timestamp);
+    }
+
     if (parsed.type !== 'response_item') {
         return null;
     }

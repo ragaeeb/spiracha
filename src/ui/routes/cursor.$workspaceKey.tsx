@@ -298,6 +298,7 @@ const CursorWorkspacePage = () => {
                     })
                 }
                 onExportThreads={openExportForSelectedThreads}
+                authoritativeRows={threads}
                 threads={visibleThreads}
             />
 

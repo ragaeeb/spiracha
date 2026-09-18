@@ -116,6 +116,7 @@ const KiroWorkspacePage = () => {
                               outputFormat: options.outputFormat,
                               sessionId: ids[0]!,
                               zipArchive: options.zipArchive,
+                              zipPassword: options.zipPassword,
                           },
                       })
                     : await exportKiroSessionsFn({
@@ -126,6 +127,7 @@ const KiroWorkspacePage = () => {
                               outputFormat: options.outputFormat,
                               sessionIds: [...ids],
                               zipArchive: options.zipArchive,
+                              zipPassword: options.zipPassword,
                           },
                       });
             if (download.mode === 'download') {
@@ -224,6 +226,7 @@ const KiroWorkspacePage = () => {
                     sessions.map((session) => session.sessionId),
                     workspace.key,
                 )}
+                authoritativeRows={sessions}
                 sessions={visibleSessions}
                 onDeleteSession={(session) => openDeleteForSessions([session], 'selected')}
                 onDeleteSessions={(sessionIds) => openDeleteForSessions(lookupSelectedSessions(sessionIds), 'selected')}

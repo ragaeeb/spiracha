@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm, symlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { BlobReader, ZipReader } from '@zip.js/zip.js';
 import { strFromU8, unzipSync } from 'fflate';
 import { zipExportDirectory, zipExportFile } from './ui-export-zip';
 
@@ -15,7 +16,8 @@ describe('UI export ZIP helpers', () => {
     it('should create zip exports without a system zip executable', async () => {
         const implementation = await Bun.file(new URL('./ui-export-zip.ts', import.meta.url)).text();
         expect(implementation).not.toContain("Bun.spawn(['zip'");
-        expect(implementation).not.toContain('level: 9');
+        expect(implementation).toContain('level: 9');
+        expect(implementation).not.toContain('level: 3');
 
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'ui-export-zip-'));
         tempPaths.push(tempRoot);
@@ -47,6 +49,63 @@ describe('UI export ZIP helpers', () => {
         const bytes = new Uint8Array(await Bun.file(zipPath).arrayBuffer());
         expect([...bytes.slice(0, 4)]).toEqual([0x50, 0x4b, 0x03, 0x04]);
     });
+
+    it('should create AES-256 password-protected archives without changing member bytes', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'ui-export-zip-password-'));
+        tempPaths.push(tempRoot);
+        const sourcePath = path.join(tempRoot, 'unicode.bin');
+        const zipPath = path.join(tempRoot, 'unicode.zip');
+        const sourceBytes = new Uint8Array([0, 1, 127, 128, 254, 255]);
+        const password = '  correct horse 🔐  ';
+        await Bun.write(sourcePath, sourceBytes);
+
+        await zipExportFile(sourcePath, zipPath, password);
+
+        const reader = new ZipReader(new BlobReader(new Blob([await Bun.file(zipPath).arrayBuffer()])));
+        const entries = await reader.getEntries();
+        expect(entries).toHaveLength(1);
+        const entry = entries[0];
+        if (!entry || entry.directory) {
+            throw new Error('expected an encrypted file entry');
+        }
+        expect(entry.encrypted).toBe(true);
+        await expect(entry.arrayBuffer()).rejects.toThrow(/encrypted entry|password/i);
+        await expect(entry.arrayBuffer({ password: 'wrong password' })).rejects.toThrow(/invalid password/i);
+        expect(new Uint8Array(await entry.arrayBuffer({ password }))).toEqual(sourceBytes);
+        await reader.close();
+    });
+
+    it.skipIf(!Bun.which('7zz') && !Bun.which('7z'))(
+        'should be readable by an independent 7-Zip extractor',
+        async () => {
+            const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'ui-export-zip-7zip-'));
+            tempPaths.push(tempRoot);
+            const sourcePath = path.join(tempRoot, 'thread.md');
+            const zipPath = path.join(tempRoot, 'thread.zip');
+            const sourceBytes = new TextEncoder().encode('# Independent extraction ✅\n');
+            const password = 'zip test password';
+            await Bun.write(sourcePath, sourceBytes);
+            await zipExportFile(sourcePath, zipPath, password);
+
+            const sevenZipPath = Bun.which('7zz') ?? Bun.which('7z');
+            if (!sevenZipPath) {
+                return;
+            }
+            const proc = Bun.spawn([sevenZipPath, 'x', '-so', '-y', `-p${password}`, zipPath, 'thread.md'], {
+                stderr: 'pipe',
+                stdout: 'pipe',
+            });
+            const [exitCode, output, stderr] = await Promise.all([
+                proc.exited,
+                new Response(proc.stdout).arrayBuffer(),
+                new Response(proc.stderr).text(),
+            ]);
+            if (exitCode !== 0) {
+                throw new Error(stderr.trim() || `7-Zip failed with exit code ${exitCode}`);
+            }
+            expect(new Uint8Array(output)).toEqual(sourceBytes);
+        },
+    );
 
     it('should archive large files and nested export directories', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'ui-export-zip-large-'));

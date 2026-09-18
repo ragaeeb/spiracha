@@ -207,11 +207,12 @@ const finalizePayload = async (
     identity: string,
     options: ConvertConversationPayloadOptions,
 ): Promise<ConvertedConversation> => {
-    const allMessages = finalizeMessages(draft.messages);
+    const conversationId = draft.id ?? (await sha256Hex(identity)).slice(0, 32);
+    const allMessages = finalizeMessages(draft.messages, conversationId);
     const messages = selectConversationMessages(allMessages, options.messageSelector ?? 'all');
     const artifacts = draft.artifacts ?? [];
     const conversation = {
-        id: draft.id ?? (await sha256Hex(identity)).slice(0, 32),
+        id: conversationId,
         source: draft.source,
         title: draft.title ?? null,
         ...(draft.model ? { model: draft.model } : {}),

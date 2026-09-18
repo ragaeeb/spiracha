@@ -179,4 +179,25 @@ describe('deleteCommandCodeSession', () => {
             'Unable to verify whether Command Code is running: pgrep exited with status 2',
         );
     });
+
+    it('should reject copied-store receipts without unlinking the original session files', async () => {
+        const root = await makeRoot();
+        const files = await writeSessionFiles(root, 'project-a', 'session-a');
+        await deleteCommandCodeSession(root, 'session-a', {
+            ...stoppedWriter,
+            unlinkFile: async (filePath) => {
+                if (filePath === files.jsonl) {
+                    throw new Error('injected unlink failure');
+                }
+                await unlink(filePath);
+            },
+        });
+        const copyRoot = await makeRoot();
+        const { cp } = await import('node:fs/promises');
+        await cp(root, copyRoot, { recursive: true });
+        await expect(deleteCommandCodeSession(copyRoot, 'session-a', stoppedWriter)).rejects.toMatchObject({
+            reasonCode: 'unsafe_path',
+        });
+        expect(await Bun.file(files.jsonl).exists()).toBe(true);
+    });
 });

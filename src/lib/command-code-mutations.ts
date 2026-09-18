@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { lstat, rename, unlink } from 'node:fs/promises';
+import { lstat, realpath, rename, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import type { DeleteCommandCodeSessionResult } from './command-code-exporter-types';
 import { SourceMutationConflictError } from './conversation-data/operation-types';
@@ -32,7 +32,9 @@ export type CommandCodeMutationHooks = {
 };
 
 type CommandCodeDeletionIntent = {
+    canonicalRoot: string;
     deletedFiles: string[];
+    originatingStore: string;
     plan: CommandCodeDeletionPlan;
     version: 1;
 };
@@ -153,6 +155,61 @@ export const isCommandCodeWriterRunning = async (
         return false;
     }
     throw new Error(`Unable to verify whether Command Code is running: pgrep exited with status ${exitCode}`);
+};
+
+const canonicalizePath = async (target: string): Promise<string> => {
+    try {
+        return await realpath(target);
+    } catch {
+        const parent = path.dirname(target);
+        if (parent === target) {
+            return path.resolve(target);
+        }
+        return path.join(await canonicalizePath(parent), path.basename(target));
+    }
+};
+
+const isContainedPath = (candidate: string, root: string) =>
+    candidate === root || candidate.startsWith(`${root}${path.sep}`);
+
+const assertReplayableCommandCodeReceipt = async (
+    intent: CommandCodeDeletionIntent,
+    intentPath: string,
+    projectsDir: string,
+) => {
+    if (intent.version !== 1 || !Array.isArray(intent.plan?.ownedFiles) || !Array.isArray(intent.deletedFiles)) {
+        throw conflict('', 'Command Code deletion receipt is incompatible.', 'malformed_store', { path: intentPath });
+    }
+    if (!intent.canonicalRoot || !intent.originatingStore) {
+        throw conflict('', 'Command Code deletion receipt is not bound to an originating store.', 'malformed_store', {
+            path: intentPath,
+        });
+    }
+    const currentRoot = await canonicalizePath(projectsDir);
+    if (intent.canonicalRoot !== currentRoot || intent.originatingStore !== currentRoot) {
+        throw conflict(
+            intent.plan.requestedId,
+            'Command Code deletion receipt belongs to a different store.',
+            'unsafe_path',
+            {
+                canonicalRoot: intent.canonicalRoot,
+                originatingStore: intent.originatingStore,
+                path: intentPath,
+            },
+        );
+    }
+    const pendingPaths = await Promise.all(
+        [...intent.deletedFiles, ...intent.plan.ownedFiles.map((file) => file.path), intentPath].map(canonicalizePath),
+    );
+    const escaped = pendingPaths.find((filePath) => !isContainedPath(filePath, currentRoot));
+    if (escaped) {
+        throw conflict(
+            intent.plan.requestedId,
+            `Command Code deletion receipt path is outside owned roots: ${escaped}`,
+            'unsafe_path',
+            { path: escaped },
+        );
+    }
 };
 
 const readIntentFile = async (intentPath: string): Promise<CommandCodeDeletionIntent | null> => {
@@ -289,11 +346,23 @@ export const deleteCommandCodeSession = async (
         await requireStoppedWriter(sessionId, hooks);
         const intentPath = intentPathFor(projectsDir, sessionId);
         const existingIntent = await readIntentFile(intentPath);
+        if (existingIntent) {
+            await assertReplayableCommandCodeReceipt(existingIntent, intentPath, projectsDir);
+        }
         const plan = existingIntent?.plan ?? (await planCommandCodeDeletion(projectsDir, sessionId));
         if (plan.ownedFiles.length === 0 && !existingIntent) {
             return emptyResult();
         }
-        const intent = existingIntent ?? { deletedFiles: [], plan, version: 1 as const };
+        const storeRoot = await realpath(projectsDir);
+        const intent =
+            existingIntent ??
+            ({
+                canonicalRoot: storeRoot,
+                deletedFiles: [],
+                originatingStore: storeRoot,
+                plan,
+                version: 1 as const,
+            } satisfies CommandCodeDeletionIntent);
         if (!existingIntent) {
             await writeIntentFile(intentPath, intent);
         }

@@ -47,7 +47,7 @@ no remote authentication.
 | `listConversations(options)` | `{ data, meta: { hasNext, nextCursor } }` | Empty page; source failures may throw or be suppressed in all-source mode |
 | `getConversation(options)` | `ConversationDetail` | null for recognized missing conversation |
 | `exportConversationMarkdown(options)` | Markdown string | null for recognized missing conversation |
-| `exportConversationRaw(options)` | `{ blob, fileName, mimeType }` | null if no standalone source transcript is available |
+| `exportConversationRaw(options)` | `{ blob, fileName, mimeType }` using the native name and original MIME (`application/json`, `application/x-ndjson`, `application/octet-stream`, or `application/zip`) | null if no standalone original exists; HTTP `original_representation_unavailable` is mapped to null |
 | `exportConversationEvidenceMarkdown(options)` | `{ markdown, meta }` | null for recognized missing conversation |
 | `exportConversationsZip(options)` | `{ blob, fileName, mimeType: 'application/zip' }` | null if any requested conversation is missing |
 | `deleteConversation(options)` | Delete result with IDs/files and optional cleanup failures | See mode distinction below |
@@ -63,7 +63,11 @@ List selection defaults to `last_final_answer`, list bodies are opt-in, and the
 default page size is 100 (maximum 200). Detail and Markdown default to `all`.
 Focused evidence always loads all messages and applies its lens; it does not use
 `messageSelector` as a pre-filter. ZIP export accepts one source, explicit IDs,
-and Markdown output only. An empty ZIP selection is not a valid request.
+`exportConversationsZip` is atomic for the requested ID set: any missing id
+yields no archive (HTTP 404 / local null). Partial UI batches are a different
+producer and record mixed `entries` in `spiracha-manifest.json`. An empty
+`sources: []` list filter is an empty page in both local and HTTP modes and is
+not serialized as `source=`.
 
 A returned download contains a Blob, not a Blob alone:
 

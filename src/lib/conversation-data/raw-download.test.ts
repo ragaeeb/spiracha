@@ -19,6 +19,13 @@ afterEach(async () => {
 });
 
 describe('raw conversation downloads', () => {
+    it('should use maximum compression for native raw zip bundles', async () => {
+        const implementation = await Bun.file(new URL('./raw-download.ts', import.meta.url)).text();
+
+        expect(implementation).toContain('level: 9');
+        expect(implementation).not.toContain('level: 0');
+    });
+
     it('should expose JSON source bytes without parsing or rewriting them', async () => {
         const root = await mkdtemp(path.join(os.tmpdir(), 'spiracha-raw-download-'));
         tempRoots.push(root);

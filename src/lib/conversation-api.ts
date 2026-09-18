@@ -35,10 +35,10 @@ import type { ConvertConversationPayloadOptions } from './conversation-payload-t
 import { AtomicExportError, assembleExportBatch, EmptyPartialExportError, writeExportArchive } from './export-archive';
 import { isAllowedLocalRequestOrigin } from './local-request-security';
 import {
+    boundNormalizedExportBaseName,
     buildBatchExportBaseName,
     buildRawConversationExportFileName,
     getExportPlatformName,
-    sanitizeExportFileName,
 } from './ui-export-archive';
 
 type ConversationApiDependencies = {
@@ -801,7 +801,7 @@ const handleDeleteConversation = async (
             );
         }
 
-        if (deleteResult.deletedIds.length === 0) {
+        if (deleteResult.deletedIds.length === 0 && !deleteResult.receiptId && !deleteResult.cleanupFailures?.length) {
             return errorResponse('conversation_not_found', 'No conversation exists for that source and id.', 404, {
                 id: result.value.id,
                 source: result.value.source,
@@ -934,6 +934,20 @@ const parseJsonExportMessageSelector = (body: Record<string, unknown>): ParseRes
     return parseMessageSelector(messageSelectorValue.value ?? null, 'all');
 };
 
+const parseJsonZipPassword = (body: Record<string, unknown>): ParseResult<string> => {
+    const value = getOption(body, 'zipPassword', 'zip_password');
+    if (value === undefined) {
+        return { value: '' };
+    }
+    return typeof value === 'string'
+        ? { value }
+        : {
+              error: errorResponse('validation_error', '`zip_password` must be a string.', 400, {
+                  field: 'zip_password',
+              }),
+          };
+};
+
 const parseConversationIdSetRecord = (body: Record<string, unknown>): ParseResult<ConversationIdSetOptions> => {
     const source = parseJsonSourceOption(body);
     if ('error' in source) {
@@ -979,6 +993,11 @@ const parseExportConversationsBody = async (request: Request): Promise<ParseResu
         return failurePolicy;
     }
 
+    const zipPassword = parseJsonZipPassword(body.value);
+    if ('error' in zipPassword) {
+        return zipPassword;
+    }
+
     return {
         value: {
             failurePolicy: failurePolicy.value,
@@ -986,6 +1005,7 @@ const parseExportConversationsBody = async (request: Request): Promise<ParseResu
             messageSelector: messageSelector.value,
             outputFormat: outputFormat.value,
             source: idSet.value.source,
+            zipPassword: zipPassword.value,
         },
     };
 };
@@ -1066,17 +1086,19 @@ const handleExportConversations = async (request: Request, dependencies: ReturnT
                     cwd: conversation.workspacePath,
                     updatedAtMs: conversation.updatedAtMs,
                 });
-                const fileBaseName =
-                    sanitizeExportFileName(conversation.title?.trim() || '') ||
-                    sanitizeExportFileName(`${conversation.source}-${conversation.id}`) ||
-                    'conversation';
+                const outputFormat = result.value.outputFormat ?? 'md';
+                const fileBaseName = boundNormalizedExportBaseName(
+                    conversation.title,
+                    `${conversation.source}-${conversation.id}`,
+                );
                 return {
                     members: [
                         {
                             bytes: dependencies.renderConversationMarkdown(conversation, {
                                 messageSelector: result.value.messageSelector,
+                                outputFormat,
                             }),
-                            relativePath: `${fileBaseName}.md`,
+                            relativePath: `${fileBaseName}.${outputFormat}`,
                         },
                     ],
                 };
@@ -1096,6 +1118,7 @@ const handleExportConversations = async (request: Request, dependencies: ReturnT
             manifest: assembled.manifest,
             members: assembled.members,
             platform: getExportPlatformName(result.value.source),
+            zipPassword: result.value.zipPassword,
         });
         if ('downloadUrl' in zip) {
             throw new Error('Expected an in-memory conversation archive');

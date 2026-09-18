@@ -360,4 +360,105 @@ describe('qoder deletion apply', () => {
             'Unable to verify whether Qoder is running: pgrep exited with status 2',
         );
     });
+
+    it('should resume committed cleanup when an uncommitted receipt already has next ItemTable values', async () => {
+        const tempRoot = await makeTempRoot();
+        const locations = await makeLocations(tempRoot, sharedTaskEntries(path.join(tempRoot, 'project-a')));
+        const statePath = await writeStateFile(locations.workspaceStorageDir, 'design-1');
+
+        await expect(
+            deleteQoderConversation('design-1', locations, {
+                ...stoppedWriter,
+                afterIntent: async () => {
+                    throw new Error('injected crash before commit');
+                },
+            }),
+        ).rejects.toThrow('injected crash before commit');
+
+        const receiptName = (
+            await Array.fromAsync(
+                new Bun.Glob('.spiracha-qoder-delete-*.json').scan({ cwd: path.dirname(locations.globalStateDb) }),
+            )
+        )[0];
+        expect(receiptName).toBeDefined();
+        const receiptPath = path.join(path.dirname(locations.globalStateDb), receiptName!);
+        const intent = JSON.parse(await Bun.file(receiptPath).text()) as {
+            committed: boolean;
+            plan: { itemTableEdits: Array<{ key: string; nextValue: string }> };
+        };
+        expect(intent.committed).toBe(false);
+        const db = new Database(locations.globalStateDb, { readwrite: true, strict: true });
+        for (const edit of intent.plan.itemTableEdits) {
+            db.run('update ItemTable set value = ? where key = ?', [edit.nextValue, edit.key]);
+        }
+        db.close();
+
+        const retry = await deleteQoderConversation('design-1', locations, stoppedWriter);
+        expect(retry.deletedIds).toEqual(['design-1']);
+        expect(await Bun.file(statePath).exists()).toBe(false);
+        expect(await Bun.file(receiptPath).exists()).toBe(false);
+    });
+
+    it('should retain a mixed uncommitted receipt without mutating targets', async () => {
+        const tempRoot = await makeTempRoot();
+        const locations = await makeLocations(tempRoot, sharedTaskEntries(path.join(tempRoot, 'project-a')));
+        const statePath = await writeStateFile(locations.workspaceStorageDir, 'design-1');
+        await expect(
+            deleteQoderConversation('design-1', locations, {
+                ...stoppedWriter,
+                afterIntent: async () => {
+                    throw new Error('injected crash before commit');
+                },
+            }),
+        ).rejects.toThrow('injected crash before commit');
+        const db = new Database(locations.globalStateDb, { readwrite: true, strict: true });
+        db.run('update ItemTable set value = ? where key = ?', ['[]', historyKey('ws-a')]);
+        db.close();
+        await expect(deleteQoderConversation('design-1', locations, stoppedWriter)).rejects.toMatchObject({
+            reasonCode: 'concurrent_modification',
+        });
+        expect(await Bun.file(statePath).exists()).toBe(true);
+    });
+
+    it('should treat post-commit file identity conflicts as cleanup-pending', async () => {
+        const tempRoot = await makeTempRoot();
+        const locations = await makeLocations(tempRoot, sharedTaskEntries(path.join(tempRoot, 'project-a')));
+        const statePath = await writeStateFile(locations.workspaceStorageDir, 'design-1');
+        const result = await deleteQoderConversation('design-1', locations, {
+            ...stoppedWriter,
+            afterCommit: async () => {
+                await Bun.write(statePath, 'replacement-identity');
+            },
+        });
+        expect(result.deletedIds).toEqual(['design-1']);
+        expect(result.receiptId).toMatch(/^\.spiracha-qoder-delete-[0-9a-f]{16}\.json$/u);
+        expect(result.cleanupFailures?.[0]).toMatchObject({ path: statePath, phase: 'file-cleanup' });
+        expect(await Bun.file(statePath).text()).toBe('replacement-identity');
+    });
+
+    it('should reject copied-store receipts without unlinking original or worktree sentinels', async () => {
+        const tempRoot = await makeTempRoot();
+        const locations = await makeLocations(tempRoot, sharedTaskEntries(path.join(tempRoot, 'project-a')));
+        const statePath = await writeStateFile(locations.workspaceStorageDir, 'design-1');
+        const first = await deleteQoderConversation('design-1', locations, {
+            ...stoppedWriter,
+            unlinkFile: async () => {
+                throw new Error('injected unlink failure');
+            },
+        });
+        const copyRoot = await makeTempRoot();
+        const { cp } = await import('node:fs/promises');
+        await cp(tempRoot, copyRoot, { recursive: true });
+        const copiedLocations = {
+            cliProjectsDir: path.join(copyRoot, 'cli', 'projects'),
+            globalStateDb: path.join(copyRoot, 'globalStorage', 'state.vscdb'),
+            workspaceStorageDir: path.join(copyRoot, 'workspaceStorage'),
+        };
+        await expect(deleteQoderConversation('design-1', copiedLocations, stoppedWriter)).rejects.toMatchObject({
+            reasonCode: 'unsafe_path',
+        });
+        expect(await Bun.file(statePath).exists()).toBe(true);
+        expect(await Bun.file(locations.sentinel).bytes()).toEqual(locations.sentinelBytes);
+        expect(first.receiptId).toBeDefined();
+    });
 });

@@ -111,20 +111,37 @@ const isSafeArchiveMemberName = (value: string) =>
     !value.includes('\0') &&
     !/[\\/]/u.test(value);
 
+const MANIFEST_OPTION_KEYS = [
+    'failurePolicy',
+    'includeCommentary',
+    'includeMetadata',
+    'includeTools',
+    'messageSelector',
+    'outputFormat',
+] as const;
+
+const safeManifestOptions = (options: Record<string, unknown>) =>
+    Object.fromEntries(MANIFEST_OPTION_KEYS.flatMap((key) => (key in options ? [[key, options[key]]] : []))) as Record<
+        string,
+        unknown
+    >;
+
 export const cleanupConversationZipArtifacts = async (
     workspaceDir: string,
-    zipPath: string,
+    zipPath?: string | null,
     remove: typeof rm = rm,
 ): Promise<ConversationZipCleanupFailure[]> => {
     const resolvedWorkspace = path.resolve(workspaceDir);
-    const resolvedZip = path.resolve(zipPath);
-    const zipInsideWorkspace = resolvedZip.startsWith(`${resolvedWorkspace}${path.sep}`);
-    const jobs = zipInsideWorkspace
-        ? [{ options: { force: true, recursive: true } as const, target: workspaceDir }]
-        : [
-              { options: { force: true, recursive: true } as const, target: workspaceDir },
-              { options: { force: true } as const, target: zipPath },
-          ];
+    const resolvedZip = zipPath ? path.resolve(zipPath) : null;
+    const zipInsideWorkspace = Boolean(resolvedZip?.startsWith(`${resolvedWorkspace}${path.sep}`));
+    const sameTarget = resolvedZip !== null && resolvedZip === resolvedWorkspace;
+    const jobs =
+        resolvedZip === null || zipInsideWorkspace || sameTarget
+            ? [{ options: { force: true, recursive: true } as const, target: workspaceDir }]
+            : [
+                  { options: { force: true, recursive: true } as const, target: workspaceDir },
+                  { options: { force: true } as const, target: zipPath! },
+              ];
     const results = await Promise.allSettled(jobs.map((job) => remove(job.target, job.options)));
     return results.flatMap((result, index) =>
         result.status === 'rejected'
@@ -187,7 +204,7 @@ const buildManifest = ({
     failurePolicy,
     kind,
     missingCount: entries.filter((entry) => entry.status === 'missing').length,
-    options,
+    options: safeManifestOptions(options),
     requestedCount: entries.length,
     schemaVersion: EXPORT_ARCHIVE_MANIFEST_SCHEMA_VERSION,
     source,
@@ -221,6 +238,7 @@ export const assembleExportBatch = async ({
         (id) => load(id, signal),
         signal,
     );
+    const usedNames = new Map<string, number>([[EXPORT_ARCHIVE_MANIFEST_FILE.normalize('NFC').toLowerCase(), 1]]);
     const members: ExportArchiveMember[] = [];
     const entries: ExportArchiveOutcome[] = settled.map((result, index) => {
         const requestedId = requestedIds[index]!;
@@ -233,12 +251,12 @@ export const assembleExportBatch = async ({
         if (result.value === null) {
             return missingOutcome(requestedId);
         }
-        members.push(...result.value.members);
-        return exportedOutcome(
-            requestedId,
-            result.value.members.map((member) => member.relativePath),
-            result.value.omissionSummary ?? null,
-        );
+        const memberNames = result.value.members.map((member) => {
+            const relativePath = resolveUniqueRawExportFileName(member.relativePath, usedNames);
+            members.push({ ...member, relativePath });
+            return relativePath;
+        });
+        return exportedOutcome(requestedId, memberNames, result.value.omissionSummary ?? null);
     });
     const manifest = buildManifest({ entries, failurePolicy, kind, options, source });
     if (failurePolicy === 'atomic') {
@@ -263,7 +281,7 @@ const withGeneratedManifest = (
     ...(manifest
         ? [
               {
-                  bytes: `${JSON.stringify(manifest, null, 2)}\n`,
+                  bytes: `${JSON.stringify({ ...manifest, options: safeManifestOptions(manifest.options) }, null, 2)}\n`,
                   generated: true,
                   relativePath: EXPORT_ARCHIVE_MANIFEST_FILE,
               } satisfies ExportArchiveMember,
@@ -284,14 +302,9 @@ const writeArchiveMembers = async (
     members: readonly ExportArchiveMember[],
     signal?: AbortSignal,
 ) => {
-    const usedNames = new Map<string, number>();
     for (const member of members) {
         throwIfAborted(signal);
-        const uniqueName =
-            member.relativePath === EXPORT_ARCHIVE_MANIFEST_FILE
-                ? member.relativePath
-                : resolveUniqueRawExportFileName(member.relativePath, usedNames);
-        await Bun.write(path.join(entriesDir, uniqueName), toArchiveBytes(member.bytes));
+        await Bun.write(path.join(entriesDir, member.relativePath), toArchiveBytes(member.bytes));
     }
 };
 
@@ -321,6 +334,7 @@ export const writeExportArchive = async ({
     members,
     platform,
     signal,
+    zipPassword,
 }: {
     baseName: string;
     destination: { mode: 'blob' } | { exportDir?: string; mode: 'download_url' };
@@ -328,6 +342,7 @@ export const writeExportArchive = async ({
     members: readonly ExportArchiveMember[];
     platform: string;
     signal?: AbortSignal;
+    zipPassword?: string;
 }): Promise<ExportArchiveBlob | ExportArchiveDownloadUrl> => {
     if (members.length === 0 && !manifest) {
         throw new Error('No conversations selected for export');
@@ -361,7 +376,7 @@ export const writeExportArchive = async ({
         await mkdir(entriesDir, { mode: 0o700 });
         await writeArchiveMembers(entriesDir, archiveMembers, signal);
         throwIfAborted(signal);
-        await zipExportDirectory(entriesDir, zipPath);
+        await zipExportDirectory(entriesDir, zipPath, zipPassword);
         throwIfAborted(signal);
         const archive = await publishedArchive(destination, zipPath, `${archiveBaseName}.zip`);
         published = true;
@@ -371,7 +386,7 @@ export const writeExportArchive = async ({
         if (workspaceDir) {
             const cleanupFailures = await cleanupConversationZipArtifacts(
                 workspaceDir,
-                published && destination.mode === 'download_url' ? workspaceDir : (zipPath ?? workspaceDir),
+                published && destination.mode === 'download_url' ? undefined : zipPath,
             );
             for (const failure of cleanupFailures) {
                 console.warn('[spiracha:export] temporary cleanup failed', failure);

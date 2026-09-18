@@ -116,6 +116,7 @@ const CommandCodeSessionDetailPage = () => {
                     outputFormat: options.outputFormat,
                     sessionId: detail.session.sessionId,
                     zipArchive: options.zipArchive,
+                    zipPassword: options.zipPassword,
                 },
             });
             if (download.mode === 'download') {

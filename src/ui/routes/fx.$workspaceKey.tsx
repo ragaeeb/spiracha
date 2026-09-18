@@ -103,6 +103,7 @@ const FxWorkspacePage = () => {
                 includeTools: options.includeTools,
                 outputFormat: options.outputFormat,
                 zipArchive: options.zipArchive,
+                zipPassword: options.zipPassword,
             };
             const download =
                 ids.length === 1
@@ -174,6 +175,7 @@ const FxWorkspacePage = () => {
                     sessions.map((session) => session.sessionId),
                     workspace.key,
                 )}
+                authoritativeRows={sessions}
                 sessions={visibleSessions}
                 onDeleteSession={(session) => openDelete([session], 'selected')}
                 onDeleteSessions={(ids) => openDelete(lookupSessions(ids), 'selected')}

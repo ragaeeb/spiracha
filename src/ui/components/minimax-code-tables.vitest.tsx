@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -114,6 +114,13 @@ describe('MiniMax Code tables', () => {
         });
         fireEvent.click(await screen.findByRole('menuitem', { name: 'Export session' }));
         expect(onExportSession).toHaveBeenCalledWith(session);
+
+        // Radix restores focus asynchronously when the previous menu unmounts.
+        await waitFor(() =>
+            expect(document.activeElement).toBe(
+                screen.getByRole('button', { name: 'Actions for Refactor evidence extraction' }),
+            ),
+        );
 
         fireEvent.click(screen.getByRole('checkbox', { name: 'Select row mvs_session' }));
         fireEvent.click(screen.getByRole('button', { name: 'Export selected session' }));

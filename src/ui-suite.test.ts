@@ -73,7 +73,7 @@ describe('UI tests', () => {
             const packageRoot = process.cwd();
             const { exitCode, stderrText, stdoutText } = await runUiVitestSuite(packageRoot);
 
-            expect(exitCode).toBe(0);
+            expect(exitCode, `UI Vitest suite failed:\n${stdoutText}\n${stderrText}`).toBe(0);
             expect(`${stdoutText}\n${stderrText}`).not.toContain('FAIL');
         },
         UI_SUITE_TIMEOUT_MS + 5_000,

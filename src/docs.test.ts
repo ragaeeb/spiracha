@@ -105,4 +105,49 @@ describe('documentation drift checks', () => {
             ).toBe(true);
         }
     });
+
+    it('should document the generated archive manifest against the real producer', async () => {
+        const { assembleExportBatch, EXPORT_ARCHIVE_MANIFEST_SCHEMA_VERSION } = await import('./lib/export-archive');
+        const assembled = await assembleExportBatch({
+            failurePolicy: 'partial',
+            kind: 'batch_normalized_export',
+            load: async (id) => ({ members: [{ bytes: id, relativePath: `${id}.md` }] }),
+            options: { outputFormat: 'md' },
+            requestedIds: ['alpha'],
+            source: 'codex',
+        });
+        const docs = await Bun.file(path.join(process.cwd(), 'docs/codex-batch-manifest.md')).text();
+        for (const field of [
+            'entries',
+            'failurePolicy',
+            'kind',
+            'options',
+            'schemaVersion',
+            'source',
+            'requestedId',
+            'memberNames',
+            'omissionSummary',
+        ]) {
+            expect(docs).toContain(field);
+        }
+        expect(docs).not.toContain('generatedAt');
+        expect(docs).not.toContain('requestedThreadIds');
+        expect(assembled.manifest.schemaVersion).toBe(EXPORT_ARCHIVE_MANIFEST_SCHEMA_VERSION);
+        expect(assembled.manifest.entries[0]).toMatchObject({
+            error: null,
+            memberNames: ['alpha.md'],
+            requestedId: 'alpha',
+            status: 'exported',
+        });
+    });
+
+    it('should document HTTP envelope 413 separately from converter 400', async () => {
+        const api = await Bun.file(path.join(process.cwd(), 'docs/api-reference.md')).text();
+        const payload = await Bun.file(path.join(process.cwd(), 'docs/payload-reference.md')).text();
+        expect(api).toContain('413');
+        expect(api).toContain('request_too_large');
+        expect(payload).toContain('413');
+        expect(payload).toContain('400');
+        expect(api).not.toMatch(/Both currently return\s+400 `validation_error`, not 413/u);
+    });
 });

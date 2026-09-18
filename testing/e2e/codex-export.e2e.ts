@@ -1,4 +1,3 @@
-import { readFile } from 'node:fs/promises';
 import { expect, test } from './fixtures';
 
 const threadId = '019e36d7-ba2d-7fa1-b662-3f70fbbda248';
@@ -17,7 +16,7 @@ test('should download a real fixture transcript through the export dialog', asyn
     expect(await download.failure()).toBeNull();
     const target = testInfo.outputPath('conversation.md');
     await download.saveAs(target);
-    expect(await readFile(target, 'utf8')).toContain('Implemented /Users/example/workspace/spiracha/src/index.ts');
+    expect(await Bun.file(target).text()).toContain('Implemented /Users/example/workspace/spiracha/src/index.ts');
 });
 
 test('should leave the conversation intact when deletion is cancelled', async ({ page, request }) => {

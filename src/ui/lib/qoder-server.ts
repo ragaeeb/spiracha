@@ -1,6 +1,7 @@
+import { settleDeleteBatch } from '@spiracha/lib/conversation-data/mutation-executor';
 import { createServerFn } from '@tanstack/react-start';
 import { array, boolean, minLength, object, optional, picklist, pipe, string } from 'valibot';
-import { requireDeletedItems, runDeleteBatch } from './delete-batch';
+import { requireDeletedItems } from './delete-batch';
 import { renderSourceSessionDownload, renderSourceSessionsDownload } from './source-session-export-server';
 
 const workspaceSchema = object({
@@ -18,6 +19,7 @@ const exportSessionSchema = object({
     outputFormat: optional(picklist(['md', 'txt']), 'md'),
     sessionId: pipe(string(), minLength(1)),
     zipArchive: optional(boolean(), false),
+    zipPassword: optional(string(), ''),
 });
 
 const exportSessionsSchema = object({
@@ -27,6 +29,7 @@ const exportSessionsSchema = object({
     outputFormat: optional(picklist(['md', 'txt']), 'md'),
     sessionIds: pipe(array(pipe(string(), minLength(1))), minLength(1)),
     zipArchive: optional(boolean(), true),
+    zipPassword: optional(string(), ''),
 });
 
 export const listQoderWorkspacesFn = createServerFn({ method: 'GET' }).handler(async () => {
@@ -98,6 +101,7 @@ export const exportQoderSessionFn = createServerFn({ method: 'POST' })
             sessionId: transcript.session.sessionId,
             updatedAtMs: transcript.session.lastActiveAtMs,
             zipArchive: data.zipArchive,
+            zipPassword: data.zipPassword,
         });
     });
 
@@ -136,6 +140,7 @@ export const exportQoderSessionsFn = createServerFn({ method: 'POST' })
             outputFormat: data.outputFormat,
             platform: 'qoder',
             zipArchive: data.zipArchive,
+            zipPassword: data.zipPassword,
         });
     });
 
@@ -157,7 +162,9 @@ export const deleteQoderSessionFn = createServerFn({ method: 'POST' })
     .handler(async ({ data }) => {
         const { deleteQoderConversation } = await import('@spiracha/lib/qoder-mutations');
         const result = await deleteQoderConversation(data.sessionId, await loadQoderLocations());
-        requireDeletedItems(result.deletedIds, 'Qoder session', data.sessionId);
+        if (!result.cleanupFailures?.length) {
+            requireDeletedItems(result.deletedIds, 'Qoder session', data.sessionId);
+        }
         return result;
     });
 
@@ -166,16 +173,9 @@ export const deleteQoderSessionsFn = createServerFn({ method: 'POST' })
     .handler(async ({ data }) => {
         const { deleteQoderConversation } = await import('@spiracha/lib/qoder-mutations');
         const locations = await loadQoderLocations();
-        const results = await runDeleteBatch(data.sessionIds, (sessionId) =>
-            deleteQoderConversation(sessionId, locations),
-        );
-        requireDeletedItems(
-            results.flatMap((result) => result.deletedIds),
-            'Qoder sessions',
-            'batch',
-        );
-        return {
-            deletedFiles: [...new Set(results.flatMap((result) => result.deletedFiles))],
-            deletedIds: [...new Set(results.flatMap((result) => result.deletedIds))],
-        };
+        return settleDeleteBatch({
+            concurrency: 4,
+            deleteOne: (sessionId) => deleteQoderConversation(sessionId, locations),
+            ids: data.sessionIds,
+        });
     });

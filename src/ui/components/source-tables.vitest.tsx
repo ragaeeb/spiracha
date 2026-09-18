@@ -236,6 +236,7 @@ describe('source session tables', () => {
         };
         const tableProps = {
             authoritativeRowIds: [session.sessionId, secondSession.sessionId],
+            authoritativeRows: [session, secondSession],
             inventoryIdentity: 'command-code:command-code-key',
             onDeleteSession: vi.fn(),
             onDeleteSessions: vi.fn(),
@@ -251,6 +252,55 @@ describe('source session tables', () => {
         expect(screen.getByRole('status').textContent).toBe('2 sessions selected (1 outside this view)');
         fireEvent.click(screen.getByRole('button', { name: 'Export selected sessions' }));
         expect(onExportSessions).toHaveBeenCalledWith(['command-code-session', 'command-code-session-2']);
+    });
+
+    it('should keep export disabled when a hidden selected Command Code session has no renderable messages', () => {
+        const onExportSessions = vi.fn();
+        const exportable = {
+            assistantMessageCount: 1,
+            createdAtMs: 1_700_000_000_000,
+            cwd: '/workspace/command-code',
+            filePath: '/tmp/command-code/session.jsonl',
+            lastActiveAtMs: 1_700_000_000_100,
+            messageCount: 2,
+            model: 'z-ai/glm-5.3-flash',
+            modelLabel: 'GLM 5.3 Flash',
+            recordCount: 3,
+            renderableMessageCount: 2,
+            sessionId: 'command-code-session',
+            title: 'Command Code review',
+            toolCallCount: 1,
+            toolOutputCount: 1,
+            userMessageCount: 1,
+            workspaceKey: 'command-code-key',
+            workspaceLabel: 'Command Code workspace',
+            worktree: '/workspace/command-code',
+        };
+        const empty = {
+            ...exportable,
+            messageCount: 0,
+            renderableMessageCount: 0,
+            sessionId: 'empty-session',
+            title: 'Empty session',
+        };
+        const tableProps = {
+            authoritativeRowIds: [exportable.sessionId, empty.sessionId],
+            authoritativeRows: [exportable, empty],
+            inventoryIdentity: 'command-code:command-code-key',
+            onDeleteSession: vi.fn(),
+            onDeleteSessions: vi.fn(),
+            onExportSession: vi.fn(),
+            onExportSessions,
+        };
+        const { rerender } = render(<CommandCodeSessionsTable {...tableProps} sessions={[exportable, empty]} />);
+        fireEvent.click(screen.getByRole('checkbox', { name: 'Select row command-code-session' }));
+        fireEvent.click(screen.getByRole('checkbox', { name: 'Select row empty-session' }));
+        rerender(<CommandCodeSessionsTable {...tableProps} sessions={[exportable]} />);
+
+        expect(screen.getByRole('button', { name: 'Export selected sessions' })).toHaveProperty('disabled', true);
+        fireEvent.click(screen.getByRole('button', { name: 'Delete selected sessions' }));
+        expect(tableProps.onDeleteSessions).toHaveBeenCalledWith(['command-code-session', 'empty-session']);
+        expect(onExportSessions).not.toHaveBeenCalled();
     });
 
     it('should render Claude Code sub-agents as nested rows beneath their parent', () => {

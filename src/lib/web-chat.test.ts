@@ -215,6 +215,82 @@ const createQwenArtifactExport = (
 };
 
 describe('parseWebChatFiles', () => {
+    it('should include Claude artifact content appended by bash tool calls', async () => {
+        const path = '/mnt/user-data/outputs/report.md';
+        const created = '# Report';
+        const firstAppend = '\n\n## Evidence\nEvidence stays exact.\n';
+        const secondAppend = '\n\n## Decision\nThe team is actively building the thing Klassify.\n';
+        const append = (id: string, targetPath: string, body: string) => ({
+            id,
+            input: {
+                command: `cat >> ${targetPath} << 'KLEOF'\n${body}KLEOF\necho OK`,
+            },
+            name: 'bash_tool',
+            type: 'tool_use',
+        });
+        const toolResult = (toolUseId: string, is_error = false) => ({
+            is_error,
+            tool_use_id: toolUseId,
+            type: 'tool_result',
+        });
+        const input = {
+            conversation_id: 'claude-artifact',
+            current_node: 'assistant',
+            default_model_slug: 'claude-opus-5',
+            mapping: {
+                assistant: {
+                    children: [],
+                    id: 'assistant',
+                    message: {
+                        author: { role: 'assistant' },
+                        content: [
+                            append('before-create', path, 'Ignore before creation.\n'),
+                            toolResult('before-create'),
+                            {
+                                id: 'create-report',
+                                input: { file_text: created, path },
+                                name: 'create_file',
+                                type: 'tool_use',
+                            },
+                            toolResult('create-report'),
+                            append('unrelated', '/mnt/user-data/outputs/unrelated.md', 'Ignore this file.\n'),
+                            toolResult('unrelated'),
+                            append('append-1', path, firstAppend),
+                            toolResult('append-1'),
+                            append('append-1', path, firstAppend),
+                            toolResult('append-1'),
+                            append('failed', path, '\nThis failed append must stay out.\n'),
+                            toolResult('failed', true),
+                            append('append-2', path, secondAppend),
+                            toolResult('append-2'),
+                        ],
+                    },
+                    parent: 'user',
+                },
+                root: { children: ['user'], id: 'root', message: null, parent: null },
+                user: {
+                    children: ['assistant'],
+                    id: 'user',
+                    message: {
+                        author: { role: 'user' },
+                        content: { content_type: 'text', parts: ['Make the report.'] },
+                        id: 'user-message',
+                    },
+                    parent: 'root',
+                },
+            },
+            title: 'Claude artifact',
+        };
+
+        const result = await parseWebChatFiles([{ content: JSON.stringify(input), name: 'claude.json' }]);
+        const conversation = result.conversations[0]!;
+        const expected = created + firstAppend + secondAppend;
+
+        expect(result.errors).toEqual([]);
+        expect(conversation.artifacts).toEqual([{ content: expected, id: 'create-report', title: 'report.md' }]);
+        expect(renderImportedWebChat(conversation)).toContain(expected);
+    });
+
     it('should extract Gemini research artifacts once and preserve their Markdown exactly', async () => {
         const content =
             '# Research Report — AI-assisted label quality and safe autonomous experiment control\n\nArabic: رحمه الله\n';

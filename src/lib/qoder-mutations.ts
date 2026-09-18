@@ -73,8 +73,10 @@ export type QoderDeletionPlan = {
 };
 
 type QoderDeletionIntent = {
+    canonicalRoot: string;
     committed: boolean;
     deletedFiles: string[];
+    originatingStore: string;
     plan: QoderDeletionPlan;
     version: 1;
 };
@@ -518,6 +520,110 @@ export const planQoderDeletion = async (
     };
 };
 
+const canonicalizePath = async (target: string): Promise<string> => {
+    try {
+        return await realpath(target);
+    } catch {
+        const parent = path.dirname(target);
+        if (parent === target) {
+            return path.resolve(target);
+        }
+        return path.join(await canonicalizePath(parent), path.basename(target));
+    }
+};
+
+const isContainedPath = (candidate: string, root: string) =>
+    candidate === root || candidate.startsWith(`${root}${path.sep}`);
+
+const resolveOwnedRoots = async (locations: QoderMutationLocations) =>
+    Promise.all([
+        canonicalizePath(path.dirname(locations.globalStateDb)),
+        canonicalizePath(locations.workspaceStorageDir),
+        canonicalizePath(locations.cliProjectsDir),
+    ]);
+
+const assertReplayableQoderReceipt = async (
+    intent: QoderDeletionIntent,
+    intentPath: string,
+    locations: QoderMutationLocations,
+) => {
+    if (
+        intent.version !== 1 ||
+        typeof intent.plan !== 'object' ||
+        intent.plan === null ||
+        typeof intent.committed !== 'boolean' ||
+        !Array.isArray(intent.deletedFiles)
+    ) {
+        throw conflict('', 'Qoder deletion receipt is incompatible.', 'malformed_store', { path: intentPath });
+    }
+    if (!intent.canonicalRoot || !intent.originatingStore) {
+        throw conflict('', 'Qoder deletion receipt is not bound to an originating store.', 'malformed_store', {
+            path: intentPath,
+        });
+    }
+    const currentRoot = await canonicalizePath(path.dirname(locations.globalStateDb));
+    const currentStore = await canonicalizePath(locations.globalStateDb);
+    if (intent.canonicalRoot !== currentRoot || intent.originatingStore !== currentStore) {
+        throw conflict(intent.plan.requestedId, 'Qoder deletion receipt belongs to a different store.', 'unsafe_path', {
+            canonicalRoot: intent.canonicalRoot,
+            originatingStore: intent.originatingStore,
+            path: intentPath,
+        });
+    }
+    const roots = await resolveOwnedRoots(locations);
+    const pendingPaths = await Promise.all(
+        [...intent.deletedFiles, ...intent.plan.ownedFiles.map((file) => file.path), intentPath].map(canonicalizePath),
+    );
+    const escaped = pendingPaths.find((filePath) => !roots.some((root) => isContainedPath(filePath, root)));
+    if (escaped) {
+        throw conflict(
+            intent.plan.requestedId,
+            `Qoder deletion receipt path is outside owned roots: ${escaped}`,
+            'unsafe_path',
+            { path: escaped },
+        );
+    }
+};
+
+const classifyItemTableEdits = (dbPath: string, edits: QoderItemTableEdit[]): 'all-original' | 'all-next' | 'mixed' => {
+    if (edits.length === 0) {
+        return 'all-original';
+    }
+    let db: Database;
+    try {
+        db = new Database(dbPath, { create: false, readwrite: false, strict: true });
+    } catch {
+        return 'mixed';
+    }
+    try {
+        const select = db.query('select value from ItemTable where key = ?');
+        let originalCount = 0;
+        let nextCount = 0;
+        for (const edit of edits) {
+            const row = select.get(edit.key) as { value: string } | null;
+            if (!row) {
+                return 'mixed';
+            }
+            if (row.value === edit.originalValue) {
+                originalCount += 1;
+            } else if (row.value === edit.nextValue) {
+                nextCount += 1;
+            } else {
+                return 'mixed';
+            }
+        }
+        if (originalCount === edits.length) {
+            return 'all-original';
+        }
+        if (nextCount === edits.length) {
+            return 'all-next';
+        }
+        return 'mixed';
+    } finally {
+        db.close();
+    }
+};
+
 const intentPathFor = (storeDir: string, canonicalSessionId: string): string =>
     path.join(storeDir, `${INTENT_PREFIX}${digestValue(canonicalSessionId).slice(0, 16)}.json`);
 
@@ -678,7 +784,11 @@ const cleanupOneOwnedFile = async (
         return identity.path;
     } catch (error) {
         if (error instanceof SourceMutationConflictError) {
-            throw error;
+            return {
+                error: error.message,
+                path: identity.path,
+                phase: 'file-cleanup',
+            };
         }
         return {
             error: error instanceof Error ? error.message : String(error),
@@ -742,21 +852,21 @@ const applyPlannedDeletion = async (
     hooks: QoderMutationHooks,
 ): Promise<DeleteConversationResult> => {
     const intentPath = intentPathFor(storeDir, plan.canonicalSessionId);
-    const intent: QoderDeletionIntent = { committed: false, deletedFiles: [], plan, version: 1 };
+    const intent: QoderDeletionIntent = {
+        canonicalRoot: await realpath(storeDir),
+        committed: false,
+        deletedFiles: [],
+        originatingStore: await realpath(locations.globalStateDb),
+        plan,
+        version: 1,
+    };
     await writeIntentFile(intentPath, intent);
-    try {
-        await hooks.afterIntent?.();
-        if (plan.itemTableEdits.length > 0) {
-            applyItemTableEdits(locations.globalStateDb, plan.itemTableEdits, plan.requestedId);
-        }
-        intent.committed = true;
-        await writeIntentFile(intentPath, intent);
-    } catch (error) {
-        if (!intent.committed) {
-            await removeIntentFile(intentPath);
-        }
-        throw error;
+    await hooks.afterIntent?.();
+    if (plan.itemTableEdits.length > 0) {
+        applyItemTableEdits(locations.globalStateDb, plan.itemTableEdits, plan.requestedId);
     }
+    intent.committed = true;
+    await writeIntentFile(intentPath, intent);
     await hooks.afterCommit?.();
     return finishCommittedCleanup(intent, intentPath, hooks.unlinkFile ?? unlink);
 };
@@ -776,8 +886,26 @@ const deleteQoderConversationLocked = async (
     }
     await requireStoppedQoderWriter(hooks.isWriterRunning ?? isQoderRunning, requestedId);
     const replay = await findReplayIntent(storeDir, requestedId);
-    if (replay?.intent.committed) {
-        return finishCommittedCleanup(replay.intent, replay.intentPath, hooks.unlinkFile ?? unlink);
+    if (replay) {
+        await assertReplayableQoderReceipt(replay.intent, replay.intentPath, locations);
+        if (replay.intent.committed) {
+            return finishCommittedCleanup(replay.intent, replay.intentPath, hooks.unlinkFile ?? unlink);
+        }
+        const classification = classifyItemTableEdits(locations.globalStateDb, replay.intent.plan.itemTableEdits);
+        if (classification === 'mixed') {
+            throw conflict(
+                requestedId,
+                'Qoder store diverged from the recorded deletion receipt.',
+                'concurrent_modification',
+                { path: replay.intentPath },
+            );
+        }
+        if (classification === 'all-next') {
+            const committed = { ...replay.intent, committed: true };
+            await writeIntentFile(replay.intentPath, committed);
+            return finishCommittedCleanup(committed, replay.intentPath, hooks.unlinkFile ?? unlink);
+        }
+        return applyPlannedDeletion(locations, storeDir, replay.intent.plan, hooks);
     }
     const dbExists = await isQoderGlobalStateDatabase(locations.globalStateDb);
     if (!dbExists) {
@@ -786,9 +914,6 @@ const deleteQoderConversationLocked = async (
     const plan = await planQoderDeletion(locations, requestedId);
     if (!plan) {
         return emptyDeleteResult();
-    }
-    if (replay && !replay.intent.committed) {
-        return applyPlannedDeletion(locations, storeDir, replay.intent.plan, hooks);
     }
     return applyPlannedDeletion(locations, storeDir, plan, hooks);
 };

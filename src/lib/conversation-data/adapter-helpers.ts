@@ -307,9 +307,26 @@ export const toCanonicalMessage = (message: CanonicalMessageDraft): Conversation
     visibility: message.visibility ?? 'normal',
 });
 
-export const finalizeMessages = (messages: CanonicalMessageDraft[]) => {
-    return messages.map((message, index) => ({
+export const bindMessageProvenance = (
+    messages: ConversationMessage[],
+    sourceConversationId: string,
+): ConversationMessage[] =>
+    messages.map((message) =>
+        message.provenance.sourceConversationId === sourceConversationId
+            ? message
+            : {
+                  ...message,
+                  provenance: {
+                      ...message.provenance,
+                      sourceConversationId: message.provenance.sourceConversationId || sourceConversationId,
+                  },
+              },
+    );
+
+export const finalizeMessages = (messages: CanonicalMessageDraft[], sourceConversationId?: string) => {
+    const canonical = messages.map((message, index) => ({
         ...toCanonicalMessage(message),
         order: index,
     }));
+    return sourceConversationId ? bindMessageProvenance(canonical, sourceConversationId) : canonical;
 };

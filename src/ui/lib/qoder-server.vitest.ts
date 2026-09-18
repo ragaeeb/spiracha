@@ -223,4 +223,31 @@ describe('Qoder server exports', () => {
             workspaceStorageDir: '/tmp/qoder-workspaces',
         });
     });
+
+    it('should preserve cleanup-pending receipts for batch Qoder deletes', async () => {
+        deleteQoderConversationMock
+            .mockResolvedValueOnce({ deletedFiles: ['/tmp/a.json'], deletedIds: ['first'] })
+            .mockResolvedValueOnce({
+                cleanupFailures: [{ error: 'unlink failed', path: '/tmp/b.json', phase: 'file-cleanup' }],
+                deletedFiles: [],
+                deletedIds: ['second'],
+                receiptId: 'receipt-second',
+            });
+        const result = await deleteQoderSessionsFn({ data: { sessionIds: ['first', 'second'] } } as never);
+        expect(result.summary).toMatchObject({ cleanupPending: 1, deleted: 1 });
+        expect(result.results.find((item) => item.id === 'second')).toMatchObject({
+            deleted: true,
+            receiptId: 'receipt-second',
+        });
+        deleteQoderConversationMock.mockResolvedValueOnce({
+            cleanupFailures: [{ error: 'unlink failed', path: '/tmp/b.json', phase: 'file-cleanup' }],
+            deletedFiles: [],
+            deletedIds: ['only'],
+            receiptId: 'receipt-only',
+        });
+        await expect(deleteQoderSessionFn({ data: { sessionId: 'only' } } as never)).resolves.toMatchObject({
+            deletedIds: ['only'],
+            receiptId: 'receipt-only',
+        });
+    });
 });

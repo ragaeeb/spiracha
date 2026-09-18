@@ -1,4 +1,3 @@
-import { readFile } from 'node:fs/promises';
 import { chat, expect, jsonFile, test } from './fixtures';
 
 test('should import a chat, hydrate its transcript, and survive a direct reload', async ({ page }) => {
@@ -48,5 +47,5 @@ test('should download generated Markdown with exact UTF-8 and CRLF bytes', async
     expect(await download.failure()).toBeNull();
     const target = testInfo.outputPath(download.suggestedFilename());
     await download.saveAs(target);
-    expect(await readFile(target)).toEqual(Buffer.from(content));
+    expect(Buffer.from(await Bun.file(target).arrayBuffer())).toEqual(Buffer.from(content));
 });

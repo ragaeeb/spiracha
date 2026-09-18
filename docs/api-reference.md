@@ -136,8 +136,10 @@ adapter, not by every source; the Codex stable adapter always deletes rollouts.
 The payload converter limits decoded/serialized payload data to 25 × 1024 × 1024
 UTF-8 bytes. The HTTP JSON request envelope has a separate streamed cap of
 64 × 1024 × 1024 bytes, allowing for string escaping and wrapper fields. A payload
-below the envelope cap can still exceed the converter cap. Both currently return
-400 `validation_error`, not 413. Converter errors include
+below the envelope cap can still exceed the converter cap. The HTTP envelope
+limit returns **413** `validation_error` with
+`error.details.reason: "request_too_large"`. Converter size and parse errors
+return **400** `validation_error` with
 `error.details: { field: 'payload', code: '<converter-code>' }`.
 
 Payload field aliases include `fileName`/`file_name` and
@@ -163,6 +165,7 @@ as a stable machine protocol.
 | Status | Code | Meaning |
 | --- | --- | --- |
 | 400 | `validation_error` | Invalid options, body, selector, source, ID, lens, or payload |
+| 413 | `validation_error` | HTTP payload/request envelope exceeded its streamed byte cap |
 | 403 | `origin_not_allowed` | Stable handler rejected browser Origin/loopback URL |
 | 404 | `conversation_not_found` | Missing conversation, unresolvable reference, unavailable raw file, or missing batch IDs |
 | 404 | `not_found` | Unrecognized stable route shape |

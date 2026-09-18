@@ -18,6 +18,7 @@ const exportSessionSchema = object({
     outputFormat: optional(picklist(['md', 'txt']), 'md'),
     sessionId: pipe(string(), minLength(1)),
     zipArchive: optional(boolean(), false),
+    zipPassword: optional(string(), ''),
 });
 
 const exportSessionsSchema = object({
@@ -27,6 +28,7 @@ const exportSessionsSchema = object({
     outputFormat: optional(picklist(['md', 'txt']), 'md'),
     sessionIds: pipe(array(pipe(string(), minLength(1))), minLength(1)),
     zipArchive: optional(boolean(), true),
+    zipPassword: optional(string(), ''),
 });
 
 const deleteSessionsSchema = object({
@@ -98,6 +100,7 @@ export const exportKiroSessionFn = createServerFn({ method: 'POST' })
             sessionId: transcript.session.sessionId,
             updatedAtMs: transcript.session.lastActiveAtMs,
             zipArchive: data.zipArchive,
+            zipPassword: data.zipPassword,
         });
     });
 
@@ -136,6 +139,7 @@ export const exportKiroSessionsFn = createServerFn({ method: 'POST' })
             outputFormat: data.outputFormat,
             platform: 'kiro',
             zipArchive: data.zipArchive,
+            zipPassword: data.zipPassword,
         });
     });
 

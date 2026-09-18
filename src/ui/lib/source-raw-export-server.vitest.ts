@@ -61,6 +61,7 @@ describe('source raw export server', () => {
                 },
             ],
             source: 'cline',
+            zipPassword: '',
         });
     });
 });

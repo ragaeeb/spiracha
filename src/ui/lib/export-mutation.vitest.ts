@@ -10,6 +10,7 @@ describe('createExportSelectionMutationInput', () => {
             includeTools: true,
             outputFormat: 'md' as const,
             zipArchive: true,
+            zipPassword: 'secret',
         };
 
         const input = createExportSelectionMutationInput(selectedIds, options);
@@ -24,6 +25,7 @@ describe('createExportSelectionMutationInput', () => {
                 includeTools: true,
                 outputFormat: 'md',
                 zipArchive: true,
+                zipPassword: 'secret',
             },
         });
     });
@@ -36,6 +38,7 @@ describe('createExportSelectionMutationInput', () => {
                 includeTools: true,
                 outputFormat: 'txt',
                 zipArchive: false,
+                zipPassword: '',
             }),
         ).toThrow('No conversations selected for export');
     });

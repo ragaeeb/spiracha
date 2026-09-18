@@ -37,8 +37,9 @@ not a promise of an equal heap limit.
 
 HTTP `POST /api/v1/conversation-payload` separately limits its request envelope
 to 64 MiB. JSON escaping and envelope fields count there. Passing that outer check
-does not bypass the converter's 25 MiB check. Both errors use HTTP 400; converter
-failures use outer `validation_error` with the converter code in `error.details`.
+does not bypass the converter's 25 MiB check. Envelope overflow uses HTTP **413**;
+converter failures use HTTP **400** with outer `validation_error` and the converter
+code in `error.details`.
 
 ## Errors
 

@@ -24,4 +24,23 @@ describe('FX deletion preflight', () => {
             await rm(root, { force: true, recursive: true });
         }
     });
+
+    it('should preserve a foreign index entry inserted after preflight', async () => {
+        const root = await mkdtemp(path.join(os.tmpdir(), 'spiracha-fx-interleave-'));
+        try {
+            const fixture = await writeFxFixture(root);
+            const indexPath = path.join(fixture.sessionsDir, 'index.json');
+            await deleteFxSession(root, fixture.sessionId, {
+                beforeIndexWrite: async () => {
+                    const current = await Bun.file(indexPath).json();
+                    current.sessions.push({ id: 'foreign-session', title: 'keep me' });
+                    await Bun.write(indexPath, `${JSON.stringify(current, null, 2)}\n`);
+                },
+            });
+            const sessions = (await Bun.file(indexPath).json()).sessions as Array<{ id: string }>;
+            expect(sessions.map((session) => session.id)).toEqual(['foreign-session']);
+        } finally {
+            await rm(root, { force: true, recursive: true });
+        }
+    });
 });

@@ -56,7 +56,11 @@ import {
     EmptyPartialExportError,
     writeExportArchive,
 } from './lib/export-archive';
-import { buildBatchExportBaseName, getExportPlatformName, sanitizeExportFileName } from './lib/ui-export-archive';
+import {
+    boundNormalizedExportBaseName,
+    buildBatchExportBaseName,
+    getExportPlatformName,
+} from './lib/ui-export-archive';
 
 export type {
     ConversationDataLocations,
@@ -187,7 +191,7 @@ const appendListOptions = (url: URL, options: ListConversationsOptions): void =>
     if (options.messageSelector) {
         url.searchParams.set('message_selector', options.messageSelector);
     }
-    if (options.sources && options.sources !== 'all') {
+    if (options.sources && options.sources !== 'all' && options.sources.length > 0) {
         url.searchParams.set('source', options.sources.join(','));
     }
     appendOptionalNumber(url, 'updated_after_ms', options.updatedAfterMs);
@@ -416,6 +420,11 @@ const makeHttpUrl = (baseUrl: URL, pathname: string): URL => {
     return url;
 };
 
+const EMPTY_CONVERSATION_PAGE: ConversationPage = { data: [], meta: { hasNext: false, nextCursor: null } };
+
+const isEmptySourceFilter = (sources: ListConversationsOptions['sources']) =>
+    Array.isArray(sources) && sources.length === 0;
+
 const rejectHttpLocations = (locations: ConversationDataLocations | undefined): void => {
     if (locations) {
         throw new SpirachaClientError('`locations` is only supported by local Spiracha clients.');
@@ -428,12 +437,14 @@ const buildBatchBody = ({
     messageSelector,
     outputFormat,
     source,
+    zipPassword,
 }: ExportConversationsZipOptions) => ({
     failure_policy: failurePolicy,
     ids,
     message_selector: messageSelector,
     output_format: outputFormat,
     source,
+    zip_password: zipPassword,
 });
 
 const exportLocalConversationsZip = async (
@@ -464,17 +475,16 @@ const exportLocalConversationsZip = async (
                     cwd: conversation.workspacePath,
                     updatedAtMs: conversation.updatedAtMs,
                 });
-                const fileBaseName =
-                    sanitizeExportFileName(conversation.title?.trim() || '') ||
-                    sanitizeExportFileName(`${options.source}-${id}`) ||
-                    'conversation';
+                const outputFormat = options.outputFormat ?? 'md';
+                const fileBaseName = boundNormalizedExportBaseName(conversation.title, `${options.source}-${id}`);
                 return {
                     members: [
                         {
                             bytes: renderLocalConversationMarkdown(conversation, {
                                 messageSelector: options.messageSelector ?? 'all',
+                                outputFormat,
                             }),
-                            relativePath: `${fileBaseName}.md`,
+                            relativePath: `${fileBaseName}.${outputFormat}`,
                         },
                     ],
                 };
@@ -493,6 +503,7 @@ const exportLocalConversationsZip = async (
             manifest: assembled.manifest,
             members: assembled.members,
             platform: getExportPlatformName(options.source),
+            zipPassword: options.zipPassword,
         });
         if ('downloadUrl' in archive) {
             throw new Error('Expected an in-memory conversation archive');
@@ -543,7 +554,10 @@ const makeLocalClient = (options: LocalConversationClientOptions): ConversationC
     exportConversationRaw: (getOptions) => getLocalConversationRaw(withDefaultLocations(getOptions, options.locations)),
     exportConversationsZip: (exportOptions) => exportLocalConversationsZip(exportOptions, options.locations),
     getConversation: (getOptions) => getLocalConversation(withDefaultLocations(getOptions, options.locations)),
-    listConversations: (listOptions) => listLocalConversations(withDefaultLocations(listOptions, options.locations)),
+    listConversations: (listOptions) =>
+        isEmptySourceFilter(listOptions.sources)
+            ? Promise.resolve(EMPTY_CONVERSATION_PAGE)
+            : listLocalConversations(withDefaultLocations(listOptions, options.locations)),
     listSources: () => listLocalConversationSources(),
     resolveConversationRef: (ref) => resolveLocalConversationRef(ref),
 });
@@ -632,6 +646,9 @@ const makeHttpClient = (options: HttpConversationClientOptions): ConversationCli
         },
         listConversations: async (listOptions) => {
             rejectHttpLocations(listOptions.locations);
+            if (isEmptySourceFilter(listOptions.sources)) {
+                return EMPTY_CONVERSATION_PAGE;
+            }
             const url = makeHttpUrl(baseUrl, '/api/v1/conversations');
             appendListOptions(url, listOptions);
             return normalizePage(await fetchJson<ConversationDetail[]>(url));

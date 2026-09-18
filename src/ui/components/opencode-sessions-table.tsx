@@ -14,7 +14,7 @@ import {
     DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu';
 import { supportedListAction } from '#/lib/conversation-actions';
-import type { ConversationListSelectionProps } from '#/lib/conversation-selection';
+import type { ConversationListInventoryProps } from '#/lib/conversation-selection';
 import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatDateTime, formatNumber, formatTokens } from '#/lib/formatters';
 
@@ -24,7 +24,7 @@ type OpenCodeSessionsTableProps = {
     onExportSession: (session: OpenCodeSessionSummary) => void;
     onExportSessions: (sessionIds: string[]) => void;
     sessions: OpenCodeSessionSummary[];
-} & ConversationListSelectionProps;
+} & ConversationListInventoryProps<OpenCodeSessionSummary>;
 
 const columnHelper = createDataTableColumnHelper<OpenCodeSessionSummary>();
 const defaultSorting: SortingState = [{ desc: true, id: 'updatedAt' }];
@@ -132,6 +132,7 @@ const columns = (
 
 export const OpenCodeSessionsTable = ({
     authoritativeRowIds,
+    authoritativeRows,
     inventoryIdentity,
     onDeleteSession,
     onDeleteSessions,
@@ -144,6 +145,7 @@ export const OpenCodeSessionsTable = ({
     return (
         <DataTable
             authoritativeRowIds={authoritativeRowIds}
+            authoritativeRows={authoritativeRows}
             columns={tableColumns}
             data={sessions}
             emptyMessage="No OpenCode sessions match the current workspace filter."

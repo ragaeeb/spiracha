@@ -113,6 +113,7 @@ function ClaudeCodeWorkspacePage() {
                               outputFormat: options.outputFormat,
                               sessionId: ids[0]!,
                               zipArchive: options.zipArchive,
+                              zipPassword: options.zipPassword,
                           },
                       })
                     : await exportClaudeCodeSessionsFn({
@@ -123,6 +124,7 @@ function ClaudeCodeWorkspacePage() {
                               outputFormat: options.outputFormat,
                               sessionIds: [...ids],
                               zipArchive: options.zipArchive,
+                              zipPassword: options.zipPassword,
                           },
                       });
             if (download.mode === 'download') {
@@ -210,6 +212,7 @@ function ClaudeCodeWorkspacePage() {
                     sessions.map((session) => session.sessionId),
                     workspace.key,
                 )}
+                authoritativeRows={sessions}
                 sessions={visibleSessions}
                 onDeleteSession={(session) => openDeleteForSessions([session])}
                 onDeleteSessions={(sessionIds) => openDeleteForSessions(lookupSelectedSessions(sessionIds))}

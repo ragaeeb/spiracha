@@ -4,7 +4,12 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '#/components/ui/button';
 import { Checkbox } from '#/components/ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '#/components/ui/table';
-import { pruneSelectionToAuthoritative, selectedIdsFromRecord, summarizeSelection } from '#/lib/conversation-selection';
+import {
+    lookupSelectedById,
+    pruneSelectionToAuthoritative,
+    selectedIdsFromRecord,
+    summarizeSelection,
+} from '#/lib/conversation-selection';
 import { type DataTableColumnDef, dataTableFeatures } from '#/lib/data-table-config';
 import { cn } from '#/lib/utils';
 
@@ -17,6 +22,7 @@ export type DataTableToolbarInput<TData> = {
 
 type DataTableProps<TData extends RowData> = {
     authoritativeRowIds?: readonly string[];
+    authoritativeRows?: TData[];
     className?: string;
     columns: ReadonlyArray<DataTableColumnDef<TData, any>>;
     data: TData[];
@@ -74,21 +80,28 @@ const applySelectionState = (selection: RowSelectionState, rowIds: string[], che
     return nextSelection;
 };
 
-const getDataRowIds = <TData extends RowData>(
+const collectDataRows = <TData extends RowData>(
     data: TData[],
     getRowId: DataTableProps<TData>['getRowId'],
     getSubRows: DataTableProps<TData>['getSubRows'],
     parentPath = '',
-): string[] => {
+): Array<{ id: string; row: TData }> => {
     return data.flatMap((row, index) => {
         const rowId = getRowId ? getRowId(row, index) : `${parentPath}${index}`;
         const childRows = getSubRows?.(row, index) ?? [];
-        return [rowId, ...getDataRowIds(childRows, getRowId, getSubRows, `${rowId}.`)];
+        return [{ id: rowId, row }, ...collectDataRows(childRows, getRowId, getSubRows, `${rowId}.`)];
     });
 };
 
+const getDataRowIds = <TData extends RowData>(
+    data: TData[],
+    getRowId: DataTableProps<TData>['getRowId'],
+    getSubRows: DataTableProps<TData>['getSubRows'],
+): string[] => collectDataRows(data, getRowId, getSubRows).map((entry) => entry.id);
+
 export function DataTable<TData extends RowData>({
     authoritativeRowIds,
+    authoritativeRows,
     className,
     columns,
     data,
@@ -204,8 +217,11 @@ export function DataTable<TData extends RowData>({
         },
     });
     const visibleRows = table.getPaginatedRowModel().rows;
-    const selectedRows = table.getSelectedRowModel().flatRows.map((row) => row.original);
     const selectedIds = selectedIdsFromRecord(rowSelection);
+    const selectedRows = lookupSelectedById(
+        selectedIds,
+        new Map(collectDataRows(authoritativeRows ?? data, getRowId, getSubRows).map((entry) => [entry.id, entry.row])),
+    );
     const hiddenSelectedCount = summarizeSelection(
         selectedIds,
         visibleRows.map((row) => row.id),

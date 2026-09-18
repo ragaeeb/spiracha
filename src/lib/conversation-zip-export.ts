@@ -1,5 +1,9 @@
 import { cleanupConversationZipArtifacts, type ExportArchiveManifest, writeExportArchive } from './export-archive';
-import { buildBatchExportBaseName, resolveUniqueExportFileBaseName, sanitizeExportFileName } from './ui-export-archive';
+import {
+    boundNormalizedExportBaseName,
+    buildBatchExportBaseName,
+    resolveUniqueExportFileBaseName,
+} from './ui-export-archive';
 
 type ConversationMarkdownZipEntry = {
     cwd: string | null;
@@ -17,22 +21,7 @@ type ConversationMarkdownZipOptions = {
     platform: string;
     signal?: AbortSignal;
     source?: string;
-};
-
-const EXPORT_BASE_NAME_BYTE_LIMIT = 120;
-
-const truncateUtf8 = (value: string, maxBytes: number) => {
-    let bytes = 0;
-    let result = '';
-    for (const character of value) {
-        const characterBytes = Buffer.byteLength(character);
-        if (bytes + characterBytes > maxBytes) {
-            break;
-        }
-        bytes += characterBytes;
-        result += character;
-    }
-    return result;
+    zipPassword?: string;
 };
 
 export type ConversationMarkdownZip = {
@@ -44,10 +33,7 @@ export type ConversationMarkdownZip = {
 export type { ConversationZipCleanupFailure } from './export-archive';
 export { cleanupConversationZipArtifacts };
 
-const toSafeFileBaseName = (value: string | null, fallback: string) => {
-    const sanitized = sanitizeExportFileName(value?.trim() || '') || sanitizeExportFileName(fallback) || 'conversation';
-    return truncateUtf8(sanitized, EXPORT_BASE_NAME_BYTE_LIMIT) || 'conversation';
-};
+const toSafeFileBaseName = (value: string | null, fallback: string) => boundNormalizedExportBaseName(value, fallback);
 
 /**
  * Names Markdown members, writes a generated batch manifest, and archives through
@@ -60,6 +46,7 @@ export const createConversationMarkdownZip = async ({
     platform,
     signal,
     source = platform,
+    zipPassword,
 }: ConversationMarkdownZipOptions): Promise<ConversationMarkdownZip> => {
     if (entries.length === 0) {
         throw new Error('No conversations selected for export');
@@ -101,6 +88,7 @@ export const createConversationMarkdownZip = async ({
         members: members.map(({ bytes, relativePath }) => ({ bytes, relativePath })),
         platform,
         signal,
+        zipPassword,
     });
     if ('downloadUrl' in archive) {
         throw new Error('Expected an in-memory conversation archive');

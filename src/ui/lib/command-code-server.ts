@@ -34,6 +34,7 @@ const exportSessionSchema = object({
     outputFormat: optional(picklist(['md', 'txt']), 'md'),
     sessionId: sessionIdSchema,
     zipArchive: optional(boolean(), false),
+    zipPassword: optional(string(), ''),
 });
 
 const exportSessionsSchema = object({
@@ -43,6 +44,7 @@ const exportSessionsSchema = object({
     outputFormat: optional(picklist(['md', 'txt']), 'md'),
     sessionIds: pipe(array(sessionIdSchema), minLength(1), maxLength(200)),
     zipArchive: optional(boolean(), true),
+    zipPassword: optional(string(), ''),
 });
 
 const deleteSessionsSchema = object({
@@ -123,6 +125,7 @@ export const exportCommandCodeSessionFn = createServerFn({ method: 'POST' })
             sessionId: transcript.session.sessionId,
             updatedAtMs: transcript.session.lastActiveAtMs,
             zipArchive: data.zipArchive,
+            zipPassword: data.zipPassword,
         });
     });
 
@@ -161,6 +164,7 @@ export const exportCommandCodeSessionsFn = createServerFn({ method: 'POST' })
             outputFormat: data.outputFormat,
             platform: 'command-code',
             zipArchive: data.zipArchive,
+            zipPassword: data.zipPassword,
         });
     });
 

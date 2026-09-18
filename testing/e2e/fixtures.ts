@@ -1,7 +1,7 @@
 import { test as base, expect } from '@playwright/test';
 
 export { expect };
-export const test = base.extend<{ checkedPage: void }>({
+export const test = base.extend<{ checkedPage: undefined }>({
     checkedPage: [
         async ({ context, page, baseURL }, use) => {
             const errors: string[] = [];

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import { BlobReader, ZipReader } from '@zip.js/zip.js';
 import { unzipSync } from 'fflate';
 import { handleConversationApiRequest } from './conversation-api';
 import { OriginalRepresentationUnavailableError, SourceChangedError } from './conversation-data';
@@ -1246,6 +1247,35 @@ describe('conversation API handler', () => {
         expect(renderedSelectors).toEqual(['all', 'all']);
         const bytes = new Uint8Array(await response.arrayBuffer());
         expect(Array.from(bytes.slice(0, 2))).toEqual([0x50, 0x4b]);
+    });
+
+    it('should carry a ZIP password through the public API without exposing it in the manifest', async () => {
+        const password = '  API password 🔐  ';
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/export', {
+                body: JSON.stringify({ ids: ['thread-1'], source: 'grok', zip_password: password }),
+                method: 'POST',
+            }),
+            {
+                getConversation: async () => conversation,
+                renderConversationMarkdown: () => '# Exported\n',
+            },
+        );
+
+        expect(response.status).toBe(200);
+        const reader = new ZipReader(new BlobReader(await response.blob()));
+        const entries = await reader.getEntries();
+        expect(entries).toHaveLength(2);
+        expect(entries.every((entry) => entry.encrypted)).toBe(true);
+        const manifestEntry = entries.find((entry) => entry.filename === 'spiracha-manifest.json');
+        if (!manifestEntry || manifestEntry.directory) {
+            throw new Error('expected an encrypted manifest file entry');
+        }
+        const manifest = JSON.parse(new TextDecoder().decode(await manifestEntry.arrayBuffer({ password }))) as {
+            options: Record<string, unknown>;
+        };
+        expect(manifest.options).not.toHaveProperty('zipPassword');
+        await reader.close();
     });
 
     it('should refuse atomic batch export when any requested conversation is missing', async () => {

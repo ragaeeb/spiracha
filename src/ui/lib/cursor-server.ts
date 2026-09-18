@@ -156,6 +156,7 @@ const exportSchema = object({
     includeTools: optional(boolean(), true),
     outputFormat: optional(picklist(['md', 'txt']), 'md'),
     zipArchive: optional(boolean(), false),
+    zipPassword: optional(string(), ''),
 });
 
 const exportThreadsSchema = object({
@@ -165,6 +166,7 @@ const exportThreadsSchema = object({
     includeTools: optional(boolean(), true),
     outputFormat: optional(picklist(['md', 'txt']), 'md'),
     zipArchive: optional(boolean(), true),
+    zipPassword: optional(string(), ''),
 });
 
 const deleteThreadsSchema = object({
@@ -351,6 +353,7 @@ const renderCursorZipDownload = async (
         updatedAtMs: number | null;
     }>,
     outputFormat: 'md' | 'txt',
+    zipPassword: string,
 ) => {
     return renderSourceSessionsDownload({
         entries: rendered.map((entry) => ({
@@ -365,6 +368,7 @@ const renderCursorZipDownload = async (
         outputFormat,
         platform: 'cursor',
         zipArchive: true,
+        zipPassword,
     });
 };
 
@@ -385,6 +389,7 @@ const renderCursorDownload = async (input: {
     includeTools: boolean;
     outputFormat: 'md' | 'txt';
     zipArchive: boolean;
+    zipPassword: string;
 }) => {
     const { runWithTranscriptLoadLimit } = await import('@spiracha/lib/transcript-load-limiter');
     const { readCursorThreadTranscriptWithAgentFiles } = await import('@spiracha/lib/cursor-db');
@@ -442,7 +447,7 @@ const renderCursorDownload = async (input: {
     );
 
     if (input.zipArchive || rendered.length > 1) {
-        return renderCursorZipDownload(rendered, input.outputFormat);
+        return renderCursorZipDownload(rendered, input.outputFormat, input.zipPassword);
     }
 
     if (rendered.length === 1) {
@@ -456,6 +461,7 @@ const renderCursorDownload = async (input: {
             sessionId: entry.composerId,
             updatedAtMs: entry.updatedAtMs,
             zipArchive: false,
+            zipPassword: input.zipPassword,
         });
     }
 
@@ -518,6 +524,7 @@ export const exportCursorThreadFn = createServerFn({ method: 'POST' })
             includeTools: data.includeTools,
             outputFormat: data.outputFormat,
             zipArchive: data.zipArchive,
+            zipPassword: data.zipPassword,
         });
     });
 
@@ -531,6 +538,7 @@ export const exportCursorThreadsFn = createServerFn({ method: 'POST' })
             includeTools: data.includeTools,
             outputFormat: data.outputFormat,
             zipArchive: data.zipArchive,
+            zipPassword: data.zipPassword,
         });
     });
 

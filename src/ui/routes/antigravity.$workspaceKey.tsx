@@ -162,6 +162,7 @@ function AntigravityWorkspacePage() {
                     includeTools: options.includeTools,
                     outputFormat: options.outputFormat,
                     zipArchive: options.zipArchive,
+                    zipPassword: options.zipPassword,
                 },
             });
 
@@ -268,6 +269,7 @@ function AntigravityWorkspacePage() {
                     conversations.map((conversation) => conversation.conversationId),
                     workspace.key,
                 )}
+                authoritativeRows={conversations}
                 conversations={visibleConversations}
                 decryptionState={decryptionState}
                 onDeleteConversation={(conversation) => openDeleteForConversations([conversation], 'selected')}

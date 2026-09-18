@@ -357,6 +357,7 @@ export type ExportConversationsZipOptions = ConversationIdSetOptions & {
     failurePolicy?: 'atomic' | 'partial';
     messageSelector?: ConversationMessageSelector;
     outputFormat?: 'md';
+    zipPassword?: string;
 };
 
 export type ConversationZipDownload = {

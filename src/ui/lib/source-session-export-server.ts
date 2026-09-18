@@ -1,5 +1,5 @@
 import type { ConversationRawDownload, ConversationSource } from '@spiracha/lib/conversation-data/types';
-import { writeExportArchive } from '@spiracha/lib/export-archive';
+import { EXPORT_ARCHIVE_MANIFEST_FILE, writeExportArchive } from '@spiracha/lib/export-archive';
 import type { RawInlineDownload } from '@spiracha/lib/raw-export-contract';
 import { resolveUiRuntimeConfig } from '@spiracha/lib/runtime-config';
 import {
@@ -25,6 +25,7 @@ type RenderSourceSessionDownloadOptions = {
     sessionId: string;
     updatedAtMs: number | null;
     zipArchive: boolean;
+    zipPassword?: string;
 };
 
 type RenderedSourceSession = {
@@ -42,6 +43,7 @@ type RenderSourceSessionsDownloadOptions = {
     outputFormat: ExportFormat;
     platform: string;
     zipArchive: boolean;
+    zipPassword?: string;
 };
 
 export const toSafeSourceExportName = (value: string, fallback: string) => {
@@ -57,6 +59,7 @@ type RawConversationExportOptions = {
     downloads: RawConversationExportEntry[];
     largeExportThresholdBytes?: number;
     source: ConversationSource;
+    zipPassword?: string;
 };
 
 const toDownloadUrl = async (
@@ -77,12 +80,17 @@ export const renderRawConversationDownloads = async ({
     downloads,
     largeExportThresholdBytes = resolveUiRuntimeConfig().largeExportThresholdBytes,
     source,
+    zipPassword,
 }: RawConversationExportOptions) => {
     if (downloads.length === 0) {
         throw new Error('No raw conversations selected for export');
     }
 
-    if (downloads.length === 1 && downloads[0]!.download.blob.size <= largeExportThresholdBytes) {
+    if (
+        downloads.length === 1 &&
+        downloads[0]!.download.blob.size <= largeExportThresholdBytes &&
+        (zipPassword === undefined || zipPassword === '')
+    ) {
         const entry = downloads[0]!;
         return {
             contentBase64: Buffer.from(await entry.download.blob.arrayBuffer()).toString('base64'),
@@ -92,7 +100,7 @@ export const renderRawConversationDownloads = async ({
         } satisfies RawInlineDownload;
     }
 
-    const usedBaseNames = new Map<string, number>();
+    const usedBaseNames = new Map<string, number>([[EXPORT_ARCHIVE_MANIFEST_FILE.normalize('NFC').toLowerCase(), 1]]);
     const members = [];
     for (const entry of downloads) {
         const fileName = resolveUniqueRawExportFileName(
@@ -135,6 +143,7 @@ export const renderRawConversationDownloads = async ({
                 : {}),
             members: members.map(({ bytes, relativePath }) => ({ bytes, relativePath })),
             platform: getExportPlatformName(source),
+            zipPassword,
         }),
     );
 };
@@ -149,6 +158,7 @@ export const renderSourceSessionDownload = async ({
     sessionId,
     updatedAtMs,
     zipArchive,
+    zipPassword,
 }: RenderSourceSessionDownloadOptions) => {
     const safeBaseName = buildConversationExportBaseName(
         {
@@ -160,6 +170,7 @@ export const renderSourceSessionDownload = async ({
     );
     const shouldArchive =
         zipArchive ||
+        (zipPassword !== undefined && zipPassword !== '') ||
         Buffer.byteLength(content) > (largeExportThresholdBytes ?? resolveUiRuntimeConfig().largeExportThresholdBytes);
     if (!shouldArchive) {
         return {
@@ -176,6 +187,7 @@ export const renderSourceSessionDownload = async ({
             destination: { mode: 'download_url' },
             members: [{ bytes: content, relativePath: `${safeBaseName}.${outputFormat}` }],
             platform,
+            zipPassword,
         }),
     );
 };
@@ -186,6 +198,7 @@ export const renderSourceSessionsDownload = async ({
     outputFormat,
     platform,
     zipArchive,
+    zipPassword,
 }: RenderSourceSessionsDownloadOptions) => {
     if (entries.length === 0) {
         throw new Error('No transcripts selected for export');
@@ -202,10 +215,11 @@ export const renderSourceSessionsDownload = async ({
             sessionId: entry.sessionId,
             updatedAtMs: entry.updatedAtMs,
             zipArchive,
+            zipPassword,
         });
     }
 
-    const usedBaseNames = new Map<string, number>();
+    const usedBaseNames = new Map<string, number>([[EXPORT_ARCHIVE_MANIFEST_FILE.normalize('NFC').toLowerCase(), 1]]);
     const members = entries.map((entry) => {
         const fileBaseName = resolveUniqueExportFileBaseName(
             toSafeSourceExportName(entry.fileBaseName, entry.fallbackBaseName),
@@ -242,6 +256,7 @@ export const renderSourceSessionsDownload = async ({
             },
             members: members.map(({ bytes, relativePath }) => ({ bytes, relativePath })),
             platform,
+            zipPassword,
         }),
     );
 };

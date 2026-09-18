@@ -13,6 +13,7 @@ const exportTaskSchema = object({
     outputFormat: optional(picklist(['md', 'txt']), 'md'),
     taskId: pipe(string(), regex(CLINE_SESSION_ID_PATTERN)),
     zipArchive: optional(boolean(), false),
+    zipPassword: optional(string(), ''),
 });
 const exportTasksSchema = object({
     includeCommentary: optional(boolean(), true),
@@ -20,6 +21,7 @@ const exportTasksSchema = object({
     includeTools: optional(boolean(), true),
     outputFormat: optional(picklist(['md', 'txt']), 'md'),
     taskIds: pipe(array(pipe(string(), regex(CLINE_SESSION_ID_PATTERN))), minLength(1)),
+    zipPassword: optional(string(), ''),
 });
 const deleteTasksSchema = object({
     taskIds: pipe(array(pipe(string(), regex(CLINE_SESSION_ID_PATTERN))), minLength(1)),
@@ -75,6 +77,7 @@ export const exportClineTaskFn = createServerFn({ method: 'POST' })
             sessionId: transcript.task.taskId,
             updatedAtMs: transcript.task.lastActiveAtMs,
             zipArchive: data.zipArchive,
+            zipPassword: data.zipPassword,
         });
     });
 
@@ -102,6 +105,7 @@ export const exportClineTasksFn = createServerFn({ method: 'POST' })
             outputFormat: data.outputFormat,
             platform: 'cline',
             zipArchive: true,
+            zipPassword: data.zipPassword,
         });
     });
 
