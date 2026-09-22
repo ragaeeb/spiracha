@@ -1,8 +1,12 @@
-import { getThreadBrowseData, listCodexThreadsForPath } from '../codex-browser-queries';
+import {
+    createCodexForkedThreadResolver,
+    getThreadBrowseData,
+    listCodexThreadsForPath,
+} from '../codex-browser-queries';
 import type { ThreadBrowseData } from '../codex-browser-types';
 import { CodexThreadNotFoundError, resolveCodexThreadDbPath } from '../codex-database';
 import { deleteCodexThread } from '../codex-thread-mutations';
-import { parseCodexTranscriptFile } from '../codex-thread-parser';
+import { type CodexForkedThreadResolver, parseCodexTranscriptFile } from '../codex-thread-parser';
 import type { ThreadRow } from '../codex-thread-types';
 import { cleanInlineTitle } from '../shared-text';
 import { runWithTranscriptLoadLimit } from '../transcript-load-limiter';
@@ -33,13 +37,17 @@ const toCreatedAtMs = (thread: ThreadRow) => {
     return thread.created_at_ms ?? thread.created_at * 1000;
 };
 
-const readCodexMessages = async (thread: ThreadRow): Promise<ConversationMessage[]> => {
+const readCodexMessages = async (
+    thread: ThreadRow,
+    resolveForkedThread?: CodexForkedThreadResolver,
+): Promise<ConversationMessage[]> => {
     let transcript: Awaited<ReturnType<typeof parseCodexTranscriptFile>>;
     try {
         transcript = await runWithTranscriptLoadLimit(
             () =>
                 parseCodexTranscriptFile(thread.rollout_path, {
                     includeRaw: false,
+                    resolveForkedThread,
                 }),
             {
                 id: thread.id,
@@ -62,9 +70,13 @@ const readCodexMessages = async (thread: ThreadRow): Promise<ConversationMessage
 const buildCodexConversation = async (
     thread: ThreadRow,
     matches: ConversationPathMatch[],
-    options: { includeMessages: boolean; messageSelector: ListConversationsOptions['messageSelector'] },
+    options: {
+        includeMessages: boolean;
+        messageSelector: ListConversationsOptions['messageSelector'];
+        resolveForkedThread?: CodexForkedThreadResolver;
+    },
 ): Promise<ConversationDetail> => {
-    const allMessages = options.includeMessages ? await readCodexMessages(thread) : [];
+    const allMessages = options.includeMessages ? await readCodexMessages(thread, options.resolveForkedThread) : [];
     const messages = options.includeMessages
         ? selectConversationMessages(allMessages, options.messageSelector ?? 'last_final_answer')
         : [];
@@ -128,12 +140,14 @@ const listCodexConversations = async (options: ListConversationsOptions): Promis
         updatedBeforeMs: options.updatedBeforeMs,
     });
     const matchedThreads = await filterThreadsForPath(threads, options.cwd);
+    const resolveForkedThread = createCodexForkedThreadResolver(dbPath);
 
     return Promise.all(
         matchedThreads.map(({ matches, thread }) =>
             buildCodexConversation(thread, matches, {
                 includeMessages: options.includeMessages ?? false,
                 messageSelector: options.messageSelector,
+                resolveForkedThread,
             }),
         ),
     );
@@ -155,6 +169,7 @@ const getCodexConversation = async (options: GetConversationOptions): Promise<Co
     return buildCodexConversation(browseData.thread, [], {
         includeMessages: true,
         messageSelector: options.messageSelector ?? 'all',
+        resolveForkedThread: createCodexForkedThreadResolver(dbPath),
     });
 };
 

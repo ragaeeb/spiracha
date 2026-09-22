@@ -45,6 +45,7 @@ import {
     getCachedCodexTranscriptStats,
     getThreadRolloutLoadState,
 } from './codex-thread-cache';
+import type { CodexForkedThreadResolver } from './codex-thread-parser';
 import type { ThreadRelations, ThreadRow } from './codex-thread-types';
 import { mapWithConcurrency } from './concurrency';
 import { normalizeConversationPath } from './conversation-data/path-match';
@@ -245,11 +246,16 @@ export const listProjectThreads = async (
         dbPath,
         activeThreads.map((thread) => thread.id),
     );
+    const resolveForkedThread = createCodexForkedThreadResolver(dbPath);
     const entries = await mapWithConcurrency(activeThreads, THREAD_LIST_IO_CONCURRENCY, async (thread) => {
-        const rollout = await getThreadRolloutLoadState(thread.rollout_path, options.largeTranscriptThresholdBytes);
+        const rollout = await getThreadRolloutLoadState(thread.rollout_path, options.largeTranscriptThresholdBytes, {
+            resolveForkedThread,
+        });
         const hierarchy = hierarchyByThreadId.get(thread.id) ?? { childThreadCount: 0, parentThreadId: null };
         const detectedModelNames =
-            rollout.fileSizeBytes === null ? [] : await getCachedCodexTranscriptModelNames(thread.rollout_path);
+            rollout.fileSizeBytes === null
+                ? []
+                : await getCachedCodexTranscriptModelNames(thread.rollout_path, { resolveForkedThread });
         const modelNames = detectedModelNames.length > 0 ? detectedModelNames : thread.model ? [thread.model] : [];
         if (rollout.fileSizeBytes === null) {
             return {
@@ -271,7 +277,7 @@ export const listProjectThreads = async (
                 thread: normalizeThreadDisplayText(thread),
             };
         }
-        const stats = await getCachedCodexTranscriptStats(thread.rollout_path);
+        const stats = await getCachedCodexTranscriptStats(thread.rollout_path, undefined, { resolveForkedThread });
         return {
             hierarchy,
             modelNames,
@@ -530,4 +536,18 @@ export const getThreadBrowseData = async (dbPath: string, threadId: string): Pro
         throw new CodexThreadNotFoundError(threadId);
     }
     return result.data;
+};
+
+export const createCodexForkedThreadResolver = (dbPath: string): CodexForkedThreadResolver => {
+    const resolvedPaths = new Map<string, Promise<string>>();
+    return async (threadId) => {
+        const cachedPath = resolvedPaths.get(threadId);
+        if (cachedPath) {
+            return cachedPath;
+        }
+
+        const pathPromise = getThreadBrowseData(dbPath, threadId).then((data) => data.thread.rollout_path);
+        resolvedPaths.set(threadId, pathPromise);
+        return pathPromise;
+    };
 };

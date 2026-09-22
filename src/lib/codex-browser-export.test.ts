@@ -1,11 +1,12 @@
 import { Database } from 'bun:sqlite';
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { BlobReader, ZipReader } from '@zip.js/zip.js';
 import { strFromU8, unzipSync } from 'fflate';
 import {
+    CodexNoExportableContentError,
     isArchiveWideFailure,
     isPerEntryExportFailure,
     renderCodexThreadDownload,
@@ -98,6 +99,7 @@ describe('renderCodexThreadDownload', () => {
     it('should only classify known rollout failures as per-entry export failures', () => {
         expect(isPerEntryExportFailure(new Error('unexpected renderer bug'))).toBe(false);
         expect(isPerEntryExportFailure(new CodexThreadNotFoundError('thread-missing'))).toBe(true);
+        expect(isPerEntryExportFailure(new CodexNoExportableContentError('thread-empty'))).toBe(true);
     });
 
     it('should render a thread export to downloadable markdown content', async () => {
@@ -126,6 +128,56 @@ describe('renderCodexThreadDownload', () => {
         expect(download.content).toContain('## Tool');
         expect(download.content).toContain('Tool: exec');
         expect(download.content).toContain('Modern tool output');
+    });
+
+    it('should export inherited fork history when the child rollout only contains metadata', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-export-fork-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const parent = fixture.threads[0]!;
+        const child = fixture.threads[1]!;
+        const parentRecords = (await Bun.file(parent.sessionFile).text())
+            .trim()
+            .split('\n')
+            .map((line, ordinal) => ({ ...JSON.parse(line), ordinal }));
+        const childRecords = (await Bun.file(child.sessionFile).text())
+            .trim()
+            .split('\n')
+            .map((line, ordinal) => ({ ...JSON.parse(line), ordinal: parentRecords.length + ordinal }));
+        childRecords[0] = {
+            ...childRecords[0],
+            payload: {
+                ...childRecords[0]!.payload,
+                forked_from_id: parent.threadId,
+                forked_from_ordinal_exclusive: parentRecords.length,
+            },
+        };
+        await Promise.all([
+            Bun.write(parent.sessionFile, parentRecords.map((record) => JSON.stringify(record)).join('\n')),
+            Bun.write(child.sessionFile, childRecords.map((record) => JSON.stringify(record)).join('\n')),
+        ]);
+
+        const download = await renderCodexThreadDownload({
+            dbPath: fixture.dbPath,
+            includeCommentary: true,
+            includeMetadata: false,
+            includeTools: false,
+            largeExportThresholdBytes: (await stat(child.sessionFile)).size + 1,
+            outputFormat: 'md',
+            publicExportDir: tempRoot,
+            threadId: child.threadId,
+        });
+
+        expect(download.mode).toBe('download_url');
+        if (download.mode !== 'download_url') {
+            throw new Error('expected inherited history to use effective export size');
+        }
+        const zipPath = path.join(tempRoot, path.basename(download.downloadUrl));
+        const entries = await listZipEntries(zipPath);
+        expect(entries).toHaveLength(1);
+        const content = await readZipEntry(zipPath, entries[0]!);
+        expect(content).toContain('Implemented /Users/example/workspace/spiracha/src/index.ts');
+        expect(content).toContain('Stabilized the transcript parsing and export formatting.');
     });
 
     it('should archive a small single-thread export when a ZIP password is supplied', async () => {
@@ -551,6 +603,132 @@ describe('renderCodexThreadDownload', () => {
                 status: 'missing',
             },
         ]);
+    });
+
+    it('should keep exportable threads and record no-content threads in a batch manifest', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-export-batch-no-content-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const exportedThread = fixture.threads[0]!;
+        const emptyThread = fixture.threads[1]!;
+
+        await Bun.write(
+            emptyThread.sessionFile,
+            `${JSON.stringify({
+                payload: {
+                    cli_version: '0.131.0-alpha.9',
+                    cwd: emptyThread.cwd,
+                    id: emptyThread.threadId,
+                    originator: 'Codex Desktop',
+                    source: 'vscode',
+                    timestamp: '2026-05-17T15:10:00.000Z',
+                },
+                type: 'session_meta',
+            })}\n`,
+        );
+
+        const download = await renderCodexThreadsDownload({
+            dbPath: fixture.dbPath,
+            includeCommentary: true,
+            includeMetadata: true,
+            includeTools: true,
+            outputFormat: 'md',
+            publicExportDir: tempRoot,
+            threadIds: [exportedThread.threadId, emptyThread.threadId],
+        });
+
+        expect(download.mode).toBe('download_url');
+        if (download.mode !== 'download_url') {
+            throw new Error('expected zipped batch download url mode');
+        }
+
+        const zipPath = path.join(tempRoot, path.basename(download.downloadUrl));
+        const manifest = JSON.parse(await readZipEntry(zipPath, 'spiracha-manifest.json')) as {
+            entries: Array<{
+                error: { code: string; message: string } | null;
+                memberNames: string[];
+                omissionSummary: string | null;
+                requestedId: string;
+                status: string;
+            }>;
+            failedCount: number;
+            missingCount: number;
+            requestedCount: number;
+            successCount: number;
+        };
+
+        expect(download.skippedThreadCount).toBe(1);
+        expect(manifest).toMatchObject({
+            failedCount: 1,
+            failurePolicy: 'partial',
+            kind: 'batch_normalized_export',
+            missingCount: 0,
+            requestedCount: 2,
+            successCount: 1,
+        });
+        expect(manifest.entries[1]).toEqual({
+            error: {
+                code: 'CODEX_NO_EXPORTABLE_CONTENT',
+                message: `Thread ${emptyThread.threadId} produced no exportable content`,
+            },
+            memberNames: [],
+            omissionSummary: null,
+            requestedId: emptyThread.threadId,
+            status: 'failed',
+        });
+    });
+
+    it('should keep exportable threads and record missing fork parents in a batch manifest', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-export-batch-fork-error-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const exportedThread = fixture.threads[0]!;
+        const brokenThread = fixture.threads[1]!;
+        const records = (await Bun.file(brokenThread.sessionFile).text())
+            .trim()
+            .split('\n')
+            .map((line) => JSON.parse(line) as { payload?: Record<string, unknown> });
+        records[0] = {
+            ...records[0],
+            payload: {
+                ...records[0]?.payload,
+                forked_from_id: 'missing-parent-thread',
+                forked_from_ordinal_exclusive: 1,
+            },
+        };
+        await Bun.write(brokenThread.sessionFile, records.map((record) => JSON.stringify(record)).join('\n'));
+
+        const download = await renderCodexThreadsDownload({
+            dbPath: fixture.dbPath,
+            includeCommentary: true,
+            includeMetadata: true,
+            includeTools: true,
+            outputFormat: 'md',
+            publicExportDir: tempRoot,
+            threadIds: [exportedThread.threadId, brokenThread.threadId],
+        });
+
+        expect(download.mode).toBe('download_url');
+        if (download.mode !== 'download_url') {
+            throw new Error('expected a partial batch archive');
+        }
+        const zipPath = path.join(tempRoot, path.basename(download.downloadUrl));
+        const manifest = JSON.parse(await readZipEntry(zipPath, 'spiracha-manifest.json')) as {
+            entries: Array<{
+                error: { code: string; message: string } | null;
+                memberNames: string[];
+                requestedId: string;
+                status: string;
+            }>;
+        };
+        expect(manifest.entries[1]).toMatchObject({
+            error: {
+                code: 'CODEX_TRANSCRIPT_HISTORY_INVALID',
+            },
+            memberNames: [],
+            requestedId: brokenThread.threadId,
+            status: 'failed',
+        });
     });
 
     it('should fail a batch export when no selected thread can be exported', async () => {
