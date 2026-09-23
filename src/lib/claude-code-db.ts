@@ -1145,9 +1145,14 @@ const compareNullableMsDesc = (left: number | null, right: number | null): numbe
 
 const toWorkspaceGroup = (directoryName: string, sessions: ClaudeCodeSessionSummary[]): ClaudeCodeWorkspaceGroup => {
     const decodedWorktree = decodeWorktreeFromDirectoryName(directoryName);
-    const projectRoots = sessions.map((session) => getProjectRootFromWorktree(session.worktree));
+    const projectRoots = sessions
+        .filter((session) => session.cwd !== null)
+        .map((session) => getProjectRootFromWorktree(session.worktree));
     const projectRoot =
-        projectRoots.find((projectRoot) => projectRoot !== decodedWorktree) ?? projectRoots[0] ?? decodedWorktree;
+        projectRoots.find((projectRoot) => projectRoot.replace(/[^a-zA-Z0-9]/g, '-') === directoryName) ??
+        projectRoots.find((projectRoot) => projectRoot !== decodedWorktree) ??
+        projectRoots[0] ??
+        decodedWorktree;
     const lastActiveAtMs = sessions.reduce<number | null>((latest, session) => {
         if (session.lastActiveAtMs === null) {
             return latest;

@@ -699,6 +699,43 @@ describe('claude code workspace discovery', () => {
         expect(await readClaudeCodeSessionTranscript(projectsDir, 'metadata-only')).not.toBeNull();
     });
 
+    it.each(['kalu', 'my-project'])(
+        'should keep %s project identity when sibling sessions use other cwds',
+        async (name) => {
+            const projectsDir = await makeTempRoot();
+            const projectRoot = path.join(homeDir, 'workspace', name);
+            const worktree = path.join(homeDir, 'workspace', `${name}-worktrees`, 'funny-dubinsky');
+            const directoryName = projectRoot.replace(/[^a-zA-Z0-9]/g, '-');
+            const worktreeDirectoryName = worktree.replace(/[^a-zA-Z0-9]/g, '-');
+            for (const [id, cwd] of [
+                ['a-worktree', worktree],
+                ['b-subdirectory', path.join(projectRoot, 'testing')],
+                ['c-root', projectRoot],
+            ] as const) {
+                await writeSession(projectsDir, directoryName, id, buildSessionRecords(id, cwd));
+            }
+            await writeSession(
+                projectsDir,
+                worktreeDirectoryName,
+                'separate-worktree',
+                buildSessionRecords('separate-worktree', worktree),
+            );
+
+            const groups = await listClaudeCodeWorkspaceGroups(projectsDir);
+            expect(groups).toHaveLength(2);
+            expect(groups.find((group) => group.directoryName === directoryName)).toMatchObject({
+                label: name,
+                sessionCount: 3,
+                uri: `file://${projectRoot}`,
+                worktree: projectRoot,
+            });
+            expect(groups.find((group) => group.directoryName === worktreeDirectoryName)?.worktree).toBe(worktree);
+            const sessions = await listClaudeCodeSessionsForGroup(`project:${directoryName}`, projectsDir);
+            expect(sessions.find((session) => session.sessionId === 'a-worktree')?.cwd).toBe(worktree);
+            expect(findClaudeCodeWorkspaceGroups(groups, projectRoot)).toHaveLength(1);
+        },
+    );
+
     it('should prefer a sibling transcript cwd over lossy hyphenated directory decoding', async () => {
         const projectsDir = await makeTempRoot();
         const directoryName = '-Users-rhaq-workspace-my-project';
