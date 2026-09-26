@@ -167,7 +167,7 @@ export const projectEvidenceText = (
     if (text.length <= MAX_JSON_PARSE_CHARACTERS && /^[\s]*[[{]/u.test(text)) {
         try {
             const structured = projectStructured(JSON.parse(text), state);
-            return truncateHeadTail(JSON.stringify(structured, null, 2), maximum, state);
+            return truncateHeadTail(JSON.stringify(structured), maximum, state);
         } catch {
             // Unknown structured-looking text uses the bounded text projection below.
         }

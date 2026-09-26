@@ -267,7 +267,7 @@ describe('focused evidence', () => {
         const result = buildEvidenceExport(conversation(), lens, { generatedAt: '2026-07-19T12:00:00.000Z' });
         expect(result.markdown.length).toBeLessThanOrEqual(lens.budget.totalCharacters);
         expect(result.markdown).toContain('# Focused evidence: Widget repair');
-        expect(result.markdown).toContain('Renderer: focused-evidence/v3');
+        expect(result.markdown).toContain('Renderer: focused-evidence/v5');
         expect(result.markdown).toContain('## Episode 1: exec — succeeded');
         expect(result.markdown).toContain('````text');
         expect(result.markdown).toContain('## Omitted evidence');
@@ -337,8 +337,10 @@ describe('focused evidence', () => {
         const truncated = projectEvidenceText(`prefix-${'x'.repeat(500)}-suffix`, 100, state);
 
         expect(structured.indexOf('"a"')).toBeLessThan(structured.indexOf('"z"'));
-        expect(structured).toContain('"itemCount": 5');
-        expect(structured).toContain('"omittedItems": 2');
+        expect(JSON.parse(structured)).toEqual({
+            a: 'kept',
+            z: { itemCount: 5, omittedItems: 2, sample: [1, 2, 3] },
+        });
         expect(diagnostic).toBe('ERROR: invalid configuration');
         expect(duplicate).toBe('[deduplicated diagnostic]');
         expect(truncated).toContain('[truncated');
@@ -348,6 +350,22 @@ describe('focused evidence', () => {
             truncatedArrays: 1,
             truncatedFields: 1,
         });
+    });
+
+    it('should fit structured evidence before truncating values and preserve whitespace inside strings', () => {
+        const payload = {
+            code: 143,
+            guidance: 'Send TERM once; preserve the child_signal envelope.',
+            message: 'worker  stopped\ncleanup pending',
+            status: 'failed',
+        };
+        const state = createEvidenceProjectionState(1, 200);
+        const budget = JSON.stringify(payload).length;
+        const projected = projectEvidenceText(JSON.stringify(payload, null, 2), budget, state);
+        expect(projected).not.toContain('[truncated');
+        expect(JSON.parse(projected)).toEqual(payload);
+        expect(projected.length).toBeLessThanOrEqual(budget);
+        expect(state.stats.truncatedFields).toBe(0);
     });
 
     it('should preserve scalar leaves at the structured depth limit', () => {
@@ -409,8 +427,8 @@ describe('focused evidence', () => {
             { ...lens, budget: { ...lens.budget, successfulOutputCharacters: 0 } },
             { generatedAt: '2026-07-19T12:00:00.000Z' },
         );
-        expect(result.markdown).toContain('_None retained._');
-        expect(result.markdown).not.toContain('1 bounded retry event(s) retained.');
+        expect(result.markdown).not.toContain('_None retained._');
+        expect(result.markdown).not.toContain('Retries:');
 
         expect(() =>
             buildEvidenceExport(input, lens, {
@@ -478,6 +496,28 @@ describe('focused evidence field regressions', () => {
         const result = buildEvidenceExport(input, topicLens);
         expect(result.markdown).toContain('Send TERM once and allow cleanup grace.');
         expect(result.markdown).not.toContain('Unrelated ending. Unrelated ending.');
+    });
+
+    it('should share the commentary allowance across an episode while preserving matched evidence', () => {
+        const input = conversation();
+        input.messages = [
+            message(0, 'commentary', 'earlier context '.repeat(40)),
+            message(1, 'commentary', 'recent context '.repeat(40)),
+            message(2, 'tool_call', 'SIGTERM check', tool({ command: 'SIGTERM check' })),
+            message(3, 'tool_output', 'SIGTERM failure details', tool({ outputText: 'SIGTERM failure details' })),
+            message(4, 'final_answer', 'SIGTERM repaired; verified one TERM and intact child_signal.'),
+        ];
+        const result = buildEvidenceExport(input, {
+            ...topicLens,
+            budget: { ...topicLens.budget, commentaryCharactersPerEpisode: 300 },
+        });
+        const contextBodies = [...result.markdown.matchAll(/\*\*Context\*\*[^\n]*\n```text\n([\s\S]*?)\n```/gu)];
+        expect(contextBodies.length).toBeGreaterThan(0);
+        expect(contextBodies.reduce((sum, match) => sum + match[1]!.length, 0)).toBeLessThanOrEqual(300);
+        expect(result.markdown).toContain('SIGTERM failure details');
+        expect(result.markdown).toContain('SIGTERM repaired; verified one TERM and intact child_signal.');
+        expect(result.meta.omission.sectionBudgetReached).toBe(true);
+        expect(result.markdown).not.toContain('_None retained._');
     });
 
     it('should retain terminal resolution under pressure and disclose the candidate cap', () => {

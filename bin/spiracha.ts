@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import path from 'node:path';
 import process from 'node:process';
-import { createConversationClient } from '../src/client';
+import { createConversationClient, retrieveConversationEvidence } from '../src/client';
 import { renderAgentDxAnalyticsExport } from '../src/lib/agent-dx-analytics';
 import { getConversationListScopeError } from '../src/lib/conversation-data';
 import { CONVERSATION_SOURCES } from '../src/lib/conversation-data/types';
@@ -24,6 +24,8 @@ Commands:
                                 Export Markdown/plain text or the original source transcript
   evidence <ref> --lens <file> [--output <path>]
                                 Export focused evidence as Markdown
+  retrieve <ref> --request <file> [--output <path>]
+                                Retrieve a bounded normalized evidence page as JSON
   analytics export [options]    Export provider-neutral goal-span analytics
 
 List options:
@@ -51,6 +53,7 @@ Run spiracha --help for this message.
 `;
 
 export type SpirachaCliCommand =
+    | { command: 'retrieve'; ref: string; request: string; output?: string }
     | { command: 'help' }
     | { command: 'serve' }
     | {
@@ -172,7 +175,7 @@ export const parseSpirachaCliArgs = (args: string[]): SpirachaCliCommand => {
         }
         return { command };
     }
-    if (command !== 'list' && command !== 'get' && command !== 'export' && command !== 'evidence') {
+    if (command !== 'list' && command !== 'get' && command !== 'export' && command !== 'evidence' && command !== 'retrieve') {
         throw new Error(`Unknown command "${command}".`);
     }
 
@@ -218,6 +221,10 @@ export const parseSpirachaCliArgs = (args: string[]): SpirachaCliCommand => {
         const value = requiredValue(args, index, option);
         index += 1;
         switch (option) {
+            case '--request':
+                if (command !== 'retrieve') throw new Error(`Unknown option "${option}".`);
+                options.request = value;
+                break;
             case '--cwd':
                 if (command !== 'list') throw new Error(`Unknown option "${option}".`);
                 options.cwd = value;
@@ -237,7 +244,7 @@ export const parseSpirachaCliArgs = (args: string[]): SpirachaCliCommand => {
                 options.limit = limitValue(value);
                 break;
             case '--message-selector':
-                if (command === 'evidence') {
+                if (command === 'evidence' || command === 'retrieve') {
                     throw new Error(`Unknown option "${option}".`);
                 }
                 if (!isMessageSelector(value)) {
@@ -252,7 +259,7 @@ export const parseSpirachaCliArgs = (args: string[]): SpirachaCliCommand => {
                 options.source = value;
                 break;
             case '--output':
-                if (command !== 'export' && command !== 'evidence') {
+                if (command !== 'export' && command !== 'evidence' && command !== 'retrieve') {
                     throw new Error(`Unknown option "${option}".`);
                 }
                 options.output = value;
@@ -305,6 +312,15 @@ export const parseSpirachaCliArgs = (args: string[]): SpirachaCliCommand => {
     }
 
     const ref = args[1];
+    if (command === 'retrieve') {
+        if (!options.request) throw new Error('Missing required option "--request".');
+        return {
+            command,
+            ref,
+            request: options.request as string,
+            ...(options.output === undefined ? {} : { output: options.output as string }),
+        };
+    }
     if (command === 'evidence') {
         if (options.lens === undefined) {
             throw new Error('Missing required option "--lens".');
@@ -434,6 +450,12 @@ export const runSpirachaCli = async (args: string[], dependencies: SpirachaCliDe
     const client = dependencies.client ?? createConversationClient({ mode: 'local' });
     try {
         switch (parsed.command) {
+            case 'retrieve': {
+                const resolved = await resolveConversation(client, parsed.ref);
+                const result = await retrieveConversationEvidence(client, resolved, await Bun.file(parsed.request).json());
+                await emitOutput(jsonOutput(result), parsed.output, io);
+                return 0;
+            }
             case 'list':
                 {
                     const { command: _command, ...options } = parsed;

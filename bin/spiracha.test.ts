@@ -18,6 +18,12 @@ afterEach(async () => {
 });
 
 describe('spiracha executable', () => {
+    it('should expose bounded retrieval and require an explicit request file', () => {
+        expect(parseSpirachaCliArgs(['retrieve', 'codex://threads/t', '--request', 'request.json'])).toEqual({
+            command: 'retrieve', ref: 'codex://threads/t', request: 'request.json',
+        });
+        expect(() => parseSpirachaCliArgs(['retrieve', 'codex://threads/t'])).toThrow('--request');
+    });
     it('should parse analytics export options', () => {
         expect(
             parseSpirachaCliArgs(['analytics', 'export', '--format', 'csv', '--project', 'spiracha', '--output', 'dx.csv']),

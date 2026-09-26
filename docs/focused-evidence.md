@@ -164,12 +164,85 @@ Text-matched non-tool messages, including final answers within a larger episode,
 
 The total character budget includes Markdown and omission metadata. Selection keeps at most 256 candidate episodes (the first 128 and latest 128 when capped) and reports that limit. Overlap merging stays within the order window and does not cross a user turn. Final answers and failures receive priority; equally ranked later episodes are considered first, then retained episodes are displayed chronologically. An oversized episode does not prevent later smaller episodes from fitting. Repeated context bodies are rendered once.
 
-Each episode has an additional 8,000-character body allocation, reduced for small total budgets. Successful and failed output budgets apply per result. Directly matched prose receives the larger output allowance, with a 300-character minimum; nearby commentary uses the commentary allowance. Projection and selection are lossy: the ledger and UI distinguish selected events, rendered bodies, matching events, and rendered matches, and flag candidate, section, and total budget limits. Compare matching and rendered-matching counts before relying on completeness. Approximate tokens describe this export only, not measured savings against a full transcript.
+Each episode has an additional 8,000-character body allocation, reduced for small total budgets. Successful and failed output budgets apply per result. Directly matched prose receives the larger output allowance, with a 300-character minimum; all unmatched prose shares the commentary allowance across each episode. Empty retry sections are omitted. Projection and selection are lossy: the ledger and UI distinguish selected events, rendered bodies, matching events, and rendered matches, and flag candidate, section, and total budget limits. Compare matching and rendered-matching counts before relying on completeness. Approximate tokens describe this export only, not measured savings against a full transcript.
 
 Selection and projection happen before rendering; Spiracha does not first build the full transcript Markdown. Multi-megabyte success and opaque payloads are bounded before rendering. These rules are deterministic heuristics, not a semantic summary or proof that all causal context survived.
+
+## Reducing token cost
+
+The lens editor’s **Use 12k preset** button applies the settings below while preserving the lens name and anchors. It updates the Lens JSON so it can be exported for CLI/client reuse. Existing and imported lenses change only when the button is clicked.
+
+A large `totalCharacters` budget is a ceiling, and broad lenses can fill it even after rendering overhead is reduced. Start with a specific text literal, command, or artifact instead of a broad tool or topic anchor. For a smaller investigation, try `totalCharacters: 12000`, `successfulOutputCharacters: 500`, and `commentaryCharactersPerEpisode: 500`; retain the larger failed-output allowance so matched explanations and repairs still have room. Set both commentary counts to 1, turn off reasoning summaries, and disable workaround following when unrelated commands are not needed. These are ordinary lens settings, not a separate export mode.
+
+A smaller budget is deliberately lossy. Check **matched / rendered matched events**, then expand the lens or budget if needed. In the eight-thread saved audit, a 12,000-character lens cut total characters by about 69%, but retained fewer matching events in seven threads. This is a character-based token estimate, not a tokenizer measurement or a guarantee of equivalent evidence. The shared context allowance and removal of empty framing provide smaller savings without lowering the matched-body allowance. Projected JSON is serialized compactly before truncation, so formatting whitespace does not displace values; whitespace inside string values is preserved. This does not change the existing JSON field selection or array sampling.
 
 ## Privacy and safety
 
 Focused evidence applies the existing project-root conversion and username redaction transforms to retained text. Lenses match only normalized transcript metadata and never cause filesystem reads for path or glob anchors. Transcript and lens data are untrusted: anchor counts, string lengths, glob complexity, context windows, budgets, unmatched pairing state, episode counts, array samples, diagnostic sets, and rendered output are bounded. Omitted raw payloads are not embedded in HTML or hidden metadata.
 
 Some sources do not expose every structured field. Cline, FX, Kiro, and MiniMax Code emit normalized `tool_call` and `tool_output` events from their persisted records, including call IDs when available. Cursor, Qoder, and OpenCode also contribute structured tool evidence when their source records expose it. Antigravity does not expose stable call/result IDs for every transcript record, so its normalized metadata reports that limitation instead of fabricating exact fields. Web imports are outside this engine and do not currently support focused evidence.
+## Recover omitted evidence
+
+Focused exports include a `Retrieve` line with a revision and the full normalized
+message-order range. Narrow that range, or select an exact `messageId`, before
+retrieving more:
+
+```json
+{"revision":"<revision from export>","messageId":"<message ID>","maxCharacters":12000}
+```
+
+Save this as `request.json`, then run:
+
+```sh
+spiracha retrieve "<original-reference>" --request request.json
+```
+
+Use inclusive `startOrder` / `endOrder` instead of `messageId` for surrounding
+context or messages entirely absent from the export. A request without a selector
+reads all normalized messages. `content` contains a JSON fragment; concatenate
+pages before parsing it as a message array. Repeat the same request with `offset`
+set to `nextOffset` until it is null, only when additional detail is needed.
+The default page contains at most 12,000 UTF-16 content characters, maximum
+64,000; the JSON envelope and escaping add overhead. Surrogate pairs are not
+split. Empty selections, unknown fields, invalid bounds and offsets fail.
+
+The revision hashes source, conversation ID and ordered normalized messages.
+Changed or deleted sources fail: regenerate evidence rather than silently
+retrieving from a different revision. There is no retained snapshot cache.
+These are complete normalized message fields, including tool data and metadata;
+they are not original raw bytes or a guarantee that native normalization retained
+every source field. Retrieval does not open referenced artifacts.
+
+The Bun SDK exposes
+`retrieveConversationEvidence(client, { source, id }, request)` from
+`spiracha/client`. It works with local and HTTP clients. The bound applies to
+agent-visible output: the existing detail reader still loads the full conversation
+internally, including across HTTP. There is no new HTTP route or MCP server.
+
+## Canonical skill and local installation
+
+The canonical skill is [SKILL.md](../.agents/skills/spiracha/SKILL.md).
+From the repository root:
+
+```sh
+bun run skill:deploy --dry-run
+bun run skill:deploy
+bun run skill:deploy --check
+```
+
+The script distributes to Claude, Cursor, Codex, Antigravity, Kiro and OpenCode
+user skill directories. Use `--agents cursor,codex` to select targets or `--home`
+for an isolated installation. Codex honors `CODEX_HOME` unless `--home` is supplied.
+It checks the repository CLI, copies the canonical files, and generates a local
+`runtime.json` pointing to this checkout and Bun executable. This avoids relying
+on a stale global Spiracha binary. Keep the checkout available and rerun deployment
+after moving it. `--check` detects missing/stale skill files and runtime failures;
+it does not launch harnesses or prove their skill discovery. Start a fresh chat.
+No attribution hook is required. Symlink destinations are refused.
+
+This extends Klassify's copy-only distribution pattern with runtime verification.
+Klassify additionally requires native attribution hooks in some harnesses; copying
+a skill alone does not configure those hooks. Cursor's current local hook was
+present during this investigation, so the earlier setup failure was not reproduced.
+The skill roots follow [Cursor's documentation](https://prod.cursor.com/docs/skills)
+and [Antigravity's documentation](https://www.antigravity.google/docs/skills).

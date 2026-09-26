@@ -3,9 +3,10 @@ import { buildEvidenceEpisodes } from './evidence-episodes';
 import { buildEvidenceEvents } from './evidence-events';
 import { matchEvidenceEvent } from './evidence-lens';
 import { createEvidenceProjectionState, fencedEvidenceText, projectEvidenceText } from './evidence-projector';
+import { evidenceRevision } from './evidence-retrieval';
 import type { ConversationDetail, ConversationEvidenceEvent, ConversationEvidenceExport, EvidenceLens } from './types';
 
-export const EVIDENCE_RENDERER_VERSION = 'focused-evidence/v3';
+export const EVIDENCE_RENDERER_VERSION = 'focused-evidence/v5';
 
 type BuildEvidenceExportOptions = { generatedAt?: string };
 
@@ -112,7 +113,7 @@ const renderSnippet = (
                 ? anchor.literals.some((literal) => text.includes(portable(literal, conversation)))
                 : matchEvidenceEvent(event, anchor),
         );
-    return { matched, text: snippet };
+    return { bodyCharacters: text.length, matched, text: snippet };
 };
 
 const episodeMarkdown = (
@@ -128,22 +129,31 @@ const episodeMarkdown = (
     const maximum = Math.max(300, Math.min(8000, lens.budget.totalCharacters - 1200));
     const snippets: Array<{ event: ConversationEvidenceEvent; text: string; matched: boolean }> = [];
     let used = header.length;
+    let contextRemaining = lens.budget.commentaryCharactersPerEpisode;
     const prioritized = [...episode.events].sort(
         (a, b) =>
             eventPriority(b, lens) - eventPriority(a, lens) ||
             (a.phase === 'final_answer' && b.phase === 'final_answer' ? b.order - a.order : a.order - b.order),
     );
     for (const event of prioritized) {
-        const snippet = renderSnippet(event, lens, conversation, state, literals, maximum - used);
+        const isContext =
+            event.phase !== 'tool_call' &&
+            event.phase !== 'tool_output' &&
+            !lens.anchors.some((anchor) => matchEvidenceEvent(event, anchor));
+        const available = isContext ? Math.min(maximum - used, contextRemaining + 200) : maximum - used;
+        const snippet = renderSnippet(event, lens, conversation, state, literals, available);
         if (snippet === null) {
             continue;
         }
         used += snippet.text.length;
+        if (isContext) {
+            contextRemaining = Math.max(0, contextRemaining - snippet.bodyCharacters);
+        }
         snippets.push({ event, ...snippet });
     }
     snippets.sort((a, b) => a.event.order - b.event.order);
     const rendered = snippets.map((snippet) => snippet.event);
-    const trace = `**Trace**\n- Event order: ${eventRange(rendered)}\n\n`;
+    const trace = `Event order: ${eventRange(rendered)}\n\n`;
     const calls = rendered.filter((event) => event.phase === 'tool_call');
     const retries = calls.filter(
         (event, i) =>
@@ -154,9 +164,7 @@ const episodeMarkdown = (
                     (previous) => previous.tool?.name === event.tool?.name && eventText(previous) === eventText(event),
                 ),
     ).length;
-    const retryText = calls.length
-        ? `**Retry / workaround**\n${retries ? `${retries} bounded retry event(s) retained.` : '_None retained._'}\n\n`
-        : '';
+    const retryText = retries ? `Retries: ${retries}\n\n` : '';
     state.stats.renderedEvents = (state.stats.renderedEvents ?? 0) + rendered.length;
     state.stats.renderedMatchedEvents =
         (state.stats.renderedMatchedEvents ?? 0) +
@@ -220,6 +228,7 @@ export const buildEvidenceExport = (
         `- Renderer: ${EVIDENCE_RENDERER_VERSION}`,
         `- Budget: ${lens.budget.totalCharacters} characters`,
         `- Original reference: ${inlineMarkdown(conversation.deepLinks.spiracha, conversation)}`,
+        `- Retrieve: \`spiracha retrieve "<original-reference>" --request request.json\`; JSON: \`{"revision":"${evidenceRevision(conversation)}","startOrder":0,"endOrder":${events.reduce((max, event) => Math.max(max, event.order), 0)}}\``,
         ...(!events.some((event) => event.tool)
             ? ['- Tool evidence: not exposed by this conversation. Use text anchors.']
             : []),
