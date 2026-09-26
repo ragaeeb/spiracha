@@ -93,6 +93,43 @@ export const EvidenceLensEditor = ({ lens, onChange }: EvidenceLensEditorProps) 
 
     return (
         <div className="space-y-4" data-testid="evidence-lens-editor">
+            <div className="space-y-2 rounded-lg border border-[var(--border)] p-3 text-sm">
+                <p>
+                    Start with a specific literal, command, or artifact. OR anchors broaden the export; remove broad
+                    tool anchors when narrowing your question.
+                </p>
+                <Button
+                    variant="outline"
+                    onClick={() => {
+                        const smaller: EvidenceLens = {
+                            ...lens,
+                            budget: {
+                                commentaryCharactersPerEpisode: 500,
+                                failedOutputCharacters: 6000,
+                                successfulOutputCharacters: 500,
+                                totalCharacters: 12000,
+                            },
+                            context: {
+                                ...lens.context,
+                                commentaryAfter: 1,
+                                commentaryBefore: 1,
+                                followRetries: true,
+                                followWorkarounds: false,
+                                includeReasoningSummaries: false,
+                            },
+                        };
+                        onChange(smaller);
+                        setJson(JSON.stringify(smaller, null, 2));
+                        setJsonError(null);
+                    }}
+                >
+                    Use 12k preset
+                </Button>
+                <p>
+                    About 3,000 estimated tokens, with less context and successful output. Keeps your anchors and name;
+                    all settings remain editable. Check matched versus rendered counts in the preview for lost evidence.
+                </p>
+            </div>
             <label className="block space-y-1 text-sm">
                 <span className="font-medium">Lens name</span>
                 <input

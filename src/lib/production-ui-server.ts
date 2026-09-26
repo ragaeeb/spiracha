@@ -121,12 +121,21 @@ export const runProductionUiServer = async (packageRoot: string): Promise<number
         throw new Error('Packaged UI server entry does not export a fetch handler.');
     }
     const hostname = '127.0.0.1';
-    const port = resolvePort(process.env.PORT);
-    Bun.serve({
-        fetch: createProductionUiFetch({ appFetch, clientDirectory: path.join(packageRoot, 'dist/client') }),
-        hostname,
-        port,
-    });
-    console.error(`Spiracha listening on http://${hostname}:${port}`);
-    return 0;
+    const firstPort = resolvePort(process.env.PORT);
+    for (let port = firstPort; port <= 65_535; port += 1) {
+        try {
+            const server = Bun.serve({
+                fetch: createProductionUiFetch({ appFetch, clientDirectory: path.join(packageRoot, 'dist/client') }),
+                hostname,
+                port,
+            });
+            console.error(`Spiracha listening on http://${hostname}:${server.port}`);
+            return 0;
+        } catch (error) {
+            if (!(error instanceof Error && 'code' in error && error.code === 'EADDRINUSE') || port === 65_535) {
+                throw error;
+            }
+        }
+    }
+    throw new Error(`No available port found at or above ${firstPort}.`);
 };

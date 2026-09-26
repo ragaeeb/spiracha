@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createCodexBrowserFixture } from './codex-test-helpers';
-import { parseCodexTranscriptFile } from './codex-thread-parser';
+import { CodexTranscriptHistoryError, parseCodexTranscriptFile } from './codex-thread-parser';
 
 const tempPaths: string[] = [];
 
@@ -12,6 +12,247 @@ afterEach(async () => {
 });
 
 describe('parseCodexTranscriptFile', () => {
+    it('should compose fork ancestry before parsing and preserve child metadata', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-parser-fork-test-'));
+        tempPaths.push(tempRoot);
+        const parentThreadId = 'parent-thread';
+        const childThreadId = 'child-thread';
+        const parentFile = path.join(tempRoot, 'parent.jsonl');
+        const childFile = path.join(tempRoot, 'child.jsonl');
+
+        await Bun.write(
+            parentFile,
+            [
+                {
+                    ordinal: 0,
+                    payload: {
+                        cwd: '/workspace/parent',
+                        id: parentThreadId,
+                        timestamp: '2026-07-01T12:00:00.000Z',
+                    },
+                    type: 'session_meta',
+                },
+                {
+                    ordinal: 1,
+                    payload: { model: 'gpt-parent', type: 'turn_context' },
+                    type: 'turn_context',
+                },
+                {
+                    ordinal: 2,
+                    payload: { message: 'Inherited context', phase: 'commentary', type: 'agent_message' },
+                    type: 'response_item',
+                },
+                {
+                    ordinal: 3,
+                    payload: { message: 'Excluded boundary', phase: 'final_answer', type: 'agent_message' },
+                    type: 'response_item',
+                },
+            ]
+                .map((record) => JSON.stringify(record))
+                .join('\n'),
+        );
+        await Bun.write(
+            childFile,
+            [
+                {
+                    ordinal: 4,
+                    payload: {
+                        cwd: '/workspace/child',
+                        forked_from_id: parentThreadId,
+                        forked_from_ordinal_exclusive: 3,
+                        id: childThreadId,
+                        timestamp: '2026-07-01T13:00:00.000Z',
+                    },
+                    type: 'session_meta',
+                },
+                {
+                    ordinal: 5,
+                    payload: {
+                        thread_settings: { model: 'gpt-child' },
+                        type: 'thread_settings_applied',
+                    },
+                    type: 'thread_settings_applied',
+                },
+                {
+                    ordinal: 6,
+                    payload: { message: 'Child answer', phase: 'final_answer', type: 'agent_message' },
+                    type: 'response_item',
+                },
+            ]
+                .map((record) => JSON.stringify(record))
+                .join('\n'),
+        );
+
+        const transcript = await parseCodexTranscriptFile(childFile, {
+            resolveForkedThread: async (threadId) => {
+                if (threadId !== parentThreadId) {
+                    throw new Error(`unexpected parent lookup: ${threadId}`);
+                }
+                return parentFile;
+            },
+        });
+
+        expect(transcript.sessionMeta).toMatchObject({
+            cwd: '/workspace/child',
+            id: childThreadId,
+            timestamp: '2026-07-01T13:00:00.000Z',
+        });
+        expect(transcript.events.map((event) => (event.kind === 'message' ? event.text : null))).toEqual([
+            'Inherited context',
+            'Child answer',
+        ]);
+        expect(transcript.events.map((event) => event.sequence)).toEqual([0, 1]);
+        expect(transcript.events[0]).toMatchObject({ model: 'gpt-parent' });
+        expect(transcript.events[1]).toMatchObject({ model: 'gpt-child' });
+    });
+
+    it('should preserve local ordinal offsets across nested forks', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-parser-nested-fork-test-'));
+        tempPaths.push(tempRoot);
+        const files = {
+            a: path.join(tempRoot, 'a.jsonl'),
+            b: path.join(tempRoot, 'b.jsonl'),
+            c: path.join(tempRoot, 'c.jsonl'),
+        };
+        const records = {
+            a: [
+                {
+                    ordinal: 0,
+                    payload: { id: 'a', timestamp: '2026-07-01T12:00:00.000Z' },
+                    type: 'session_meta',
+                },
+                {
+                    ordinal: 1,
+                    payload: { message: 'A answer', type: 'agent_message' },
+                    type: 'response_item',
+                },
+                { ordinal: 2, payload: { type: 'turn_context' }, type: 'turn_context' },
+                { ordinal: 3, payload: { type: 'token_count' }, type: 'event_msg' },
+                { ordinal: 4, payload: { type: 'task_started' }, type: 'event_msg' },
+            ],
+            b: [
+                {
+                    ordinal: 5,
+                    payload: {
+                        forked_from_id: 'a',
+                        forked_from_ordinal_exclusive: 5,
+                        id: 'b',
+                        timestamp: '2026-07-01T13:00:00.000Z',
+                    },
+                    type: 'session_meta',
+                },
+                {
+                    ordinal: 6,
+                    payload: { message: 'B answer', type: 'agent_message' },
+                    type: 'response_item',
+                },
+            ],
+            c: [
+                {
+                    ordinal: 7,
+                    payload: {
+                        forked_from_id: 'b',
+                        forked_from_ordinal_exclusive: 7,
+                        id: 'c',
+                        timestamp: '2026-07-01T14:00:00.000Z',
+                    },
+                    type: 'session_meta',
+                },
+                {
+                    ordinal: 8,
+                    payload: { message: 'C answer', type: 'agent_message' },
+                    type: 'response_item',
+                },
+            ],
+        };
+        await Promise.all(
+            Object.entries(records).map(([name, entries]) =>
+                Bun.write(files[name as keyof typeof files], entries.map((entry) => JSON.stringify(entry)).join('\n')),
+            ),
+        );
+
+        const transcript = await parseCodexTranscriptFile(files.c, {
+            resolveForkedThread: async (threadId) => files[threadId as keyof typeof files],
+        });
+
+        expect(transcript.events.filter((event) => event.kind === 'message').map((event) => event.text)).toEqual([
+            'A answer',
+            'B answer',
+            'C answer',
+        ]);
+    });
+
+    it('should truncate an ancestor fork when a nested fork cuts through inherited history', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-parser-backward-fork-test-'));
+        tempPaths.push(tempRoot);
+        const files = {
+            a: path.join(tempRoot, 'a.jsonl'),
+            b: path.join(tempRoot, 'b.jsonl'),
+            c: path.join(tempRoot, 'c.jsonl'),
+        };
+        const records = {
+            a: [
+                { ordinal: 0, payload: { id: 'a' }, type: 'session_meta' },
+                { ordinal: 1, payload: { message: 'A answer', type: 'agent_message' }, type: 'response_item' },
+                { ordinal: 2, payload: { message: 'A excluded answer', type: 'agent_message' }, type: 'response_item' },
+            ],
+            b: [
+                {
+                    ordinal: 3,
+                    payload: { forked_from_id: 'a', forked_from_ordinal_exclusive: 3, id: 'b' },
+                    type: 'session_meta',
+                },
+                { ordinal: 4, payload: { message: 'B excluded answer', type: 'agent_message' }, type: 'response_item' },
+            ],
+            c: [
+                {
+                    ordinal: 2,
+                    payload: { forked_from_id: 'b', forked_from_ordinal_exclusive: 2, id: 'c' },
+                    type: 'session_meta',
+                },
+                { ordinal: 3, payload: { message: 'C answer', type: 'agent_message' }, type: 'response_item' },
+            ],
+        };
+        await Promise.all(
+            Object.entries(records).map(([name, entries]) =>
+                Bun.write(files[name as keyof typeof files], entries.map((entry) => JSON.stringify(entry)).join('\n')),
+            ),
+        );
+
+        const transcript = await parseCodexTranscriptFile(files.c, {
+            resolveForkedThread: async (threadId) => files[threadId as keyof typeof files],
+        });
+
+        expect(transcript.events.filter((event) => event.kind === 'message').map((event) => event.text)).toEqual([
+            'A answer',
+            'C answer',
+        ]);
+    });
+
+    it('should preserve typed history errors for missing fork parents', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-parser-missing-parent-test-'));
+        tempPaths.push(tempRoot);
+        const childFile = path.join(tempRoot, 'child.jsonl');
+        await Bun.write(
+            childFile,
+            JSON.stringify({
+                ordinal: 0,
+                payload: {
+                    forked_from_id: 'missing-parent',
+                    forked_from_ordinal_exclusive: 1,
+                    id: 'child',
+                },
+                type: 'session_meta',
+            }),
+        );
+
+        await expect(
+            parseCodexTranscriptFile(childFile, {
+                resolveForkedThread: async () => path.join(tempRoot, 'missing-parent.jsonl'),
+            }),
+        ).rejects.toBeInstanceOf(CodexTranscriptHistoryError);
+    });
+
     it('should parse structured transcript events and summary stats from a rich Codex session file', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-parser-test-'));
         tempPaths.push(tempRoot);

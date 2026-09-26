@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
+    createCodexForkedThreadResolverMock,
     getCachedParsedCodexTranscriptMock,
     getCachedCodexTranscriptModelNamesMock,
     getCachedThreadTranscriptPreviewMock,
@@ -10,6 +11,7 @@ const {
     renderCodexThreadsDownloadMock,
     resolveCodexThreadDbPathMock,
 } = vi.hoisted(() => ({
+    createCodexForkedThreadResolverMock: vi.fn(),
     getCachedCodexTranscriptModelNamesMock: vi.fn(),
     getCachedParsedCodexTranscriptMock: vi.fn(),
     getCachedThreadTranscriptPreviewMock: vi.fn(),
@@ -32,6 +34,7 @@ vi.mock('@tanstack/react-start', () => ({
 }));
 
 vi.mock('@spiracha/lib/codex-browser-queries', () => ({
+    createCodexForkedThreadResolver: createCodexForkedThreadResolverMock,
     getThreadBrowseData: getThreadBrowseDataMock,
     listCodexProjects: vi.fn(),
     listProjectThreads: vi.fn(),
@@ -84,6 +87,7 @@ describe('loadThreadTranscript', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         resolveCodexThreadDbPathMock.mockReturnValue('/tmp/state.sqlite');
+        createCodexForkedThreadResolverMock.mockReturnValue(vi.fn());
     });
 
     it('should return metadata-only thread snapshots with cached model history', async () => {
@@ -113,7 +117,9 @@ describe('loadThreadTranscript', () => {
             transcript: null,
             transcriptState: 'available',
         });
-        expect(getCachedCodexTranscriptModelNamesMock).toHaveBeenCalledWith('/tmp/rollout.jsonl');
+        expect(getCachedCodexTranscriptModelNamesMock).toHaveBeenCalledWith('/tmp/rollout.jsonl', {
+            resolveForkedThread: expect.any(Function),
+        });
         expect(getCachedParsedCodexTranscriptMock).not.toHaveBeenCalled();
         expect(getCachedThreadTranscriptPreviewMock).not.toHaveBeenCalled();
     });
@@ -141,6 +147,7 @@ describe('loadThreadTranscript', () => {
         expect(getThreadBrowseDataMock).toHaveBeenCalledWith('/tmp/state.sqlite', 'thread-1');
         expect(getCachedThreadTranscriptPreviewMock).toHaveBeenCalledWith('/tmp/rollout.jsonl', {
             filters: undefined,
+            resolveForkedThread: expect.any(Function),
         });
     });
 
@@ -165,7 +172,9 @@ describe('loadThreadTranscript', () => {
         await expect(loadThreadTranscript('thread-1')).resolves.toBe(transcript);
 
         expect(getThreadBrowseDataMock).toHaveBeenCalledWith('/tmp/state.sqlite', 'thread-1');
-        expect(getCachedParsedCodexTranscriptMock).toHaveBeenCalledWith('/tmp/rollout.jsonl');
+        expect(getCachedParsedCodexTranscriptMock).toHaveBeenCalledWith('/tmp/rollout.jsonl', {
+            resolveForkedThread: expect.any(Function),
+        });
     });
 
     it('should forward every export dialog option for single and batch Codex exports', async () => {

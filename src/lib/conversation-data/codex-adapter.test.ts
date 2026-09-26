@@ -115,6 +115,33 @@ describe('codex conversation adapter', () => {
         expect(page.data.some((conversation) => conversation.messages.length > 0)).toBe(true);
     });
 
+    it('should surface a missing Codex fork parent instead of returning empty messages', async () => {
+        const fixture = await createCodexBrowserFixture(await makeTempRoot());
+        const childThread = fixture.threads[1]!;
+        const records = (await Bun.file(childThread.sessionFile).text())
+            .trim()
+            .split('\n')
+            .map((line) => JSON.parse(line) as { payload?: Record<string, unknown> });
+        records[0] = {
+            ...records[0],
+            payload: {
+                ...records[0]?.payload,
+                forked_from_id: 'missing-parent-thread',
+                forked_from_ordinal_exclusive: 1,
+            },
+        };
+        await Bun.write(childThread.sessionFile, records.map((record) => JSON.stringify(record)).join('\n'));
+
+        await expect(
+            getConversation({
+                id: childThread.threadId,
+                locations: { codexDbPath: fixture.dbPath },
+                messageSelector: 'all',
+                source: 'codex',
+            }),
+        ).rejects.toMatchObject({ code: 'CODEX_TRANSCRIPT_HISTORY_INVALID' });
+    });
+
     it('should omit centralized hidden Codex bootstrap messages from normalized conversations', async () => {
         const fixture = await createCodexBrowserFixture(await makeTempRoot());
         const thread = fixture.threads[0]!;

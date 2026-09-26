@@ -18,7 +18,7 @@ a raw transcript does not necessarily include indexes, attachments, sibling
 segments, or runtime database rows. Do not treat copying one live SQLite main
 file, or deleting its WAL/SHM files, as a backup procedure.
 
-Keep Codex stopped during destructive maintenance, and keep Cursor, Grok Bot,
+Keep Codex stopped during destructive maintenance, and keep Cursor
 and Qoder stopped throughout their delete/recovery operations. Command Code has
 no documented process name in this checkout; Spiracha does not guess one. Set
 `SPIRACHA_COMMAND_CODE_WRITER_PROCESS` to the exact `pgrep -x` name when it is
@@ -41,7 +41,7 @@ file; individual records may still have no raw file.
 | Cursor | Yes; app must be stopped | No stable raw operation | Omitted/true removes transcript directories; false preserves them |
 | FX | Yes | No stable raw operation | Not consulted by adapter |
 | Grok | Yes | Standalone source JSON | Not consulted by adapter |
-| Grok Bot | Yes; app must be stopped | Exact account replica `.blob` | Not consulted by adapter |
+| Grok Bot | Yes; authenticated remote bot/group deletion | Exact account replica `.blob` | Not consulted by adapter |
 | Kiro | Yes; parent includes recognized lineage | Physical session JSON | Not consulted by adapter |
 | MiniMax Code | Yes | Standalone session data where available | Not consulted by adapter |
 | OpenCode | Yes | No stable raw operation | Not consulted by adapter |
@@ -79,14 +79,15 @@ for missing records. Do not infer one universal missing-record result shape.
 
 Consult [Codex deletion recovery](codex-deletion-recovery.md),
 [Cursor crash recovery](cursor-crash-recovery.md), or
-[Grok Bot deletion recovery](grok-bot-deletion.md). Command Code resumes a private
+[Grok Bot gateway deletion](grok-bot-deletion.md). Command Code resumes a private
 `.spiracha-command-code-delete-*.json` receipt in the projects root by retrying the
 same session ID; the receipt lists exact replica and sidecar identities and is not
 an external Command Code writer lock. Qoder resumes `.spiracha-qoder-delete-*.json`
 the same way. These protocols complete a previously authorized operation; they are
 not an undo facility. Cursor discovery
-can reconcile a pending operation before returning a workspace list. Grok Bot
-resumes a receipt by retrying the same deletion, not by listing chats.
+can reconcile a pending operation before returning a workspace list. Grok Bot uses
+the remote gateway and does not resume local cleanup receipts; check remote state
+before retrying an unconfirmed gateway request.
 
 Do not remove or edit a pending intent/receipt merely to suppress an error.
 Resolve the reported condition and retain the source application's offline

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createProductionUiFetch, resolveClientAssetPath } from './production-ui-server';
@@ -26,6 +26,65 @@ describe('production UI server', () => {
         expect(resolveClientAssetPath('/app/dist/client', '/../secret')).toBeNull();
         expect(resolveClientAssetPath('/app/dist/client', '/%2e%2e/secret')).toBeNull();
         expect(resolveClientAssetPath('/app/dist/client', '/%zz')).toBeNull();
+    });
+
+    it('should start on the next available port when the configured port is occupied', async () => {
+        const root = await mkdtemp(path.join(os.tmpdir(), 'spiracha-production-port-'));
+        tempPaths.push(root);
+        const occupiedServer = Bun.serve({
+            fetch: () => new Response('occupied'),
+            hostname: '127.0.0.1',
+            port: 0,
+        });
+        const occupiedPort = occupiedServer.port;
+        if (occupiedPort === undefined) {
+            throw new Error('Expected the occupied server to expose its assigned port.');
+        }
+        const serverEntryDirectory = path.join(root, 'dist/app');
+        await mkdir(serverEntryDirectory, { recursive: true });
+        await Bun.write(
+            path.join(serverEntryDirectory, 'server.js'),
+            'export default { fetch: () => new Response("Spiracha test server") };',
+        );
+
+        const serverModuleUrl = new URL('./production-ui-server.ts', import.meta.url).href;
+        const child = Bun.spawn(
+            [
+                process.execPath,
+                '--eval',
+                `import { runProductionUiServer } from ${JSON.stringify(serverModuleUrl)}; await runProductionUiServer(process.env.SPIRACHA_TEST_PACKAGE_ROOT);`,
+            ],
+            {
+                env: {
+                    ...process.env,
+                    PORT: String(occupiedPort),
+                    SPIRACHA_TEST_PACKAGE_ROOT: root,
+                },
+                stderr: 'pipe',
+                stdout: 'ignore',
+            },
+        );
+        const stderrReader = child.stderr.getReader();
+        let stderrText = '';
+        try {
+            while (!stderrText.includes('Spiracha listening on')) {
+                const { done, value } = await stderrReader.read();
+                if (done) {
+                    throw new Error(`Spiracha server exited before binding: ${stderrText}`);
+                }
+                stderrText += new TextDecoder().decode(value);
+            }
+
+            const port = Number(/Spiracha listening on http:\/\/127\.0\.0\.1:(\d+)/u.exec(stderrText)?.[1]);
+            expect(port).toBeGreaterThan(occupiedPort);
+            const response = await fetch(`http://127.0.0.1:${port}/`);
+            expect(await response.text()).toBe('Spiracha test server');
+        } finally {
+            child.kill();
+            await child.exited;
+            await stderrReader.cancel().catch(() => undefined);
+            occupiedServer.stop(true);
+        }
     });
 
     it('should serve built assets and delegate application routes', async () => {

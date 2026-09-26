@@ -1,7 +1,11 @@
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { getThreadBrowseData, getThreadBrowseDataBatch } from './codex-browser-queries';
+import {
+    createCodexForkedThreadResolver,
+    getThreadBrowseData,
+    getThreadBrowseDataBatch,
+} from './codex-browser-queries';
 import type { CodexThreadBrowseBatchResult, ThreadBrowseData } from './codex-browser-types';
 import { CodexDbCompatibilityError, CodexThreadNotFoundError } from './codex-database';
 import {
@@ -11,6 +15,7 @@ import {
     CodexRolloutSourceError,
     copyStableCodexRollout,
 } from './codex-rollout-snapshot';
+import { CodexTranscriptHistoryError, resolveCodexTranscriptSegments } from './codex-thread-parser';
 import type { CodexTranscriptRenderOptions } from './codex-thread-types';
 import { renderCodexSessionFile } from './codex-transcript-renderer';
 import { type ExportArchiveMember, type ExportArchiveOutcome, writeExportArchive } from './export-archive';
@@ -68,6 +73,17 @@ const MAX_ROLLOUT_EXPORT_ATTEMPTS = 2;
 const ROLLOUT_RETRY_BACKOFF_MS = 40;
 const ARCHIVE_WIDE_FILE_ERROR_CODES = new Set(['EACCES', 'EIO', 'ENOSPC', 'ENOTDIR', 'EPERM', 'EROFS']);
 
+export class CodexNoExportableContentError extends Error {
+    readonly code = 'CODEX_NO_EXPORTABLE_CONTENT';
+    readonly threadId: string;
+
+    constructor(threadId: string) {
+        super(`Thread ${threadId} produced no exportable content`);
+        this.name = 'CodexNoExportableContentError';
+        this.threadId = threadId;
+    }
+}
+
 const buildExportBaseName = (thread: ThreadBrowseData['thread']) => {
     return buildConversationExportBaseName(
         {
@@ -123,15 +139,50 @@ type CodexExportFileInput = {
     input: CodexExportSettings;
     outputRelativePath: string;
     relations: ThreadBrowseData['relations'];
+    resolveForkedThread: ReturnType<typeof createCodexForkedThreadResolver>;
     sessionFile: string;
     thread: ThreadBrowseData['thread'];
     transform: (text: string) => string;
+};
+
+type CodexTranscriptHistorySnapshot = {
+    fingerprint: string;
+    sizeBytes: number;
+};
+
+const inspectCodexTranscriptHistory = async (
+    sessionFile: string,
+    resolveForkedThread: ReturnType<typeof createCodexForkedThreadResolver>,
+): Promise<CodexTranscriptHistorySnapshot> => {
+    const segments = await resolveCodexTranscriptSegments(sessionFile, resolveForkedThread);
+    const identities = await Promise.all(
+        segments.map(async (segment) => {
+            const metadata = await stat(segment.sessionFile);
+            return {
+                fingerprint: [
+                    path.resolve(segment.sessionFile),
+                    segment.minOrdinalInclusive,
+                    segment.maxOrdinalExclusive,
+                    metadata.ino,
+                    metadata.size,
+                    metadata.mtimeMs,
+                    metadata.ctimeMs,
+                ].join(':'),
+                sizeBytes: metadata.size,
+            };
+        }),
+    );
+    return {
+        fingerprint: identities.map((identity) => identity.fingerprint).join('|'),
+        sizeBytes: identities.reduce((total, identity) => total + identity.sizeBytes, 0),
+    };
 };
 
 const renderCodexExportContent = async ({
     input,
     outputRelativePath,
     relations,
+    resolveForkedThread,
     sessionFile,
     thread,
     transform,
@@ -140,11 +191,13 @@ const renderCodexExportContent = async ({
         return Bun.file(sessionFile).text();
     }
 
+    const historyBefore = await inspectCodexTranscriptHistory(sessionFile, resolveForkedThread);
     const content = await renderCodexSessionFile(
         {
             fallbackReason: null,
             outputRelativePath,
             relations,
+            resolveForkedThread,
             sessionFile,
             thread,
         },
@@ -152,7 +205,12 @@ const renderCodexExportContent = async ({
     );
 
     if (!content) {
-        throw new Error(`Thread ${thread.id} produced no exportable content`);
+        throw new CodexNoExportableContentError(thread.id);
+    }
+
+    const historyAfter = await inspectCodexTranscriptHistory(sessionFile, resolveForkedThread);
+    if (historyBefore.fingerprint !== historyAfter.fingerprint) {
+        throw new CodexTranscriptHistoryError(`Codex transcript ancestry changed while exporting thread ${thread.id}`);
     }
 
     return transform(content);
@@ -188,19 +246,24 @@ const cleanupExportWorkspace = async (workspacePath: string) => {
 
 type StableRolloutContext = {
     browseData: ThreadBrowseData;
+    effectiveSizeBytes: number;
     rollout: CodexRolloutSnapshot;
     snapshotPath: string;
 };
 
 const withStableRolloutSnapshot = async <T>({
     dbPath,
+    includeForkHistory,
     initialBrowseData,
     render,
+    resolveForkedThread,
     threadId,
 }: {
     dbPath: string;
+    includeForkHistory: boolean;
     initialBrowseData?: ThreadBrowseData;
     render: (context: StableRolloutContext) => Promise<T>;
+    resolveForkedThread: ReturnType<typeof createCodexForkedThreadResolver>;
     threadId: string;
 }): Promise<T> => {
     for (let attempt = 1; attempt <= MAX_ROLLOUT_EXPORT_ATTEMPTS; attempt += 1) {
@@ -216,8 +279,11 @@ const withStableRolloutSnapshot = async <T>({
                 sourcePath: browseData.thread.rollout_path,
                 threadId,
             });
+            const effectiveSizeBytes = includeForkHistory
+                ? (await inspectCodexTranscriptHistory(snapshotPath, resolveForkedThread)).sizeBytes
+                : rollout.before.sizeBytes;
 
-            return await render({ browseData, rollout, snapshotPath });
+            return await render({ browseData, effectiveSizeBytes, rollout, snapshotPath });
         } catch (error) {
             if (
                 (error instanceof CodexRolloutContentError || error instanceof CodexRolloutMutationError) &&
@@ -269,6 +335,26 @@ const getBatchFailure = (threadId: string, error: unknown): ExportArchiveOutcome
         };
     }
 
+    if (error instanceof CodexNoExportableContentError) {
+        return {
+            error: { code: error.code, message: error.message },
+            memberNames: [],
+            omissionSummary: null,
+            requestedId: threadId,
+            status: 'failed',
+        };
+    }
+
+    if (error instanceof CodexTranscriptHistoryError) {
+        return {
+            error: { code: error.code, message: error.message },
+            memberNames: [],
+            omissionSummary: null,
+            requestedId: threadId,
+            status: 'failed',
+        };
+    }
+
     return {
         error: {
             code: 'CODEX_EXPORT_UNREADABLE',
@@ -298,6 +384,8 @@ export const isArchiveWideFailure = (error: unknown) => {
 export const isPerEntryExportFailure = (error: unknown) => {
     return (
         error instanceof CodexThreadNotFoundError ||
+        error instanceof CodexNoExportableContentError ||
+        error instanceof CodexTranscriptHistoryError ||
         error instanceof CodexRolloutContentError ||
         error instanceof CodexRolloutMutationError ||
         error instanceof CodexRolloutSourceError
@@ -323,10 +411,12 @@ export const renderCodexThreadDownload = async (
 ): Promise<CodexThreadDownload> => {
     const startedAt = Date.now();
     let fileName = input.threadId;
+    const resolveForkedThread = createCodexForkedThreadResolver(input.dbPath);
     try {
         return await withStableRolloutSnapshot({
             dbPath: input.dbPath,
-            render: async ({ browseData, rollout, snapshotPath }) => {
+            includeForkHistory: input.outputFormat !== 'json',
+            render: async ({ browseData, effectiveSizeBytes, rollout, snapshotPath }) => {
                 const fileBaseName = buildCodexExportFileBaseName(input.outputFormat, browseData.thread);
                 const extension = getCodexExportFileExtension(input.outputFormat);
                 fileName = `${fileBaseName}.${extension}`;
@@ -349,6 +439,7 @@ export const renderCodexThreadDownload = async (
                     input,
                     outputRelativePath: fileName,
                     relations: browseData.relations,
+                    resolveForkedThread,
                     sessionFile: snapshotPath,
                     thread: browseData.thread,
                     transform,
@@ -357,7 +448,7 @@ export const renderCodexThreadDownload = async (
                 if (
                     input.zipArchive ||
                     (input.zipPassword !== undefined && input.zipPassword !== '') ||
-                    rollout.before.sizeBytes >
+                    effectiveSizeBytes >
                         (input.largeExportThresholdBytes ?? resolveUiRuntimeConfig().largeExportThresholdBytes)
                 ) {
                     const exportDir = await resolvePublicExportDir(input.publicExportDir);
@@ -393,6 +484,7 @@ export const renderCodexThreadDownload = async (
                     mode: 'download' as const,
                 };
             },
+            resolveForkedThread,
             threadId: input.threadId,
         });
     } catch (error) {
@@ -408,6 +500,7 @@ export const renderCodexThreadDownload = async (
 const renderCodexBatchEntry = async (
     input: RenderCodexThreadsDownloadInput,
     result: CodexThreadBrowseBatchResult,
+    resolveForkedThread: ReturnType<typeof createCodexForkedThreadResolver>,
     usedBatchEntryBaseNames: Set<string>,
 ): Promise<{ members: ExportArchiveMember[]; outcome: ExportArchiveOutcome }> => {
     if (result.status !== 'found' || !result.data) {
@@ -429,6 +522,7 @@ const renderCodexBatchEntry = async (
     try {
         const rendered = await withStableRolloutSnapshot({
             dbPath: input.dbPath,
+            includeForkHistory: input.outputFormat !== 'json',
             initialBrowseData: result.data,
             render: async ({ browseData, snapshotPath }) => {
                 const singleBaseName = buildCodexExportFileBaseName(input.outputFormat, browseData.thread);
@@ -459,12 +553,14 @@ const renderCodexBatchEntry = async (
                     input,
                     outputRelativePath: resolvedFileName,
                     relations: browseData.relations,
+                    resolveForkedThread,
                     sessionFile: snapshotPath,
                     thread: browseData.thread,
                     transform,
                 });
                 return { bytes, relativePath: resolvedFileName };
             },
+            resolveForkedThread,
             threadId: result.threadId,
         });
 
@@ -518,6 +614,7 @@ export const renderCodexThreadsDownload = async (
         'threads',
     );
     const usedBatchEntryBaseNames = new Set<string>();
+    const resolveForkedThread = createCodexForkedThreadResolver(input.dbPath);
     const members: ExportArchiveMember[] = [];
     const outcomes: ExportArchiveOutcome[] = [];
 
@@ -529,7 +626,7 @@ export const renderCodexThreadsDownload = async (
 
     try {
         for (const result of browseResults) {
-            const entry = await renderCodexBatchEntry(input, result, usedBatchEntryBaseNames);
+            const entry = await renderCodexBatchEntry(input, result, resolveForkedThread, usedBatchEntryBaseNames);
             members.push(...entry.members);
             outcomes.push(entry.outcome);
         }

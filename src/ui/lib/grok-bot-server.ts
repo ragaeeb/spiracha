@@ -150,11 +150,6 @@ const deleteLoadedGrokBotChat = async (conversationId: string) => {
     if (!result || result.deletedIds.length === 0) {
         throw new Error(`Grok Bot chat not found: ${conversationId}`);
     }
-    if (result.cleanupFailures?.length) {
-        throw new Error(
-            `Roster entry removed; cleanup remains. Keep Grok Bot stopped and retry: ${result.cleanupFailures.map((failure) => failure.error).join('; ')}`,
-        );
-    }
     return result;
 };
 

@@ -23,6 +23,7 @@ export type ParseCodexTranscriptOptions = {
     includeRaw?: boolean;
     maxEvents?: number;
     maxTurnContexts?: number;
+    resolveForkedThread?: (threadId: string) => Promise<string>;
     sourceFileSizeBytes?: number | null;
     tailEventLimit?: number;
 };
@@ -64,6 +65,8 @@ export const createEmptySessionMeta = (): SessionMetaExtended => {
         cli_version: undefined,
         cwd: undefined,
         dynamicTools: [],
+        forkedFromId: null,
+        forkedFromOrdinalExclusive: null,
         git: null,
         id: undefined,
         modelProvider: null,
@@ -192,7 +195,15 @@ const captureTranscriptRecord = (parsed: Record<string, JsonValue>, state: Parse
 };
 
 const captureAssistantModel = (parsed: Record<string, JsonValue>, state: ParseCodexTranscriptState) => {
-    if (parsed.type !== 'turn_context' && parsed.type !== 'thread_settings_applied') {
+    const payload = asObject(parsed.payload);
+    const recordType = asString(parsed.type);
+    const payloadType = asString(payload?.type ?? null);
+    if (
+        recordType !== 'turn_context' &&
+        recordType !== 'thread_settings_applied' &&
+        payloadType !== 'turn_context' &&
+        payloadType !== 'thread_settings_applied'
+    ) {
         return;
     }
 
@@ -226,6 +237,9 @@ const captureSessionMeta = (parsed: Record<string, JsonValue>, sessionMeta: Sess
     sessionMeta.cli_version = asString(payload.cli_version) ?? sessionMeta.cli_version;
     sessionMeta.cwd = asString(payload.cwd) ?? sessionMeta.cwd;
     sessionMeta.dynamicTools = parseDynamicTools(payload.dynamic_tools) ?? sessionMeta.dynamicTools;
+    sessionMeta.forkedFromId = asString(payload.forked_from_id) ?? sessionMeta.forkedFromId;
+    sessionMeta.forkedFromOrdinalExclusive =
+        asNumber(payload.forked_from_ordinal_exclusive) ?? sessionMeta.forkedFromOrdinalExclusive;
     sessionMeta.git = asObject(payload.git) ?? sessionMeta.git;
     sessionMeta.id = asString(payload.id) ?? sessionMeta.id;
     sessionMeta.modelProvider = asString(payload.model_provider) ?? sessionMeta.modelProvider;

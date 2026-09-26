@@ -35,6 +35,12 @@ const writeClaudeSession = async (projectsDir: string, sessionId: string, cwd: s
             message: {
                 content: [
                     { thinking: 'I should inspect the source.', type: 'thinking' },
+                    {
+                        id: 'shell-1',
+                        input: { command: 'rtk bun test', cwd: '/fixture' },
+                        name: 'Bash',
+                        type: 'tool_use',
+                    },
                     { id: 'tool-1', input: { path: 'src/index.ts' }, name: 'Read', type: 'tool_use' },
                     { text: 'Checking the implementation.', type: 'text' },
                 ],
@@ -103,6 +109,10 @@ describe('Claude Code conversation adapter', () => {
             workspacePath: cwd,
         });
         expect(conversation?.metadata).not.toHaveProperty('model');
+        expect(conversation?.messages.find((m) => m.toolEvidence?.callId === 'shell-1')?.toolEvidence).toMatchObject({
+            command: 'rtk bun test',
+            workdir: '/fixture',
+        });
         expect(conversation?.messages.map((message) => message.order)).toEqual(
             conversation?.messages.map((_, index) => index),
         );

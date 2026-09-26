@@ -131,7 +131,7 @@ describe('Grok Bot server operations', () => {
         vi.clearAllMocks();
         getConversationMock.mockResolvedValue(chat());
         listConversationsMock.mockResolvedValue({ data: [chat()], meta: { hasNext: false, nextCursor: null } });
-        deleteConversationMock.mockResolvedValue({ deletedFiles: ['/tmp/chat.blob'], deletedIds: ['chat-id'] });
+        deleteConversationMock.mockResolvedValue({ deletedFiles: [], deletedIds: ['chat-id'] });
         renderSourceSessionDownloadMock.mockResolvedValue({
             content: 'download',
             fileName: 'chat.md',
@@ -176,7 +176,7 @@ describe('Grok Bot server operations', () => {
         expect(exportRequest.content).toContain('## Kiwi');
 
         await expect(deleteGrokBotChatFn({ data: { conversationId: 'chat-id' } } as never)).resolves.toEqual({
-            deletedFiles: ['/tmp/chat.blob'],
+            deletedFiles: [],
             deletedIds: ['chat-id'],
         });
         expect(deleteConversationMock).toHaveBeenCalledWith({ id: 'chat-id', source: 'grok-bot' });
@@ -207,16 +207,6 @@ describe('Grok Bot server operations', () => {
         deleteConversationMock.mockResolvedValueOnce({ deletedFiles: [], deletedIds: [] });
         await expect(deleteGrokBotChatFn({ data: { conversationId: 'missing' } } as never)).rejects.toThrow(
             'Grok Bot chat not found: missing',
-        );
-    });
-    it('should report residual deletion cleanup so the dialog can retry', async () => {
-        deleteConversationMock.mockResolvedValue({
-            cleanupFailures: [{ error: 'replica busy', path: '/fixture/replica.blob', phase: 'transcript-replica' }],
-            deletedFiles: [],
-            deletedIds: ['chat-id'],
-        });
-        await expect(deleteGrokBotChatFn({ data: { conversationId: 'chat-id' } } as never)).rejects.toThrow(
-            'Roster entry removed; cleanup remains. Keep Grok Bot stopped and retry: replica busy',
         );
     });
     it('should omit unknown and invalid dates while preserving text export timestamps', async () => {
@@ -293,12 +283,12 @@ describe('Grok Bot server operations', () => {
         });
 
         deleteConversationMock
-            .mockResolvedValueOnce({ deletedFiles: ['/tmp/chat.blob'], deletedIds: ['chat-id'] })
-            .mockResolvedValueOnce({ deletedFiles: ['/tmp/chat-2.blob'], deletedIds: ['chat-id-2'] });
+            .mockResolvedValueOnce({ deletedFiles: [], deletedIds: ['chat-id'] })
+            .mockResolvedValueOnce({ deletedFiles: [], deletedIds: ['chat-id-2'] });
         await expect(
             deleteGrokBotChatsFn({ data: { conversationIds: ['chat-id', 'chat-id-2'] } } as never),
         ).resolves.toMatchObject({
-            deletedFiles: ['/tmp/chat.blob', '/tmp/chat-2.blob'],
+            deletedFiles: [],
             deletedIds: ['chat-id', 'chat-id-2'],
             missingIds: [],
             summary: { cleanupPending: 0, deleted: 2, failed: 0, missing: 0 },
@@ -306,18 +296,15 @@ describe('Grok Bot server operations', () => {
         expect(deleteConversationMock).toHaveBeenNthCalledWith(1, { id: 'chat-id', source: 'grok-bot' });
         expect(deleteConversationMock).toHaveBeenNthCalledWith(2, { id: 'chat-id-2', source: 'grok-bot' });
 
-        deleteConversationMock.mockResolvedValueOnce({ deletedFiles: [], deletedIds: [] }).mockResolvedValueOnce({
-            cleanupFailures: [{ error: 'replica busy', path: '/tmp/replica.blob', phase: 'transcript-replica' }],
-            deletedFiles: [],
-            deletedIds: ['chat-id-2'],
-            receiptId: 'receipt-2',
-        });
+        deleteConversationMock
+            .mockResolvedValueOnce({ deletedFiles: [], deletedIds: [] })
+            .mockRejectedValueOnce(new Error('Gateway unavailable'));
         const retry = await deleteGrokBotChatsFn({
             data: { conversationIds: ['chat-id', 'chat-id-2'] },
         } as never);
         expect(retry.outcomes.map((outcome) => [outcome.id, outcome.status])).toEqual([
             ['chat-id', 'missing'],
-            ['chat-id-2', 'cleanup_pending'],
+            ['chat-id-2', 'failed'],
         ]);
     });
 });

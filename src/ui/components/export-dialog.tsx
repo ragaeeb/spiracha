@@ -183,6 +183,18 @@ const EvidencePreview = ({ preview }: { preview: ConversationEvidenceExport }) =
         Preview: {preview.meta.omission.inputEvents} inspected events, {preview.meta.episodeCount} episodes,{' '}
         {preview.meta.projectedCharacters} characters (~{preview.meta.approximateTokens} tokens),{' '}
         {preview.meta.omission.omittedEvents} omissions.
+        {preview.meta.omission.renderedEvents !== undefined ? (
+            <p>
+                {preview.meta.omission.renderedEvents} rendered bodies; {preview.meta.omission.renderedMatchedEvents} of{' '}
+                {preview.meta.omission.matchedEvents} matching events rendered.
+            </p>
+        ) : null}
+        {preview.meta.omission.candidateLimitReached ? (
+            <p>Selection limit reached. Opening and recent evidence were prioritized.</p>
+        ) : null}
+        {preview.meta.omission.budgetReached || preview.meta.omission.sectionBudgetReached ? (
+            <p>Some evidence did not fit. Narrow the lens or increase its budgets.</p>
+        ) : null}
     </div>
 );
 

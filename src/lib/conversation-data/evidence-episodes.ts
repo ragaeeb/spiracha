@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { matchEvidenceEvent } from './evidence-lens';
-import type { ConversationEvidenceEvent, EvidenceLens } from './types';
+import type { ConversationEvidenceEvent, EvidenceLens, EvidenceOmissionStats } from './types';
 
 export type EvidenceEpisodeOutcome = 'abandoned' | 'failed' | 'succeeded' | 'unknown';
 export type EvidenceEpisode = {
@@ -26,12 +26,15 @@ const findFallbackCallIndex = (
     unmatchedCalls: number[],
     event: ConversationEvidenceEvent,
     maxOrderGap: number,
-) =>
-    unmatchedCalls.findLast((candidate) => {
+) => {
+    const candidates = unmatchedCalls.filter((candidate) => {
         const call = paired[candidate]!;
-        const nameMatches = !event.tool?.name || !call.tool?.name || event.tool.name === call.tool.name;
+        const name = event.tool?.name;
+        const nameMatches = !name || name === 'unknown' || !call.tool?.name || name === call.tool.name;
         return event.order - call.order <= maxOrderGap && nameMatches;
     });
+    return candidates.length === 1 ? candidates[0] : undefined;
+};
 
 const pairOutputEvent = (
     paired: ConversationEvidenceEvent[],
@@ -42,8 +45,9 @@ const pairOutputEvent = (
     maxOrderGap: number,
 ) => {
     const exactIndex = event.tool?.callId ? callsById.get(event.tool.callId) : undefined;
-    const fallbackIndex =
-        exactIndex === undefined ? findFallbackCallIndex(paired, unmatchedCalls, event, maxOrderGap) : undefined;
+    const fallbackIndex = !event.tool?.callId
+        ? findFallbackCallIndex(paired, unmatchedCalls, event, maxOrderGap)
+        : undefined;
     const callIndex = exactIndex ?? fallbackIndex;
     const confidence: ConversationEvidenceEvent['pairingConfidence'] =
         exactIndex !== undefined ? 'exact' : fallbackIndex === undefined ? 'unpaired' : 'ordered_fallback';
@@ -51,6 +55,7 @@ const pairOutputEvent = (
     if (callIndex === undefined) {
         return;
     }
+    event.pairedCallIndex = callIndex;
     paired[callIndex]!.pairingConfidence = confidence;
     paired[callIndex]!.pairedOutputIndex = eventIndex;
     const unmatchedIndex = unmatchedCalls.indexOf(callIndex);
@@ -71,22 +76,34 @@ const pairOutputEvent = (
  * Input events are shallow-copied; pairing is evidence reconstruction, not proof of
  * a source application's full causal graph.
  */
+const registerCall = (
+    event: ConversationEvidenceEvent,
+    index: number,
+    callsById: Map<string, number>,
+    unmatchedCalls: number[],
+) => {
+    if (event.tool?.callId) {
+        callsById.set(event.tool.callId, index);
+        if (callsById.size > MAX_EXACT_CALL_IDS) {
+            callsById.delete(callsById.keys().next().value as string);
+        }
+    }
+    unmatchedCalls.push(index);
+    if (unmatchedCalls.length > MAX_UNMATCHED_CALLS) {
+        unmatchedCalls.shift();
+    }
+};
+
 const pairToolEvents = (events: ConversationEvidenceEvent[], maxOrderGap: number) => {
     const paired = events.map((event) => ({ ...event }));
     const callsById = new Map<string, number>();
     const unmatchedCalls: number[] = [];
     for (const [index, event] of paired.entries()) {
+        if (event.role === 'user' && event.phase !== 'tool_output') {
+            unmatchedCalls.length = 0;
+        }
         if (event.phase === 'tool_call') {
-            if (event.tool?.callId) {
-                callsById.set(event.tool.callId, index);
-                if (callsById.size > MAX_EXACT_CALL_IDS) {
-                    callsById.delete(callsById.keys().next().value as string);
-                }
-            }
-            unmatchedCalls.push(index);
-            if (unmatchedCalls.length > MAX_UNMATCHED_CALLS) {
-                unmatchedCalls.shift();
-            }
+            registerCall(event, index, callsById, unmatchedCalls);
             continue;
         }
         if (event.phase !== 'tool_output') {
@@ -97,21 +114,8 @@ const pairToolEvents = (events: ConversationEvidenceEvent[], maxOrderGap: number
     return paired;
 };
 
-const pairedOutputIndex = (events: ConversationEvidenceEvent[], callIndex: number, maxOrderGap: number) => {
-    const call = events[callIndex]!;
-    if (call.pairedOutputIndex !== undefined) {
-        return call.pairedOutputIndex;
-    }
-    return events.findIndex(
-        (event, index) =>
-            index > callIndex &&
-            event.phase === 'tool_output' &&
-            event.order - call.order <= maxOrderGap &&
-            call.tool?.callId !== null &&
-            call.tool?.callId !== undefined &&
-            event.tool?.callId === call.tool.callId,
-    );
-};
+const pairedOutputIndex = (events: ConversationEvidenceEvent[], callIndex: number) =>
+    events[callIndex]!.pairedOutputIndex ?? -1;
 
 const outcomeOf = (events: ConversationEvidenceEvent[]): EvidenceEpisodeOutcome => {
     const lastToolEvent = events.findLast((event) => event.phase === 'tool_output' || event.phase === 'tool_call');
@@ -119,7 +123,7 @@ const outcomeOf = (events: ConversationEvidenceEvent[]): EvidenceEpisodeOutcome 
         return 'unknown';
     }
     if (lastToolEvent.phase === 'tool_call') {
-        return 'abandoned';
+        return 'unknown';
     }
     if (lastToolEvent.tool?.status === 'succeeded' || lastToolEvent.tool?.exitCode === 0) {
         return 'succeeded';
@@ -132,6 +136,17 @@ const outcomeOf = (events: ConversationEvidenceEvent[]): EvidenceEpisodeOutcome 
 
 const isMechanicalProgress = (text: string) =>
     /^(?:waiting|waited|progress|loading|still working|retrying|running)\b/iu.test(text.trim());
+
+const isContext = (event: ConversationEvidenceEvent, includeReasoning: boolean) =>
+    (event.phase === 'commentary' || (includeReasoning && event.phase === 'reasoning')) &&
+    !isMechanicalProgress(event.text);
+
+const contextBoundary = (event: ConversationEvidenceEvent) => {
+    if (event.role === 'user' && event.phase !== 'tool_output') {
+        return -1;
+    }
+    return event.phase === 'final_answer' ? 1 : 0;
+};
 
 const addNearbyContext = (
     selected: Set<number>,
@@ -150,10 +165,14 @@ const addNearbyContext = (
         if (Math.abs(events[index]!.order - events[anchorIndex]!.order) > lens.context.maxOrderGap) {
             break;
         }
-        const phase = events[index]!.phase;
-        const selectedPhase =
-            phase === 'commentary' || (lens.context.includeReasoningSummaries && phase === 'reasoning');
-        if (selectedPhase && !isMechanicalProgress(events[index]!.text)) {
+        const boundary = contextBoundary(events[index]!);
+        if (boundary !== 0) {
+            if (direction === boundary) {
+                selected.add(index);
+            }
+            break;
+        }
+        if (isContext(events[index]!, lens.context.includeReasoningSummaries)) {
             selected.add(index);
             remaining -= 1;
         }
@@ -172,6 +191,9 @@ const addConfiguredFollowUps = (
     const anchor = events[anchorIndex]!;
     for (let index = anchorIndex + 1; index < events.length; index += 1) {
         const candidate = events[index]!;
+        if (candidate.role === 'user' || candidate.phase === 'final_answer') {
+            break;
+        }
         if (candidate.order - anchor.order > lens.context.maxOrderGap) {
             break;
         }
@@ -179,7 +201,7 @@ const addConfiguredFollowUps = (
             continue;
         }
         selected.add(index);
-        const outputIndex = pairedOutputIndex(events, index, lens.context.maxOrderGap);
+        const outputIndex = pairedOutputIndex(events, index);
         if (outputIndex >= 0) {
             selected.add(outputIndex);
         }
@@ -188,9 +210,13 @@ const addConfiguredFollowUps = (
 
 const contextIndexes = (events: ConversationEvidenceEvent[], anchorIndex: number, lens: EvidenceLens) => {
     const selected = new Set<number>([anchorIndex]);
+    const callIndex = events[anchorIndex]!.pairedCallIndex;
+    if (callIndex !== undefined) {
+        selected.add(callIndex);
+    }
     addNearbyContext(selected, events, anchorIndex, lens.context.commentaryBefore, -1, lens);
     addNearbyContext(selected, events, anchorIndex, lens.context.commentaryAfter, 1, lens);
-    const outputIndex = pairedOutputIndex(events, anchorIndex, lens.context.maxOrderGap);
+    const outputIndex = pairedOutputIndex(events, anchorIndex);
     if (outputIndex >= 0) {
         selected.add(outputIndex);
     }
@@ -211,6 +237,9 @@ const addRetries = (
     const fingerprint = inputFingerprint(anchor);
     for (let index = anchorIndex + 1; index < events.length; index += 1) {
         const candidate = events[index]!;
+        if (candidate.role === 'user' || candidate.phase === 'final_answer') {
+            break;
+        }
         if (candidate.order - anchor.order > lens.context.maxOrderGap) {
             break;
         }
@@ -221,7 +250,7 @@ const addRetries = (
             continue;
         }
         selected.add(index);
-        const outputIndex = pairedOutputIndex(events, index, lens.context.maxOrderGap);
+        const outputIndex = pairedOutputIndex(events, index);
         if (outputIndex >= 0) {
             selected.add(outputIndex);
         }
@@ -250,10 +279,25 @@ const combineEpisodeCandidates = (
     return { anchorIndex: anchorIndex ?? candidate.anchorIndex, indexes };
 };
 
-const mergeEpisodeCandidates = (candidates: EpisodeCandidate[], events: ConversationEvidenceEvent[]) => {
+const mergeEpisodeCandidates = (
+    candidates: EpisodeCandidate[],
+    events: ConversationEvidenceEvent[],
+    maxOrderGap: number,
+) => {
     const merged: EpisodeCandidate[] = [];
     for (const candidate of candidates) {
-        const overlapping = merged.filter((episode) => overlaps(candidate, episode));
+        const overlapping = merged.filter((episode) => {
+            const indexes = [...episode.indexes, ...candidate.indexes];
+            const first = Math.min(...indexes),
+                last = Math.max(...indexes);
+            return (
+                overlaps(candidate, episode) &&
+                events[last]!.order - events[first]!.order <= maxOrderGap &&
+                !events
+                    .slice(first + 1, last + 1)
+                    .some((event) => event.role === 'user' && event.phase !== 'tool_output')
+            );
+        });
         if (overlapping.length === 0) {
             merged.push(candidate);
             continue;
@@ -273,11 +317,16 @@ const mergeEpisodeCandidates = (candidates: EpisodeCandidate[], events: Conversa
 export const buildEvidenceEpisodes = (
     inputEvents: ConversationEvidenceEvent[],
     lens: EvidenceLens,
+    stats?: EvidenceOmissionStats,
 ): EvidenceEpisode[] => {
     const events = pairToolEvents(inputEvents, lens.context.maxOrderGap);
     const candidates: Array<{ anchorIndex: number; indexes: Set<number> }> = [];
     for (const [index, event] of events.entries()) {
-        if (event.phase === 'tool_output' || isMechanicalProgress(event.text)) {
+        if (
+            event.phase === 'commentary' &&
+            isMechanicalProgress(event.text) &&
+            !lens.anchors.some((anchor) => anchor.kind === 'text' && matchEvidenceEvent(event, anchor))
+        ) {
             continue;
         }
         if (!lens.anchors.some((anchor) => matchEvidenceEvent(event, anchor))) {
@@ -287,14 +336,19 @@ export const buildEvidenceEpisodes = (
         addRetries(indexes, events, index, lens);
         addConfiguredFollowUps(indexes, events, index, lens);
         candidates.push({ anchorIndex: index, indexes });
-        if (candidates.length >= MAX_EPISODES) {
-            break;
+        if (candidates.length > MAX_EPISODES) {
+            // Keep the opening evidence and latest resolution within bounded selection state.
+            candidates.splice(MAX_EPISODES / 2, 1);
+            if (stats) {
+                stats.candidateLimitReached = true;
+            }
         }
     }
-    return mergeEpisodeCandidates(candidates, events)
+    return mergeEpisodeCandidates(candidates, events, lens.context.maxOrderGap)
         .map(({ anchorIndex, indexes }) => {
             const episodeEvents = [...indexes].sort((left, right) => left - right).map((index) => events[index]!);
             return { anchor: events[anchorIndex]!, events: episodeEvents, outcome: outcomeOf(episodeEvents) };
         })
+        .sort((a, b) => a.events[0]!.order - b.events[0]!.order)
         .slice(0, MAX_EPISODES);
 };

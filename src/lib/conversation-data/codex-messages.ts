@@ -8,6 +8,7 @@ import {
     toCanonicalMessage,
     toDateMs,
 } from './adapter-helpers';
+import { codexShellCommands } from './codex-shell-commands';
 import type { MessageEvent, ThreadEvent, ToolCallEvent, ToolOutputEvent } from './conversation-events';
 import type { ConversationMessage, ConversationMessagePhase } from './types';
 
@@ -62,6 +63,9 @@ const toToolCallMessage = (event: ToolCallEvent, toolNames: Map<string, string>)
             toolEvidence: {
                 callId: event.callId,
                 command: event.command,
+                ...(event.name === 'exec' || event.name === 'functions.exec'
+                    ? { shellCommands: codexShellCommands(event.argumentsText ?? event.command ?? '') }
+                    : {}),
                 durationMs: null,
                 exitCode: null,
                 inputText: event.argumentsText,

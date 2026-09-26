@@ -112,12 +112,15 @@ export const getThreadSnapshotFn = createServerFn({ method: 'GET' })
     .validator(threadSchema)
     .handler(async ({ data }) => {
         const startedAt = Date.now();
-        const [{ getThreadBrowseData }, { getCachedCodexTranscriptModelNames, getThreadRolloutLoadState }] =
-            await Promise.all([
-                import('@spiracha/lib/codex-browser-queries'),
-                import('@spiracha/lib/codex-thread-cache'),
-            ]);
+        const [
+            { createCodexForkedThreadResolver, getThreadBrowseData },
+            { getCachedCodexTranscriptModelNames, getThreadRolloutLoadState },
+        ] = await Promise.all([
+            import('@spiracha/lib/codex-browser-queries'),
+            import('@spiracha/lib/codex-thread-cache'),
+        ]);
         const dbPath = await getDbPath();
+        const resolveForkedThread = createCodexForkedThreadResolver(dbPath);
         logCodexThreadLoad('snapshot_start', {
             threadId: data.threadId,
         });
@@ -126,7 +129,9 @@ export const getThreadSnapshotFn = createServerFn({ method: 'GET' })
         let rollout: Awaited<ReturnType<typeof getThreadRolloutLoadState>>;
 
         try {
-            rollout = await getThreadRolloutLoadState(browseData.thread.rollout_path);
+            rollout = await getThreadRolloutLoadState(browseData.thread.rollout_path, undefined, {
+                resolveForkedThread,
+            });
         } catch (error) {
             if (!isMissingFileError(error)) {
                 throw error;
@@ -143,7 +148,7 @@ export const getThreadSnapshotFn = createServerFn({ method: 'GET' })
         const detectedModelNames =
             rollout.fileSizeBytes === null
                 ? []
-                : await getCachedCodexTranscriptModelNames(browseData.thread.rollout_path);
+                : await getCachedCodexTranscriptModelNames(browseData.thread.rollout_path, { resolveForkedThread });
         const modelNames =
             detectedModelNames.length > 0
                 ? detectedModelNames
@@ -173,11 +178,10 @@ export const loadThreadTranscriptPreview = async (
     filters?: InferOutput<typeof transcriptFiltersSchema>,
 ) => {
     const startedAt = Date.now();
-    const [{ getThreadBrowseData }, { getCachedThreadTranscriptPreview }] = await Promise.all([
-        import('@spiracha/lib/codex-browser-queries'),
-        import('@spiracha/lib/codex-thread-cache'),
-    ]);
+    const [{ createCodexForkedThreadResolver, getThreadBrowseData }, { getCachedThreadTranscriptPreview }] =
+        await Promise.all([import('@spiracha/lib/codex-browser-queries'), import('@spiracha/lib/codex-thread-cache')]);
     const dbPath = await getDbPath();
+    const resolveForkedThread = createCodexForkedThreadResolver(dbPath);
     const browseData = await getThreadBrowseData(dbPath, threadId);
     logCodexThreadLoad('preview_start', {
         rolloutPath: browseData.thread.rollout_path,
@@ -185,6 +189,7 @@ export const loadThreadTranscriptPreview = async (
     });
     const transcript = await getCachedThreadTranscriptPreview(browseData.thread.rollout_path, {
         filters,
+        resolveForkedThread,
     });
     logCodexThreadLoad('preview_ready', {
         durationMs: Date.now() - startedAt,
@@ -196,18 +201,17 @@ export const loadThreadTranscriptPreview = async (
 };
 
 export const loadThreadTranscript = async (threadId: string) => {
-    const [{ getThreadBrowseData }, { getCachedParsedCodexTranscript }] = await Promise.all([
-        import('@spiracha/lib/codex-browser-queries'),
-        import('@spiracha/lib/codex-thread-cache'),
-    ]);
+    const [{ createCodexForkedThreadResolver, getThreadBrowseData }, { getCachedParsedCodexTranscript }] =
+        await Promise.all([import('@spiracha/lib/codex-browser-queries'), import('@spiracha/lib/codex-thread-cache')]);
     const dbPath = await getDbPath();
+    const resolveForkedThread = createCodexForkedThreadResolver(dbPath);
     const browseData = await getThreadBrowseData(dbPath, threadId);
     const startedAt = Date.now();
     logCodexThreadLoad('full_start', {
         rolloutPath: browseData.thread.rollout_path,
         threadId,
     });
-    const transcript = await getCachedParsedCodexTranscript(browseData.thread.rollout_path);
+    const transcript = await getCachedParsedCodexTranscript(browseData.thread.rollout_path, { resolveForkedThread });
     logCodexThreadLoad('full_ready', {
         durationMs: Date.now() - startedAt,
         eventCount: transcript.events.length,

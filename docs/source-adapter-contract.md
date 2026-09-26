@@ -414,7 +414,7 @@ Codex: keep `.spiracha-deletions` intent semantics, attached-WAL caveat, saved r
 
 Cursor: keep `.spiracha-cursor-operation.json`, mutation lock, restart discovery reconciliation, captured workspace/composer ownership, process checks, 8 MiB record bound and committed marker semantics from `docs/cursor-crash-recovery.md`. Do not suppress its recovery error merely to render an apparently empty inventory.
 
-Grok Bot: keep account-specific durable receipts and fail-closed stopped-process checks, roster comparison, replica identity checks, same-ID retry and sibling/account preservation. Read-only inventory must not initiate a new deletion. Shared batching cannot run unrelated account cleanup from a request for one account-scoped ID.
+Grok Bot: delete the exact bot/group ID through the authenticated gateway after checking its remote roster. Never rewrite synchronized app persistence or replay former local cleanup receipts. Read-only inventory must not initiate deletion. An unconfirmed gateway response requires checking remote state before retrying; shared batching must retain that per-ID failure. See [gateway deletion](grok-bot-deletion.md).
 
 OpenCode: preserve selector validation, shared project ownership, transaction rollback, desktop cleanup retry and empty-workspace behavior. A committed session delete with failed desktop cleanup is not total failure; retain enough worktree/session metadata for restart-safe retry without deleting the source worktree. Preserve specialized workspace recovery/merge logic separately.
 

@@ -43,6 +43,8 @@ export type ThreadGoal = {
 export type SessionMetaExtended = SessionMeta & {
     baseInstructions: JsonValue | null;
     dynamicTools: DynamicToolDefinition[];
+    forkedFromId: string | null;
+    forkedFromOrdinalExclusive: number | null;
     git: Record<string, JsonValue> | null;
     modelProvider: string | null;
     threadSource: string | null;
