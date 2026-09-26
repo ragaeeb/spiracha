@@ -299,6 +299,31 @@ describe('claude code workspace discovery', () => {
         expect(transcript?.rawEvents).toHaveLength(3);
     });
 
+    it.each([
+        ['<command-message>claude-api</command-message>', 'Claude API prompt audit'],
+        ['First read @AGENTS.md', 'Kalu project unblocking'],
+    ])('should prefer native custom-title metadata over the first user message', async (firstMessage, title) => {
+        const projectsDir = await makeTempRoot();
+        const sessionId = 'session-custom-title';
+        await writeSession(projectsDir, '-Users-rhaq-workspace-ushman-corpus', sessionId, [
+            buildMessageRecord(sessionId, `${sessionId}-user`, 'user', firstMessage, '2026-06-01T10:00:00.000Z'),
+            {
+                customTitle: title,
+                sessionId,
+                timestamp: '2026-06-01T10:00:01.000Z',
+                type: 'custom-title',
+            },
+        ]);
+
+        const sessions = await listClaudeCodeSessionsForGroup(
+            'project:-Users-rhaq-workspace-ushman-corpus',
+            projectsDir,
+        );
+
+        expect(sessions).toHaveLength(1);
+        expect(sessions[0]).toMatchObject({ sessionId, title });
+    });
+
     it('should list Claude Code sub-agents beneath their parent with metadata titles and models', async () => {
         const projectsDir = await makeTempRoot();
         const projectDirName = '-Users-rhaq-workspace-ushman-corpus';

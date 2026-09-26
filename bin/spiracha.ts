@@ -378,7 +378,6 @@ type SpirachaCliDependencies = {
     client?: ConversationClient;
     getCodexAnalytics?: (project: string | null) => Promise<CodexAnalytics>;
     io?: SpirachaCliIo;
-    runServer?: () => Promise<number>;
 };
 
 const defaultIo: SpirachaCliIo = {
@@ -418,9 +417,7 @@ export const runSpirachaCli = async (args: string[], dependencies: SpirachaCliDe
     }
     if (parsed.command === 'serve') {
         try {
-            return await (
-                dependencies.runServer ?? (() => runProductionUiServer(resolveSpirachaPackageRoot()))
-            )();
+            return await runProductionUiServer(path.resolve(import.meta.dir, '..'));
         } catch (error) {
             io.stderr(`spiracha: ${error instanceof Error ? error.message : String(error)}\n`);
             return 1;
@@ -514,8 +511,6 @@ export const runSpirachaCli = async (args: string[], dependencies: SpirachaCliDe
         return 1;
     }
 };
-
-export const resolveSpirachaPackageRoot = (binDir = import.meta.dir): string => path.resolve(binDir, '..');
 
 if (import.meta.main) {
     process.exitCode = await runSpirachaCli(process.argv.slice(2));

@@ -513,7 +513,9 @@ const readTitleCandidate = (raw: Record<string, JsonValue>): string | null => {
         return null;
     }
 
-    return cleanLabel(asString(raw.title ?? null) ?? asString(raw.content ?? null));
+    return cleanLabel(
+        asString(raw.customTitle ?? null) ?? asString(raw.title ?? null) ?? asString(raw.content ?? null),
+    );
 };
 
 const updateIdentityFromRaw = (identity: SessionIdentity, raw: Record<string, JsonValue>) => {

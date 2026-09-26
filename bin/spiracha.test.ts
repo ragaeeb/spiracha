@@ -4,7 +4,6 @@ import os from 'node:os';
 import path from 'node:path';
 import {
     parseSpirachaCliArgs,
-    resolveSpirachaPackageRoot,
     runSpirachaCli,
 } from './spiracha';
 import type { ConversationClient } from '../src/client';
@@ -18,12 +17,6 @@ afterEach(async () => {
 });
 
 describe('spiracha executable', () => {
-    it('should expose bounded retrieval and require an explicit request file', () => {
-        expect(parseSpirachaCliArgs(['retrieve', 'codex://threads/t', '--request', 'request.json'])).toEqual({
-            command: 'retrieve', ref: 'codex://threads/t', request: 'request.json',
-        });
-        expect(() => parseSpirachaCliArgs(['retrieve', 'codex://threads/t'])).toThrow('--request');
-    });
     it('should parse analytics export options', () => {
         expect(
             parseSpirachaCliArgs(['analytics', 'export', '--format', 'csv', '--project', 'spiracha', '--output', 'dx.csv']),
@@ -86,29 +79,10 @@ describe('spiracha executable', () => {
             await runSpirachaCli(['analytics', 'export', '--format', 'json', '--output', path.join(output, 'dx.json')], {
                 getCodexAnalytics: async () => codexAnalytics,
                 io: { stderr: () => {}, stdout: (value) => stdout.push(value) },
-                runServer: async () => 0,
             }),
         ).toBe(0);
         expect(stdout).toEqual([]);
         expect(await Bun.file(path.join(output, 'dx.json')).text()).toBe(`${JSON.stringify(agentDx, null, 2)}\n`);
-    });
-
-    it('should resolve the package root from the executable location', () => {
-        expect(resolveSpirachaPackageRoot('/tmp/spiracha-package/bin')).toBe('/tmp/spiracha-package');
-    });
-
-    it('should dispatch serve to the current UI server', async () => {
-        let called = false;
-        const exitCode = await runSpirachaCli(['serve'], {
-            io: { stderr: () => {}, stdout: () => {} },
-            runServer: async () => {
-                called = true;
-                return 0;
-            },
-        });
-
-        expect(exitCode).toBe(0);
-        expect(called).toBe(true);
     });
 
     it('should parse list options without starting a server', () => {
@@ -124,7 +98,8 @@ describe('spiracha executable', () => {
         });
     });
 
-    it('should reject invalid local list and evidence options', () => {
+    it('should reject invalid CLI options', () => {
+        expect(() => parseSpirachaCliArgs(['retrieve', 'codex://threads/t'])).toThrow('--request');
         expect(() => parseSpirachaCliArgs(['list', '--cwd', 'relative'])).toThrow('absolute path');
         expect(() => parseSpirachaCliArgs(['list', '--cwd', '/repo', '--limit', '0'])).toThrow(
             'integer from 1 to 200',
@@ -146,7 +121,6 @@ describe('spiracha executable', () => {
         const stdout: Array<string | Uint8Array> = [];
         const exitCode = await runSpirachaCli([], {
             io: { stderr: () => {}, stdout: (value) => stdout.push(value) },
-            runServer: async () => 0,
         });
 
         expect(exitCode).toBe(0);
@@ -165,7 +139,6 @@ describe('spiracha executable', () => {
                 },
             } as never,
             io: { stderr: () => {}, stdout: (value) => stdout.push(value) },
-            runServer: async () => 0,
         });
 
         expect(exitCode).toBe(0);
@@ -191,7 +164,6 @@ describe('spiracha executable', () => {
         expect(await runSpirachaCli(['get', 'codex://thread-1', '--message-selector', 'all'], {
             client,
             io: { stderr: () => {}, stdout: (value) => stdout.push(value) },
-            runServer: async () => 0,
         })).toBe(0);
         expect(resolvedRef).toBe('codex://thread-1');
         expect(received).toEqual({ id: 'thread-1', messageSelector: 'all', source: 'codex' });
@@ -211,7 +183,6 @@ describe('spiracha executable', () => {
         expect(await runSpirachaCli(['export', 'codex://thread-1', '--output', output], {
             client,
             io: { stderr: () => {}, stdout: (value) => stdout.push(value) },
-            runServer: async () => 0,
         })).toBe(0);
         expect(stdout).toEqual([]);
         expect(await Bun.file(output).text()).toBe('# Export\n');
@@ -239,7 +210,6 @@ describe('spiracha executable', () => {
             await runSpirachaCli(['export', 'codex://thread-1', '--raw', '--output', output], {
                 client,
                 io: { stderr: () => {}, stdout: () => {} },
-                runServer: async () => 0,
             }),
         ).toBe(0);
         expect(received).toEqual({ id: 'thread-1', source: 'codex' });
@@ -282,7 +252,6 @@ describe('spiracha executable', () => {
         expect(await runSpirachaCli(['evidence', 'codex://thread-1', '--lens', lensPath], {
             client,
             io: { stderr: () => {}, stdout: (value) => stdout.push(value) },
-            runServer: async () => 0,
         })).toBe(0);
         expect(received).toEqual({
             id: 'thread-1',
@@ -297,7 +266,6 @@ describe('spiracha executable', () => {
         const exitCode = await runSpirachaCli(['get', 'codex://missing'], {
             client: { resolveConversationRef: async () => null } as never,
             io: { stderr: (value) => stderr.push(value), stdout: () => {} },
-            runServer: async () => 0,
         });
 
         expect(exitCode).toBe(1);

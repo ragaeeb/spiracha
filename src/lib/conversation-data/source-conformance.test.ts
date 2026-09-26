@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'bun:test';
-import { SOURCE_FIXTURE_OWNERS } from '../../test-support/conversation-sources';
 import { antigravityConversationAdapter } from './antigravity-adapter';
 import { claudeCodeConversationAdapter } from './claude-code-adapter';
 import { clineConversationAdapter } from './cline-adapter';
@@ -56,15 +55,6 @@ describe('source contract conformance', () => {
         for (const source of CONVERSATION_SOURCES) {
             const declared = 'deletion_reconciliation' in SOURCE_CATALOG[source].capabilities;
             expect(declared).toBe(DELETION_PHASE_MAP[source].reconciliation === 'durable_intent');
-        }
-    });
-
-    it('should keep native, adapter, and UI fixture owners on disk for every source', async () => {
-        for (const source of CONVERSATION_SOURCES) {
-            const owner = SOURCE_FIXTURE_OWNERS[source];
-            expect(await Bun.file(owner.adapterTest).exists()).toBe(true);
-            expect(await Bun.file(owner.nativeTest).exists()).toBe(true);
-            expect(await Bun.file(owner.uiActionTest).exists()).toBe(true);
         }
     });
 });

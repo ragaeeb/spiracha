@@ -84,7 +84,10 @@ it('should read a retrieval request through the CLI without printing other messa
                 expect(options.messageSelector).toBe('all');
                 return deleted ? null : conversation;
             },
-            resolveConversationRef: async () => ({ id: 'test', source: 'codex' }),
+            resolveConversationRef: async (ref) => {
+                expect(ref).toBe(conversation.deepLinks.spiracha);
+                return { id: 'test', source: 'codex' };
+            },
         };
         const output: Array<string | Uint8Array> = [];
         const errors: string[] = [];

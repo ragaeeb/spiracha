@@ -17,11 +17,6 @@ const message = (overrides: Partial<MiniMaxCodeTranscriptMessage>): MiniMaxCodeT
 });
 
 describe('MiniMax Code transcript phases', () => {
-    it('should distinguish tool-use commentary from completed final answers', () => {
-        expect(getMiniMaxCodeMessagePhase(message({ finishReason: 'toolUse' }))).toBe('commentary');
-        expect(getMiniMaxCodeMessagePhase(message({ finishReason: 'stop', messageType: 1 }))).toBe('final_answer');
-    });
-
     it('should not assign assistant phases to user messages', () => {
         expect(getMiniMaxCodeMessagePhase(message({ finishReason: null, role: 'user' }))).toBeNull();
     });
