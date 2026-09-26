@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { toCanonicalMessage } from './adapter-helpers';
+import { normalizeAntigravityConversationMessages } from './antigravity-message-normalizer';
 import { buildEvidenceEpisodes } from './evidence-episodes';
 import { buildEvidenceEvents } from './evidence-events';
 import { matchEvidenceEvent, parseShellInvocation, validateEvidenceLens } from './evidence-lens';
@@ -138,6 +139,10 @@ describe('focused evidence', () => {
         expect(parseShellInvocation('FOO=1 bun test src/a.test.ts')).toEqual({ executable: 'bun', subcommand: 'test' });
         expect(parseShellInvocation('rtk bun run lint')).toEqual({ executable: 'bun', subcommand: 'run' });
         expect(parseShellInvocation('# bun test')).toBeNull();
+        expect(parseShellInvocation('cd "/repo;name" && rtk proxy bun test')).toEqual({
+            executable: 'bun',
+            subcommand: 'test',
+        });
     });
 
     it('should match every anchor kind with AND semantics inside an anchor', () => {
@@ -262,11 +267,12 @@ describe('focused evidence', () => {
         const result = buildEvidenceExport(conversation(), lens, { generatedAt: '2026-07-19T12:00:00.000Z' });
         expect(result.markdown.length).toBeLessThanOrEqual(lens.budget.totalCharacters);
         expect(result.markdown).toContain('# Focused evidence: Widget repair');
-        expect(result.markdown).toContain('Renderer: focused-evidence/v2');
+        expect(result.markdown).toContain('Renderer: focused-evidence/v3');
         expect(result.markdown).toContain('## Episode 1: exec — succeeded');
         expect(result.markdown).toContain('````text');
         expect(result.markdown).toContain('## Omitted evidence');
-        expect(result.markdown).toContain('Call IDs: call-1, call-2');
+        expect(result.markdown).toContain('call call-1; exact');
+        expect(result.markdown).toContain('call call-2; exact');
         expect(result.meta.episodeCount).toBe(1);
         expect(result.meta.generatedAt).toBe('2026-07-19T12:00:00.000Z');
     });
@@ -294,7 +300,7 @@ describe('focused evidence', () => {
 
         expect(result.markdown).toContain('**Matched evidence**');
         expect(result.markdown).toContain('MATCHED_BODY_SENTINEL');
-        expect(result.markdown).toContain('Message IDs: message-0');
+        expect(result.markdown).toContain('Message: message-0');
     });
 
     it('should sanitize portable headings and retain a complete ledger at the minimum budget', () => {
@@ -367,7 +373,11 @@ describe('focused evidence', () => {
         const startedAt = performance.now();
         const result = buildEvidenceExport(
             largeConversation,
-            { ...lens, budget: { ...lens.budget, totalCharacters: 4_000 } },
+            {
+                ...lens,
+                anchors: [{ kind: 'text', literals: ['data:image/png;base64'] }],
+                budget: { ...lens.budget, totalCharacters: 4_000 },
+            },
             {
                 generatedAt: '2026-07-19T12:00:00.000Z',
             },
@@ -375,6 +385,7 @@ describe('focused evidence', () => {
         expect(result.markdown.length).toBeLessThanOrEqual(4_000);
         expect(result.markdown).not.toContain('AAAA');
         expect(result.meta.omission.omittedBinaryPayloads).toBe(1);
+        expect(result.meta.omission.renderedMatchedEvents).toBe(0);
         expect(performance.now() - startedAt).toBeLessThan(1_000);
     });
 
@@ -407,4 +418,145 @@ describe('focused evidence', () => {
             }),
         ).toThrow('cannot fit within the configured character budget');
     });
+});
+
+describe('focused evidence field regressions', () => {
+    const topicLens: EvidenceLens = {
+        ...lens,
+        anchors: [{ kind: 'text', literals: ['SIGTERM'] }],
+        budget: { ...lens.budget, totalCharacters: 12000 },
+    };
+
+    it('should render a matched final answer beside its tools and initiating request', () => {
+        const input = conversation();
+        input.messages = [
+            { ...message(0, 'unknown', 'Please repair cancellation.'), role: 'user' },
+            message(1, 'tool_call', 'SIGTERM reproduction', tool()),
+            message(2, 'tool_output', 'exit 143', tool({ outputText: 'exit 143' })),
+            message(3, 'commentary', 'Checking SIGTERM repair.'),
+            message(4, 'final_answer', 'Fixed SIGTERM: one signal, cleanup grace, intact envelopes.'),
+        ];
+        const result = buildEvidenceExport(input, topicLens);
+        expect(result.markdown).toContain('Fixed SIGTERM: one signal, cleanup grace, intact envelopes.');
+        expect(result.markdown).toContain('Please repair cancellation.');
+    });
+
+    it('should select an output-only match with its invocation', () => {
+        const input = conversation();
+        input.messages = [
+            message(0, 'tool_call', 'run check', tool()),
+            message(1, 'tool_output', 'SIGTERM exit 143', tool({ outputText: 'SIGTERM exit 143' })),
+        ];
+        const result = buildEvidenceExport(input, topicLens);
+        expect(result.markdown).toContain('SIGTERM exit 143');
+        expect(result.markdown).toContain('bun test src/widget.test.ts');
+    });
+
+    it('should preserve distinct status updates sharing a diagnostic paragraph and identify speakers', () => {
+        const input = conversation('grok-bot');
+        input.messages = ['P3 commit abc123', 'P4 commit def456'].map((delta, i) => ({
+            ...message(i, 'final_answer', `SIGTERM error resolved. ${'same diagnostic '.repeat(12)}\n\n${delta}`),
+            metadata: { authorId: `agent-${i}`, authorName: `Reviewer ${i}` },
+        }));
+        const result = buildEvidenceExport(input, topicLens);
+        expect(result.markdown).toContain('P3 commit abc123');
+        expect(result.markdown).toContain('P4 commit def456');
+        expect(result.markdown).toContain('Reviewer 1');
+        expect(result.markdown).not.toContain('No invocation text available');
+        expect(result.markdown).not.toContain('No paired result available');
+    });
+
+    it('should keep matched paragraphs in the middle of long answers instead of an unrelated tail', () => {
+        const input = conversation();
+        input.messages = [
+            message(
+                0,
+                'final_answer',
+                `${'Unrelated opening. '.repeat(150)}\n\nSIGTERM fails because signals repeat. Send TERM once and allow cleanup grace.\n\n${'Unrelated ending. '.repeat(150)}`,
+            ),
+        ];
+        const result = buildEvidenceExport(input, topicLens);
+        expect(result.markdown).toContain('Send TERM once and allow cleanup grace.');
+        expect(result.markdown).not.toContain('Unrelated ending. Unrelated ending.');
+    });
+
+    it('should retain terminal resolution under pressure and disclose the candidate cap', () => {
+        const input = conversation();
+        input.messages = Array.from({ length: 300 }, (_, i) =>
+            message(i, 'final_answer', `SIGTERM investigation ${i}: ${'context '.repeat(40)}`),
+        );
+        input.messages.push(message(300, 'final_answer', 'SIGTERM RESOLVED: verified intact child_signal envelopes.'));
+        const result = buildEvidenceExport(input, {
+            ...topicLens,
+            budget: { ...topicLens.budget, totalCharacters: 2000 },
+        });
+        expect(result.markdown).toContain('SIGTERM RESOLVED');
+        expect(result.markdown.length).toBeLessThanOrEqual(2000);
+        expect(result.meta.omission).toMatchObject({ budgetReached: true, candidateLimitReached: true });
+    });
+
+    it('should not merge a chain of unrelated calls through shared commentary or label them retries', () => {
+        const input = conversation();
+        input.messages = Array.from({ length: 30 }, (_, i) => [
+            message(i * 3, 'commentary', `Inspect area ${i}`),
+            message(i * 3 + 1, 'tool_call', `read area ${i}`, tool({ callId: `call-${i}`, command: `cat area-${i}` })),
+            message(
+                i * 3 + 2,
+                'tool_output',
+                `area ${i}`,
+                tool({ callId: `call-${i}`, exitCode: 0, outputText: `area ${i}`, status: 'succeeded' }),
+            ),
+        ]).flat();
+        const result = buildEvidenceExport(input, {
+            ...lens,
+            anchors: [{ kind: 'tool', names: ['exec'] }],
+            budget: { ...lens.budget, totalCharacters: 40000 },
+        });
+        expect(result.meta.episodeCount).toBeGreaterThan(1);
+        expect(result.markdown).not.toContain('Retry:');
+    });
+});
+
+it('should retain generic Antigravity results with honest fallback confidence and reject ambiguity', () => {
+    const input = conversation('antigravity');
+    input.messages = normalizeAntigravityConversationMessages('native', 'trajectory', [
+        {
+            createdAtMs: 1,
+            metadata: { status: 'DONE', type: 'PLANNER_RESPONSE' },
+            order: 1,
+            phase: 'tool_call',
+            role: 'tool',
+            text: JSON.stringify({
+                args: { CommandLine: 'bun test', Cwd: '/repo' },
+                id: 'native-call',
+                name: 'run_command',
+            }),
+        },
+        {
+            createdAtMs: 2,
+            metadata: { status: 'DONE', type: 'GENERIC' },
+            order: 2,
+            phase: 'tool_output',
+            role: 'tool',
+            text: 'The command exited with code 0.\nOutput:\n7 checks passed',
+        },
+    ]);
+    const shellLens: EvidenceLens = { ...lens, anchors: [{ executables: ['bun'], kind: 'shell-command' }] };
+    const result = buildEvidenceExport(input, shellLens);
+    expect(result.markdown).toContain('7 checks passed');
+    expect(result.markdown).toContain('ordered_fallback');
+    expect(result.markdown).not.toContain('abandoned');
+    input.messages.splice(1, 0, {
+        ...input.messages[0]!,
+        id: 'other',
+        order: 0.5,
+        toolEvidence: { ...input.messages[0]!.toolEvidence!, callId: 'other-call' },
+    });
+    const ambiguous = buildEvidenceEpisodes(buildEvidenceEvents(input), shellLens);
+    expect(
+        ambiguous
+            .flatMap((e) => e.events)
+            .filter((e) => e.phase === 'tool_call')
+            .every((e) => e.pairingConfidence === 'unpaired'),
+    ).toBe(true);
 });

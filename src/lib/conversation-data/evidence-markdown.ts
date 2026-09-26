@@ -1,10 +1,11 @@
 import { applyPathTransforms } from '../path-transforms';
 import { buildEvidenceEpisodes } from './evidence-episodes';
 import { buildEvidenceEvents } from './evidence-events';
+import { matchEvidenceEvent } from './evidence-lens';
 import { createEvidenceProjectionState, fencedEvidenceText, projectEvidenceText } from './evidence-projector';
 import type { ConversationDetail, ConversationEvidenceEvent, ConversationEvidenceExport, EvidenceLens } from './types';
 
-export const EVIDENCE_RENDERER_VERSION = 'focused-evidence/v2';
+export const EVIDENCE_RENDERER_VERSION = 'focused-evidence/v3';
 
 type BuildEvidenceExportOptions = { generatedAt?: string };
 
@@ -22,37 +23,9 @@ const inlineMarkdown = (text: string, conversation: ConversationDetail) =>
         .trim()
         .replace(/[!\\`*_[\]<>]/gu, '\\$&');
 
-const unique = (values: Array<string | null>) => [
-    ...new Set(values.filter((value): value is string => Boolean(value))),
-];
-
 const eventRange = (events: ConversationEvidenceEvent[]) => {
     const orders = events.map((event) => event.order);
     return orders.length ? `${Math.min(...orders)}-${Math.max(...orders)}` : 'unknown';
-};
-
-const projectEventTexts = (
-    events: ConversationEvidenceEvent[],
-    maximum: number,
-    getText: (event: ConversationEvidenceEvent) => string,
-    separator: string,
-    conversation: ConversationDetail,
-    state: ReturnType<typeof createEvidenceProjectionState>,
-) => {
-    const projected: string[] = [];
-    let used = 0;
-    for (const event of events) {
-        const separatorLength = projected.length > 0 ? separator.length : 0;
-        const remaining = maximum - used - separatorLength;
-        if (remaining <= 0) {
-            state.stats.truncatedFields += 1;
-            break;
-        }
-        const text = portable(projectEvidenceText(getText(event), remaining, state), conversation);
-        projected.push(text);
-        used += separatorLength + text.length;
-    }
-    return { retainedCount: projected.length, text: projected.join(separator) };
 };
 
 const inputCharacterCount = (event: ConversationEvidenceEvent) => {
@@ -65,6 +38,83 @@ const inputCharacterCount = (event: ConversationEvidenceEvent) => {
     return count;
 };
 
+const eventPriority = (event: ConversationEvidenceEvent, lens: EvidenceLens) => {
+    const matched = lens.anchors.some((anchor) => matchEvidenceEvent(event, anchor));
+    if (event.phase === 'final_answer') {
+        return matched ? 5 : 4;
+    }
+    if (event.phase === 'tool_output' && event.tool?.status === 'failed') {
+        return 3;
+    }
+    return matched ? 2 : 1;
+};
+
+const eventHeading = (event: ConversationEvidenceEvent, conversation: ConversationDetail, lens: EvidenceLens) => {
+    const label =
+        event.phase === 'tool_call'
+            ? 'Invocation'
+            : event.phase === 'tool_output'
+              ? 'Result'
+              : lens.anchors.some((anchor) => matchEvidenceEvent(event, anchor))
+                ? 'Matched evidence'
+                : 'Context';
+    const author = typeof event.metadata.authorName === 'string' ? event.metadata.authorName : event.role;
+    const identity = typeof event.metadata.authorId === 'string' ? ` (${event.metadata.authorId})` : '';
+    const date =
+        event.createdAtMs === null || !Number.isFinite(event.createdAtMs) || Math.abs(event.createdAtMs) > 8.64e15
+            ? ''
+            : ` · ${new Date(event.createdAtMs).toISOString()}`;
+    return `**${label}** · ${inlineMarkdown(author + identity + date, conversation)}`;
+};
+
+const eventText = (event: ConversationEvidenceEvent) => {
+    if (event.phase === 'tool_call') {
+        return event.tool?.shellCommands?.length
+            ? event.tool.shellCommands.join('\n')
+            : (event.tool?.command ?? event.tool?.inputText ?? event.text);
+    }
+    return event.phase === 'tool_output' ? (event.tool?.outputText ?? event.text) : event.text;
+};
+
+const renderSnippet = (
+    event: ConversationEvidenceEvent,
+    lens: EvidenceLens,
+    conversation: ConversationDetail,
+    state: ReturnType<typeof createEvidenceProjectionState>,
+    literals: string[],
+    remainingBudget: number,
+) => {
+    const resultBudget =
+        event.tool?.status === 'failed' || (event.tool?.exitCode ?? 0) !== 0
+            ? lens.budget.failedOutputCharacters
+            : lens.budget.successfulOutputCharacters;
+    const allowance =
+        event.phase === 'tool_output'
+            ? resultBudget
+            : event.phase === 'tool_call'
+              ? Math.max(300, resultBudget)
+              : lens.anchors.some((anchor) => matchEvidenceEvent(event, anchor))
+                ? Math.max(300, lens.budget.failedOutputCharacters, lens.budget.successfulOutputCharacters)
+                : lens.budget.commentaryCharactersPerEpisode;
+    const remaining = Math.min(allowance, remainingBudget - 200);
+    if (remaining < 80) {
+        state.stats.sectionBudgetReached = true;
+        return null;
+    }
+    const text = portable(projectEvidenceText(eventText(event), remaining, state, literals), conversation);
+    const call = event.tool?.callId ? `; call ${inlineMarkdown(event.tool.callId, conversation)}` : '';
+    const pairing = event.tool ? `; ${event.pairingConfidence}` : '';
+    const snippet = `${eventHeading(event, conversation, lens)}\n${fencedEvidenceText(text)}\nMessage: ${inlineMarkdown(event.messageId, conversation)}${call}${pairing}\n\n`;
+    const matched =
+        !/^\[(?:omitted|deduplicated)/u.test(text) &&
+        lens.anchors.some((anchor) =>
+            anchor.kind === 'text'
+                ? anchor.literals.some((literal) => text.includes(portable(literal, conversation)))
+                : matchEvidenceEvent(event, anchor),
+        );
+    return { matched, text: snippet };
+};
+
 const episodeMarkdown = (
     episode: ReturnType<typeof buildEvidenceEpisodes>[number],
     index: number,
@@ -72,86 +122,50 @@ const episodeMarkdown = (
     conversation: ConversationDetail,
     state: ReturnType<typeof createEvidenceProjectionState>,
 ) => {
-    const calls = episode.events.filter((event) => event.phase === 'tool_call');
-    const outputs = episode.events.filter((event) => event.phase === 'tool_output');
-    const context = episode.events.filter(
-        (event) =>
-            event.phase === 'commentary' || (lens.context.includeReasoningSummaries && event.phase === 'reasoning'),
+    const literals = lens.anchors.flatMap((anchor) => (anchor.kind === 'text' ? anchor.literals : []));
+    const anchorName = inlineMarkdown(episode.anchor.tool?.name ?? 'matched messages', conversation);
+    const header = `## Episode ${index + 1}: ${anchorName} — ${episode.outcome}\n\n`;
+    const maximum = Math.max(300, Math.min(8000, lens.budget.totalCharacters - 1200));
+    const snippets: Array<{ event: ConversationEvidenceEvent; text: string; matched: boolean }> = [];
+    let used = header.length;
+    const prioritized = [...episode.events].sort(
+        (a, b) =>
+            eventPriority(b, lens) - eventPriority(a, lens) ||
+            (a.phase === 'final_answer' && b.phase === 'final_answer' ? b.order - a.order : a.order - b.order),
     );
-    const anchorName = inlineMarkdown(
-        episode.anchor.tool?.name ?? (episode.anchor.text.slice(0, 80) || 'matched evidence'),
-        conversation,
-    );
-    const resultBudget =
-        episode.outcome === 'failed' ? lens.budget.failedOutputCharacters : lens.budget.successfulOutputCharacters;
-    const projectedInvocation = projectEventTexts(
-        calls,
-        Math.max(300, resultBudget),
-        (event) => event.tool?.command ?? event.tool?.inputText ?? event.text,
-        '\n\nRetry:\n',
-        conversation,
-        state,
-    );
-    const projectedContext = projectEventTexts(
-        context,
-        lens.budget.commentaryCharactersPerEpisode,
-        (event) => event.text,
-        '\n\n',
-        conversation,
-        state,
-    );
-    const projectedResult = projectEventTexts(
-        outputs,
-        resultBudget,
-        (event) => event.tool?.outputText ?? event.text,
-        '\n\n',
-        conversation,
-        state,
-    );
-    const anchorNeedsDirectProjection = !['commentary', 'reasoning', 'tool_call', 'tool_output'].includes(
-        episode.anchor.phase,
-    );
-    const projectedMatchedEvidence = anchorNeedsDirectProjection
-        ? projectEventTexts(
-              [episode.anchor],
-              Math.max(300, resultBudget),
-              (event) => event.text,
-              '\n\n',
-              conversation,
-              state,
-          )
-        : { retainedCount: 0, text: '' };
-    const callIds = unique(episode.events.map((event) => event.tool?.callId ?? null));
-    const messageIds = unique(episode.events.map((event) => event.messageId));
-    const pairing = unique(episode.events.map((event) => event.pairingConfidence));
-    return [
-        `## Episode ${index + 1}: ${anchorName} — ${episode.outcome}`,
-        '',
-        '**Invocation**',
-        projectedInvocation.text ? fencedEvidenceText(projectedInvocation.text) : '_No invocation text available._',
-        '',
-        '**Context**',
-        projectedContext.text ? fencedEvidenceText(projectedContext.text) : '_No nearby commentary selected._',
-        '',
-        '**Result**',
-        projectedResult.text ? fencedEvidenceText(projectedResult.text) : '_No paired result available._',
-        '',
-        ...(projectedMatchedEvidence.text
-            ? ['**Matched evidence**', fencedEvidenceText(projectedMatchedEvidence.text), '']
-            : []),
-        '**Retry / workaround**',
-        projectedInvocation.retainedCount > 1
-            ? `${projectedInvocation.retainedCount - 1} bounded retry event(s) retained.`
-            : '_None retained._',
-        '',
-        '**Trace**',
-        `- Message IDs: ${inlineMarkdown(messageIds.join(', ') || 'none', conversation)}`,
-        `- Call IDs: ${inlineMarkdown(callIds.join(', ') || 'none', conversation)}`,
-        `- Pairing: ${pairing.join(', ')}`,
-        `- Event order: ${eventRange(episode.events)}`,
-        `- Original reference: ${inlineMarkdown(conversation.deepLinks.spiracha, conversation)}`,
-        '',
-    ].join('\n');
+    for (const event of prioritized) {
+        const snippet = renderSnippet(event, lens, conversation, state, literals, maximum - used);
+        if (snippet === null) {
+            continue;
+        }
+        used += snippet.text.length;
+        snippets.push({ event, ...snippet });
+    }
+    snippets.sort((a, b) => a.event.order - b.event.order);
+    const rendered = snippets.map((snippet) => snippet.event);
+    const trace = `**Trace**\n- Event order: ${eventRange(rendered)}\n\n`;
+    const calls = rendered.filter((event) => event.phase === 'tool_call');
+    const retries = calls.filter(
+        (event, i) =>
+            i > 0 &&
+            calls
+                .slice(0, i)
+                .some(
+                    (previous) => previous.tool?.name === event.tool?.name && eventText(previous) === eventText(event),
+                ),
+    ).length;
+    const retryText = calls.length
+        ? `**Retry / workaround**\n${retries ? `${retries} bounded retry event(s) retained.` : '_None retained._'}\n\n`
+        : '';
+    state.stats.renderedEvents = (state.stats.renderedEvents ?? 0) + rendered.length;
+    state.stats.renderedMatchedEvents =
+        (state.stats.renderedMatchedEvents ?? 0) +
+        rendered.filter((event) => lens.anchors.some((anchor) => matchEvidenceEvent(event, anchor))).length;
+    return {
+        markdown: header + snippets.map((snippet) => snippet.text).join('') + retryText + trace,
+        matched: snippets.filter((snippet) => snippet.matched).map((snippet) => snippet.event.messageId),
+        rendered,
+    };
 };
 
 const omissionMarkdown = (state: ReturnType<typeof createEvidenceProjectionState>, retainedRanges: string[]) => {
@@ -161,6 +175,10 @@ const omissionMarkdown = (state: ReturnType<typeof createEvidenceProjectionState
         '',
         `- Input events / characters inspected: ${stats.inputEvents} / ${stats.inputCharacters}`,
         `- Selected / omitted events: ${stats.selectedEvents} / ${stats.omittedEvents}`,
+        `- Rendered event bodies: ${stats.renderedEvents ?? 0}`,
+        `- Matched / rendered matched events: ${stats.matchedEvents ?? 0} / ${stats.renderedMatchedEvents ?? 0}`,
+        `- Candidate limit reached: ${stats.candidateLimitReached ? 'yes' : 'no'}`,
+        `- Section budget reached: ${stats.sectionBudgetReached ? 'yes' : 'no'}`,
         `- Truncated fields / arrays: ${stats.truncatedFields} / ${stats.truncatedArrays}`,
         `- Deduplicated diagnostics: ${stats.deduplicatedDiagnostics}`,
         `- Omitted binary or opaque payloads: ${stats.omittedBinaryPayloads}`,
@@ -175,7 +193,7 @@ const omissionMarkdown = (state: ReturnType<typeof createEvidenceProjectionState
  * conversation and a validated lens. Determinism requires the same conversation,
  * lens, renderer version, and generatedAt; omission of generatedAt uses current time.
  * Enforces the total budget including headings and the omission ledger, removing
- * whole sections as needed. Throws if even the remaining framing cannot fit.
+ * whole sections that do not fit. Throws if even the remaining framing cannot fit.
  * Approximate tokens are ceil(Markdown characters / 4), not tokenizer accounting.
  */
 export const buildEvidenceExport = (
@@ -186,8 +204,11 @@ export const buildEvidenceExport = (
     const generatedAt = options.generatedAt ?? new Date().toISOString();
     const events = buildEvidenceEvents(conversation);
     const inputCharacters = events.reduce((total, event) => total + inputCharacterCount(event), 0);
-    const state = createEvidenceProjectionState(events.length, inputCharacters);
-    const episodes = buildEvidenceEpisodes(events, lens);
+    let state = createEvidenceProjectionState(events.length, inputCharacters);
+    const episodes = buildEvidenceEpisodes(events, lens, state.stats);
+    state.stats.matchedEvents = events.filter((event) =>
+        lens.anchors.some((anchor) => matchEvidenceEvent(event, anchor)),
+    ).length;
     const title = inlineMarkdown(conversation.title?.trim() || 'Conversation', conversation);
     const header = [
         `# Focused evidence: ${title}`,
@@ -198,54 +219,89 @@ export const buildEvidenceExport = (
         `- Generated: ${inlineMarkdown(generatedAt, conversation)}`,
         `- Renderer: ${EVIDENCE_RENDERER_VERSION}`,
         `- Budget: ${lens.budget.totalCharacters} characters`,
-        `- Retained / inspected: pending / ${events.length}`,
-        `- Approximate token reduction: pending`,
+        `- Original reference: ${inlineMarkdown(conversation.deepLinks.spiracha, conversation)}`,
+        ...(!events.some((event) => event.tool)
+            ? ['- Tool evidence: not exposed by this conversation. Use text anchors.']
+            : []),
+        ...(events.some((event) => event.tool?.shellCommands?.length === 0)
+            ? ['- Shell extraction: some executor calls have no supported literal shell arguments.']
+            : []),
         '',
     ].join('\n');
-    const retainedRanges: string[] = [];
-    const sections: Array<{ eventCount: number; markdown: string; range: string }> = [];
+    const sections: Array<{
+        index: number;
+        markdown: string;
+        range: string;
+        rendered: ConversationEvidenceEvent[];
+        matched: string[];
+    }> = [];
     let used = header.length;
-    for (const [index, episode] of episodes.entries()) {
-        const section = episodeMarkdown(episode, index, lens, conversation, state);
-        const range = eventRange(episode.events);
-        const prospectiveLedger = omissionMarkdown(state, [...retainedRanges, range]);
-        if (used + section.length + prospectiveLedger.length > lens.budget.totalCharacters) {
-            state.stats.budgetReached = true;
-            break;
+    const emitted = new Set<string>();
+    const ranked = episodes
+        .map((episode, index) => ({ episode, index }))
+        .sort(
+            (a, b) =>
+                Math.max(...b.episode.events.map((event) => eventPriority(event, lens))) -
+                    Math.max(...a.episode.events.map((event) => eventPriority(event, lens))) || b.index - a.index,
+        );
+    for (const { episode, index } of ranked) {
+        const candidate = { diagnostics: new Set(state.diagnostics), stats: { ...state.stats } };
+        const section = episodeMarkdown(
+            { ...episode, events: episode.events.filter((event) => !emitted.has(event.messageId)) },
+            index,
+            lens,
+            conversation,
+            candidate,
+        );
+        const range = eventRange(section.rendered);
+        if (!section.rendered.length) {
+            continue;
         }
-        sections.push({ eventCount: episode.events.length, markdown: section, range });
-        used += section.length;
-        retainedRanges.push(range);
+        if (
+            used +
+                section.markdown.length +
+                omissionMarkdown(candidate, [...sections.map((item) => item.range), range]).length +
+                100 >
+            lens.budget.totalCharacters
+        ) {
+            state.stats.budgetReached = true;
+            continue;
+        }
+        state = candidate;
+        for (const event of section.rendered) {
+            emitted.add(event.messageId);
+        }
         state.stats.selectedEvents += episode.events.length;
+        sections.push({
+            index,
+            markdown: section.markdown,
+            matched: section.matched,
+            range,
+            rendered: section.rendered,
+        });
+        used += section.markdown.length;
     }
-    state.stats.omittedEvents = Math.max(0, events.length - state.stats.selectedEvents);
-    const renderMarkdown = () => {
-        const ledger = omissionMarkdown(state, retainedRanges);
-        const retained = state.stats.selectedEvents;
-        const estimatedInputTokens = Math.ceil(inputCharacters / 4);
-        const estimatedOutputTokens = Math.ceil((used + ledger.length) / 4);
-        const reduction =
-            estimatedInputTokens > 0
-                ? Math.max(0, Math.round((1 - estimatedOutputTokens / estimatedInputTokens) * 100))
-                : 0;
-        const finalHeader = header
-            .replace(
-                `Retained / inspected: pending / ${events.length}`,
-                `Retained / inspected: ${retained} / ${events.length}`,
-            )
-            .replace('Approximate token reduction: pending', `Approximate token reduction: ${reduction}%`);
-        return `${finalHeader}${sections.map((section) => section.markdown).join('')}${ledger}`;
-    };
-    let markdown = renderMarkdown();
-    while (markdown.length > lens.budget.totalCharacters && sections.length > 0) {
-        const removed = sections.pop()!;
-        retainedRanges.pop();
-        state.stats.budgetReached = true;
-        state.stats.selectedEvents -= removed.eventCount;
-        state.stats.omittedEvents = Math.max(0, events.length - state.stats.selectedEvents);
-        used -= removed.markdown.length;
-        markdown = renderMarkdown();
-    }
+    sections.sort((a, b) => a.index - b.index);
+    // Context can occur in separate episodes; counts describe unique source events.
+    const selected = new Set(
+        sections.flatMap((section) => episodes[section.index]!.events.map((event) => event.messageId)),
+    );
+    const rendered = new Map(
+        sections.flatMap((section) => section.rendered.map((event) => [event.messageId, event] as const)),
+    );
+    state.stats.selectedEvents = selected.size;
+    state.stats.renderedEvents = rendered.size;
+    state.stats.renderedMatchedEvents = new Set(sections.flatMap((section) => section.matched)).size;
+    state.stats.omittedEvents = Math.max(0, events.length - selected.size);
+    const markdown =
+        header +
+        sections
+            .map((section, index) => section.markdown.replace(/^## Episode \d+:/u, `## Episode ${index + 1}:`))
+            .join('') +
+        omissionMarkdown(
+            state,
+            sections.map((section) => section.range),
+        );
     if (markdown.length > lens.budget.totalCharacters) {
         throw new Error('Focused evidence export cannot fit within the configured character budget.');
     }

@@ -213,12 +213,16 @@ describe('ExportDialog', () => {
                         episodeCount: 1,
                         generatedAt: '2026-07-19T12:00:00.000Z',
                         omission: {
-                            budgetReached: false,
+                            budgetReached: true,
+                            candidateLimitReached: true,
                             deduplicatedDiagnostics: 0,
                             inputCharacters: 100,
                             inputEvents: 4,
+                            matchedEvents: 2,
                             omittedBinaryPayloads: 0,
                             omittedEvents: 2,
+                            renderedEvents: 1,
+                            renderedMatchedEvents: 1,
                             selectedEvents: 2,
                             truncatedArrays: 0,
                             truncatedFields: 0,
@@ -257,6 +261,8 @@ describe('ExportDialog', () => {
             fireEvent.click(screen.getAllByRole('button', { name: 'Add' })[0]!);
             fireEvent.click(screen.getByRole('button', { name: 'Preview evidence' }));
             expect(await screen.findByText(/4 inspected events, 1 episodes, 29 characters/)).toBeTruthy();
+            expect(screen.getByText(/1 rendered bodies; 1 of 2 matching events rendered/)).toBeTruthy();
+            expect(screen.getByText(/Selection limit reached/)).toBeTruthy();
             fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
             expect(fetchMock).toHaveBeenCalledTimes(1);
             expect(String(fetchMock.mock.calls[0]?.[0])).toBe('/api/v1/conversations/codex/thread-1/evidence');

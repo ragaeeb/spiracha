@@ -53,6 +53,7 @@ export type ConversationMessageVisibility = 'bootstrap' | 'normal' | 'synthetic'
 export type ConversationToolEvidence = {
     callId: string | null;
     command: string | null;
+    shellCommands?: string[];
     durationMs: number | null;
     exitCode: number | null;
     inputContentState?: ContentState | null;
@@ -76,6 +77,7 @@ export type ConversationEvidenceEvent = {
     order: number;
     pairingConfidence: ConversationEvidencePairingConfidence;
     pairedOutputIndex?: number;
+    pairedCallIndex?: number;
     phase: ConversationMessagePhase;
     role: ConversationMessageRole;
     source: ConversationSource;
@@ -111,6 +113,11 @@ export type EvidenceLens = {
 };
 
 export type EvidenceOmissionStats = {
+    candidateLimitReached?: boolean;
+    sectionBudgetReached?: boolean;
+    renderedEvents?: number;
+    matchedEvents?: number;
+    renderedMatchedEvents?: number;
     budgetReached: boolean;
     deduplicatedDiagnostics: number;
     inputCharacters: number;
