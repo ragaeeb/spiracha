@@ -54,12 +54,12 @@ const getDeleteConfirmLabel = (pendingDelete: PendingChatDelete | null, isPendin
 
 const getDeleteDescription = (pendingDelete: PendingChatDelete | null) => {
     if (!pendingDelete) {
-        return 'Permanently delete the selected Grok Bot chats from local persistence. Quit Grok Bot and keep it stopped.';
+        return 'Permanently delete the selected Grok Bot chats from your Grok Bot account. This deletes the bots or groups through Grok Bot.';
     }
     if (pendingDelete.chats.length === 1) {
-        return `Permanently delete "${pendingDelete.chats[0]!.title ?? pendingDelete.chats[0]!.id}" from local Grok Bot persistence. Quit Grok Bot and keep it stopped. This removes its roster entry and transcript replica.`;
+        return `Permanently delete "${pendingDelete.chats[0]!.title ?? pendingDelete.chats[0]!.id}" from your Grok Bot account. This deletes the bot or group through Grok Bot.`;
     }
-    return `Permanently delete ${pendingDelete.chats.length} selected Grok Bot chats from local persistence. Quit Grok Bot and keep it stopped. This removes their roster entries and transcript replicas.`;
+    return `Permanently delete ${pendingDelete.chats.length} selected Grok Bot chats from your Grok Bot account. This deletes the bots or groups through Grok Bot.`;
 };
 
 const getDeleteTitle = (pendingDelete: PendingChatDelete | null) =>

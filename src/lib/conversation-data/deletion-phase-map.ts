@@ -59,9 +59,9 @@ export const DELETION_PHASE_MAP = {
     },
     'grok-bot': {
         capability: SOURCE_MUTATOR_OWNED,
-        phases: ['account_receipt', 'roster_row', 'replica_blob'],
-        reconciliation: 'durable_intent',
-        store: 'src/lib/grok-bot-db.ts',
+        phases: ['gateway_delete_agent'],
+        reconciliation: 'none',
+        store: 'src/lib/grok-bot-gateway.ts',
     },
     kiro: {
         capability: SOURCE_MUTATOR_OWNED,

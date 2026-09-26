@@ -164,7 +164,7 @@ export const SOURCE_CATALOG = {
         workspaceRoute: workspaceKeyRoute('grok'),
     },
     'grok-bot': {
-        capabilities: durableNativeCapabilities,
+        capabilities: nativeFileCapabilities,
         detailRouteSegment: 'grok-bot-chats',
         exportPlatform: 'grok-bot',
         inventoryPath: '/grok-bot',

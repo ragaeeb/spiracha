@@ -131,7 +131,7 @@ describe('portable source catalog', () => {
             cursor: true,
             fx: false,
             grok: false,
-            'grok-bot': true,
+            'grok-bot': false,
             kiro: false,
             'minimax-code': false,
             opencode: true,
