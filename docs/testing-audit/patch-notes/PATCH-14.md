@@ -32,7 +32,7 @@ Run from the repository root after installing the project toolchain. Prefix with
 bun test src/client.storage-integration.test.ts
 ```
 
-For browser patches, first complete the optional root dependency/lock installation in `testing/e2e/README.md`. Full acceptance also requires the root lint, typecheck, unit/UI, coverage, build and package checks listed in the handoff.
+For browser patches, follow the current [browser testing guide](../../../testing/e2e/README.md). Full acceptance also requires the root lint, typecheck, unit/UI, coverage, build and package checks specified in [AGENTS.md](../../../AGENTS.md).
 
 ## Evidence actually obtained
 

@@ -240,7 +240,7 @@ rtk bun run test:conformance
 
 ## Source contract onboarding and migration
 
-Read `docs/contract-review/CODEX_HANDOFF.md` and `docs/source-adapter-contract.md` before changing adapter/UI/export contracts. `docs/contract-review/FINDINGS.md` records the supplied archive's actual behavior; Command Code already has selection, export and deletion. Do not overwrite it with the older issue's baseline. The target migration and exhaustive acceptance cases are in `docs/contract-review/IMPLEMENTATION_PLAN.md` and `TEST_MATRIX.md`.
+Read `docs/source-adapter-contract.md` before changing adapter/UI/export contracts. `docs/contract-review/FINDINGS.md` records the supplied archive's actual behavior; Command Code already has selection, export and deletion. Do not overwrite it with the older issue's baseline. The target migration and exhaustive acceptance cases are in `docs/contract-review/IMPLEMENTATION_PLAN.md` and `docs/contract-review/TEST_MATRIX.md`. `docs/contract-review/VERIFICATION.md` records historical execution results and limits; verify current behavior against the code and applicable tests.
 
 - Keep `CONVERSATION_SOURCES` authoritative. A new ID requires an exact entry in `SOURCE_CATALOG`, the storage adapter registry and `SOURCE_ICONS`; preserve its source literal with `satisfies ConversationAdapter<'source-id'>`. Required route metadata and actual route files must agree. Generate TanStack routes normally.
 - The native payload parser map is exhaustive over the currently supported payload sources, not all UI providers. Keep Claude Code/Command Code exclusions until real portable parsers and fixtures are implemented. Never import storage/React/router modules into the portable catalog or payload normalizers.
