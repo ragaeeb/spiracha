@@ -58,3 +58,36 @@ it('should resolve symlinked CODEX_HOME before checking the skill destination', 
         await rm(root, { force: true, recursive: true });
     }
 });
+
+it('should resolve nonexistent homes beneath symlinked ancestors for both home settings', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'spiracha-skill-home-ancestor-'));
+    const realParent = join(root, 'real-parent');
+    const symlinkParent = join(root, 'parent-link');
+    const requestedHome = join(symlinkParent, 'new-home');
+    const requestedCodexHome = join(symlinkParent, 'new-codex-home');
+    await mkdir(realParent);
+    await symlink(realParent, symlinkParent);
+    const run = async (args: string[], env: Record<string, string | undefined>) => {
+        const child = Bun.spawn([process.execPath, 'scripts/deploy-skill.ts', ...args], {
+            env,
+            stderr: 'pipe',
+            stdout: 'pipe',
+        });
+        return { code: await child.exited, text: await new Response(child.stdout).text() };
+    };
+    try {
+        const homeEnv = { ...process.env };
+        const homeDeploy = await run(['--home', requestedHome, '--agents', 'claude'], homeEnv);
+        expect(homeDeploy.code).toBe(0);
+        expect(await Bun.file(join(realParent, 'new-home/.claude/skills/spiracha/SKILL.md')).exists()).toBe(true);
+        expect((await run(['--home', requestedHome, '--agents', 'claude', '--check'], homeEnv)).code).toBe(0);
+
+        const codexEnv = { ...process.env, CODEX_HOME: requestedCodexHome };
+        const codexDeploy = await run(['--agents', 'codex'], codexEnv);
+        expect(codexDeploy.code).toBe(0);
+        expect(await Bun.file(join(realParent, 'new-codex-home/skills/spiracha/SKILL.md')).exists()).toBe(true);
+        expect((await run(['--agents', 'codex', '--check'], codexEnv)).code).toBe(0);
+    } finally {
+        await rm(root, { force: true, recursive: true });
+    }
+});

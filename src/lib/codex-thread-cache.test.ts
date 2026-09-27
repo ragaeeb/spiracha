@@ -180,6 +180,69 @@ describe('getCachedThreadTranscriptPreview', () => {
         expect(stats.assistantMessageCount).toBe(2);
     });
 
+    it('should size bounded parent history without counting excluded parent suffixes', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-cache-bounded-size-test-'));
+        tempPaths.push(tempRoot);
+        const parentFile = path.join(tempRoot, 'parent.jsonl');
+        const childFile = path.join(tempRoot, 'child.jsonl');
+        const parentThreadId = 'bounded-parent';
+        const parentPrefix = (text: string) => [
+            { ordinal: 0, payload: { id: parentThreadId }, type: 'session_meta' },
+            { ordinal: 1, payload: { message: text }, type: 'response_item' },
+        ];
+        const excludedRecord = (ordinal: number, text: string) =>
+            JSON.stringify({ ordinal, payload: { message: text }, type: 'response_item' });
+        await Bun.write(
+            parentFile,
+            `${parentPrefix('included prefix')
+                .map((record) => JSON.stringify(record))
+                .join('\n')}\n${excludedRecord(2, 'excluded '.repeat(1_000))}`,
+        );
+        await Bun.write(
+            childFile,
+            [
+                {
+                    ordinal: 2,
+                    payload: {
+                        forked_from_id: parentThreadId,
+                        forked_from_ordinal_exclusive: 2,
+                        id: 'bounded-child',
+                    },
+                    type: 'session_meta',
+                },
+                { ordinal: 3, payload: { message: 'child answer' }, type: 'response_item' },
+            ]
+                .map((record) => JSON.stringify(record))
+                .join('\n'),
+        );
+        const options = {
+            resolveForkedThread: async (threadId: string) => {
+                expect(threadId).toBe(parentThreadId);
+                return parentFile;
+            },
+        };
+        const initial = await getThreadRolloutLoadState(childFile, 1_000, options);
+
+        await Bun.write(
+            parentFile,
+            `${parentPrefix('included prefix')
+                .map((record) => JSON.stringify(record))
+                .join('\n')}\n${excludedRecord(2, 'excluded '.repeat(2_000))}`,
+        );
+        const afterExcludedGrowth = await getThreadRolloutLoadState(childFile, 1_000, options);
+
+        expect(initial.shouldDeferTranscriptLoad).toBe(false);
+        expect(afterExcludedGrowth).toEqual(initial);
+
+        await Bun.write(
+            parentFile,
+            `${parentPrefix('included '.repeat(300))
+                .map((record) => JSON.stringify(record))
+                .join('\n')}\n${excludedRecord(2, 'ignored')}`,
+        );
+        expect((await getThreadRolloutLoadState(childFile, 1_000, options)).shouldDeferTranscriptLoad).toBe(true);
+    });
+
     it('should validate the top-level ordinal when a bounded segment has nested ordinals', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-cache-nested-ordinal-test-'));
         tempPaths.push(tempRoot);

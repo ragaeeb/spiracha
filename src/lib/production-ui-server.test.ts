@@ -1,8 +1,8 @@
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { createProductionUiFetch, resolveClientAssetPath } from './production-ui-server';
+import { createProductionUiFetch, resolveClientAssetPath, runProductionUiServer } from './production-ui-server';
 import { UI_EXPORT_DIR_ENV } from './ui-export-files';
 
 const originalExportDir = process.env[UI_EXPORT_DIR_ENV];
@@ -84,6 +84,61 @@ describe('production UI server', () => {
             await child.exited;
             await stderrReader.cancel().catch(() => undefined);
             occupiedServer.stop(true);
+        }
+    });
+
+    it('should report port exhaustion when port 65535 is occupied', async () => {
+        const root = await mkdtemp(path.join(os.tmpdir(), 'spiracha-production-port-exhausted-'));
+        tempPaths.push(root);
+        const occupiedServer = Bun.serve({
+            fetch: () => new Response('occupied'),
+            hostname: '127.0.0.1',
+            port: 65_535,
+        });
+        const serverEntryDirectory = path.join(root, 'dist/app');
+        await mkdir(serverEntryDirectory, { recursive: true });
+        await Bun.write(
+            path.join(serverEntryDirectory, 'server.js'),
+            'export default { fetch: () => new Response("Spiracha test server") };',
+        );
+        const originalPort = process.env.PORT;
+        process.env.PORT = '65535';
+        try {
+            await expect(runProductionUiServer(root)).rejects.toThrow('No available port found at or above 65535.');
+        } finally {
+            if (originalPort === undefined) {
+                delete process.env.PORT;
+            } else {
+                process.env.PORT = originalPort;
+            }
+            occupiedServer.stop(true);
+        }
+    });
+
+    it('should immediately propagate bind errors other than EADDRINUSE', async () => {
+        const root = await mkdtemp(path.join(os.tmpdir(), 'spiracha-production-port-error-'));
+        tempPaths.push(root);
+        const serverEntryDirectory = path.join(root, 'dist/app');
+        await mkdir(serverEntryDirectory, { recursive: true });
+        await Bun.write(
+            path.join(serverEntryDirectory, 'server.js'),
+            'export default { fetch: () => new Response("Spiracha test server") };',
+        );
+        const serve = spyOn(Bun, 'serve').mockImplementation(() => {
+            throw new Error('permission denied');
+        });
+        const originalPort = process.env.PORT;
+        process.env.PORT = '65535';
+        try {
+            await expect(runProductionUiServer(root)).rejects.toThrow('permission denied');
+            expect(serve).toHaveBeenCalledTimes(1);
+        } finally {
+            if (originalPort === undefined) {
+                delete process.env.PORT;
+            } else {
+                process.env.PORT = originalPort;
+            }
+            serve.mockRestore();
         }
     });
 

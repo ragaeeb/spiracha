@@ -1477,7 +1477,6 @@ describe('codex browser db', () => {
 
         expect(threads).toHaveLength(2);
         expect(brokenEntry).toMatchObject({
-            modelNames: [],
             rolloutSizeBytes: (await Bun.file(brokenThread.sessionFile).stat()).size,
             stats: {
                 deferred: true,
@@ -1486,6 +1485,7 @@ describe('codex browser db', () => {
                 webSearchEventCount: 0,
             },
         });
+        expect(brokenEntry?.modelNames).toEqual(['gpt-5.4']);
     });
 
     it('should give metadata-only subagent threads a navigable display title and preview', async () => {

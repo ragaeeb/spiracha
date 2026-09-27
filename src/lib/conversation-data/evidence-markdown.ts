@@ -105,7 +105,7 @@ const renderSnippet = (
     const text = portable(projectEvidenceText(eventText(event), remaining, state, literals), conversation);
     const call = event.tool?.callId ? `; call ${inlineMarkdown(event.tool.callId, conversation)}` : '';
     const pairing = event.tool ? `; ${event.pairingConfidence}` : '';
-    const snippet = `${eventHeading(event, conversation, lens)}\n${fencedEvidenceText(text)}\nMessage: ${inlineMarkdown(event.messageId, conversation)}${call}${pairing}\n\n`;
+    const snippet = `${eventHeading(event, conversation, lens)}\n${fencedEvidenceText(text)}\n${call}${pairing}\nMessage ID (exact JSON):\n${fencedEvidenceText(JSON.stringify(event.messageId))}\n\n`;
     const matched =
         !/^\[(?:omitted|deduplicated)/u.test(text) &&
         lens.anchors.some((anchor) =>

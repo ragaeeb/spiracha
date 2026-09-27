@@ -176,34 +176,57 @@ const readTopLevelOrdinal = (line: string): number | null => {
     }
 };
 
-const scanCodexModelSegment = async (segment: CodexTranscriptSegment, modelNames: string[]) => {
+const scanCodexTranscriptSegment = async (segment: CodexTranscriptSegment, visitLine: (line: string) => void) => {
     let expectedOrdinal: number | null = null;
     let lastOrdinal: number | null = null;
     const lines = createInterface({
         crlfDelay: Number.POSITIVE_INFINITY,
         input: createReadStream(segment.sessionFile, { encoding: 'utf8' }),
     });
-    for await (const line of lines) {
-        if (!line.trim()) {
-            continue;
+    try {
+        for await (const line of lines) {
+            if (!line.trim()) {
+                visitLine(line);
+                continue;
+            }
+            const ordinal = segment.maxOrdinalExclusive === null ? null : readTopLevelOrdinal(line);
+            const progress = validateCodexTranscriptSegmentOrdinal(ordinal, segment, expectedOrdinal, lastOrdinal);
+            expectedOrdinal = progress.expectedOrdinal;
+            lastOrdinal = progress.lastOrdinal;
+            if (progress.done) {
+                break;
+            }
+            visitLine(line);
         }
-        const ordinal = segment.maxOrdinalExclusive === null ? null : readTopLevelOrdinal(line);
-        const progress = validateCodexTranscriptSegmentOrdinal(ordinal, segment, expectedOrdinal, lastOrdinal);
-        expectedOrdinal = progress.expectedOrdinal;
-        lastOrdinal = progress.lastOrdinal;
-        if (progress.done) {
-            break;
-        }
+    } finally {
+        lines.close();
+    }
+
+    assertCodexTranscriptSegmentComplete(segment, lastOrdinal);
+};
+
+const scanCodexModelSegment = async (segment: CodexTranscriptSegment, modelNames: string[]) => {
+    await scanCodexTranscriptSegment(segment, (line) => {
         if (!CODEX_MODEL_RECORD_PATTERN.test(line)) {
-            continue;
+            return;
         }
         const modelName = CODEX_MODEL_NAME_PATTERN.exec(line)?.[1];
         if (modelName && !modelNames.includes(modelName)) {
             modelNames.push(modelName);
         }
+    });
+};
+
+const getCodexTranscriptSegmentSize = async (segment: CodexTranscriptSegment) => {
+    if (segment.maxOrdinalExclusive === null) {
+        return (await stat(segment.sessionFile)).size;
     }
 
-    assertCodexTranscriptSegmentComplete(segment, lastOrdinal);
+    let size = 0;
+    await scanCodexTranscriptSegment(segment, (line) => {
+        size += Buffer.byteLength(line) + 1;
+    });
+    return size;
 };
 
 type CachedThreadTranscriptPreviewOptions = CodexTranscriptCacheOptions & {
@@ -236,7 +259,7 @@ export const getThreadRolloutLoadState = async (
         const segments = await resolveCodexTranscriptSegments(sessionFile, options.resolveForkedThread);
         fileSizeBytes = 0;
         for (const segment of segments) {
-            fileSizeBytes += (await stat(segment.sessionFile)).size;
+            fileSizeBytes += await getCodexTranscriptSegmentSize(segment);
         }
     }
 

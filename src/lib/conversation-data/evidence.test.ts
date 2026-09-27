@@ -6,6 +6,7 @@ import { buildEvidenceEvents } from './evidence-events';
 import { matchEvidenceEvent, parseShellInvocation, validateEvidenceLens } from './evidence-lens';
 import { buildEvidenceExport } from './evidence-markdown';
 import { createEvidenceProjectionState, projectEvidenceText } from './evidence-projector';
+import { evidenceRevision, retrieveEvidencePage } from './evidence-retrieval';
 import type {
     ConversationDetail,
     ConversationMessage,
@@ -114,6 +115,27 @@ const conversation = (source: ConversationSource = 'codex'): ConversationDetail 
 });
 
 describe('focused evidence', () => {
+    it('should preserve exact message IDs for retrieval in generated evidence', () => {
+        const input = conversation();
+        const messageId = '/tmp/evidence_id/with space_`tick`/```';
+        input.messages = [{ ...message(1, 'tool_call', 'bun test', tool()), id: messageId }];
+        input.messageCount = 1;
+
+        const result = buildEvidenceExport(input, lens, { generatedAt: '2026-09-27T00:00:00.000Z' });
+        const fencedId = /^Message ID \(exact JSON\):\n(`{3,})text\n([\s\S]*?)\n\1$/mu.exec(result.markdown);
+        if (!fencedId) {
+            throw new Error('Expected focused evidence to code-fence the exact JSON message ID.');
+        }
+        const recoveredId = JSON.parse(fencedId[2]!) as string;
+
+        expect(recoveredId).toBe(messageId);
+        expect(
+            JSON.parse(
+                retrieveEvidencePage(input, { messageId: recoveredId, revision: evidenceRevision(input) }).content,
+            ),
+        ).toEqual(input.messages);
+    });
+
     it('should validate bounded lenses and reject unknown or unsafe fields with a precise path', () => {
         expect(validateEvidenceLens(lens)).toEqual({ ok: true, value: lens });
         expect(validateEvidenceLens({ ...lens, typo: true })).toEqual({
@@ -300,7 +322,7 @@ describe('focused evidence', () => {
 
         expect(result.markdown).toContain('**Matched evidence**');
         expect(result.markdown).toContain('MATCHED_BODY_SENTINEL');
-        expect(result.markdown).toContain('Message: message-0');
+        expect(result.markdown).toContain('Message ID (exact JSON):\n```text\n"message-0"\n```');
     });
 
     it('should sanitize portable headings and retain a complete ledger at the minimum budget', () => {

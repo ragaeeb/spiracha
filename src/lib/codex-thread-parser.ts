@@ -29,29 +29,39 @@ export type CodexTranscriptSegment = {
     sessionFile: string;
 };
 
-const SESSION_META_RECORD_PATTERN = /"type"\s*:\s*"session_meta"/u;
-const FORKED_THREAD_ID_PATTERN = /"forked_from_id"\s*:\s*(?:"([^"\\]*)"|null)/u;
-const FORKED_THREAD_ORDINAL_PATTERN = /"forked_from_ordinal_exclusive"\s*:\s*(?:(-?\d+(?:\.\d+)?)|null)/u;
-
 const readForkMetadata = async (sessionFile: string) => {
     const lines = createInterface({
         crlfDelay: Number.POSITIVE_INFINITY,
         input: createReadStream(sessionFile, { encoding: 'utf8' }),
     });
     for await (const line of lines) {
-        if (!SESSION_META_RECORD_PATTERN.test(line)) {
+        if (!/"type"\s*:\s*"session_meta"/u.test(line)) {
             continue;
         }
-
-        const parentMatch = FORKED_THREAD_ID_PATTERN.exec(line);
-        const cutoffMatch = FORKED_THREAD_ORDINAL_PATTERN.exec(line);
+        const parentPropertyPresent = /"forked_from_id"\s*:/u.test(line);
+        const parentMatch = /"forked_from_id"\s*:\s*(?:"([^"\\]*)"|null)/u.exec(line);
+        const cutoffPropertyPresent = /"forked_from_ordinal_exclusive"\s*:/u.test(line);
+        const cutoffMatch =
+            /"forked_from_ordinal_exclusive"\s*:\s*(null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)(?=\s*[,}])/u.exec(
+                line,
+            );
         return {
             forkedFromId: parentMatch?.[1] ?? null,
-            forkedFromOrdinalExclusive: cutoffMatch?.[1] === undefined ? null : Number(cutoffMatch[1]),
+            forkedFromOrdinalExclusive:
+                cutoffMatch?.[1] === undefined || cutoffMatch[1] === 'null' ? null : Number(cutoffMatch[1]),
+            hasForkedFromOrdinalExclusive: cutoffPropertyPresent,
+            hasMalformedForkedFromId: parentPropertyPresent && (!parentMatch || parentMatch[1] === ''),
+            hasMalformedForkedFromOrdinalExclusive: cutoffPropertyPresent && !cutoffMatch,
         };
     }
 
-    return { forkedFromId: null, forkedFromOrdinalExclusive: null };
+    return {
+        forkedFromId: null,
+        forkedFromOrdinalExclusive: null,
+        hasForkedFromOrdinalExclusive: false,
+        hasMalformedForkedFromId: false,
+        hasMalformedForkedFromOrdinalExclusive: false,
+    };
 };
 
 const readSessionMeta = async (sessionFile: string) => {
@@ -65,6 +75,33 @@ const readSessionMeta = async (sessionFile: string) => {
         break;
     }
     return sessionMeta;
+};
+
+const readForkBoundary = (
+    sessionFile: string,
+    metadata: Awaited<ReturnType<typeof readForkMetadata>>,
+): { forkedFromId: string; ordinalExclusive: number } | null => {
+    const parentValue = metadata.forkedFromId;
+    const parentThreadId = typeof parentValue === 'string' && parentValue ? parentValue : null;
+    if (
+        metadata.hasMalformedForkedFromId ||
+        metadata.hasMalformedForkedFromOrdinalExclusive ||
+        (parentValue !== null && parentThreadId === null)
+    ) {
+        throw new CodexTranscriptHistoryError(`Codex transcript ${sessionFile} has invalid fork history metadata`);
+    }
+    if (
+        !metadata.hasForkedFromOrdinalExclusive ||
+        (parentThreadId === null && metadata.forkedFromOrdinalExclusive === null)
+    ) {
+        return null;
+    }
+
+    const cutoff = metadata.forkedFromOrdinalExclusive;
+    if (parentThreadId === null || typeof cutoff !== 'number' || !Number.isInteger(cutoff) || cutoff < 0) {
+        throw new CodexTranscriptHistoryError(`Codex transcript ${sessionFile} has invalid fork history metadata`);
+    }
+    return { forkedFromId: parentThreadId, ordinalExclusive: cutoff };
 };
 
 type SegmentOrdinalProgress = {
@@ -156,12 +193,11 @@ export const resolveCodexTranscriptSegments = async (
     }
 
     const nextSeenFiles = new Set(seenFiles).add(normalizedSessionFile);
-    const forkMetadata = await readForkMetadata(sessionFile);
-    const parentThreadId = forkMetadata.forkedFromId;
-    const forkCutoff = forkMetadata.forkedFromOrdinalExclusive;
-    if (parentThreadId === null && forkCutoff === null) {
+    const forkBoundary = readForkBoundary(sessionFile, await readForkMetadata(sessionFile));
+    if (!forkBoundary) {
         return [{ maxOrdinalExclusive, minOrdinalInclusive: 0, sessionFile }];
     }
+    const { forkedFromId: parentThreadId, ordinalExclusive: forkCutoff } = forkBoundary;
 
     if (!resolveForkedThread) {
         throw new CodexTranscriptHistoryError(
@@ -169,9 +205,6 @@ export const resolveCodexTranscriptSegments = async (
         );
     }
 
-    if (parentThreadId === null || forkCutoff === null || !Number.isInteger(forkCutoff) || forkCutoff < 0) {
-        throw new CodexTranscriptHistoryError(`Codex transcript ${sessionFile} has invalid fork history metadata`);
-    }
     let parentSessionFile: string;
     try {
         parentSessionFile = await resolveForkedThread(parentThreadId);

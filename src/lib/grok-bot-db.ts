@@ -1,6 +1,7 @@
 import { lstat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { IncompleteTranscriptError } from './conversation-data/operation-types';
 import { deleteGrokBotAgent } from './grok-bot-gateway';
 import type { GrokBotConversation, GrokBotConversationSummary } from './grok-bot-payload';
 import { parseGrokBotRosterRow, parseGrokBotTranscript } from './grok-bot-payload';
@@ -186,7 +187,7 @@ export const readGrokBotConversation = async (
     );
     const value = await readJsonBlob(persistencePath, 'transcript replica');
     if (value === null) {
-        throw new Error(
+        throw new IncompleteTranscriptError(
             `Grok Bot transcript is not available locally: ${conversationId}. Open this chat in Grok Bot to sync its transcript, then retry export.`,
         );
     }

@@ -6,7 +6,11 @@ import {
 import type { ThreadBrowseData } from '../codex-browser-types';
 import { CodexThreadNotFoundError, resolveCodexThreadDbPath } from '../codex-database';
 import { deleteCodexThread } from '../codex-thread-mutations';
-import { type CodexForkedThreadResolver, parseCodexTranscriptFile } from '../codex-thread-parser';
+import {
+    type CodexForkedThreadResolver,
+    CodexTranscriptHistoryError,
+    parseCodexTranscriptFile,
+} from '../codex-thread-parser';
 import type { ThreadRow } from '../codex-thread-types';
 import { cleanInlineTitle } from '../shared-text';
 import { runWithTranscriptLoadLimit } from '../transcript-load-limiter';
@@ -143,13 +147,28 @@ const listCodexConversations = async (options: ListConversationsOptions): Promis
     const resolveForkedThread = createCodexForkedThreadResolver(dbPath);
 
     return Promise.all(
-        matchedThreads.map(({ matches, thread }) =>
-            buildCodexConversation(thread, matches, {
-                includeMessages: options.includeMessages ?? false,
-                messageSelector: options.messageSelector,
-                resolveForkedThread,
-            }),
-        ),
+        matchedThreads.map(async ({ matches, thread }) => {
+            try {
+                return await buildCodexConversation(thread, matches, {
+                    includeMessages: options.includeMessages ?? false,
+                    messageSelector: options.messageSelector,
+                    resolveForkedThread,
+                });
+            } catch (error) {
+                if (!(options.includeMessages && error instanceof CodexTranscriptHistoryError)) {
+                    throw error;
+                }
+                const conversation = await buildCodexConversation(thread, matches, {
+                    includeMessages: false,
+                    messageSelector: options.messageSelector,
+                    resolveForkedThread,
+                });
+                return {
+                    ...conversation,
+                    metadata: { ...conversation.metadata, transcriptUnavailable: true },
+                };
+            }
+        }),
     );
 };
 

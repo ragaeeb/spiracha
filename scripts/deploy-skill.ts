@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { lstat, mkdir, realpath } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 
 const root = resolve(import.meta.dir, '..');
@@ -15,12 +15,32 @@ const targets = {
     opencode: '.config/opencode/skills',
 };
 
+const resolvePathThroughExistingAncestor = async (requestedPath: string) => {
+    const unresolvedPath = resolve(requestedPath);
+    const suffix: string[] = [];
+    let ancestor = unresolvedPath;
+    while (true) {
+        try {
+            return resolve(await realpath(ancestor), ...suffix);
+        } catch (error) {
+            if (!(error instanceof Error && 'code' in error && (error.code === 'ENOENT' || error.code === 'ENOTDIR'))) {
+                return unresolvedPath;
+            }
+            const parent = dirname(ancestor);
+            if (parent === ancestor) {
+                return unresolvedPath;
+            }
+            suffix.unshift(basename(ancestor));
+            ancestor = parent;
+        }
+    }
+};
+
 const resolveConfiguredCodexHome = async (codexHome: string | undefined) => {
     if (!codexHome) {
         return null;
     }
-    const requestedCodexHome = resolve(codexHome);
-    return await realpath(requestedCodexHome).catch(() => requestedCodexHome);
+    return resolvePathThroughExistingAncestor(codexHome);
 };
 
 const verifyRuntime = async (runtime: { bun: string; entrypoint: string }) => {
@@ -86,7 +106,7 @@ const main = async () => {
         }
     }
     const requestedHome = resolve(values.home ?? homedir());
-    const home = await realpath(requestedHome).catch(() => requestedHome);
+    const home = await resolvePathThroughExistingAncestor(requestedHome);
     const codexHome = await resolveConfiguredCodexHome(process.env.CODEX_HOME);
     const runtime = { bun: process.execPath, entrypoint: join(root, 'bin/spiracha.ts') };
     await verifyRuntime(runtime);

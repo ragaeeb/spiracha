@@ -180,6 +180,58 @@ describe('renderCodexThreadDownload', () => {
         expect(content).toContain('Stabilized the transcript parsing and export formatting.');
     });
 
+    it('should export inline history when fork metadata has no ordinal cutoff', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-export-inline-history-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const child = fixture.threads[1]!;
+        await Bun.write(
+            child.sessionFile,
+            [
+                {
+                    ordinal: 0,
+                    payload: {
+                        cwd: child.cwd,
+                        forked_from_id: fixture.threads[0]!.threadId,
+                        id: child.threadId,
+                    },
+                    type: 'session_meta',
+                },
+                {
+                    ordinal: 1,
+                    payload: {
+                        message: 'Inline inherited transcript answer',
+                        phase: 'final_answer',
+                        type: 'agent_message',
+                    },
+                    type: 'response_item',
+                },
+            ]
+                .map((record) => JSON.stringify(record))
+                .join('\n'),
+        );
+
+        const download = await renderCodexThreadDownload({
+            dbPath: fixture.dbPath,
+            includeCommentary: true,
+            includeMetadata: false,
+            includeTools: false,
+            largeExportThresholdBytes: 1,
+            outputFormat: 'md',
+            publicExportDir: tempRoot,
+            threadId: child.threadId,
+        });
+
+        expect(download.mode).toBe('download_url');
+        if (download.mode !== 'download_url') {
+            throw new Error('expected inline history to use a downloadable export');
+        }
+        const entries = await listZipEntries(path.join(tempRoot, path.basename(download.downloadUrl)));
+        expect(await readZipEntry(path.join(tempRoot, path.basename(download.downloadUrl)), entries[0]!)).toContain(
+            'Inline inherited transcript answer',
+        );
+    });
+
     it('should archive a small single-thread export when a ZIP password is supplied', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-export-password-test-'));
         tempPaths.push(tempRoot);

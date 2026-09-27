@@ -292,7 +292,13 @@ const loadProjectThreadEntry = async (
         }
 
         const rollout = await getThreadRolloutLoadState(thread.rollout_path, options.largeTranscriptThresholdBytes);
-        return buildProjectThreadEntry(thread, projectName, hierarchy, rollout.fileSizeBytes, []);
+        return buildProjectThreadEntry(
+            thread,
+            projectName,
+            hierarchy,
+            rollout.fileSizeBytes,
+            thread.model ? [thread.model] : [],
+        );
     }
 };
 

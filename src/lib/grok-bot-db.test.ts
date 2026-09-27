@@ -5,6 +5,7 @@ import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { settleDeleteBatch } from './conversation-data/mutation-executor';
+import { IncompleteTranscriptError } from './conversation-data/operation-types';
 import {
     deleteGrokBotConversation,
     encodeGrokBotPersistenceKey,
@@ -127,6 +128,7 @@ describe('grok bot persistence', () => {
         const root = await mkdtemp(path.join(os.tmpdir(), 'grok-bot-missing-'));
         try {
             await writeFixture(root);
+            await expect(readGrokBotConversation(root, KIWI_ID)).rejects.toBeInstanceOf(IncompleteTranscriptError);
             await expect(readGrokBotConversation(root, KIWI_ID)).rejects.toThrow('transcript is not available locally');
             await expect(readGrokBotConversation(root, 'unknown')).resolves.toBeNull();
         } finally {

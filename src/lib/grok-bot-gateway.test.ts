@@ -83,4 +83,83 @@ describe.skipIf(process.platform !== 'darwin')('Grok Bot gateway pre-request con
             }
         },
     );
+
+    it.each([
+        {
+            code: 'mutation_rejected',
+            effect: 'none',
+            message: 'Grok Bot rejected deletion',
+            reason: 'http-rejection',
+            reasonCode: 'gateway_delete_rejected',
+            retryable: true,
+        },
+        {
+            code: 'mutation_outcome_unknown',
+            effect: 'unknown',
+            message: 'Grok Bot deletion was not confirmed',
+            reason: 'transport-failure',
+            reasonCode: 'gateway_delete_unconfirmed',
+            retryable: false,
+        },
+    ] as const)(
+        'should publish sanitized $effect effects for deleteAgent $reason',
+        async ({ code, effect, message, reason, reasonCode, retryable }) => {
+            const appDir = await mkdtemp(path.join(os.tmpdir(), 'grok-gateway-delete-failure-'));
+            const persistenceDir = path.join(appDir, 'sand-client-persistence');
+            await mkdir(persistenceDir);
+            const spawn = Bun.spawn;
+            const processMock = spyOn(Bun, 'spawn').mockImplementation(() =>
+                spawn([process.execPath, '-e', 'process.stdout.write("fixture-secret")'], { stdout: 'pipe' }),
+            );
+            const id = 'bd5bbf01-a4e1-47f8-885f-f2188cf04aab';
+            const requests: string[] = [];
+            const gateway = spyOn(globalThis, 'fetch').mockImplementation(
+                Object.assign(
+                    async (input: Parameters<typeof fetch>[0]) => {
+                        const url = String(input);
+                        requests.push(url);
+                        if (url.endsWith('/api/listAgents')) {
+                            return Response.json({ agents: [{ id }] });
+                        }
+                        if (reason === 'http-rejection') {
+                            return new Response(null, { status: 400 });
+                        }
+                        throw new Error('transport error exposed fixture-secret');
+                    },
+                    { preconnect: fetch.preconnect },
+                ),
+            );
+            try {
+                await writeGatewayDescriptor(appDir, 'valid');
+                const result = await settleDeleteBatch({
+                    concurrency: 1,
+                    deleteOne: async (targetId) => ({
+                        deletedFiles: [],
+                        deletedIds: (await deleteGrokBotAgent(persistenceDir, targetId)) ? [targetId] : [],
+                    }),
+                    ids: [id],
+                });
+
+                expect(result.outcomes[0]).toMatchObject({
+                    effect,
+                    error: {
+                        code,
+                        details: { effect, id, reason_code: reasonCode, source: 'grok-bot' },
+                        message: expect.stringContaining(message),
+                        retryable,
+                    },
+                    status: 'failed',
+                });
+                expect(JSON.stringify(result)).not.toContain('fixture-secret');
+                expect(requests).toEqual([
+                    'https://fixture.cursor.sh/api/listAgents',
+                    'https://fixture.cursor.sh/api/deleteAgent',
+                ]);
+            } finally {
+                gateway.mockRestore();
+                processMock.mockRestore();
+                await rm(appDir, { force: true, recursive: true });
+            }
+        },
+    );
 });

@@ -132,7 +132,7 @@ export const runProductionUiServer = async (packageRoot: string): Promise<number
             console.error(`Spiracha listening on http://${hostname}:${server.port}`);
             return 0;
         } catch (error) {
-            if (!(error instanceof Error && 'code' in error && error.code === 'EADDRINUSE') || port === 65_535) {
+            if (!(error instanceof Error && 'code' in error && error.code === 'EADDRINUSE')) {
                 throw error;
             }
         }

@@ -3,7 +3,11 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createCodexBrowserFixture } from './codex-test-helpers';
-import { CodexTranscriptHistoryError, parseCodexTranscriptFile } from './codex-thread-parser';
+import {
+    CodexTranscriptHistoryError,
+    parseCodexTranscriptFile,
+    resolveCodexTranscriptSegments,
+} from './codex-thread-parser';
 
 const tempPaths: string[] = [];
 
@@ -179,6 +183,91 @@ describe('parseCodexTranscriptFile', () => {
             'A answer',
             'B answer',
             'C answer',
+        ]);
+    });
+
+    it('should read parent-ID-only transcripts as inline history without resolving a parent', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-parser-inline-history-test-'));
+        tempPaths.push(tempRoot);
+        const sessionFile = path.join(tempRoot, 'inline.jsonl');
+        await Bun.write(
+            sessionFile,
+            [
+                {
+                    ordinal: 0,
+                    payload: { forked_from_id: 'archived-parent', id: 'inline-thread' },
+                    type: 'session_meta',
+                },
+                {
+                    ordinal: 1,
+                    payload: { message: 'Inline answer', phase: 'final_answer', type: 'agent_message' },
+                    type: 'response_item',
+                },
+            ]
+                .map((record) => JSON.stringify(record))
+                .join('\n'),
+        );
+        let parentLookups = 0;
+
+        const transcript = await parseCodexTranscriptFile(sessionFile, {
+            resolveForkedThread: async () => {
+                parentLookups += 1;
+                throw new Error('The inline transcript must not require its archived parent.');
+            },
+        });
+
+        expect(parentLookups).toBe(0);
+        expect(transcript.events.filter((event) => event.kind === 'message').map((event) => event.text)).toEqual([
+            'Inline answer',
+        ]);
+
+        const malformedFile = path.join(tempRoot, 'malformed.jsonl');
+        await Bun.write(
+            malformedFile,
+            JSON.stringify({
+                ordinal: 0,
+                payload: {
+                    forked_from_id: 'archived-parent',
+                    forked_from_ordinal_exclusive: 'not-an-ordinal',
+                    id: 'malformed-thread',
+                },
+                type: 'session_meta',
+            }),
+        );
+        await expect(parseCodexTranscriptFile(malformedFile)).rejects.toBeInstanceOf(CodexTranscriptHistoryError);
+    });
+
+    it('should accept explicit null fork metadata as a self-contained transcript', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-parser-null-fork-test-'));
+        tempPaths.push(tempRoot);
+        const sessionFile = path.join(tempRoot, 'null-fork.jsonl');
+        await Bun.write(
+            sessionFile,
+            JSON.stringify({
+                payload: { forked_from_id: null, forked_from_ordinal_exclusive: null },
+                type: 'session_meta',
+            }),
+        );
+
+        await expect(resolveCodexTranscriptSegments(sessionFile)).resolves.toEqual([
+            { maxOrdinalExclusive: null, minOrdinalInclusive: 0, sessionFile },
+        ]);
+    });
+
+    it('should parse exponent-form fork cutoffs without truncating the ordinal', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-parser-exponent-cutoff-test-'));
+        tempPaths.push(tempRoot);
+        const parentFile = path.join(tempRoot, 'parent.jsonl');
+        const childFile = path.join(tempRoot, 'child.jsonl');
+        await Bun.write(parentFile, JSON.stringify({ payload: { id: 'parent' }, type: 'session_meta' }));
+        await Bun.write(
+            childFile,
+            '{"payload":{"forked_from_id":"parent","forked_from_ordinal_exclusive":1e2},"type":"session_meta"}',
+        );
+
+        await expect(resolveCodexTranscriptSegments(childFile, async () => parentFile)).resolves.toEqual([
+            { maxOrdinalExclusive: 100, minOrdinalInclusive: 0, sessionFile: parentFile },
+            { maxOrdinalExclusive: null, minOrdinalInclusive: 100, sessionFile: childFile },
         ]);
     });
 

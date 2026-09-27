@@ -28,7 +28,13 @@ const validateRequest = (request: EvidenceRetrievalRequest) => {
             throw new Error(`Unknown retrieval option: ${key}`);
         }
     }
-    for (const key of ['startOrder', 'endOrder', 'offset', 'maxCharacters'] as const) {
+    for (const key of ['startOrder', 'endOrder'] as const) {
+        const value = request[key];
+        if (value !== undefined && (!Number.isFinite(value) || value < 0)) {
+            throw new Error(`Invalid ${key}.`);
+        }
+    }
+    for (const key of ['offset', 'maxCharacters'] as const) {
         const value = request[key];
         if (value !== undefined && (!Number.isSafeInteger(value) || value < 0)) {
             throw new Error(`Invalid ${key}.`);

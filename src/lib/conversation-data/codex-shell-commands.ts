@@ -15,11 +15,31 @@ const findMatchingCallBrace = (tokens: string[], openingBrace: number) => {
     return tokens.length;
 };
 
+const readSingleQuotedString = (token: string): string | null => {
+    if (token.length < 2 || token.at(-1) !== "'") {
+        return null;
+    }
+    try {
+        const jsonString = `"${token.slice(1, -1).replace(/\\'/gu, "'").replace(/\\"/gu, '"').replace(/"/gu, '\\"')}"`;
+        return JSON.parse(jsonString) as string;
+    } catch {
+        return null;
+    }
+};
+
 const readLiteralCommand = (tokens: string[]) => {
-    const object = tokens
-        .map((token, index, parts) =>
-            /^[A-Za-z_$][\w$]*$/u.test(token) && parts[index + 1] === ':' ? JSON.stringify(token) : token,
-        )
+    const normalized = tokens.map((token, index, parts) => {
+        if (token.startsWith("'")) {
+            const value = readSingleQuotedString(token);
+            return value === null ? null : JSON.stringify(value);
+        }
+        return /^[A-Za-z_$][\w$]*$/u.test(token) && parts[index + 1] === ':' ? JSON.stringify(token) : token;
+    });
+    if (normalized.some((token) => token === null)) {
+        return null;
+    }
+    const object = normalized
+        .filter((token): token is string => token !== null)
         .filter((token, index, parts) => token !== ',' || parts[index + 1] !== '}')
         .join('');
     try {

@@ -8,7 +8,7 @@ describe('deletion phase map', () => {
         expect(hasDurableDeletionReconciliation('codex')).toBe(true);
         expect(hasDurableDeletionReconciliation('cursor')).toBe(true);
         expect(hasDurableDeletionReconciliation('command-code')).toBe(true);
-        expect(hasDurableDeletionReconciliation('grok-bot')).toBe(true);
+        expect(hasDurableDeletionReconciliation('grok-bot')).toBe(false);
         expect(hasDurableDeletionReconciliation('qoder')).toBe(true);
         expect(hasDurableDeletionReconciliation('opencode')).toBe(true);
         expect(hasDurableDeletionReconciliation('cline')).toBe(false);

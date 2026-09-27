@@ -101,9 +101,23 @@ it('should expose literal nested shell commands without interpreting comments or
     expect(
         normalizeCodexEvents([make('tools.exec_command({cmd:"echo ,}",})')])[0]?.toolEvidence?.shellCommands,
     ).toEqual(['echo ,}']);
+    const singleQuoted = String.raw`tools.exec_command({'cmd':'printf \'hello\' \\tmp'})`;
+    expect(normalizeCodexEvents([make(singleQuoted)])[0]?.toolEvidence?.shellCommands).toEqual([
+        String.raw`printf 'hello' \tmp`,
+    ]);
+    const escapedDoubleQuotes = String.raw`tools.exec_command({'cmd':'printf \"hello\"'})`;
+    expect(normalizeCodexEvents([make(escapedDoubleQuotes)])[0]?.toolEvidence?.shellCommands).toEqual([
+        'printf "hello"',
+    ]);
     const nestedArguments = 'tools.exec_command({options:{trace:{label:"nested"}},cmd:"echo nested"})';
     expect(normalizeCodexEvents([make(nestedArguments)])[0]?.toolEvidence?.shellCommands).toEqual(['echo nested']);
-    for (const command of [`// ${code}`, JSON.stringify(code), 'tools.exec_command({cmd:dynamic()})']) {
+    for (const command of [
+        `// ${code}`,
+        JSON.stringify(code),
+        'tools.exec_command({cmd:dynamic()})',
+        'tools.exec_command({cmd:`echo hidden`})',
+        "tools.exec_command({cmd:'unterminated})",
+    ]) {
         expect(normalizeCodexEvents([make(command)])[0]?.toolEvidence?.shellCommands ?? []).toEqual([]);
     }
 });

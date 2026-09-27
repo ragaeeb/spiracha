@@ -6,6 +6,7 @@ import { runSpirachaCli } from '../../../bin/spiracha';
 import type { ConversationClient } from '../../client';
 import { createConversationClient } from '../../client';
 import { toCanonicalMessage } from './adapter-helpers';
+import { buildEvidenceExport } from './evidence-markdown';
 import { evidenceRevision, retrieveEvidencePage } from './evidence-retrieval';
 import type { ConversationDetail } from './types';
 
@@ -62,6 +63,10 @@ it('should recover exact normalized messages across bounded pages and reject sta
         { messageId: 'missing', revision },
         { maxCharacters: 0, revision },
         { offset: 100000, revision },
+        { offset: 0.5, revision },
+        { endOrder: Number.NaN, revision },
+        { revision, startOrder: Number.POSITIVE_INFINITY },
+        { revision, startOrder: -0.5 },
         { endOrder: 1, revision, startOrder: 2 },
         { messageId: 'message-1', revision, startOrder: 0 },
     ]) {
@@ -70,6 +75,48 @@ it('should recover exact normalized messages across bounded pages and reject sta
     const changed = { ...conversation, messages: [...conversation.messages].reverse() };
     changed.messages[0] = { ...changed.messages[0], text: 'changed' };
     expect(() => retrieveEvidencePage(changed, { revision })).toThrow('changed');
+});
+
+it('should retrieve messages using fractional event-order bounds emitted by focused evidence', () => {
+    const fractionalConversation = {
+        ...conversation,
+        messages: conversation.messages.map((message, index) => ({ ...message, order: index + 0.5 })),
+    };
+    const exported = buildEvidenceExport(
+        fractionalConversation,
+        {
+            anchors: [{ kind: 'text', literals: ['hidden detail'] }],
+            budget: {
+                commentaryCharactersPerEpisode: 500,
+                failedOutputCharacters: 1_000,
+                successfulOutputCharacters: 300,
+                totalCharacters: 8_000,
+            },
+            context: {
+                commentaryAfter: 1,
+                commentaryBefore: 1,
+                followRetries: false,
+                followWorkarounds: false,
+                includeReasoningSummaries: false,
+                maxOrderGap: 4,
+            },
+            name: 'Fractional event order',
+        },
+        { generatedAt: '2026-09-27T00:00:00.000Z' },
+    );
+    const requestText = /JSON: `([^`]+)`/u.exec(exported.markdown)?.[1];
+    if (!requestText) {
+        throw new Error('Expected the evidence export to include a retrieval request.');
+    }
+    const request = JSON.parse(requestText) as {
+        endOrder: number;
+        revision: string;
+        startOrder: number;
+    };
+
+    expect(request.endOrder).toBe(1.5);
+    const page = retrieveEvidencePage(fractionalConversation, request);
+    expect(JSON.parse(page.content)).toEqual(fractionalConversation.messages);
 });
 
 it('should read a retrieval request through the CLI without printing other messages and report deleted sources', async () => {

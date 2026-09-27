@@ -43,6 +43,7 @@ export {
     type PublicMutationError,
     SourceChangedError,
     SourceMutationConflictError,
+    SourceMutationOutcomeError,
     UnsupportedSourceOperationError,
 } from './operation-types';
 export { getConversationPathMatch, normalizeConversationPath } from './path-match';
