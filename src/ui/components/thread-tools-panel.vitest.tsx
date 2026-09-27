@@ -112,6 +112,27 @@ describe('ThreadToolsPanel', () => {
         expect(onLoadTranscript).toHaveBeenCalledOnce();
     });
 
+    it('should explain unavailable fork history without offering a transcript load', () => {
+        const onLoadTranscript = vi.fn();
+
+        render(
+            <ThreadToolsPanel
+                assistantModel={null}
+                availableTools={[]}
+                events={null}
+                projectPath={null}
+                showRawJson={false}
+                sortOrder="earliest"
+                transcriptState="unavailable"
+                onLoadTranscript={onLoadTranscript}
+            />,
+        );
+
+        expect(screen.getByText(/Forked transcript history could not be resolved/u)).toBeTruthy();
+        expect(screen.queryByRole('button', { name: 'Load tool activity' })).toBeNull();
+        expect(onLoadTranscript).not.toHaveBeenCalled();
+    });
+
     it('should deduplicate logically identical tool schemas with different key order', () => {
         render(
             <ThreadToolsPanel

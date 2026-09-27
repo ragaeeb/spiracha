@@ -1,3 +1,4 @@
+import { CodexTranscriptHistoryError } from '@spiracha/lib/codex-thread-parser';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
@@ -122,6 +123,37 @@ describe('loadThreadTranscript', () => {
         });
         expect(getCachedParsedCodexTranscriptMock).not.toHaveBeenCalled();
         expect(getCachedThreadTranscriptPreviewMock).not.toHaveBeenCalled();
+    });
+
+    it('should return browse metadata when Codex fork history is unavailable', async () => {
+        getThreadBrowseDataMock.mockReturnValue({
+            thread: {
+                rollout_path: '/tmp/rollout.jsonl',
+            },
+        });
+        getThreadRolloutLoadStateMock
+            .mockRejectedValueOnce(new CodexTranscriptHistoryError('missing fork parent'))
+            .mockResolvedValueOnce({
+                fileSizeBytes: 42,
+                shouldDeferTranscriptLoad: false,
+            });
+
+        const snapshot = await getThreadSnapshotFn({ data: { threadId: 'thread-1' } });
+
+        expect(snapshot).toMatchObject({
+            modelNames: [],
+            rollout: {
+                fileSizeBytes: 42,
+                shouldDeferTranscriptLoad: false,
+            },
+            thread: {
+                rollout_path: '/tmp/rollout.jsonl',
+            },
+            transcript: null,
+            transcriptState: 'unavailable',
+        });
+        expect(getThreadRolloutLoadStateMock).toHaveBeenNthCalledWith(2, '/tmp/rollout.jsonl');
+        expect(getCachedCodexTranscriptModelNamesMock).not.toHaveBeenCalled();
     });
 
     it('should load transcript previews through the explicit preview endpoint', async () => {

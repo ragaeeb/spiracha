@@ -101,6 +101,8 @@ it('should expose literal nested shell commands without interpreting comments or
     expect(
         normalizeCodexEvents([make('tools.exec_command({cmd:"echo ,}",})')])[0]?.toolEvidence?.shellCommands,
     ).toEqual(['echo ,}']);
+    const nestedArguments = 'tools.exec_command({options:{trace:{label:"nested"}},cmd:"echo nested"})';
+    expect(normalizeCodexEvents([make(nestedArguments)])[0]?.toolEvidence?.shellCommands).toEqual(['echo nested']);
     for (const command of [`// ${code}`, JSON.stringify(code), 'tools.exec_command({cmd:dynamic()})']) {
         expect(normalizeCodexEvents([make(command)])[0]?.toolEvidence?.shellCommands ?? []).toEqual([]);
     }

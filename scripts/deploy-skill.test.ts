@@ -1,5 +1,5 @@
 import { expect, it } from 'bun:test';
-import { mkdtemp, rm, symlink } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -36,5 +36,25 @@ it('should install runnable skills into isolated harness homes and detect drift 
         expect((await run('--agents', 'unknown')).code).toBe(1);
     } finally {
         await rm(home, { force: true, recursive: true });
+    }
+});
+
+it('should resolve symlinked CODEX_HOME before checking the skill destination', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'spiracha-codex-home-'));
+    const codexHome = join(root, 'codex-home');
+    const symlinkedCodexHome = join(root, 'codex-home-link');
+    await mkdir(codexHome);
+    await symlink(codexHome, symlinkedCodexHome);
+    try {
+        const child = Bun.spawn([process.execPath, 'scripts/deploy-skill.ts', '--agents', 'codex'], {
+            env: { ...process.env, CODEX_HOME: symlinkedCodexHome },
+            stderr: 'pipe',
+            stdout: 'pipe',
+        });
+
+        expect(await child.exited).toBe(0);
+        expect(await Bun.file(join(codexHome, 'skills/spiracha/SKILL.md')).exists()).toBe(true);
+    } finally {
+        await rm(root, { force: true, recursive: true });
     }
 });

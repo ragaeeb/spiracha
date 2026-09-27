@@ -1,4 +1,5 @@
 import type { ParsedCodexTranscript } from '@spiracha/lib/codex-browser-types';
+import type { CodexForkedThreadResolver } from '@spiracha/lib/codex-thread-parser';
 import { createServerFn } from '@tanstack/react-start';
 import type { InferOutput } from 'valibot';
 import { array, boolean, minLength, nullable, object, optional, picklist, pipe, string } from 'valibot';
@@ -85,6 +86,41 @@ const isMissingFileError = (error: unknown) => {
     return error instanceof Error && /ENOENT|no such file/i.test(error.message);
 };
 
+type SnapshotRollout = Awaited<ReturnType<typeof import('@spiracha/lib/codex-thread-cache').getThreadRolloutLoadState>>;
+
+const loadSnapshotTranscript = async (
+    rolloutPath: string,
+    resolveForkedThread: CodexForkedThreadResolver,
+    getThreadRolloutLoadState: typeof import('@spiracha/lib/codex-thread-cache').getThreadRolloutLoadState,
+    getCachedCodexTranscriptModelNames: typeof import('@spiracha/lib/codex-thread-cache').getCachedCodexTranscriptModelNames,
+    HistoryError: typeof import('@spiracha/lib/codex-thread-parser').CodexTranscriptHistoryError,
+) => {
+    try {
+        const rollout = await getThreadRolloutLoadState(rolloutPath, undefined, { resolveForkedThread });
+        const detectedModelNames =
+            rollout.fileSizeBytes === null
+                ? []
+                : await getCachedCodexTranscriptModelNames(rolloutPath, { resolveForkedThread });
+        return { detectedModelNames, rollout, transcriptUnavailable: false };
+    } catch (error) {
+        if (isMissingFileError(error)) {
+            return {
+                detectedModelNames: [],
+                rollout: { fileSizeBytes: null, shouldDeferTranscriptLoad: false } satisfies SnapshotRollout,
+                transcriptUnavailable: false,
+            };
+        }
+        if (!(error instanceof HistoryError)) {
+            throw error;
+        }
+        return {
+            detectedModelNames: [],
+            rollout: await getThreadRolloutLoadState(rolloutPath),
+            transcriptUnavailable: true,
+        };
+    }
+};
+
 const logCodexThreadLoad = (event: string, details: Record<string, unknown>) => {
     console.info(`[spiracha:codex-thread] ${event}`, details);
 };
@@ -115,9 +151,11 @@ export const getThreadSnapshotFn = createServerFn({ method: 'GET' })
         const [
             { createCodexForkedThreadResolver, getThreadBrowseData },
             { getCachedCodexTranscriptModelNames, getThreadRolloutLoadState },
+            { CodexTranscriptHistoryError },
         ] = await Promise.all([
             import('@spiracha/lib/codex-browser-queries'),
             import('@spiracha/lib/codex-thread-cache'),
+            import('@spiracha/lib/codex-thread-parser'),
         ]);
         const dbPath = await getDbPath();
         const resolveForkedThread = createCodexForkedThreadResolver(dbPath);
@@ -126,29 +164,21 @@ export const getThreadSnapshotFn = createServerFn({ method: 'GET' })
         });
         const browseData = await getThreadBrowseData(dbPath, data.threadId);
         const transcript: ParsedCodexTranscript | null = null;
-        let rollout: Awaited<ReturnType<typeof getThreadRolloutLoadState>>;
+        const { detectedModelNames, rollout, transcriptUnavailable } = await loadSnapshotTranscript(
+            browseData.thread.rollout_path,
+            resolveForkedThread,
+            getThreadRolloutLoadState,
+            getCachedCodexTranscriptModelNames,
+            CodexTranscriptHistoryError,
+        );
 
-        try {
-            rollout = await getThreadRolloutLoadState(browseData.thread.rollout_path, undefined, {
-                resolveForkedThread,
-            });
-        } catch (error) {
-            if (!isMissingFileError(error)) {
-                throw error;
-            }
-
-            rollout = {
-                fileSizeBytes: null,
-                shouldDeferTranscriptLoad: false,
-            };
-        }
-
-        const transcriptState: 'available' | 'deferred' | 'missing' =
-            rollout.fileSizeBytes === null ? 'missing' : rollout.shouldDeferTranscriptLoad ? 'deferred' : 'available';
-        const detectedModelNames =
-            rollout.fileSizeBytes === null
-                ? []
-                : await getCachedCodexTranscriptModelNames(browseData.thread.rollout_path, { resolveForkedThread });
+        const transcriptState: 'available' | 'deferred' | 'missing' | 'unavailable' = transcriptUnavailable
+            ? 'unavailable'
+            : rollout.fileSizeBytes === null
+              ? 'missing'
+              : rollout.shouldDeferTranscriptLoad
+                ? 'deferred'
+                : 'available';
         const modelNames =
             detectedModelNames.length > 0
                 ? detectedModelNames

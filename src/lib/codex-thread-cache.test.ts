@@ -180,6 +180,45 @@ describe('getCachedThreadTranscriptPreview', () => {
         expect(stats.assistantMessageCount).toBe(2);
     });
 
+    it('should validate the top-level ordinal when a bounded segment has nested ordinals', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-cache-nested-ordinal-test-'));
+        tempPaths.push(tempRoot);
+        const parentFile = path.join(tempRoot, 'parent.jsonl');
+        const childFile = path.join(tempRoot, 'child.jsonl');
+        const parentThreadId = 'parent-thread';
+        await Promise.all([
+            Bun.write(
+                parentFile,
+                `${JSON.stringify({
+                    ordinal: 0,
+                    payload: { model: 'gpt-parent', ordinal: 99, type: 'turn_context' },
+                    type: 'turn_context',
+                })}\n`,
+            ),
+            Bun.write(
+                childFile,
+                `${JSON.stringify({
+                    ordinal: 1,
+                    payload: {
+                        forked_from_id: parentThreadId,
+                        forked_from_ordinal_exclusive: 1,
+                        id: 'child-thread',
+                    },
+                    type: 'session_meta',
+                })}\n`,
+            ),
+        ]);
+
+        const models = await getCachedCodexTranscriptModelNames(childFile, {
+            resolveForkedThread: async (threadId) => {
+                expect(threadId).toBe(parentThreadId);
+                return parentFile;
+            },
+        });
+
+        expect(models).toEqual(['gpt-parent']);
+    });
+
     it('should switch to preview mode when a rollout exceeds the configured size threshold', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-cache-test-'));
         tempPaths.push(tempRoot);

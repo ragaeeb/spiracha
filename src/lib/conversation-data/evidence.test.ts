@@ -553,7 +553,7 @@ describe('focused evidence field regressions', () => {
             budget: { ...lens.budget, totalCharacters: 40000 },
         });
         expect(result.meta.episodeCount).toBeGreaterThan(1);
-        expect(result.markdown).not.toContain('Retry:');
+        expect(result.markdown).not.toContain('Retries:');
     });
 });
 

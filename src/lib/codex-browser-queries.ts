@@ -45,7 +45,7 @@ import {
     getCachedCodexTranscriptStats,
     getThreadRolloutLoadState,
 } from './codex-thread-cache';
-import type { CodexForkedThreadResolver } from './codex-thread-parser';
+import { type CodexForkedThreadResolver, CodexTranscriptHistoryError } from './codex-thread-parser';
 import type { ThreadRelations, ThreadRow } from './codex-thread-types';
 import { mapWithConcurrency } from './concurrency';
 import { normalizeConversationPath } from './conversation-data/path-match';
@@ -235,6 +235,67 @@ type ListProjectThreadsOptions = {
     largeTranscriptThresholdBytes?: number;
 };
 
+const buildProjectThreadEntry = (
+    thread: ThreadRow,
+    projectName: string,
+    hierarchy: ThreadListEntry['hierarchy'],
+    rolloutSizeBytes: number | null,
+    modelNames: string[],
+    stats?: ThreadListEntry['stats'],
+): ThreadListEntry => ({
+    hierarchy,
+    modelNames,
+    project: projectName,
+    rolloutSizeBytes,
+    stats: stats ?? {
+        deferred: rolloutSizeBytes !== null,
+        execCommandCount: 0,
+        toolCallCount: 0,
+        webSearchEventCount: 0,
+    },
+    thread: normalizeThreadDisplayText(thread),
+});
+
+const loadProjectThreadEntry = async (
+    thread: ThreadRow,
+    projectName: string,
+    hierarchy: ThreadListEntry['hierarchy'],
+    options: ListProjectThreadsOptions,
+    resolveForkedThread: CodexForkedThreadResolver,
+): Promise<ThreadListEntry> => {
+    try {
+        const rollout = await getThreadRolloutLoadState(thread.rollout_path, options.largeTranscriptThresholdBytes, {
+            resolveForkedThread,
+        });
+        const detectedModelNames =
+            rollout.fileSizeBytes === null
+                ? []
+                : await getCachedCodexTranscriptModelNames(thread.rollout_path, { resolveForkedThread });
+        const modelNames = detectedModelNames.length > 0 ? detectedModelNames : thread.model ? [thread.model] : [];
+        if (
+            rollout.fileSizeBytes !== null &&
+            !rollout.shouldDeferTranscriptLoad &&
+            options.includeTranscriptStats !== false
+        ) {
+            const stats = await getCachedCodexTranscriptStats(thread.rollout_path, undefined, { resolveForkedThread });
+            return buildProjectThreadEntry(thread, projectName, hierarchy, rollout.fileSizeBytes, modelNames, {
+                deferred: false,
+                execCommandCount: stats.execCommandCount,
+                toolCallCount: stats.toolCallCount,
+                webSearchEventCount: stats.webSearchEventCount,
+            });
+        }
+        return buildProjectThreadEntry(thread, projectName, hierarchy, rollout.fileSizeBytes, modelNames);
+    } catch (error) {
+        if (!(error instanceof CodexTranscriptHistoryError)) {
+            throw error;
+        }
+
+        const rollout = await getThreadRolloutLoadState(thread.rollout_path, options.largeTranscriptThresholdBytes);
+        return buildProjectThreadEntry(thread, projectName, hierarchy, rollout.fileSizeBytes, []);
+    }
+};
+
 export const listProjectThreads = async (
     dbPath: string,
     projectName: string,
@@ -247,50 +308,9 @@ export const listProjectThreads = async (
         activeThreads.map((thread) => thread.id),
     );
     const resolveForkedThread = createCodexForkedThreadResolver(dbPath);
-    const entries = await mapWithConcurrency(activeThreads, THREAD_LIST_IO_CONCURRENCY, async (thread) => {
-        const rollout = await getThreadRolloutLoadState(thread.rollout_path, options.largeTranscriptThresholdBytes, {
-            resolveForkedThread,
-        });
+    const entries = await mapWithConcurrency(activeThreads, THREAD_LIST_IO_CONCURRENCY, (thread) => {
         const hierarchy = hierarchyByThreadId.get(thread.id) ?? { childThreadCount: 0, parentThreadId: null };
-        const detectedModelNames =
-            rollout.fileSizeBytes === null
-                ? []
-                : await getCachedCodexTranscriptModelNames(thread.rollout_path, { resolveForkedThread });
-        const modelNames = detectedModelNames.length > 0 ? detectedModelNames : thread.model ? [thread.model] : [];
-        if (rollout.fileSizeBytes === null) {
-            return {
-                hierarchy,
-                modelNames,
-                project: projectName,
-                rolloutSizeBytes: null,
-                stats: { deferred: false, execCommandCount: 0, toolCallCount: 0, webSearchEventCount: 0 },
-                thread: normalizeThreadDisplayText(thread),
-            };
-        }
-        if (rollout.shouldDeferTranscriptLoad || options.includeTranscriptStats === false) {
-            return {
-                hierarchy,
-                modelNames,
-                project: projectName,
-                rolloutSizeBytes: rollout.fileSizeBytes,
-                stats: { deferred: true, execCommandCount: 0, toolCallCount: 0, webSearchEventCount: 0 },
-                thread: normalizeThreadDisplayText(thread),
-            };
-        }
-        const stats = await getCachedCodexTranscriptStats(thread.rollout_path, undefined, { resolveForkedThread });
-        return {
-            hierarchy,
-            modelNames,
-            project: projectName,
-            rolloutSizeBytes: rollout.fileSizeBytes,
-            stats: {
-                deferred: false,
-                execCommandCount: stats.execCommandCount,
-                toolCallCount: stats.toolCallCount,
-                webSearchEventCount: stats.webSearchEventCount,
-            },
-            thread: normalizeThreadDisplayText(thread),
-        };
+        return loadProjectThreadEntry(thread, projectName, hierarchy, options, resolveForkedThread);
     });
     return entries.sort((left, right) => compareThreadsByRecentActivity(left.thread, right.thread));
 };
@@ -548,6 +568,13 @@ export const createCodexForkedThreadResolver = (dbPath: string): CodexForkedThre
 
         const pathPromise = getThreadBrowseData(dbPath, threadId).then((data) => data.thread.rollout_path);
         resolvedPaths.set(threadId, pathPromise);
-        return pathPromise;
+        try {
+            return await pathPromise;
+        } catch (error) {
+            if (resolvedPaths.get(threadId) === pathPromise) {
+                resolvedPaths.delete(threadId);
+            }
+            throw error;
+        }
     };
 };

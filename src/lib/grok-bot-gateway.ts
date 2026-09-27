@@ -127,9 +127,24 @@ const gatewayCall = async (
 
 export const deleteGrokBotAgent = async (persistenceDir: string, id: string): Promise<boolean> => {
     if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u.test(id)) {
-        throw new Error('Invalid Grok Bot conversation id.');
+        throw new SourceMutationConflictError(
+            'grok-bot',
+            id,
+            'Invalid Grok Bot conversation id.',
+            'invalid_conversation_id',
+        );
     }
-    const session = await loadGatewaySession(persistenceDir);
+    let session: Awaited<ReturnType<typeof loadGatewaySession>>;
+    try {
+        session = await loadGatewaySession(persistenceDir);
+    } catch (error) {
+        throw new SourceMutationConflictError(
+            'grok-bot',
+            id,
+            error instanceof Error ? error.message : String(error),
+            'gateway_session_unavailable',
+        );
+    }
     let roster: unknown;
     try {
         roster = await gatewayCall(session, 'listAgents', {});
@@ -144,7 +159,12 @@ export const deleteGrokBotAgent = async (persistenceDir: string, id: string): Pr
             return typeof (record?.id ?? record?.agentId) !== 'string';
         })
     ) {
-        throw new Error('Invalid Grok Bot gateway roster.');
+        throw new SourceMutationConflictError(
+            'grok-bot',
+            id,
+            'Invalid Grok Bot gateway roster.',
+            'gateway_roster_invalid',
+        );
     }
     if (!agents.some((agent) => (asRecord(agent)?.id ?? asRecord(agent)?.agentId) === id)) {
         return false;

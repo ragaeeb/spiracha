@@ -15,6 +15,14 @@ const targets = {
     opencode: '.config/opencode/skills',
 };
 
+const resolveConfiguredCodexHome = async (codexHome: string | undefined) => {
+    if (!codexHome) {
+        return null;
+    }
+    const requestedCodexHome = resolve(codexHome);
+    return await realpath(requestedCodexHome).catch(() => requestedCodexHome);
+};
+
 const verifyRuntime = async (runtime: { bun: string; entrypoint: string }) => {
     const child = Bun.spawn([runtime.bun, runtime.entrypoint, '--help'], { stderr: 'pipe', stdout: 'pipe' });
     const [help, error, code] = await Promise.all([
@@ -79,6 +87,7 @@ const main = async () => {
     }
     const requestedHome = resolve(values.home ?? homedir());
     const home = await realpath(requestedHome).catch(() => requestedHome);
+    const codexHome = await resolveConfiguredCodexHome(process.env.CODEX_HOME);
     const runtime = { bun: process.execPath, entrypoint: join(root, 'bin/spiracha.ts') };
     await verifyRuntime(runtime);
     const files = new Map([
@@ -88,8 +97,8 @@ const main = async () => {
     ]);
     for (const agent of agents) {
         const skillRoot =
-            agent === 'codex' && !values.home && process.env.CODEX_HOME
-                ? join(process.env.CODEX_HOME, 'skills')
+            agent === 'codex' && !values.home && codexHome
+                ? join(codexHome, 'skills')
                 : join(home, targets[agent as keyof typeof targets]);
         const destination = join(skillRoot, 'spiracha');
         await syncSkill(destination, files, Boolean(values.check), Boolean(values['dry-run']));

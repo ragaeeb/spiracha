@@ -4,10 +4,12 @@ import path from 'node:path';
 import { createInterface } from 'node:readline';
 import type { ParsedCodexTranscript } from './codex-browser-types';
 import {
+    assertCodexTranscriptSegmentComplete,
     type CodexForkedThreadResolver,
-    CodexTranscriptHistoryError,
+    type CodexTranscriptSegment,
     parseCodexTranscriptFile,
     resolveCodexTranscriptSegments,
+    validateCodexTranscriptSegmentOrdinal,
 } from './codex-thread-parser';
 import type { ThreadTranscriptStats, TranscriptEventFilters } from './conversation-data/conversation-events';
 import { shouldShowTranscriptEvent } from './conversation-data/conversation-events';
@@ -23,7 +25,6 @@ const CODEX_TRANSCRIPT_MODELS_CACHE_VERSION = 'v2';
 const FILE_STABILITY_ATTEMPTS = 3;
 const CODEX_MODEL_RECORD_PATTERN = /"type"\s*:\s*"(?:turn_context|thread_settings_applied)"/u;
 const CODEX_MODEL_NAME_PATTERN = /"model"\s*:\s*"([^"\\]+)"/u;
-const CODEX_ORDINAL_PATTERN = /"ordinal"\s*:\s*(-?\d+(?:\.\d+)?)/u;
 
 type CodexTranscriptCacheOptions = {
     resolveForkedThread?: CodexForkedThreadResolver;
@@ -162,47 +163,20 @@ const collectCodexTranscriptModelNames = async (
     return modelNames;
 };
 
-type ModelSegmentOrdinalProgress = {
-    done: boolean;
-    expectedOrdinal: number | null;
-    lastOrdinal: number | null;
+const readTopLevelOrdinal = (line: string): number | null => {
+    try {
+        const parsed: unknown = JSON.parse(line);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            return null;
+        }
+        const ordinal = (parsed as Record<string, unknown>).ordinal;
+        return typeof ordinal === 'number' ? ordinal : null;
+    } catch {
+        return null;
+    }
 };
 
-const readModelSegmentOrdinal = (
-    line: string,
-    segment: { maxOrdinalExclusive: number | null; minOrdinalInclusive: number; sessionFile: string },
-    expectedOrdinal: number | null,
-    lastOrdinal: number | null,
-): ModelSegmentOrdinalProgress => {
-    if (segment.maxOrdinalExclusive === null) {
-        return { done: false, expectedOrdinal, lastOrdinal };
-    }
-
-    const ordinal = CODEX_ORDINAL_PATTERN.exec(line)?.[1];
-    if (ordinal === undefined) {
-        throw new CodexTranscriptHistoryError(
-            `Codex transcript ${segment.sessionFile} is missing an ordinal before fork boundary ${segment.maxOrdinalExclusive}`,
-        );
-    }
-    const numericOrdinal = Number(ordinal);
-    if (numericOrdinal >= segment.maxOrdinalExclusive) {
-        return { done: true, expectedOrdinal, lastOrdinal };
-    }
-    if (
-        (expectedOrdinal === null && numericOrdinal !== segment.minOrdinalInclusive) ||
-        (expectedOrdinal !== null && numericOrdinal !== expectedOrdinal)
-    ) {
-        throw new CodexTranscriptHistoryError(
-            `Codex transcript ${segment.sessionFile} has a gap before fork boundary ${segment.maxOrdinalExclusive}`,
-        );
-    }
-    return { done: false, expectedOrdinal: numericOrdinal + 1, lastOrdinal: numericOrdinal };
-};
-
-const scanCodexModelSegment = async (
-    segment: { maxOrdinalExclusive: number | null; minOrdinalInclusive: number; sessionFile: string },
-    modelNames: string[],
-) => {
+const scanCodexModelSegment = async (segment: CodexTranscriptSegment, modelNames: string[]) => {
     let expectedOrdinal: number | null = null;
     let lastOrdinal: number | null = null;
     const lines = createInterface({
@@ -213,7 +187,8 @@ const scanCodexModelSegment = async (
         if (!line.trim()) {
             continue;
         }
-        const progress = readModelSegmentOrdinal(line, segment, expectedOrdinal, lastOrdinal);
+        const ordinal = segment.maxOrdinalExclusive === null ? null : readTopLevelOrdinal(line);
+        const progress = validateCodexTranscriptSegmentOrdinal(ordinal, segment, expectedOrdinal, lastOrdinal);
         expectedOrdinal = progress.expectedOrdinal;
         lastOrdinal = progress.lastOrdinal;
         if (progress.done) {
@@ -228,15 +203,7 @@ const scanCodexModelSegment = async (
         }
     }
 
-    if (
-        segment.maxOrdinalExclusive !== null &&
-        segment.maxOrdinalExclusive > segment.minOrdinalInclusive &&
-        lastOrdinal !== segment.maxOrdinalExclusive - 1
-    ) {
-        throw new CodexTranscriptHistoryError(
-            `Codex transcript ${segment.sessionFile} ends before fork boundary ${segment.maxOrdinalExclusive}`,
-        );
-    }
+    assertCodexTranscriptSegmentComplete(segment, lastOrdinal);
 };
 
 type CachedThreadTranscriptPreviewOptions = CodexTranscriptCacheOptions & {

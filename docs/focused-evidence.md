@@ -181,6 +181,7 @@ A smaller budget is deliberately lossy. Check **matched / rendered matched event
 Focused evidence applies the existing project-root conversion and username redaction transforms to retained text. Lenses match only normalized transcript metadata and never cause filesystem reads for path or glob anchors. Transcript and lens data are untrusted: anchor counts, string lengths, glob complexity, context windows, budgets, unmatched pairing state, episode counts, array samples, diagnostic sets, and rendered output are bounded. Omitted raw payloads are not embedded in HTML or hidden metadata.
 
 Some sources do not expose every structured field. Cline, FX, Kiro, and MiniMax Code emit normalized `tool_call` and `tool_output` events from their persisted records, including call IDs when available. Cursor, Qoder, and OpenCode also contribute structured tool evidence when their source records expose it. Antigravity does not expose stable call/result IDs for every transcript record, so its normalized metadata reports that limitation instead of fabricating exact fields. Web imports are outside this engine and do not currently support focused evidence.
+
 ## Recover omitted evidence
 
 Focused exports include a `Retrieve` line with a revision and the full normalized

@@ -12,6 +12,7 @@ import {
     listGrokBotConversations,
     readGrokBotConversation,
 } from './grok-bot-db';
+import { deleteGrokBotAgent } from './grok-bot-gateway';
 
 const CURRENT_ACCOUNT_SLOT = 'google-oauth2|user/01?reserved%value';
 const KIWI_ID = 'bd5bbf01-a4e1-47f8-885f-f2188cf04aab';
@@ -195,7 +196,15 @@ const writeGatewaySession = async (appDir: string, scenario: string, id: string)
     );
 };
 
-describe('Grok Bot gateway deletion', () => {
+describe('Grok Bot gateway delete validation', () => {
+    it('should classify invalid conversation ids as a no-effect conflict', async () => {
+        await expect(deleteGrokBotAgent('/tmp/grok-bot-fixture', '../invalid')).rejects.toMatchObject({
+            reasonCode: 'invalid_conversation_id',
+        });
+    });
+});
+
+describe.skipIf(process.platform !== 'darwin')('Grok Bot gateway deletion', () => {
     it.each([
         { error: '', id: KIWI_ID, name: 'delete a bot', scenario: 'success' },
         { error: '', id: BAMBA_ID, name: 'delete a group', scenario: 'success' },

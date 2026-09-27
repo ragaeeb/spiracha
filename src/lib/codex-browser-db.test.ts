@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, rm, utimes } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
+    createCodexForkedThreadResolver,
     getThreadBrowseData,
     getThreadBrowseDataBatch,
     listCodexProjects,
@@ -1436,6 +1437,55 @@ describe('codex browser db', () => {
         );
 
         expect(thread?.modelNames).toEqual(['gpt-5.4', 'gpt-5.6-sol', 'gpt-5.6-terra']);
+    });
+
+    it('should retry a forked thread path lookup after the first lookup is rejected', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-fork-resolver-retry-test-'));
+        tempPaths.push(tempRoot);
+        const dbPath = path.join(tempRoot, 'state.sqlite');
+        const resolveForkedThread = createCodexForkedThreadResolver(dbPath);
+        const threadId = '019e36d7-ba2d-7fa1-b662-3f70fbbda248';
+
+        await expect(resolveForkedThread(threadId)).rejects.toThrow();
+
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        expect(fixture.threads[0]?.threadId).toBe(threadId);
+        await expect(resolveForkedThread(threadId)).resolves.toBe(fixture.threads[0]!.sessionFile);
+    });
+
+    it('should keep project thread lists usable when fork history is invalid', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-invalid-fork-list-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const brokenThread = fixture.threads[0]!;
+        const records = (await Bun.file(brokenThread.sessionFile).text())
+            .trim()
+            .split('\n')
+            .map((line) => JSON.parse(line) as { payload?: Record<string, unknown> });
+        records[0] = {
+            ...records[0],
+            payload: {
+                ...records[0]?.payload,
+                forked_from_id: 'missing-parent-thread',
+                forked_from_ordinal_exclusive: 1,
+            },
+        };
+        await Bun.write(brokenThread.sessionFile, records.map((record) => JSON.stringify(record)).join('\n'));
+
+        const threads = await listProjectThreads(fixture.dbPath, 'spiracha');
+        const brokenEntry = threads.find((entry) => entry.thread.id === brokenThread.threadId);
+
+        expect(threads).toHaveLength(2);
+        expect(brokenEntry).toMatchObject({
+            modelNames: [],
+            rolloutSizeBytes: (await Bun.file(brokenThread.sessionFile).stat()).size,
+            stats: {
+                deferred: true,
+                execCommandCount: 0,
+                toolCallCount: 0,
+                webSearchEventCount: 0,
+            },
+        });
     });
 
     it('should give metadata-only subagent threads a navigable display title and preview', async () => {

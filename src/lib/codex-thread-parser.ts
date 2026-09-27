@@ -73,8 +73,8 @@ type SegmentOrdinalProgress = {
     lastOrdinal: number | null;
 };
 
-const readSegmentOrdinal = (
-    parsed: Record<string, unknown>,
+export const validateCodexTranscriptSegmentOrdinal = (
+    ordinal: number | null,
     segment: CodexTranscriptSegment,
     expectedOrdinal: number | null,
     lastOrdinal: number | null,
@@ -83,17 +83,17 @@ const readSegmentOrdinal = (
         return { done: false, expectedOrdinal, lastOrdinal };
     }
 
-    if (typeof parsed.ordinal !== 'number' || !Number.isInteger(parsed.ordinal)) {
+    if (ordinal === null || !Number.isInteger(ordinal)) {
         throw new CodexTranscriptHistoryError(
             `Codex transcript ${segment.sessionFile} is missing an ordinal before fork boundary ${segment.maxOrdinalExclusive}`,
         );
     }
-    if (parsed.ordinal >= segment.maxOrdinalExclusive) {
+    if (ordinal >= segment.maxOrdinalExclusive) {
         return { done: true, expectedOrdinal, lastOrdinal };
     }
     if (
-        (expectedOrdinal === null && parsed.ordinal !== segment.minOrdinalInclusive) ||
-        (expectedOrdinal !== null && parsed.ordinal !== expectedOrdinal)
+        (expectedOrdinal === null && ordinal !== segment.minOrdinalInclusive) ||
+        (expectedOrdinal !== null && ordinal !== expectedOrdinal)
     ) {
         throw new CodexTranscriptHistoryError(
             `Codex transcript ${segment.sessionFile} has a gap before fork boundary ${segment.maxOrdinalExclusive}`,
@@ -101,12 +101,12 @@ const readSegmentOrdinal = (
     }
     return {
         done: false,
-        expectedOrdinal: parsed.ordinal + 1,
-        lastOrdinal: parsed.ordinal,
+        expectedOrdinal: ordinal + 1,
+        lastOrdinal: ordinal,
     };
 };
 
-const assertSegmentComplete = (segment: CodexTranscriptSegment, lastOrdinal: number | null) => {
+export const assertCodexTranscriptSegmentComplete = (segment: CodexTranscriptSegment, lastOrdinal: number | null) => {
     if (
         segment.maxOrdinalExclusive !== null &&
         segment.maxOrdinalExclusive > segment.minOrdinalInclusive &&
@@ -126,7 +126,8 @@ const consumeTranscriptSegment = async (
     let expectedOrdinal: number | null = null;
     let lastOrdinal: number | null = null;
     for await (const parsed of readJsonlObjects(segment.sessionFile)) {
-        const progress = readSegmentOrdinal(parsed, segment, expectedOrdinal, lastOrdinal);
+        const ordinal = typeof parsed.ordinal === 'number' ? parsed.ordinal : null;
+        const progress = validateCodexTranscriptSegmentOrdinal(ordinal, segment, expectedOrdinal, lastOrdinal);
         expectedOrdinal = progress.expectedOrdinal;
         lastOrdinal = progress.lastOrdinal;
         if (progress.done) {
@@ -139,7 +140,7 @@ const consumeTranscriptSegment = async (
         }
     }
 
-    assertSegmentComplete(segment, lastOrdinal);
+    assertCodexTranscriptSegmentComplete(segment, lastOrdinal);
     return false;
 };
 

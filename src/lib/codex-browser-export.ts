@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, rm, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -15,12 +16,19 @@ import {
     CodexRolloutSourceError,
     copyStableCodexRollout,
 } from './codex-rollout-snapshot';
-import { CodexTranscriptHistoryError, resolveCodexTranscriptSegments } from './codex-thread-parser';
+import {
+    assertCodexTranscriptSegmentComplete,
+    CodexTranscriptHistoryError,
+    type CodexTranscriptSegment,
+    resolveCodexTranscriptSegments,
+    validateCodexTranscriptSegmentOrdinal,
+} from './codex-thread-parser';
 import type { CodexTranscriptRenderOptions } from './codex-thread-types';
 import { renderCodexSessionFile } from './codex-transcript-renderer';
 import { type ExportArchiveMember, type ExportArchiveOutcome, writeExportArchive } from './export-archive';
 import { applyPathTransforms, type PathDisplaySettings } from './path-transforms';
 import { resolveUiRuntimeConfig } from './runtime-config';
+import { readJsonlObjects } from './shared';
 import type { ExportFormat } from './shared-text';
 import {
     buildBatchExportBaseName,
@@ -150,6 +158,24 @@ type CodexTranscriptHistorySnapshot = {
     sizeBytes: number;
 };
 
+const fingerprintBoundedTranscriptSegment = async (segment: CodexTranscriptSegment) => {
+    const hash = createHash('sha256');
+    let expectedOrdinal: number | null = null;
+    let lastOrdinal: number | null = null;
+    for await (const record of readJsonlObjects(segment.sessionFile)) {
+        const ordinal = typeof record.ordinal === 'number' ? record.ordinal : null;
+        const progress = validateCodexTranscriptSegmentOrdinal(ordinal, segment, expectedOrdinal, lastOrdinal);
+        expectedOrdinal = progress.expectedOrdinal;
+        lastOrdinal = progress.lastOrdinal;
+        if (progress.done) {
+            break;
+        }
+        hash.update(JSON.stringify(record)).update('\n');
+    }
+    assertCodexTranscriptSegmentComplete(segment, lastOrdinal);
+    return hash.digest('hex');
+};
+
 const inspectCodexTranscriptHistory = async (
     sessionFile: string,
     resolveForkedThread: ReturnType<typeof createCodexForkedThreadResolver>,
@@ -158,15 +184,15 @@ const inspectCodexTranscriptHistory = async (
     const identities = await Promise.all(
         segments.map(async (segment) => {
             const metadata = await stat(segment.sessionFile);
+            const contentFingerprint =
+                segment.maxOrdinalExclusive === null ? null : await fingerprintBoundedTranscriptSegment(segment);
             return {
                 fingerprint: [
                     path.resolve(segment.sessionFile),
                     segment.minOrdinalInclusive,
                     segment.maxOrdinalExclusive,
-                    metadata.ino,
-                    metadata.size,
-                    metadata.mtimeMs,
-                    metadata.ctimeMs,
+                    contentFingerprint ?? metadata.ino,
+                    ...(contentFingerprint === null ? [metadata.size, metadata.mtimeMs, metadata.ctimeMs] : []),
                 ].join(':'),
                 sizeBytes: metadata.size,
             };
