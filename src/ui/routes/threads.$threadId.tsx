@@ -242,6 +242,16 @@ const buildTranscriptStatsItems = (snapshot: ThreadSnapshot) => {
                 },
             ];
         }
+        if (snapshot.transcriptState === 'unavailable') {
+            return [
+                { label: 'Transcript load', value: 'Forked transcript history unavailable' },
+                { label: 'Rollout path', value: snapshot.thread.rollout_path },
+                {
+                    label: 'Preview mode',
+                    value: 'Thread metadata is available, but the transcript ancestry could not be resolved.',
+                },
+            ];
+        }
 
         return [
             { label: 'Transcript load', value: 'Deferred for oversized rollout' },
@@ -348,7 +358,9 @@ function ThreadRawPanels({ snapshot }: ThreadMetadataProps) {
             <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] px-5 py-4 text-sm">
                 {snapshot.transcriptState === 'missing'
                     ? 'The rollout JSONL file is missing from disk, so raw transcript payloads are unavailable.'
-                    : 'Raw transcript payloads are deferred for oversized rollouts. Use Export if you only need the full thread contents, or load the transcript manually from the Transcript tab.'}
+                    : snapshot.transcriptState === 'unavailable'
+                      ? 'Raw transcript payloads are unavailable because the forked transcript ancestry could not be resolved.'
+                      : 'Raw transcript payloads are deferred for oversized rollouts. Use Export if you only need the full thread contents, or load the transcript manually from the Transcript tab.'}
             </div>
         );
     }
@@ -365,25 +377,33 @@ function ThreadRawPanels({ snapshot }: ThreadMetadataProps) {
 function DeferredTranscriptNotice({
     fileSizeBytes,
     missing,
+    unavailable,
     pending,
     onLoad,
 }: {
     fileSizeBytes: number | null;
     missing?: boolean;
+    unavailable?: boolean;
     pending: boolean;
     onLoad: () => void;
 }) {
     return (
         <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 shadow-[var(--panel-shadow)]">
             <h3 className="font-semibold text-base">
-                {missing ? 'Transcript file missing' : 'This is a very big thread'}
+                {missing
+                    ? 'Transcript file missing'
+                    : unavailable
+                      ? 'Transcript history unavailable'
+                      : 'This is a very big thread'}
             </h3>
             <p className="mt-1.5 text-[var(--muted-foreground)] text-sm leading-6">
                 {missing
                     ? 'The rollout JSONL referenced by this thread is no longer present on disk. Export may still work if the file is restored, but transcript browsing is unavailable right now.'
-                    : `Spiracha skipped loading the transcript automatically because the rollout file is ${formatBytes(fileSizeBytes)}. Export still works immediately. Load the full transcript when you need to inspect it here.`}
+                    : unavailable
+                      ? 'Thread metadata is still available, but the forked transcript ancestry could not be resolved, so transcript export and browsing are unavailable.'
+                      : `Spiracha skipped loading the transcript automatically because the rollout file is ${formatBytes(fileSizeBytes)}. Export still works immediately. Load the full transcript when you need to inspect it here.`}
             </p>
-            {missing ? null : (
+            {missing || unavailable ? null : (
                 <div className="mt-3">
                     <Button disabled={pending} variant="outline" onClick={onLoad}>
                         {pending ? 'Loading full thread...' : 'Load Full Thread'}
@@ -431,9 +451,15 @@ function ThreadErrorComponent({ error }: { error: unknown }) {
     return <RouteErrorPanel error={error} title="Failed to load thread" />;
 }
 
-const getThreadExportErrorMessage = (transcriptMissing: boolean, error: unknown): string | null => {
-    if (transcriptMissing) {
+const getThreadExportErrorMessage = (
+    transcriptState: ThreadSnapshot['transcriptState'],
+    error: unknown,
+): string | null => {
+    if (transcriptState === 'missing') {
         return 'The rollout JSONL file is missing from disk, so this thread cannot be exported right now.';
+    }
+    if (transcriptState === 'unavailable') {
+        return 'The forked transcript ancestry could not be resolved, so this thread cannot be exported right now.';
     }
 
     return error instanceof Error ? error.message : null;
@@ -590,6 +616,7 @@ function ThreadTranscriptTab({
                 <DeferredTranscriptNotice
                     fileSizeBytes={snapshot.rollout.fileSizeBytes}
                     missing={snapshot.transcriptState === 'missing'}
+                    unavailable={snapshot.transcriptState === 'unavailable'}
                     pending={loadingFullTranscript}
                     onLoad={onLoadFullThread}
                 />
@@ -648,10 +675,11 @@ function ThreadDetailPageContent() {
     const snapshot = useSuspenseQuery(threadSnapshotQueryOptions(params.threadId)).data;
     const { settings } = useSettings();
     const transcriptMissing = snapshot.transcriptState === 'missing';
+    const transcriptUnavailable = transcriptMissing || snapshot.transcriptState === 'unavailable';
     const shouldLoadTranscript = shouldRequestThreadTranscript({
         fullRequested: search.full === true,
         shouldDeferTranscriptLoad: snapshot.rollout.shouldDeferTranscriptLoad,
-        transcriptMissing,
+        transcriptMissing: transcriptUnavailable,
     });
     const showRawJson = search.raw === true;
     const sortOrder: TranscriptSortOrder = search.sort ?? 'earliest';
@@ -660,14 +688,14 @@ function ThreadDetailPageContent() {
     const [deleteOpen, setDeleteOpen] = useState(false);
     const transcriptPreviewQuery = useQuery({
         ...threadTranscriptPreviewQueryOptions(params.threadId, transcriptFilters),
-        enabled: snapshot.rollout.shouldDeferTranscriptLoad && !shouldLoadTranscript && !transcriptMissing,
+        enabled: snapshot.rollout.shouldDeferTranscriptLoad && !shouldLoadTranscript && !transcriptUnavailable,
     });
     const transcriptQuery = useQuery({
         ...threadTranscriptQueryOptions(params.threadId),
         enabled: shouldLoadFullThreadTranscript({
             shouldLoadTranscript,
             snapshotTranscript: snapshot.transcript,
-            transcriptMissing,
+            transcriptMissing: transcriptUnavailable,
         }),
     });
     const transcript = transcriptQuery.data ?? transcriptPreviewQuery.data ?? snapshot.transcript ?? null;
@@ -924,13 +952,13 @@ function ThreadDetailPageContent() {
             />
 
             <ExportDialog
-                disabled={transcriptMissing}
-                errorMessage={getThreadExportErrorMessage(transcriptMissing, exportThreadMutation.error)}
+                disabled={transcriptUnavailable}
+                errorMessage={getThreadExportErrorMessage(snapshot.transcriptState, exportThreadMutation.error)}
                 focusedEvidenceTarget={{ id: snapshot.thread.id, source: 'codex' }}
                 open={exportOpen}
                 pending={exportThreadMutation.isPending}
                 onExport={(options, callbacks) => {
-                    if (!transcriptMissing) {
+                    if (!transcriptUnavailable) {
                         exportThreadMutation.mutate({ ...options, ...callbacks });
                     }
                 }}

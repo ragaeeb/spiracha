@@ -15,6 +15,25 @@ import {
 } from './adapter-helpers';
 import type { ConversationMessage } from './types';
 
+const shellArguments = (name: string, text: string | null | undefined) => {
+    if (name !== 'Bash') {
+        return { command: null, workdir: null };
+    }
+    try {
+        const value: unknown = JSON.parse(text ?? '{}');
+        if (value && typeof value === 'object' && !Array.isArray(value)) {
+            const record = value as Record<string, unknown>;
+            return {
+                command: typeof record.command === 'string' ? record.command : null,
+                workdir: typeof record.cwd === 'string' ? record.cwd : null,
+            };
+        }
+    } catch {
+        /* Malformed native arguments retain their original text. */
+    }
+    return { command: null, workdir: null };
+};
+
 const partToMessages = (
     entry: ClaudeCodeTranscriptEntry,
     part: ClaudeCodeTranscriptPart,
@@ -49,6 +68,7 @@ const partToMessages = (
 
     if (part.type === 'tool_use') {
         const toolName = part.toolName ?? 'unknown';
+        const shell = shellArguments(toolName, part.argumentsText);
         return createTextMessage({
             createdAtMs,
             id: baseId,
@@ -60,7 +80,7 @@ const partToMessages = (
             text: [part.toolName, part.argumentsText].filter(Boolean).join('\n'),
             toolEvidence: {
                 callId: part.toolUseId ?? null,
-                command: null,
+                command: shell.command,
                 durationMs: null,
                 exitCode: null,
                 inputText: part.argumentsText ?? null,
@@ -68,7 +88,7 @@ const partToMessages = (
                 namespace: getToolNamespace(toolName),
                 outputText: null,
                 status: 'unknown',
-                workdir: null,
+                workdir: shell.workdir ?? entry.cwd,
             },
         });
     }

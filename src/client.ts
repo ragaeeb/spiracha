@@ -1,3 +1,4 @@
+export type { EvidenceRetrievalRequest } from './lib/conversation-data/evidence-retrieval';
 export type {
     CompactExportFlags,
     NormalizedExportFormat,
@@ -28,6 +29,8 @@ import {
 } from './lib/conversation-data';
 import { validateEvidenceLens } from './lib/conversation-data/evidence-lens';
 import { buildEvidenceExport } from './lib/conversation-data/evidence-markdown';
+import type { EvidenceRetrievalRequest } from './lib/conversation-data/evidence-retrieval';
+import { retrieveEvidencePage } from './lib/conversation-data/evidence-retrieval';
 import type { CompactExportFlags } from './lib/conversation-data/export-options';
 import { renderConversationMarkdown as renderLocalConversationMarkdown } from './lib/conversation-data/markdown';
 import type {
@@ -680,4 +683,17 @@ const makeHttpClient = (options: HttpConversationClientOptions): ConversationCli
  */
 export const createConversationClient = (options: CreateConversationClientOptions = {}): ConversationClient => {
     return options.mode === 'http' ? makeHttpClient(options) : makeLocalClient(options);
+};
+
+/** Bounds agent-visible output; HTTP mode still loads the complete normalized detail internally. */
+export const retrieveConversationEvidence = async (
+    client: Pick<ConversationClient, 'getConversation'>,
+    options: GetConversationOptions,
+    request: EvidenceRetrievalRequest,
+) => {
+    const conversation = await client.getConversation({ ...options, messageSelector: 'all' });
+    if (!conversation) {
+        throw new SpirachaClientError('Evidence source is no longer available.');
+    }
+    return retrieveEvidencePage(conversation, request);
 };

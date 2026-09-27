@@ -1,0 +1,4 @@
+interface:
+  display_name: "Spiracha"
+  short_description: "Look up conversations and retrieve focused evidence"
+  default_prompt: "Use $spiracha to investigate a conversation by platform and thread ID."

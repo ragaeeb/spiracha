@@ -284,7 +284,7 @@ const GrokBotChatPage = () => {
 
             <DeleteConfirmDialog
                 confirmLabel={deleteMutation.isPending ? 'Deleting...' : 'Delete chat'}
-                description="Permanently delete this Grok Bot chat from local persistence. This removes its roster entry and transcript replica."
+                description="Permanently delete this bot or group from your Grok Bot account through Grok Bot."
                 errorMessage={getMutationErrorMessage(deleteMutation.error, 'Chat delete failed')}
                 open={deleteOpen}
                 title="Delete this Grok Bot chat?"

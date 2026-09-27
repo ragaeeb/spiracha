@@ -13,13 +13,23 @@ type ThreadToolsPanelProps = {
     showRawJson: boolean;
     sortOrder: TranscriptSortOrder;
     transcriptIsPartial?: boolean;
-    transcriptState: 'available' | 'deferred' | 'missing';
+    transcriptState: 'available' | 'deferred' | 'missing' | 'unavailable';
     onLoadTranscript?: () => void;
     onSortOrderChange?: (value: TranscriptSortOrder) => void;
 };
 
 const getToolActivityEvents = (events: ThreadEvent[]) =>
     events.filter((event) => event.kind === 'tool_call' || event.kind === 'tool_output' || event.kind === 'web_search');
+
+const getTranscriptUnavailableMessage = (state: ThreadToolsPanelProps['transcriptState']) => {
+    if (state === 'missing') {
+        return 'The rollout file is missing, so recorded tool activity is unavailable.';
+    }
+    if (state === 'unavailable') {
+        return 'Forked transcript history could not be resolved, so recorded tool activity is unavailable.';
+    }
+    return null;
+};
 
 const sortJsonKeys = (value: unknown): unknown => {
     if (Array.isArray(value)) {
@@ -98,6 +108,7 @@ export function ThreadToolsPanel({
 }: ThreadToolsPanelProps) {
     const toolEvents = events ? getToolActivityEvents(events) : [];
     const canLoadMore = transcriptState === 'deferred' || transcriptIsPartial;
+    const transcriptUnavailableMessage = getTranscriptUnavailableMessage(transcriptState);
 
     return (
         <div className="space-y-3">
@@ -113,10 +124,8 @@ export function ThreadToolsPanel({
                         </Button>
                     ) : null}
                 </div>
-                {transcriptState === 'missing' ? (
-                    <p className="text-[var(--muted-foreground)] text-sm">
-                        The rollout file is missing, so recorded tool activity is unavailable.
-                    </p>
+                {transcriptUnavailableMessage ? (
+                    <p className="text-[var(--muted-foreground)] text-sm">{transcriptUnavailableMessage}</p>
                 ) : toolEvents.length === 0 ? (
                     <p className="text-[var(--muted-foreground)] text-sm">
                         {canLoadMore

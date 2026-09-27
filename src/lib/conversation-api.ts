@@ -28,7 +28,7 @@ import { validateEvidenceLens } from './conversation-data/evidence-lens';
 import { buildEvidenceExport } from './conversation-data/evidence-markdown';
 import type { CompactExportFlags } from './conversation-data/export-options';
 import { renderConversationMarkdown } from './conversation-data/markdown';
-import { IncompleteTranscriptError } from './conversation-data/operation-types';
+import { IncompleteTranscriptError, SourceMutationOutcomeError } from './conversation-data/operation-types';
 import { decodeConversationCursor } from './conversation-data/pagination';
 import { ConversationPayloadError, convertConversationPayload } from './conversation-payload';
 import type { ConvertConversationPayloadOptions } from './conversation-payload-types';
@@ -61,6 +61,8 @@ type ApiErrorCode =
     | 'internal_error'
     | 'method_not_allowed'
     | 'mutation_conflict'
+    | 'mutation_outcome_unknown'
+    | 'mutation_rejected'
     | 'not_found'
     | 'original_representation_unavailable'
     | 'source_changed'
@@ -187,6 +189,13 @@ const invalidMessageSelectorResponse = (messageSelector: unknown) =>
     errorResponse('validation_error', `Unsupported message selector: ${String(messageSelector)}`, 400, {
         field: 'message_selector',
         message_selector: messageSelector,
+    });
+
+const incompleteTranscriptResponse = (error: IncompleteTranscriptError, source: string, id: string) =>
+    errorResponse('incomplete_transcript', error.message, 409, {
+        id,
+        reason_code: error.reasonCode,
+        source,
     });
 
 const parseSources = (value: string | null): ParseResult<ConversationSource[] | 'all'> => {
@@ -585,20 +594,27 @@ const handleGetConversation = async (
         return result.error;
     }
 
-    const conversation = await dependencies.getConversation(result.value);
-    if (!conversation) {
-        return errorResponse('conversation_not_found', 'No conversation exists for that source and id.', 404, {
-            id: result.value.id,
-            source: result.value.source,
-        });
-    }
+    try {
+        const conversation = await dependencies.getConversation(result.value);
+        if (!conversation) {
+            return errorResponse('conversation_not_found', 'No conversation exists for that source and id.', 404, {
+                id: result.value.id,
+                source: result.value.source,
+            });
+        }
 
-    return jsonResponse({
-        data: withReadFields(conversation, {
-            includeMessages: true,
-            messageSelector: result.value.messageSelector ?? 'all',
-        }),
-    });
+        return jsonResponse({
+            data: withReadFields(conversation, {
+                includeMessages: true,
+                messageSelector: result.value.messageSelector ?? 'all',
+            }),
+        });
+    } catch (error) {
+        if (error instanceof IncompleteTranscriptError) {
+            return incompleteTranscriptResponse(error, result.value.source, result.value.id);
+        }
+        throw error;
+    }
 };
 
 const handleExportConversation = async (
@@ -617,18 +633,18 @@ const handleExportConversation = async (
         return flags.error;
     }
 
-    const conversation = await dependencies.getConversation({
-        ...result.value,
-        messageSelector: 'all',
-    });
-    if (!conversation) {
-        return errorResponse('conversation_not_found', 'No conversation exists for that source and id.', 404, {
-            id: result.value.id,
-            source: result.value.source,
-        });
-    }
-
     try {
+        const conversation = await dependencies.getConversation({
+            ...result.value,
+            messageSelector: 'all',
+        });
+        if (!conversation) {
+            return errorResponse('conversation_not_found', 'No conversation exists for that source and id.', 404, {
+                id: result.value.id,
+                source: result.value.source,
+            });
+        }
+
         const format = flags.value.outputFormat ?? 'md';
         return new Response(
             dependencies.renderConversationMarkdown(conversation, {
@@ -645,7 +661,7 @@ const handleExportConversation = async (
         );
     } catch (error) {
         if (error instanceof IncompleteTranscriptError) {
-            return errorResponse('incomplete_transcript', error.message, 409);
+            return incompleteTranscriptResponse(error, result.value.source, result.value.id);
         }
         throw error;
     }
@@ -755,18 +771,25 @@ const handleExportEvidence = async (
     if (canonicalGeneratedAt === null) {
         return invalidFieldResponse('generated_at', generatedAt, '`generated_at` must be an ISO-8601 timestamp.');
     }
-    const conversation = await dependencies.getConversation({ ...getOptions.value, messageSelector: 'all' });
-    if (!conversation) {
-        return errorResponse('conversation_not_found', 'No conversation exists for that source and id.', 404, {
-            id: getOptions.value.id,
-            source: getOptions.value.source,
+    try {
+        const conversation = await dependencies.getConversation({ ...getOptions.value, messageSelector: 'all' });
+        if (!conversation) {
+            return errorResponse('conversation_not_found', 'No conversation exists for that source and id.', 404, {
+                id: getOptions.value.id,
+                source: getOptions.value.source,
+            });
+        }
+        return jsonResponse({
+            data: dependencies.buildEvidenceExport(conversation, validated.value, {
+                generatedAt: canonicalGeneratedAt,
+            }),
         });
+    } catch (error) {
+        if (error instanceof IncompleteTranscriptError) {
+            return incompleteTranscriptResponse(error, getOptions.value.source, getOptions.value.id);
+        }
+        throw error;
     }
-    return jsonResponse({
-        data: dependencies.buildEvidenceExport(conversation, validated.value, {
-            generatedAt: canonicalGeneratedAt,
-        }),
-    });
 };
 
 const mutationConflictResponse = (error: SourceMutationConflictError) =>
@@ -776,6 +799,19 @@ const mutationConflictResponse = (error: SourceMutationConflictError) =>
         source: error.source,
         ...error.details,
     });
+
+const mutationOutcomeResponse = (error: SourceMutationOutcomeError) =>
+    errorResponse(
+        error.effect === 'none' ? 'mutation_rejected' : 'mutation_outcome_unknown',
+        error.message,
+        error.effect === 'none' ? 409 : 502,
+        {
+            effect: error.effect,
+            id: error.id,
+            reason_code: error.reasonCode,
+            source: error.source,
+        },
+    );
 
 const handleDeleteConversation = async (
     source: string | undefined,
@@ -810,6 +846,9 @@ const handleDeleteConversation = async (
 
         return jsonResponse({ data: deleteResult });
     } catch (error) {
+        if (error instanceof SourceMutationOutcomeError) {
+            return mutationOutcomeResponse(error);
+        }
         if (error instanceof SourceMutationConflictError) {
             return mutationConflictResponse(error);
         }

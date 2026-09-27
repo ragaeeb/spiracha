@@ -33,11 +33,6 @@ export const buildPackagedUiProcessEnv = (
     SPIRACHA_CODEX_DB: codexDbPath,
 });
 
-export const getPackedTarballPath = (directory: string, packageName: string, version: string) =>
-    path.join(directory, `${packageName}-${version}.tgz`);
-
-export const buildPackagedUiProcessArgs = (packageTgz: string) => ['--package', packageTgz, 'spiracha', 'serve'];
-
 export const isPackagedUiHealthyResponse = (probe: PackagedUiProbe) =>
     probe.ok &&
     probe.contentType?.toLowerCase().includes('text/html') === true &&
@@ -215,7 +210,7 @@ export const runPackagedUiSmokeTest = async (cwd = process.cwd()) => {
     const manifest = await readPackageManifest(cwd);
     const tempDirectory = await mkdtemp(path.join(os.tmpdir(), 'spiracha-package-smoke-'));
     const port = await getAvailablePort();
-    const packageTgz = getPackedTarballPath(tempDirectory, manifest.name, manifest.version);
+    const packageTgz = path.join(tempDirectory, `${manifest.name}-${manifest.version}.tgz`);
 
     try {
         const codexFixtureRoot = await mkdtemp(path.join(tempDirectory, 'codex-fixture-'));
@@ -263,7 +258,7 @@ try {
         );
 
         const bunx = Bun.which('bunx') ?? 'bunx';
-        const proc = Bun.spawn([bunx, ...buildPackagedUiProcessArgs(packageTgz)], {
+        const proc = Bun.spawn([bunx, '--package', packageTgz, 'spiracha', 'serve'], {
             cwd: tempDirectory,
             env: buildPackagedUiProcessEnv(process.env, port, codexFixture.dbPath),
             stderr: 'pipe',

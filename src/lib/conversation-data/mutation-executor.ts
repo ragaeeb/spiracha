@@ -1,5 +1,5 @@
 import { mapSettledWithConcurrency } from '../concurrency';
-import { type PublicMutationError, SourceMutationConflictError } from './operation-types';
+import { type PublicMutationError, SourceMutationConflictError, SourceMutationOutcomeError } from './operation-types';
 import type {
     DeleteBatchSummary,
     DeleteConversationItemResult,
@@ -62,6 +62,20 @@ export const toPublicMutationError = (error: unknown): PublicMutationError => {
             message: error.message,
             operation: 'delete',
             retryable: true,
+        };
+    }
+    if (error instanceof SourceMutationOutcomeError) {
+        return {
+            code: error.effect === 'none' ? 'mutation_rejected' : 'mutation_outcome_unknown',
+            details: {
+                effect: error.effect,
+                id: error.id,
+                reason_code: error.reasonCode,
+                source: error.source,
+            },
+            message: error.message,
+            operation: 'delete',
+            retryable: error.effect === 'none',
         };
     }
     return {
@@ -226,7 +240,13 @@ export const settleDeleteBatch = async (options: SettleDeleteBatchOptions): Prom
                 }
                 return outcome;
             } catch (error) {
-                return failedOutcome(id, error, error instanceof SourceMutationConflictError ? 'none' : 'unknown');
+                const effect =
+                    error instanceof SourceMutationConflictError
+                        ? 'none'
+                        : error instanceof SourceMutationOutcomeError
+                          ? error.effect
+                          : 'unknown';
+                return failedOutcome(id, error, effect);
             }
         },
         options.signal,

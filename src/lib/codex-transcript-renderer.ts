@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type { ParsedCodexTranscript } from './codex-browser-types';
-import { parseCodexTranscriptFile } from './codex-thread-parser';
+import { CodexTranscriptHistoryError, parseCodexTranscriptFile } from './codex-thread-parser';
 import {
     type CodexTranscriptExportTarget,
     type CodexTranscriptRenderOptions,
@@ -18,7 +18,11 @@ type TranscriptTextTransform = (text: string) => string;
 const loadCodexTranscript = async (target: CodexTranscriptExportTarget): Promise<ParsedCodexTranscript> => {
     try {
         return await runWithTranscriptLoadLimit(
-            () => parseCodexTranscriptFile(target.sessionFile, { includeRaw: false }),
+            () =>
+                parseCodexTranscriptFile(target.sessionFile, {
+                    includeRaw: false,
+                    resolveForkedThread: target.resolveForkedThread,
+                }),
             {
                 id: target.thread?.id,
                 integration: 'codex',
@@ -27,6 +31,9 @@ const loadCodexTranscript = async (target: CodexTranscriptExportTarget): Promise
             },
         );
     } catch (error) {
+        if (error instanceof CodexTranscriptHistoryError) {
+            throw error;
+        }
         const message = error instanceof Error ? error.message : String(error);
         throw new Error(`Failed to read Codex transcript ${target.sessionFile}: ${message}`);
     }

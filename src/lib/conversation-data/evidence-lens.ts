@@ -230,8 +230,7 @@ const tokenizeShell = (command: string): string[] | null => {
     if (!trimmed || trimmed.startsWith('#')) {
         return null;
     }
-    const segment = trimmed.slice(0, 4096).split(/\s*(?:&&|\|\||[;|])\s*/u, 1)[0] ?? '';
-    const rawTokens = segment.match(/"(?:\\.|[^"\\])*"|'[^']*'|[^\s"']+/gu) ?? [];
+    const rawTokens = trimmed.slice(0, 4096).match(/"(?:\\.|[^"\\])*"|'[^']*'|&&|\|\||[;|]|[^\s"';&|]+/gu) ?? [];
     const tokens = rawTokens.map((token) => token.replace(/^(?:"([\s\S]*)"|'([\s\S]*)')$/u, '$1$2'));
     return tokens.length > 0 ? tokens : null;
 };
@@ -251,8 +250,11 @@ export const parseShellInvocation = (command: string): { executable: string; sub
             index += 1;
         }
     }
+    if (tokens[index] === 'cd' && tokens[index + 2] === '&&') {
+        index += 3;
+    }
     if (tokens[index] === 'rtk') {
-        index += 1;
+        index += tokens[index + 1] === 'proxy' ? 2 : 1;
     }
     const rawExecutable = tokens[index];
     if (!rawExecutable) {
@@ -305,12 +307,14 @@ export const matchEvidenceEvent = (event: ConversationEvidenceEvent, anchor: Evi
         );
     }
     if (anchor.kind === 'shell-command') {
-        const invocation = event.tool?.command ? parseShellInvocation(event.tool.command) : null;
-        return Boolean(
-            invocation &&
-                anchor.executables.includes(invocation.executable) &&
-                matchesOne(invocation.subcommand, anchor.subcommands),
-        );
+        return [event.tool?.command, ...(event.tool?.shellCommands ?? [])].some((command) => {
+            const invocation = command ? parseShellInvocation(command) : null;
+            return Boolean(
+                invocation &&
+                    anchor.executables.includes(invocation.executable) &&
+                    matchesOne(invocation.subcommand, anchor.subcommands),
+            );
+        });
     }
     if (anchor.kind === 'artifact') {
         return event.artifacts.some((artifact) => anchor.globs.some((glob) => globMatches(artifact, glob)));

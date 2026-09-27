@@ -4,6 +4,7 @@ import { unzipSync } from 'fflate';
 import { handleConversationApiRequest } from './conversation-api';
 import { OriginalRepresentationUnavailableError, SourceChangedError } from './conversation-data';
 import { toCanonicalMessage } from './conversation-data/adapter-helpers';
+import { IncompleteTranscriptError, SourceMutationOutcomeError } from './conversation-data/operation-types';
 import type { ConversationDetail, ConversationSourceInfo } from './conversation-data/types';
 import { chatgptResearchPayload, chatgptResearchReport } from './conversation-payload-test-helpers';
 import type { ConvertedConversation } from './conversation-payload-types';
@@ -259,7 +260,7 @@ describe('conversation API handler', () => {
                 markdown: expect.stringContaining('# Focused evidence: Thread 1'),
                 meta: {
                     generatedAt: '2026-07-19T12:00:00.000Z',
-                    rendererVersion: 'focused-evidence/v2',
+                    rendererVersion: 'focused-evidence/v5',
                 },
             },
         });
@@ -993,6 +994,85 @@ describe('conversation API handler', () => {
 
         expect(response.status).toBe(200);
     });
+
+    it('should return an actionable incomplete-transcript response for a listed chat', async () => {
+        const getConversation = async () => {
+            throw new IncompleteTranscriptError(
+                'Grok Bot transcript is not available locally. Open this chat in Grok Bot to sync its transcript, then retry export.',
+            );
+        };
+        const detail = await handleConversationApiRequest(createRequest('/api/v1/conversations/grok-bot/listed-chat'), {
+            getConversation,
+        });
+        const exported = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/grok-bot/listed-chat/export'),
+            { getConversation },
+        );
+        const evidence = await handleConversationApiRequest(
+            createRequest('/api/v1/conversations/grok-bot/listed-chat/evidence', {
+                body: JSON.stringify({ lens: validLens }),
+                headers: { 'Content-Type': 'application/json' },
+                method: 'POST',
+            }),
+            { getConversation },
+        );
+
+        for (const response of [detail, exported, evidence]) {
+            expect(response.status).toBe(409);
+            await expect(response.json()).resolves.toMatchObject({
+                error: {
+                    code: 'incomplete_transcript',
+                    details: {
+                        id: 'listed-chat',
+                        reason_code: 'incomplete_transcript',
+                        source: 'grok-bot',
+                    },
+                    message: expect.stringContaining('Open this chat in Grok Bot'),
+                },
+            });
+        }
+    });
+
+    it.each([
+        {
+            code: 'mutation_rejected',
+            effect: 'none',
+            reasonCode: 'gateway_delete_rejected',
+            status: 409,
+        },
+        {
+            code: 'mutation_outcome_unknown',
+            effect: 'unknown',
+            reasonCode: 'gateway_delete_unconfirmed',
+            status: 502,
+        },
+    ] as const)(
+        'should preserve a typed $effect delete outcome in the API',
+        async ({ code, effect, reasonCode, status }) => {
+            const response = await handleConversationApiRequest(
+                createRequest('/api/v1/conversations/grok-bot/bot-1', { method: 'DELETE' }),
+                {
+                    deleteConversation: async () => {
+                        throw new SourceMutationOutcomeError(
+                            'grok-bot',
+                            'bot-1',
+                            'Grok Bot deletion was not confirmed.',
+                            reasonCode,
+                            effect,
+                        );
+                    },
+                },
+            );
+
+            expect(response.status).toBe(status);
+            await expect(response.json()).resolves.toMatchObject({
+                error: {
+                    code,
+                    details: { effect, id: 'bot-1', reason_code: reasonCode, source: 'grok-bot' },
+                },
+            });
+        },
+    );
 
     it('should delete an explicit set of conversations through the public API', async () => {
         const response = await handleConversationApiRequest(

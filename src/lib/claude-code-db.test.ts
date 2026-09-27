@@ -299,6 +299,31 @@ describe('claude code workspace discovery', () => {
         expect(transcript?.rawEvents).toHaveLength(3);
     });
 
+    it.each([
+        ['<command-message>claude-api</command-message>', 'Claude API prompt audit'],
+        ['First read @AGENTS.md', 'Kalu project unblocking'],
+    ])('should prefer native custom-title metadata over the first user message', async (firstMessage, title) => {
+        const projectsDir = await makeTempRoot();
+        const sessionId = 'session-custom-title';
+        await writeSession(projectsDir, '-Users-rhaq-workspace-ushman-corpus', sessionId, [
+            buildMessageRecord(sessionId, `${sessionId}-user`, 'user', firstMessage, '2026-06-01T10:00:00.000Z'),
+            {
+                customTitle: title,
+                sessionId,
+                timestamp: '2026-06-01T10:00:01.000Z',
+                type: 'custom-title',
+            },
+        ]);
+
+        const sessions = await listClaudeCodeSessionsForGroup(
+            'project:-Users-rhaq-workspace-ushman-corpus',
+            projectsDir,
+        );
+
+        expect(sessions).toHaveLength(1);
+        expect(sessions[0]).toMatchObject({ sessionId, title });
+    });
+
     it('should list Claude Code sub-agents beneath their parent with metadata titles and models', async () => {
         const projectsDir = await makeTempRoot();
         const projectDirName = '-Users-rhaq-workspace-ushman-corpus';
@@ -698,6 +723,43 @@ describe('claude code workspace discovery', () => {
         ).toEqual([]);
         expect(await readClaudeCodeSessionTranscript(projectsDir, 'metadata-only')).not.toBeNull();
     });
+
+    it.each(['kalu', 'my-project'])(
+        'should keep %s project identity when sibling sessions use other cwds',
+        async (name) => {
+            const projectsDir = await makeTempRoot();
+            const projectRoot = path.join(homeDir, 'workspace', name);
+            const worktree = path.join(homeDir, 'workspace', `${name}-worktrees`, 'funny-dubinsky');
+            const directoryName = projectRoot.replace(/[^a-zA-Z0-9]/g, '-');
+            const worktreeDirectoryName = worktree.replace(/[^a-zA-Z0-9]/g, '-');
+            for (const [id, cwd] of [
+                ['a-worktree', worktree],
+                ['b-subdirectory', path.join(projectRoot, 'testing')],
+                ['c-root', projectRoot],
+            ] as const) {
+                await writeSession(projectsDir, directoryName, id, buildSessionRecords(id, cwd));
+            }
+            await writeSession(
+                projectsDir,
+                worktreeDirectoryName,
+                'separate-worktree',
+                buildSessionRecords('separate-worktree', worktree),
+            );
+
+            const groups = await listClaudeCodeWorkspaceGroups(projectsDir);
+            expect(groups).toHaveLength(2);
+            expect(groups.find((group) => group.directoryName === directoryName)).toMatchObject({
+                label: name,
+                sessionCount: 3,
+                uri: `file://${projectRoot}`,
+                worktree: projectRoot,
+            });
+            expect(groups.find((group) => group.directoryName === worktreeDirectoryName)?.worktree).toBe(worktree);
+            const sessions = await listClaudeCodeSessionsForGroup(`project:${directoryName}`, projectsDir);
+            expect(sessions.find((session) => session.sessionId === 'a-worktree')?.cwd).toBe(worktree);
+            expect(findClaudeCodeWorkspaceGroups(groups, projectRoot)).toHaveLength(1);
+        },
+    );
 
     it('should prefer a sibling transcript cwd over lossy hyphenated directory decoding', async () => {
         const projectsDir = await makeTempRoot();

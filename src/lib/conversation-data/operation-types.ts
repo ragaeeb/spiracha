@@ -133,6 +133,22 @@ export class SourceMutationConflictError extends Error {
     }
 }
 
+export class SourceMutationOutcomeError extends Error {
+    readonly effect: 'none' | 'unknown';
+    readonly id: string;
+    readonly reasonCode: string;
+    readonly source: string;
+
+    constructor(source: string, id: string, reason: string, reasonCode: string, effect: 'none' | 'unknown') {
+        super(reason);
+        this.name = 'SourceMutationOutcomeError';
+        this.effect = effect;
+        this.id = id;
+        this.reasonCode = reasonCode;
+        this.source = source;
+    }
+}
+
 export type SourceReaderOwned = Supported<{ owner: 'source_reader' }>;
 export type SourceMutatorOwned = Supported<{ owner: 'source_mutator' }>;
 

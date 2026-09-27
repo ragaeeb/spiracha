@@ -39,5 +39,5 @@
         "verbatimModuleSyntax": true
     },
     "exclude": ["node_modules", "dist"],
-    "include": ["bin/**/*.ts", "src/**/*"]
+    "include": ["scripts/**/*.ts", "bin/**/*.ts", "src/**/*"]
 }

@@ -109,6 +109,179 @@ describe('getCachedThreadTranscriptPreview', () => {
         expect(transcript.events.length).toBeGreaterThan(2);
     });
 
+    it('should include fork history in cached previews, model history, stats, and size checks', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-cache-fork-test-'));
+        tempPaths.push(tempRoot);
+        const parentFile = path.join(tempRoot, 'parent.jsonl');
+        const childFile = path.join(tempRoot, 'child.jsonl');
+        const parentThreadId = 'parent-thread';
+        const parentRecords = [
+            {
+                ordinal: 0,
+                payload: { cwd: '/workspace/parent', id: parentThreadId, timestamp: '2026-07-07T12:00:00.000Z' },
+                type: 'session_meta',
+            },
+            { ordinal: 1, payload: { model: 'gpt-parent', type: 'turn_context' }, type: 'turn_context' },
+            {
+                ordinal: 2,
+                payload: { message: 'parent answer', phase: 'final_answer', type: 'agent_message' },
+                type: 'response_item',
+            },
+        ];
+        const childRecords = [
+            {
+                ordinal: 3,
+                payload: {
+                    cwd: '/workspace/child',
+                    forked_from_id: parentThreadId,
+                    forked_from_ordinal_exclusive: 3,
+                    id: 'child-thread',
+                    timestamp: '2026-07-07T12:01:00.000Z',
+                },
+                type: 'session_meta',
+            },
+            {
+                ordinal: 4,
+                payload: { thread_settings: { model: 'gpt-child' }, type: 'thread_settings_applied' },
+                type: 'event_msg',
+            },
+            {
+                ordinal: 5,
+                payload: { message: 'child answer', phase: 'final_answer', type: 'agent_message' },
+                type: 'response_item',
+            },
+        ];
+        await Promise.all([
+            Bun.write(parentFile, parentRecords.map((record) => JSON.stringify(record)).join('\n')),
+            Bun.write(childFile, childRecords.map((record) => JSON.stringify(record)).join('\n')),
+        ]);
+        const resolveForkedThread = async (threadId: string) => {
+            expect(threadId).toBe(parentThreadId);
+            return parentFile;
+        };
+
+        const [state, models, transcript, stats] = await Promise.all([
+            getThreadRolloutLoadState(childFile, Number.MAX_SAFE_INTEGER, { resolveForkedThread }),
+            getCachedCodexTranscriptModelNames(childFile, { resolveForkedThread }),
+            getCachedThreadTranscriptPreview(childFile, {
+                largeTranscriptThresholdBytes: Number.MAX_SAFE_INTEGER,
+                resolveForkedThread,
+            }),
+            getCachedCodexTranscriptStats(childFile, undefined, { resolveForkedThread }),
+        ]);
+
+        expect(state.fileSizeBytes).toBeGreaterThan(childRecords.length);
+        expect(state.shouldDeferTranscriptLoad).toBe(false);
+        expect(models).toEqual(['gpt-parent', 'gpt-child']);
+        expect(transcript.events.filter((event) => event.kind === 'message').map((event) => event.text)).toEqual([
+            'parent answer',
+            'child answer',
+        ]);
+        expect(stats.assistantMessageCount).toBe(2);
+    });
+
+    it('should size bounded parent history without counting excluded parent suffixes', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-cache-bounded-size-test-'));
+        tempPaths.push(tempRoot);
+        const parentFile = path.join(tempRoot, 'parent.jsonl');
+        const childFile = path.join(tempRoot, 'child.jsonl');
+        const parentThreadId = 'bounded-parent';
+        const parentPrefix = (text: string) => [
+            { ordinal: 0, payload: { id: parentThreadId }, type: 'session_meta' },
+            { ordinal: 1, payload: { message: text }, type: 'response_item' },
+        ];
+        const excludedRecord = (ordinal: number, text: string) =>
+            JSON.stringify({ ordinal, payload: { message: text }, type: 'response_item' });
+        await Bun.write(
+            parentFile,
+            `${parentPrefix('included prefix')
+                .map((record) => JSON.stringify(record))
+                .join('\n')}\n${excludedRecord(2, 'excluded '.repeat(1_000))}`,
+        );
+        await Bun.write(
+            childFile,
+            [
+                {
+                    ordinal: 2,
+                    payload: {
+                        forked_from_id: parentThreadId,
+                        forked_from_ordinal_exclusive: 2,
+                        id: 'bounded-child',
+                    },
+                    type: 'session_meta',
+                },
+                { ordinal: 3, payload: { message: 'child answer' }, type: 'response_item' },
+            ]
+                .map((record) => JSON.stringify(record))
+                .join('\n'),
+        );
+        const options = {
+            resolveForkedThread: async (threadId: string) => {
+                expect(threadId).toBe(parentThreadId);
+                return parentFile;
+            },
+        };
+        const initial = await getThreadRolloutLoadState(childFile, 1_000, options);
+
+        await Bun.write(
+            parentFile,
+            `${parentPrefix('included prefix')
+                .map((record) => JSON.stringify(record))
+                .join('\n')}\n${excludedRecord(2, 'excluded '.repeat(2_000))}`,
+        );
+        const afterExcludedGrowth = await getThreadRolloutLoadState(childFile, 1_000, options);
+
+        expect(initial.shouldDeferTranscriptLoad).toBe(false);
+        expect(afterExcludedGrowth).toEqual(initial);
+
+        await Bun.write(
+            parentFile,
+            `${parentPrefix('included '.repeat(300))
+                .map((record) => JSON.stringify(record))
+                .join('\n')}\n${excludedRecord(2, 'ignored')}`,
+        );
+        expect((await getThreadRolloutLoadState(childFile, 1_000, options)).shouldDeferTranscriptLoad).toBe(true);
+    });
+
+    it('should validate the top-level ordinal when a bounded segment has nested ordinals', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-cache-nested-ordinal-test-'));
+        tempPaths.push(tempRoot);
+        const parentFile = path.join(tempRoot, 'parent.jsonl');
+        const childFile = path.join(tempRoot, 'child.jsonl');
+        const parentThreadId = 'parent-thread';
+        await Promise.all([
+            Bun.write(
+                parentFile,
+                `${JSON.stringify({
+                    ordinal: 0,
+                    payload: { model: 'gpt-parent', ordinal: 99, type: 'turn_context' },
+                    type: 'turn_context',
+                })}\n`,
+            ),
+            Bun.write(
+                childFile,
+                `${JSON.stringify({
+                    ordinal: 1,
+                    payload: {
+                        forked_from_id: parentThreadId,
+                        forked_from_ordinal_exclusive: 1,
+                        id: 'child-thread',
+                    },
+                    type: 'session_meta',
+                })}\n`,
+            ),
+        ]);
+
+        const models = await getCachedCodexTranscriptModelNames(childFile, {
+            resolveForkedThread: async (threadId) => {
+                expect(threadId).toBe(parentThreadId);
+                return parentFile;
+            },
+        });
+
+        expect(models).toEqual(['gpt-parent']);
+    });
+
     it('should switch to preview mode when a rollout exceeds the configured size threshold', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-cache-test-'));
         tempPaths.push(tempRoot);

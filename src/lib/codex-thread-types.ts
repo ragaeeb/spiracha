@@ -1,5 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
+import type { CodexForkedThreadResolver } from './codex-thread-parser';
 import type { ExportFormat, JsonValue } from './shared-text';
 
 export type CodexTranscriptRenderOptions = {
@@ -81,6 +82,7 @@ export type ThreadRelations = {
 export type CodexTranscriptExportTarget = {
     sessionFile: string;
     outputRelativePath: string;
+    resolveForkedThread?: CodexForkedThreadResolver;
     thread: ThreadRow | null;
     relations: ThreadRelations;
     fallbackReason: string | null;

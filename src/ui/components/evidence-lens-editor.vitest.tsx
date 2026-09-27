@@ -46,6 +46,45 @@ describe('EvidenceLensEditor', () => {
         expect(screen.queryByText('anchors: Expected 1-32 anchors.')).toBeNull();
     });
 
+    it('should apply smaller settings only on request and preserve imported anchors and editable budgets', () => {
+        render(<Harness />);
+        const imported: EvidenceLens = {
+            ...initialLens,
+            anchors: [{ kind: 'text', literals: ['SIGTERM repair'] }],
+            name: 'Cancellation repair',
+        };
+        fireEvent.change(screen.getByLabelText('Lens JSON'), { target: { value: JSON.stringify(imported) } });
+        fireEvent.click(screen.getByRole('button', { name: 'Import lens JSON' }));
+        expect((screen.getByLabelText('totalCharacters') as HTMLInputElement).value).toBe('8000');
+
+        fireEvent.click(screen.getByRole('button', { name: 'Use 12k preset' }));
+        const smaller = JSON.parse((screen.getByLabelText('Lens JSON') as HTMLTextAreaElement).value);
+        expect(smaller).toEqual({
+            ...imported,
+            budget: {
+                commentaryCharactersPerEpisode: 500,
+                failedOutputCharacters: 6000,
+                successfulOutputCharacters: 500,
+                totalCharacters: 12000,
+            },
+            context: {
+                ...imported.context,
+                commentaryAfter: 1,
+                commentaryBefore: 1,
+                followRetries: true,
+                followWorkarounds: false,
+                includeReasoningSummaries: false,
+            },
+        });
+        expect(screen.getByText(/OR anchors broaden the export/u)).toBeTruthy();
+        expect(screen.getByText(/Check matched versus rendered counts/u)).toBeTruthy();
+        fireEvent.change(screen.getByLabelText('totalCharacters'), { target: { value: '16000' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Export lens JSON' }));
+        expect(
+            JSON.parse((screen.getByLabelText('Lens JSON') as HTMLTextAreaElement).value).budget.totalCharacters,
+        ).toBe(16000);
+    });
+
     it('should ignore invalid numeric context and budget edits', () => {
         const onChange = vi.fn();
         render(<EvidenceLensEditor lens={initialLens} onChange={onChange} />);

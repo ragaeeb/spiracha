@@ -80,3 +80,44 @@ describe('normalizeCodexEvents', () => {
         ]);
     });
 });
+
+it('should expose literal nested shell commands without interpreting comments or computed code', () => {
+    const code = 'text(await tools.exec_command({cmd:"rtk bun test tests/lifecycle.test.ts",yield_time_ms:1000}));';
+    const make = (command: string): ThreadEvent => ({
+        argumentsParseFailed: false,
+        argumentsText: command,
+        callId: 'exec-1',
+        command,
+        kind: 'tool_call',
+        name: 'exec',
+        raw: {},
+        sequence: 1,
+        timestamp: null,
+        workdir: null,
+    });
+    expect(normalizeCodexEvents([make(code)])[0]?.toolEvidence).toMatchObject({
+        shellCommands: ['rtk bun test tests/lifecycle.test.ts'],
+    });
+    expect(
+        normalizeCodexEvents([make('tools.exec_command({cmd:"echo ,}",})')])[0]?.toolEvidence?.shellCommands,
+    ).toEqual(['echo ,}']);
+    const singleQuoted = String.raw`tools.exec_command({'cmd':'printf \'hello\' \\tmp'})`;
+    expect(normalizeCodexEvents([make(singleQuoted)])[0]?.toolEvidence?.shellCommands).toEqual([
+        String.raw`printf 'hello' \tmp`,
+    ]);
+    const escapedDoubleQuotes = String.raw`tools.exec_command({'cmd':'printf \"hello\"'})`;
+    expect(normalizeCodexEvents([make(escapedDoubleQuotes)])[0]?.toolEvidence?.shellCommands).toEqual([
+        'printf "hello"',
+    ]);
+    const nestedArguments = 'tools.exec_command({options:{trace:{label:"nested"}},cmd:"echo nested"})';
+    expect(normalizeCodexEvents([make(nestedArguments)])[0]?.toolEvidence?.shellCommands).toEqual(['echo nested']);
+    for (const command of [
+        `// ${code}`,
+        JSON.stringify(code),
+        'tools.exec_command({cmd:dynamic()})',
+        'tools.exec_command({cmd:`echo hidden`})',
+        "tools.exec_command({cmd:'unterminated})",
+    ]) {
+        expect(normalizeCodexEvents([make(command)])[0]?.toolEvidence?.shellCommands ?? []).toEqual([]);
+    }
+});

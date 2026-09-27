@@ -17,6 +17,7 @@
         "ignoreUnknown": true,
         "includes": [
             "apps/**",
+            "scripts/**",
             "docs/**",
             "src/**",
             "testing/**",

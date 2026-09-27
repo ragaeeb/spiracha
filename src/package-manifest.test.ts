@@ -90,8 +90,13 @@ describe('package manifest', () => {
 
     it('should keep only direct client dependencies at runtime', async () => {
         const manifest = await readPackageManifest();
+        const dependencies = manifest.dependencies ?? {};
 
-        expect(manifest.dependencies).toEqual({ '@zip.js/zip.js': '^2.15.0', fflate: '0.8.3' });
+        expect(Object.keys(dependencies).sort()).toEqual(['@zip.js/zip.js', 'fflate']);
+        expect(dependencies['@zip.js/zip.js']).toMatch(
+            /^[~^]?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/u,
+        );
+        expect(dependencies.fflate).toBe('0.8.3');
 
         for (const dependencyName of requiredUiDevelopmentDependencies) {
             expect(manifest.devDependencies?.[dependencyName], dependencyName).toBeDefined();

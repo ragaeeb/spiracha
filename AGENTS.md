@@ -180,7 +180,7 @@ Defaults:
 - `delete_session_files` is accepted for single-delete query strings and batch-delete JSON; Cursor uses it to keep or remove transcript directories
 - Web imports are intentionally UI-only: they are not members of `CONVERSATION_SOURCES` and are not exposed through the stable API or CLI
 - Supplied payload conversion is separately exposed through `spiracha/payload` and the Bun `spiracha/client`; it reuses Web and native normalization without adding imported conversations to the stable source registry. Claude Code payload conversion is unsupported.
-- Grok Bot is a global source backed by the installed macOS app's account-scoped persistence directory. List reads the validated roster only, detail reads one exact replica, and raw export returns the original `.blob` bytes. Local deletion removes the selected original roster row and replica after a fail-closed process check; keep the app stopped throughout deletion. The check is not an atomic writer lock, and partial replica cleanup is reported separately and retried through a durable account/conversation receipt; see `docs/grok-bot-deletion.md`.
+- Grok Bot is a global source backed by the installed macOS app's account-scoped persistence directory. List reads the validated roster only, detail reads one exact replica, and raw export returns the original `.blob` bytes. Deletion calls the authenticated Grok Bot gateway to delete the exact bot/group ID and leaves app persistence untouched; see `docs/grok-bot-deletion.md`.
 
 Do not bake review semantics into Spiracha. A client such as `fgh --collect` decides that a selected assistant message is a review and chooses where to save it.
 
@@ -240,7 +240,7 @@ rtk bun run test:conformance
 
 ## Source contract onboarding and migration
 
-Read `docs/contract-review/CODEX_HANDOFF.md` and `docs/source-adapter-contract.md` before changing adapter/UI/export contracts. `docs/contract-review/FINDINGS.md` records the supplied archive's actual behavior; Command Code already has selection, export and deletion. Do not overwrite it with the older issue's baseline. The target migration and exhaustive acceptance cases are in `docs/contract-review/IMPLEMENTATION_PLAN.md` and `TEST_MATRIX.md`.
+Read `docs/source-adapter-contract.md` before changing adapter/UI/export contracts. `docs/contract-review/FINDINGS.md` records the supplied archive's actual behavior; Command Code already has selection, export and deletion. Do not overwrite it with the older issue's baseline. The target migration and exhaustive acceptance cases are in `docs/contract-review/IMPLEMENTATION_PLAN.md` and `docs/contract-review/TEST_MATRIX.md`. `docs/contract-review/VERIFICATION.md` records historical execution results and limits; verify current behavior against the code and applicable tests.
 
 - Keep `CONVERSATION_SOURCES` authoritative. A new ID requires an exact entry in `SOURCE_CATALOG`, the storage adapter registry and `SOURCE_ICONS`; preserve its source literal with `satisfies ConversationAdapter<'source-id'>`. Required route metadata and actual route files must agree. Generate TanStack routes normally.
 - The native payload parser map is exhaustive over the currently supported payload sources, not all UI providers. Keep Claude Code/Command Code exclusions until real portable parsers and fixtures are implemented. Never import storage/React/router modules into the portable catalog or payload normalizers.

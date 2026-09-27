@@ -1,23 +1,7 @@
 import { describe, expect, it } from 'bun:test';
-import path from 'node:path';
-import {
-    buildPackagedUiProcessArgs,
-    buildPackagedUiProcessEnv,
-    getFirstPackagedAssetPath,
-    getPackedTarballPath,
-    isPackagedUiHealthyResponse,
-} from './package-smoke';
+import { buildPackagedUiProcessEnv, getFirstPackagedAssetPath, isPackagedUiHealthyResponse } from './package-smoke';
 
 describe('packaged UI smoke helpers', () => {
-    it('should start the packaged production server explicitly', () => {
-        expect(buildPackagedUiProcessArgs('/tmp/spiracha.tgz')).toEqual([
-            '--package',
-            '/tmp/spiracha.tgz',
-            'spiracha',
-            'serve',
-        ]);
-    });
-
     it('should bind the packaged UI to its isolated Codex fixture', () => {
         expect(
             buildPackagedUiProcessEnv(
@@ -33,12 +17,6 @@ describe('packaged UI smoke helpers', () => {
             PORT: '45337',
             SPIRACHA_CODEX_DB: '/tmp/spiracha-package-smoke/state.sqlite',
         });
-    });
-
-    it('should derive the packed tarball path from package metadata', () => {
-        expect(getPackedTarballPath('/tmp/spiracha', 'spiracha', '2.3.0')).toBe(
-            path.join('/tmp/spiracha', 'spiracha-2.3.0.tgz'),
-        );
     });
 
     it('should reject Bun fallback responses', () => {

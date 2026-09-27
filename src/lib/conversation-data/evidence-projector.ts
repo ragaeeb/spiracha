@@ -18,11 +18,16 @@ export const createEvidenceProjectionState = (
     diagnostics: new Set<string>(),
     stats: {
         budgetReached: false,
+        candidateLimitReached: false,
         deduplicatedDiagnostics: 0,
         inputCharacters,
         inputEvents,
+        matchedEvents: 0,
         omittedBinaryPayloads: 0,
         omittedEvents: inputEvents,
+        renderedEvents: 0,
+        renderedMatchedEvents: 0,
+        sectionBudgetReached: false,
         selectedEvents: 0,
         truncatedArrays: 0,
         truncatedFields: 0,
@@ -92,7 +97,38 @@ const diagnosticFingerprint = (text: string) => {
         .split('\n')
         .map((line) => line.trim())
         .filter((line) => /(?:error|warn|fail|diagnostic|guidance)/iu.test(line));
-    return lines.join('\n');
+    return lines.length ? text : '';
+};
+
+const projectMatch = (
+    text: string,
+    maximum: number,
+    state: EvidenceProjectionState,
+    literals: string[],
+): string | null => {
+    if (text.length <= maximum || maximum < 80) {
+        return null;
+    }
+    {
+        const match = literals
+            .map((literal) => ({ length: literal.length, start: text.indexOf(literal) }))
+            .filter((item) => item.start >= 0)
+            .sort((a, b) => a.start - b.start)[0];
+        if (match) {
+            state.stats.truncatedFields += 1;
+            const room = maximum - 50;
+            const paragraphStart = text.lastIndexOf('\n\n', match.start);
+            const start = Math.max(paragraphStart < 0 ? 0 : paragraphStart + 2, match.start - Math.floor(room / 3));
+            const section = /^#{1,6} [^\n]*$/mu.exec(text.slice(start));
+            const paragraphEnd =
+                section?.index === 0
+                    ? text.indexOf('\n## ', start + section[0].length)
+                    : text.indexOf('\n\n', match.start + match.length);
+            const end = Math.min(text.length, start + room, paragraphEnd < 0 ? text.length : paragraphEnd);
+            return `${start ? '[earlier text omitted]\n' : ''}${text.slice(start, end)}${end < text.length ? '\n[later text omitted]' : ''}`;
+        }
+    }
+    return null;
 };
 
 /**
@@ -103,7 +139,12 @@ const diagnosticFingerprint = (text: string) => {
  * returns are not individually guaranteed to fit maximum; the final renderer owns
  * the total Markdown budget. This is not a general secret-redaction function.
  */
-export const projectEvidenceText = (text: string, maximum: number, state: EvidenceProjectionState): string => {
+export const projectEvidenceText = (
+    text: string,
+    maximum: number,
+    state: EvidenceProjectionState,
+    literals: string[] = [],
+): string => {
     if (!text) {
         return '';
     }
@@ -119,10 +160,14 @@ export const projectEvidenceText = (text: string, maximum: number, state: Eviden
     if (diagnostic) {
         state.diagnostics.add(diagnostic);
     }
+    const matched = projectMatch(text, maximum, state, literals);
+    if (matched !== null) {
+        return matched;
+    }
     if (text.length <= MAX_JSON_PARSE_CHARACTERS && /^[\s]*[[{]/u.test(text)) {
         try {
             const structured = projectStructured(JSON.parse(text), state);
-            return truncateHeadTail(JSON.stringify(structured, null, 2), maximum, state);
+            return truncateHeadTail(JSON.stringify(structured), maximum, state);
         } catch {
             // Unknown structured-looking text uses the bounded text projection below.
         }

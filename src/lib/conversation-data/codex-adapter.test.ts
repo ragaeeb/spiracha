@@ -3,6 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createCodexBrowserFixture } from '../codex-test-helpers';
+import { CodexTranscriptHistoryError } from '../codex-thread-parser';
 import { getConversation, getConversationRaw, listConversations, resolveConversationRef } from './index';
 
 const tempRoots: string[] = [];
@@ -113,6 +114,86 @@ describe('codex conversation adapter', () => {
         expect(page.data).toHaveLength(2);
         expect(page.data.find((conversation) => conversation.id === missingThread.threadId)?.messages).toEqual([]);
         expect(page.data.some((conversation) => conversation.messages.length > 0)).toBe(true);
+    });
+
+    it('should isolate invalid fork history to its row when listing messages', async () => {
+        const fixture = await createCodexBrowserFixture(await makeTempRoot());
+        const brokenThread = fixture.threads[0]!;
+        const healthyThread = fixture.threads[1]!;
+        await Bun.write(
+            brokenThread.sessionFile,
+            [
+                {
+                    ordinal: 0,
+                    payload: {
+                        cwd: brokenThread.cwd,
+                        forked_from_id: 'missing-parent',
+                        forked_from_ordinal_exclusive: 1,
+                        id: brokenThread.threadId,
+                    },
+                    type: 'session_meta',
+                },
+                {
+                    ordinal: 1,
+                    payload: { message: 'Local child answer', phase: 'final_answer', type: 'agent_message' },
+                    type: 'response_item',
+                },
+            ]
+                .map((record) => JSON.stringify(record))
+                .join('\n'),
+        );
+
+        const page = await listConversations({
+            cwd: brokenThread.cwd,
+            includeMessages: true,
+            locations: { codexDbPath: fixture.dbPath },
+            messageSelector: 'all',
+            sources: ['codex'],
+        });
+        const broken = page.data.find((conversation) => conversation.id === brokenThread.threadId);
+        const healthy = page.data.find((conversation) => conversation.id === healthyThread.threadId);
+
+        expect(page.data).toHaveLength(2);
+        expect(broken).toMatchObject({
+            messageCount: null,
+            messages: [],
+            metadata: { transcriptUnavailable: true },
+        });
+        expect(healthy?.messages.length).toBeGreaterThan(0);
+        await expect(
+            getConversation({
+                id: brokenThread.threadId,
+                locations: { codexDbPath: fixture.dbPath },
+                source: 'codex',
+            }),
+        ).rejects.toBeInstanceOf(CodexTranscriptHistoryError);
+    });
+
+    it('should surface a missing Codex fork parent instead of returning empty messages', async () => {
+        const fixture = await createCodexBrowserFixture(await makeTempRoot());
+        const childThread = fixture.threads[1]!;
+        const records = (await Bun.file(childThread.sessionFile).text())
+            .trim()
+            .split('\n')
+            .map((line) => JSON.parse(line) as { payload?: Record<string, unknown> });
+        records[0] = {
+            ...records[0],
+            payload: {
+                ...records[0]?.payload,
+                forked_from_id: 'missing-parent-thread',
+                forked_from_ordinal_exclusive: 1,
+            },
+        };
+        await Bun.write(childThread.sessionFile, records.map((record) => JSON.stringify(record)).join('\n'));
+
+        await expect(
+            getConversation({
+                id: childThread.threadId,
+                locations: { codexDbPath: fixture.dbPath },
+                messageSelector: 'all',
+                source: 'codex',
+            }),
+        ).rejects.toMatchObject({ code: 'CODEX_TRANSCRIPT_HISTORY_INVALID' });
     });
 
     it('should omit centralized hidden Codex bootstrap messages from normalized conversations', async () => {
