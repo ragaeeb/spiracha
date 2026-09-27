@@ -1,11 +1,13 @@
 import { renderSelectedTranscriptExport } from '@spiracha/lib/conversation-data/conversation-export';
 import { settleDeleteBatch } from '@spiracha/lib/conversation-data/mutation-executor';
 import type { ConversationDetail, ConversationMessage } from '@spiracha/lib/conversation-data/types';
+import { assembleExportBatch, writeExportArchive } from '@spiracha/lib/export-archive';
 import type { JsonValue } from '@spiracha/lib/shared-text';
+import { sanitizeExportFileName } from '@spiracha/lib/ui-export-archive';
 import { createServerFn } from '@tanstack/react-start';
 import type { InferOutput } from 'valibot';
 import { array, boolean, maxLength, minLength, object, optional, picklist, pipe, regex, string } from 'valibot';
-import { renderSourceSessionDownload, renderSourceSessionsDownload } from './source-session-export-server';
+import { renderSourceSessionDownload } from './source-session-export-server';
 
 const conversationIdSchema = pipe(string(), regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u));
 
@@ -146,11 +148,9 @@ const renderLoadedGrokBotChat = async (
 
 const deleteLoadedGrokBotChat = async (conversationId: string) => {
     const { deleteConversation } = await import('@spiracha/lib/conversation-data');
-    const result = await deleteConversation({ id: conversationId, source: 'grok-bot' });
-    if (!result || result.deletedIds.length === 0) {
-        throw new Error(`Grok Bot chat not found: ${conversationId}`);
-    }
-    return result;
+    return (
+        (await deleteConversation({ id: conversationId, source: 'grok-bot' })) ?? { deletedFiles: [], deletedIds: [] }
+    );
 };
 
 export const listGrokBotChatsFn = createServerFn({ method: 'GET' }).handler(async () => {
@@ -182,27 +182,49 @@ export const exportGrokBotChatFn = createServerFn({ method: 'POST' })
 export const exportGrokBotChatsFn = createServerFn({ method: 'POST' })
     .validator(exportChatsSchema)
     .handler(async ({ data }) => {
-        const entries = [];
-        for (const conversationId of data.conversationIds) {
-            const { content, conversation } = await renderLoadedGrokBotChat(conversationId, data);
-            entries.push({
-                content,
-                cwd: null,
-                fallbackBaseName: 'grok-bot-chat',
-                fileBaseName: conversation.title || conversation.id,
-                sessionId: conversation.id,
-                updatedAtMs: conversation.updatedAtMs,
-            });
-        }
-
-        return renderSourceSessionsDownload({
-            entries,
-            fallbackBaseName: 'grok-bot-chats',
-            outputFormat: data.outputFormat,
+        const { getConversation } = await import('@spiracha/lib/conversation-data');
+        const batch = await assembleExportBatch({
+            failurePolicy: 'partial',
+            kind: 'batch_normalized_export',
+            load: async (id) => {
+                const detail = await getConversation({ id, source: 'grok-bot' });
+                if (!detail) {
+                    return null;
+                }
+                const conversation = toSerializableChat(detail);
+                const content = renderGrokBotChat(conversation, data);
+                if (!content) {
+                    throw new Error(`Grok Bot chat has no exportable content: ${id}`);
+                }
+                return {
+                    members: [
+                        {
+                            bytes: content,
+                            relativePath: `${sanitizeExportFileName(conversation.title || id) || id}.${data.outputFormat}`,
+                        },
+                    ],
+                };
+            },
+            options: {
+                includeCommentary: data.includeCommentary,
+                includeMetadata: data.includeMetadata,
+                includeTools: data.includeTools,
+                outputFormat: data.outputFormat,
+            },
+            requestedIds: data.conversationIds,
+            source: 'grok-bot',
+        });
+        const archive = await writeExportArchive({
+            ...batch,
+            baseName: `grok-bot-chats-${data.conversationIds.length}`,
+            destination: { mode: 'download_url' },
             platform: 'grok-bot',
-            zipArchive: data.zipArchive,
             zipPassword: data.zipPassword,
         });
+        if (!('downloadUrl' in archive)) {
+            throw new Error('Expected a ZIP download URL');
+        }
+        return { ...archive, mode: 'download_url' as const };
     });
 
 export const deleteGrokBotChatFn = createServerFn({ method: 'POST' })

@@ -186,7 +186,9 @@ export const readGrokBotConversation = async (
     );
     const value = await readJsonBlob(persistencePath, 'transcript replica');
     if (value === null) {
-        return null;
+        throw new Error(
+            `Grok Bot transcript is not available locally: ${conversationId}. Open this chat in Grok Bot to sync its transcript, then retry export.`,
+        );
     }
 
     return {

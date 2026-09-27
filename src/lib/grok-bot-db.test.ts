@@ -4,6 +4,7 @@ import * as fs from 'node:fs/promises';
 import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { settleDeleteBatch } from './conversation-data/mutation-executor';
 import {
     deleteGrokBotConversation,
     encodeGrokBotPersistenceKey,
@@ -121,6 +122,17 @@ describe('grok bot persistence', () => {
         }
     });
 
+    it('should distinguish a listed chat with no local transcript from an unknown chat', async () => {
+        const root = await mkdtemp(path.join(os.tmpdir(), 'grok-bot-missing-'));
+        try {
+            await writeFixture(root);
+            await expect(readGrokBotConversation(root, KIWI_ID)).rejects.toThrow('transcript is not available locally');
+            await expect(readGrokBotConversation(root, 'unknown')).resolves.toBeNull();
+        } finally {
+            await rm(root, { force: true, recursive: true });
+        }
+    });
+
     it('should reject malformed active-account metadata and requested replicas', async () => {
         const root = await mkdtemp(path.join(os.tmpdir(), 'grok-bot-db-invalid-'));
         try {
@@ -194,6 +206,12 @@ describe('Grok Bot gateway deletion', () => {
             name: 'report an unconfirmed deletion without retrying',
             scenario: 'failed',
         },
+        {
+            error: 'Grok Bot backend is asleep',
+            id: KIWI_ID,
+            name: 'explain a hibernated backend before deletion',
+            scenario: 'hibernated',
+        },
         { error: 'Unable to list bots/groups', id: KIWI_ID, name: 'stop when listing fails', scenario: 'list-failed' },
         {
             error: 'unrecognized gateway',
@@ -224,6 +242,12 @@ describe('Grok Bot gateway deletion', () => {
                     if (scenario === 'list-failed' || (scenario === 'failed' && url.endsWith('/deleteAgent'))) {
                         throw new Error('fixture network failure');
                     }
+                    if (scenario === 'hibernated') {
+                        return new Response(null, {
+                            headers: { 'x-anyrun-failure-reason': 'pod_hibernated' },
+                            status: 417,
+                        });
+                    }
                     const agents =
                         scenario === 'missing'
                             ? [{ id: 'different-id', name: id }]
@@ -239,7 +263,18 @@ describe('Grok Bot gateway deletion', () => {
             const before = await Promise.all(
                 (await readdir(root)).sort().map(async (name) => [name, await Bun.file(path.join(root, name)).text()]),
             );
-            if (error) {
+            if (scenario === 'hibernated') {
+                const result = await settleDeleteBatch({
+                    concurrency: 1,
+                    deleteOne: (id) => deleteGrokBotConversation(root, id),
+                    ids: [id],
+                });
+                expect(result.outcomes[0]).toMatchObject({
+                    effect: 'none',
+                    error: { message: expect.stringContaining(error), retryable: true },
+                    status: 'failed',
+                });
+            } else if (error) {
                 await expect(deleteGrokBotConversation(root, id)).rejects.toThrow(error);
             } else {
                 await expect(deleteGrokBotConversation(root, id)).resolves.toEqual({
@@ -253,7 +288,7 @@ describe('Grok Bot gateway deletion', () => {
             ];
             const count = ['untrusted', 'ambiguous'].includes(scenario)
                 ? 0
-                : ['missing', 'list-failed'].includes(scenario)
+                : ['missing', 'list-failed', 'hibernated'].includes(scenario)
                   ? 1
                   : 2;
             expect(calls).toEqual(expectedCalls.slice(0, count));

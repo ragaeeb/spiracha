@@ -1,5 +1,6 @@
 import { createDecipheriv, pbkdf2Sync } from 'node:crypto';
 import path from 'node:path';
+import { SourceMutationConflictError } from './conversation-data/operation-types';
 import { asRecord } from './grok-bot-payload';
 
 const readEncryptedSession = async (persistenceDir: string) => {
@@ -83,6 +84,7 @@ const gatewayCall = async (
     method: 'listAgents' | 'deleteAgent',
     body: Record<string, string>,
 ): Promise<unknown> => {
+    let hibernated = false;
     try {
         const response = await fetch(`${session.baseUrl}/api/${method}`, {
             body: JSON.stringify(body),
@@ -92,19 +94,19 @@ const gatewayCall = async (
             signal: AbortSignal.timeout(30_000),
         });
         if (!response.ok) {
+            hibernated =
+                response.status === 417 && response.headers.get('x-anyrun-failure-reason') === 'pod_hibernated';
             await response.body?.cancel();
             throw new Error('Gateway rejected request');
         }
         const chunks: Uint8Array[] = [];
         let size = 0;
-        if (response.body) {
-            for await (const chunk of response.body) {
-                size += chunk.byteLength;
-                if (size > 2 * 1024 * 1024) {
-                    throw new Error('Gateway response too large');
-                }
-                chunks.push(chunk);
+        for await (const chunk of response.body ?? []) {
+            size += chunk.byteLength;
+            if (size > 2 * 1024 * 1024) {
+                throw new Error('Gateway response too large');
             }
+            chunks.push(chunk);
         }
         const text = Buffer.concat(chunks).toString();
         const data: unknown = text ? JSON.parse(text) : {};
@@ -116,7 +118,9 @@ const gatewayCall = async (
         throw new Error(
             method === 'deleteAgent'
                 ? 'Grok Bot deletion was not confirmed. Check the bot/group in Grok Bot before retrying; local files were not changed.'
-                : 'Unable to list bots/groups from the Grok Bot gateway. Open Grok Bot and check your sign-in and connection.',
+                : hibernated
+                  ? 'Grok Bot backend is asleep. Open Grok Bot and wait for it to reconnect, then retry deletion. No delete request was sent.'
+                  : 'Unable to list bots/groups from the Grok Bot gateway. Open Grok Bot and check your sign-in and connection.',
         );
     }
 };
@@ -126,7 +130,12 @@ export const deleteGrokBotAgent = async (persistenceDir: string, id: string): Pr
         throw new Error('Invalid Grok Bot conversation id.');
     }
     const session = await loadGatewaySession(persistenceDir);
-    const roster = await gatewayCall(session, 'listAgents', {});
+    let roster: unknown;
+    try {
+        roster = await gatewayCall(session, 'listAgents', {});
+    } catch (error) {
+        throw new SourceMutationConflictError('grok-bot', id, (error as Error).message, 'gateway_unavailable');
+    }
     const agents = Array.isArray(roster) ? roster : asRecord(roster)?.agents;
     if (
         !Array.isArray(agents) ||

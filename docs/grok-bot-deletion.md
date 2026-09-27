@@ -1,6 +1,6 @@
 # Grok Bot gateway deletion
 
-Spiracha deletes bots and groups through `POST /api/deleteAgent` with the exact conversation ID, following [grok-bot-cli](https://github.com/ScriptedAlchemy/grok-bot-cli/blob/main/src/core/gateway.js). It first checks that ID in `POST /api/listAgents`; names are never deletion selectors. A missing remote ID returns an empty deletion result.
+Spiracha deletes bots and groups through `POST /api/deleteAgent` with the exact conversation ID, following [grok-bot-cli](https://github.com/ScriptedAlchemy/grok-bot-cli/blob/main/src/core/gateway.js). It first checks that ID in `POST /api/listAgents`; names are never deletion selectors. A missing remote ID returns an empty deletion result and completes deletion without a not-found error, including single-chat retries. Partial batch failures remain visible in the confirmation dialog; retry targets only unresolved IDs.
 
 Deletion needs an internet connection and the macOS app's saved gateway session. Spiracha reads `gateway-descriptor.json` beside the configured persistence directory and unlocks it using the `Grok Bot Safe Storage` Keychain entry. Open Grok Bot and sign in if the session is missing or expired. Multiple saved sessions are rejected rather than guessing an account. Credentials go only to recognized HTTPS gateway hosts, with redirects disabled.
 
@@ -9,3 +9,5 @@ Grok Bot can stay open. Spiracha does not rewrite the roster, remove transcript 
 A failed or interrupted delete may have reached the service. Spiracha reports an unconfirmed deletion and does not automatically retry it. Check the bot/group in Grok Bot before retrying. Existing receipts from the former offline deletion implementation are left untouched and are no longer resumed; do not edit them to force local cleanup.
 
 Tests use encrypted fixture sessions and a mocked gateway, asserting exact bot/group IDs and unchanged local persistence. They do not delete real bots or prove live service behavior.
+
+If the gateway reports `pod_hibernated` (HTTP 417), its backend is asleep. Open Grok Bot and wait for it to reconnect before retrying. A failure while listing bots sends no delete request; batch results preserve this reason for the dialog.

@@ -1,3 +1,4 @@
+import type { DeleteConversationsResult } from '@spiracha/lib/conversation-data/types';
 import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import { useDeferredValue, useMemo, useState } from 'react';
@@ -96,6 +97,7 @@ const GrokBotPage = () => {
     };
     const openDeleteForChats = (selectedChats: GrokBotChat[]) => {
         if (selectedChats.length > 0) {
+            deleteMutation.reset();
             setPendingDelete({ chats: selectedChats });
         }
     };
@@ -167,6 +169,18 @@ const GrokBotPage = () => {
         },
     });
 
+    const batchErrors =
+        deleteMutation.data && 'outcomes' in deleteMutation.data
+            ? [
+                  ...new Set(
+                      (deleteMutation.data as DeleteConversationsResult).outcomes.flatMap((outcome) =>
+                          outcome.status === 'failed' ? [outcome.error.message] : [],
+                      ),
+                  ),
+              ].join(' ')
+            : '';
+    const failedDeleteCount = retryableDeleteIds(settledDeleteItemsFromUnknown(deleteMutation.data) ?? []).length;
+
     return (
         <div className="space-y-4">
             <PageHeader
@@ -216,8 +230,14 @@ const GrokBotPage = () => {
             <DeleteConfirmDialog
                 confirmLabel={getDeleteConfirmLabel(pendingDelete, deleteMutation.isPending)}
                 description={getDeleteDescription(pendingDelete)}
-                errorMessage={getMutationErrorMessage(deleteMutation.error, 'Chat delete failed')}
+                errorMessage={
+                    getMutationErrorMessage(deleteMutation.error, 'Chat delete failed') ??
+                    (failedDeleteCount > 0
+                        ? `${failedDeleteCount} chat${failedDeleteCount === 1 ? '' : 's'} could not be deleted. ${batchErrors || 'Check the bots/groups in Grok Bot before retrying.'} Only unresolved chats will be retried.`
+                        : null)
+                }
                 open={pendingDelete !== null}
+                pending={deleteMutation.isPending}
                 title={getDeleteTitle(pendingDelete)}
                 onConfirm={() => {
                     if (pendingDelete) {
