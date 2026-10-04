@@ -573,6 +573,8 @@ const toSessionSummary = (
         continuationSessionIds: [identity.sessionId],
         cwd: identity.cwd,
         filePath: file.filePath,
+        forkedFrom: null,
+        forkSessionIds: [],
         gitBranch: identity.gitBranch,
         hierarchy: { parentSessionId: file.parentSessionId },
         model: identity.model,
@@ -1130,6 +1132,85 @@ const coalesceTranscriptLineages = (transcripts: ClaudeCodeSessionTranscript[]):
     });
 };
 
+type ConversationRecord = { id: string; parentId: string | null; timestampMs: number | null };
+
+const getConversationRecords = (transcript: ClaudeCodeSessionTranscript): ConversationRecord[] =>
+    transcript.rawEvents.flatMap((raw) => {
+        const id = asString(raw.uuid ?? null);
+        return id && (raw.type === 'user' || raw.type === 'assistant')
+            ? [{ id, parentId: asString(raw.parentUuid ?? null), timestampMs: parseTimestampMs(raw.timestamp) }]
+            : [];
+    });
+
+type ForkCandidate = { branchEntryId: string; divergedAtMs: number | null; sharedCount: number };
+
+/**
+ * Claude Code writes a rewound-and-edited conversation to a new session file that copies the
+ * history (same record UUIDs) up to the edit. `child` forks `parent` when it starts with the
+ * parent's records and its first own record replies to one of them.
+ */
+const getForkCandidate = (child: ConversationRecord[], parentIds: Set<string>): ForkCandidate | null => {
+    const first = child[0];
+    if (!first || !parentIds.has(first.id)) {
+        return null;
+    }
+
+    const divergentIndex = child.findIndex((record) => !parentIds.has(record.id));
+    const divergent = child[divergentIndex];
+    if (!divergent?.parentId || !parentIds.has(divergent.parentId)) {
+        return null;
+    }
+
+    return { branchEntryId: divergent.parentId, divergedAtMs: divergent.timestampMs, sharedCount: divergentIndex };
+};
+
+type ForkIndex = { idSets: Set<string>[]; records: ConversationRecord[][] };
+
+const findForkParent = (
+    childIndex: number,
+    index: ForkIndex,
+): { candidate: ForkCandidate; parentIndex: number } | null => {
+    let best: { candidate: ForkCandidate; parentIndex: number } | null = null;
+    for (const [parentIndex, parentIds] of index.idSets.entries()) {
+        if (parentIndex === childIndex) {
+            continue;
+        }
+        const candidate = getForkCandidate(index.records[childIndex] ?? [], parentIds);
+        if (!candidate) {
+            continue;
+        }
+        // Both branches of a rewind reply to the same ancestor; the later divergence is the fork.
+        const reverse = getForkCandidate(index.records[parentIndex] ?? [], index.idSets[childIndex] ?? new Set());
+        const isOriginal = reverse !== null && (reverse.divergedAtMs ?? 0) >= (candidate.divergedAtMs ?? 0);
+        if (!isOriginal && (!best || candidate.sharedCount > best.candidate.sharedCount)) {
+            best = { candidate, parentIndex };
+        }
+    }
+    return best;
+};
+
+const annotateTranscriptForks = (transcripts: ClaudeCodeSessionTranscript[]): void => {
+    const topLevel = transcripts.filter((transcript) => transcript.session.hierarchy.parentSessionId === null);
+    const records = topLevel.map(getConversationRecords);
+    const index: ForkIndex = { idSets: records.map((items) => new Set(items.map((record) => record.id))), records };
+    for (const transcript of topLevel) {
+        transcript.session.forkedFrom = null;
+        transcript.session.forkSessionIds = [];
+    }
+
+    for (const [childIndex, child] of topLevel.entries()) {
+        const match = findForkParent(childIndex, index);
+        const parent = match ? topLevel[match.parentIndex] : undefined;
+        if (match && parent) {
+            child.session.forkedFrom = {
+                branchEntryId: match.candidate.branchEntryId,
+                sessionId: parent.session.sessionId,
+            };
+            parent.session.forkSessionIds = [...parent.session.forkSessionIds, child.session.sessionId].sort();
+        }
+    }
+};
+
 const omitTranscriptRawPayloads = (transcript: ClaudeCodeSessionTranscript): ClaudeCodeSessionTranscript => ({
     ...transcript,
     entries: transcript.entries.map(stripEntryRawPayloads),
@@ -1261,6 +1342,7 @@ export const listClaudeCodeSessionTranscriptsForGroup = async (
     const files = await listTranscriptFilesForWorkspace(projectsDir, directoryName);
     const physicalTranscripts = await readTranscriptFiles(files);
     const transcripts = coalesceTranscriptLineages(physicalTranscripts);
+    annotateTranscriptForks(transcripts);
     return transcripts.filter(hasSessionContent).sort((left, right) => compareSessions(left.session, right.session));
 };
 
@@ -1362,6 +1444,13 @@ export const readClaudeCodeSessionTranscript = async (
     }
     const isParent = root.session.filePath === file.filePath;
     const transcript = isParent ? coalesceTranscriptLineage(lineage) : physicalTranscript;
+    if (transcript && isParent) {
+        const annotated = coalesceTranscriptLineages(transcripts);
+        annotateTranscriptForks(annotated);
+        const match = annotated.find((candidate) => candidate.session.sessionId === transcript.session.sessionId);
+        transcript.session.forkedFrom = match?.session.forkedFrom ?? null;
+        transcript.session.forkSessionIds = match?.session.forkSessionIds ?? [];
+    }
     return transcript
         ? applyTranscriptPayloadPolicy(
               transcript,

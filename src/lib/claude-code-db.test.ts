@@ -118,6 +118,7 @@ const buildMessageRecord = (
     role: 'assistant' | 'user',
     content: string,
     timestamp: string,
+    parentUuid?: string,
 ) => ({
     cwd: corpusCwd,
     message: {
@@ -125,6 +126,7 @@ const buildMessageRecord = (
         id: role === 'assistant' ? `message-${uuid}` : undefined,
         role,
     },
+    parentUuid,
     sessionId,
     timestamp,
     type: role,
@@ -602,6 +604,110 @@ describe('claude code workspace discovery', () => {
         expect(exported).not.toContain('<command-name>/compact</command-name>');
         expect(exported).not.toContain('Abandoned root branch');
         expect(exported).not.toContain('Abandoned continuation branch');
+    });
+
+    it('should link a rewound Claude Code session to the session it forked from without merging them', async () => {
+        const projectsDir = await makeTempRoot();
+        const projectDirName = '-Users-rhaq-workspace-ushman-corpus';
+        const sharedPrefix = (sessionId: string) => [
+            buildMessageRecord(sessionId, 'shared-user', 'user', 'Fix the 404', '2026-06-01T10:00:00.000Z'),
+            buildMessageRecord(
+                sessionId,
+                'shared-assistant',
+                'assistant',
+                'Fixed it',
+                '2026-06-01T10:01:00.000Z',
+                'shared-user',
+            ),
+        ];
+        await writeSession(projectsDir, projectDirName, 'session-original', [
+            ...sharedPrefix('session-original'),
+            buildMessageRecord(
+                'session-original',
+                'original-user',
+                'user',
+                'Abandoned follow-up',
+                '2026-06-01T10:05:00.000Z',
+                'shared-assistant',
+            ),
+        ]);
+        await writeSession(projectsDir, projectDirName, 'session-fork', [
+            ...sharedPrefix('session-fork'),
+            buildMessageRecord(
+                'session-fork',
+                'fork-user',
+                'user',
+                'Edited follow-up',
+                '2026-06-01T10:20:00.000Z',
+                'shared-assistant',
+            ),
+            buildMessageRecord(
+                'session-fork',
+                'fork-assistant',
+                'assistant',
+                'Handled the edit',
+                '2026-06-01T10:21:00.000Z',
+                'fork-user',
+            ),
+        ]);
+        await writeSession(
+            projectsDir,
+            projectDirName,
+            'session-unrelated',
+            buildSessionRecords('session-unrelated', corpusCwd),
+        );
+
+        const sessions = await listClaudeCodeSessionsForGroup(
+            'project:-Users-rhaq-workspace-ushman-corpus',
+            projectsDir,
+        );
+        const bySessionId = new Map(sessions.map((session) => [session.sessionId, session]));
+        const forkTranscript = await readClaudeCodeSessionTranscript(projectsDir, 'session-fork');
+        const originalTranscript = await readClaudeCodeSessionTranscript(projectsDir, 'session-original');
+
+        expect(sessions).toHaveLength(3);
+        expect(bySessionId.get('session-fork')).toMatchObject({
+            forkedFrom: { branchEntryId: 'shared-assistant', sessionId: 'session-original' },
+            forkSessionIds: [],
+        });
+        expect(bySessionId.get('session-original')).toMatchObject({
+            forkedFrom: null,
+            forkSessionIds: ['session-fork'],
+        });
+        expect(bySessionId.get('session-unrelated')).toMatchObject({ forkedFrom: null, forkSessionIds: [] });
+        expect(forkTranscript?.session.forkedFrom).toEqual({
+            branchEntryId: 'shared-assistant',
+            sessionId: 'session-original',
+        });
+        expect(originalTranscript?.session.forkSessionIds).toEqual(['session-fork']);
+        expect(
+            originalTranscript?.entries.flatMap((entry) => entry.parts.map((part) => part.text)).filter(Boolean),
+        ).toContain('Abandoned follow-up');
+    });
+
+    it('should link a Claude Code session that copies another session in full as its fork', async () => {
+        const projectsDir = await makeTempRoot();
+        const projectDirName = '-Users-rhaq-workspace-ushman-corpus';
+        await writeSession(projectsDir, projectDirName, 'session-a', [
+            buildMessageRecord('session-a', 'a-user', 'user', 'Start', '2026-06-01T10:00:00.000Z'),
+            buildMessageRecord('session-a', 'a-assistant', 'assistant', 'Done', '2026-06-01T10:01:00.000Z', 'a-user'),
+        ]);
+        await writeSession(projectsDir, projectDirName, 'session-b', [
+            buildMessageRecord('session-b', 'a-user', 'user', 'Start', '2026-06-01T10:00:00.000Z'),
+            buildMessageRecord('session-b', 'a-assistant', 'assistant', 'Done', '2026-06-01T10:01:00.000Z', 'a-user'),
+            buildMessageRecord('session-b', 'b-user', 'user', 'More', '2026-06-02T10:00:00.000Z', 'a-assistant'),
+        ]);
+
+        const sessions = await listClaudeCodeSessionsForGroup(
+            'project:-Users-rhaq-workspace-ushman-corpus',
+            projectsDir,
+        );
+
+        expect(sessions.find((session) => session.sessionId === 'session-b')?.forkedFrom).toEqual({
+            branchEntryId: 'a-assistant',
+            sessionId: 'session-a',
+        });
+        expect(sessions.find((session) => session.sessionId === 'session-a')?.forkSessionIds).toEqual(['session-b']);
     });
 
     it('should delete every physical transcript in a compacted session lineage', async () => {

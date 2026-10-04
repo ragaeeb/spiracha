@@ -124,6 +124,8 @@ const claudeNestedSession = (overrides: Partial<ClaudeCodeSessionSummary> = {}):
     createdAtMs: 1_700_000_000_000,
     cwd: '/workspace/claude',
     filePath: '/tmp/claude.jsonl',
+    forkedFrom: null,
+    forkSessionIds: [],
     gitBranch: null,
     hierarchy: { parentSessionId: null },
     inputTokens: 0,
@@ -341,6 +343,37 @@ describe('source session tables', () => {
             '1.5rem',
         );
         expect(screen.getAllByText('Claude Opus 5')).toHaveLength(2);
+    });
+    it('should group rewound Claude Code branches beneath the newest branch', () => {
+        const original = claudeNestedSession({
+            forkSessionIds: ['fork-session'],
+            lastActiveAtMs: 1_700_000_000_000,
+            sessionId: 'original-session',
+            title: 'Original branch',
+        });
+        const fork = claudeNestedSession({
+            forkedFrom: { branchEntryId: 'entry-1', sessionId: 'original-session' },
+            lastActiveAtMs: 1_700_000_100_000,
+            sessionId: 'fork-session',
+            title: 'Edited branch',
+        });
+
+        render(
+            <ClaudeCodeSessionsTable
+                sessions={[original, fork]}
+                onDeleteSession={vi.fn()}
+                onDeleteSessions={vi.fn()}
+                onExportSession={vi.fn()}
+                onExportSessions={vi.fn()}
+            />,
+        );
+
+        const latestLink = screen.getByRole('link', { name: /Edited branch/ });
+        const earlierLink = screen.getByRole('link', { name: /Original branch/ });
+        expect(latestLink.closest('[data-row-depth="0"]')).toBeTruthy();
+        expect(earlierLink.closest('[data-row-depth="1"]')).toBeTruthy();
+        expect(screen.getByText('2 branches')).toBeTruthy();
+        expect(screen.getByText('Earlier branch')).toBeTruthy();
     });
 });
 

@@ -5,6 +5,7 @@ import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { Download, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Breadcrumbs } from '#/components/breadcrumbs';
+import { ClaudeCodeForkBanner } from '#/components/claude-code-fork-banner';
 import { DeleteConfirmDialog } from '#/components/delete-confirm-dialog';
 import { ExportDialog } from '#/components/export-dialog';
 import { JsonPanel } from '#/components/json-panel';
@@ -340,6 +341,11 @@ function ClaudeCodeSessionDetailPage() {
                 eyebrow="Claude Code session"
                 subtitle="Session detail for the selected Claude Code project conversation."
                 title={detail.session.title}
+            />
+
+            <ClaudeCodeForkBanner
+                forkSessionIds={detail.session.forkSessionIds ?? []}
+                forkedFrom={detail.session.forkedFrom ?? null}
             />
 
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">

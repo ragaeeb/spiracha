@@ -65,6 +65,8 @@ const buildConversation = async (
         metadata: {
             continuationSessionIds: session.continuationSessionIds,
             filePath: session.filePath,
+            forkedFrom: session.forkedFrom,
+            forkSessionIds: session.forkSessionIds,
             gitBranch: session.gitBranch,
             totalTokens: session.totalTokens,
             version: session.version,

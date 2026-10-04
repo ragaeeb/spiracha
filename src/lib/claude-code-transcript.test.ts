@@ -77,6 +77,8 @@ const transcript: ClaudeCodeSessionTranscript = {
         createdAtMs: 1_780_307_200_000,
         cwd: '/Users/example/workspace/ushman-corpus',
         filePath: '/Users/example/.claude/projects/-Users-example-workspace-ushman-corpus/session-a.jsonl',
+        forkedFrom: null,
+        forkSessionIds: [],
         gitBranch: 'main',
         hierarchy: { parentSessionId: null },
         inputTokens: 10,
