@@ -1,6 +1,5 @@
 import { createReadStream } from 'node:fs';
 import path from 'node:path';
-import { createInterface } from 'node:readline';
 
 import type { ParsedCodexTranscript } from './codex-browser-types';
 import {
@@ -10,7 +9,7 @@ import {
     finalizeTranscript,
     type ParseCodexTranscriptOptions,
 } from './codex-transcript-records';
-import { readJsonlObjects } from './shared';
+import { readJsonlObjects, splitJsonlLines } from './shared';
 
 export type CodexForkedThreadResolver = (threadId: string) => Promise<string>;
 
@@ -30,10 +29,7 @@ export type CodexTranscriptSegment = {
 };
 
 const readForkMetadata = async (sessionFile: string) => {
-    const lines = createInterface({
-        crlfDelay: Number.POSITIVE_INFINITY,
-        input: createReadStream(sessionFile, { encoding: 'utf8' }),
-    });
+    const lines = splitJsonlLines(createReadStream(sessionFile, { encoding: 'utf8' }));
     for await (const line of lines) {
         if (!/"type"\s*:\s*"session_meta"/u.test(line)) {
             continue;

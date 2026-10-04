@@ -1,7 +1,6 @@
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import path from 'node:path';
-import { createInterface } from 'node:readline';
 import type { ParsedCodexTranscript } from './codex-browser-types';
 import {
     assertCodexTranscriptSegmentComplete,
@@ -13,6 +12,7 @@ import {
 } from './codex-thread-parser';
 import type { ThreadTranscriptStats, TranscriptEventFilters } from './conversation-data/conversation-events';
 import { shouldShowTranscriptEvent } from './conversation-data/conversation-events';
+import { splitJsonlLines } from './shared';
 import { runWithTranscriptLoadLimit } from './transcript-load-limiter';
 import { getFileFingerprint, hashCacheKeyPartsIterable, withCachedJson } from './ui-cache';
 
@@ -179,10 +179,7 @@ const readTopLevelOrdinal = (line: string): number | null => {
 const scanCodexTranscriptSegment = async (segment: CodexTranscriptSegment, visitLine: (line: string) => void) => {
     let expectedOrdinal: number | null = null;
     let lastOrdinal: number | null = null;
-    const lines = createInterface({
-        crlfDelay: Number.POSITIVE_INFINITY,
-        input: createReadStream(segment.sessionFile, { encoding: 'utf8' }),
-    });
+    const lines = splitJsonlLines(createReadStream(segment.sessionFile, { encoding: 'utf8' }));
     try {
         for await (const line of lines) {
             if (!line.trim()) {
@@ -199,7 +196,7 @@ const scanCodexTranscriptSegment = async (segment: CodexTranscriptSegment, visit
             visitLine(line);
         }
     } finally {
-        lines.close();
+        await lines.return(undefined);
     }
 
     assertCodexTranscriptSegmentComplete(segment, lastOrdinal);

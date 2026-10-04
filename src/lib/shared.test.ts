@@ -157,4 +157,27 @@ describe('shared helpers', () => {
         await finalizeExportWriteStream(stream);
         expect(await Bun.file(streamPath).text()).toBe('streamed');
     });
+
+    it('should keep jsonl records whose strings contain unicode line and paragraph separators', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'shared-test-'));
+        tempPaths.push(tempRoot);
+        const jsonlPath = path.join(tempRoot, 'session.jsonl');
+        const text = 'before\u2028middle\u2029after';
+        await Bun.write(jsonlPath, `${JSON.stringify({ text })}\r\n{"type":"next"}\n`);
+
+        const originalWarn = console.warn;
+        const warnings: unknown[][] = [];
+        console.warn = (...args) => warnings.push(args);
+        const entries: Array<Record<string, unknown>> = [];
+        try {
+            for await (const entry of readJsonlObjects(jsonlPath)) {
+                entries.push(entry);
+            }
+        } finally {
+            console.warn = originalWarn;
+        }
+
+        expect(entries).toEqual([{ text }, { type: 'next' }]);
+        expect(warnings).toEqual([]);
+    });
 });
