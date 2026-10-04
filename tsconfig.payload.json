@@ -2,6 +2,7 @@
     "compilerOptions": {
         "declarationMap": false,
         "emitDeclarationOnly": true,
+        "noEmit": false,
         "rootDir": "./src/lib"
     },
     "extends": "./tsconfig.json",
