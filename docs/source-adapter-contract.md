@@ -2,9 +2,9 @@
 
 ## 1. Status, authority, and terminology
 
-This document is the target specification for source-adapter parity, originally grounded in the supplied 2.9.0 archive. It is **not a claim that the entire specification is implemented**. Start with the repository [conventions](../AGENTS.md) and [README](../README.md) for current usage, then read the [implementation plan](contract-review/IMPLEMENTATION_PLAN.md) and [acceptance matrix](contract-review/TEST_MATRIX.md). The [findings](contract-review/FINDINGS.md) and [verification record](contract-review/VERIFICATION.md) preserve the original audit's evidence and execution limits; compare them with current code and tests before choosing work or claiming completion.
+This document is the target specification for source-adapter parity, originally grounded in the supplied 2.9.0 archive. It is **not a claim that the entire specification is implemented**. Start with the repository [conventions](../AGENTS.md) and [README](../README.md) for current usage. The original audit and implementation-plan documents were removed from the repository; compare this specification with current code and tests before choosing work or claiming completion.
 
-The original archive had no Git history, and its patch used a synthetic baseline. Those delivery details do not describe the current checkout. Command Code selection, export, and deletion already existed in that baseline; preserve them while replacing duplicated orchestration and strengthening safety and reporting.
+Command Code selection, export, and deletion already existed in that baseline; preserve them while replacing duplicated orchestration and strengthening safety and reporting.
 
 A **source** is one of the 13 IDs in `CONVERSATION_SOURCES`. A **surface** is a UI/data-access context: local sources, authenticated Codex Cloud, or in-memory Web imports. A Web payload provider is neither a source nor a new storage registration. An **inventory** lists source workspaces or, for a global source, conversations. A **conversation list** is the workspace's list or the global list. A **native workspace removal** mutates owned application workspace/project metadata, not a user's source-code directory. Deleting all conversations in a virtual grouping is a different operation.
 
@@ -149,7 +149,7 @@ The Cursor/FX native-file collection contract is future work; the seed supports 
 
 ### 4.2 Workspace and recovery decisions
 
-Virtual workspace groups are derived by the `list*WorkspaceGroups` functions cited in `FINDINGS.md`. “Remove workspace” is not applicable to an independent group object there. Provide the separate, explicitly labeled “Delete all conversations in this workspace” action by enumerating authoritative membership and applying the conversation deletion contract. It is not equivalent to deleting selected/filtered rows. Empty virtual groups disappear on refreshed authoritative discovery; they have no external worktree deletion.
+Virtual workspace groups are derived by the `list*WorkspaceGroups` functions in the source `*-db.ts` modules. “Remove workspace” is not applicable to an independent group object there. Provide the separate, explicitly labeled “Delete all conversations in this workspace” action by enumerating authoritative membership and applying the conversation deletion contract. It is not equivalent to deleting selected/filtered rows. Empty virtual groups disappear on refreshed authoritative discovery; they have no external worktree deletion.
 
 Only Codex, Cursor, and OpenCode bind native workspace removal in this migration. Use their existing handlers and safety options, not a generic `rm(workspacePath)`. Preserve existing recovery/merge panels for Codex/Cursor/OpenCode where their current functions apply. Do not label completion of a pending delete as “restore.”
 
@@ -344,7 +344,7 @@ Introduce a portable `ConversationOperationError` with `code`, `message`, `sourc
 
 The 422 mappings are a deliberate change from current delete 405 and raw null/404 ambiguity. 405 remains appropriate for an actual unsupported HTTP method, not a supported route on a source with no capability. Update tests and release notes in one hard cut. An aborted client uses AbortError/cancelled operation state locally; do not invent a stable nonstandard HTTP status. A server may have committed work before the response connection closes; receipts and settled outcomes, not cancellation alone, determine what changed.
 
-Keep existing route names listed in README, including `/api/v1/conversation-payload`, `/conversations/.../raw`, evidence and batch endpoints. Add capabilities to existing source metadata. Workspace removal stays on existing validated source server functions bound by the same contract; it does not need a new public API endpoint. A single normalized text request can add the shared format/options to the existing normalized export route; do not create a parallel renderer route. The CLI `bin/spiracha.ts` is absent from this archive and must be restored from the real checkout before its migration is implemented/tested.
+Keep existing route names listed in README, including `/api/v1/conversation-payload`, `/conversations/.../raw`, evidence and batch endpoints. Add capabilities to existing source metadata. Workspace removal stays on existing validated source server functions bound by the same contract; it does not need a new public API endpoint. A single normalized text request can add the shared format/options to the existing normalized export route; do not create a parallel renderer route.
 
 ### 8.2 Validation details
 
@@ -455,3 +455,16 @@ The seed's shipped behavior change is limited to raw filename/byte transport and
 Treat the full target DTO/default/error/CLI migration as a proposed **3.0.0 hard cut**. Do not bump the supplied package version in this seed. When the full migration lands, update public declarations, README, CLI help, persisted export-preference version, release notes and tests in the same release. Reset old UI export preferences with an explanatory notice rather than silently mapping `includeCommentary` to reasoning or retaining both option contracts. Keep existing URL route names; remove superseded internal renderers/projections and aliases after callers migrate.
 
 Completion requires every task/test gate in the implementation and test documents, 90% root and UI line coverage under existing gates, all applicable per-source real-browser fixture journeys, and packaging/portability checks. A catalog entry, compiler pass, source-table render test, or coverage percentage alone is not end-to-end parity. Record actual results and limits; do not mark source behavior verified from metadata or mocks alone.
+
+## Onboarding rules summary
+
+Short checklist distilled from the working conventions; the sections above are authoritative.
+
+- Keep `CONVERSATION_SOURCES` authoritative. A new ID requires an exact entry in `SOURCE_CATALOG`, the storage adapter registry and `SOURCE_ICONS`; preserve its source literal with `satisfies ConversationAdapter<'source-id'>`. Required route metadata and actual route files must agree. Generate TanStack routes normally.
+- The native payload parser map is exhaustive over the currently supported payload sources, not all UI providers. Keep Claude Code and Command Code exclusions until real portable parsers and fixtures exist. Never import storage, React, or router modules into the portable catalog or payload normalizers.
+- Register actual native parser/storage fixtures and UI/browser journeys for every source. Required baseline operations cannot be excused by missing callbacks. Supported declarations require typed handlers/common orchestration and reachable controls; genuine unsupported/not-applicable decisions need source/fixture evidence. Do not add production pending states or no-op adapters.
+- Reuse canonical message/tool/artifact semantics and common export/actions. Preserve exact artifact strings and original raw bytes; preview limits must not truncate exports. Raw names retain native extensions. Do not add another generic transcript renderer or normalization pipeline.
+- Keep source mutation ownership, locks, journals, stopped-process checks, rollback/cleanup/retry rules and worktree protection. No destructive test may access personal/default source stores. Source-code directories are never conversation cleanup targets.
+- Keep compiler-negative expectations in `src/type-tests` only; they test deliberate errors and must not suppress production diagnostics.
+- Run lint, typecheck, root/UI tests, build, package smoke, coverage (90% line gate for root and UI) and `bun run test:conformance`. Mocked buttons or coverage alone do not prove per-source parity; `testing/verify-portable-contracts.mjs` is a supplemental portable check only.
+
