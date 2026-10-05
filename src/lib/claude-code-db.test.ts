@@ -710,6 +710,50 @@ describe('claude code workspace discovery', () => {
         expect(sessions.find((session) => session.sessionId === 'session-a')?.forkSessionIds).toEqual(['session-b']);
     });
 
+    it('should render prompts the user queued mid-turn as user messages', async () => {
+        const projectsDir = await makeTempRoot();
+        const projectDirName = '-Users-rhaq-workspace-ushman-corpus';
+        const queuedCommand = (uuid: string, prompt: string, commandMode: string, timestamp: string) => ({
+            attachment: {
+                commandMode,
+                origin: { kind: commandMode === 'prompt' ? 'human' : 'task-notification' },
+                prompt,
+                type: 'queued_command',
+            },
+            cwd: corpusCwd,
+            sessionId: 'session-queued',
+            timestamp,
+            type: 'attachment',
+            uuid,
+        });
+        await writeSession(projectsDir, projectDirName, 'session-queued', [
+            buildMessageRecord('session-queued', 'user-1', 'user', 'You can proceed', '2026-06-01T10:00:00.000Z'),
+            queuedCommand('queued-1', 'Please write a handoff', 'prompt', '2026-06-01T10:01:00.000Z'),
+            queuedCommand(
+                'queued-2',
+                '<task-notification><status>completed</status></task-notification>',
+                'task-notification',
+                '2026-06-01T10:01:01.000Z',
+            ),
+            buildMessageRecord(
+                'session-queued',
+                'assistant-1',
+                'assistant',
+                'I wrote the handoff',
+                '2026-06-01T10:02:00.000Z',
+                'queued-2',
+            ),
+        ]);
+
+        const transcript = await readClaudeCodeSessionTranscript(projectsDir, 'session-queued');
+        const userTexts = transcript?.entries
+            .filter((entry) => entry.role === 'user')
+            .flatMap((entry) => entry.parts.map((part) => part.text));
+
+        expect(userTexts).toEqual(['You can proceed', 'Please write a handoff']);
+        expect(transcript?.session.userMessageCount).toBe(2);
+    });
+
     it('should delete every physical transcript in a compacted session lineage', async () => {
         const projectsDir = await makeTempRoot();
         const projectDirName = '-Users-rhaq-workspace-ushman-corpus';

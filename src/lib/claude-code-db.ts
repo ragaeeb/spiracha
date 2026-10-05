@@ -365,9 +365,21 @@ const getTranscriptEntryId = (type: string, raw: Record<string, JsonValue>): str
     return asString(raw.uuid ?? null) ?? `${type}:${asString(raw.sessionId ?? null) ?? 'unknown'}`;
 };
 
+// A prompt sent while the agent is mid-turn is stored only as a queued_command attachment.
+const getQueuedUserPromptMessage = (raw: Record<string, JsonValue>): Record<string, JsonValue> | null => {
+    const attachment = raw.type === 'attachment' ? asObject(raw.attachment ?? null) : null;
+    const prompt = asString(attachment?.prompt ?? null);
+    const isHumanPrompt =
+        attachment?.type === 'queued_command' &&
+        attachment.commandMode === 'prompt' &&
+        asObject(attachment.origin ?? null)?.kind === 'human';
+    return isHumanPrompt && prompt?.trim() ? { content: prompt, role: 'user' } : null;
+};
+
 const parseTranscriptEntry = (raw: Record<string, JsonValue>): ClaudeCodeTranscriptEntry | null => {
-    const type = asString(raw.type ?? null) ?? 'unknown';
-    const message = asObject(raw.message ?? null);
+    const queuedUserPrompt = getQueuedUserPromptMessage(raw);
+    const type = queuedUserPrompt ? 'user' : (asString(raw.type ?? null) ?? 'unknown');
+    const message = queuedUserPrompt ?? asObject(raw.message ?? null);
     const parts = getTranscriptEntryParts(type, message, raw);
     const role = getTranscriptEntryRole(type, message);
 
