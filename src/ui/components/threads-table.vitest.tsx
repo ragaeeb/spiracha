@@ -167,6 +167,22 @@ afterEach(() => {
 });
 
 describe('ThreadsTable', () => {
+    it('should show the thread id under the title inside the same link', () => {
+        render(
+            <ThreadsTable
+                onDeleteThread={vi.fn()}
+                onDeleteThreads={vi.fn()}
+                onExportThread={vi.fn()}
+                onExportThreads={vi.fn()}
+                threads={[threadEntry]}
+            />,
+        );
+
+        const link = screen.getByRole('link', { name: /Continue reverse engineering/ });
+        expect(link.textContent).toContain('thread-1');
+        expect(link.getAttribute('href')).toBe('/threads/thread-1');
+    });
+
     it('should allow selecting multiple threads and trigger bulk actions', () => {
         const onDeleteThreads = vi.fn();
         const onExportThreads = vi.fn();
@@ -277,8 +293,8 @@ describe('ThreadsTable', () => {
             />,
         );
 
-        const parentRow = screen.getByRole('link', { name: 'Continue reverse engineering' }).closest('tr');
-        const childRow = screen.getByRole('link', { name: 'Inspect transcript renderer' }).closest('tr');
+        const parentRow = screen.getByRole('link', { name: /Continue reverse engineering/ }).closest('tr');
+        const childRow = screen.getByRole('link', { name: /Inspect transcript renderer/ }).closest('tr');
 
         expect(parentRow?.nextElementSibling).toBe(childRow);
         expect(screen.queryByText('1 subagent')).toBeNull();
@@ -381,7 +397,7 @@ describe('ThreadsTable', () => {
             />,
         );
 
-        expect(screen.getByRole('link', { name: 'Thread 100' })).toBeTruthy();
+        expect(screen.getByRole('link', { name: /Thread 100/ })).toBeTruthy();
         expect(screen.queryByRole('link', { name: 'Thread 101' })).toBeNull();
         expect(screen.getByText('Page 1 of 2')).toBeTruthy();
     });

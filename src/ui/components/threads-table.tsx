@@ -1,8 +1,9 @@
 import type { ThreadListEntry } from '@spiracha/lib/codex-browser-types';
 import { Link } from '@tanstack/react-router';
 import type { SortingState } from '@tanstack/react-table';
-import { Download, GitFork, MoreHorizontal, Trash2 } from 'lucide-react';
+import { Download, MoreHorizontal, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
+import { ConversationTitleCell } from '#/components/conversation-title-cell';
 import { DataTable } from '#/components/data-table';
 import { ConversationSelectionActions } from '#/components/selection-actions-toolbar';
 import { Button } from '#/components/ui/button';
@@ -16,7 +17,6 @@ import { supportedListAction } from '#/lib/conversation-actions';
 import type { ConversationListSelectionProps } from '#/lib/conversation-selection';
 import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatBytes, formatDateTime, formatTokens } from '#/lib/formatters';
-import { cn } from '#/lib/utils';
 
 type ThreadsTableProps = {
     threads: ThreadListEntry[];
@@ -34,26 +34,19 @@ const columnHelper = createDataTableColumnHelper<ThreadTreeNode>();
 const defaultSorting: SortingState = [{ desc: true, id: 'updatedAt' }];
 const CODEX_PROJECT_THREADS_PAGE_SIZE = 100;
 
-const ThreadTitleCell = ({ depth, thread }: { depth: number; thread: ThreadTreeNode }) => {
-    const isSubagent = depth > 0;
-
-    return (
-        <div className={cn('min-w-0', isSubagent ? 'border-[var(--border)] border-l-2 pl-3' : '')}>
-            <div className="flex min-w-0 items-center gap-2">
-                {isSubagent ? (
-                    <GitFork aria-hidden="true" className="size-4 shrink-0 text-[var(--muted-foreground)]" />
-                ) : null}
-                <Link
-                    className="min-w-0 flex-1 truncate rounded-md font-medium outline-none transition hover:underline hover:opacity-80 focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
-                    params={{ threadId: thread.thread.id }}
-                    to="/threads/$threadId"
-                >
-                    {thread.thread.title}
-                </Link>
-            </div>
-        </div>
-    );
-};
+const ThreadTitleCell = ({ depth, thread }: { depth: number; thread: ThreadTreeNode }) => (
+    <ConversationTitleCell
+        depth={depth}
+        id={thread.thread.id}
+        isNestedAgent={depth > 0}
+        renderLink={(content, className) => (
+            <Link className={className} params={{ threadId: thread.thread.id }} to="/threads/$threadId">
+                {content}
+            </Link>
+        )}
+        title={thread.thread.title}
+    />
+);
 
 const getThreadTreeRoots = (threads: ThreadListEntry[]): ThreadTreeNode[] => {
     const nodesById = new Map(threads.map((thread) => [thread.thread.id, { ...thread, children: [] }]));

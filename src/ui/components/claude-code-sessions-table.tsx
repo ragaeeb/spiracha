@@ -1,10 +1,12 @@
 import type { ClaudeCodeSessionSummary } from '@spiracha/lib/claude-code-exporter-types';
 import { Link } from '@tanstack/react-router';
 import type { SortingState } from '@tanstack/react-table';
-import { Download, GitFork, MoreHorizontal, Trash2 } from 'lucide-react';
+import { Download, MoreHorizontal, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
+import { ConversationTitleCell } from '#/components/conversation-title-cell';
 import { DataTable } from '#/components/data-table';
 import { ConversationSelectionActions } from '#/components/selection-actions-toolbar';
+import { Badge } from '#/components/ui/badge';
 import { Button } from '#/components/ui/button';
 import {
     DropdownMenu,
@@ -16,7 +18,6 @@ import { supportedListAction } from '#/lib/conversation-actions';
 import type { ConversationListInventoryProps } from '#/lib/conversation-selection';
 import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatDateTime, formatModelLabel, formatNumber, formatTokens } from '#/lib/formatters';
-import { cn } from '#/lib/utils';
 
 type ClaudeCodeSessionsTableProps = {
     onDeleteSession: (session: ClaudeCodeSessionSummary) => void;
@@ -35,36 +36,25 @@ type ClaudeCodeSessionTreeNode = ClaudeCodeSessionSummary & {
 const columnHelper = createDataTableColumnHelper<ClaudeCodeSessionTreeNode>();
 const defaultSorting: SortingState = [{ desc: true, id: 'lastActive' }];
 
-const SessionTitleCell = ({ depth, session }: { depth: number; session: ClaudeCodeSessionTreeNode }) => {
-    const isNested = depth > 0;
-    const isSubagent = session.hierarchy?.parentSessionId != null;
-
-    return (
-        <div
-            className={cn('min-w-0', isNested ? 'border-[var(--border)] border-l-2' : '')}
-            style={isNested ? { paddingLeft: `${depth * 0.75}rem` } : undefined}
-            data-row-depth={depth}
-        >
-            <div className="flex min-w-0 items-center gap-2">
-                {isSubagent ? (
-                    <GitFork aria-hidden="true" className="size-4 shrink-0 text-[var(--muted-foreground)]" />
-                ) : null}
-                <Link
-                    className="block min-w-0 flex-1 space-y-1 rounded-md outline-none transition hover:opacity-80 focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
-                    params={{ sessionId: session.sessionId }}
-                    to="/claude-code-sessions/$sessionId"
-                >
-                    <p className="truncate font-medium underline-offset-2 hover:underline">{session.title}</p>
-                    <p className="truncate text-[var(--muted-foreground)] text-xs">
-                        {session.sessionId}
-                        {session.branchCount > 1 ? <span className="ml-2">{session.branchCount} branches</span> : null}
-                        {session.isEarlierBranch ? <span className="ml-2">Earlier branch</span> : null}
-                    </p>
-                </Link>
-            </div>
-        </div>
-    );
-};
+const SessionTitleCell = ({ depth, session }: { depth: number; session: ClaudeCodeSessionTreeNode }) => (
+    <ConversationTitleCell
+        badges={
+            <>
+                {session.branchCount > 1 ? <Badge variant="outline">{session.branchCount} branches</Badge> : null}
+                {session.isEarlierBranch ? <Badge variant="outline">Earlier branch</Badge> : null}
+            </>
+        }
+        depth={depth}
+        id={session.sessionId}
+        isNestedAgent={session.hierarchy?.parentSessionId != null}
+        renderLink={(content, className) => (
+            <Link className={className} params={{ sessionId: session.sessionId }} to="/claude-code-sessions/$sessionId">
+                {content}
+            </Link>
+        )}
+        title={session.title}
+    />
+);
 
 // Rewinding a conversation writes a new session file; nest earlier branches under the newest one.
 const getLatestBranchIds = (sessions: ClaudeCodeSessionSummary[]): Map<string, string> => {

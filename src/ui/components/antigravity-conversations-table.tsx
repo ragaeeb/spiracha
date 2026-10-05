@@ -2,8 +2,9 @@ import type { AntigravityConversation } from '@spiracha/lib/antigravity-exporter
 import type { AntigravityDecryptionState } from '@spiracha/lib/antigravity-keychain';
 import { Link } from '@tanstack/react-router';
 import type { SortingState } from '@tanstack/react-table';
-import { Download, GitFork, LockKeyhole, MoreHorizontal, ScrollText, Trash2 } from 'lucide-react';
+import { Download, LockKeyhole, MoreHorizontal, ScrollText, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
+import { ConversationTitleCell } from '#/components/conversation-title-cell';
 import { DataTable } from '#/components/data-table';
 import { ConversationSelectionActions } from '#/components/selection-actions-toolbar';
 import { Badge } from '#/components/ui/badge';
@@ -24,7 +25,6 @@ import { supportedListAction } from '#/lib/conversation-actions';
 import type { ConversationListInventoryProps } from '#/lib/conversation-selection';
 import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatBytes, formatDateTime, formatNumber } from '#/lib/formatters';
-import { cn } from '#/lib/utils';
 
 type AntigravityConversationsTableProps = {
     conversations: AntigravityConversation[];
@@ -51,7 +51,7 @@ type ConversationTreeNode = AntigravityConversation & {
 const columnHelper = createDataTableColumnHelper<ConversationTreeNode>();
 const defaultSorting: SortingState = [{ desc: true, id: 'updatedAt' }];
 
-const ConversationTitleCell = ({
+const AntigravityTitleCell = ({
     conversation,
     decryptionState,
     depth,
@@ -60,32 +60,30 @@ const ConversationTitleCell = ({
     decryptionState: AntigravityDecryptionState | null;
     depth: number;
 }) => {
-    const isSubagent = depth > 0;
     const exportState = getConversationExportState(conversation, decryptionState);
 
     return (
-        <div
-            className={cn('min-w-0', isSubagent ? 'border-[var(--border)] border-l-2 pl-3' : '')}
-            data-row-depth={depth}
-        >
-            <div className="flex min-w-0 items-center gap-2">
-                {isSubagent ? (
-                    <GitFork aria-hidden="true" className="size-4 shrink-0 text-[var(--muted-foreground)]" />
-                ) : null}
+        <ConversationTitleCell
+            badges={
+                <>
+                    {exportState.hasTranscript ? <Badge variant="secondary">transcript</Badge> : null}
+                    {exportState.hasArtifacts ? <Badge variant="outline">artifact</Badge> : null}
+                </>
+            }
+            depth={depth}
+            id={conversation.conversationId}
+            isNestedAgent={depth > 0}
+            renderLink={(content, className) => (
                 <Link
-                    className="block min-w-0 flex-1 space-y-1 rounded-md outline-none transition hover:opacity-80 focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                    className={className}
                     params={{ conversationId: conversation.conversationId }}
                     to="/antigravity-conversations/$conversationId"
                 >
-                    <div className="flex min-w-0 items-center gap-2">
-                        <p className="truncate font-medium underline-offset-2 hover:underline">{conversation.title}</p>
-                        {exportState.hasTranscript ? <Badge variant="secondary">transcript</Badge> : null}
-                        {exportState.hasArtifacts ? <Badge variant="outline">artifact</Badge> : null}
-                    </div>
-                    <p className="truncate text-[var(--muted-foreground)] text-xs">{conversation.conversationId}</p>
+                    {content}
                 </Link>
-            </div>
-        </div>
+            )}
+            title={conversation.title}
+        />
     );
 };
 
@@ -197,7 +195,7 @@ const columns = (
     [
         columnHelper.accessor('title', {
             cell: (info) => (
-                <ConversationTitleCell
+                <AntigravityTitleCell
                     conversation={info.row.original}
                     decryptionState={decryptionState}
                     depth={info.row.depth}

@@ -155,6 +155,22 @@ describe('CursorThreadsTable', () => {
         expect(link.getAttribute('href')).toBe('/cursor-threads/thread-1');
     });
 
+    it('should show only the composer id under the title without a mode prefix', () => {
+        render(
+            <CursorThreadsTable
+                onDeleteThread={vi.fn()}
+                onDeleteThreads={vi.fn()}
+                onExportThread={vi.fn()}
+                onExportThreads={vi.fn()}
+                threads={[thread]}
+            />,
+        );
+
+        const link = screen.getByRole('link', { name: /fix the checkout flow/i });
+        expect(link.textContent).toContain('thread-1');
+        expect(screen.queryByText(/agent · thread-1/)).toBeNull();
+    });
+
     it('should distinguish older moved snapshots from the latest physical record', () => {
         render(
             <CursorThreadsTable

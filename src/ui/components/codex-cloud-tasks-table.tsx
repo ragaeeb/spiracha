@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router';
 import type { SortingState } from '@tanstack/react-table';
 import { Download, ExternalLink, MoreHorizontal } from 'lucide-react';
 import { useMemo } from 'react';
+import { ConversationTitleCell } from '#/components/conversation-title-cell';
 import { DataTable } from '#/components/data-table';
 import { ConversationSelectionActions } from '#/components/selection-actions-toolbar';
 import { Badge } from '#/components/ui/badge';
@@ -51,14 +52,19 @@ const buildColumns = (onExportTask: (task: CodexCloudTask) => void) =>
     [
         columnHelper.accessor('title', {
             cell: (info) => (
-                <Link
-                    className="block min-w-[18rem] rounded-md outline-none transition hover:opacity-80 focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
-                    params={{ taskId: info.row.original.id }}
-                    to="/codex/cloud/tasks/$taskId"
-                >
-                    <p className="font-medium underline-offset-2 hover:underline">{info.getValue()}</p>
-                    <p className="font-mono text-[var(--muted-foreground)] text-xs">{info.row.original.id}</p>
-                </Link>
+                <ConversationTitleCell
+                    id={info.row.original.id}
+                    renderLink={(content, className) => (
+                        <Link
+                            className={className}
+                            params={{ taskId: info.row.original.id }}
+                            to="/codex/cloud/tasks/$taskId"
+                        >
+                            {content}
+                        </Link>
+                    )}
+                    title={info.getValue()}
+                />
             ),
             header: 'Thread',
         }),
