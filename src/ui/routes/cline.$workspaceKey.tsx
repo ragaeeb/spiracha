@@ -10,6 +10,8 @@ import { ListSearchInput } from '#/components/list-search-input';
 import { LoadingPanel } from '#/components/loading-panel';
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
+import { ToolCallHitsProvider } from '#/components/tool-call-hits-context';
+import { ToolCallSearchBar } from '#/components/tool-call-search-bar';
 import { Button } from '#/components/ui/button';
 import { clineTasksQueryOptions, clineWorkspacesQueryOptions } from '#/lib/cline-queries';
 import { deleteClineTaskFn, deleteClineTasksFn, exportClineTaskFn, exportClineTasksFn } from '#/lib/cline-server';
@@ -18,6 +20,8 @@ import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellat
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { matchesTextQuery } from '#/lib/text-filter';
+import { filterToToolCallHits } from '#/lib/tool-call-filter';
+import { useToolCallSearch } from '#/lib/use-tool-call-search';
 import { isWorkspaceEmptiedByDelete } from '#/lib/workspace-delete-navigation';
 
 const findWorkspace = (workspaces: ClineWorkspaceGroup[], key: string) => {
@@ -39,12 +43,18 @@ const ClineWorkspacePage = () => {
     const [deleteTasks, setDeleteTasks] = useState<ClineTaskSummary[]>([]);
     const [exportTasks, setExportTasks] = useState<ClineTaskSummary[]>([]);
     const deferredSearch = useDeferredValue(search);
+    const toolSearchCwds = useMemo(() => [workspace.worktree], [workspace]);
+    const toolSearch = useToolCallSearch({ cwds: toolSearchCwds, source: 'cline' });
     const visible = useMemo(
         () =>
             tasks.filter((task) =>
                 matchesTextQuery(deferredSearch, [task.title, task.taskId, task.modelId, task.ulid]),
             ),
         [deferredSearch, tasks],
+    );
+    const toolSearched = useMemo(
+        () => filterToToolCallHits(visible, (task) => task.taskId, toolSearch.hitsById),
+        [visible, toolSearch.hitsById],
     );
     const selected = (ids: string[]) => lookupSelectedItems(ids, tasks, (task) => task.taskId);
 
@@ -117,18 +127,22 @@ const ClineWorkspacePage = () => {
                 subtitle={workspace.worktree}
                 title={workspace.label}
             />
-            <ClineTasksTable
-                {...conversationListSelection(
-                    'cline',
-                    tasks.map((task) => task.taskId),
-                    workspace.key,
-                )}
-                sessions={visible}
-                onDeleteSession={(task) => setDeleteTasks([task])}
-                onDeleteSessions={(ids) => setDeleteTasks(selected(ids))}
-                onExportSession={(task) => setExportTasks([task])}
-                onExportSessions={(ids) => setExportTasks(selected(ids))}
-            />
+            <ToolCallSearchBar search={toolSearch} />
+
+            <ToolCallHitsProvider hits={toolSearch.hitsById}>
+                <ClineTasksTable
+                    {...conversationListSelection(
+                        'cline',
+                        tasks.map((task) => task.taskId),
+                        workspace.key,
+                    )}
+                    sessions={toolSearched}
+                    onDeleteSession={(task) => setDeleteTasks([task])}
+                    onDeleteSessions={(ids) => setDeleteTasks(selected(ids))}
+                    onExportSession={(task) => setExportTasks([task])}
+                    onExportSessions={(ids) => setExportTasks(selected(ids))}
+                />
+            </ToolCallHitsProvider>
             <ExportDialog
                 focusedEvidenceTarget={
                     exportTasks.length === 1 ? { id: exportTasks[0]!.taskId, source: 'cline' } : undefined

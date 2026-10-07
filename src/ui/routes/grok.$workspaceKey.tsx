@@ -10,6 +10,8 @@ import { ListSearchInput } from '#/components/list-search-input';
 import { LoadingPanel } from '#/components/loading-panel';
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
+import { ToolCallHitsProvider } from '#/components/tool-call-hits-context';
+import { ToolCallSearchBar } from '#/components/tool-call-search-bar';
 import { Button } from '#/components/ui/button';
 import { conversationListSelection, lookupSelectedItems } from '#/lib/conversation-selection';
 import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
@@ -23,6 +25,8 @@ import {
 } from '#/lib/grok-server';
 import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { matchesTextQuery } from '#/lib/text-filter';
+import { filterToToolCallHits } from '#/lib/tool-call-filter';
+import { useToolCallSearch } from '#/lib/use-tool-call-search';
 import { isWorkspaceEmptiedByDelete } from '#/lib/workspace-delete-navigation';
 
 type PendingSessionDelete = {
@@ -174,6 +178,8 @@ function GrokWorkspacePage() {
         },
     });
 
+    const toolSearchCwds = useMemo(() => [workspace.worktree], [workspace]);
+    const toolSearch = useToolCallSearch({ cwds: toolSearchCwds, source: 'grok' });
     const visibleSessions = useMemo(
         () =>
             sessions.filter((session) =>
@@ -187,6 +193,10 @@ function GrokWorkspacePage() {
                 ]),
             ),
         [deferredSearch, sessions],
+    );
+    const toolSearched = useMemo(
+        () => filterToToolCallHits(visibleSessions, (session) => session.sessionId, toolSearch.hitsById),
+        [visibleSessions, toolSearch.hitsById],
     );
     const lookupSelectedSessions = (sessionIds: string[]) =>
         lookupSelectedItems(sessionIds, sessions, (session) => session.sessionId);
@@ -230,19 +240,25 @@ function GrokWorkspacePage() {
                 title={workspace.label}
             />
 
-            <GrokSessionsTable
-                {...conversationListSelection(
-                    'grok',
-                    sessions.map((session) => session.sessionId),
-                    workspace.key,
-                )}
-                authoritativeRows={sessions}
-                sessions={visibleSessions}
-                onDeleteSession={(session) => openDeleteForSessions([session], 'selected')}
-                onDeleteSessions={(sessionIds) => openDeleteForSessions(lookupSelectedSessions(sessionIds), 'selected')}
-                onExportSession={(session) => openExportForSessions([session])}
-                onExportSessions={(sessionIds) => openExportForSessions(lookupSelectedSessions(sessionIds))}
-            />
+            <ToolCallSearchBar search={toolSearch} />
+
+            <ToolCallHitsProvider hits={toolSearch.hitsById}>
+                <GrokSessionsTable
+                    {...conversationListSelection(
+                        'grok',
+                        sessions.map((session) => session.sessionId),
+                        workspace.key,
+                    )}
+                    authoritativeRows={sessions}
+                    sessions={toolSearched}
+                    onDeleteSession={(session) => openDeleteForSessions([session], 'selected')}
+                    onDeleteSessions={(sessionIds) =>
+                        openDeleteForSessions(lookupSelectedSessions(sessionIds), 'selected')
+                    }
+                    onExportSession={(session) => openExportForSessions([session])}
+                    onExportSessions={(sessionIds) => openExportForSessions(lookupSelectedSessions(sessionIds))}
+                />
+            </ToolCallHitsProvider>
 
             <ExportDialog
                 errorMessage={

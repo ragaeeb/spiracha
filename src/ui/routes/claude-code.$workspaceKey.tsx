@@ -9,6 +9,8 @@ import { ListSearchInput } from '#/components/list-search-input';
 import { LoadingPanel } from '#/components/loading-panel';
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
+import { ToolCallHitsProvider } from '#/components/tool-call-hits-context';
+import { ToolCallSearchBar } from '#/components/tool-call-search-bar';
 import { claudeCodeSessionsQueryOptions, claudeCodeWorkspacesQueryOptions } from '#/lib/claude-code-queries';
 import {
     deleteClaudeCodeSessionFn,
@@ -21,6 +23,8 @@ import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellat
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { matchesTextQuery } from '#/lib/text-filter';
+import { filterToToolCallHits } from '#/lib/tool-call-filter';
+import { useToolCallSearch } from '#/lib/use-tool-call-search';
 import { isWorkspaceEmptiedByDelete } from '#/lib/workspace-delete-navigation';
 
 type PendingSessionDelete = {
@@ -160,6 +164,8 @@ function ClaudeCodeWorkspacePage() {
         },
     });
 
+    const toolSearchCwds = useMemo(() => [workspace.worktree], [workspace]);
+    const toolSearch = useToolCallSearch({ cwds: toolSearchCwds, source: 'claude-code' });
     const visibleSessions = useMemo(
         () =>
             sessions.filter((session) =>
@@ -173,6 +179,10 @@ function ClaudeCodeWorkspacePage() {
                 ]),
             ),
         [deferredSearch, sessions],
+    );
+    const toolSearched = useMemo(
+        () => filterToToolCallHits(visibleSessions, (session) => session.sessionId, toolSearch.hitsById),
+        [visibleSessions, toolSearch.hitsById],
     );
     const lookupSelectedSessions = (sessionIds: string[]) =>
         lookupSelectedItems(sessionIds, sessions, (session) => session.sessionId);
@@ -206,19 +216,23 @@ function ClaudeCodeWorkspacePage() {
                 title={workspace.label}
             />
 
-            <ClaudeCodeSessionsTable
-                {...conversationListSelection(
-                    'claude-code',
-                    sessions.map((session) => session.sessionId),
-                    workspace.key,
-                )}
-                authoritativeRows={sessions}
-                sessions={visibleSessions}
-                onDeleteSession={(session) => openDeleteForSessions([session])}
-                onDeleteSessions={(sessionIds) => openDeleteForSessions(lookupSelectedSessions(sessionIds))}
-                onExportSession={(session) => openExportForSessions([session])}
-                onExportSessions={(sessionIds) => openExportForSessions(lookupSelectedSessions(sessionIds))}
-            />
+            <ToolCallSearchBar search={toolSearch} />
+
+            <ToolCallHitsProvider hits={toolSearch.hitsById}>
+                <ClaudeCodeSessionsTable
+                    {...conversationListSelection(
+                        'claude-code',
+                        sessions.map((session) => session.sessionId),
+                        workspace.key,
+                    )}
+                    authoritativeRows={sessions}
+                    sessions={toolSearched}
+                    onDeleteSession={(session) => openDeleteForSessions([session])}
+                    onDeleteSessions={(sessionIds) => openDeleteForSessions(lookupSelectedSessions(sessionIds))}
+                    onExportSession={(session) => openExportForSessions([session])}
+                    onExportSessions={(sessionIds) => openExportForSessions(lookupSelectedSessions(sessionIds))}
+                />
+            </ToolCallHitsProvider>
 
             <ExportDialog
                 errorMessage={

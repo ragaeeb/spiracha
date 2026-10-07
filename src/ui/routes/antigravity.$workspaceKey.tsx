@@ -11,6 +11,8 @@ import { ListSearchInput } from '#/components/list-search-input';
 import { LoadingPanel } from '#/components/loading-panel';
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
+import { ToolCallHitsProvider } from '#/components/tool-call-hits-context';
+import { ToolCallSearchBar } from '#/components/tool-call-search-bar';
 import { Button } from '#/components/ui/button';
 import {
     antigravityConversationsQueryOptions,
@@ -28,6 +30,8 @@ import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellat
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
 import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { matchesTextQuery } from '#/lib/text-filter';
+import { filterToToolCallHits } from '#/lib/tool-call-filter';
+import { useToolCallSearch } from '#/lib/use-tool-call-search';
 import { isWorkspaceEmptiedByDelete } from '#/lib/workspace-delete-navigation';
 
 type PendingConversationDelete = {
@@ -204,6 +208,8 @@ function AntigravityWorkspacePage() {
         },
     });
 
+    const toolSearchCwds = useMemo(() => (workspace.uri ? [workspace.uri] : []), [workspace]);
+    const toolSearch = useToolCallSearch({ cwds: toolSearchCwds, source: 'antigravity' });
     const visibleConversations = useMemo(
         () =>
             conversations.filter((conversation) =>
@@ -215,6 +221,15 @@ function AntigravityWorkspacePage() {
                 ]),
             ),
         [conversations, deferredSearch],
+    );
+    const toolSearched = useMemo(
+        () =>
+            filterToToolCallHits(
+                visibleConversations,
+                (conversation) => conversation.conversationId,
+                toolSearch.hitsById,
+            ),
+        [visibleConversations, toolSearch.hitsById],
     );
     const lookupSelectedConversations = (conversationIds: string[]) =>
         lookupSelectedItems(conversationIds, conversations, (conversation) => conversation.conversationId);
@@ -263,25 +278,29 @@ function AntigravityWorkspacePage() {
 
             <AntigravityKeychainPanel />
 
-            <AntigravityConversationsTable
-                {...conversationListSelection(
-                    'antigravity',
-                    conversations.map((conversation) => conversation.conversationId),
-                    workspace.key,
-                )}
-                authoritativeRows={conversations}
-                conversations={visibleConversations}
-                decryptionState={decryptionState}
-                onDeleteConversation={(conversation) => openDeleteForConversations([conversation], 'selected')}
-                onDeleteConversations={(conversationIds) =>
-                    openDeleteForConversations(lookupSelectedConversations(conversationIds), 'selected')
-                }
-                onExportArtifacts={(conversation) => exportArtifactsMutation.mutate(conversation)}
-                onExportConversation={(conversation) => openExportForConversations([conversation])}
-                onExportConversations={(conversationIds) =>
-                    openExportForConversations(lookupSelectedConversations(conversationIds))
-                }
-            />
+            <ToolCallSearchBar search={toolSearch} />
+
+            <ToolCallHitsProvider hits={toolSearch.hitsById}>
+                <AntigravityConversationsTable
+                    {...conversationListSelection(
+                        'antigravity',
+                        conversations.map((conversation) => conversation.conversationId),
+                        workspace.key,
+                    )}
+                    authoritativeRows={conversations}
+                    conversations={toolSearched}
+                    decryptionState={decryptionState}
+                    onDeleteConversation={(conversation) => openDeleteForConversations([conversation], 'selected')}
+                    onDeleteConversations={(conversationIds) =>
+                        openDeleteForConversations(lookupSelectedConversations(conversationIds), 'selected')
+                    }
+                    onExportArtifacts={(conversation) => exportArtifactsMutation.mutate(conversation)}
+                    onExportConversation={(conversation) => openExportForConversations([conversation])}
+                    onExportConversations={(conversationIds) =>
+                        openExportForConversations(lookupSelectedConversations(conversationIds))
+                    }
+                />
+            </ToolCallHitsProvider>
 
             <AntigravityWorkspaceErrors
                 artifactError={exportArtifactsMutation.isError ? exportArtifactsMutation.error : null}

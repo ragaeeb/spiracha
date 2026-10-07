@@ -10,6 +10,8 @@ import { LoadingPanel } from '#/components/loading-panel';
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
 import { ThreadsTable } from '#/components/threads-table';
+import { ToolCallHitsProvider } from '#/components/tool-call-hits-context';
+import { ToolCallSearchBar } from '#/components/tool-call-search-bar';
 import { Button } from '#/components/ui/button';
 import { projectThreadsQueryOptions } from '#/lib/codex-queries';
 import {
@@ -28,6 +30,8 @@ import { parseTextQuerySearch, withTextQuerySearch } from '#/lib/route-search';
 import { useSettings } from '#/lib/settings-store';
 import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { matchesTextQuery } from '#/lib/text-filter';
+import { filterToToolCallHits } from '#/lib/tool-call-filter';
+import { useToolCallSearch } from '#/lib/use-tool-call-search';
 
 type PendingThreadDelete = {
     threads: ThreadListEntry[];
@@ -233,17 +237,26 @@ function ProjectDetailPage() {
         },
     });
 
+    const toolSearchCwds = useMemo(
+        () => [...new Set(threads.map((thread) => thread.thread.cwd).filter((cwd) => cwd.length > 0))],
+        [threads],
+    );
+    const toolSearch = useToolCallSearch({ cwds: toolSearchCwds, source: 'codex' });
     const visibleThreads = useMemo(
         () =>
-            threads.filter((thread) => {
-                return matchesTextQuery(deferredSearch, [
-                    thread.thread.title,
-                    thread.thread.preview,
-                    thread.thread.model,
-                    thread.thread.id,
-                ]);
-            }),
-        [deferredSearch, threads],
+            filterToToolCallHits(
+                threads.filter((thread) => {
+                    return matchesTextQuery(deferredSearch, [
+                        thread.thread.title,
+                        thread.thread.preview,
+                        thread.thread.model,
+                        thread.thread.id,
+                    ]);
+                }),
+                (thread) => thread.thread.id,
+                toolSearch.hitsById,
+            ),
+        [deferredSearch, threads, toolSearch.hitsById],
     );
     const lookupSelectedThreads = (threadIds: string[]) =>
         lookupSelectedItems(threadIds, threads, (thread) => thread.thread.id);
@@ -310,43 +323,47 @@ function ProjectDetailPage() {
                 <p className="text-[var(--success)] text-sm">Project thread metadata recovery completed.</p>
             ) : null}
 
-            <ThreadsTable
-                {...conversationListSelection(
-                    'codex',
-                    threads.map((thread) => thread.thread.id),
-                    project,
-                )}
-                threads={visibleThreads}
-                onDeleteThread={(thread) => setPendingDelete({ threads: [thread] })}
-                onDeleteThreads={(threadIds) => {
-                    const selectedThreads = lookupSelectedThreads(threadIds);
-                    if (selectedThreads.length === 0) {
-                        return;
-                    }
+            <ToolCallSearchBar search={toolSearch} />
 
-                    setPendingDelete({ threads: selectedThreads });
-                }}
-                onExportThread={(thread) =>
-                    setPendingExport({
-                        threadIds: [thread.thread.id],
-                        threadLabel: thread.thread.title,
-                    })
-                }
-                onExportThreads={(threadIds) => {
-                    const selectedThreads = lookupSelectedThreads(threadIds);
-                    if (selectedThreads.length === 0) {
-                        return;
-                    }
+            <ToolCallHitsProvider hits={toolSearch.hitsById}>
+                <ThreadsTable
+                    {...conversationListSelection(
+                        'codex',
+                        threads.map((thread) => thread.thread.id),
+                        project,
+                    )}
+                    threads={visibleThreads}
+                    onDeleteThread={(thread) => setPendingDelete({ threads: [thread] })}
+                    onDeleteThreads={(threadIds) => {
+                        const selectedThreads = lookupSelectedThreads(threadIds);
+                        if (selectedThreads.length === 0) {
+                            return;
+                        }
 
-                    setPendingExport({
-                        threadIds: selectedThreads.map((thread) => thread.thread.id),
-                        threadLabel:
-                            selectedThreads.length === 1
-                                ? selectedThreads[0]!.thread.title
-                                : `${selectedThreads.length} selected threads`,
-                    });
-                }}
-            />
+                        setPendingDelete({ threads: selectedThreads });
+                    }}
+                    onExportThread={(thread) =>
+                        setPendingExport({
+                            threadIds: [thread.thread.id],
+                            threadLabel: thread.thread.title,
+                        })
+                    }
+                    onExportThreads={(threadIds) => {
+                        const selectedThreads = lookupSelectedThreads(threadIds);
+                        if (selectedThreads.length === 0) {
+                            return;
+                        }
+
+                        setPendingExport({
+                            threadIds: selectedThreads.map((thread) => thread.thread.id),
+                            threadLabel:
+                                selectedThreads.length === 1
+                                    ? selectedThreads[0]!.thread.title
+                                    : `${selectedThreads.length} selected threads`,
+                        });
+                    }}
+                />
+            </ToolCallHitsProvider>
 
             <DeleteConfirmDialog
                 confirmLabel={getDeleteConfirmLabel(pendingDelete, deleteThreadMutation.isPending)}

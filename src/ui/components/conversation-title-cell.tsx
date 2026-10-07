@@ -1,6 +1,8 @@
 import { GitFork } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { cn } from '#/lib/utils';
+import { useToolCallHit } from './tool-call-hits-context';
+import { ToolCallMatchSummary } from './tool-call-match-summary';
 
 type ConversationTitleCellProps = {
     badges?: ReactNode;
@@ -30,6 +32,7 @@ export const ConversationTitleCell = ({
     title,
 }: ConversationTitleCellProps) => {
     const isNested = depth > 0;
+    const toolCallHit = useToolCallHit(id);
 
     return (
         <div
@@ -53,6 +56,7 @@ export const ConversationTitleCell = ({
                 )}
             </div>
             {footer}
+            {toolCallHit ? <ToolCallMatchSummary hit={toolCallHit} /> : null}
         </div>
     );
 };

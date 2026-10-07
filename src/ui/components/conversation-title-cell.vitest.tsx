@@ -2,6 +2,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ConversationTitleCell } from './conversation-title-cell';
+import { ToolCallHitsProvider } from './tool-call-hits-context';
 
 afterEach(() => {
     cleanup();
@@ -66,5 +67,34 @@ describe('ConversationTitleCell', () => {
         expect(frame?.style.paddingLeft).toBe('');
         expect(frame?.className).not.toContain('border-l-2');
         expect(container.querySelector('svg')).toBeNull();
+    });
+
+    it('should show tool call matches only for rows that have a hit in the active search', () => {
+        const hit = {
+            conversationId: 'thread-1',
+            likelyAuthor: true,
+            matchCount: 1,
+            matches: [
+                {
+                    createdAtMs: null,
+                    field: 'input' as const,
+                    messageId: 'm1',
+                    modifiesFile: true,
+                    snippet: 'file.test.ts',
+                    toolName: 'Write',
+                },
+            ],
+            title: 'Thread',
+            updatedAtMs: null,
+        };
+        render(
+            <ToolCallHitsProvider hits={new Map([['thread-1', hit]])}>
+                <ConversationTitleCell id="thread-1" renderLink={renderLink} title="Matched" />
+                <ConversationTitleCell id="thread-2" renderLink={renderLink} title="Unmatched" />
+            </ToolCallHitsProvider>,
+        );
+
+        expect(screen.getAllByText('Likely author')).toHaveLength(1);
+        expect(screen.getByText('Write')).toBeTruthy();
     });
 });
