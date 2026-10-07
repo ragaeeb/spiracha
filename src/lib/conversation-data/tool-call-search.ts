@@ -3,6 +3,7 @@ import { getConversation, listConversations } from './index';
 import type {
     ConversationDataLocations,
     ConversationDetail,
+    ConversationMessage,
     ConversationSource,
     ConversationToolEvidence,
 } from './types';
@@ -104,12 +105,8 @@ const isFileModification = (toolName: string, field: ToolCallSearchField, text: 
     return WRITE_TOOL_PATTERN.test(toolName) || patchHeader.test(text.toLowerCase());
 };
 
-const findMatches = (
-    conversation: ConversationDetail,
-    needle: string,
-    maxMatches: number,
-): { matchCount: number; matches: ToolCallSearchMatch[] } => {
-    // Tool results rarely repeat the tool name, so attribute them through the call that produced them.
+// Tool results rarely repeat the tool name, so attribute them through the call that produced them.
+const indexToolNamesByCallId = (conversation: ConversationDetail): Map<string, string> => {
     const toolNameByCallId = new Map<string, string>();
     for (const message of conversation.messages) {
         const evidence = message.toolEvidence;
@@ -118,40 +115,67 @@ const findMatches = (
         }
     }
 
+    return toolNameByCallId;
+};
+
+const resolveToolName = (evidence: ConversationToolEvidence, toolNameByCallId: Map<string, string>): string => {
+    if (evidence.name !== 'unknown') {
+        return evidence.name;
+    }
+
+    return (evidence.callId && toolNameByCallId.get(evidence.callId)) || evidence.name;
+};
+
+const matchMessage = (
+    message: ConversationMessage,
+    needle: string,
+    toolNameByCallId: Map<string, string>,
+): ToolCallSearchMatch | null => {
+    const evidence = message.toolEvidence;
+    if (!evidence) {
+        return null;
+    }
+
+    for (const { field, text } of getSearchableFields(evidence)) {
+        const index = text ? text.toLowerCase().indexOf(needle) : -1;
+        if (!text || index < 0) {
+            continue;
+        }
+
+        const toolName = resolveToolName(evidence, toolNameByCallId);
+        return {
+            createdAtMs: message.createdAtMs,
+            field,
+            messageId: message.id,
+            modifiesFile: isFileModification(toolName, field, text, needle),
+            snippet: toSnippet(text, index, needle.length),
+            toolName,
+        };
+    }
+
+    return null;
+};
+
+const findMatches = (
+    conversation: ConversationDetail,
+    needle: string,
+    maxMatches: number,
+): { matchCount: number; matches: ToolCallSearchMatch[] } => {
+    const toolNameByCallId = indexToolNamesByCallId(conversation);
     // Writes are kept ahead of observations so the cap never hides the call that changed the file.
     const modifying: ToolCallSearchMatch[] = [];
     const observing: ToolCallSearchMatch[] = [];
     let matchCount = 0;
     for (const message of conversation.messages) {
-        const evidence = message.toolEvidence;
-        if (!evidence) {
+        const match = matchMessage(message, needle, toolNameByCallId);
+        if (!match) {
             continue;
         }
 
-        for (const { field, text } of getSearchableFields(evidence)) {
-            const index = text ? text.toLowerCase().indexOf(needle) : -1;
-            if (!text || index < 0) {
-                continue;
-            }
-
-            matchCount += 1;
-            const toolName =
-                evidence.name !== 'unknown'
-                    ? evidence.name
-                    : ((evidence.callId && toolNameByCallId.get(evidence.callId)) ?? evidence.name);
-            const modifiesFile = isFileModification(toolName, field, text, needle);
-            const bucket = modifiesFile ? modifying : observing;
-            if (bucket.length < maxMatches) {
-                bucket.push({
-                    createdAtMs: message.createdAtMs,
-                    field,
-                    messageId: message.id,
-                    modifiesFile,
-                    snippet: toSnippet(text, index, needle.length),
-                    toolName,
-                });
-            }
-            break;
+        matchCount += 1;
+        const bucket = match.modifiesFile ? modifying : observing;
+        if (bucket.length < maxMatches) {
+            bucket.push(match);
         }
     }
 
