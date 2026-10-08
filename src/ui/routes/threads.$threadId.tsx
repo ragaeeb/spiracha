@@ -12,6 +12,7 @@ import { MetadataSection } from '#/components/metadata-section';
 import { MetricCard } from '#/components/metric-card';
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
+import { ThreadForkBanner } from '#/components/thread-fork-banner';
 import { ThreadGoalsPanel } from '#/components/thread-goals-panel';
 import { ThreadToolsPanel } from '#/components/thread-tools-panel';
 import {
@@ -248,7 +249,10 @@ const buildTranscriptStatsItems = (snapshot: ThreadSnapshot) => {
                 { label: 'Rollout path', value: snapshot.thread.rollout_path },
                 {
                     label: 'Preview mode',
-                    value: 'Thread metadata is available, but the transcript ancestry could not be resolved.',
+                    value:
+                        snapshot.fork?.parentAvailable === false
+                            ? 'Thread metadata is available. The parent thread was deleted, so the transcript cannot be browsed here, but Export includes the conversation after the fork.'
+                            : 'Thread metadata is available, but the transcript ancestry could not be resolved.',
                 },
             ];
         }
@@ -376,12 +380,14 @@ function ThreadRawPanels({ snapshot }: ThreadMetadataProps) {
 
 function DeferredTranscriptNotice({
     fileSizeBytes,
+    forkParentMissing,
     missing,
     unavailable,
     pending,
     onLoad,
 }: {
     fileSizeBytes: number | null;
+    forkParentMissing?: boolean;
     missing?: boolean;
     unavailable?: boolean;
     pending: boolean;
@@ -400,7 +406,9 @@ function DeferredTranscriptNotice({
                 {missing
                     ? 'The rollout JSONL referenced by this thread is no longer present on disk. Export may still work if the file is restored, but transcript browsing is unavailable right now.'
                     : unavailable
-                      ? 'Thread metadata is still available, but the forked transcript ancestry could not be resolved, so transcript export and browsing are unavailable.'
+                      ? forkParentMissing
+                          ? 'This thread was forked from a thread that no longer exists, so its full history cannot be browsed here. Export still includes the conversation after the fork.'
+                          : 'Thread metadata is still available, but the forked transcript ancestry could not be resolved, so transcript export and browsing are unavailable.'
                       : `Spiracha skipped loading the transcript automatically because the rollout file is ${formatBytes(fileSizeBytes)}. Export still works immediately. Load the full transcript when you need to inspect it here.`}
             </p>
             {missing || unavailable ? null : (
@@ -451,15 +459,16 @@ function ThreadErrorComponent({ error }: { error: unknown }) {
     return <RouteErrorPanel error={error} title="Failed to load thread" />;
 }
 
-const getThreadExportErrorMessage = (
-    transcriptState: ThreadSnapshot['transcriptState'],
-    error: unknown,
-): string | null => {
-    if (transcriptState === 'missing') {
-        return 'The rollout JSONL file is missing from disk, so this thread cannot be exported right now.';
-    }
-    if (transcriptState === 'unavailable') {
-        return 'The forked transcript ancestry could not be resolved, so this thread cannot be exported right now.';
+// A fork whose parent was deleted cannot be browsed here, but export still includes everything after the fork.
+const isThreadExportBlocked = (snapshot: ThreadSnapshot) =>
+    snapshot.transcriptState === 'missing' ||
+    (snapshot.transcriptState === 'unavailable' && snapshot.fork?.parentAvailable !== false);
+
+const getThreadExportErrorMessage = (snapshot: ThreadSnapshot, error: unknown): string | null => {
+    if (isThreadExportBlocked(snapshot)) {
+        return snapshot.transcriptState === 'missing'
+            ? 'The rollout JSONL file is missing from disk, so this thread cannot be exported right now.'
+            : 'The forked transcript ancestry could not be resolved, so this thread cannot be exported right now.';
     }
 
     return error instanceof Error ? error.message : null;
@@ -615,6 +624,7 @@ function ThreadTranscriptTab({
             ) : (
                 <DeferredTranscriptNotice
                     fileSizeBytes={snapshot.rollout.fileSizeBytes}
+                    forkParentMissing={snapshot.fork?.parentAvailable === false}
                     missing={snapshot.transcriptState === 'missing'}
                     unavailable={snapshot.transcriptState === 'unavailable'}
                     pending={loadingFullTranscript}
@@ -676,6 +686,7 @@ function ThreadDetailPageContent() {
     const { settings } = useSettings();
     const transcriptMissing = snapshot.transcriptState === 'missing';
     const transcriptUnavailable = transcriptMissing || snapshot.transcriptState === 'unavailable';
+    const exportBlocked = isThreadExportBlocked(snapshot);
     const shouldLoadTranscript = shouldRequestThreadTranscript({
         fullRequested: search.full === true,
         shouldDeferTranscriptLoad: snapshot.rollout.shouldDeferTranscriptLoad,
@@ -873,6 +884,8 @@ function ThreadDetailPageContent() {
                 />
             </div>
 
+            <ThreadForkBanner fork={snapshot.fork ?? null} />
+
             <Tabs className="space-y-3" defaultValue="transcript">
                 <TabsList className="grid w-full grid-cols-4 rounded-full border border-[var(--border)] bg-[var(--panel)] p-1 sm:w-fit sm:min-w-[30rem]">
                     <TabsTrigger className="rounded-full px-5 text-sm" value="transcript">
@@ -954,13 +967,13 @@ function ThreadDetailPageContent() {
 
             <ExportDialog
                 showTimestampsOption
-                disabled={transcriptUnavailable}
-                errorMessage={getThreadExportErrorMessage(snapshot.transcriptState, exportThreadMutation.error)}
+                disabled={exportBlocked}
+                errorMessage={getThreadExportErrorMessage(snapshot, exportThreadMutation.error)}
                 focusedEvidenceTarget={{ id: snapshot.thread.id, source: 'codex' }}
                 open={exportOpen}
                 pending={exportThreadMutation.isPending}
                 onExport={(options, callbacks) => {
-                    if (!transcriptUnavailable) {
+                    if (!exportBlocked) {
                         exportThreadMutation.mutate({ ...options, ...callbacks });
                     }
                 }}

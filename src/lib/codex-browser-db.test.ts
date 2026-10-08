@@ -680,6 +680,47 @@ describe('codex browser db', () => {
         expect(dashboard.recentThreads.map((entry) => entry.thread.id)).not.toContain(orphanSubagentId);
     });
 
+    const markAsFork = async (sessionFile: string, parentId: string, ordinal: number) => {
+        const lines = (await Bun.file(sessionFile).text()).trim().split('\n');
+        const first = JSON.parse(lines[0]!);
+        first.payload = { ...first.payload, forked_from_id: parentId, forked_from_ordinal_exclusive: ordinal };
+        await Bun.write(sessionFile, [JSON.stringify(first), ...lines.slice(1)].join('\n'));
+    };
+
+    it('should mark a forked thread in the project list and leave other threads unmarked', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-fork-list-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const [parent, child] = fixture.threads;
+        await markAsFork(child!.sessionFile, parent!.threadId, 4);
+
+        const entries = await listProjectThreads(fixture.dbPath, 'spiracha', { includeTranscriptStats: false });
+        const forkOf = (threadId: string) => entries.find((entry) => entry.thread.id === threadId)?.fork;
+
+        expect(forkOf(child!.threadId)).toEqual({
+            ordinalExclusive: 4,
+            parentAvailable: true,
+            parentThreadId: parent!.threadId,
+        });
+        expect(forkOf(parent!.threadId)).toBeNull();
+    });
+
+    it('should flag a forked thread whose parent no longer exists', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-orphan-fork-list-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const child = fixture.threads[1]!;
+        await markAsFork(child.sessionFile, 'deleted-parent-thread', 2);
+
+        const entries = await listProjectThreads(fixture.dbPath, 'spiracha', { includeTranscriptStats: false });
+
+        expect(entries.find((entry) => entry.thread.id === child.threadId)?.fork).toEqual({
+            ordinalExclusive: 2,
+            parentAvailable: false,
+            parentThreadId: 'deleted-parent-thread',
+        });
+    });
+
     it('should read rollout activity without blocking the synchronous request path', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-db-async-activity-test-'));
         tempPaths.push(tempRoot);

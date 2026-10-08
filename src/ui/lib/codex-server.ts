@@ -154,7 +154,7 @@ export const getThreadSnapshotFn = createServerFn({ method: 'GET' })
         const [
             { createCodexForkedThreadResolver, getThreadBrowseData },
             { getCachedCodexTranscriptModelNames, getThreadRolloutLoadState },
-            { CodexTranscriptHistoryError },
+            { CodexTranscriptHistoryError, readCodexForkInfo },
         ] = await Promise.all([
             import('@spiracha/lib/codex-browser-queries'),
             import('@spiracha/lib/codex-thread-cache'),
@@ -175,6 +175,21 @@ export const getThreadSnapshotFn = createServerFn({ method: 'GET' })
             CodexTranscriptHistoryError,
         );
 
+        const forkInfo = await readCodexForkInfo(browseData.thread.rollout_path);
+        const forkParent = forkInfo
+            ? await getThreadBrowseData(dbPath, forkInfo.forkedFromId).then(
+                  (parentData) => parentData.thread,
+                  () => null,
+              )
+            : null;
+        const fork = forkInfo
+            ? {
+                  ordinalExclusive: forkInfo.ordinalExclusive,
+                  parentAvailable: forkParent !== null,
+                  parentThreadId: forkInfo.forkedFromId,
+                  parentTitle: forkParent?.title ?? null,
+              }
+            : null;
         const transcriptState: 'available' | 'deferred' | 'missing' | 'unavailable' = transcriptUnavailable
             ? 'unavailable'
             : rollout.fileSizeBytes === null
@@ -199,6 +214,7 @@ export const getThreadSnapshotFn = createServerFn({ method: 'GET' })
         return {
             ...browseData,
             availableTools: browseData.dynamicTools,
+            fork,
             modelNames,
             rollout,
             transcript,

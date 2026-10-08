@@ -100,6 +100,20 @@ const readForkBoundary = (
     return { forkedFromId: parentThreadId, ordinalExclusive: cutoff };
 };
 
+/**
+ * Reads only the fork relationship from a rollout's first record. Never throws: list decoration must not fail because
+ * one rollout is missing or has malformed fork metadata, so those read as "not a fork".
+ */
+export const readCodexForkInfo = async (
+    sessionFile: string,
+): Promise<{ forkedFromId: string; ordinalExclusive: number } | null> => {
+    try {
+        return readForkBoundary(sessionFile, await readForkMetadata(sessionFile));
+    } catch {
+        return null;
+    }
+};
+
 type SegmentOrdinalProgress = {
     done: boolean;
     expectedOrdinal: number | null;

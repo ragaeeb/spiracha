@@ -6,6 +6,7 @@ import { createCodexBrowserFixture } from './codex-test-helpers';
 import {
     CodexTranscriptHistoryError,
     parseCodexTranscriptFile,
+    readCodexForkInfo,
     resolveCodexTranscriptSegments,
 } from './codex-thread-parser';
 
@@ -13,6 +14,34 @@ const tempPaths: string[] = [];
 
 afterEach(async () => {
     await Promise.all(tempPaths.splice(0).map((targetPath) => rm(targetPath, { force: true, recursive: true })));
+});
+
+describe('readCodexForkInfo', () => {
+    const writeSession = async (payload: Record<string, unknown>) => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-fork-info-test-'));
+        tempPaths.push(tempRoot);
+        const file = path.join(tempRoot, 'rollout.jsonl');
+        await Bun.write(
+            file,
+            `${JSON.stringify({ ordinal: 0, payload: { id: 'thread', ...payload }, type: 'session_meta' })}\n`,
+        );
+        return file;
+    };
+
+    it('should report the parent and cutoff of a forked rollout', async () => {
+        const file = await writeSession({ forked_from_id: 'parent-thread', forked_from_ordinal_exclusive: 7 });
+
+        await expect(readCodexForkInfo(file)).resolves.toEqual({ forkedFromId: 'parent-thread', ordinalExclusive: 7 });
+    });
+
+    it('should return null for a rollout that is not a fork, has broken fork metadata, or does not exist', async () => {
+        const plain = await writeSession({});
+        const broken = await writeSession({ forked_from_id: 'parent-thread', forked_from_ordinal_exclusive: 'x' });
+
+        await expect(readCodexForkInfo(plain)).resolves.toBeNull();
+        await expect(readCodexForkInfo(broken)).resolves.toBeNull();
+        await expect(readCodexForkInfo(`${plain}.gone`)).resolves.toBeNull();
+    });
 });
 
 describe('parseCodexTranscriptFile', () => {

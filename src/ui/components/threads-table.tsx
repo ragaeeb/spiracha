@@ -1,11 +1,12 @@
 import type { ThreadListEntry } from '@spiracha/lib/codex-browser-types';
 import { Link } from '@tanstack/react-router';
 import type { SortingState } from '@tanstack/react-table';
-import { Download, MoreHorizontal, Trash2 } from 'lucide-react';
+import { Download, GitBranch, MoreHorizontal, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { ConversationTitleCell } from '#/components/conversation-title-cell';
 import { DataTable } from '#/components/data-table';
 import { ConversationSelectionActions } from '#/components/selection-actions-toolbar';
+import { Badge } from '#/components/ui/badge';
 import { Button } from '#/components/ui/button';
 import {
     DropdownMenu,
@@ -28,17 +29,43 @@ type ThreadsTableProps = {
 
 type ThreadTreeNode = ThreadListEntry & {
     children: ThreadTreeNode[];
+    forkParentTitle?: string;
 };
 
 const columnHelper = createDataTableColumnHelper<ThreadTreeNode>();
 const defaultSorting: SortingState = [{ desc: true, id: 'updatedAt' }];
 const CODEX_PROJECT_THREADS_PAGE_SIZE = 100;
 
+const ForkBadge = ({ thread }: { thread: ThreadTreeNode }) => {
+    const fork = thread.fork;
+    if (!fork) {
+        return null;
+    }
+
+    const parentId = fork.parentThreadId;
+    return (
+        <Badge
+            title={
+                fork.parentAvailable
+                    ? thread.forkParentTitle
+                        ? `Forked from ${thread.forkParentTitle} (${parentId})`
+                        : `Forked from thread ${parentId}`
+                    : `Forked from thread ${parentId}, which no longer exists. Only the conversation after the fork is available.`
+            }
+            variant="outline"
+        >
+            <GitBranch aria-hidden="true" />
+            {fork.parentAvailable ? 'Fork' : 'Fork · parent deleted'}
+        </Badge>
+    );
+};
+
 const ThreadTitleCell = ({ depth, thread }: { depth: number; thread: ThreadTreeNode }) => (
     <ConversationTitleCell
+        badges={<ForkBadge thread={thread} />}
         depth={depth}
         id={thread.thread.id}
-        isNestedAgent={depth > 0}
+        isNestedAgent={depth > 0 && thread.hierarchy.parentThreadId !== null}
         renderLink={(content, className) => (
             <Link className={className} params={{ threadId: thread.thread.id }} to="/threads/$threadId">
                 {content}
@@ -49,13 +76,21 @@ const ThreadTitleCell = ({ depth, thread }: { depth: number; thread: ThreadTreeN
 );
 
 const getThreadTreeRoots = (threads: ThreadListEntry[]): ThreadTreeNode[] => {
-    const nodesById = new Map(threads.map((thread) => [thread.thread.id, { ...thread, children: [] }]));
+    const nodesById = new Map<string, ThreadTreeNode>(
+        threads.map((thread) => [thread.thread.id, { ...thread, children: [] }]),
+    );
+    for (const node of nodesById.values()) {
+        if (node.fork) {
+            node.forkParentTitle = nodesById.get(node.fork.parentThreadId)?.thread.title;
+        }
+    }
     const childIdsByParentId = new Map<string, string[]>();
     const rootIds: string[] = [];
 
     for (const thread of threads) {
         const threadId = thread.thread.id;
-        const parentThreadId = thread.hierarchy.parentThreadId;
+        // Subagents nest under the thread that spawned them; forks nest under the thread they were forked from.
+        const parentThreadId = thread.hierarchy.parentThreadId ?? thread.fork?.parentThreadId ?? null;
         if (!parentThreadId || parentThreadId === threadId || !nodesById.has(parentThreadId)) {
             rootIds.push(threadId);
             continue;
