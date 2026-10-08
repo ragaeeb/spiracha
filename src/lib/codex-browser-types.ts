@@ -55,9 +55,16 @@ export type TurnContextRecord = {
     timestamp: string | null;
 };
 
+/** A forked thread's parent that could not be found, so the history before the fork is unavailable. */
+export type CodexMissingForkParent = {
+    ordinalExclusive: number;
+    threadId: string;
+};
+
 export type ParsedCodexTranscript = {
     events: ThreadEvent[];
     isPartial: boolean;
+    missingForkParents?: CodexMissingForkParent[];
     rawIncluded: boolean;
     sessionMeta: SessionMetaExtended;
     sourceFileSizeBytes: number | null;

@@ -19,6 +19,8 @@ import type {
 import { asNumber, asObject, asString, type JsonValue, stripCodexAppDirectiveLines } from './shared-text';
 
 export type ParseCodexTranscriptOptions = {
+    // Read a fork's own records even when its parent thread no longer exists, reporting the gap instead of failing.
+    allowMissingForkParent?: boolean;
     eventFilter?: (event: ThreadEvent) => boolean;
     includeRaw?: boolean;
     maxEvents?: number;

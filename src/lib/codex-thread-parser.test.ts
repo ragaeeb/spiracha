@@ -16,6 +16,50 @@ afterEach(async () => {
 });
 
 describe('parseCodexTranscriptFile', () => {
+    it('should read only the records of a fork when its parent is gone and tolerance is requested', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-parser-missing-parent-test-'));
+        tempPaths.push(tempRoot);
+        const childFile = path.join(tempRoot, 'child.jsonl');
+        await Bun.write(
+            childFile,
+            [
+                {
+                    ordinal: 3,
+                    payload: {
+                        cwd: '/workspace/child',
+                        forked_from_id: 'deleted-parent',
+                        forked_from_ordinal_exclusive: 3,
+                        id: 'child-thread',
+                    },
+                    type: 'session_meta',
+                },
+                {
+                    ordinal: 4,
+                    payload: { message: 'Answer after the fork', phase: 'final_answer', type: 'agent_message' },
+                    type: 'response_item',
+                },
+            ]
+                .map((record) => JSON.stringify(record))
+                .join('\n'),
+        );
+        const resolveForkedThread = async () => {
+            throw new Error('thread not found');
+        };
+
+        await expect(parseCodexTranscriptFile(childFile, { resolveForkedThread })).rejects.toBeInstanceOf(
+            CodexTranscriptHistoryError,
+        );
+        const transcript = await parseCodexTranscriptFile(childFile, {
+            allowMissingForkParent: true,
+            resolveForkedThread,
+        });
+
+        expect(transcript.events.filter((event) => event.kind === 'message').map((event) => event.text)).toEqual([
+            'Answer after the fork',
+        ]);
+        expect(transcript.missingForkParents).toEqual([{ ordinalExclusive: 3, threadId: 'deleted-parent' }]);
+    });
+
     it('should surface inter-agent delegations as readable system notes and keep encrypted content out', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-parser-delegation-test-'));
         tempPaths.push(tempRoot);

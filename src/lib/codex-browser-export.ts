@@ -7,7 +7,7 @@ import {
     getThreadBrowseData,
     getThreadBrowseDataBatch,
 } from './codex-browser-queries';
-import type { CodexThreadBrowseBatchResult, ThreadBrowseData } from './codex-browser-types';
+import type { CodexMissingForkParent, CodexThreadBrowseBatchResult, ThreadBrowseData } from './codex-browser-types';
 import { CodexDbCompatibilityError, CodexThreadNotFoundError } from './codex-database';
 import {
     CodexRolloutContentError,
@@ -24,7 +24,7 @@ import {
     validateCodexTranscriptSegmentOrdinal,
 } from './codex-thread-parser';
 import type { CodexTranscriptRenderOptions } from './codex-thread-types';
-import { renderCodexSessionFile } from './codex-transcript-renderer';
+import { renderCodexSessionFileWithNotes } from './codex-transcript-renderer';
 import { type ExportArchiveMember, type ExportArchiveOutcome, writeExportArchive } from './export-archive';
 import { applyPathTransforms, type PathDisplaySettings } from './path-transforms';
 import { resolveUiRuntimeConfig } from './runtime-config';
@@ -63,6 +63,18 @@ type CodexExportSettings = Pick<
     'includeCommentary' | 'includeMetadata' | 'includeTimestamps' | 'includeTools' | 'outputFormat'
 >;
 
+export type CodexSkippedThread = {
+    code: string;
+    message: string;
+    status: 'failed' | 'missing';
+    threadId: string;
+};
+
+export type CodexPartialThread = {
+    note: string;
+    threadId: string;
+};
+
 export type CodexThreadDownload =
     | {
           content: string;
@@ -75,7 +87,10 @@ export type CodexThreadDownload =
           fileName: string;
           mimeType: string;
           mode: 'download_url';
+          // Threads exported without the history before their fork because the parent no longer exists.
+          partialThreads?: CodexPartialThread[];
           skippedThreadCount?: number;
+          skippedThreads?: CodexSkippedThread[];
       };
 
 const MAX_ROLLOUT_EXPORT_ATTEMPTS = 2;
@@ -182,7 +197,11 @@ const inspectCodexTranscriptHistory = async (
     sessionFile: string,
     resolveForkedThread: ReturnType<typeof createCodexForkedThreadResolver>,
 ): Promise<CodexTranscriptHistorySnapshot> => {
-    const segments = await resolveCodexTranscriptSegments(sessionFile, resolveForkedThread);
+    // A fork whose parent is gone is still exportable (without that history), so it must not fail the consistency check.
+    const segments = await resolveCodexTranscriptSegments(sessionFile, resolveForkedThread, new Set(), null, {
+        allowMissing: true,
+        missing: [],
+    });
     const identities = await Promise.all(
         segments.map(async (segment) => {
             const metadata = await stat(segment.sessionFile);
@@ -216,11 +235,11 @@ const renderCodexExportContent = async ({
     transform,
 }: CodexExportFileInput) => {
     if (input.outputFormat === 'json') {
-        return Bun.file(sessionFile).text();
+        return { content: await Bun.file(sessionFile).text(), missingForkParents: [] };
     }
 
     const historyBefore = await inspectCodexTranscriptHistory(sessionFile, resolveForkedThread);
-    const content = await renderCodexSessionFile(
+    const rendered = await renderCodexSessionFileWithNotes(
         {
             fallbackReason: null,
             outputRelativePath,
@@ -232,7 +251,7 @@ const renderCodexExportContent = async ({
         toDownloadOptions(input),
     );
 
-    if (!content) {
+    if (!rendered) {
         throw new CodexNoExportableContentError(thread.id);
     }
 
@@ -241,7 +260,12 @@ const renderCodexExportContent = async ({
         throw new CodexTranscriptHistoryError(`Codex transcript ancestry changed while exporting thread ${thread.id}`);
     }
 
-    return transform(content);
+    return { content: transform(rendered.content), missingForkParents: rendered.missingForkParents };
+};
+
+const describeMissingForkParents = (missing: CodexMissingForkParent[]) => {
+    const ids = [...new Set(missing.map((parent) => parent.threadId))];
+    return `History before the fork is unavailable: parent ${ids.length === 1 ? 'thread' : 'threads'} ${ids.join(', ')} no longer ${ids.length === 1 ? 'exists' : 'exist'}.`;
 };
 
 const resolvePublicExportDir = async (publicExportDir?: string) => {
@@ -463,7 +487,7 @@ export const renderCodexThreadDownload = async (
                     threadId: input.threadId,
                 });
 
-                const content = await renderCodexExportContent({
+                const { content } = await renderCodexExportContent({
                     input,
                     outputRelativePath: fileName,
                     relations: browseData.relations,
@@ -577,7 +601,7 @@ const renderCodexBatchEntry = async (
                     });
                 }
 
-                const bytes = await renderCodexExportContent({
+                const { content: bytes, missingForkParents } = await renderCodexExportContent({
                     input,
                     outputRelativePath: resolvedFileName,
                     relations: browseData.relations,
@@ -586,18 +610,21 @@ const renderCodexBatchEntry = async (
                     thread: browseData.thread,
                     transform,
                 });
-                return { bytes, relativePath: resolvedFileName };
+                return { bytes, missingForkParents, relativePath: resolvedFileName };
             },
             resolveForkedThread,
             threadId: result.threadId,
         });
 
         return {
-            members: [rendered],
+            members: [{ bytes: rendered.bytes, relativePath: rendered.relativePath }],
             outcome: {
                 error: null,
                 memberNames: [rendered.relativePath],
-                omissionSummary: null,
+                omissionSummary:
+                    rendered.missingForkParents.length > 0
+                        ? describeMissingForkParents(rendered.missingForkParents)
+                        : null,
                 requestedId: result.threadId,
                 status: 'exported',
             },
@@ -699,7 +726,24 @@ export const renderCodexThreadsDownload = async (
         });
         return {
             ...download,
+            partialThreads: outcomes.flatMap((outcome) =>
+                outcome.status === 'exported' && outcome.omissionSummary
+                    ? [{ note: outcome.omissionSummary, threadId: outcome.requestedId }]
+                    : [],
+            ),
             skippedThreadCount: outcomes.length - successCount,
+            skippedThreads: outcomes.flatMap((outcome) =>
+                outcome.status === 'exported'
+                    ? []
+                    : [
+                          {
+                              code: outcome.error?.code ?? 'CODEX_EXPORT_FAILED',
+                              message: outcome.error?.message ?? 'The thread could not be exported.',
+                              status: outcome.status,
+                              threadId: outcome.requestedId,
+                          },
+                      ],
+            ),
         };
     } catch (error) {
         logExportEvent('error', 'batch_error', {
