@@ -25,8 +25,6 @@ Reference map for contributors and agents. `AGENTS.md` carries only the compact 
   - source-specific mapping into normalized conversation shapes
 - `src/lib/conversation-data/evidence-*.ts`
   - source-independent lens validation, event pairing, bounded episode selection, projection, and Markdown evidence rendering
-- `src/lib/conversation-data/tool-call-search.ts`
-  - source-independent search over a workspace's threads' tool calls (name, command, input, output, workdir); threads whose write-style calls or `apply_patch` headers name the query are flagged `likelyAuthor` and ranked first. Used by the UI only (`src/ui/lib/tool-call-search-server.ts`, `use-tool-call-search.ts`, `tool-call-search-bar.tsx`, and `tool-call-hits-context.tsx`, which lets `ConversationTitleCell` show a row's matches); it loads one thread at a time, so large workspaces take a while
 
 ## Web import modules
 

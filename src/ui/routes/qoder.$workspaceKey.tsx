@@ -10,8 +10,6 @@ import { LoadingPanel } from '#/components/loading-panel';
 import { PageHeader } from '#/components/page-header';
 import { QoderSessionsTable } from '#/components/qoder-sessions-table';
 import { RouteErrorPanel } from '#/components/route-error-panel';
-import { ToolCallHitsProvider } from '#/components/tool-call-hits-context';
-import { ToolCallSearchBar } from '#/components/tool-call-search-bar';
 import { Button } from '#/components/ui/button';
 import {
     applySettledDeleteSelection,
@@ -31,8 +29,6 @@ import {
 } from '#/lib/qoder-server';
 import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { matchesTextQuery } from '#/lib/text-filter';
-import { filterToToolCallHits } from '#/lib/tool-call-filter';
-import { useToolCallSearch } from '#/lib/use-tool-call-search';
 
 type PendingSessionDelete = { scope: 'all' | 'selected'; sessions: QoderSessionSummary[] };
 type PendingSessionExport = {
@@ -204,8 +200,6 @@ const QoderWorkspacePage = () => {
         },
     });
 
-    const toolSearchCwds = useMemo(() => [workspace.worktree], [workspace]);
-    const toolSearch = useToolCallSearch({ cwds: toolSearchCwds, source: 'qoder' });
     const visibleSessions = useMemo(
         () =>
             sessions.filter((session) =>
@@ -223,10 +217,6 @@ const QoderWorkspacePage = () => {
                 ]),
             ),
         [deferredSearch, sessions],
-    );
-    const toolSearched = useMemo(
-        () => filterToToolCallHits(visibleSessions, (session) => session.sessionId, toolSearch.hitsById),
-        [visibleSessions, toolSearch.hitsById],
     );
     const lookupSelectedSessions = (sessionIds: string[]) =>
         lookupSelectedItems(sessionIds, sessions, (session) => session.sessionId);
@@ -276,23 +266,19 @@ const QoderWorkspacePage = () => {
                 title={workspace.label}
             />
 
-            <ToolCallSearchBar search={toolSearch} />
-
-            <ToolCallHitsProvider hits={toolSearch.hitsById}>
-                <QoderSessionsTable
-                    {...conversationListSelection(
-                        'qoder',
-                        sessions.map((session) => session.sessionId),
-                        workspace.key,
-                    )}
-                    authoritativeRows={sessions}
-                    sessions={toolSearched}
-                    onDeleteSession={(session) => openDelete([session], 'selected')}
-                    onDeleteSessions={(sessionIds) => openDelete(lookupSelectedSessions(sessionIds), 'selected')}
-                    onExportSession={(session) => openExportForSessions([session])}
-                    onExportSessions={(sessionIds) => openExportForSessions(lookupSelectedSessions(sessionIds))}
-                />
-            </ToolCallHitsProvider>
+            <QoderSessionsTable
+                {...conversationListSelection(
+                    'qoder',
+                    sessions.map((session) => session.sessionId),
+                    workspace.key,
+                )}
+                authoritativeRows={sessions}
+                sessions={visibleSessions}
+                onDeleteSession={(session) => openDelete([session], 'selected')}
+                onDeleteSessions={(sessionIds) => openDelete(lookupSelectedSessions(sessionIds), 'selected')}
+                onExportSession={(session) => openExportForSessions([session])}
+                onExportSessions={(sessionIds) => openExportForSessions(lookupSelectedSessions(sessionIds))}
+            />
 
             <ExportDialog
                 errorMessage={

@@ -6,7 +6,7 @@ import type {
 import { useMutation, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { RefreshCcw, Trash2 } from 'lucide-react';
-import { useDeferredValue, useMemo, useState } from 'react';
+import { useDeferredValue, useState } from 'react';
 import { CursorThreadsTable } from '#/components/cursor-threads-table';
 import { DeleteConfirmDialog } from '#/components/delete-confirm-dialog';
 import { ExportDialog } from '#/components/export-dialog';
@@ -14,8 +14,6 @@ import { ListSearchInput } from '#/components/list-search-input';
 import { LoadingPanel } from '#/components/loading-panel';
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
-import { ToolCallHitsProvider } from '#/components/tool-call-hits-context';
-import { ToolCallSearchBar } from '#/components/tool-call-search-bar';
 import { Button } from '#/components/ui/button';
 import { conversationListSelection, lookupSelectedItems } from '#/lib/conversation-selection';
 import { getCursorCleanupFailureMessage, hasCursorCleanupFailures } from '#/lib/cursor-delete-result';
@@ -32,8 +30,6 @@ import { createExportSelectionMutationInput, type ExportSelectionMutationInput }
 import { getMutationErrorMessage } from '#/lib/mutation-error';
 import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { matchesTextQuery } from '#/lib/text-filter';
-import { filterToToolCallHits } from '#/lib/tool-call-filter';
-import { useToolCallSearch } from '#/lib/use-tool-call-search';
 import { isWorkspaceEmptiedByDelete } from '#/lib/workspace-delete-navigation';
 
 type PendingCursorDelete =
@@ -243,17 +239,8 @@ const CursorWorkspacePage = () => {
         },
     });
 
-    const toolSearchCwds = useMemo(
-        () => (workspace.folders.length > 0 ? workspace.folders : [workspace.uri]),
-        [workspace],
-    );
-    const toolSearch = useToolCallSearch({ cwds: toolSearchCwds, source: 'cursor' });
-    const visibleThreads = filterToToolCallHits(
-        threads.filter((thread) =>
-            matchesTextQuery(deferredSearch, [thread.name, thread.composerId, thread.mode, thread.workspaceLabel]),
-        ),
-        (thread) => thread.composerId,
-        toolSearch.hitsById,
+    const visibleThreads = threads.filter((thread) =>
+        matchesTextQuery(deferredSearch, [thread.name, thread.composerId, thread.mode, thread.workspaceLabel]),
     );
     const openDeleteForSelectedThreads = (composerIds: string[]) => {
         const nextPendingDelete = buildPendingCursorDelete(getSelectedThreads(threads, composerIds));
@@ -293,31 +280,27 @@ const CursorWorkspacePage = () => {
 
             <CursorWorkspaceRecoveryNotice workspace={workspace} />
 
-            <ToolCallSearchBar search={toolSearch} />
-
-            <ToolCallHitsProvider hits={toolSearch.hitsById}>
-                <CursorThreadsTable
-                    {...conversationListSelection(
-                        'cursor',
-                        threads.map((thread) => thread.composerId),
-                        workspace.key,
-                    )}
-                    onDeleteThread={(thread) => {
-                        setPartialDeleteError(null);
-                        setPendingDelete({ kind: 'threads', threads: [thread] });
-                    }}
-                    onDeleteThreads={openDeleteForSelectedThreads}
-                    onExportThread={(thread) =>
-                        setPendingExport({
-                            composerIds: [thread.composerId],
-                            label: thread.name,
-                        })
-                    }
-                    onExportThreads={openExportForSelectedThreads}
-                    authoritativeRows={threads}
-                    threads={visibleThreads}
-                />
-            </ToolCallHitsProvider>
+            <CursorThreadsTable
+                {...conversationListSelection(
+                    'cursor',
+                    threads.map((thread) => thread.composerId),
+                    workspace.key,
+                )}
+                onDeleteThread={(thread) => {
+                    setPartialDeleteError(null);
+                    setPendingDelete({ kind: 'threads', threads: [thread] });
+                }}
+                onDeleteThreads={openDeleteForSelectedThreads}
+                onExportThread={(thread) =>
+                    setPendingExport({
+                        composerIds: [thread.composerId],
+                        label: thread.name,
+                    })
+                }
+                onExportThreads={openExportForSelectedThreads}
+                authoritativeRows={threads}
+                threads={visibleThreads}
+            />
 
             <CursorWorkspaceErrors
                 deleteError={deleteMutation.isError ? deleteMutation.error : null}

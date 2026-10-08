@@ -10,8 +10,6 @@ import { LoadingPanel } from '#/components/loading-panel';
 import { OpenCodeSessionsTable } from '#/components/opencode-sessions-table';
 import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
-import { ToolCallHitsProvider } from '#/components/tool-call-hits-context';
-import { ToolCallSearchBar } from '#/components/tool-call-search-bar';
 import { Button } from '#/components/ui/button';
 import { conversationListSelection, lookupSelectedItems } from '#/lib/conversation-selection';
 import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
@@ -25,8 +23,6 @@ import {
 } from '#/lib/opencode-server';
 import { invalidateSourceConversationQueries } from '#/lib/source-query-bindings';
 import { matchesTextQuery } from '#/lib/text-filter';
-import { filterToToolCallHits } from '#/lib/tool-call-filter';
-import { useToolCallSearch } from '#/lib/use-tool-call-search';
 import { isWorkspaceEmptiedByDelete } from '#/lib/workspace-delete-navigation';
 
 type PendingSessionDelete = {
@@ -191,8 +187,6 @@ function OpenCodeWorkspaceContent({
         },
     });
 
-    const toolSearchCwds = useMemo(() => [workspace.worktree], [workspace]);
-    const toolSearch = useToolCallSearch({ cwds: toolSearchCwds, source: 'opencode' });
     const visibleSessions = useMemo(
         () =>
             sessions.filter((session) =>
@@ -206,10 +200,6 @@ function OpenCodeWorkspaceContent({
                 ]),
             ),
         [deferredSearch, sessions],
-    );
-    const toolSearched = useMemo(
-        () => filterToToolCallHits(visibleSessions, (session) => session.sessionId, toolSearch.hitsById),
-        [visibleSessions, toolSearch.hitsById],
     );
     const lookupSelectedSessions = (sessionIds: string[]) =>
         lookupSelectedItems(sessionIds, sessions, (session) => session.sessionId);
@@ -256,25 +246,19 @@ function OpenCodeWorkspaceContent({
                 title={workspace.label}
             />
 
-            <ToolCallSearchBar search={toolSearch} />
-
-            <ToolCallHitsProvider hits={toolSearch.hitsById}>
-                <OpenCodeSessionsTable
-                    {...conversationListSelection(
-                        'opencode',
-                        sessions.map((session) => session.sessionId),
-                        workspace.key,
-                    )}
-                    authoritativeRows={sessions}
-                    sessions={toolSearched}
-                    onDeleteSession={(session) => openDeleteForSessions([session], 'selected')}
-                    onDeleteSessions={(sessionIds) =>
-                        openDeleteForSessions(lookupSelectedSessions(sessionIds), 'selected')
-                    }
-                    onExportSession={(session) => openExportForSessions([session])}
-                    onExportSessions={(sessionIds) => openExportForSessions(lookupSelectedSessions(sessionIds))}
-                />
-            </ToolCallHitsProvider>
+            <OpenCodeSessionsTable
+                {...conversationListSelection(
+                    'opencode',
+                    sessions.map((session) => session.sessionId),
+                    workspace.key,
+                )}
+                authoritativeRows={sessions}
+                sessions={visibleSessions}
+                onDeleteSession={(session) => openDeleteForSessions([session], 'selected')}
+                onDeleteSessions={(sessionIds) => openDeleteForSessions(lookupSelectedSessions(sessionIds), 'selected')}
+                onExportSession={(session) => openExportForSessions([session])}
+                onExportSessions={(sessionIds) => openExportForSessions(lookupSelectedSessions(sessionIds))}
+            />
 
             <ExportDialog
                 errorMessage={
