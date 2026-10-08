@@ -281,4 +281,39 @@ describe('loadThreadTranscript', () => {
             zipArchive: true,
         });
     });
+
+    it('should leave a single raw Codex JSON file unzipped unless a zip is requested', async () => {
+        renderCodexThreadDownloadMock.mockResolvedValue({
+            content: '{}',
+            fileName: 'thread-1.json',
+            mimeType: 'application/json',
+            mode: 'download',
+        });
+
+        await exportRawThreadsFn({ data: { threadIds: ['thread-1'] } });
+
+        expect(renderCodexThreadDownloadMock).toHaveBeenCalledWith(
+            expect.objectContaining({ outputFormat: 'json', threadId: 'thread-1', zipArchive: false }),
+        );
+    });
+
+    it('should zip a single raw Codex JSON file with the requested password', async () => {
+        renderCodexThreadDownloadMock.mockResolvedValue({
+            downloadUrl: '/__exports/raw.zip',
+            fileName: 'thread-1.zip',
+            mimeType: 'application/zip',
+            mode: 'download_url',
+        });
+
+        await exportRawThreadsFn({ data: { threadIds: ['thread-1'], zipArchive: true, zipPassword: 'pw' } });
+
+        expect(renderCodexThreadDownloadMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                outputFormat: 'json',
+                threadId: 'thread-1',
+                zipArchive: true,
+                zipPassword: 'pw',
+            }),
+        );
+    });
 });

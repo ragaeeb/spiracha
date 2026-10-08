@@ -26,10 +26,18 @@ describe('settings persistence', () => {
             exportDefaults: {
                 ...DEFAULT_SETTINGS.exportDefaults,
                 includeTools: false,
-                outputFormat: 'txt',
             },
             redactUsername: false,
         });
+    });
+
+    it('should ignore a previously saved output format so the export dialog opens on its default', () => {
+        const settings = parseSerializedSettings(
+            encodeURIComponent(JSON.stringify({ exportDefaults: { outputFormat: 'md', zipArchive: true } })),
+        );
+
+        expect(settings.exportDefaults).toEqual({ ...DEFAULT_SETTINGS.exportDefaults, zipArchive: true });
+        expect(settings.exportDefaults).not.toHaveProperty('outputFormat');
     });
 
     it('should reject malformed and invalid saved settings safely', () => {

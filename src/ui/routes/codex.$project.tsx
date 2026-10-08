@@ -23,6 +23,7 @@ import {
 import { conversationListSelection, lookupSelectedItems } from '#/lib/conversation-selection';
 import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
+import type { ExportLifecycleCallbacks, RawJsonExportOptions } from '#/lib/export-options';
 import { getMutationErrorMessage } from '#/lib/mutation-error';
 import { parseTextQuerySearch, withTextQuerySearch } from '#/lib/route-search';
 import { useSettings } from '#/lib/settings-store';
@@ -81,6 +82,15 @@ const decodeProjectParam = (project: string) => {
         return project;
     }
 };
+
+type RawThreadExportInput = Readonly<{
+    ids: readonly string[];
+    options: Readonly<RawJsonExportOptions>;
+    raw: true;
+}> &
+    ExportLifecycleCallbacks;
+
+type ThreadExportMutationInput = ExportSelectionMutationInput | RawThreadExportInput;
 
 export const Route = createFileRoute('/codex/$project')({
     component: ProjectDetailPage,
@@ -168,29 +178,36 @@ function ProjectDetailPage() {
     });
 
     const exportThreadMutation = useMutation({
-        mutationFn: async ({ ids, onDownloadStateChange, options, raw }: ExportSelectionMutationInput) => {
+        mutationFn: async (input: ThreadExportMutationInput) => {
+            const { ids, onDownloadStateChange } = input;
             console.info('[spiracha:export-ui] request', {
-                outputFormat: raw ? 'json' : options.outputFormat,
+                outputFormat: input.raw ? 'json' : input.options.outputFormat,
                 project,
-                raw,
+                raw: input.raw ?? false,
                 selectedThreadCount: ids.length,
                 selectedThreadIds: ids,
-                zipArchive: options.zipArchive,
+                zipArchive: input.options.zipArchive,
             });
 
-            const download = raw
-                ? await exportRawThreadsFn({ data: { threadIds: [...ids], zipPassword: options.zipPassword } })
+            const download = input.raw
+                ? await exportRawThreadsFn({
+                      data: {
+                          threadIds: [...ids],
+                          zipArchive: input.options.zipArchive,
+                          zipPassword: input.options.zipPassword,
+                      },
+                  })
                 : ids.length === 1
                   ? await exportThreadFn({
                         data: {
-                            ...options,
+                            ...input.options,
                             ...settings,
                             threadId: ids[0]!,
                         },
                     })
                   : await exportThreadsFn({
                         data: {
-                            ...options,
+                            ...input.options,
                             ...settings,
                             threadIds: [...ids],
                         },

@@ -59,6 +59,7 @@ type RawConversationExportOptions = {
     downloads: RawConversationExportEntry[];
     largeExportThresholdBytes?: number;
     source: ConversationSource;
+    zipArchive?: boolean;
     zipPassword?: string;
 };
 
@@ -80,6 +81,7 @@ export const renderRawConversationDownloads = async ({
     downloads,
     largeExportThresholdBytes = resolveUiRuntimeConfig().largeExportThresholdBytes,
     source,
+    zipArchive = false,
     zipPassword,
 }: RawConversationExportOptions) => {
     if (downloads.length === 0) {
@@ -89,6 +91,7 @@ export const renderRawConversationDownloads = async ({
     if (
         downloads.length === 1 &&
         downloads[0]!.download.blob.size <= largeExportThresholdBytes &&
+        !zipArchive &&
         (zipPassword === undefined || zipPassword === '')
     ) {
         const entry = downloads[0]!;

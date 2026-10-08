@@ -19,9 +19,21 @@ afterEach(() => {
 });
 
 describe('ExportDialog', () => {
-    it('should download raw source bytes with the adapter filename', async () => {
+    const withScrollIntoView = async (run: () => Promise<void> | void) => {
         const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
         HTMLElement.prototype.scrollIntoView = vi.fn();
+        try {
+            await run();
+        } finally {
+            HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+        }
+    };
+    const chooseFormat = (label: string) => {
+        fireEvent.click(screen.getByRole('combobox', { name: 'Output format' }));
+        fireEvent.click(screen.getByText(label));
+    };
+
+    it('should open on JSON and download raw source bytes with the adapter filename', async () => {
         const downloadRaw = vi.spyOn(download, 'downloadRawBase64File').mockImplementation(() => undefined);
         exportRawConversationsFnMock.mockResolvedValue({
             contentBase64: 'AP/AQQ0K',
@@ -31,37 +43,35 @@ describe('ExportDialog', () => {
         });
 
         try {
-            render(
-                <ExportDialog
-                    focusedEvidenceTarget={{ id: 'thread-1', source: 'codex' }}
-                    open
-                    onExport={vi.fn()}
-                    onOpenChange={vi.fn()}
-                />,
-            );
-            fireEvent.click(screen.getByRole('combobox', { name: 'Export mode' }));
-            fireEvent.click(screen.getByText('Raw JSON'));
-            fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
+            await withScrollIntoView(async () => {
+                render(
+                    <ExportDialog
+                        focusedEvidenceTarget={{ id: 'thread-1', source: 'codex' }}
+                        open
+                        onExport={vi.fn()}
+                        onOpenChange={vi.fn()}
+                    />,
+                );
+                expect(screen.queryByRole('combobox', { name: 'Export mode' })).toBeNull();
+                expect(screen.getByRole('combobox', { name: 'Output format' }).textContent).toContain('JSON');
+                fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
 
-            await waitFor(() =>
-                expect(downloadRaw).toHaveBeenCalledWith('messages.jsonl', 'AP/AQQ0K', 'application/json', {
-                    onStateChange: expect.any(Function),
-                }),
-            );
-            expect(exportRawConversationsFnMock).toHaveBeenCalledWith({
-                data: { ids: ['thread-1'], source: 'codex', zipPassword: '' },
+                await waitFor(() =>
+                    expect(downloadRaw).toHaveBeenCalledWith('messages.jsonl', 'AP/AQQ0K', 'application/json', {
+                        onStateChange: expect.any(Function),
+                    }),
+                );
+                expect(exportRawConversationsFnMock).toHaveBeenCalledWith({
+                    data: { ids: ['thread-1'], source: 'codex', zipArchive: false, zipPassword: '' },
+                });
             });
         } finally {
-            HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
             downloadRaw.mockRestore();
         }
     });
 
-    it('should hide raw export when a source has no standalone JSON transcript', () => {
-        const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
-        HTMLElement.prototype.scrollIntoView = vi.fn();
-
-        try {
+    it('should not offer JSON when a source has no standalone JSON transcript', async () => {
+        await withScrollIntoView(() => {
             render(
                 <ExportDialog
                     focusedEvidenceTarget={{ id: 'session-1', source: 'opencode' }}
@@ -70,16 +80,16 @@ describe('ExportDialog', () => {
                     onOpenChange={vi.fn()}
                 />,
             );
-            fireEvent.click(screen.getByRole('combobox', { name: 'Export mode' }));
-            expect(screen.queryByText('Raw JSON')).toBeNull();
-        } finally {
-            HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
-        }
+            const format = screen.getByRole('combobox', { name: 'Output format' });
+            expect(format.textContent).toContain('Markdown');
+            fireEvent.click(format);
+
+            expect(screen.queryByRole('option', { name: 'JSON (original transcript)' })).toBeNull();
+            expect(screen.getByRole('option', { name: 'Focused evidence (.md)' })).toBeTruthy();
+        });
     });
 
     it('should offer and download original Grok Bot blob bytes', async () => {
-        const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
-        HTMLElement.prototype.scrollIntoView = vi.fn();
         const downloadRaw = vi.spyOn(download, 'downloadRawBase64File').mockImplementation(() => undefined);
         exportRawConversationsFnMock.mockResolvedValue({
             contentBase64: 'AP/AQQ0K',
@@ -89,54 +99,47 @@ describe('ExportDialog', () => {
         });
 
         try {
-            render(
-                <ExportDialog
-                    focusedEvidenceTarget={{ id: 'chat-1', source: 'grok-bot' }}
-                    open
-                    onExport={vi.fn()}
-                    onOpenChange={vi.fn()}
-                />,
-            );
-            fireEvent.click(screen.getByRole('combobox', { name: 'Export mode' }));
-            fireEvent.click(screen.getByText('Raw JSON'));
-            fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
+            await withScrollIntoView(async () => {
+                render(
+                    <ExportDialog
+                        focusedEvidenceTarget={{ id: 'chat-1', source: 'grok-bot' }}
+                        open
+                        onExport={vi.fn()}
+                        onOpenChange={vi.fn()}
+                    />,
+                );
+                fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
 
-            await waitFor(() =>
-                expect(downloadRaw).toHaveBeenCalledWith('replica.blob', 'AP/AQQ0K', 'application/json', {
-                    onStateChange: expect.any(Function),
-                }),
-            );
-            expect(exportRawConversationsFnMock).toHaveBeenCalledWith({
-                data: { ids: ['chat-1'], source: 'grok-bot', zipPassword: '' },
+                await waitFor(() =>
+                    expect(downloadRaw).toHaveBeenCalledWith('replica.blob', 'AP/AQQ0K', 'application/json', {
+                        onStateChange: expect.any(Function),
+                    }),
+                );
+                expect(exportRawConversationsFnMock).toHaveBeenCalledWith({
+                    data: { ids: ['chat-1'], source: 'grok-bot', zipArchive: false, zipPassword: '' },
+                });
             });
         } finally {
-            HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
             downloadRaw.mockRestore();
         }
     });
 
-    it('should offer raw JSON for bulk exports', () => {
-        const onExport = vi.fn();
-        const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
-        HTMLElement.prototype.scrollIntoView = vi.fn();
+    it('should offer JSON in the output format list for bulk exports', async () => {
+        await withScrollIntoView(() => {
+            render(<ExportDialog open showRawJsonOption onExport={vi.fn()} onOpenChange={vi.fn()} />);
 
-        try {
-            render(<ExportDialog open showRawJsonOption onExport={onExport} onOpenChange={vi.fn()} />);
+            fireEvent.click(screen.getByRole('combobox', { name: 'Output format' }));
 
-            fireEvent.click(screen.getByRole('combobox', { name: 'Export mode' }));
-
-            expect(screen.getByText('Raw JSON')).toBeTruthy();
-        } finally {
-            HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
-        }
+            expect(screen.getByRole('option', { name: 'JSON (original transcript)' })).toBeTruthy();
+            expect(screen.getByRole('option', { name: 'Markdown (.md)' })).toBeTruthy();
+            expect(screen.getByRole('option', { name: 'Plain text (.txt)' })).toBeTruthy();
+        });
     });
 
-    it('should submit the bulk raw JSON export callback', () => {
+    it('should submit the bulk raw JSON export callback', async () => {
         const onRawJsonExport = vi.fn();
-        const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
-        HTMLElement.prototype.scrollIntoView = vi.fn();
 
-        try {
+        await withScrollIntoView(() => {
             render(
                 <ExportDialog
                     open
@@ -147,22 +150,17 @@ describe('ExportDialog', () => {
                 />,
             );
 
-            fireEvent.click(screen.getByRole('combobox', { name: 'Export mode' }));
-            fireEvent.click(screen.getByText('Raw JSON'));
             fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
 
-            expect(onRawJsonExport).toHaveBeenCalledWith(expect.objectContaining({ zipPassword: '' }), {
-                onDownloadStateChange: expect.any(Function),
-            });
-        } finally {
-            HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
-        }
+            expect(onRawJsonExport).toHaveBeenCalledWith(
+                expect.objectContaining({ zipArchive: false, zipPassword: '' }),
+                { onDownloadStateChange: expect.any(Function) },
+            );
+        });
     });
 
-    it('should export selected source conversations as raw JSON', async () => {
+    it('should require a zip when exporting several JSON transcripts', async () => {
         const downloadUrlFile = vi.spyOn(download, 'downloadUrlFileWithCancellation').mockResolvedValue(undefined);
-        const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
-        HTMLElement.prototype.scrollIntoView = vi.fn();
         exportRawConversationsFnMock.mockResolvedValue({
             downloadUrl: '/__exports/cline-raw.zip',
             fileName: 'cline-raw.zip',
@@ -171,34 +169,151 @@ describe('ExportDialog', () => {
         });
 
         try {
-            render(
-                <ExportDialog
-                    open
-                    onExport={vi.fn()}
-                    onOpenChange={vi.fn()}
-                    rawExport={{ ids: ['task-1', 'task-2'], source: 'cline' }}
-                />,
-            );
+            await withScrollIntoView(async () => {
+                render(
+                    <ExportDialog
+                        open
+                        onExport={vi.fn()}
+                        onOpenChange={vi.fn()}
+                        rawExport={{ ids: ['task-1', 'task-2'], source: 'cline' }}
+                    />,
+                );
 
-            fireEvent.click(screen.getByRole('combobox', { name: 'Export mode' }));
-            fireEvent.click(screen.getByText('Raw JSON'));
-            fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
+                const zip = screen.getByRole('checkbox', { name: /zip archive/i }) as HTMLButtonElement;
+                expect(zip.getAttribute('aria-checked')).toBe('true');
+                expect(zip.disabled).toBe(true);
+                fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
 
-            await waitFor(() =>
-                expect(exportRawConversationsFnMock).toHaveBeenCalledWith({
-                    data: { ids: ['task-1', 'task-2'], source: 'cline', zipPassword: '' },
-                }),
-            );
-            expect(downloadUrlFile).toHaveBeenCalledWith(
-                expect.any(Object),
-                'cline-raw.zip',
-                '/__exports/cline-raw.zip',
-                { onStateChange: expect.any(Function) },
-            );
+                await waitFor(() =>
+                    expect(exportRawConversationsFnMock).toHaveBeenCalledWith({
+                        data: { ids: ['task-1', 'task-2'], source: 'cline', zipArchive: true, zipPassword: '' },
+                    }),
+                );
+                expect(downloadUrlFile).toHaveBeenCalledWith(
+                    expect.any(Object),
+                    'cline-raw.zip',
+                    '/__exports/cline-raw.zip',
+                    { onStateChange: expect.any(Function) },
+                );
+            });
         } finally {
-            HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
             downloadUrlFile.mockRestore();
         }
+    });
+
+    it('should let a single JSON transcript be zipped with an optional password', async () => {
+        const downloadUrlFile = vi.spyOn(download, 'downloadUrlFileWithCancellation').mockResolvedValue(undefined);
+        exportRawConversationsFnMock.mockResolvedValue({
+            downloadUrl: '/__exports/cline-raw.zip',
+            fileName: 'cline-raw.zip',
+            mimeType: 'application/zip',
+            mode: 'download_url',
+        });
+
+        try {
+            await withScrollIntoView(async () => {
+                render(
+                    <ExportDialog
+                        open
+                        onExport={vi.fn()}
+                        onOpenChange={vi.fn()}
+                        rawExport={{ ids: ['task-1'], source: 'cline' }}
+                    />,
+                );
+
+                const zip = screen.getByRole('checkbox', { name: /zip archive/i }) as HTMLButtonElement;
+                expect(zip.disabled).toBe(false);
+                expect(zip.getAttribute('aria-checked')).toBe('false');
+                fireEvent.click(zip);
+                fireEvent.change(screen.getByLabelText('ZIP password (optional)'), { target: { value: 'secret' } });
+                fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
+
+                await waitFor(() =>
+                    expect(exportRawConversationsFnMock).toHaveBeenCalledWith({
+                        data: { ids: ['task-1'], source: 'cline', zipArchive: true, zipPassword: 'secret' },
+                    }),
+                );
+            });
+        } finally {
+            downloadUrlFile.mockRestore();
+        }
+    });
+
+    it('should not zip a single JSON transcript or send a remembered password while zip is off', async () => {
+        window.localStorage.setItem(ZIP_PASSWORD_STORAGE_KEY, 'remembered');
+        const downloadRaw = vi.spyOn(download, 'downloadRawBase64File').mockImplementation(() => undefined);
+        exportRawConversationsFnMock.mockResolvedValue({
+            contentBase64: 'AP/AQQ0K',
+            fileName: 'messages.jsonl',
+            mimeType: 'application/x-ndjson',
+            mode: 'download_base64',
+        });
+
+        try {
+            await withScrollIntoView(async () => {
+                render(
+                    <ExportDialog
+                        open
+                        onExport={vi.fn()}
+                        onOpenChange={vi.fn()}
+                        rawExport={{ ids: ['task-1'], source: 'cline' }}
+                    />,
+                );
+                fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
+
+                await waitFor(() =>
+                    expect(exportRawConversationsFnMock).toHaveBeenCalledWith({
+                        data: { ids: ['task-1'], source: 'cline', zipArchive: false, zipPassword: '' },
+                    }),
+                );
+            });
+        } finally {
+            downloadRaw.mockRestore();
+        }
+    });
+
+    it('should lock the include options on while JSON is selected and restore the choices for other formats', async () => {
+        await withScrollIntoView(() => {
+            render(<ExportDialog open showRawJsonOption onExport={vi.fn()} onOpenChange={vi.fn()} />);
+            const checkbox = (name: RegExp) => screen.getByRole('checkbox', { name }) as HTMLButtonElement;
+
+            for (const name of [/include metadata/i, /include commentary/i, /include tool calls/i]) {
+                expect(checkbox(name).getAttribute('aria-checked')).toBe('true');
+                expect(checkbox(name).disabled).toBe(true);
+            }
+
+            chooseFormat('Markdown (.md)');
+            expect(checkbox(/include commentary/i).disabled).toBe(false);
+            expect(checkbox(/include commentary/i).getAttribute('aria-checked')).toBe('false');
+            fireEvent.click(checkbox(/include commentary/i));
+            expect(checkbox(/include commentary/i).getAttribute('aria-checked')).toBe('true');
+
+            chooseFormat('JSON (original transcript)');
+            expect(checkbox(/include tool calls/i).disabled).toBe(true);
+            chooseFormat('Markdown (.md)');
+            expect(checkbox(/include commentary/i).getAttribute('aria-checked')).toBe('true');
+        });
+    });
+
+    it('should open on JSON again after exporting another format', async () => {
+        const onExport = vi.fn();
+        const renderDialog = (open: boolean) => (
+            <SettingsProvider>
+                <ExportDialog open={open} showRawJsonOption onExport={onExport} onOpenChange={vi.fn()} />
+            </SettingsProvider>
+        );
+
+        await withScrollIntoView(() => {
+            const { rerender } = render(renderDialog(true));
+            chooseFormat('Markdown (.md)');
+            fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
+            expect(onExport).toHaveBeenCalledWith(expect.objectContaining({ outputFormat: 'md' }), expect.any(Object));
+
+            rerender(renderDialog(false));
+            rerender(renderDialog(true));
+
+            expect(screen.getByRole('combobox', { name: 'Output format' }).textContent).toContain('JSON');
+        });
     });
 
     it('should build, validate, preview, and download focused evidence through the shared flow', async () => {
@@ -252,8 +367,8 @@ describe('ExportDialog', () => {
                     onOpenChange={vi.fn()}
                 />,
             );
-            fireEvent.click(screen.getByRole('combobox', { name: 'Export mode' }));
-            fireEvent.click(screen.getByText('Focused evidence'));
+            fireEvent.click(screen.getByRole('combobox', { name: 'Output format' }));
+            fireEvent.click(screen.getByText('Focused evidence (.md)'));
             expect(screen.getByTestId('evidence-lens-editor')).toBeTruthy();
             fireEvent.change(screen.getByRole('textbox', { name: 'Artifact glob' }), {
                 target: { value: 'reports/**/*.json' },
@@ -413,8 +528,8 @@ describe('ExportDialog', () => {
                     onOpenChange={onOpenChange}
                 />,
             );
-            fireEvent.click(screen.getByRole('combobox', { name: 'Export mode' }));
-            fireEvent.click(screen.getByText('Focused evidence'));
+            fireEvent.click(screen.getByRole('combobox', { name: 'Output format' }));
+            fireEvent.click(screen.getByText('Focused evidence (.md)'));
             fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
             fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
             resolveFetch?.(
@@ -468,8 +583,8 @@ describe('ExportDialog', () => {
                     onOpenChange={vi.fn()}
                 />,
             );
-            fireEvent.click(screen.getByRole('combobox', { name: 'Export mode' }));
-            fireEvent.click(screen.getByText('Focused evidence'));
+            fireEvent.click(screen.getByRole('combobox', { name: 'Output format' }));
+            fireEvent.click(screen.getByText('Focused evidence (.md)'));
             fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
 
             await waitFor(() => expect(screen.getByRole('status').textContent).toBe('Export failed.'));

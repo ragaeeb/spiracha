@@ -9,7 +9,13 @@ export type ExportDialogOptions = {
     zipPassword: string;
 };
 
-export type PersistedExportDialogOptions = Omit<ExportDialogOptions, 'zipPassword'>;
+// The output format is deliberately not remembered: the dialog always opens on its default (JSON when available).
+// The dialog-chosen format is a separate concept (it can also be JSON or focused evidence), so drafts omit it.
+export type ExportDraftOptions = Omit<ExportDialogOptions, 'outputFormat'>;
+
+export type RawJsonExportOptions = Pick<ExportDialogOptions, 'zipArchive' | 'zipPassword'>;
+
+export type PersistedExportDialogOptions = Omit<ExportDialogOptions, 'outputFormat' | 'zipPassword'>;
 
 export type ExportLifecycleCallbacks = {
     onDownloadStateChange?: (state: DownloadLifecycleState) => void;
@@ -19,7 +25,6 @@ export const DEFAULT_EXPORT_DIALOG_OPTIONS: PersistedExportDialogOptions = {
     includeCommentary: false,
     includeMetadata: true,
     includeTools: true,
-    outputFormat: 'md',
     zipArchive: false,
 };
 

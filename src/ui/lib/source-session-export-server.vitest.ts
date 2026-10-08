@@ -249,6 +249,48 @@ describe('source session export server helpers', () => {
         expect(new TextDecoder().decode(bunWriteMock.mock.calls[1]?.[1] as ArrayBuffer)).toBe(secondContent);
     });
 
+    it('should archive a single small raw conversation when zip is requested without a password', async () => {
+        const result = await renderRawConversationDownloads({
+            downloads: [
+                {
+                    download: {
+                        blob: new Blob(['raw bytes']),
+                        fileName: 'messages.jsonl',
+                        mimeType: 'application/x-ndjson',
+                    },
+                    id: 'task-1',
+                },
+            ],
+            largeExportThresholdBytes: 1_000_000,
+            source: 'cline',
+            zipArchive: true,
+            zipPassword: '',
+        });
+
+        expect(result.mode).toBe('download_url');
+    });
+
+    it('should keep a single small raw conversation unzipped when zip is not requested', async () => {
+        const result = await renderRawConversationDownloads({
+            downloads: [
+                {
+                    download: {
+                        blob: new Blob(['raw bytes']),
+                        fileName: 'messages.jsonl',
+                        mimeType: 'application/x-ndjson',
+                    },
+                    id: 'task-1',
+                },
+            ],
+            largeExportThresholdBytes: 1_000_000,
+            source: 'cline',
+            zipArchive: false,
+            zipPassword: '',
+        });
+
+        expect(result).toMatchObject({ mimeType: 'application/x-ndjson', mode: 'download_base64' });
+    });
+
     it('should archive a small raw conversation when a ZIP password is supplied', async () => {
         const result = await renderRawConversationDownloads({
             downloads: [

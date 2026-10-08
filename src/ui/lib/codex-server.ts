@@ -69,6 +69,7 @@ const exportThreadsSchema = object({
 
 const exportRawThreadsSchema = object({
     threadIds: pipe(array(pipe(string(), minLength(1))), minLength(1)),
+    zipArchive: optional(boolean(), false),
     zipPassword: optional(string(), ''),
 });
 
@@ -327,6 +328,7 @@ export const exportRawThreadsFn = createServerFn({ method: 'POST' })
                 includeTools: false,
                 outputFormat: 'json',
                 threadId: data.threadIds[0]!,
+                zipArchive: data.zipArchive ?? false,
                 zipPassword: data.zipPassword,
             });
         }

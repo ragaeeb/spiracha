@@ -29,10 +29,6 @@ const parseExportDefaults = (value: unknown): PersistedExportDialogOptions => {
         includeCommentary: booleanOrDefault(record.includeCommentary, DEFAULT_EXPORT_DIALOG_OPTIONS.includeCommentary),
         includeMetadata: booleanOrDefault(record.includeMetadata, DEFAULT_EXPORT_DIALOG_OPTIONS.includeMetadata),
         includeTools: booleanOrDefault(record.includeTools, DEFAULT_EXPORT_DIALOG_OPTIONS.includeTools),
-        outputFormat:
-            record.outputFormat === 'txt' || record.outputFormat === 'md'
-                ? record.outputFormat
-                : DEFAULT_EXPORT_DIALOG_OPTIONS.outputFormat,
         zipArchive: booleanOrDefault(record.zipArchive, DEFAULT_EXPORT_DIALOG_OPTIONS.zipArchive),
     };
 };

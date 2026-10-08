@@ -1,13 +1,12 @@
 import { createServerFn } from '@tanstack/react-start';
 import { getCookie, setCookie } from '@tanstack/react-start/server';
-import { boolean, object, picklist } from 'valibot';
+import { boolean, object } from 'valibot';
 import { parseSerializedSettings, SETTINGS_COOKIE_NAME, serializeSettings } from '#/lib/settings';
 
 const exportDefaultsSchema = object({
     includeCommentary: boolean(),
     includeMetadata: boolean(),
     includeTools: boolean(),
-    outputFormat: picklist(['md', 'txt']),
     zipArchive: boolean(),
 });
 
