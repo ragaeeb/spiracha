@@ -272,6 +272,89 @@ describe('ExportDialog', () => {
         }
     });
 
+    it('should close the dialog once a JSON download has started, without cancelling it', async () => {
+        const downloadRaw = vi.spyOn(download, 'downloadRawBase64File').mockImplementation(() => undefined);
+        const cancelActiveDownloads = vi.spyOn(download, 'cancelActiveDownloads');
+        const onOpenChange = vi.fn();
+        exportRawConversationsFnMock.mockResolvedValue({
+            contentBase64: 'AP/AQQ0K',
+            fileName: 'messages.jsonl',
+            mimeType: 'application/x-ndjson',
+            mode: 'download_base64',
+        });
+
+        try {
+            await withScrollIntoView(async () => {
+                render(
+                    <ExportDialog
+                        open
+                        onExport={vi.fn()}
+                        onOpenChange={onOpenChange}
+                        rawExport={{ ids: ['task-1'], source: 'cline' }}
+                    />,
+                );
+                fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
+
+                await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+                expect(downloadRaw).toHaveBeenCalledTimes(1);
+                expect(cancelActiveDownloads).not.toHaveBeenCalled();
+            });
+        } finally {
+            downloadRaw.mockRestore();
+            cancelActiveDownloads.mockRestore();
+        }
+    });
+
+    it('should close the dialog after a zipped JSON download completes', async () => {
+        const downloadUrlFile = vi.spyOn(download, 'downloadUrlFileWithCancellation').mockResolvedValue(undefined);
+        const onOpenChange = vi.fn();
+        exportRawConversationsFnMock.mockResolvedValue({
+            downloadUrl: '/__exports/raw.zip',
+            fileName: 'raw.zip',
+            mimeType: 'application/zip',
+            mode: 'download_url',
+        });
+
+        try {
+            await withScrollIntoView(async () => {
+                render(
+                    <ExportDialog
+                        open
+                        onExport={vi.fn()}
+                        onOpenChange={onOpenChange}
+                        rawExport={{ ids: ['task-1', 'task-2'], source: 'cline' }}
+                    />,
+                );
+                fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
+
+                await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+                expect(downloadUrlFile).toHaveBeenCalledTimes(1);
+            });
+        } finally {
+            downloadUrlFile.mockRestore();
+        }
+    });
+
+    it('should keep the dialog open and show the error when a JSON export fails', async () => {
+        const onOpenChange = vi.fn();
+        exportRawConversationsFnMock.mockRejectedValue(new Error('No raw transcript exists'));
+
+        await withScrollIntoView(async () => {
+            render(
+                <ExportDialog
+                    open
+                    onExport={vi.fn()}
+                    onOpenChange={onOpenChange}
+                    rawExport={{ ids: ['task-1'], source: 'cline' }}
+                />,
+            );
+            fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
+
+            expect(await screen.findByText('No raw transcript exists')).toBeTruthy();
+            expect(onOpenChange).not.toHaveBeenCalled();
+        });
+    });
+
     it('should lock the include options on while JSON is selected and restore the choices for other formats', async () => {
         await withScrollIntoView(() => {
             render(<ExportDialog open showRawJsonOption onExport={vi.fn()} onOpenChange={vi.fn()} />);

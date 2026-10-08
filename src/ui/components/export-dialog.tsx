@@ -527,7 +527,7 @@ export function ExportDialog({
         setSubmitted(false);
     };
 
-    const submitBulkRawExport = async () => {
+    const submitBulkRawExport = async (token: number) => {
         const target = focusedEvidenceTarget
             ? { ids: [focusedEvidenceTarget.id], source: focusedEvidenceTarget.source }
             : rawExport;
@@ -552,6 +552,10 @@ export function ExportDialog({
                     onStateChange: setDownloadState,
                 });
             }
+            // Close through the prop: the internal close handler would cancel the download that just started.
+            if (submissionToken.current === token) {
+                onOpenChange(false);
+            }
         } catch (error) {
             setExportError(error instanceof Error ? error.message : 'Raw transcript export failed.');
         } finally {
@@ -560,9 +564,9 @@ export function ExportDialog({
         }
     };
 
-    const submitRawExport = async () => {
+    const submitRawExport = async (token: number) => {
         if (focusedEvidenceTarget || hasRawJsonExport) {
-            await submitBulkRawExport();
+            await submitBulkRawExport(token);
             return;
         }
 
@@ -603,7 +607,7 @@ export function ExportDialog({
             zipArchive: options.zipArchive,
         });
         if (format === 'json') {
-            await submitRawExport();
+            await submitRawExport(token);
             return;
         }
         onExport(
