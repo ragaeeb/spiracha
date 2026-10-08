@@ -38,7 +38,7 @@ describe('ExportDialog', () => {
         fireEvent.click(screen.getByText(label));
     };
 
-    it('should open on JSON and download raw source bytes with the adapter filename', async () => {
+    it('should download raw source bytes with the adapter filename once JSON is chosen', async () => {
         const downloadRaw = vi.spyOn(download, 'downloadRawBase64File').mockImplementation(() => undefined);
         exportRawConversationsFnMock.mockResolvedValue({
             contentBase64: 'AP/AQQ0K',
@@ -57,6 +57,8 @@ describe('ExportDialog', () => {
                         onOpenChange={vi.fn()}
                     />,
                 );
+                expect(screen.getByRole('combobox', { name: 'Output format' }).textContent).toContain('Markdown');
+                chooseFormat('JSON (original transcript)');
                 expect(screen.queryByRole('combobox', { name: 'Export mode' })).toBeNull();
                 expect(screen.getByRole('combobox', { name: 'Output format' }).textContent).toContain('JSON');
                 fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
@@ -96,12 +98,12 @@ describe('ExportDialog', () => {
                     />,
                 );
                 const format = screen.getByRole('combobox', { name: 'Output format' });
-                expect(format.textContent).toContain('JSON (normalized)');
-                expect(screen.getByText(/complete stored rows with their timestamps/i)).toBeTruthy();
+                expect(format.textContent).toContain('Markdown');
                 fireEvent.click(format);
                 expect(screen.queryByRole('option', { name: 'JSON (original transcript)' })).toBeNull();
                 expect(screen.getByRole('option', { name: 'Focused evidence (.md)' })).toBeTruthy();
                 fireEvent.click(screen.getByRole('option', { name: 'JSON (normalized)' }));
+                expect(screen.getByText(/complete stored rows with their timestamps/i)).toBeTruthy();
                 fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
 
                 await waitFor(() =>
@@ -130,6 +132,7 @@ describe('ExportDialog', () => {
                     rawExport={{ ids: ['a', 'b'], source: 'opencode' }}
                 />,
             );
+            chooseFormat('JSON (normalized)');
             const multiZip = screen.getByRole('checkbox', { name: /zip archive/i }) as HTMLButtonElement;
             expect(multiZip.getAttribute('aria-checked')).toBe('true');
             expect(multiZip.disabled).toBe(true);
@@ -166,6 +169,7 @@ describe('ExportDialog', () => {
                         onOpenChange={vi.fn()}
                     />,
                 );
+                chooseFormat('JSON (original transcript)');
                 fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
 
                 await waitFor(() =>
@@ -207,6 +211,7 @@ describe('ExportDialog', () => {
                     showRawJsonOption
                 />,
             );
+            chooseFormat('JSON (original transcript)');
 
             fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
 
@@ -236,6 +241,7 @@ describe('ExportDialog', () => {
                         rawExport={{ ids: ['task-1', 'task-2'], source: 'cline' }}
                     />,
                 );
+                chooseFormat('JSON (original transcript)');
 
                 const zip = screen.getByRole('checkbox', { name: /zip archive/i }) as HTMLButtonElement;
                 expect(zip.getAttribute('aria-checked')).toBe('true');
@@ -278,6 +284,7 @@ describe('ExportDialog', () => {
                         rawExport={{ ids: ['task-1'], source: 'cline' }}
                     />,
                 );
+                chooseFormat('JSON (original transcript)');
 
                 const zip = screen.getByRole('checkbox', { name: /zip archive/i }) as HTMLButtonElement;
                 expect(zip.disabled).toBe(false);
@@ -317,6 +324,7 @@ describe('ExportDialog', () => {
                         rawExport={{ ids: ['task-1'], source: 'cline' }}
                     />,
                 );
+                chooseFormat('JSON (original transcript)');
                 fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
 
                 await waitFor(() =>
@@ -351,6 +359,7 @@ describe('ExportDialog', () => {
                         rawExport={{ ids: ['task-1'], source: 'cline' }}
                     />,
                 );
+                chooseFormat('JSON (original transcript)');
                 fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
 
                 await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
@@ -383,6 +392,7 @@ describe('ExportDialog', () => {
                         rawExport={{ ids: ['task-1', 'task-2'], source: 'cline' }}
                     />,
                 );
+                chooseFormat('JSON (original transcript)');
                 fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
 
                 await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
@@ -406,6 +416,7 @@ describe('ExportDialog', () => {
                     rawExport={{ ids: ['task-1'], source: 'cline' }}
                 />,
             );
+            chooseFormat('JSON (original transcript)');
             fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
 
             expect(await screen.findByText('No raw transcript exists')).toBeTruthy();
@@ -418,6 +429,12 @@ describe('ExportDialog', () => {
             render(<ExportDialog open showRawJsonOption onExport={vi.fn()} onOpenChange={vi.fn()} />);
             const checkbox = (name: RegExp) => screen.getByRole('checkbox', { name }) as HTMLButtonElement;
 
+            expect(checkbox(/include commentary/i).disabled).toBe(false);
+            expect(checkbox(/include commentary/i).getAttribute('aria-checked')).toBe('false');
+            fireEvent.click(checkbox(/include commentary/i));
+            expect(checkbox(/include commentary/i).getAttribute('aria-checked')).toBe('true');
+
+            chooseFormat('JSON (original transcript)');
             for (const name of [/include metadata/i, /include commentary/i, /include tool calls/i]) {
                 expect(checkbox(name).getAttribute('aria-checked')).toBe('true');
                 expect(checkbox(name).disabled).toBe(true);
@@ -425,35 +442,27 @@ describe('ExportDialog', () => {
 
             chooseFormat('Markdown (.md)');
             expect(checkbox(/include commentary/i).disabled).toBe(false);
-            expect(checkbox(/include commentary/i).getAttribute('aria-checked')).toBe('false');
-            fireEvent.click(checkbox(/include commentary/i));
-            expect(checkbox(/include commentary/i).getAttribute('aria-checked')).toBe('true');
-
-            chooseFormat('JSON (original transcript)');
-            expect(checkbox(/include tool calls/i).disabled).toBe(true);
-            chooseFormat('Markdown (.md)');
             expect(checkbox(/include commentary/i).getAttribute('aria-checked')).toBe('true');
         });
     });
 
-    it('should open on JSON again after exporting another format', async () => {
-        const onExport = vi.fn();
+    it('should always open on Markdown, even after JSON was chosen before', async () => {
         const renderDialog = (open: boolean) => (
             <SettingsProvider>
-                <ExportDialog open={open} showRawJsonOption onExport={onExport} onOpenChange={vi.fn()} />
+                <ExportDialog open={open} showRawJsonOption onExport={vi.fn()} onOpenChange={vi.fn()} />
             </SettingsProvider>
         );
 
         await withScrollIntoView(() => {
             const { rerender } = render(renderDialog(true));
-            chooseFormat('Markdown (.md)');
-            fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
-            expect(onExport).toHaveBeenCalledWith(expect.objectContaining({ outputFormat: 'md' }), expect.any(Object));
+            expect(screen.getByRole('combobox', { name: 'Output format' }).textContent).toContain('Markdown');
+            chooseFormat('JSON (original transcript)');
+            expect(screen.getByRole('combobox', { name: 'Output format' }).textContent).toContain('JSON');
 
             rerender(renderDialog(false));
             rerender(renderDialog(true));
 
-            expect(screen.getByRole('combobox', { name: 'Output format' }).textContent).toContain('JSON');
+            expect(screen.getByRole('combobox', { name: 'Output format' }).textContent).toContain('Markdown');
         });
     });
 

@@ -65,9 +65,9 @@ type JsonKind = 'normalized' | 'original';
 
 type FormatAvailability = { focused: boolean; json: JsonKind | null };
 
-// The default depends on what the current props support, so it is resolved on every render rather than stored.
+// The dialog always opens on Markdown; a chosen format only stands while the current props still offer it.
 const resolveExportFormat = (chosen: ExportFormat | null, available: FormatAvailability): ExportFormat => {
-    const candidate = chosen ?? (available.json ? 'json' : 'md');
+    const candidate = chosen ?? 'md';
     if ((candidate === 'json' && available.json === null) || (candidate === 'focused' && !available.focused)) {
         return 'md';
     }
