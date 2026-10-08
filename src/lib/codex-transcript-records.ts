@@ -338,7 +338,9 @@ const buildResponseItemEvent = (
     }
 
     if (payloadType === 'agent_message') {
-        return createAgentMessageEvent(payload, raw, sequence, timestamp);
+        return isInterAgentMessage(payload)
+            ? createDelegationEvent(payload, raw, sequence, timestamp)
+            : createAgentMessageEvent(payload, raw, sequence, timestamp);
     }
 
     if (payloadType === 'function_call' || payloadType === 'custom_tool_call') {
@@ -429,6 +431,57 @@ const createUserMessageEvent = (
         text,
         timestamp,
         variant: 'user_message',
+    };
+};
+
+// A parent agent handing work to a subagent: addressed to a recipient and carrying content parts rather than a
+// plain `message` string (that shape is the assistant's own answer).
+const isInterAgentMessage = (payload: Record<string, JsonValue>) =>
+    typeof payload.message !== 'string' && typeof payload.recipient === 'string' && Array.isArray(payload.content);
+
+const DELEGATION_HEADER_PREFIX = 'Message Type:';
+const DELEGATION_LABELS: Record<string, string> = { MESSAGE: 'Message', NEW_TASK: 'Task' };
+
+// Codex encrypts the delegated text; only the routing header and any plain-text parts are readable.
+const createDelegationEvent = (
+    payload: Record<string, JsonValue>,
+    raw: Record<string, JsonValue>,
+    sequence: number,
+    timestamp: string | null,
+): MessageEvent => {
+    const parts = (Array.isArray(payload.content) ? payload.content : []).flatMap((part) => {
+        const entry = asObject(part);
+        return entry ? [entry] : [];
+    });
+    const headerText = parts
+        .map((part) => asString(part.text) ?? '')
+        .find((text) => text.startsWith(DELEGATION_HEADER_PREFIX));
+    const messageType = /Message Type:\s*(\S+)/u.exec(headerText ?? '')?.[1] ?? 'MESSAGE';
+    const sender = asString(payload.author) ?? 'unknown sender';
+    const readable = parts
+        .map((part) => asString(part.text) ?? '')
+        .filter((text) => text.trim() && text !== headerText)
+        .map((text) => stripCodexMemoryCitationBlocks(text).trim());
+    const encrypted = parts.some((part) => part.type === 'encrypted_content');
+    const body =
+        readable.length > 0
+            ? readable.join('\n\n')
+            : encrypted
+              ? 'The content was encrypted by Codex and cannot be recovered from the session file.'
+              : '';
+    return {
+        authorName: `${DELEGATION_LABELS[messageType] ?? messageType} from ${sender}`,
+        isHiddenByDefault: false,
+        kind: 'message',
+        memoryCitation: null,
+        model: null,
+        phase: null,
+        raw,
+        role: 'system',
+        sequence,
+        text: [`To: ${asString(payload.recipient)}`, body].filter(Boolean).join('\n\n'),
+        timestamp,
+        variant: 'agent_message',
     };
 };
 

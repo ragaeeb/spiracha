@@ -211,4 +211,23 @@ describe('normalized conversation export', () => {
         expect(text).toContain('Assistant · Final answer · 2026-01-02T03:04:05.006Z\n');
         expect(text).toContain(`${'-'.repeat('Assistant · Final answer · 2026-01-02T03:04:05.006Z'.length)}\n`);
     });
+
+    it('should title a system message with its author name when one is provided', () => {
+        const markdown = renderNormalizedExport({
+            messages: [
+                message({ id: 'plain', metadata: {}, order: 0, phase: 'unknown', role: 'system', text: 'Plain note' }),
+                message({
+                    id: 'authored',
+                    metadata: { authorName: 'Task from /root' },
+                    order: 1,
+                    phase: 'unknown',
+                    role: 'system',
+                    text: 'To: /root/verifier',
+                }),
+            ],
+            title: 'T',
+        });
+
+        expect(markdown).toBe('# T\n\n## System\n\nPlain note\n\n## Task from /root\n\nTo: /root/verifier\n');
+    });
 });

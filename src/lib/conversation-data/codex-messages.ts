@@ -30,6 +30,7 @@ const toMessageEventMessage = (event: MessageEvent): ConversationMessage | null 
         id: `codex:${event.sequence}`,
         ...(event.model ? { model: event.model } : {}),
         metadata: {
+            ...(event.authorName ? { authorName: event.authorName } : {}),
             variant: event.variant,
         },
         order: event.sequence,

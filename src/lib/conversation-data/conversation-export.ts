@@ -113,7 +113,7 @@ const headingFor = (message: ConversationMessage, conversationModel?: string) =>
         return authorName || 'User';
     }
     if (bucket === 'system') {
-        return 'System';
+        return authorName || 'System';
     }
     if (bucket === 'tool_call') {
         return 'Tool call';
