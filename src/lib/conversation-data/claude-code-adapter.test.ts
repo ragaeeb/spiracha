@@ -10,7 +10,12 @@ afterEach(async () => {
     await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { force: true, recursive: true })));
 });
 
-const writeClaudeSession = async (projectsDir: string, sessionId: string, cwd: string) => {
+const writeClaudeSession = async (
+    projectsDir: string,
+    sessionId: string,
+    cwd: string,
+    extraRecords: Record<string, unknown>[] = [],
+) => {
     const projectDir = path.join(projectsDir, 'project');
     await mkdir(projectDir, { recursive: true });
     const records = [
@@ -76,6 +81,7 @@ const writeClaudeSession = async (projectsDir: string, sessionId: string, cwd: s
             uuid: 'assistant-2',
             version: '2.1.148',
         },
+        ...extraRecords,
     ];
     await Bun.write(
         path.join(projectDir, `${sessionId}.jsonl`),
@@ -168,5 +174,44 @@ describe('Claude Code conversation adapter', () => {
         expect(conversations[0]?.matches[0]?.kind).toBe('exact');
         expect(conversations[0]?.messages).toEqual([]);
         expect(excluded).toEqual([]);
+    });
+
+    it('should expose rewind fork links in conversation metadata', async () => {
+        const projectsDir = await mkdtemp(path.join(os.tmpdir(), 'claude-adapter-fork-'));
+        tempDirs.push(projectsDir);
+        const cwd = path.join(projectsDir, 'repo');
+        await writeClaudeSession(projectsDir, 'session-original', cwd);
+        await writeClaudeSession(projectsDir, 'session-fork', cwd, [
+            {
+                cwd,
+                message: { content: 'Edited follow-up', role: 'user' },
+                parentUuid: 'assistant-2',
+                sessionId: 'session-fork',
+                timestamp: '2026-06-01T10:10:00.000Z',
+                type: 'user',
+                uuid: 'fork-user',
+            },
+        ]);
+
+        const conversations = await claudeCodeConversationAdapter.listConversations({
+            cwd,
+            locations: { claudeCodeProjectsDir: projectsDir },
+        });
+        const fork = await claudeCodeConversationAdapter.getConversation({
+            id: 'session-fork',
+            locations: { claudeCodeProjectsDir: projectsDir },
+            source: 'claude-code',
+        });
+        const metadataById = new Map(conversations.map((conversation) => [conversation.id, conversation.metadata]));
+
+        expect(metadataById.get('session-original')).toMatchObject({
+            forkedFrom: null,
+            forkSessionIds: ['session-fork'],
+        });
+        expect(metadataById.get('session-fork')).toMatchObject({
+            forkedFrom: { branchEntryId: 'assistant-2', sessionId: 'session-original' },
+            forkSessionIds: [],
+        });
+        expect(fork?.metadata.forkedFrom).toEqual({ branchEntryId: 'assistant-2', sessionId: 'session-original' });
     });
 });

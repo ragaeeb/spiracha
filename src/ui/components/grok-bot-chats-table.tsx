@@ -2,6 +2,7 @@ import { Link } from '@tanstack/react-router';
 import type { SortingState } from '@tanstack/react-table';
 import { Download, MoreHorizontal, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
+import { ConversationTitleCell } from '#/components/conversation-title-cell';
 import { DataTable } from '#/components/data-table';
 import { ConversationSelectionActions } from '#/components/selection-actions-toolbar';
 import { Button } from '#/components/ui/button';
@@ -48,14 +49,19 @@ const buildColumns = (onDeleteChat: (chat: GrokBotChat) => void, onExportChat: (
     [
         columnHelper.accessor('title', {
             cell: (info) => (
-                <Link
-                    className="block w-[16rem] max-w-[24rem] space-y-1 rounded-md outline-none transition hover:opacity-80 focus-visible:ring-2 focus-visible:ring-[var(--accent)] lg:w-auto"
-                    params={{ conversationId: info.row.original.id }}
-                    to="/grok-bot-chats/$conversationId"
-                >
-                    <p className="truncate font-medium underline-offset-2 hover:underline">{info.getValue()}</p>
-                    <p className="truncate font-mono text-[var(--muted-foreground)] text-xs">{info.row.original.id}</p>
-                </Link>
+                <ConversationTitleCell
+                    id={info.row.original.id}
+                    renderLink={(content, className) => (
+                        <Link
+                            className={className}
+                            params={{ conversationId: info.row.original.id }}
+                            to="/grok-bot-chats/$conversationId"
+                        >
+                            {content}
+                        </Link>
+                    )}
+                    title={info.getValue() ?? info.row.original.id}
+                />
             ),
             header: 'Chat',
         }),

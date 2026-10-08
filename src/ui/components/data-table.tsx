@@ -183,7 +183,7 @@ export function DataTable<TData extends RowData>({
         enableSorting: false,
         header: ({ table }) => (
             <Checkbox
-                aria-label="Select all visible rows on this page"
+                aria-label="Select all loaded rows"
                 checked={
                     table.getIsAllPageRowsSelected()
                         ? true
@@ -313,33 +313,19 @@ export function DataTable<TData extends RowData>({
                     )}
                 </TableBody>
             </Table>
-            {table.getPageCount() > 1 ? (
+            {table.getCanNextPage() ? (
                 <div className="flex items-center justify-between border-[var(--border)] border-t px-3 py-2">
                     <span className="text-[var(--muted-foreground)] text-sm">
-                        Page {(table.atoms.pagination?.get().pageIndex ?? 0) + 1} of {table.getPageCount()}
+                        Showing {visibleRows.length} of {table.getRowCount()}
                     </span>
-                    <div className="flex gap-2">
-                        <Button
-                            aria-label="Previous page"
-                            disabled={!table.getCanPreviousPage()}
-                            size="sm"
-                            type="button"
-                            variant="outline"
-                            onClick={() => table.previousPage()}
-                        >
-                            Previous
-                        </Button>
-                        <Button
-                            aria-label="Next page"
-                            disabled={!table.getCanNextPage()}
-                            size="sm"
-                            type="button"
-                            variant="outline"
-                            onClick={() => table.nextPage()}
-                        >
-                            Next
-                        </Button>
-                    </div>
+                    <Button
+                        size="sm"
+                        type="button"
+                        variant="outline"
+                        onClick={() => table.setPageSize((loadedCount) => loadedCount + pageSize)}
+                    >
+                        Load more
+                    </Button>
                 </div>
             ) : null}
         </div>

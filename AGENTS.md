@@ -2,23 +2,28 @@
 
 ## Purpose
 
-This repo is a Bun-first local app for importing web conversations and browsing, exporting, and exposing agent conversation history from Codex, Claude Code, Command Code, Cline, Grok, Grok Bot, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode.
+Bun-first local app for importing web conversations and browsing, exporting, and exposing agent conversation history from Codex, Claude Code, Command Code, Cline, Grok, Grok Bot, Kiro, Qoder, Cursor, Antigravity, FX, MiniMax Code, and OpenCode.
 
-The legacy exporter, MCP server, and Codex plugin were removed in the 2.0 hard cut. Do not add bridge commands, compatibility aliases, or deprecated entrypoints back. The current CLI is an API-driven thin client; new application workflows should import the stable `spiracha/client` Bun SDK instead of shelling out.
+The legacy exporter, MCP server, and Codex plugin were removed in the 2.0 hard cut. Do not add bridge commands, compatibility aliases, or deprecated entrypoints back. The CLI is an API-driven thin client; new application workflows should import the stable `spiracha/client` Bun SDK instead of shelling out. Do not bake review semantics into Spiracha; clients decide what a selected message means.
 
-Main entrypoints:
-- `spiracha` (or `bunx spiracha`) prints help when called without arguments
-- `spiracha serve` for running the packaged bundled UI/API server
-- `spiracha list [--cwd <path>]` for normalized conversation JSON; omit `--cwd` for global sources such as Grok Bot
-- `spiracha get <ref>` for one normalized conversation
-- `spiracha export <ref> [--raw] [--output <path>]` for Markdown or original JSON/JSONL export
-- `spiracha evidence <ref> --lens <file> [--output <path>]` for focused evidence Markdown
-- `rtk bun start` for local development
-- `rtk bun run ui:preview` after a UI build
-- `rtk bun test`, `rtk bun run lint`, `rtk bun run typecheck`, `rtk bun run build`, and `rtk bun run coverage` for verification
-- `rtk bun run test:package` for the packaged-entrypoint smoke test
+Bun 1.4.2 or newer is required. The compiled `spiracha/payload` export must run without Bun or Node built-ins in Node.js, browsers, and Workers.
 
-Bun 1.4.2 or newer is required for development and local storage workflows. The compiled `spiracha/payload` export must run without Bun or Node built-ins in Node.js, browsers, and Workers.
+## Commands
+
+```bash
+rtk bun start               # UI dev server
+rtk bun run ui:preview      # after a UI build
+rtk bun test                # root suite
+rtk bun run test:ui         # Vitest UI suite
+rtk bun run lint
+rtk bun run typecheck
+rtk bun run build
+rtk bun run coverage        # 90% line gate, root and UI
+rtk bun run test:package    # packaged-entrypoint smoke
+rtk bun run test:conformance
+```
+
+CLI: `spiracha` (prints help with no args), `serve`, `list [--cwd <path>]`, `get <ref>`, `export <ref> [--raw] [--output <path>]`, `evidence <ref> --lens <file> [--output <path>]`.
 
 ## Conventions and Rules
 
@@ -32,221 +37,39 @@ Bun 1.4.2 or newer is required for development and local storage workflows. The 
 - Never disable a Biome or TypeScript rule without explicit permission.
 - Add brief comments only when future agents need context that is not obvious from the code.
 - Do not use decorative repeated-character section headers.
-- Use `it('should...')` style tests.
-- Unit tests live next to their implementation.
+- Use `it('should...')` style tests; unit tests live next to their implementation.
 - `src/ui/routeTree.gen.ts` is generated and must not be manually edited.
+- TanStack Start server functions use `.validator(...)`, not `.inputValidator(...)`; API routes use route-level `server.handlers`.
+- Keep root-package modules imported by the UI available through `@spiracha/lib/*`. `fflate` is the only runtime dependency.
+- Keep `*-transcript-phase.ts` modules browser-safe and keep phase/filtering rules centralized so UI export and the stable API select messages identically.
 
-## Architecture
+## Architecture Map
 
-Stable conversation API:
-- `src/client.ts`
-  - public Bun client export for local serverless access and HTTP access to the same normalized conversation DTOs
-- `src/lib/conversation-payload.ts`, `src/lib/conversation-payload-*.ts`
-  - `spiracha/payload` portable entrypoint (compiled JS and declarations), also exposed by the Bun client; public `convertConversationPayload` SDK workflow for in-memory JSON/JSONL inference and normalized Markdown; source parsers must not load files, databases, network resources, or Keychain data from supplied payloads
-- `src/lib/conversation-api.ts`
-  - HTTP request handler shared by TanStack API routes and root tests
-  - owns response envelopes, validation errors, route dispatch, and default selector behavior
-- `src/lib/conversation-data/index.ts`
-  - source registry, pagination, path-scoped collection, reference resolution, and normalized Markdown rendering
-- `src/lib/conversation-data/types.ts`
-  - shared source, message, detail, paging, location, and adapter contracts
-- `src/lib/conversation-data/conversation-events.ts`
-  - generic transcript presentation events and visibility filtering
-- `src/lib/conversation-data/path-match.ts`
-  - exact and descendant cwd matching
-- `src/lib/conversation-data/message-selector.ts`
-  - `all`, `last_assistant`, and `last_final_answer` message selection
-- `src/lib/conversation-data/*-adapter.ts`
-  - source-specific mapping into normalized conversation shapes
-- `src/lib/conversation-data/evidence-*.ts`
-  - source-independent lens validation, event pairing, bounded episode selection, projection, and Markdown evidence rendering
+Full module list: `docs/architecture.md`.
 
-Web import modules:
-- `src/lib/web-chat.ts`
-  - provider-aware JSON import parsing, reasoning/tool-event normalization, generated UI IDs, and bounded in-memory retention
-- `src/ui/lib/web-chat-server.ts`
-  - validated server functions for importing, listing, and loading normalized Web conversations
+- `src/client.ts`: public `spiracha/client` (local or HTTP mode).
+- `src/lib/conversation-api.ts`: HTTP handler shared by `src/ui/routes/api.v1.*.ts` and tests (envelopes, validation, dispatch, default selectors).
+- `src/lib/conversation-data/`: source registry (`index.ts`), shared types, `*-adapter.ts` per source, selectors, path matching, `evidence-*.ts`, normalized Markdown (`markdown.ts`).
+- `src/lib/conversation-payload*.ts`: portable `spiracha/payload`; no storage, file, network, or Keychain access.
+- `src/lib/web-chat.ts`, `src/ui/lib/web-chat-server.ts`: UI-only Web imports (bounded process memory).
+- `src/lib/<source>-*.ts`: per-source discovery, transcript parsing, phase classification, deletion; Codex has the most (browser queries, analytics, recovery, Cloud).
+- `src/ui/`: TanStack Start UI; explicit file routes per source.
+- Durable recovery: `docs/codex-deletion-recovery.md`, `docs/cursor-crash-recovery.md`, `docs/grok-bot-deletion.md`.
 
-Codex browser/export modules:
-- `src/lib/codex-database.ts`, `src/lib/codex-fallback-index.ts`, `src/lib/codex-browser-queries.ts`, `src/lib/codex-dashboard.ts`, `src/lib/codex-thread-mutations.ts`
-  - project/thread browsing queries, delete flows, dashboard summaries, DB path resolution
-- `src/lib/codex-cloud.ts`, `src/lib/codex-cloud-transcript.ts`
-  - authenticated, read-only Cloud browsing and normalized task transcripts; the Codex CLI owns login refresh
-- `src/lib/agent-dx-analytics.ts`
-  - deterministic goal-span analytics and JSON/CSV export; command classification is conservative and heuristic
-- `src/lib/codex-browser-export.ts`
-  - UI-facing thread download rendering
-- `src/lib/codex-browser-types.ts`
-  - Codex browser query and presentation contracts
-- `src/lib/codex-thread-types.ts`
-  - Codex DB row and transcript rendering types
-- `src/lib/codex-transcript-renderer.ts`
-  - Markdown/plain text rendering for Codex session files
-- `src/lib/codex-thread-parser.ts`
-  - structured Codex event parsing used by analytics and the UI
-- `src/lib/codex-analytics.ts`
-  - token/tool analytics derived from thread rows plus bounded transcript parsing and cache keys
-- `src/lib/codex-optimization-analysis.ts`, `src/lib/codex-optimization-findings.ts`
-  - deterministic workflow-risk signals and ranked optimization findings for the Analytics route
-- `src/lib/codex-thread-cache.ts`
-  - thread-detail cache helpers and deferred rollout/transcript loading state
-- `src/lib/codex-global-state.ts`
-  - structural cleanup of Codex Desktop recent/sidebar references and deleted-thread write-block flags
-- `src/lib/codex-thread-recovery.ts`
-  - Codex project recovery helpers
-- `src/lib/codex-deletion-journal.ts`, `src/lib/cursor-operation-journal.ts`
-  - durable deletion/recovery intents and restart reconciliation; see `docs/codex-deletion-recovery.md` and `docs/cursor-crash-recovery.md`
+## Hard Invariants
 
-Source-specific browser/export modules:
-- `src/lib/claude-code-db.ts`, `src/lib/claude-code-exporter-types.ts`, `src/lib/claude-code-transcript-phase.ts`, `src/lib/claude-code-transcript.ts`
-- `src/lib/command-code-db.ts`, `src/lib/command-code-exporter-types.ts`
-- `src/lib/cline-db.ts`, `src/lib/cline-exporter-types.ts`, `src/lib/cline-transcript.ts`
-- `src/lib/grok-db.ts`, `src/lib/grok-exporter-types.ts`, `src/lib/grok-transcript-phase.ts`, `src/lib/grok-transcript.ts`
-- `src/lib/grok-bot-db.ts`, `src/lib/conversation-data/grok-bot-adapter.ts`
-- `src/lib/kiro-db.ts`, `src/lib/kiro-exporter-types.ts`, `src/lib/kiro-transcript-phase.ts`, `src/lib/kiro-transcript.ts` (detail data exposes history and execution sources separately plus the integrated transcript)
-- `src/lib/qoder-storage.ts`, `src/lib/qoder-sessions.ts`, `src/lib/qoder-session-transcript.ts`, `src/lib/qoder-acp-client.ts`, `src/lib/qoder-exporter-types.ts`, `src/lib/qoder-transcript-phase.ts`, `src/lib/qoder-transcript.ts`
-- `src/lib/cursor-db.ts`, `src/lib/cursor-exporter-types.ts`, `src/lib/cursor-recovery.ts`, `src/lib/cursor-transcript-phase.ts`, `src/lib/cursor-transcript.ts`
-- `src/lib/antigravity-db.ts`, `src/lib/antigravity-exporter-types.ts`, `src/lib/antigravity-keychain.ts`, `src/lib/antigravity-projects.ts`, `src/lib/antigravity-trajectory.ts`, `src/lib/antigravity-transcript-contract.ts`, `src/lib/antigravity-transcript-events.ts`, `src/lib/antigravity-transcript-history.ts`, `src/lib/antigravity-transcript-phase.ts`
-- `src/lib/minimax-code-db.ts`, `src/lib/minimax-code-exporter-types.ts`, `src/lib/minimax-code-transcript-phase.ts`, `src/lib/minimax-code-transcript.ts`
-- `src/lib/fx-db.ts`, `src/lib/fx-exporter-types.ts`, `src/lib/fx-transcript-phase.ts`, `src/lib/fx-transcript.ts`
-- `src/lib/opencode-db.ts`, `src/lib/opencode-exporter-types.ts`, `src/lib/opencode-transcript-phase.ts`, `src/lib/opencode-think-tags.ts`, `src/lib/opencode-transcript.ts`
+- `CONVERSATION_SOURCES` is authoritative. A new source needs an exact `SOURCE_CATALOG` entry, a storage adapter registration, and a `SOURCE_ICONS` entry; use `satisfies ConversationAdapter<'source-id'>`. Route metadata and route files must agree.
+- Web imports are UI-only: not in `CONVERSATION_SOURCES`, the stable API, or the CLI. Payload conversion is exposed via `spiracha/payload` and the Bun client; Claude Code and Command Code payload conversion is unsupported until portable parsers and fixtures exist.
+- Never import storage, React, or router modules into the portable catalog or payload normalizers.
+- Explicit source requests surface source failures; all-source collection tolerates missing optional integrations. Workspace sources require `cwd`; global sources (Grok Bot) omit it.
+- Reuse canonical message/tool/artifact semantics and common export; do not add another transcript renderer or normalization pipeline. Preserve exact artifact strings and original raw bytes; preview limits must not truncate exports.
+- Keep source mutation ownership, file locks, journals, stopped-process checks, rollback/cleanup/retry rules, and worktree protection. Destructive tests must never touch personal or default source stores. Source-code directories are never cleanup targets.
+- No production pending states, no-op adapters, or optional callbacks for applicable operations. Compiler-negative expectations live only in `src/type-tests`.
 
-Shared utilities:
-- `src/lib/concurrency.ts`
-- `src/lib/bounded-file-cache.ts`
-- `src/lib/model-label.ts`
-- `src/lib/path-transforms.ts`
-- `src/lib/portable-path.ts`
-- `src/lib/shared.ts`, `src/lib/shared-text.ts` (I/O and portable text helpers)
-- `src/lib/conversation-data/markdown.ts` (portable normalized Markdown rendering)
-- `src/lib/codex-transcript-records.ts`, `src/lib/codex-cloud-transcript.ts` (portable Codex normalization)
-- `src/lib/sqlite-error.ts`
-- `src/lib/sqlite-retry.ts` (async backoff; database callbacks remain synchronous)
-- `src/lib/file-mutation-lock.ts` (cross-process SQLite lock for source-file mutations)
-- `src/lib/ui-cache.ts`
-- `src/lib/ui-export-archive.ts`
-- `src/lib/ui-export-files.ts`
-- `src/lib/ui-export-zip.ts`
-- `src/lib/conversation-zip-export.ts`
-- `src/lib/transcript-load-limiter.ts`
-- `src/lib/runtime-config.ts`
-- `src/coverage-check.ts`
+## Reference Docs
 
-UI source tree:
-- `src/ui/`
-  - TanStack Start browser UI
-  - API routes live under `src/ui/routes/api.v1.*.ts`
-  - source routes include `/threads/$threadId`, `/claude-code-sessions/$sessionId`, `/command-code-sessions/$sessionId`, `/cline-tasks/$taskId`, `/grok-sessions/$sessionId`, `/grok-bot-chats/$conversationId`, `/kiro-sessions/$sessionId`, `/qoder-sessions/$sessionId`, `/cursor-threads/$composerId`, `/antigravity-conversations/$conversationId`, `/fx-sessions/$sessionId`, `/minimax-code-sessions/$sessionId`, and `/opencode-sessions/$sessionId`
-  - Web import routes are `/web` and `/web-chats/$conversationId`; imported conversations use server functions and remain in bounded process memory
-  - Cursor and Antigravity detail routes load large transcript/artifact bodies through post-hydration server queries; Codex exposes deferred loading for oversized rollouts
-
-## Stable API Contract
-
-The package exposes:
-- `spiracha/client`
-  - `createConversationClient({ mode: 'local' })` for serverless local access
-  - `createConversationClient({ mode: 'http', baseUrl })` for a running UI server
-- `spiracha/types`
-  - normalized conversation DTO types
-- `spiracha/payload`
-  - in-memory JSON/JSONL conversion in Bun, Node.js 22+, browsers, and Workers; no storage imports or I/O
-  - built with `bun run build:payload`, included in the release build
-
-The local UI server exposes:
-- `GET /api/v1/sources`
-- `GET /api/v1/conversations[?cwd=<absolute-path>][&source=...]`
-- `POST /api/v1/conversation-query`
-- `POST /api/v1/conversation-payload`
-- `GET /api/v1/conversations/:source/:id`
-- `GET /api/v1/conversations/:source/:id/export`
-- `GET /api/v1/conversations/:source/:id/raw` (also supports `HEAD`)
-- `POST /api/v1/conversations/:source/:id/evidence`
-- `DELETE /api/v1/conversations/:source/:id`
-- `POST /api/v1/conversations/delete`
-- `POST /api/v1/conversations/export`
-- `GET /api/v1/resolve?ref=<url-or-deeplink>`
-
-Defaults:
-- list endpoints default to `message_selector=last_final_answer`; workspace sources require `cwd`, while global sources such as Grok Bot omit it
-- all-source collection with `cwd` is workspace-scoped and excludes global sources; all-source collection without `cwd` is global-scoped
-- detail endpoints default to `message_selector=all`
-- list endpoints omit message bodies unless `include_messages=true`; positive `limit` values are bounded at 200. Grok Bot list results remain roster-only and load transcript messages only on detail
-- list pagination uses opaque keyset cursors ordered by update time, source, and conversation ID
-- `updated_after_ms` and `updated_before_ms` constrain collection before pagination
-- `source=codex,claude-code,...` may scope collection
-- omitted source means all installed/available integrations
-- all-source collection should tolerate missing optional integrations
-- explicit source requests should surface source-specific failures
-- `delete_session_files` is accepted for single-delete query strings and batch-delete JSON; Cursor uses it to keep or remove transcript directories
-- Web imports are intentionally UI-only: they are not members of `CONVERSATION_SOURCES` and are not exposed through the stable API or CLI
-- Supplied payload conversion is separately exposed through `spiracha/payload` and the Bun `spiracha/client`; it reuses Web and native normalization without adding imported conversations to the stable source registry. Claude Code payload conversion is unsupported.
-- Grok Bot is a global source backed by the installed macOS app's account-scoped persistence directory. List reads the validated roster only, detail reads one exact replica, and raw export returns the original `.blob` bytes. Deletion calls the authenticated Grok Bot gateway to delete the exact bot/group ID and leaves app persistence untouched; see `docs/grok-bot-deletion.md`.
-
-Do not bake review semantics into Spiracha. A client such as `fgh --collect` decides that a selected assistant message is a review and chooses where to save it.
-
-## Test Strategy
-
-Current tests cover:
-- stable conversation API envelopes, validation, source listing, path-scoped collection, message selectors, reference resolution, and Codex adapter mapping
-- source-specific discovery, transcript parsing, phase classification, and export rendering
-- Codex project/thread browsing, delete semantics, desktop global-state cleanup, analytics, cache keys, and recovery helpers
-- Codex optimization findings, deferred transcript loading, and large-export lifecycle behavior
-- Cursor recovery/prune behavior, direct composer lookup, bounded discovery caching, optional transcript-file deletion, and cleanup retries
-- Claude Code and Kiro bounded discovery/transcript caches with mutation invalidation
-- Antigravity discovery, transcript parsing, Keychain state, and artifact export rendering
-- MiniMax Code v2 snapshot discovery, reasoning/tool parsing, export rendering, and synchronized session/runtime deletion
-- FX checkpoint/event-log transcript reconstruction, externalized tool results, export rendering, and synchronized session/index/latest-pointer deletion
-- OpenCode MiniMax `<think>` tag extraction, including code-literal preservation
-- Web import parsing for mapping-based, native Claude/Grok, and generic role/content exports, provider detection, separate reasoning, embedded research/tool events, partial import errors, bounded retention, and Web UI server functions
-- Grok Bot roster/replica discovery, bounded parsing, deterministic attribution, global scope, and byte-exact read-only raw export
-- UI component and adapter behavior through the Vitest suite wrapped by `src/ui-suite.test.ts`
-- package manifest hard-cut guarantees through `src/package-manifest.test.ts`
-- package metadata validation, cache lifecycle controls, and deferred detail-body server queries
-- a 90% line-coverage gate for both the root Bun suite and UI Vitest suite, with function and hotspot reporting
-
-When changing risky areas:
-- Stable API changes: update `src/lib/conversation-api.test.ts` and focused tests under `src/lib/conversation-data/`.
-- Source adapter changes: update the matching `src/lib/conversation-data/*-adapter.ts` tests or add one next to the adapter.
-- Transcript parsing/rendering: update the matching source transcript tests.
-- Codex browsing/delete/analytics: update `src/lib/codex-browser-db.test.ts` and `src/lib/codex-analytics.test.ts`.
-- UI behavior: update/add Vitest files under `src/ui/**/*.vitest.tsx`.
-- API route behavior: add a real UI server/browser smoke when route registration or SSR behavior changes.
-
-## Common Commands
-
-```bash
-rtk bun test
-rtk bun run lint
-rtk bun run typecheck
-rtk bun run build
-rtk bun run coverage
-rtk bun start
-rtk bun run ui:preview
-rtk bun run test:ui
-rtk bun run test:conformance
-```
-
-## Notes
-
-- Keep root-package source modules imported by the UI available through `@spiracha/lib/*`.
-- The repository has one package manifest. `fflate` is the only runtime dependency; UI, Vite, and build/test tooling stays in root `devDependencies`.
-- `bun start` runs UI development. `bun run build` emits bundled client assets and a bundled server entrypoint consumed by `spiracha serve`; the published package does not ship the UI source tree or Vite toolchain.
-- UI Vite commands run from the repository root with `bun --bun`, so TanStack, server functions, the stable API, and the browser route tree all resolve through one development dependency graph. UI Vitest commands use the normal Node runtime.
-- Markdown output remains deterministic generation/domain parsing. Bun 1.4's `Bun.markdown` was evaluated but is unstable for this contract and is not used.
-- TanStack Start server functions should use `.validator(...)`, not deprecated `.inputValidator(...)`.
-- API routes should use route-level `server.handlers`.
-- Keep `*-transcript-phase.ts` modules browser-safe; UI client adapters import them directly.
-- Keep source-specific phase and filtering rules centralized so the UI export flow and stable API select messages consistently.
-
-## Source contract onboarding and migration
-
-Read `docs/source-adapter-contract.md` before changing adapter/UI/export contracts. `docs/contract-review/FINDINGS.md` records the supplied archive's actual behavior; Command Code already has selection, export and deletion. Do not overwrite it with the older issue's baseline. The target migration and exhaustive acceptance cases are in `docs/contract-review/IMPLEMENTATION_PLAN.md` and `docs/contract-review/TEST_MATRIX.md`. `docs/contract-review/VERIFICATION.md` records historical execution results and limits; verify current behavior against the code and applicable tests.
-
-- Keep `CONVERSATION_SOURCES` authoritative. A new ID requires an exact entry in `SOURCE_CATALOG`, the storage adapter registry and `SOURCE_ICONS`; preserve its source literal with `satisfies ConversationAdapter<'source-id'>`. Required route metadata and actual route files must agree. Generate TanStack routes normally.
-- The native payload parser map is exhaustive over the currently supported payload sources, not all UI providers. Keep Claude Code/Command Code exclusions until real portable parsers and fixtures are implemented. Never import storage/React/router modules into the portable catalog or payload normalizers.
-- Register actual native parser/storage fixtures and UI/browser journeys for every source as the conformance layer is implemented. Required baseline operations cannot be excused by missing callbacks. Supported declarations require typed handlers/common orchestration and reachable controls; genuine unsupported/not-applicable decisions need source/fixture evidence. Do not add production pending states or no-op adapters.
-- Reuse canonical message/tool/artifact semantics and common export/actions. Preserve exact artifact strings and original raw bytes; preview limits must not truncate exports. Raw names retain native extensions. Do not add another generic transcript renderer or normalization pipeline.
-- Keep source mutation ownership, locks, journals, stopped-process checks, rollback/cleanup/retry rules and worktree protection. No destructive test may access personal/default source stores. Source-code directories are never conversation cleanup targets.
-- Keep compiler-negative expectations in `src/type-tests` only; they test deliberate errors and must not suppress production diagnostics. The seed does not yet enforce every action/fixture capability; do not describe the full migration as complete until all target gates pass.
-
-Run the existing lint/typecheck/root/UI/build/package/coverage/diff gates and the new source/browser conformance commands once introduced. Root and UI line coverage must meet existing 90% gates. Record actual per-source journey results; mocked buttons or coverage alone do not prove parity. `testing/verify-portable-contracts.mjs` is a supplemental portable check, not a substitute for Bun, UI, package or browser testing.
+- Stable API routes, defaults, and package exports: `docs/stable-api.md` (field detail in `docs/api-reference.md`, `docs/client-reference.md`).
+- Module map and build notes: `docs/architecture.md`.
+- Test strategy and which tests to update for risky areas: `docs/testing.md`.
+- Source-adapter contract and onboarding rules (read before changing adapter/UI/export contracts): `docs/source-adapter-contract.md`.
+- Contributor checklist: `docs/contributing.md`; full index: `docs/README.md`.

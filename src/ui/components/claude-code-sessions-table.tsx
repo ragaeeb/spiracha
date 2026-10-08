@@ -1,10 +1,12 @@
 import type { ClaudeCodeSessionSummary } from '@spiracha/lib/claude-code-exporter-types';
 import { Link } from '@tanstack/react-router';
 import type { SortingState } from '@tanstack/react-table';
-import { Download, GitFork, MoreHorizontal, Trash2 } from 'lucide-react';
+import { Download, MoreHorizontal, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
+import { ConversationTitleCell } from '#/components/conversation-title-cell';
 import { DataTable } from '#/components/data-table';
 import { ConversationSelectionActions } from '#/components/selection-actions-toolbar';
+import { Badge } from '#/components/ui/badge';
 import { Button } from '#/components/ui/button';
 import {
     DropdownMenu,
@@ -16,7 +18,6 @@ import { supportedListAction } from '#/lib/conversation-actions';
 import type { ConversationListInventoryProps } from '#/lib/conversation-selection';
 import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatDateTime, formatModelLabel, formatNumber, formatTokens } from '#/lib/formatters';
-import { cn } from '#/lib/utils';
 
 type ClaudeCodeSessionsTableProps = {
     onDeleteSession: (session: ClaudeCodeSessionSummary) => void;
@@ -27,46 +28,95 @@ type ClaudeCodeSessionsTableProps = {
 } & ConversationListInventoryProps<ClaudeCodeSessionSummary>;
 
 type ClaudeCodeSessionTreeNode = ClaudeCodeSessionSummary & {
+    branchCount: number;
     children: ClaudeCodeSessionTreeNode[];
+    isEarlierBranch: boolean;
 };
 
 const columnHelper = createDataTableColumnHelper<ClaudeCodeSessionTreeNode>();
 const defaultSorting: SortingState = [{ desc: true, id: 'lastActive' }];
 
-const SessionTitleCell = ({ depth, session }: { depth: number; session: ClaudeCodeSessionTreeNode }) => {
-    const isSubagent = depth > 0;
+const SessionTitleCell = ({ depth, session }: { depth: number; session: ClaudeCodeSessionTreeNode }) => (
+    <ConversationTitleCell
+        badges={
+            <>
+                {session.branchCount > 1 ? <Badge variant="outline">{session.branchCount} branches</Badge> : null}
+                {session.isEarlierBranch ? <Badge variant="outline">Earlier branch</Badge> : null}
+            </>
+        }
+        depth={depth}
+        id={session.sessionId}
+        isNestedAgent={session.hierarchy?.parentSessionId != null}
+        renderLink={(content, className) => (
+            <Link className={className} params={{ sessionId: session.sessionId }} to="/claude-code-sessions/$sessionId">
+                {content}
+            </Link>
+        )}
+        title={session.title}
+    />
+);
 
-    return (
-        <div
-            className={cn('min-w-0', isSubagent ? 'border-[var(--border)] border-l-2' : '')}
-            style={isSubagent ? { paddingLeft: `${depth * 0.75}rem` } : undefined}
-            data-row-depth={depth}
-        >
-            <div className="flex min-w-0 items-center gap-2">
-                {isSubagent ? (
-                    <GitFork aria-hidden="true" className="size-4 shrink-0 text-[var(--muted-foreground)]" />
-                ) : null}
-                <Link
-                    className="block min-w-0 flex-1 space-y-1 rounded-md outline-none transition hover:opacity-80 focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
-                    params={{ sessionId: session.sessionId }}
-                    to="/claude-code-sessions/$sessionId"
-                >
-                    <p className="truncate font-medium underline-offset-2 hover:underline">{session.title}</p>
-                    <p className="truncate text-[var(--muted-foreground)] text-xs">{session.sessionId}</p>
-                </Link>
-            </div>
-        </div>
+// Rewinding a conversation writes a new session file; nest earlier branches under the newest one.
+const getLatestBranchIds = (sessions: ClaudeCodeSessionSummary[]): Map<string, string> => {
+    const sessionsById = new Map(sessions.map((session) => [session.sessionId, session]));
+    const getFamilyRootId = (session: ClaudeCodeSessionSummary): string => {
+        const seen = new Set<string>();
+        let current = session;
+        while (current.forkedFrom && !seen.has(current.sessionId)) {
+            seen.add(current.sessionId);
+            const parent = sessionsById.get(current.forkedFrom.sessionId);
+            if (!parent) {
+                break;
+            }
+            current = parent;
+        }
+        return current.sessionId;
+    };
+
+    const latestByFamily = new Map<string, ClaudeCodeSessionSummary>();
+    const familyBySession = new Map<string, string>();
+    for (const session of sessions) {
+        const familyId = getFamilyRootId(session);
+        familyBySession.set(session.sessionId, familyId);
+        const latest = latestByFamily.get(familyId);
+        if (!latest || (session.lastActiveAtMs ?? 0) > (latest.lastActiveAtMs ?? 0)) {
+            latestByFamily.set(familyId, session);
+        }
+    }
+
+    return new Map(
+        sessions.map((session) => [
+            session.sessionId,
+            latestByFamily.get(familyBySession.get(session.sessionId) ?? '')?.sessionId ?? session.sessionId,
+        ]),
     );
 };
 
 const getSessionTreeRoots = (sessions: ClaudeCodeSessionSummary[]): ClaudeCodeSessionTreeNode[] => {
-    const nodesById = new Map(sessions.map((session) => [session.sessionId, { ...session, children: [] }]));
+    const latestBranchIds = getLatestBranchIds(sessions);
+    const branchCounts = new Map<string, number>();
+    for (const latestId of latestBranchIds.values()) {
+        branchCounts.set(latestId, (branchCounts.get(latestId) ?? 0) + 1);
+    }
+    const nodesById = new Map<string, ClaudeCodeSessionTreeNode>(
+        sessions.map((session) => [
+            session.sessionId,
+            {
+                ...session,
+                branchCount: branchCounts.get(session.sessionId) ?? 0,
+                children: [],
+                isEarlierBranch: latestBranchIds.get(session.sessionId) !== session.sessionId,
+            },
+        ]),
+    );
     const childIdsByParentId = new Map<string, string[]>();
     const rootIds: string[] = [];
 
     for (const session of sessions) {
         const sessionId = session.sessionId;
-        const parentSessionId = session.hierarchy?.parentSessionId ?? null;
+        const latestBranchId = latestBranchIds.get(sessionId) ?? sessionId;
+        const parentSessionId =
+            session.hierarchy?.parentSessionId ?? (latestBranchId === sessionId ? null : latestBranchId);
         if (!parentSessionId || parentSessionId === sessionId || !nodesById.has(parentSessionId)) {
             rootIds.push(sessionId);
             continue;
@@ -111,8 +161,12 @@ const getSessionTreeRoots = (sessions: ClaudeCodeSessionSummary[]): ClaudeCodeSe
     return roots;
 };
 
-const withoutChildren = ({ children: _children, ...session }: ClaudeCodeSessionTreeNode): ClaudeCodeSessionSummary =>
-    session;
+const withoutChildren = ({
+    branchCount: _branchCount,
+    children: _children,
+    isEarlierBranch: _isEarlierBranch,
+    ...session
+}: ClaudeCodeSessionTreeNode): ClaudeCodeSessionSummary => session;
 
 const columns = (
     onDeleteSession: (session: ClaudeCodeSessionSummary) => void,

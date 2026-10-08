@@ -3,7 +3,6 @@ import { createHash } from 'node:crypto';
 import { createReadStream, existsSync } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { createInterface } from 'node:readline';
 import { isRenderableCursorBubble, parseCursorAgentTranscriptRecord } from './cursor-agent-transcript';
 import { decodeCursorChatModel, resolveCursorChatStorePath } from './cursor-chat-store';
 import {
@@ -29,7 +28,7 @@ import {
     isCursorBubbleKeyForComposer,
     isSafeCursorComposerId,
 } from './cursor-id';
-import { pathExists, toFileUri } from './shared';
+import { pathExists, splitJsonlLines, toFileUri } from './shared';
 import { asNumber, asObject, asString, type JsonValue } from './shared-text';
 import { runWithSqliteRetry } from './sqlite-retry';
 
@@ -2129,10 +2128,7 @@ const parseCursorAgentTranscriptLine = (filePath: string, line: string, lineNumb
 const readCursorAgentTranscriptFile = async (filePath: string): Promise<CursorBubble[]> => {
     const bubbles: CursorBubble[] = [];
     const stream = createReadStream(filePath, { encoding: 'utf8' });
-    const lines = createInterface({
-        crlfDelay: Number.POSITIVE_INFINITY,
-        input: stream,
-    });
+    const lines = splitJsonlLines(stream);
     let lineNumber = 0;
 
     try {
@@ -2150,7 +2146,7 @@ const readCursorAgentTranscriptFile = async (filePath: string): Promise<CursorBu
             filePath,
         });
     } finally {
-        lines.close();
+        await lines.return(undefined);
         stream.destroy();
     }
 

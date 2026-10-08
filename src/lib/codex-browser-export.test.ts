@@ -180,6 +180,81 @@ describe('renderCodexThreadDownload', () => {
         expect(content).toContain('Stabilized the transcript parsing and export formatting.');
     });
 
+    const orphanFork = async (child: { sessionFile: string }, parentId: string) => {
+        const lines = (await Bun.file(child.sessionFile).text()).trim().split('\n');
+        const first = JSON.parse(lines[0]!);
+        first.payload = { ...first.payload, forked_from_id: parentId, forked_from_ordinal_exclusive: 2 };
+        await Bun.write(child.sessionFile, [JSON.stringify(first), ...lines.slice(1)].join('\n'));
+    };
+
+    it('should export a fork whose parent was deleted and say that its earlier history is unavailable', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-export-orphan-fork-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const child = fixture.threads[1]!;
+        await orphanFork(child, 'deleted-parent-thread');
+
+        const download = await renderCodexThreadDownload({
+            dbPath: fixture.dbPath,
+            includeCommentary: true,
+            includeMetadata: false,
+            includeTools: false,
+            outputFormat: 'md',
+            threadId: child.threadId,
+        });
+
+        expect(download.mode).toBe('download');
+        if (download.mode !== 'download') {
+            throw new Error('expected inline download mode');
+        }
+        expect(download.content).toContain('## Export notice');
+        expect(download.content).toContain('forked from thread deleted-parent-thread');
+        expect(download.content).toContain('only the conversation after the fork is included');
+    });
+
+    it('should list partial and skipped threads with reasons in a batch export', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-export-batch-issues-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const child = fixture.threads[1]!;
+        await orphanFork(child, 'deleted-parent-thread');
+
+        const download = await renderCodexThreadsDownload({
+            dbPath: fixture.dbPath,
+            includeCommentary: true,
+            includeMetadata: false,
+            includeTools: false,
+            outputFormat: 'md',
+            publicExportDir: tempRoot,
+            threadIds: [fixture.threads[0]!.threadId, child.threadId, 'thread-that-never-existed'],
+            zipArchive: true,
+        });
+
+        expect(download.mode).toBe('download_url');
+        if (download.mode !== 'download_url') {
+            throw new Error('expected an archive');
+        }
+        expect(download.skippedThreadCount).toBe(1);
+        expect(download.skippedThreads).toEqual([
+            expect.objectContaining({ code: 'CODEX_THREAD_NOT_FOUND', threadId: 'thread-that-never-existed' }),
+        ]);
+        expect(download.partialThreads).toEqual([
+            {
+                note: 'History before the fork is unavailable: parent thread deleted-parent-thread no longer exists.',
+                threadId: child.threadId,
+            },
+        ]);
+        const manifest = JSON.parse(
+            await readZipEntry(path.join(tempRoot, path.basename(download.downloadUrl)), 'spiracha-manifest.json'),
+        );
+        expect(
+            manifest.entries.find((entry: { requestedId: string }) => entry.requestedId === child.threadId),
+        ).toMatchObject({
+            omissionSummary: expect.stringContaining('deleted-parent-thread'),
+            status: 'exported',
+        });
+    });
+
     it('should export inline history when fork metadata has no ordinal cutoff', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-export-inline-history-test-'));
         tempPaths.push(tempRoot);
@@ -335,6 +410,41 @@ describe('renderCodexThreadDownload', () => {
         expect(download.content).toContain('src/index.ts');
         expect(download.content).not.toContain('/Users/example/workspace/spiracha/src/index.ts');
         expect(download.content).toContain('~/workspace/other-project/docs/notes.md');
+    });
+
+    it('should stamp each exported heading with its message time only when timestamps are requested', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-export-timestamps-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexFixture(tempRoot);
+        // Real rollouts stamp every record; give the fixture's unstamped records distinct times.
+        const stamped = (await Bun.file(fixture.sessionFile).text())
+            .split('\n')
+            .filter(Boolean)
+            .map((line, index) => {
+                const record = JSON.parse(line) as Record<string, unknown>;
+                const second = String(index % 60).padStart(2, '0');
+                return JSON.stringify({ timestamp: `2026-05-17T12:00:${second}.000Z`, ...record });
+            });
+        await Bun.write(fixture.sessionFile, `${stamped.join('\n')}\n`);
+        const render = async (includeTimestamps?: boolean) => {
+            const download = await renderCodexThreadDownload({
+                dbPath: fixture.dbPath,
+                includeCommentary: true,
+                includeMetadata: false,
+                includeTimestamps,
+                includeTools: true,
+                outputFormat: 'md',
+                threadId: fixture.threadId,
+            });
+            if (download.mode !== 'download') {
+                throw new Error('expected inline download mode');
+            }
+            return download.content;
+        };
+
+        expect(await render(true)).toMatch(/## Assistant · Final answer · GPT 5\.4 · \d{4}-\d{2}-\d{2}T[\d:.]+Z/u);
+        expect(await render(false)).not.toMatch(/T\d{2}:\d{2}:\d{2}\.\d{3}Z/u);
+        expect(await render()).not.toMatch(/T\d{2}:\d{2}:\d{2}\.\d{3}Z/u);
     });
 
     it('should omit commentary-phase assistant messages when export commentary is disabled', async () => {
@@ -730,7 +840,7 @@ describe('renderCodexThreadDownload', () => {
         });
     });
 
-    it('should keep exportable threads and record missing fork parents in a batch manifest', async () => {
+    it('should export a fork with a missing parent and record the gap in the batch manifest', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-export-batch-fork-error-test-'));
         tempPaths.push(tempRoot);
         const fixture = await createCodexBrowserFixture(tempRoot);
@@ -769,17 +879,18 @@ describe('renderCodexThreadDownload', () => {
             entries: Array<{
                 error: { code: string; message: string } | null;
                 memberNames: string[];
+                omissionSummary: string | null;
                 requestedId: string;
                 status: string;
             }>;
         };
+        expect(download.skippedThreadCount).toBe(0);
         expect(manifest.entries[1]).toMatchObject({
-            error: {
-                code: 'CODEX_TRANSCRIPT_HISTORY_INVALID',
-            },
-            memberNames: [],
+            error: null,
+            memberNames: [expect.stringMatching(/\.md$/u)],
+            omissionSummary: expect.stringContaining('missing-parent-thread'),
             requestedId: brokenThread.threadId,
-            status: 'failed',
+            status: 'exported',
         });
     });
 

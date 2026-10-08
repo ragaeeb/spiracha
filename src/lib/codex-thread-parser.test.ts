@@ -6,6 +6,7 @@ import { createCodexBrowserFixture } from './codex-test-helpers';
 import {
     CodexTranscriptHistoryError,
     parseCodexTranscriptFile,
+    readCodexForkInfo,
     resolveCodexTranscriptSegments,
 } from './codex-thread-parser';
 
@@ -15,7 +16,141 @@ afterEach(async () => {
     await Promise.all(tempPaths.splice(0).map((targetPath) => rm(targetPath, { force: true, recursive: true })));
 });
 
+describe('readCodexForkInfo', () => {
+    const writeSession = async (payload: Record<string, unknown>) => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-fork-info-test-'));
+        tempPaths.push(tempRoot);
+        const file = path.join(tempRoot, 'rollout.jsonl');
+        await Bun.write(
+            file,
+            `${JSON.stringify({ ordinal: 0, payload: { id: 'thread', ...payload }, type: 'session_meta' })}\n`,
+        );
+        return file;
+    };
+
+    it('should report the parent and cutoff of a forked rollout', async () => {
+        const file = await writeSession({ forked_from_id: 'parent-thread', forked_from_ordinal_exclusive: 7 });
+
+        await expect(readCodexForkInfo(file)).resolves.toEqual({ forkedFromId: 'parent-thread', ordinalExclusive: 7 });
+    });
+
+    it('should return null for a rollout that is not a fork, has broken fork metadata, or does not exist', async () => {
+        const plain = await writeSession({});
+        const broken = await writeSession({ forked_from_id: 'parent-thread', forked_from_ordinal_exclusive: 'x' });
+
+        await expect(readCodexForkInfo(plain)).resolves.toBeNull();
+        await expect(readCodexForkInfo(broken)).resolves.toBeNull();
+        await expect(readCodexForkInfo(`${plain}.gone`)).resolves.toBeNull();
+    });
+});
+
 describe('parseCodexTranscriptFile', () => {
+    it('should read only the records of a fork when its parent is gone and tolerance is requested', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-parser-missing-parent-test-'));
+        tempPaths.push(tempRoot);
+        const childFile = path.join(tempRoot, 'child.jsonl');
+        await Bun.write(
+            childFile,
+            [
+                {
+                    ordinal: 3,
+                    payload: {
+                        cwd: '/workspace/child',
+                        forked_from_id: 'deleted-parent',
+                        forked_from_ordinal_exclusive: 3,
+                        id: 'child-thread',
+                    },
+                    type: 'session_meta',
+                },
+                {
+                    ordinal: 4,
+                    payload: { message: 'Answer after the fork', phase: 'final_answer', type: 'agent_message' },
+                    type: 'response_item',
+                },
+            ]
+                .map((record) => JSON.stringify(record))
+                .join('\n'),
+        );
+        const resolveForkedThread = async () => {
+            throw new Error('thread not found');
+        };
+
+        await expect(parseCodexTranscriptFile(childFile, { resolveForkedThread })).rejects.toBeInstanceOf(
+            CodexTranscriptHistoryError,
+        );
+        const transcript = await parseCodexTranscriptFile(childFile, {
+            allowMissingForkParent: true,
+            resolveForkedThread,
+        });
+
+        expect(transcript.events.filter((event) => event.kind === 'message').map((event) => event.text)).toEqual([
+            'Answer after the fork',
+        ]);
+        expect(transcript.missingForkParents).toEqual([{ ordinalExclusive: 3, threadId: 'deleted-parent' }]);
+    });
+
+    it('should surface inter-agent delegations as readable system notes and keep encrypted content out', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-parser-delegation-test-'));
+        tempPaths.push(tempRoot);
+        const sessionFile = path.join(tempRoot, 'child.jsonl');
+        const delegation = (type: string, id: string, extra: unknown[] = []) => ({
+            payload: {
+                author: '/root',
+                content: [
+                    {
+                        text: `Message Type: ${type}\nTask name: /root/verifier\nSender: /root\nPayload:\n`,
+                        type: 'input_text',
+                    },
+                    ...extra,
+                ],
+                id,
+                recipient: '/root/verifier',
+                type: 'agent_message',
+            },
+            timestamp: '2026-10-07T04:31:42.976Z',
+            type: 'response_item',
+        });
+        await Bun.write(
+            sessionFile,
+            [
+                {
+                    payload: { cwd: '/workspace/child', id: 'child-thread', timestamp: '2026-10-07T04:31:00.000Z' },
+                    type: 'session_meta',
+                },
+                delegation('NEW_TASK', 'amsg_1', [
+                    { encrypted_content: 'gAAAA-secret-blob', type: 'encrypted_content' },
+                ]),
+                delegation('MESSAGE', 'amsg_2', [{ text: 'Please also check the cache.', type: 'input_text' }]),
+                {
+                    payload: { message: 'Inline answer', phase: 'final_answer', type: 'agent_message' },
+                    type: 'response_item',
+                },
+            ]
+                .map((record) => JSON.stringify(record))
+                .join('\n'),
+        );
+
+        const transcript = await parseCodexTranscriptFile(sessionFile);
+        const messages = transcript.events.filter((event) => event.kind === 'message');
+
+        expect(messages).toHaveLength(3);
+        expect(messages[0]).toMatchObject({
+            authorName: 'Task from /root',
+            isHiddenByDefault: false,
+            role: 'system',
+            timestamp: '2026-10-07T04:31:42.976Z',
+        });
+        expect(messages[0]?.kind === 'message' && messages[0].text).toBe(
+            'To: /root/verifier\n\nThe content was encrypted by Codex and cannot be recovered from the session file.',
+        );
+        expect(messages[0]?.kind === 'message' && messages[0].text).not.toContain('gAAAA-secret-blob');
+        expect(messages[1]).toMatchObject({ authorName: 'Message from /root', role: 'system' });
+        expect(messages[1]?.kind === 'message' && messages[1].text).toBe(
+            'To: /root/verifier\n\nPlease also check the cache.',
+        );
+        expect(messages[2]).toMatchObject({ role: 'assistant', text: 'Inline answer' });
+    });
+
     it('should compose fork ancestry before parsing and preserve child metadata', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-parser-fork-test-'));
         tempPaths.push(tempRoot);

@@ -1638,6 +1638,112 @@ const readMessages = (db: Database, sessionId: string): OpenCodeTranscriptMessag
     });
 };
 
+// Columns whose stored text is JSON; parsed so the export is structured rather than JSON inside a string.
+const OPENCODE_JSON_COLUMNS = new Set([
+    'commands',
+    'data',
+    'metadata',
+    'model',
+    'permission',
+    'revert',
+    'sandboxes',
+    'summary_diffs',
+]);
+// session_share holds a share secret that must never leave the database.
+const OPENCODE_EXPORTABLE_OPTIONAL_TABLES = OPENCODE_OPTIONAL_SESSION_TABLES.filter(
+    (tableName) => tableName !== 'session_share',
+);
+
+export type OpenCodeStoredRow = Record<string, JsonValue>;
+
+export type OpenCodeSessionTables = {
+    message: OpenCodeStoredRow[];
+    part: OpenCodeStoredRow[];
+    project: OpenCodeStoredRow | null;
+    session: OpenCodeStoredRow;
+} & Partial<Record<Exclude<OpenCodeOptionalSessionTable, 'session_share'>, OpenCodeStoredRow[]>>;
+
+const parseStoredJsonColumn = (value: JsonValue): JsonValue => {
+    if (typeof value !== 'string') {
+        return value;
+    }
+
+    const trimmed = value.trim();
+    if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+        return value;
+    }
+    try {
+        return JSON.parse(trimmed) as JsonValue;
+    } catch {
+        return value;
+    }
+};
+
+const toStoredRow = (row: Record<string, JsonValue>): OpenCodeStoredRow =>
+    Object.fromEntries(
+        Object.entries(row).map(([column, value]) => [
+            column,
+            OPENCODE_JSON_COLUMNS.has(column) ? parseStoredJsonColumn(value) : value,
+        ]),
+    );
+
+const queryStoredRows = (db: Database, sql: string, sessionId: string): OpenCodeStoredRow[] =>
+    (db.query(sql).all(sessionId) as Array<Record<string, JsonValue>>).map(toStoredRow);
+
+/**
+ * Reads every stored column of one session's rows (session, its project, messages, parts, and the
+ * session-scoped optional tables that exist) with their original timestamps. JSON columns are parsed.
+ * Child sessions and the share secret are excluded. Missing database or session returns null.
+ */
+export const readOpenCodeSessionTables = async (
+    dbPath: string,
+    sessionId: string,
+): Promise<OpenCodeSessionTables | null> => {
+    if (!(await pathExists(dbPath))) {
+        return null;
+    }
+
+    return runWithOpenCodeDbLimit('read-session', dbPath, () =>
+        withOpenCodeReadonlyDb(dbPath, (db) => {
+            const [session] = queryStoredRows(db, 'SELECT * FROM session WHERE id = ?', sessionId);
+            if (!session) {
+                return null;
+            }
+
+            const [project] = queryStoredRows(db, 'SELECT * FROM project WHERE id = ?', String(session.project_id));
+            const existingTables = new Set(
+                (db.query("SELECT name FROM sqlite_schema WHERE type = 'table'").all() as Array<{ name: string }>).map(
+                    (row) => row.name,
+                ),
+            );
+            const optionalTables = Object.fromEntries(
+                OPENCODE_EXPORTABLE_OPTIONAL_TABLES.filter((tableName) => existingTables.has(tableName)).map(
+                    (tableName) => [
+                        tableName,
+                        queryStoredRows(db, `SELECT * FROM ${tableName} WHERE session_id = ?`, sessionId),
+                    ],
+                ),
+            );
+
+            return {
+                ...optionalTables,
+                message: queryStoredRows(
+                    db,
+                    'SELECT * FROM message WHERE session_id = ? ORDER BY time_created, id',
+                    sessionId,
+                ),
+                part: queryStoredRows(
+                    db,
+                    'SELECT * FROM part WHERE session_id = ? ORDER BY time_created, id',
+                    sessionId,
+                ),
+                project: project ?? null,
+                session,
+            };
+        }),
+    );
+};
+
 export const readOpenCodeSessionTranscript = async (
     dbPath: string,
     sessionId: string,

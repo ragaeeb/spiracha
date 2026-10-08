@@ -249,6 +249,72 @@ describe('source session export server helpers', () => {
         expect(new TextDecoder().decode(bunWriteMock.mock.calls[1]?.[1] as ArrayBuffer)).toBe(secondContent);
     });
 
+    it('should label normalized JSON archives as normalized exports rather than original raw', async () => {
+        const normalizedDownload = (id: string) => ({
+            download: {
+                blob: new Blob([`{"id":"${id}"}`]),
+                fileName: `opencode-${id}.json`,
+                mimeType: 'application/json' as const,
+            },
+            id,
+        });
+
+        const archive = await renderRawConversationDownloads({
+            downloads: [normalizedDownload('ses_1'), normalizedDownload('ses_2')],
+            source: 'opencode',
+            variant: 'normalized',
+        });
+
+        expect(archive.mode).toBe('download_url');
+        const manifestCall = bunWriteMock.mock.calls.find(
+            ([target]) => path.basename(String(target)) === 'spiracha-manifest.json',
+        );
+        const manifest = JSON.parse(String(manifestCall?.[1]));
+        expect(manifest.kind).toBe('batch_normalized_export');
+    });
+
+    it('should archive a single small raw conversation when zip is requested without a password', async () => {
+        const result = await renderRawConversationDownloads({
+            downloads: [
+                {
+                    download: {
+                        blob: new Blob(['raw bytes']),
+                        fileName: 'messages.jsonl',
+                        mimeType: 'application/x-ndjson',
+                    },
+                    id: 'task-1',
+                },
+            ],
+            largeExportThresholdBytes: 1_000_000,
+            source: 'cline',
+            zipArchive: true,
+            zipPassword: '',
+        });
+
+        expect(result.mode).toBe('download_url');
+    });
+
+    it('should keep a single small raw conversation unzipped when zip is not requested', async () => {
+        const result = await renderRawConversationDownloads({
+            downloads: [
+                {
+                    download: {
+                        blob: new Blob(['raw bytes']),
+                        fileName: 'messages.jsonl',
+                        mimeType: 'application/x-ndjson',
+                    },
+                    id: 'task-1',
+                },
+            ],
+            largeExportThresholdBytes: 1_000_000,
+            source: 'cline',
+            zipArchive: false,
+            zipPassword: '',
+        });
+
+        expect(result).toMatchObject({ mimeType: 'application/x-ndjson', mode: 'download_base64' });
+    });
+
     it('should archive a small raw conversation when a ZIP password is supplied', async () => {
         const result = await renderRawConversationDownloads({
             downloads: [

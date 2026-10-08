@@ -28,9 +28,12 @@ server functions are not automatically supported public package entrypoints.
 ## Contributors
 
 - [AGENTS.md](../AGENTS.md): repository working conventions.
+- [Architecture and module map](architecture.md): source/module ownership and build notes.
+- [Stable API summary](stable-api.md): package exports, routes, and defaults.
+- [Testing strategy](testing.md): coverage areas and where to add tests.
+- [Source-adapter contract](source-adapter-contract.md): target specification and onboarding rules.
 - [Contributor checklist](contributing.md): integrations, fixtures, and release/doc checks.
 - [Data and runtime conventions](data-conventions.md): shared DTO and source invariants.
-- [Payload design/validation plan](payload-sdk-plan.md): design background and supported shapes.
 
 Read source-specific constraints before generalizing an option from another
 integration. An archive download, an empty all-source page, and a successful

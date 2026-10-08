@@ -2,7 +2,6 @@ import { createReadStream, createWriteStream } from 'node:fs';
 import { mkdir, readdir, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { createInterface } from 'node:readline';
 import { finished } from 'node:stream/promises';
 import { pathToFileURL } from 'node:url';
 import { asObject, type JsonValue } from './shared-text';
@@ -78,12 +77,36 @@ export const workspacePathMatchesQuery = (worktree: string, query: string): bool
     return Boolean(suffix) && normalizedWorktree.endsWith(`/${suffix}`);
 };
 
+/** Splits on `\n` (dropping a trailing `\r`) only; node:readline also splits on U+2028/U+2029, which JSON strings may contain unescaped. */
+export async function* splitJsonlLines(stream: AsyncIterable<string | Buffer>): AsyncGenerator<string> {
+    const decoder = new TextDecoder();
+    // Only a record's unfinished tail is retained; each chunk is searched for newlines exactly once.
+    let fragment = '';
+    for await (const chunk of stream) {
+        const text = typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true });
+        let start = 0;
+        let newlineIndex = text.indexOf('\n');
+        while (newlineIndex >= 0) {
+            const line = fragment + text.slice(start, newlineIndex);
+            fragment = '';
+            yield line.endsWith('\r') ? line.slice(0, -1) : line;
+            start = newlineIndex + 1;
+            newlineIndex = text.indexOf('\n', start);
+        }
+        fragment += text.slice(start);
+    }
+    fragment += decoder.decode();
+    if (fragment) {
+        yield fragment;
+    }
+}
+
 /**
  * Streams JSON object records, skipping blank lines, malformed JSON, and non-object
  * JSON values. Emits one aggregated warning with count/path/first bad line on close;
  * this tolerant source-reader policy differs from strict supplied-payload conversion.
  * Consume with for-await (or call return/throw on early exit) so the iterator closes
- * readline and destroys its stream. Streaming does not impose a per-line byte cap.
+ * the line splitter and destroys its stream. Streaming does not impose a per-line byte cap.
  * Do not use successful iteration as proof that every source record was preserved.
  */
 export const readJsonlObjects = (
@@ -91,11 +114,7 @@ export const readJsonlObjects = (
     diagnosticSource = 'jsonl',
 ): AsyncIterableIterator<Record<string, JsonValue>> => {
     const stream = createReadStream(filePath, { encoding: 'utf8' });
-    const lines = createInterface({
-        crlfDelay: Infinity,
-        input: stream,
-    });
-    const lineIterator = lines[Symbol.asyncIterator]();
+    const lineIterator = splitJsonlLines(stream);
     let closed = false;
     let invalidRecordCount = 0;
     let firstInvalidLineNumber: number | null = null;
@@ -119,7 +138,7 @@ export const readJsonlObjects = (
 
         warnAboutInvalidRecords();
         closed = true;
-        lines.close();
+        void lineIterator.return(undefined);
         stream.destroy();
     };
 

@@ -1,5 +1,5 @@
 import path from 'node:path';
-import type { ParsedCodexTranscript } from './codex-browser-types';
+import type { CodexMissingForkParent, ParsedCodexTranscript } from './codex-browser-types';
 import { CodexTranscriptHistoryError, parseCodexTranscriptFile } from './codex-thread-parser';
 import {
     type CodexTranscriptExportTarget,
@@ -8,6 +8,7 @@ import {
     type SessionMeta,
 } from './codex-thread-types';
 import { normalizeCodexEvents } from './conversation-data/codex-messages';
+import type { MessageEvent } from './conversation-data/conversation-events';
 import { renderSelectedTranscriptExport } from './conversation-data/conversation-export';
 import { createExportWriteStream, finalizeExportWriteStream } from './shared';
 import { cleanInlineTitle, type MetadataEntry } from './shared-text';
@@ -20,6 +21,7 @@ const loadCodexTranscript = async (target: CodexTranscriptExportTarget): Promise
         return await runWithTranscriptLoadLimit(
             () =>
                 parseCodexTranscriptFile(target.sessionFile, {
+                    allowMissingForkParent: true,
                     includeRaw: false,
                     resolveForkedThread: target.resolveForkedThread,
                 }),
@@ -39,16 +41,33 @@ const loadCodexTranscript = async (target: CodexTranscriptExportTarget): Promise
     }
 };
 
+// Opens the export with a note when a fork's parent no longer exists, so a reader knows the start is missing.
+const forkNoticeEvent = (missing: CodexMissingForkParent, index: number): MessageEvent => ({
+    authorName: 'Export notice',
+    isHiddenByDefault: false,
+    kind: 'message',
+    memoryCitation: null,
+    model: null,
+    phase: null,
+    raw: {},
+    role: 'system',
+    sequence: -(index + 1),
+    text: `This thread was forked from thread ${missing.threadId}, which no longer exists, so only the conversation after the fork is included.`,
+    timestamp: null,
+    variant: 'agent_message',
+});
+
 const renderLoadedCodexTranscript = (
     target: CodexTranscriptExportTarget,
     transcript: ParsedCodexTranscript,
     options: CodexTranscriptRenderOptions,
 ): string | null => {
     const model = target.thread?.model;
+    const notices = (transcript.missingForkParents ?? []).map(forkNoticeEvent).reverse();
     return renderSelectedTranscriptExport(
         {
             bodyAvailability: 'full',
-            messages: normalizeCodexEvents(transcript.events),
+            messages: normalizeCodexEvents([...notices, ...transcript.events]),
             metadata: Object.fromEntries(
                 buildMetadataEntries(target, transcript.sessionMeta, options).map((entry) => [entry.key, entry.value]),
             ),
@@ -59,11 +78,26 @@ const renderLoadedCodexTranscript = (
     );
 };
 
+export type RenderedCodexSessionFile = {
+    content: string;
+    missingForkParents: CodexMissingForkParent[];
+};
+
+/** Like renderCodexSessionFile, but also reports forks whose parent thread could not be found. */
+export const renderCodexSessionFileWithNotes = async (
+    target: CodexTranscriptExportTarget,
+    options: CodexTranscriptRenderOptions,
+): Promise<RenderedCodexSessionFile | null> => {
+    const transcript = await loadCodexTranscript(target);
+    const content = renderLoadedCodexTranscript(target, transcript, options);
+    return content ? { content, missingForkParents: transcript.missingForkParents ?? [] } : null;
+};
+
 export const renderCodexSessionFile = async (
     target: CodexTranscriptExportTarget,
     options: CodexTranscriptRenderOptions,
 ): Promise<string | null> => {
-    return renderLoadedCodexTranscript(target, await loadCodexTranscript(target), options);
+    return (await renderCodexSessionFileWithNotes(target, options))?.content ?? null;
 };
 
 export const writeCodexSessionFileExport = async (

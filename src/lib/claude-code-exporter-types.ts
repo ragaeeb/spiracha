@@ -45,6 +45,12 @@ export type ClaudeCodeSessionHierarchy = {
     parentSessionId: string | null;
 };
 
+/** A rewound-and-edited session continues in a new file that copies the history up to `branchEntryId`. */
+export type ClaudeCodeSessionFork = {
+    branchEntryId: string;
+    sessionId: string;
+};
+
 export type ClaudeCodeSessionSummary = {
     assistantMessageCount: number;
     attachmentCount: number;
@@ -54,6 +60,8 @@ export type ClaudeCodeSessionSummary = {
     createdAtMs: number | null;
     cwd: string | null;
     filePath: string;
+    forkedFrom: ClaudeCodeSessionFork | null;
+    forkSessionIds: string[];
     gitBranch: string | null;
     hierarchy: ClaudeCodeSessionHierarchy;
     inputTokens: number;

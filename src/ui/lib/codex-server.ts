@@ -47,6 +47,7 @@ const exportSchema = object({
     convertToProjectRoot: boolean(),
     includeCommentary: boolean(),
     includeMetadata: boolean(),
+    includeTimestamps: optional(boolean(), false),
     includeTools: boolean(),
     outputFormat: picklist(['md', 'txt']),
     redactUsername: boolean(),
@@ -59,6 +60,7 @@ const exportThreadsSchema = object({
     convertToProjectRoot: boolean(),
     includeCommentary: boolean(),
     includeMetadata: boolean(),
+    includeTimestamps: optional(boolean(), false),
     includeTools: boolean(),
     outputFormat: picklist(['md', 'txt']),
     redactUsername: boolean(),
@@ -69,6 +71,7 @@ const exportThreadsSchema = object({
 
 const exportRawThreadsSchema = object({
     threadIds: pipe(array(pipe(string(), minLength(1))), minLength(1)),
+    zipArchive: optional(boolean(), false),
     zipPassword: optional(string(), ''),
 });
 
@@ -151,7 +154,7 @@ export const getThreadSnapshotFn = createServerFn({ method: 'GET' })
         const [
             { createCodexForkedThreadResolver, getThreadBrowseData },
             { getCachedCodexTranscriptModelNames, getThreadRolloutLoadState },
-            { CodexTranscriptHistoryError },
+            { CodexTranscriptHistoryError, readCodexForkInfo },
         ] = await Promise.all([
             import('@spiracha/lib/codex-browser-queries'),
             import('@spiracha/lib/codex-thread-cache'),
@@ -172,6 +175,21 @@ export const getThreadSnapshotFn = createServerFn({ method: 'GET' })
             CodexTranscriptHistoryError,
         );
 
+        const forkInfo = await readCodexForkInfo(browseData.thread.rollout_path);
+        const forkParent = forkInfo
+            ? await getThreadBrowseData(dbPath, forkInfo.forkedFromId).then(
+                  (parentData) => parentData.thread,
+                  () => null,
+              )
+            : null;
+        const fork = forkInfo
+            ? {
+                  ordinalExclusive: forkInfo.ordinalExclusive,
+                  parentAvailable: forkParent !== null,
+                  parentThreadId: forkInfo.forkedFromId,
+                  parentTitle: forkParent?.title ?? null,
+              }
+            : null;
         const transcriptState: 'available' | 'deferred' | 'missing' | 'unavailable' = transcriptUnavailable
             ? 'unavailable'
             : rollout.fileSizeBytes === null
@@ -196,6 +214,7 @@ export const getThreadSnapshotFn = createServerFn({ method: 'GET' })
         return {
             ...browseData,
             availableTools: browseData.dynamicTools,
+            fork,
             modelNames,
             rollout,
             transcript,
@@ -280,6 +299,7 @@ export const exportThreadFn = createServerFn({ method: 'POST' })
             dbPath: await getDbPath(),
             includeCommentary: data.includeCommentary,
             includeMetadata: data.includeMetadata,
+            includeTimestamps: data.includeTimestamps,
             includeTools: data.includeTools,
             outputFormat: data.outputFormat,
             pathDisplaySettings: {
@@ -300,6 +320,7 @@ export const exportThreadsFn = createServerFn({ method: 'POST' })
             dbPath: await getDbPath(),
             includeCommentary: data.includeCommentary,
             includeMetadata: data.includeMetadata,
+            includeTimestamps: data.includeTimestamps,
             includeTools: data.includeTools,
             outputFormat: data.outputFormat,
             pathDisplaySettings: {
@@ -327,6 +348,7 @@ export const exportRawThreadsFn = createServerFn({ method: 'POST' })
                 includeTools: false,
                 outputFormat: 'json',
                 threadId: data.threadIds[0]!,
+                zipArchive: data.zipArchive ?? false,
                 zipPassword: data.zipPassword,
             });
         }

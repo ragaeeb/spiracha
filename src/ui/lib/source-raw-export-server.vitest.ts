@@ -61,7 +61,18 @@ describe('source raw export server', () => {
                 },
             ],
             source: 'cline',
+            zipArchive: false,
             zipPassword: '',
         });
+    });
+
+    it('should pass an explicit zip request through for a single conversation', async () => {
+        await exportRawConversationsFn({
+            data: { ids: ['task-1'], source: 'cline', zipArchive: true, zipPassword: 'secret' },
+        });
+
+        expect(renderRawConversationDownloadsMock).toHaveBeenCalledWith(
+            expect.objectContaining({ zipArchive: true, zipPassword: 'secret' }),
+        );
     });
 });

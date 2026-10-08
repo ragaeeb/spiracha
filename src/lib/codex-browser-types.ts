@@ -55,9 +55,16 @@ export type TurnContextRecord = {
     timestamp: string | null;
 };
 
+/** A forked thread's parent that could not be found, so the history before the fork is unavailable. */
+export type CodexMissingForkParent = {
+    ordinalExclusive: number;
+    threadId: string;
+};
+
 export type ParsedCodexTranscript = {
     events: ThreadEvent[];
     isPartial: boolean;
+    missingForkParents?: CodexMissingForkParent[];
     rawIncluded: boolean;
     sessionMeta: SessionMetaExtended;
     sourceFileSizeBytes: number | null;
@@ -76,7 +83,16 @@ export type ProjectSummary = {
     totalTokens: number;
 };
 
+/** A thread started by forking another thread; it only stores what happened after the fork. */
+export type ThreadForkInfo = {
+    ordinalExclusive: number;
+    // False when the parent thread was deleted, so the history before the fork cannot be shown or exported.
+    parentAvailable: boolean;
+    parentThreadId: string;
+};
+
 export type ThreadListEntry = {
+    fork?: ThreadForkInfo | null;
     hierarchy: {
         childThreadCount: number;
         parentThreadId: string | null;

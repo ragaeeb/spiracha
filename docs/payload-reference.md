@@ -1,7 +1,6 @@
 # Supplied-payload conversion reference
 
-This describes the implementation in the v2.9.0 source snapshot. The existing
-[design and shape plan](payload-sdk-plan.md) provides additional background.
+This describes the checked-in implementation.
 `spiracha/payload` is the portable, compiled entrypoint; `spiracha/client` is
 Bun-only even when its client uses HTTP. Conversion reads only supplied values:
 it does not follow paths, query a database, contact a source app, or populate the
@@ -26,6 +25,25 @@ are ambiguous, and no matches lead to Web inference. Native parser rejection
 during inference is not a user-visible diagnostic for every attempted parser.
 An explicit hint can expose why that particular parser rejects the payload; it
 does not create support for missing records or unsupported sources.
+
+## Supported input shapes
+
+| Source | JSON data supplied by the caller |
+| --- | --- |
+| Web | The same provider exports accepted by the Web tab: ChatGPT mappings, Claude `chat_messages`, native Grok exports, generic role/content messages, and multi-conversation exports. Gemini `raw_payload` retains embedded reports and citations. |
+| Codex | Rollout JSONL records (`session_meta`, `response_item`, `event_msg`, `turn_context`), parsed record arrays, or a Codex Cloud task/turn containing transcript events. |
+| Cline | Session JSON containing `session_id`, `workspace_root`, and `messages`; bare message arrays can use `source: 'cline'`. |
+| Grok | CLI session JSON containing `chat_history`, or native typed transcript records. |
+| Grok Bot | Schema 1 transcript replica JSON. Optional `roster` and `rosterRows` supply names/group membership; missing roster data remains unknown. A roster alone cannot supply a transcript. |
+| Kiro | Session JSON with `history` and embedded message bodies, optionally including execution data. |
+| Qoder | CLI message records with `parts` and native provider/session markers, or ACP `sessionUpdate` records. Generic CLI message arrays can use `source: 'qoder'`. |
+| Cursor | Composer JSON with inline conversation bubbles; separate bubble records must be included in the supplied data. Bare role/content agent logs require `source: 'cursor'`. |
+| Antigravity | Decoded trajectory entries/steps and any inline artifact bodies. Encrypted protobuf bytes or artifact paths alone are insufficient. |
+| MiniMax Code | Session snapshots with `displayMessages`, or native message-log records; indistinct logs can use `source: 'minimax-code'`. |
+| OpenCode | Session exports containing message metadata and inline parts, including tool state. |
+| FX | Checkpoint/history and event data, with externally stored tool-result bodies included in a `toolResults` mapping. |
+
+These are payload contracts, not new export formats. The SDK cannot recover content that is absent from the supplied JSON. Source-specific examples and negative cases live in the adjacent `src/lib/conversation-payload-*.test.ts` files; the installed-package matrix is in `src/lib/conversation-payload-test-helpers.ts`.
 
 ## Validation and size
 

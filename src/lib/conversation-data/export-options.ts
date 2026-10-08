@@ -12,6 +12,7 @@ export type NormalizedExportInclude = {
     supplemental: boolean;
     synthetic: boolean;
     system: boolean;
+    timestamps: boolean;
     toolCalls: boolean;
     toolOutputs: boolean;
     unknown: boolean;
@@ -44,6 +45,7 @@ export const FULL_AVAILABLE_EXPORT_INCLUDE = {
     supplemental: true,
     synthetic: false,
     system: true,
+    timestamps: false,
     toolCalls: true,
     toolOutputs: true,
     unknown: true,
@@ -60,6 +62,7 @@ export const CONVERSATION_ONLY_EXPORT_INCLUDE = {
     supplemental: false,
     synthetic: false,
     system: false,
+    timestamps: false,
     toolCalls: false,
     toolOutputs: false,
     unknown: false,
@@ -86,6 +89,7 @@ export const DEFAULT_NORMALIZED_EXPORT_OPTIONS: NormalizedExportOptions = {
 export type CompactExportFlags = {
     includeCommentary?: boolean;
     includeMetadata?: boolean;
+    includeTimestamps?: boolean;
     includeTools?: boolean;
     outputFormat?: NormalizedExportFormat;
 };
@@ -102,6 +106,9 @@ export const expandNormalizedExportOptions = (
     }
     if (options.includeMetadata !== undefined) {
         include.metadata = options.includeMetadata;
+    }
+    if (options.includeTimestamps !== undefined) {
+        include.timestamps = options.includeTimestamps;
     }
     if (options.includeTools !== undefined) {
         include.toolCalls = options.includeTools;

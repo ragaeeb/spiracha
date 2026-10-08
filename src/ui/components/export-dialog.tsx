@@ -29,154 +29,242 @@ import {
 import { requestEvidenceExport } from '#/lib/evidence-export';
 import {
     type ExportDialogOptions,
+    type ExportDraftOptions,
+    type ExportIssues,
     type ExportLifecycleCallbacks,
+    type RawJsonExportOptions,
     readStoredZipPassword,
     storeZipPassword,
 } from '#/lib/export-options';
 import { useSettings } from '#/lib/settings-store';
+import { exportNormalizedConversationsFn } from '#/lib/source-normalized-export-server';
 import { exportRawConversationsFn } from '#/lib/source-raw-export-server';
 import { EvidenceLensEditor } from './evidence-lens-editor';
+
+const NO_EXPORT_ISSUES: ExportIssues = { partial: [], skipped: [] };
 
 type ExportDialogProps = {
     disabled?: boolean;
     errorMessage?: string | null;
+    exportIssues?: ExportIssues;
     forceZipArchive?: boolean;
     focusedEvidenceTarget?: { id: string; source: ConversationSource };
     open: boolean;
-    onRawJsonExport?: (options: ExportDialogOptions, callbacks: ExportLifecycleCallbacks) => void;
+    onRawJsonExport?: (options: RawJsonExportOptions, callbacks: ExportLifecycleCallbacks) => void;
     pending?: boolean;
     rawExport?: { ids: readonly string[]; source: ConversationSource };
     skippedThreadCount?: number;
     showCommentaryOption?: boolean;
     showRawJsonOption?: boolean;
+    showTimestampsOption?: boolean;
     showToolsOption?: boolean;
     title?: string;
     onExport: (options: ExportDialogOptions, callbacks: ExportLifecycleCallbacks) => void;
     onOpenChange: (open: boolean) => void;
 };
 
-type FullExportControlsProps = {
-    effectiveZipArchive: boolean;
-    forceZipArchive: boolean;
-    options: ExportDialogOptions;
-    showCommentaryOption: boolean;
-    showToolsOption: boolean;
-    zipDescriptionId: string;
-    onChange: (options: Partial<ExportDialogOptions>) => void;
+type ExportFormat = 'focused' | 'json' | 'md' | 'txt';
+
+// `original` downloads the source's own bytes; `normalized` is Spiracha's JSON for sources with no native file.
+type JsonKind = 'normalized' | 'original';
+
+type FormatAvailability = { focused: boolean; json: JsonKind | null };
+
+// The dialog always opens on Markdown; a chosen format only stands while the current props still offer it.
+const resolveExportFormat = (chosen: ExportFormat | null, available: FormatAvailability): ExportFormat => {
+    const candidate = chosen ?? 'md';
+    if ((candidate === 'json' && available.json === null) || (candidate === 'focused' && !available.focused)) {
+        return 'md';
+    }
+
+    return candidate;
 };
 
-const FullExportControls = ({
-    effectiveZipArchive,
-    forceZipArchive,
-    options,
-    showCommentaryOption,
-    showToolsOption,
-    zipDescriptionId,
-    onChange,
-}: FullExportControlsProps) => (
-    <>
-        <div className="space-y-2">
-            <label className="font-medium text-sm" htmlFor="output-format">
-                Output format
-            </label>
-            <Select
-                value={options.outputFormat}
-                onValueChange={(value) => onChange({ outputFormat: value as 'md' | 'txt' })}
+type OutputFormatSelectProps = {
+    available: FormatAvailability;
+    format: ExportFormat;
+    onChange: (format: ExportFormat) => void;
+};
+
+const OutputFormatSelect = ({ available, format, onChange }: OutputFormatSelectProps) => (
+    <div className="space-y-2">
+        <label className="font-medium text-sm" htmlFor="output-format">
+            Output format
+        </label>
+        <Select value={format} onValueChange={(value) => onChange(value as ExportFormat)}>
+            <SelectTrigger
+                id="output-format"
+                className="border-[var(--border)] bg-[var(--panel-secondary)] text-[var(--foreground)]"
             >
-                <SelectTrigger
-                    id="output-format"
-                    className="border-[var(--border)] bg-[var(--panel-secondary)] text-[var(--foreground)]"
-                >
-                    <SelectValue placeholder="Choose a format" />
-                </SelectTrigger>
-                <SelectContent className="border-[var(--border)] bg-[var(--panel)] text-[var(--foreground)] shadow-[var(--panel-shadow)]">
-                    <SelectItem value="md">Markdown (.md)</SelectItem>
-                    <SelectItem value="txt">Plain text (.txt)</SelectItem>
-                </SelectContent>
-            </Select>
-        </div>
-        <div className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--panel-secondary)] p-3">
+                <SelectValue placeholder="Choose a format" />
+            </SelectTrigger>
+            <SelectContent className="border-[var(--border)] bg-[var(--panel)] text-[var(--foreground)] shadow-[var(--panel-shadow)]">
+                {available.json ? (
+                    <SelectItem value="json">
+                        {available.json === 'normalized' ? 'JSON (normalized)' : 'JSON (original transcript)'}
+                    </SelectItem>
+                ) : null}
+                <SelectItem value="md">Markdown (.md)</SelectItem>
+                <SelectItem value="txt">Plain text (.txt)</SelectItem>
+                {available.focused ? <SelectItem value="focused">Focused evidence (.md)</SelectItem> : null}
+            </SelectContent>
+        </Select>
+    </div>
+);
+
+type IncludeOptionProps = {
+    checked: boolean;
+    description: string;
+    disabled: boolean;
+    label: string;
+    onCheckedChange: (checked: boolean) => void;
+};
+
+const IncludeOption = ({ checked, description, disabled, label, onCheckedChange }: IncludeOptionProps) => (
+    <div className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--panel-secondary)] p-3">
+        <Checkbox
+            aria-label={label}
+            checked={checked}
+            disabled={disabled}
+            onCheckedChange={(next) => onCheckedChange(next === true)}
+        />
+        <span className="space-y-1">
+            <span className="block font-medium text-sm">{label}</span>
+            <span className="block text-[var(--muted-foreground)] text-sm">{description}</span>
+        </span>
+    </div>
+);
+
+type ZipControlsProps = {
+    effectiveZipArchive: boolean;
+    options: ExportDraftOptions;
+    zipDescriptionId: string;
+    zipRequired: boolean;
+    onChange: (options: Partial<ExportDraftOptions>) => void;
+};
+
+const ZipControls = ({ effectiveZipArchive, options, zipDescriptionId, zipRequired, onChange }: ZipControlsProps) => (
+    <div className="space-y-3 rounded-2xl border border-[var(--border)] bg-[var(--panel-secondary)] p-3">
+        <div className="flex items-start gap-3">
             <Checkbox
-                aria-label="Include metadata"
-                checked={options.includeMetadata}
-                onCheckedChange={(checked) => onChange({ includeMetadata: checked === true })}
+                aria-label="Zip archive"
+                aria-describedby={zipDescriptionId}
+                checked={effectiveZipArchive}
+                disabled={zipRequired}
+                onCheckedChange={(checked) => onChange({ zipArchive: checked === true })}
             />
             <span className="space-y-1">
-                <span className="block font-medium text-sm">Include metadata</span>
-                <span className="block text-[var(--muted-foreground)] text-sm">
-                    Includes the chat metadata section at the top of the exported transcript.
+                <span className="block font-medium text-sm">Zip archive</span>
+                <span className="block text-[var(--muted-foreground)] text-sm" id={zipDescriptionId}>
+                    {zipRequired
+                        ? 'Required when exporting multiple threads.'
+                        : 'Downloads the exported transcript inside a .zip archive.'}
                 </span>
             </span>
         </div>
-        {showCommentaryOption ? (
-            <div className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--panel-secondary)] p-3">
-                <Checkbox
-                    aria-label="Include commentary"
-                    checked={options.includeCommentary}
-                    onCheckedChange={(checked) => onChange({ includeCommentary: checked === true })}
+        {effectiveZipArchive ? (
+            <div className="space-y-2 pl-7">
+                <label className="font-medium text-sm" htmlFor="zip-password">
+                    ZIP password (optional)
+                </label>
+                <input
+                    autoComplete="new-password"
+                    className="flex h-9 w-full rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-[var(--foreground)] text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    id="zip-password"
+                    onChange={(event) => onChange({ zipPassword: event.target.value })}
+                    type="password"
+                    value={options.zipPassword}
                 />
-                <span className="space-y-1">
-                    <span className="block font-medium text-sm">Include commentary</span>
-                    <span className="block text-[var(--muted-foreground)] text-sm">
-                        Includes assistant commentary-phase updates in the exported transcript.
-                    </span>
-                </span>
+                <p className="text-[var(--muted-foreground)] text-sm">
+                    Uses AES-256 encryption. Leave blank for an unprotected archive.
+                </p>
             </div>
         ) : null}
-        {showToolsOption ? (
-            <div className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--panel-secondary)] p-3">
-                <Checkbox
-                    aria-label="Include tool calls"
-                    checked={options.includeTools}
-                    onCheckedChange={(checked) => onChange({ includeTools: checked === true })}
-                />
-                <span className="space-y-1">
-                    <span className="block font-medium text-sm">Include tool calls</span>
-                    <span className="block text-[var(--muted-foreground)] text-sm">
-                        Includes tool-call summaries and tool-output summaries in the export.
-                    </span>
-                </span>
-            </div>
-        ) : null}
-        <div className="space-y-3 rounded-2xl border border-[var(--border)] bg-[var(--panel-secondary)] p-3">
-            <div className="flex items-start gap-3">
-                <Checkbox
-                    aria-label="Zip archive"
-                    aria-describedby={zipDescriptionId}
-                    checked={effectiveZipArchive}
-                    disabled={forceZipArchive}
-                    onCheckedChange={(checked) => onChange({ zipArchive: checked === true })}
-                />
-                <span className="space-y-1">
-                    <span className="block font-medium text-sm">Zip archive</span>
-                    <span className="block text-[var(--muted-foreground)] text-sm" id={zipDescriptionId}>
-                        {forceZipArchive
-                            ? 'Required when exporting multiple threads.'
-                            : 'Downloads the exported transcript inside a .zip archive.'}
-                    </span>
-                </span>
-            </div>
-            {effectiveZipArchive ? (
-                <div className="space-y-2 pl-7">
-                    <label className="font-medium text-sm" htmlFor="zip-password">
-                        ZIP password (optional)
-                    </label>
-                    <input
-                        autoComplete="new-password"
-                        className="flex h-9 w-full rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-[var(--foreground)] text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        id="zip-password"
-                        onChange={(event) => onChange({ zipPassword: event.target.value })}
-                        type="password"
-                        value={options.zipPassword}
-                    />
-                    <p className="text-[var(--muted-foreground)] text-sm">
-                        Uses AES-256 encryption. Leave blank for an unprotected archive.
-                    </p>
-                </div>
-            ) : null}
-        </div>
-    </>
+    </div>
 );
+
+type TranscriptOptionsProps = {
+    effectiveZipArchive: boolean;
+    format: ExportFormat;
+    jsonKind: JsonKind | null;
+    options: ExportDraftOptions;
+    showCommentaryOption: boolean;
+    showTimestampsOption: boolean;
+    showToolsOption: boolean;
+    zipDescriptionId: string;
+    zipRequired: boolean;
+    onChange: (options: Partial<ExportDraftOptions>) => void;
+};
+
+// The original JSON always carries metadata, commentary and tool calls, so those options are shown on and fixed.
+const TranscriptOptions = ({
+    effectiveZipArchive,
+    format,
+    jsonKind,
+    options,
+    showCommentaryOption,
+    showTimestampsOption,
+    showToolsOption,
+    zipDescriptionId,
+    zipRequired,
+    onChange,
+}: TranscriptOptionsProps) => {
+    const isJson = format === 'json';
+
+    return (
+        <>
+            {isJson ? (
+                <p className="rounded-xl border border-[var(--border)] bg-[var(--panel-secondary)] p-3 text-sm">
+                    {jsonKind === 'normalized'
+                        ? 'This source has no original transcript file, so the JSON contains the normalized conversation plus the complete stored rows with their timestamps.'
+                        : 'Downloads the source transcript unchanged, without filtering or Markdown rendering.'}{' '}
+                    Metadata, commentary and tool calls are always included.
+                </p>
+            ) : null}
+            <IncludeOption
+                checked={isJson || options.includeMetadata}
+                description="Includes the chat metadata section at the top of the exported transcript."
+                disabled={isJson}
+                label="Include metadata"
+                onCheckedChange={(includeMetadata) => onChange({ includeMetadata })}
+            />
+            {showCommentaryOption ? (
+                <IncludeOption
+                    checked={isJson || options.includeCommentary}
+                    description="Includes assistant commentary-phase updates in the exported transcript."
+                    disabled={isJson}
+                    label="Include commentary"
+                    onCheckedChange={(includeCommentary) => onChange({ includeCommentary })}
+                />
+            ) : null}
+            {showToolsOption ? (
+                <IncludeOption
+                    checked={isJson || options.includeTools}
+                    description="Includes tool-call summaries and tool-output summaries in the export."
+                    disabled={isJson}
+                    label="Include tool calls"
+                    onCheckedChange={(includeTools) => onChange({ includeTools })}
+                />
+            ) : null}
+            {showTimestampsOption ? (
+                <IncludeOption
+                    checked={isJson || options.includeTimestamps}
+                    description="Adds each message's time to its heading so decisions can be placed on a timeline."
+                    disabled={isJson}
+                    label="Include timestamps"
+                    onCheckedChange={(includeTimestamps) => onChange({ includeTimestamps })}
+                />
+            ) : null}
+            <ZipControls
+                effectiveZipArchive={effectiveZipArchive}
+                options={options}
+                zipDescriptionId={zipDescriptionId}
+                zipRequired={zipRequired}
+                onChange={onChange}
+            />
+        </>
+    );
+};
 
 const EvidencePreview = ({ preview }: { preview: ConversationEvidenceExport }) => (
     <div className="rounded-xl border border-[var(--border)] bg-[var(--panel-secondary)] p-3 text-sm">
@@ -220,91 +308,105 @@ const DownloadStateMessage = ({ state }: { state: DownloadLifecycleState | null 
         </p>
     ) : null;
 
-type ExportModeContentProps = {
+type ExportContentProps = {
+    available: FormatAvailability;
     effectiveZipArchive: boolean;
     focusedEvidenceTarget?: { id: string; source: ConversationSource };
-    forceZipArchive: boolean;
+    format: ExportFormat;
+    jsonKind: JsonKind | null;
     lens: EvidenceLens;
-    mode: ExportMode;
-    options: ExportDialogOptions;
+    options: ExportDraftOptions;
     preview: ConversationEvidenceExport | null;
-    showRawJsonOption: boolean;
     showCommentaryOption: boolean;
+    showTimestampsOption: boolean;
     showToolsOption: boolean;
     zipDescriptionId: string;
+    zipRequired: boolean;
+    onFormatChange: (format: ExportFormat) => void;
     onLensChange: (lens: EvidenceLens) => void;
-    onModeChange: (mode: ExportMode) => void;
-    onOptionsChange: (options: Partial<ExportDialogOptions>) => void;
+    onOptionsChange: (options: Partial<ExportDraftOptions>) => void;
 };
 
-const ExportModeContent = ({
+const ExportContent = ({
+    available,
     effectiveZipArchive,
     focusedEvidenceTarget,
-    forceZipArchive,
+    format,
+    jsonKind,
     lens,
-    mode,
     options,
     preview,
-    showRawJsonOption,
     showCommentaryOption,
+    showTimestampsOption,
     showToolsOption,
     zipDescriptionId,
+    zipRequired,
+    onFormatChange,
     onLensChange,
-    onModeChange,
     onOptionsChange,
-}: ExportModeContentProps) => (
+}: ExportContentProps) => (
     <>
-        {focusedEvidenceTarget || showRawJsonOption ? (
-            <div className="space-y-2">
-                <label className="font-medium text-sm" htmlFor="export-mode">
-                    Export mode
-                </label>
-                <Select value={mode} onValueChange={(value) => onModeChange(value as ExportMode)}>
-                    <SelectTrigger
-                        id="export-mode"
-                        className="border-[var(--border)] bg-[var(--panel-secondary)] text-[var(--foreground)]"
-                    >
-                        <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="full">Full transcript</SelectItem>
-                        {focusedEvidenceTarget ? <SelectItem value="focused">Focused evidence</SelectItem> : null}
-                        {showRawJsonOption ||
-                        (focusedEvidenceTarget && isSupportedOriginalRawSource(focusedEvidenceTarget.source)) ? (
-                            <SelectItem value="raw">Raw JSON</SelectItem>
-                        ) : null}
-                    </SelectContent>
-                </Select>
-            </div>
-        ) : null}
-        {mode === 'focused' && focusedEvidenceTarget ? (
+        <OutputFormatSelect available={available} format={format} onChange={onFormatChange} />
+        {format === 'focused' && focusedEvidenceTarget ? (
             <EvidenceLensEditor lens={lens} onChange={onLensChange} />
-        ) : mode === 'raw' ? (
-            <p className="rounded-xl border border-[var(--border)] bg-[var(--panel-secondary)] p-3 text-sm">
-                Downloads the source transcript unchanged, without filtering or Markdown rendering.
-            </p>
         ) : (
-            <FullExportControls
+            <TranscriptOptions
                 effectiveZipArchive={effectiveZipArchive}
-                forceZipArchive={forceZipArchive}
+                format={format}
+                jsonKind={jsonKind}
                 options={options}
                 showCommentaryOption={showCommentaryOption}
+                showTimestampsOption={showTimestampsOption}
                 showToolsOption={showToolsOption}
                 zipDescriptionId={zipDescriptionId}
+                zipRequired={zipRequired}
                 onChange={onOptionsChange}
             />
         )}
-        {preview && mode === 'focused' ? <EvidencePreview preview={preview} /> : null}
+        {preview && format === 'focused' ? <EvidencePreview preview={preview} /> : null}
     </>
 );
+
+type JsonExportTarget = { ids: readonly string[]; source: ConversationSource };
+
+const requestJsonExport = (
+    kind: JsonKind | null,
+    target: JsonExportTarget | undefined,
+    zip: { zipArchive: boolean; zipPassword: string },
+) => {
+    if (!target || target.ids.length === 0) {
+        throw new Error('JSON export is unavailable for this selection.');
+    }
+    if (kind === 'original' && !isSupportedOriginalRawSource(target.source)) {
+        throw new Error('Original raw export is unavailable for this selection.');
+    }
+
+    const data = { ids: [...target.ids], source: target.source, ...zip };
+    return kind === 'normalized' ? exportNormalizedConversationsFn({ data }) : exportRawConversationsFn({ data });
+};
+
+type ExportIssueListProps = { issues: ExportIssues['skipped']; label: string };
+
+const ExportIssueList = ({ issues, label }: ExportIssueListProps) =>
+    issues.length > 0 ? (
+        <ul aria-label={label} className="space-y-1 text-sm">
+            {issues.map((issue) => (
+                <li className="flex flex-col" key={`${issue.label}:${issue.reason}`}>
+                    <span className="font-medium">{issue.label}</span>
+                    <span className="text-[var(--muted-foreground)]">{issue.reason}</span>
+                </li>
+            ))}
+        </ul>
+    ) : null;
 
 type ExportDialogStatusProps = {
     displayedError: string | null;
     downloadState: DownloadLifecycleState | null;
+    issues: ExportIssues;
     skippedThreadCount: number;
 };
 
-const ExportDialogStatus = ({ displayedError, downloadState, skippedThreadCount }: ExportDialogStatusProps) => (
+const ExportDialogStatus = ({ displayedError, downloadState, issues, skippedThreadCount }: ExportDialogStatusProps) => (
     <>
         <DownloadStateMessage state={downloadState} />
         {skippedThreadCount > 0 ? (
@@ -312,6 +414,8 @@ const ExportDialogStatus = ({ displayedError, downloadState, skippedThreadCount 
                 Export completed with {skippedThreadCount} skipped {skippedThreadCount === 1 ? 'thread' : 'threads'}.
             </p>
         ) : null}
+        <ExportIssueList issues={issues.skipped} label="Skipped threads" />
+        <ExportIssueList issues={issues.partial} label="Exported without their earlier history" />
         {displayedError ? <p className="text-[var(--destructive)] text-sm">{displayedError}</p> : null}
     </>
 );
@@ -319,7 +423,7 @@ const ExportDialogStatus = ({ displayedError, downloadState, skippedThreadCount 
 type ExportDialogFooterProps = {
     disabled: boolean;
     evidencePending: boolean;
-    mode: ExportMode;
+    format: ExportFormat;
     pending: boolean;
     submitted: boolean;
     onCancel: () => void;
@@ -327,12 +431,10 @@ type ExportDialogFooterProps = {
     onSubmit: () => void;
 };
 
-type ExportMode = 'focused' | 'full' | 'raw';
-
 const ExportDialogFooter = ({
     disabled,
     evidencePending,
-    mode,
+    format,
     pending,
     submitted,
     onCancel,
@@ -343,7 +445,7 @@ const ExportDialogFooter = ({
         <Button className="rounded-full" variant="outline" onClick={onCancel}>
             Cancel
         </Button>
-        {mode === 'focused' ? (
+        {format === 'focused' ? (
             <Button
                 className="rounded-full"
                 variant="outline"
@@ -366,6 +468,7 @@ const ExportDialogFooter = ({
 export function ExportDialog({
     disabled = false,
     errorMessage = null,
+    exportIssues = NO_EXPORT_ISSUES,
     forceZipArchive = false,
     focusedEvidenceTarget,
     open,
@@ -375,18 +478,19 @@ export function ExportDialog({
     skippedThreadCount = 0,
     showCommentaryOption = true,
     showRawJsonOption = false,
+    showTimestampsOption = false,
     showToolsOption = true,
     title = 'Export thread',
     onExport,
     onOpenChange,
 }: ExportDialogProps) {
     const { settings, updateSetting } = useSettings();
-    const [options, setOptions] = useState<ExportDialogOptions>(() => ({
+    const [options, setOptions] = useState<ExportDraftOptions>(() => ({
         ...settings.exportDefaults,
         zipPassword: readStoredZipPassword(),
     }));
     const [submitted, setSubmitted] = useState(false);
-    const [mode, setMode] = useState<ExportMode>('full');
+    const [chosenFormat, setChosenFormat] = useState<ExportFormat | null>(null);
     const [lens, setLens] = useState<EvidenceLens>(DEFAULT_EVIDENCE_LENS);
     const [preview, setPreview] = useState<ConversationEvidenceExport | null>(null);
     const [exportError, setExportError] = useState<string | null>(null);
@@ -395,12 +499,27 @@ export function ExportDialog({
     const submissionInProgress = useRef(false);
     const submissionToken = useRef(0);
     const previousPending = useRef(pending);
-    const effectiveZipArchive = forceZipArchive || options.zipArchive;
     const displayedError = exportError ?? errorMessage;
     const downloadCancellation = useDownloadCancellation();
     const zipDescriptionId = useId();
-    const hasRawJsonExport =
-        rawExport !== undefined && rawExport.ids.length > 0 && isSupportedOriginalRawSource(rawExport.source);
+    const jsonTarget = focusedEvidenceTarget
+        ? { ids: [focusedEvidenceTarget.id], source: focusedEvidenceTarget.source }
+        : rawExport !== undefined && rawExport.ids.length > 0
+          ? rawExport
+          : undefined;
+    // Sources without a native transcript file (for example OpenCode) export Spiracha's normalized JSON instead.
+    const jsonKind: JsonKind | null = showRawJsonOption
+        ? 'original'
+        : jsonTarget
+          ? isSupportedOriginalRawSource(jsonTarget.source)
+              ? 'original'
+              : 'normalized'
+          : null;
+    const available: FormatAvailability = { focused: focusedEvidenceTarget !== undefined, json: jsonKind };
+    const format = resolveExportFormat(chosenFormat, available);
+    const jsonTargetCount = jsonTarget?.ids.length ?? 1;
+    const zipRequired = forceZipArchive || (format === 'json' && jsonTargetCount > 1);
+    const effectiveZipArchive = zipRequired || options.zipArchive;
     const handleOpenChange = (nextOpen: boolean) => {
         if (!nextOpen) {
             submissionToken.current += 1;
@@ -424,7 +543,7 @@ export function ExportDialog({
             });
             setSubmitted(false);
             submissionInProgress.current = false;
-            setMode('full');
+            setChosenFormat(null);
             setLens(DEFAULT_EVIDENCE_LENS);
             setPreview(null);
             setExportError(null);
@@ -484,16 +603,11 @@ export function ExportDialog({
         setSubmitted(false);
     };
 
-    const submitBulkRawExport = async () => {
-        const target = focusedEvidenceTarget
-            ? { ids: [focusedEvidenceTarget.id], source: focusedEvidenceTarget.source }
-            : rawExport;
+    const submitBulkRawExport = async (token: number) => {
         try {
-            if (!target || target.ids.length === 0 || !isSupportedOriginalRawSource(target.source)) {
-                throw new Error('Original raw export is unavailable for this selection.');
-            }
-            const download = await exportRawConversationsFn({
-                data: { ids: [...target.ids], source: target.source, zipPassword: options.zipPassword },
+            const download = await requestJsonExport(jsonKind, jsonTarget, {
+                zipArchive: effectiveZipArchive,
+                zipPassword: effectiveZipArchive ? options.zipPassword : '',
             });
             if (download.mode === 'download_base64') {
                 downloadRawBase64File(download.fileName, download.contentBase64, download.mimeType, {
@@ -504,6 +618,10 @@ export function ExportDialog({
                     onStateChange: setDownloadState,
                 });
             }
+            // Close through the prop: the internal close handler would cancel the download that just started.
+            if (submissionToken.current === token) {
+                onOpenChange(false);
+            }
         } catch (error) {
             setExportError(error instanceof Error ? error.message : 'Raw transcript export failed.');
         } finally {
@@ -512,14 +630,20 @@ export function ExportDialog({
         }
     };
 
-    const submitRawExport = async () => {
-        if (focusedEvidenceTarget || hasRawJsonExport) {
-            await submitBulkRawExport();
+    const submitRawExport = async (token: number) => {
+        if (jsonTarget) {
+            await submitBulkRawExport(token);
             return;
         }
 
         if (onRawJsonExport) {
-            onRawJsonExport(options, { onDownloadStateChange: setDownloadState });
+            onRawJsonExport(
+                {
+                    zipArchive: effectiveZipArchive,
+                    zipPassword: effectiveZipArchive ? options.zipPassword : '',
+                },
+                { onDownloadStateChange: setDownloadState },
+            );
             return;
         }
 
@@ -538,22 +662,25 @@ export function ExportDialog({
         submissionToken.current = token;
         setSubmitted(true);
         setDownloadState('preparing');
-        if (mode === 'focused') {
+        if (format === 'focused') {
             await submitFocusedExport(token);
-            return;
-        }
-        if (mode === 'raw') {
-            await submitRawExport();
             return;
         }
         updateSetting('exportDefaults', {
             includeCommentary: options.includeCommentary,
             includeMetadata: options.includeMetadata,
+            includeTimestamps: options.includeTimestamps,
             includeTools: options.includeTools,
-            outputFormat: options.outputFormat,
             zipArchive: options.zipArchive,
         });
-        onExport({ ...options, zipArchive: effectiveZipArchive }, { onDownloadStateChange: setDownloadState });
+        if (format === 'json') {
+            await submitRawExport(token);
+            return;
+        }
+        onExport(
+            { ...options, outputFormat: format, zipArchive: effectiveZipArchive },
+            { onDownloadStateChange: setDownloadState },
+        );
     };
 
     return (
@@ -567,25 +694,27 @@ export function ExportDialog({
                 </DialogHeader>
 
                 <div className="space-y-5 py-2">
-                    <ExportModeContent
+                    <ExportContent
+                        available={available}
                         effectiveZipArchive={effectiveZipArchive}
                         focusedEvidenceTarget={focusedEvidenceTarget}
-                        forceZipArchive={forceZipArchive}
+                        format={format}
+                        jsonKind={jsonKind}
                         lens={lens}
-                        mode={mode}
                         options={options}
                         preview={preview}
-                        showRawJsonOption={showRawJsonOption || hasRawJsonExport}
                         showCommentaryOption={showCommentaryOption}
+                        showTimestampsOption={showTimestampsOption}
                         showToolsOption={showToolsOption}
                         zipDescriptionId={zipDescriptionId}
-                        onLensChange={(nextLens) => {
-                            setLens(nextLens);
+                        zipRequired={zipRequired}
+                        onFormatChange={(nextFormat) => {
+                            setChosenFormat(nextFormat);
                             setPreview(null);
                             setExportError(null);
                         }}
-                        onModeChange={(nextMode) => {
-                            setMode(nextMode);
+                        onLensChange={(nextLens) => {
+                            setLens(nextLens);
                             setPreview(null);
                             setExportError(null);
                         }}
@@ -601,12 +730,13 @@ export function ExportDialog({
                 <ExportDialogStatus
                     displayedError={displayedError}
                     downloadState={downloadState}
+                    issues={exportIssues}
                     skippedThreadCount={skippedThreadCount}
                 />
                 <ExportDialogFooter
                     disabled={disabled}
                     evidencePending={evidencePending}
-                    mode={mode}
+                    format={format}
                     pending={pending}
                     submitted={submitted}
                     onCancel={() => handleOpenChange(false)}

@@ -12,10 +12,13 @@ import {
 let mutateParent: (() => Promise<void>) | null = null;
 
 mock.module('./codex-transcript-renderer', () => ({
-    renderCodexSessionFile: async (input: { resolveForkedThread: CodexForkedThreadResolver; sessionFile: string }) => {
+    renderCodexSessionFileWithNotes: async (input: {
+        resolveForkedThread: CodexForkedThreadResolver;
+        sessionFile: string;
+    }) => {
         await resolveCodexTranscriptSegments(input.sessionFile, input.resolveForkedThread);
         await mutateParent?.();
-        return 'rendered transcript';
+        return { content: 'rendered transcript', missingForkParents: [] };
     },
 }));
 

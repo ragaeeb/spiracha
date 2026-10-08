@@ -46,7 +46,6 @@ describe('settings server', () => {
             exportDefaults: {
                 ...DEFAULT_SETTINGS.exportDefaults,
                 includeTools: false,
-                outputFormat: 'txt',
             },
             redactUsername: true,
         });

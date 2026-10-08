@@ -3,13 +3,29 @@ import type { DownloadLifecycleState } from '#/lib/download';
 export type ExportDialogOptions = {
     includeCommentary: boolean;
     includeMetadata: boolean;
+    includeTimestamps: boolean;
     includeTools: boolean;
     outputFormat: 'md' | 'txt';
     zipArchive: boolean;
     zipPassword: string;
 };
 
-export type PersistedExportDialogOptions = Omit<ExportDialogOptions, 'zipPassword'>;
+// The output format is deliberately not remembered: the dialog always opens on its default (JSON when available).
+// The dialog-chosen format is a separate concept (it can also be JSON or focused evidence), so drafts omit it.
+export type ExportDraftOptions = Omit<ExportDialogOptions, 'outputFormat'>;
+
+export type RawJsonExportOptions = Pick<ExportDialogOptions, 'zipArchive' | 'zipPassword'>;
+
+export type PersistedExportDialogOptions = Omit<ExportDialogOptions, 'outputFormat' | 'zipPassword'>;
+
+/** One thread a batch export did not include in full, with a reader-friendly reason. */
+export type ExportIssue = { label: string; reason: string };
+
+export type ExportIssues = {
+    // Exported, but missing something (for example the history before a fork whose parent was deleted).
+    partial: ExportIssue[];
+    skipped: ExportIssue[];
+};
 
 export type ExportLifecycleCallbacks = {
     onDownloadStateChange?: (state: DownloadLifecycleState) => void;
@@ -18,8 +34,8 @@ export type ExportLifecycleCallbacks = {
 export const DEFAULT_EXPORT_DIALOG_OPTIONS: PersistedExportDialogOptions = {
     includeCommentary: false,
     includeMetadata: true,
+    includeTimestamps: true,
     includeTools: true,
-    outputFormat: 'md',
     zipArchive: false,
 };
 

@@ -17,6 +17,8 @@ type BaseThreadEvent = {
 };
 
 export type MessageEvent = BaseThreadEvent & {
+    // Names who a message came from when that is not the conversation's own user or assistant (for example a delegating agent).
+    authorName?: string;
     kind: 'message';
     isHiddenByDefault: boolean;
     memoryCitation: JsonValue | null;

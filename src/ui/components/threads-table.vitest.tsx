@@ -167,6 +167,77 @@ afterEach(() => {
 });
 
 describe('ThreadsTable', () => {
+    const entryWith = (id: string, title: string, extra: Partial<ThreadListEntry> = {}): ThreadListEntry => ({
+        ...threadEntry,
+        ...extra,
+        thread: { ...threadEntry.thread, id, title },
+    });
+    const renderThreads = (threads: ThreadListEntry[]) =>
+        render(
+            <ThreadsTable
+                onDeleteThread={vi.fn()}
+                onDeleteThreads={vi.fn()}
+                onExportThread={vi.fn()}
+                onExportThreads={vi.fn()}
+                threads={threads}
+            />,
+        );
+
+    it('should nest a fork under its parent and mark it with a Fork badge', () => {
+        renderThreads([
+            entryWith('parent-1', 'Original prompt'),
+            entryWith('fork-1', 'Fork A', {
+                fork: { ordinalExclusive: 3, parentAvailable: true, parentThreadId: 'parent-1' },
+            }),
+        ]);
+
+        const forkLink = screen.getByRole('link', { name: /Fork A/ });
+        expect(forkLink.closest('[data-row-depth="1"]')).toBeTruthy();
+        const badge = screen.getByText('Fork');
+        expect(badge.getAttribute('title')).toBe('Forked from Original prompt (parent-1)');
+        expect(screen.getByRole('link', { name: /Original prompt/ }).closest('[data-row-depth="0"]')).toBeTruthy();
+    });
+
+    it('should keep a fork whose parent was deleted at the top level and say the parent is gone', () => {
+        renderThreads([
+            entryWith('fork-2', 'Orphan fork', {
+                fork: { ordinalExclusive: 3, parentAvailable: false, parentThreadId: 'deleted-parent' },
+            }),
+        ]);
+
+        expect(screen.getByRole('link', { name: /Orphan fork/ }).closest('[data-row-depth="0"]')).toBeTruthy();
+        const badge = screen.getByText('Fork · parent deleted');
+        expect(badge.getAttribute('title')).toBe(
+            'Forked from thread deleted-parent, which no longer exists. Only the conversation after the fork is available.',
+        );
+    });
+
+    it('should not mark subagents or ordinary threads as forks', () => {
+        renderThreads([
+            entryWith('plain-1', 'Plain thread'),
+            entryWith('sub-1', 'Subagent thread', { hierarchy: { childThreadCount: 0, parentThreadId: 'plain-1' } }),
+        ]);
+
+        expect(screen.queryByText(/^Fork/)).toBeNull();
+        expect(screen.getByRole('link', { name: /Subagent thread/ }).closest('[data-row-depth="1"]')).toBeTruthy();
+    });
+
+    it('should show the thread id under the title inside the same link', () => {
+        render(
+            <ThreadsTable
+                onDeleteThread={vi.fn()}
+                onDeleteThreads={vi.fn()}
+                onExportThread={vi.fn()}
+                onExportThreads={vi.fn()}
+                threads={[threadEntry]}
+            />,
+        );
+
+        const link = screen.getByRole('link', { name: /Continue reverse engineering/ });
+        expect(link.textContent).toContain('thread-1');
+        expect(link.getAttribute('href')).toBe('/threads/thread-1');
+    });
+
     it('should allow selecting multiple threads and trigger bulk actions', () => {
         const onDeleteThreads = vi.fn();
         const onExportThreads = vi.fn();
@@ -277,8 +348,8 @@ describe('ThreadsTable', () => {
             />,
         );
 
-        const parentRow = screen.getByRole('link', { name: 'Continue reverse engineering' }).closest('tr');
-        const childRow = screen.getByRole('link', { name: 'Inspect transcript renderer' }).closest('tr');
+        const parentRow = screen.getByRole('link', { name: /Continue reverse engineering/ }).closest('tr');
+        const childRow = screen.getByRole('link', { name: /Inspect transcript renderer/ }).closest('tr');
 
         expect(parentRow?.nextElementSibling).toBe(childRow);
         expect(screen.queryByText('1 subagent')).toBeNull();
@@ -361,7 +432,7 @@ describe('ThreadsTable', () => {
         expect(onDeleteThread).toHaveBeenCalledWith(threadEntry);
     });
 
-    it('should show up to 100 Codex project threads on one page', () => {
+    it('should show the first 100 Codex project threads and offer to load the rest', () => {
         const threads = Array.from({ length: 101 }, (_, index) => ({
             ...threadEntry,
             thread: {
@@ -381,8 +452,9 @@ describe('ThreadsTable', () => {
             />,
         );
 
-        expect(screen.getByRole('link', { name: 'Thread 100' })).toBeTruthy();
+        expect(screen.getByRole('link', { name: /Thread 100/ })).toBeTruthy();
         expect(screen.queryByRole('link', { name: 'Thread 101' })).toBeNull();
-        expect(screen.getByText('Page 1 of 2')).toBeTruthy();
+        expect(screen.getByText('Showing 100 of 101')).toBeTruthy();
+        expect(screen.getByRole('button', { name: 'Load more' })).toBeTruthy();
     });
 });

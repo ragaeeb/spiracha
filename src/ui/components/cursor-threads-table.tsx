@@ -1,8 +1,9 @@
 import type { CursorThreadSummary } from '@spiracha/lib/cursor-exporter-types';
 import { Link } from '@tanstack/react-router';
 import type { SortingState } from '@tanstack/react-table';
-import { Download, GitFork, MoreHorizontal, Trash2 } from 'lucide-react';
+import { Download, MoreHorizontal, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
+import { ConversationTitleCell } from '#/components/conversation-title-cell';
 import { DataTable } from '#/components/data-table';
 import { ConversationSelectionActions } from '#/components/selection-actions-toolbar';
 import { Button } from '#/components/ui/button';
@@ -16,7 +17,6 @@ import { supportedListAction } from '#/lib/conversation-actions';
 import type { ConversationListInventoryProps } from '#/lib/conversation-selection';
 import { createDataTableColumnHelper } from '#/lib/data-table-config';
 import { formatBytes, formatDateTime, formatModelLabel, formatNumber } from '#/lib/formatters';
-import { cn } from '#/lib/utils';
 
 type CursorThreadsTableProps = {
     onDeleteThread: (thread: CursorThreadSummary) => void;
@@ -32,41 +32,34 @@ const columnHelper = createDataTableColumnHelper<CursorThreadTreeNode>();
 const defaultSorting: SortingState = [{ desc: true, id: 'updatedAt' }];
 
 const CursorThreadTitleCell = ({ depth, thread }: { depth: number; thread: CursorThreadTreeNode }) => (
-    <div className={cn('min-w-0', depth > 0 ? 'border-[var(--border)] border-l-2 pl-3' : '')} data-row-depth={depth}>
-        <div className="flex min-w-0 items-center gap-2">
-            {depth > 0 ? (
-                <GitFork aria-hidden="true" className="size-4 shrink-0 text-[var(--muted-foreground)]" />
-            ) : null}
-            <div className="min-w-0 flex-1 space-y-1">
-                <Link
-                    className="block rounded-md font-medium outline-none transition hover:underline focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
-                    params={{ composerId: thread.composerId }}
-                    to="/cursor-threads/$composerId"
-                >
-                    <span className="block truncate">{thread.name}</span>
-                </Link>
-                <p className="truncate text-[var(--muted-foreground)] text-xs">
-                    {thread.mode ? `${thread.mode} · ` : ''}
-                    {thread.composerId}
-                </p>
-                {thread.snapshotCount > 1 ? (
-                    thread.latestSnapshotComposerId && thread.latestSnapshotComposerId !== thread.composerId ? (
-                        <Link
-                            className="block truncate text-[var(--accent)] text-xs hover:underline"
-                            params={{ composerId: thread.latestSnapshotComposerId }}
-                            to="/cursor-threads/$composerId"
-                        >
-                            Older moved snapshot · open latest
-                        </Link>
-                    ) : (
-                        <p className="truncate text-[var(--muted-foreground)] text-xs">
-                            Latest moved snapshot · {formatNumber(thread.snapshotCount)} physical records
-                        </p>
-                    )
-                ) : null}
-            </div>
-        </div>
-    </div>
+    <ConversationTitleCell
+        depth={depth}
+        footer={
+            thread.snapshotCount > 1 ? (
+                thread.latestSnapshotComposerId && thread.latestSnapshotComposerId !== thread.composerId ? (
+                    <Link
+                        className="block truncate text-[var(--accent)] text-xs hover:underline"
+                        params={{ composerId: thread.latestSnapshotComposerId }}
+                        to="/cursor-threads/$composerId"
+                    >
+                        Older moved snapshot · open latest
+                    </Link>
+                ) : (
+                    <p className="truncate text-[var(--muted-foreground)] text-xs">
+                        Latest moved snapshot · {formatNumber(thread.snapshotCount)} physical records
+                    </p>
+                )
+            ) : null
+        }
+        id={thread.composerId}
+        isNestedAgent={depth > 0}
+        renderLink={(content, className) => (
+            <Link className={className} params={{ composerId: thread.composerId }} to="/cursor-threads/$composerId">
+                {content}
+            </Link>
+        )}
+        title={thread.name}
+    />
 );
 
 const getCursorThreadTreeRoots = (threads: CursorThreadSummary[]): CursorThreadTreeNode[] => {

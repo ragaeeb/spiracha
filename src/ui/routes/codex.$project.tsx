@@ -11,6 +11,7 @@ import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
 import { ThreadsTable } from '#/components/threads-table';
 import { Button } from '#/components/ui/button';
+import { describeCodexExportIssues } from '#/lib/codex-export-issues';
 import { projectThreadsQueryOptions } from '#/lib/codex-queries';
 import {
     deleteThreadFn,
@@ -23,6 +24,7 @@ import {
 import { conversationListSelection, lookupSelectedItems } from '#/lib/conversation-selection';
 import { downloadTextFile, downloadUrlFileWithCancellation, useDownloadCancellation } from '#/lib/download';
 import { createExportSelectionMutationInput, type ExportSelectionMutationInput } from '#/lib/export-mutation';
+import type { ExportLifecycleCallbacks, RawJsonExportOptions } from '#/lib/export-options';
 import { getMutationErrorMessage } from '#/lib/mutation-error';
 import { parseTextQuerySearch, withTextQuerySearch } from '#/lib/route-search';
 import { useSettings } from '#/lib/settings-store';
@@ -81,6 +83,15 @@ const decodeProjectParam = (project: string) => {
         return project;
     }
 };
+
+type RawThreadExportInput = Readonly<{
+    ids: readonly string[];
+    options: Readonly<RawJsonExportOptions>;
+    raw: true;
+}> &
+    ExportLifecycleCallbacks;
+
+type ThreadExportMutationInput = ExportSelectionMutationInput | RawThreadExportInput;
 
 export const Route = createFileRoute('/codex/$project')({
     component: ProjectDetailPage,
@@ -168,29 +179,36 @@ function ProjectDetailPage() {
     });
 
     const exportThreadMutation = useMutation({
-        mutationFn: async ({ ids, onDownloadStateChange, options, raw }: ExportSelectionMutationInput) => {
+        mutationFn: async (input: ThreadExportMutationInput) => {
+            const { ids, onDownloadStateChange } = input;
             console.info('[spiracha:export-ui] request', {
-                outputFormat: raw ? 'json' : options.outputFormat,
+                outputFormat: input.raw ? 'json' : input.options.outputFormat,
                 project,
-                raw,
+                raw: input.raw ?? false,
                 selectedThreadCount: ids.length,
                 selectedThreadIds: ids,
-                zipArchive: options.zipArchive,
+                zipArchive: input.options.zipArchive,
             });
 
-            const download = raw
-                ? await exportRawThreadsFn({ data: { threadIds: [...ids], zipPassword: options.zipPassword } })
+            const download = input.raw
+                ? await exportRawThreadsFn({
+                      data: {
+                          threadIds: [...ids],
+                          zipArchive: input.options.zipArchive,
+                          zipPassword: input.options.zipPassword,
+                      },
+                  })
                 : ids.length === 1
                   ? await exportThreadFn({
                         data: {
-                            ...options,
+                            ...input.options,
                             ...settings,
                             threadId: ids[0]!,
                         },
                     })
                   : await exportThreadsFn({
                         data: {
-                            ...options,
+                            ...input.options,
                             ...settings,
                             threadIds: [...ids],
                         },
@@ -225,7 +243,11 @@ function ProjectDetailPage() {
             });
         },
         onSuccess: (download) => {
-            if (download.mode === 'download_url' && (download.skippedThreadCount ?? 0) > 0) {
+            // Stay open when some threads were skipped or exported without their earlier history, so the reasons are visible.
+            if (
+                download.mode === 'download_url' &&
+                ((download.skippedThreadCount ?? 0) > 0 || (download.partialThreads?.length ?? 0) > 0)
+            ) {
                 return;
             }
 
@@ -233,6 +255,16 @@ function ProjectDetailPage() {
         },
     });
 
+    const exportIssues = useMemo(
+        () =>
+            exportThreadMutation.data?.mode === 'download_url'
+                ? describeCodexExportIssues(
+                      exportThreadMutation.data,
+                      (threadId) => threads.find((entry) => entry.thread.id === threadId)?.thread.title,
+                  )
+                : undefined,
+        [exportThreadMutation.data, threads],
+    );
     const visibleThreads = useMemo(
         () =>
             threads.filter((thread) => {
@@ -375,6 +407,7 @@ function ProjectDetailPage() {
 
             <ExportDialog
                 errorMessage={getThreadExportErrorMessage(exportThreadMutation.error)}
+                exportIssues={exportIssues}
                 forceZipArchive={shouldForceZipArchive(pendingExport)}
                 open={pendingExport !== null}
                 pending={exportThreadMutation.isPending}
@@ -384,6 +417,7 @@ function ProjectDetailPage() {
                         : undefined
                 }
                 showRawJsonOption
+                showTimestampsOption
                 title={pendingExport ? `Export ${pendingExport.threadLabel}` : 'Export thread'}
                 onExport={(options, callbacks) => {
                     if (pendingExport) {

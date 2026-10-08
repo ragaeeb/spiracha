@@ -45,7 +45,7 @@ import {
     getCachedCodexTranscriptStats,
     getThreadRolloutLoadState,
 } from './codex-thread-cache';
-import { type CodexForkedThreadResolver, CodexTranscriptHistoryError } from './codex-thread-parser';
+import { type CodexForkedThreadResolver, CodexTranscriptHistoryError, readCodexForkInfo } from './codex-thread-parser';
 import type { ThreadRelations, ThreadRow } from './codex-thread-types';
 import { mapWithConcurrency } from './concurrency';
 import { normalizeConversationPath } from './conversation-data/path-match';
@@ -242,7 +242,9 @@ const buildProjectThreadEntry = (
     rolloutSizeBytes: number | null,
     modelNames: string[],
     stats?: ThreadListEntry['stats'],
+    fork: ThreadListEntry['fork'] = null,
 ): ThreadListEntry => ({
+    fork,
     hierarchy,
     modelNames,
     project: projectName,
@@ -256,6 +258,22 @@ const buildProjectThreadEntry = (
     thread: normalizeThreadDisplayText(thread),
 });
 
+const loadThreadFork = async (
+    rolloutPath: string,
+    resolveForkedThread: CodexForkedThreadResolver,
+): Promise<ThreadListEntry['fork']> => {
+    const info = await readCodexForkInfo(rolloutPath);
+    if (!info) {
+        return null;
+    }
+
+    const parentAvailable = await resolveForkedThread(info.forkedFromId).then(
+        () => true,
+        () => false,
+    );
+    return { ordinalExclusive: info.ordinalExclusive, parentAvailable, parentThreadId: info.forkedFromId };
+};
+
 const loadProjectThreadEntry = async (
     thread: ThreadRow,
     projectName: string,
@@ -263,6 +281,7 @@ const loadProjectThreadEntry = async (
     options: ListProjectThreadsOptions,
     resolveForkedThread: CodexForkedThreadResolver,
 ): Promise<ThreadListEntry> => {
+    const fork = await loadThreadFork(thread.rollout_path, resolveForkedThread);
     try {
         const rollout = await getThreadRolloutLoadState(thread.rollout_path, options.largeTranscriptThresholdBytes, {
             resolveForkedThread,
@@ -278,14 +297,30 @@ const loadProjectThreadEntry = async (
             options.includeTranscriptStats !== false
         ) {
             const stats = await getCachedCodexTranscriptStats(thread.rollout_path, undefined, { resolveForkedThread });
-            return buildProjectThreadEntry(thread, projectName, hierarchy, rollout.fileSizeBytes, modelNames, {
-                deferred: false,
-                execCommandCount: stats.execCommandCount,
-                toolCallCount: stats.toolCallCount,
-                webSearchEventCount: stats.webSearchEventCount,
-            });
+            return buildProjectThreadEntry(
+                thread,
+                projectName,
+                hierarchy,
+                rollout.fileSizeBytes,
+                modelNames,
+                {
+                    deferred: false,
+                    execCommandCount: stats.execCommandCount,
+                    toolCallCount: stats.toolCallCount,
+                    webSearchEventCount: stats.webSearchEventCount,
+                },
+                fork,
+            );
         }
-        return buildProjectThreadEntry(thread, projectName, hierarchy, rollout.fileSizeBytes, modelNames);
+        return buildProjectThreadEntry(
+            thread,
+            projectName,
+            hierarchy,
+            rollout.fileSizeBytes,
+            modelNames,
+            undefined,
+            fork,
+        );
     } catch (error) {
         if (!(error instanceof CodexTranscriptHistoryError)) {
             throw error;
@@ -298,6 +333,8 @@ const loadProjectThreadEntry = async (
             hierarchy,
             rollout.fileSizeBytes,
             thread.model ? [thread.model] : [],
+            undefined,
+            fork,
         );
     }
 };

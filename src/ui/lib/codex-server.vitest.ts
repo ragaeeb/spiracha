@@ -8,6 +8,7 @@ const {
     getCachedThreadTranscriptPreviewMock,
     getThreadBrowseDataMock,
     getThreadRolloutLoadStateMock,
+    readCodexForkInfoMock,
     renderCodexThreadDownloadMock,
     renderCodexThreadsDownloadMock,
     resolveCodexThreadDbPathMock,
@@ -18,6 +19,7 @@ const {
     getCachedThreadTranscriptPreviewMock: vi.fn(),
     getThreadBrowseDataMock: vi.fn(),
     getThreadRolloutLoadStateMock: vi.fn(),
+    readCodexForkInfoMock: vi.fn(),
     renderCodexThreadDownloadMock: vi.fn(),
     renderCodexThreadsDownloadMock: vi.fn(),
     resolveCodexThreadDbPathMock: vi.fn(),
@@ -43,6 +45,11 @@ vi.mock('@spiracha/lib/codex-browser-queries', () => ({
 
 vi.mock('@spiracha/lib/codex-database', () => ({
     resolveCodexThreadDbPath: resolveCodexThreadDbPathMock,
+}));
+
+vi.mock('@spiracha/lib/codex-thread-parser', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@spiracha/lib/codex-thread-parser')>()),
+    readCodexForkInfo: readCodexForkInfoMock,
 }));
 
 vi.mock('@spiracha/lib/codex-dashboard', () => ({
@@ -123,6 +130,63 @@ describe('loadThreadTranscript', () => {
         });
         expect(getCachedParsedCodexTranscriptMock).not.toHaveBeenCalled();
         expect(getCachedThreadTranscriptPreviewMock).not.toHaveBeenCalled();
+    });
+
+    describe('fork information', () => {
+        const browseDataFor = (parents: Record<string, string>) =>
+            getThreadBrowseDataMock.mockImplementation(async (_dbPath: string, threadId: string) => {
+                if (threadId === 'thread-1') {
+                    return { thread: { rollout_path: '/tmp/child.jsonl', title: 'Child' } };
+                }
+                if (parents[threadId]) {
+                    return { thread: { rollout_path: '/tmp/parent.jsonl', title: parents[threadId] } };
+                }
+                throw new Error(`Thread ${threadId} was not found`);
+            });
+        const loadable = () => {
+            getThreadRolloutLoadStateMock.mockResolvedValue({ fileSizeBytes: 10, shouldDeferTranscriptLoad: false });
+            getCachedCodexTranscriptModelNamesMock.mockResolvedValue([]);
+        };
+
+        it('should report the parent of a forked thread and its title', async () => {
+            browseDataFor({ 'parent-1': 'Original prompt' });
+            readCodexForkInfoMock.mockResolvedValue({ forkedFromId: 'parent-1', ordinalExclusive: 4 });
+            loadable();
+
+            const snapshot = await getThreadSnapshotFn({ data: { threadId: 'thread-1' } });
+
+            expect(snapshot.fork).toEqual({
+                ordinalExclusive: 4,
+                parentAvailable: true,
+                parentThreadId: 'parent-1',
+                parentTitle: 'Original prompt',
+            });
+        });
+
+        it('should mark a fork whose parent no longer exists', async () => {
+            browseDataFor({});
+            readCodexForkInfoMock.mockResolvedValue({ forkedFromId: 'gone-1', ordinalExclusive: 4 });
+            loadable();
+
+            const snapshot = await getThreadSnapshotFn({ data: { threadId: 'thread-1' } });
+
+            expect(snapshot.fork).toEqual({
+                ordinalExclusive: 4,
+                parentAvailable: false,
+                parentThreadId: 'gone-1',
+                parentTitle: null,
+            });
+        });
+
+        it('should report no fork for an ordinary thread', async () => {
+            getThreadBrowseDataMock.mockReturnValue({ thread: { rollout_path: '/tmp/plain.jsonl' } });
+            readCodexForkInfoMock.mockResolvedValue(null);
+            loadable();
+
+            const snapshot = await getThreadSnapshotFn({ data: { threadId: 'thread-1' } });
+
+            expect(snapshot.fork).toBeNull();
+        });
     });
 
     it('should return browse metadata when Codex fork history is unavailable', async () => {
@@ -280,5 +344,76 @@ describe('loadThreadTranscript', () => {
             threadIds: ['thread-1', 'thread-2'],
             zipArchive: true,
         });
+    });
+
+    it('should leave a single raw Codex JSON file unzipped unless a zip is requested', async () => {
+        renderCodexThreadDownloadMock.mockResolvedValue({
+            content: '{}',
+            fileName: 'thread-1.json',
+            mimeType: 'application/json',
+            mode: 'download',
+        });
+
+        await exportRawThreadsFn({ data: { threadIds: ['thread-1'] } });
+
+        expect(renderCodexThreadDownloadMock).toHaveBeenCalledWith(
+            expect.objectContaining({ outputFormat: 'json', threadId: 'thread-1', zipArchive: false }),
+        );
+    });
+
+    it('should zip a single raw Codex JSON file with the requested password', async () => {
+        renderCodexThreadDownloadMock.mockResolvedValue({
+            downloadUrl: '/__exports/raw.zip',
+            fileName: 'thread-1.zip',
+            mimeType: 'application/zip',
+            mode: 'download_url',
+        });
+
+        await exportRawThreadsFn({ data: { threadIds: ['thread-1'], zipArchive: true, zipPassword: 'pw' } });
+
+        expect(renderCodexThreadDownloadMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                outputFormat: 'json',
+                threadId: 'thread-1',
+                zipArchive: true,
+                zipPassword: 'pw',
+            }),
+        );
+    });
+
+    it('should pass the timestamps option through to single and batch Codex exports', async () => {
+        renderCodexThreadDownloadMock.mockResolvedValue({
+            content: '',
+            fileName: 'a.md',
+            mimeType: 'text/markdown',
+            mode: 'download',
+        });
+        renderCodexThreadsDownloadMock.mockResolvedValue({
+            downloadUrl: '/x.zip',
+            fileName: 'x.zip',
+            mimeType: 'application/zip',
+            mode: 'download_url',
+        });
+        const base = {
+            convertToProjectRoot: false,
+            includeCommentary: true,
+            includeMetadata: true,
+            includeTimestamps: true,
+            includeTools: true,
+            outputFormat: 'md' as const,
+            redactUsername: false,
+        };
+
+        await exportThreadFn({ data: { ...base, threadId: 'thread-1', zipArchive: false, zipPassword: '' } });
+        await exportThreadsFn({
+            data: { ...base, threadIds: ['thread-1', 'thread-2'], zipArchive: true, zipPassword: '' },
+        });
+
+        expect(renderCodexThreadDownloadMock).toHaveBeenCalledWith(
+            expect.objectContaining({ includeTimestamps: true }),
+        );
+        expect(renderCodexThreadsDownloadMock).toHaveBeenCalledWith(
+            expect.objectContaining({ includeTimestamps: true }),
+        );
     });
 });

@@ -365,9 +365,21 @@ const getTranscriptEntryId = (type: string, raw: Record<string, JsonValue>): str
     return asString(raw.uuid ?? null) ?? `${type}:${asString(raw.sessionId ?? null) ?? 'unknown'}`;
 };
 
+// A prompt sent while the agent is mid-turn is stored only as a queued_command attachment.
+const getQueuedUserPromptMessage = (raw: Record<string, JsonValue>): Record<string, JsonValue> | null => {
+    const attachment = raw.type === 'attachment' ? asObject(raw.attachment ?? null) : null;
+    const prompt = asString(attachment?.prompt ?? null);
+    const isHumanPrompt =
+        attachment?.type === 'queued_command' &&
+        attachment.commandMode === 'prompt' &&
+        asObject(attachment.origin ?? null)?.kind === 'human';
+    return isHumanPrompt && prompt?.trim() ? { content: prompt, role: 'user' } : null;
+};
+
 const parseTranscriptEntry = (raw: Record<string, JsonValue>): ClaudeCodeTranscriptEntry | null => {
-    const type = asString(raw.type ?? null) ?? 'unknown';
-    const message = asObject(raw.message ?? null);
+    const queuedUserPrompt = getQueuedUserPromptMessage(raw);
+    const type = queuedUserPrompt ? 'user' : (asString(raw.type ?? null) ?? 'unknown');
+    const message = queuedUserPrompt ?? asObject(raw.message ?? null);
     const parts = getTranscriptEntryParts(type, message, raw);
     const role = getTranscriptEntryRole(type, message);
 
@@ -573,6 +585,8 @@ const toSessionSummary = (
         continuationSessionIds: [identity.sessionId],
         cwd: identity.cwd,
         filePath: file.filePath,
+        forkedFrom: null,
+        forkSessionIds: [],
         gitBranch: identity.gitBranch,
         hierarchy: { parentSessionId: file.parentSessionId },
         model: identity.model,
@@ -1130,6 +1144,100 @@ const coalesceTranscriptLineages = (transcripts: ClaudeCodeSessionTranscript[]):
     });
 };
 
+type ConversationRecord = { id: string; parentId: string | null; timestampMs: number | null };
+
+const getConversationRecords = (transcript: ClaudeCodeSessionTranscript): ConversationRecord[] =>
+    transcript.rawEvents.flatMap((raw) => {
+        const id = asString(raw.uuid ?? null);
+        return id && (raw.type === 'user' || raw.type === 'assistant')
+            ? [{ id, parentId: asString(raw.parentUuid ?? null), timestampMs: parseTimestampMs(raw.timestamp) }]
+            : [];
+    });
+
+type ForkCandidate = { branchEntryId: string; divergedAtMs: number | null; sharedCount: number };
+
+/**
+ * Claude Code writes a rewound-and-edited conversation to a new session file that copies the
+ * history (same record UUIDs) up to the edit. `child` forks `parent` when it starts with the
+ * parent's records and its first own record replies to one of them.
+ */
+const getForkCandidate = (child: ConversationRecord[], parentIds: Set<string>): ForkCandidate | null => {
+    const first = child[0];
+    if (!first || !parentIds.has(first.id)) {
+        return null;
+    }
+
+    const divergentIndex = child.findIndex((record) => !parentIds.has(record.id));
+    const divergent = child[divergentIndex];
+    if (!divergent?.parentId || !parentIds.has(divergent.parentId)) {
+        return null;
+    }
+
+    return { branchEntryId: divergent.parentId, divergedAtMs: divergent.timestampMs, sharedCount: divergentIndex };
+};
+
+type ForkIndex = { idSets: Set<string>[]; records: ConversationRecord[][]; sessionIds: string[] };
+
+// Of two branches that diverge from each other, the later one is the fork. Missing or equal timestamps fall
+// back to session ID order so exactly one side is chosen instead of neither.
+const isLaterBranch = (self: ForkCandidate, selfId: string, other: ForkCandidate, otherId: string): boolean => {
+    if (self.divergedAtMs !== null && other.divergedAtMs !== null && self.divergedAtMs !== other.divergedAtMs) {
+        return self.divergedAtMs > other.divergedAtMs;
+    }
+
+    return selfId > otherId;
+};
+
+const findForkParent = (
+    childIndex: number,
+    index: ForkIndex,
+): { candidate: ForkCandidate; parentIndex: number } | null => {
+    let best: { candidate: ForkCandidate; parentIndex: number } | null = null;
+    const childId = index.sessionIds[childIndex] ?? '';
+    for (const [parentIndex, parentIds] of index.idSets.entries()) {
+        if (parentIndex === childIndex) {
+            continue;
+        }
+        const candidate = getForkCandidate(index.records[childIndex] ?? [], parentIds);
+        if (!candidate) {
+            continue;
+        }
+        const reverse = getForkCandidate(index.records[parentIndex] ?? [], index.idSets[childIndex] ?? new Set());
+        const parentIsLater =
+            reverse !== null && isLaterBranch(reverse, index.sessionIds[parentIndex] ?? '', candidate, childId);
+        if (!parentIsLater && (!best || candidate.sharedCount > best.candidate.sharedCount)) {
+            best = { candidate, parentIndex };
+        }
+    }
+    return best;
+};
+
+const annotateTranscriptForks = (transcripts: ClaudeCodeSessionTranscript[]): void => {
+    const topLevel = transcripts.filter((transcript) => transcript.session.hierarchy.parentSessionId === null);
+    const records = topLevel.map(getConversationRecords);
+    const index: ForkIndex = {
+        idSets: records.map((items) => new Set(items.map((record) => record.id))),
+        records,
+        sessionIds: topLevel.map((transcript) => transcript.session.sessionId),
+    };
+    for (const transcript of topLevel) {
+        transcript.session.forkedFrom = null;
+        transcript.session.forkSessionIds = [];
+    }
+
+    for (const [childIndex, child] of topLevel.entries()) {
+        const match = findForkParent(childIndex, index);
+        const parent = match ? topLevel[match.parentIndex] : undefined;
+        if (match && parent) {
+            child.session.forkedFrom = {
+                branchEntryId: match.candidate.branchEntryId,
+                sessionId: parent.session.sessionId,
+            };
+            parent.session.forkSessionIds = [...parent.session.forkSessionIds, child.session.sessionId].sort();
+        }
+    }
+};
+
 const omitTranscriptRawPayloads = (transcript: ClaudeCodeSessionTranscript): ClaudeCodeSessionTranscript => ({
     ...transcript,
     entries: transcript.entries.map(stripEntryRawPayloads),
@@ -1261,6 +1369,7 @@ export const listClaudeCodeSessionTranscriptsForGroup = async (
     const files = await listTranscriptFilesForWorkspace(projectsDir, directoryName);
     const physicalTranscripts = await readTranscriptFiles(files);
     const transcripts = coalesceTranscriptLineages(physicalTranscripts);
+    annotateTranscriptForks(transcripts);
     return transcripts.filter(hasSessionContent).sort((left, right) => compareSessions(left.session, right.session));
 };
 
@@ -1324,6 +1433,33 @@ const applyTranscriptPayloadPolicy = async (
     return totalFileSizeBytes > options.maxRawPayloadFileSizeBytes ? omitTranscriptRawPayloads(transcript) : transcript;
 };
 
+// Fork links belong to the logical conversation, so any segment of it (not just the root) carries them.
+// Returns a copy: physical transcripts are shared through the file cache and must not be mutated.
+const withForkMetadata = (
+    transcript: ClaudeCodeSessionTranscript,
+    physicalTranscripts: ClaudeCodeSessionTranscript[],
+): ClaudeCodeSessionTranscript => {
+    if (transcript.session.hierarchy.parentSessionId !== null) {
+        return transcript;
+    }
+
+    const annotated = coalesceTranscriptLineages(physicalTranscripts);
+    annotateTranscriptForks(annotated);
+    const sessionId = transcript.session.sessionId;
+    const match = annotated.find(
+        (candidate) =>
+            candidate.session.sessionId === sessionId || candidate.session.continuationSessionIds.includes(sessionId),
+    );
+    return {
+        ...transcript,
+        session: {
+            ...transcript.session,
+            forkedFrom: match?.session.forkedFrom ?? null,
+            forkSessionIds: match?.session.forkSessionIds ?? [],
+        },
+    };
+};
+
 /**
  * Reads a physical session or, for the recognized lineage parent, the coalesced
  * compaction lineage. A direct child ID deliberately returns only that segment;
@@ -1361,10 +1497,10 @@ export const readClaudeCodeSessionTranscript = async (
         return null;
     }
     const isParent = root.session.filePath === file.filePath;
-    const transcript = isParent ? coalesceTranscriptLineage(lineage) : physicalTranscript;
-    return transcript
+    const selected = isParent ? coalesceTranscriptLineage(lineage) : physicalTranscript;
+    return selected
         ? applyTranscriptPayloadPolicy(
-              transcript,
+              withForkMetadata(selected, transcripts),
               isParent ? lineage.map((candidate) => candidate.session.filePath) : [file.filePath],
               options,
           )

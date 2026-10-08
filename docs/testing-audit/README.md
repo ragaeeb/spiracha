@@ -1,5 +1,0 @@
-# Testing audit — Spiracha 2.9.0
-
-Start with [the prioritized ledger](LEDGER.md), its [machine-readable JSON](LEDGER.json), [scope and existing coverage](REVIEW_SCOPE.md), and [actual validation](VALIDATION.md). Each selective code change has a [patch note](patch-notes/) and an entry in [CODE_PATCH_INDEX.json](CODE_PATCH_INDEX.json). Use the repository [AGENTS.md](../../AGENTS.md) for current verification requirements and the [browser testing guide](../../testing/e2e/README.md) for browser setup and execution. Consult each patch note for its dependencies and acceptance criteria before applying any historical change.
-
-This directory records the audit of the supplied 2.9.0 snapshot, including 79 findings and the selective changes prepared for that delivery. Canonical project execution was unavailable in the original audit environment. Those historical results do not establish the current checkout's status; compare each finding with current code and rerun its applicable checks before marking it complete.

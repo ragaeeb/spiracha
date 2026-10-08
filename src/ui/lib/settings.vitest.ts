@@ -26,10 +26,18 @@ describe('settings persistence', () => {
             exportDefaults: {
                 ...DEFAULT_SETTINGS.exportDefaults,
                 includeTools: false,
-                outputFormat: 'txt',
             },
             redactUsername: false,
         });
+    });
+
+    it('should ignore a previously saved output format so the export dialog opens on its default', () => {
+        const settings = parseSerializedSettings(
+            encodeURIComponent(JSON.stringify({ exportDefaults: { outputFormat: 'md', zipArchive: true } })),
+        );
+
+        expect(settings.exportDefaults).toEqual({ ...DEFAULT_SETTINGS.exportDefaults, zipArchive: true });
+        expect(settings.exportDefaults).not.toHaveProperty('outputFormat');
     });
 
     it('should reject malformed and invalid saved settings safely', () => {
@@ -78,5 +86,18 @@ describe('settings persistence', () => {
 
     it('should use a stable cookie name', () => {
         expect(SETTINGS_COOKIE_NAME).toBe('spiracha-settings');
+    });
+
+    it('should default per-message timestamps on and keep a saved choice', () => {
+        expect(DEFAULT_SETTINGS.exportDefaults.includeTimestamps).toBe(true);
+        expect(
+            parseSerializedSettings(
+                encodeURIComponent(JSON.stringify({ exportDefaults: { includeTimestamps: false } })),
+            ).exportDefaults.includeTimestamps,
+        ).toBe(false);
+        expect(
+            parseSerializedSettings(encodeURIComponent(JSON.stringify({ exportDefaults: { includeTimestamps: 'no' } })))
+                .exportDefaults.includeTimestamps,
+        ).toBe(true);
     });
 });

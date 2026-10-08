@@ -66,6 +66,8 @@ const transcript: ClaudeCodeSessionTranscript = {
         createdAtMs: 1_780_307_200_000,
         cwd: '/workspace/project',
         filePath: '/tmp/session-a.jsonl',
+        forkedFrom: null,
+        forkSessionIds: [],
         gitBranch: null,
         hierarchy: { parentSessionId: null },
         inputTokens: 5,

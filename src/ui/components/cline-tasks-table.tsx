@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router';
 import type { SortingState } from '@tanstack/react-table';
 import { Download, MoreHorizontal, Star, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
+import { ConversationTitleCell } from '#/components/conversation-title-cell';
 import { DataTable } from '#/components/data-table';
 import { ConversationSelectionActions } from '#/components/selection-actions-toolbar';
 import { Button } from '#/components/ui/button';
@@ -32,22 +33,27 @@ const buildColumns = (onDelete: Props['onDeleteSession'], onExport: Props['onExp
     [
         columnHelper.accessor('title', {
             cell: (info) => (
-                <Link
-                    className="block w-[16rem] max-w-[22rem] space-y-1 rounded-md outline-none transition hover:opacity-80 focus-visible:ring-2 focus-visible:ring-[var(--accent)] lg:w-auto"
-                    params={{ taskId: info.row.original.taskId }}
-                    to="/cline-tasks/$taskId"
-                >
-                    <p className="flex items-center gap-1 truncate font-medium underline-offset-2 hover:underline">
-                        {info.row.original.isFavorited ? (
+                <ConversationTitleCell
+                    badges={
+                        info.row.original.isFavorited ? (
                             <>
-                                <Star aria-hidden="true" className="size-3 fill-current" />
+                                <Star aria-hidden="true" className="size-3 shrink-0 fill-current" />
                                 <span className="sr-only">favorite</span>
                             </>
-                        ) : null}
-                        {info.getValue()}
-                    </p>
-                    <p className="truncate text-[var(--muted-foreground)] text-xs">{info.row.original.taskId}</p>
-                </Link>
+                        ) : null
+                    }
+                    id={info.row.original.taskId}
+                    renderLink={(content, className) => (
+                        <Link
+                            className={className}
+                            params={{ taskId: info.row.original.taskId }}
+                            to="/cline-tasks/$taskId"
+                        >
+                            {content}
+                        </Link>
+                    )}
+                    title={info.getValue()}
+                />
             ),
             header: 'Chat',
         }),

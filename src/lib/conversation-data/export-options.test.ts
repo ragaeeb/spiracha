@@ -41,4 +41,9 @@ describe('normalized export options', () => {
             user: true,
         });
     });
+
+    it('should map the compact timestamps flag onto the include set and leave it off by default', () => {
+        expect(expandNormalizedExportOptions().include.timestamps).toBe(false);
+        expect(expandNormalizedExportOptions({ includeTimestamps: true }).include.timestamps).toBe(true);
+    });
 });

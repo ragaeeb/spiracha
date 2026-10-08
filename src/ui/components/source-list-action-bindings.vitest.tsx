@@ -186,6 +186,8 @@ const claudeSession = (): ClaudeCodeSessionSummary => ({
     createdAtMs: TIMESTAMP,
     cwd: '/workspace/claude',
     filePath: '/tmp/claude.jsonl',
+    forkedFrom: null,
+    forkSessionIds: [],
     gitBranch: null,
     hierarchy: { parentSessionId: null },
     inputTokens: 0,

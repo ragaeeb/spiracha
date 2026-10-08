@@ -9,6 +9,7 @@ import {
     pathExists,
     readDirectoryEntriesIfExists,
     readJsonlObjects,
+    splitJsonlLines,
     toFileUri,
     writeExportFile,
 } from './shared';
@@ -156,5 +157,51 @@ describe('shared helpers', () => {
         stream.write('streamed');
         await finalizeExportWriteStream(stream);
         expect(await Bun.file(streamPath).text()).toBe('streamed');
+    });
+
+    it('should keep jsonl records whose strings contain unicode line and paragraph separators', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'shared-test-'));
+        tempPaths.push(tempRoot);
+        const jsonlPath = path.join(tempRoot, 'session.jsonl');
+        const text = 'before\u2028middle\u2029after';
+        await Bun.write(jsonlPath, `${JSON.stringify({ text })}\r\n{"type":"next"}\n`);
+
+        const originalWarn = console.warn;
+        const warnings: unknown[][] = [];
+        console.warn = (...args) => warnings.push(args);
+        const entries: Array<Record<string, unknown>> = [];
+        try {
+            for await (const entry of readJsonlObjects(jsonlPath)) {
+                entries.push(entry);
+            }
+        } finally {
+            console.warn = originalWarn;
+        }
+
+        expect(entries).toEqual([{ text }, { type: 'next' }]);
+        expect(warnings).toEqual([]);
+    });
+
+    it('should reassemble records that span chunks, including CRLF and multibyte characters split across chunks', async () => {
+        const euro = Buffer.from('€');
+        const chunks = [
+            Buffer.from('{"a":"'),
+            euro.subarray(0, 1),
+            euro.subarray(1),
+            Buffer.from('"}\r'),
+            Buffer.from('\n{"b":2}\n{"c"'),
+            Buffer.from(':3}'),
+        ];
+        const lines: string[] = [];
+
+        for await (const line of splitJsonlLines(
+            (async function* () {
+                yield* chunks;
+            })(),
+        )) {
+            lines.push(line);
+        }
+
+        expect(lines).toEqual(['{"a":"€"}', '{"b":2}', '{"c":3}']);
     });
 });
