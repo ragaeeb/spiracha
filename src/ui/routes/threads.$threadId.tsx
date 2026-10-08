@@ -740,6 +740,7 @@ function ThreadDetailPageContent() {
         mutationFn: async (
             options: {
                 includeCommentary: boolean;
+                includeTimestamps: boolean;
                 includeTools: boolean;
                 includeMetadata: boolean;
                 outputFormat: 'md' | 'txt';
@@ -952,6 +953,7 @@ function ThreadDetailPageContent() {
             />
 
             <ExportDialog
+                showTimestampsOption
                 disabled={transcriptUnavailable}
                 errorMessage={getThreadExportErrorMessage(snapshot.transcriptState, exportThreadMutation.error)}
                 focusedEvidenceTarget={{ id: snapshot.thread.id, source: 'codex' }}

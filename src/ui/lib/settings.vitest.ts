@@ -87,4 +87,17 @@ describe('settings persistence', () => {
     it('should use a stable cookie name', () => {
         expect(SETTINGS_COOKIE_NAME).toBe('spiracha-settings');
     });
+
+    it('should default per-message timestamps on and keep a saved choice', () => {
+        expect(DEFAULT_SETTINGS.exportDefaults.includeTimestamps).toBe(true);
+        expect(
+            parseSerializedSettings(
+                encodeURIComponent(JSON.stringify({ exportDefaults: { includeTimestamps: false } })),
+            ).exportDefaults.includeTimestamps,
+        ).toBe(false);
+        expect(
+            parseSerializedSettings(encodeURIComponent(JSON.stringify({ exportDefaults: { includeTimestamps: 'no' } })))
+                .exportDefaults.includeTimestamps,
+        ).toBe(true);
+    });
 });

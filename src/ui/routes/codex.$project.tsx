@@ -401,6 +401,7 @@ function ProjectDetailPage() {
                         : undefined
                 }
                 showRawJsonOption
+                showTimestampsOption
                 title={pendingExport ? `Export ${pendingExport.threadLabel}` : 'Export thread'}
                 onExport={(options, callbacks) => {
                     if (pendingExport) {

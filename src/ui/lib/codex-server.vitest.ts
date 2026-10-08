@@ -316,4 +316,40 @@ describe('loadThreadTranscript', () => {
             }),
         );
     });
+
+    it('should pass the timestamps option through to single and batch Codex exports', async () => {
+        renderCodexThreadDownloadMock.mockResolvedValue({
+            content: '',
+            fileName: 'a.md',
+            mimeType: 'text/markdown',
+            mode: 'download',
+        });
+        renderCodexThreadsDownloadMock.mockResolvedValue({
+            downloadUrl: '/x.zip',
+            fileName: 'x.zip',
+            mimeType: 'application/zip',
+            mode: 'download_url',
+        });
+        const base = {
+            convertToProjectRoot: false,
+            includeCommentary: true,
+            includeMetadata: true,
+            includeTimestamps: true,
+            includeTools: true,
+            outputFormat: 'md' as const,
+            redactUsername: false,
+        };
+
+        await exportThreadFn({ data: { ...base, threadId: 'thread-1', zipArchive: false, zipPassword: '' } });
+        await exportThreadsFn({
+            data: { ...base, threadIds: ['thread-1', 'thread-2'], zipArchive: true, zipPassword: '' },
+        });
+
+        expect(renderCodexThreadDownloadMock).toHaveBeenCalledWith(
+            expect.objectContaining({ includeTimestamps: true }),
+        );
+        expect(renderCodexThreadsDownloadMock).toHaveBeenCalledWith(
+            expect.objectContaining({ includeTimestamps: true }),
+        );
+    });
 });

@@ -43,6 +43,7 @@ type RenderCodexThreadDownloadInput = {
     dbPath: string;
     includeCommentary: boolean;
     includeMetadata: boolean;
+    includeTimestamps?: boolean;
     includeTools: boolean;
     largeExportThresholdBytes?: number;
     outputFormat: ExportFormat | 'json';
@@ -59,7 +60,7 @@ type RenderCodexThreadsDownloadInput = Omit<RenderCodexThreadDownloadInput, 'thr
 
 type CodexExportSettings = Pick<
     RenderCodexThreadDownloadInput,
-    'includeCommentary' | 'includeMetadata' | 'includeTools' | 'outputFormat'
+    'includeCommentary' | 'includeMetadata' | 'includeTimestamps' | 'includeTools' | 'outputFormat'
 >;
 
 export type CodexThreadDownload =
@@ -138,6 +139,7 @@ const toDownloadOptions = (input: CodexExportSettings): CodexTranscriptRenderOpt
     return {
         includeCommentary: input.includeCommentary,
         includeMetadata: input.includeMetadata,
+        includeTimestamps: input.includeTimestamps,
         includeTools: input.includeTools,
         outputFormat: input.outputFormat === 'json' ? 'md' : input.outputFormat,
     };
@@ -674,6 +676,7 @@ export const renderCodexThreadsDownload = async (
                 options: {
                     includeCommentary: input.includeCommentary,
                     includeMetadata: input.includeMetadata,
+                    includeTimestamps: input.includeTimestamps ?? false,
                     includeTools: input.includeTools,
                     outputFormat: input.outputFormat,
                 },

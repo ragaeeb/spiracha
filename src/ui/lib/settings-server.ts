@@ -6,6 +6,7 @@ import { parseSerializedSettings, SETTINGS_COOKIE_NAME, serializeSettings } from
 const exportDefaultsSchema = object({
     includeCommentary: boolean(),
     includeMetadata: boolean(),
+    includeTimestamps: boolean(),
     includeTools: boolean(),
     zipArchive: boolean(),
 });

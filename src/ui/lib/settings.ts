@@ -28,6 +28,7 @@ const parseExportDefaults = (value: unknown): PersistedExportDialogOptions => {
     return {
         includeCommentary: booleanOrDefault(record.includeCommentary, DEFAULT_EXPORT_DIALOG_OPTIONS.includeCommentary),
         includeMetadata: booleanOrDefault(record.includeMetadata, DEFAULT_EXPORT_DIALOG_OPTIONS.includeMetadata),
+        includeTimestamps: booleanOrDefault(record.includeTimestamps, DEFAULT_EXPORT_DIALOG_OPTIONS.includeTimestamps),
         includeTools: booleanOrDefault(record.includeTools, DEFAULT_EXPORT_DIALOG_OPTIONS.includeTools),
         zipArchive: booleanOrDefault(record.zipArchive, DEFAULT_EXPORT_DIALOG_OPTIONS.zipArchive),
     };

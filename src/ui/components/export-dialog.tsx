@@ -52,6 +52,7 @@ type ExportDialogProps = {
     skippedThreadCount?: number;
     showCommentaryOption?: boolean;
     showRawJsonOption?: boolean;
+    showTimestampsOption?: boolean;
     showToolsOption?: boolean;
     title?: string;
     onExport: (options: ExportDialogOptions, callbacks: ExportLifecycleCallbacks) => void;
@@ -184,6 +185,7 @@ type TranscriptOptionsProps = {
     jsonKind: JsonKind | null;
     options: ExportDraftOptions;
     showCommentaryOption: boolean;
+    showTimestampsOption: boolean;
     showToolsOption: boolean;
     zipDescriptionId: string;
     zipRequired: boolean;
@@ -197,6 +199,7 @@ const TranscriptOptions = ({
     jsonKind,
     options,
     showCommentaryOption,
+    showTimestampsOption,
     showToolsOption,
     zipDescriptionId,
     zipRequired,
@@ -237,6 +240,15 @@ const TranscriptOptions = ({
                     disabled={isJson}
                     label="Include tool calls"
                     onCheckedChange={(includeTools) => onChange({ includeTools })}
+                />
+            ) : null}
+            {showTimestampsOption ? (
+                <IncludeOption
+                    checked={isJson || options.includeTimestamps}
+                    description="Adds each message's time to its heading so decisions can be placed on a timeline."
+                    disabled={isJson}
+                    label="Include timestamps"
+                    onCheckedChange={(includeTimestamps) => onChange({ includeTimestamps })}
                 />
             ) : null}
             <ZipControls
@@ -302,6 +314,7 @@ type ExportContentProps = {
     options: ExportDraftOptions;
     preview: ConversationEvidenceExport | null;
     showCommentaryOption: boolean;
+    showTimestampsOption: boolean;
     showToolsOption: boolean;
     zipDescriptionId: string;
     zipRequired: boolean;
@@ -320,6 +333,7 @@ const ExportContent = ({
     options,
     preview,
     showCommentaryOption,
+    showTimestampsOption,
     showToolsOption,
     zipDescriptionId,
     zipRequired,
@@ -338,6 +352,7 @@ const ExportContent = ({
                 jsonKind={jsonKind}
                 options={options}
                 showCommentaryOption={showCommentaryOption}
+                showTimestampsOption={showTimestampsOption}
                 showToolsOption={showToolsOption}
                 zipDescriptionId={zipDescriptionId}
                 zipRequired={zipRequired}
@@ -441,6 +456,7 @@ export function ExportDialog({
     skippedThreadCount = 0,
     showCommentaryOption = true,
     showRawJsonOption = false,
+    showTimestampsOption = false,
     showToolsOption = true,
     title = 'Export thread',
     onExport,
@@ -631,6 +647,7 @@ export function ExportDialog({
         updateSetting('exportDefaults', {
             includeCommentary: options.includeCommentary,
             includeMetadata: options.includeMetadata,
+            includeTimestamps: options.includeTimestamps,
             includeTools: options.includeTools,
             zipArchive: options.zipArchive,
         });
@@ -665,6 +682,7 @@ export function ExportDialog({
                         options={options}
                         preview={preview}
                         showCommentaryOption={showCommentaryOption}
+                        showTimestampsOption={showTimestampsOption}
                         showToolsOption={showToolsOption}
                         zipDescriptionId={zipDescriptionId}
                         zipRequired={zipRequired}

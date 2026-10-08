@@ -173,4 +173,42 @@ describe('normalized conversation export', () => {
             ),
         ).toBeNull();
     });
+
+    it('should add each message time to its heading only when timestamps are included', () => {
+        const conversation = {
+            messages: [
+                message({
+                    createdAtMs: Date.UTC(2026, 9, 4, 3, 30, 43, 123),
+                    id: 'user',
+                    order: 0,
+                    phase: 'unknown',
+                    role: 'user',
+                    text: 'Ask',
+                }),
+                message({ createdAtMs: Date.UTC(2026, 9, 4, 3, 31, 0, 5), id: 'final', order: 1, text: 'Done' }),
+                message({ createdAtMs: null, id: 'untimed', order: 2, text: 'No time recorded' }),
+            ],
+            title: 'Review',
+        };
+
+        expect(renderNormalizedExport(conversation)).not.toContain('2026-10-04');
+        expect(renderNormalizedExport(conversation, { includeTimestamps: true })).toBe(
+            [
+                '# Review',
+                '## User · 2026-10-04T03:30:43.123Z\n\nAsk',
+                '## Assistant · Final answer · 2026-10-04T03:31:00.005Z\n\nDone',
+                '## Assistant · Final answer\n\nNo time recorded',
+            ].join('\n\n') + '\n',
+        );
+    });
+
+    it('should underline the full timestamped heading in plain text exports', () => {
+        const text = renderNormalizedExport(
+            { messages: [message({ createdAtMs: Date.UTC(2026, 0, 2, 3, 4, 5, 6), id: 'a', text: 'Hi' })], title: 'T' },
+            { includeTimestamps: true, outputFormat: 'txt' },
+        );
+
+        expect(text).toContain('Assistant · Final answer · 2026-01-02T03:04:05.006Z\n');
+        expect(text).toContain(`${'-'.repeat('Assistant · Final answer · 2026-01-02T03:04:05.006Z'.length)}\n`);
+    });
 });

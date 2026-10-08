@@ -47,6 +47,7 @@ const exportSchema = object({
     convertToProjectRoot: boolean(),
     includeCommentary: boolean(),
     includeMetadata: boolean(),
+    includeTimestamps: optional(boolean(), false),
     includeTools: boolean(),
     outputFormat: picklist(['md', 'txt']),
     redactUsername: boolean(),
@@ -59,6 +60,7 @@ const exportThreadsSchema = object({
     convertToProjectRoot: boolean(),
     includeCommentary: boolean(),
     includeMetadata: boolean(),
+    includeTimestamps: optional(boolean(), false),
     includeTools: boolean(),
     outputFormat: picklist(['md', 'txt']),
     redactUsername: boolean(),
@@ -281,6 +283,7 @@ export const exportThreadFn = createServerFn({ method: 'POST' })
             dbPath: await getDbPath(),
             includeCommentary: data.includeCommentary,
             includeMetadata: data.includeMetadata,
+            includeTimestamps: data.includeTimestamps,
             includeTools: data.includeTools,
             outputFormat: data.outputFormat,
             pathDisplaySettings: {
@@ -301,6 +304,7 @@ export const exportThreadsFn = createServerFn({ method: 'POST' })
             dbPath: await getDbPath(),
             includeCommentary: data.includeCommentary,
             includeMetadata: data.includeMetadata,
+            includeTimestamps: data.includeTimestamps,
             includeTools: data.includeTools,
             outputFormat: data.outputFormat,
             pathDisplaySettings: {

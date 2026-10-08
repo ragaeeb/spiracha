@@ -3,6 +3,7 @@ import type { DownloadLifecycleState } from '#/lib/download';
 export type ExportDialogOptions = {
     includeCommentary: boolean;
     includeMetadata: boolean;
+    includeTimestamps: boolean;
     includeTools: boolean;
     outputFormat: 'md' | 'txt';
     zipArchive: boolean;
@@ -24,6 +25,7 @@ export type ExportLifecycleCallbacks = {
 export const DEFAULT_EXPORT_DIALOG_OPTIONS: PersistedExportDialogOptions = {
     includeCommentary: false,
     includeMetadata: true,
+    includeTimestamps: true,
     includeTools: true,
     zipArchive: false,
 };

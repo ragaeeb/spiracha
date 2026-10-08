@@ -7,6 +7,7 @@ describe('createExportSelectionMutationInput', () => {
         const options = {
             includeCommentary: true,
             includeMetadata: true,
+            includeTimestamps: true,
             includeTools: true,
             outputFormat: 'md' as const,
             zipArchive: true,
@@ -22,6 +23,7 @@ describe('createExportSelectionMutationInput', () => {
             options: {
                 includeCommentary: true,
                 includeMetadata: true,
+                includeTimestamps: true,
                 includeTools: true,
                 outputFormat: 'md',
                 zipArchive: true,
@@ -35,6 +37,7 @@ describe('createExportSelectionMutationInput', () => {
             createExportSelectionMutationInput([], {
                 includeCommentary: false,
                 includeMetadata: true,
+                includeTimestamps: true,
                 includeTools: true,
                 outputFormat: 'txt',
                 zipArchive: false,

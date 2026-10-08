@@ -424,6 +424,72 @@ describe('ExportDialog', () => {
         });
     });
 
+    it('should offer an Include timestamps option, on by default, only where the page supports it', () => {
+        const { rerender } = render(
+            <ExportDialog open showTimestampsOption onExport={vi.fn()} onOpenChange={vi.fn()} />,
+        );
+
+        const checkbox = screen.getByRole('checkbox', { name: /include timestamps/i }) as HTMLButtonElement;
+        expect(checkbox.getAttribute('aria-checked')).toBe('true');
+        expect(checkbox.disabled).toBe(false);
+
+        rerender(<ExportDialog open onExport={vi.fn()} onOpenChange={vi.fn()} />);
+        expect(screen.queryByRole('checkbox', { name: /include timestamps/i })).toBeNull();
+    });
+
+    it('should send the timestamps choice with the export options and remember it', () => {
+        const onExport = vi.fn();
+        const renderDialog = (open: boolean) => (
+            <SettingsProvider>
+                <ExportDialog open={open} showTimestampsOption onExport={onExport} onOpenChange={vi.fn()} />
+            </SettingsProvider>
+        );
+        const { rerender } = render(renderDialog(true));
+
+        fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
+        expect(onExport).toHaveBeenLastCalledWith(
+            expect.objectContaining({ includeTimestamps: true }),
+            expect.any(Object),
+        );
+
+        rerender(renderDialog(false));
+        rerender(renderDialog(true));
+        fireEvent.click(screen.getByRole('checkbox', { name: /include timestamps/i }));
+        fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
+        expect(onExport).toHaveBeenLastCalledWith(
+            expect.objectContaining({ includeTimestamps: false }),
+            expect.any(Object),
+        );
+
+        rerender(renderDialog(false));
+        rerender(renderDialog(true));
+        expect(
+            (screen.getByRole('checkbox', { name: /include timestamps/i }) as HTMLButtonElement).getAttribute(
+                'aria-checked',
+            ),
+        ).toBe('false');
+    });
+
+    it('should show timestamps as always included and locked while JSON is selected', async () => {
+        await withScrollIntoView(() => {
+            render(
+                <ExportDialog open showRawJsonOption showTimestampsOption onExport={vi.fn()} onOpenChange={vi.fn()} />,
+            );
+            fireEvent.click(screen.getByRole('checkbox', { name: /include timestamps/i }));
+            expect(
+                (screen.getByRole('checkbox', { name: /include timestamps/i }) as HTMLButtonElement).getAttribute(
+                    'aria-checked',
+                ),
+            ).toBe('false');
+
+            chooseFormat('JSON (original transcript)');
+
+            const checkbox = screen.getByRole('checkbox', { name: /include timestamps/i }) as HTMLButtonElement;
+            expect(checkbox.getAttribute('aria-checked')).toBe('true');
+            expect(checkbox.disabled).toBe(true);
+        });
+    });
+
     it('should lock the include options on while JSON is selected and restore the choices for other formats', async () => {
         await withScrollIntoView(() => {
             render(<ExportDialog open showRawJsonOption onExport={vi.fn()} onOpenChange={vi.fn()} />);

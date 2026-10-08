@@ -337,6 +337,41 @@ describe('renderCodexThreadDownload', () => {
         expect(download.content).toContain('~/workspace/other-project/docs/notes.md');
     });
 
+    it('should stamp each exported heading with its message time only when timestamps are requested', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-export-timestamps-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexFixture(tempRoot);
+        // Real rollouts stamp every record; give the fixture's unstamped records distinct times.
+        const stamped = (await Bun.file(fixture.sessionFile).text())
+            .split('\n')
+            .filter(Boolean)
+            .map((line, index) => {
+                const record = JSON.parse(line) as Record<string, unknown>;
+                const second = String(index % 60).padStart(2, '0');
+                return JSON.stringify({ timestamp: `2026-05-17T12:00:${second}.000Z`, ...record });
+            });
+        await Bun.write(fixture.sessionFile, `${stamped.join('\n')}\n`);
+        const render = async (includeTimestamps?: boolean) => {
+            const download = await renderCodexThreadDownload({
+                dbPath: fixture.dbPath,
+                includeCommentary: true,
+                includeMetadata: false,
+                includeTimestamps,
+                includeTools: true,
+                outputFormat: 'md',
+                threadId: fixture.threadId,
+            });
+            if (download.mode !== 'download') {
+                throw new Error('expected inline download mode');
+            }
+            return download.content;
+        };
+
+        expect(await render(true)).toMatch(/## Assistant · Final answer · GPT 5\.4 · \d{4}-\d{2}-\d{2}T[\d:.]+Z/u);
+        expect(await render(false)).not.toMatch(/T\d{2}:\d{2}:\d{2}\.\d{3}Z/u);
+        expect(await render()).not.toMatch(/T\d{2}:\d{2}:\d{2}\.\d{3}Z/u);
+    });
+
     it('should omit commentary-phase assistant messages when export commentary is disabled', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-export-commentary-test-'));
         tempPaths.push(tempRoot);

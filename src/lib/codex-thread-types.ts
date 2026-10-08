@@ -6,6 +6,7 @@ import type { ExportFormat, JsonValue } from './shared-text';
 export type CodexTranscriptRenderOptions = {
     includeMetadata: boolean;
     includeCommentary: boolean;
+    includeTimestamps?: boolean;
     includeTools: boolean;
     outputFormat: ExportFormat;
 };

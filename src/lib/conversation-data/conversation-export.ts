@@ -136,6 +136,12 @@ const headingFor = (message: ConversationMessage, conversationModel?: string) =>
     return 'Unknown';
 };
 
+// A message time is appended to its heading so a reader can place each step on the timeline.
+const headingWithTime = (heading: string, message: ConversationMessage, include: NormalizedExportInclude) =>
+    include.timestamps && message.createdAtMs !== null && Number.isFinite(message.createdAtMs)
+        ? `${heading} · ${new Date(message.createdAtMs).toISOString()}`
+        : heading;
+
 const renderExportSection = (title: string, body: string, format: NormalizedExportFormat) => {
     if (format === 'md') {
         return body.length > 0 ? `## ${title}\n\n${body}` : `## ${title}`;
@@ -237,7 +243,11 @@ export const renderNormalizedExport = (
         renderDocumentTitle(title, resolved.format),
         resolved.include.metadata ? renderMetadata(conversation.metadata, resolved.format) : '',
         ...selected.map((message) =>
-            renderExportSection(headingFor(message, conversation.model), renderMessageBody(message), resolved.format),
+            renderExportSection(
+                headingWithTime(headingFor(message, conversation.model), message, resolved.include),
+                renderMessageBody(message),
+                resolved.format,
+            ),
         ),
         ...(resolved.include.artifacts ? renderArtifacts(conversation.artifacts, resolved.format) : []),
         ...(resolved.include.supplemental ? renderSupplemental(conversation.supplementalEvents, resolved.format) : []),
@@ -275,6 +285,7 @@ export const renderConversationMarkdownOptions = (messageSelector?: Conversation
             supplemental: true,
             synthetic: false,
             system: true,
+            timestamps: false,
             toolCalls: true,
             toolOutputs: true,
             unknown: true,
