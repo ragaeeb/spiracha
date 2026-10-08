@@ -1176,13 +1176,24 @@ const getForkCandidate = (child: ConversationRecord[], parentIds: Set<string>): 
     return { branchEntryId: divergent.parentId, divergedAtMs: divergent.timestampMs, sharedCount: divergentIndex };
 };
 
-type ForkIndex = { idSets: Set<string>[]; records: ConversationRecord[][] };
+type ForkIndex = { idSets: Set<string>[]; records: ConversationRecord[][]; sessionIds: string[] };
+
+// Of two branches that diverge from each other, the later one is the fork. Missing or equal timestamps fall
+// back to session ID order so exactly one side is chosen instead of neither.
+const isLaterBranch = (self: ForkCandidate, selfId: string, other: ForkCandidate, otherId: string): boolean => {
+    if (self.divergedAtMs !== null && other.divergedAtMs !== null && self.divergedAtMs !== other.divergedAtMs) {
+        return self.divergedAtMs > other.divergedAtMs;
+    }
+
+    return selfId > otherId;
+};
 
 const findForkParent = (
     childIndex: number,
     index: ForkIndex,
 ): { candidate: ForkCandidate; parentIndex: number } | null => {
     let best: { candidate: ForkCandidate; parentIndex: number } | null = null;
+    const childId = index.sessionIds[childIndex] ?? '';
     for (const [parentIndex, parentIds] of index.idSets.entries()) {
         if (parentIndex === childIndex) {
             continue;
@@ -1191,10 +1202,10 @@ const findForkParent = (
         if (!candidate) {
             continue;
         }
-        // Both branches of a rewind reply to the same ancestor; the later divergence is the fork.
         const reverse = getForkCandidate(index.records[parentIndex] ?? [], index.idSets[childIndex] ?? new Set());
-        const isOriginal = reverse !== null && (reverse.divergedAtMs ?? 0) >= (candidate.divergedAtMs ?? 0);
-        if (!isOriginal && (!best || candidate.sharedCount > best.candidate.sharedCount)) {
+        const parentIsLater =
+            reverse !== null && isLaterBranch(reverse, index.sessionIds[parentIndex] ?? '', candidate, childId);
+        if (!parentIsLater && (!best || candidate.sharedCount > best.candidate.sharedCount)) {
             best = { candidate, parentIndex };
         }
     }
@@ -1204,7 +1215,11 @@ const findForkParent = (
 const annotateTranscriptForks = (transcripts: ClaudeCodeSessionTranscript[]): void => {
     const topLevel = transcripts.filter((transcript) => transcript.session.hierarchy.parentSessionId === null);
     const records = topLevel.map(getConversationRecords);
-    const index: ForkIndex = { idSets: records.map((items) => new Set(items.map((record) => record.id))), records };
+    const index: ForkIndex = {
+        idSets: records.map((items) => new Set(items.map((record) => record.id))),
+        records,
+        sessionIds: topLevel.map((transcript) => transcript.session.sessionId),
+    };
     for (const transcript of topLevel) {
         transcript.session.forkedFrom = null;
         transcript.session.forkSessionIds = [];
@@ -1418,6 +1433,33 @@ const applyTranscriptPayloadPolicy = async (
     return totalFileSizeBytes > options.maxRawPayloadFileSizeBytes ? omitTranscriptRawPayloads(transcript) : transcript;
 };
 
+// Fork links belong to the logical conversation, so any segment of it (not just the root) carries them.
+// Returns a copy: physical transcripts are shared through the file cache and must not be mutated.
+const withForkMetadata = (
+    transcript: ClaudeCodeSessionTranscript,
+    physicalTranscripts: ClaudeCodeSessionTranscript[],
+): ClaudeCodeSessionTranscript => {
+    if (transcript.session.hierarchy.parentSessionId !== null) {
+        return transcript;
+    }
+
+    const annotated = coalesceTranscriptLineages(physicalTranscripts);
+    annotateTranscriptForks(annotated);
+    const sessionId = transcript.session.sessionId;
+    const match = annotated.find(
+        (candidate) =>
+            candidate.session.sessionId === sessionId || candidate.session.continuationSessionIds.includes(sessionId),
+    );
+    return {
+        ...transcript,
+        session: {
+            ...transcript.session,
+            forkedFrom: match?.session.forkedFrom ?? null,
+            forkSessionIds: match?.session.forkSessionIds ?? [],
+        },
+    };
+};
+
 /**
  * Reads a physical session or, for the recognized lineage parent, the coalesced
  * compaction lineage. A direct child ID deliberately returns only that segment;
@@ -1455,17 +1497,10 @@ export const readClaudeCodeSessionTranscript = async (
         return null;
     }
     const isParent = root.session.filePath === file.filePath;
-    const transcript = isParent ? coalesceTranscriptLineage(lineage) : physicalTranscript;
-    if (transcript && isParent) {
-        const annotated = coalesceTranscriptLineages(transcripts);
-        annotateTranscriptForks(annotated);
-        const match = annotated.find((candidate) => candidate.session.sessionId === transcript.session.sessionId);
-        transcript.session.forkedFrom = match?.session.forkedFrom ?? null;
-        transcript.session.forkSessionIds = match?.session.forkSessionIds ?? [];
-    }
-    return transcript
+    const selected = isParent ? coalesceTranscriptLineage(lineage) : physicalTranscript;
+    return selected
         ? applyTranscriptPayloadPolicy(
-              transcript,
+              withForkMetadata(selected, transcripts),
               isParent ? lineage.map((candidate) => candidate.session.filePath) : [file.filePath],
               options,
           )

@@ -80,22 +80,24 @@ export const workspacePathMatchesQuery = (worktree: string, query: string): bool
 /** Splits on `\n` (dropping a trailing `\r`) only; node:readline also splits on U+2028/U+2029, which JSON strings may contain unescaped. */
 export async function* splitJsonlLines(stream: AsyncIterable<string | Buffer>): AsyncGenerator<string> {
     const decoder = new TextDecoder();
-    let pending = '';
+    // Only a record's unfinished tail is retained; each chunk is searched for newlines exactly once.
+    let fragment = '';
     for await (const chunk of stream) {
-        pending += typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true });
+        const text = typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true });
         let start = 0;
-        let newlineIndex = pending.indexOf('\n', start);
+        let newlineIndex = text.indexOf('\n');
         while (newlineIndex >= 0) {
-            const lineEnd = pending.charCodeAt(newlineIndex - 1) === 13 ? newlineIndex - 1 : newlineIndex;
-            yield pending.slice(start, Math.max(start, lineEnd));
+            const line = fragment + text.slice(start, newlineIndex);
+            fragment = '';
+            yield line.endsWith('\r') ? line.slice(0, -1) : line;
             start = newlineIndex + 1;
-            newlineIndex = pending.indexOf('\n', start);
+            newlineIndex = text.indexOf('\n', start);
         }
-        pending = pending.slice(start);
+        fragment += text.slice(start);
     }
-    pending += decoder.decode();
-    if (pending) {
-        yield pending;
+    fragment += decoder.decode();
+    if (fragment) {
+        yield fragment;
     }
 }
 
