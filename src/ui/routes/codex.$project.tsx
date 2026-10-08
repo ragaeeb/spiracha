@@ -11,6 +11,7 @@ import { PageHeader } from '#/components/page-header';
 import { RouteErrorPanel } from '#/components/route-error-panel';
 import { ThreadsTable } from '#/components/threads-table';
 import { Button } from '#/components/ui/button';
+import { describeCodexExportIssues } from '#/lib/codex-export-issues';
 import { projectThreadsQueryOptions } from '#/lib/codex-queries';
 import {
     deleteThreadFn,
@@ -242,7 +243,11 @@ function ProjectDetailPage() {
             });
         },
         onSuccess: (download) => {
-            if (download.mode === 'download_url' && (download.skippedThreadCount ?? 0) > 0) {
+            // Stay open when some threads were skipped or exported without their earlier history, so the reasons are visible.
+            if (
+                download.mode === 'download_url' &&
+                ((download.skippedThreadCount ?? 0) > 0 || (download.partialThreads?.length ?? 0) > 0)
+            ) {
                 return;
             }
 
@@ -250,6 +255,16 @@ function ProjectDetailPage() {
         },
     });
 
+    const exportIssues = useMemo(
+        () =>
+            exportThreadMutation.data?.mode === 'download_url'
+                ? describeCodexExportIssues(
+                      exportThreadMutation.data,
+                      (threadId) => threads.find((entry) => entry.thread.id === threadId)?.thread.title,
+                  )
+                : undefined,
+        [exportThreadMutation.data, threads],
+    );
     const visibleThreads = useMemo(
         () =>
             threads.filter((thread) => {
@@ -392,6 +407,7 @@ function ProjectDetailPage() {
 
             <ExportDialog
                 errorMessage={getThreadExportErrorMessage(exportThreadMutation.error)}
+                exportIssues={exportIssues}
                 forceZipArchive={shouldForceZipArchive(pendingExport)}
                 open={pendingExport !== null}
                 pending={exportThreadMutation.isPending}

@@ -490,6 +490,43 @@ describe('ExportDialog', () => {
         });
     });
 
+    it('should list which threads were skipped or exported partially, and why', () => {
+        render(
+            <ExportDialog
+                exportIssues={{
+                    partial: [{ label: 'Xenos', reason: 'History before the fork is unavailable.' }],
+                    skipped: [{ label: 'Connel', reason: 'The thread no longer exists.' }],
+                }}
+                open
+                skippedThreadCount={1}
+                onExport={vi.fn()}
+                onOpenChange={vi.fn()}
+            />,
+        );
+
+        expect(screen.getByText('Export completed with 1 skipped thread.')).toBeTruthy();
+        const skipped = screen.getByRole('list', { name: 'Skipped threads' });
+        expect(within(skipped).getByText('Connel')).toBeTruthy();
+        expect(within(skipped).getByText('The thread no longer exists.')).toBeTruthy();
+        const partial = screen.getByRole('list', { name: 'Exported without their earlier history' });
+        expect(within(partial).getByText('Xenos')).toBeTruthy();
+        expect(within(partial).getByText('History before the fork is unavailable.')).toBeTruthy();
+    });
+
+    it('should show partial threads even when nothing was skipped', () => {
+        render(
+            <ExportDialog
+                exportIssues={{ partial: [{ label: 'Xenos', reason: 'Parent deleted.' }], skipped: [] }}
+                open
+                onExport={vi.fn()}
+                onOpenChange={vi.fn()}
+            />,
+        );
+
+        expect(screen.queryByText(/skipped thread/)).toBeNull();
+        expect(screen.getByRole('list', { name: 'Exported without their earlier history' })).toBeTruthy();
+    });
+
     it('should lock the include options on while JSON is selected and restore the choices for other formats', async () => {
         await withScrollIntoView(() => {
             render(<ExportDialog open showRawJsonOption onExport={vi.fn()} onOpenChange={vi.fn()} />);

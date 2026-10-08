@@ -30,6 +30,7 @@ import { requestEvidenceExport } from '#/lib/evidence-export';
 import {
     type ExportDialogOptions,
     type ExportDraftOptions,
+    type ExportIssues,
     type ExportLifecycleCallbacks,
     type RawJsonExportOptions,
     readStoredZipPassword,
@@ -40,9 +41,12 @@ import { exportNormalizedConversationsFn } from '#/lib/source-normalized-export-
 import { exportRawConversationsFn } from '#/lib/source-raw-export-server';
 import { EvidenceLensEditor } from './evidence-lens-editor';
 
+const NO_EXPORT_ISSUES: ExportIssues = { partial: [], skipped: [] };
+
 type ExportDialogProps = {
     disabled?: boolean;
     errorMessage?: string | null;
+    exportIssues?: ExportIssues;
     forceZipArchive?: boolean;
     focusedEvidenceTarget?: { id: string; source: ConversationSource };
     open: boolean;
@@ -381,13 +385,28 @@ const requestJsonExport = (
     return kind === 'normalized' ? exportNormalizedConversationsFn({ data }) : exportRawConversationsFn({ data });
 };
 
+type ExportIssueListProps = { issues: ExportIssues['skipped']; label: string };
+
+const ExportIssueList = ({ issues, label }: ExportIssueListProps) =>
+    issues.length > 0 ? (
+        <ul aria-label={label} className="space-y-1 text-sm">
+            {issues.map((issue) => (
+                <li className="flex flex-col" key={`${issue.label}:${issue.reason}`}>
+                    <span className="font-medium">{issue.label}</span>
+                    <span className="text-[var(--muted-foreground)]">{issue.reason}</span>
+                </li>
+            ))}
+        </ul>
+    ) : null;
+
 type ExportDialogStatusProps = {
     displayedError: string | null;
     downloadState: DownloadLifecycleState | null;
+    issues: ExportIssues;
     skippedThreadCount: number;
 };
 
-const ExportDialogStatus = ({ displayedError, downloadState, skippedThreadCount }: ExportDialogStatusProps) => (
+const ExportDialogStatus = ({ displayedError, downloadState, issues, skippedThreadCount }: ExportDialogStatusProps) => (
     <>
         <DownloadStateMessage state={downloadState} />
         {skippedThreadCount > 0 ? (
@@ -395,6 +414,8 @@ const ExportDialogStatus = ({ displayedError, downloadState, skippedThreadCount 
                 Export completed with {skippedThreadCount} skipped {skippedThreadCount === 1 ? 'thread' : 'threads'}.
             </p>
         ) : null}
+        <ExportIssueList issues={issues.skipped} label="Skipped threads" />
+        <ExportIssueList issues={issues.partial} label="Exported without their earlier history" />
         {displayedError ? <p className="text-[var(--destructive)] text-sm">{displayedError}</p> : null}
     </>
 );
@@ -447,6 +468,7 @@ const ExportDialogFooter = ({
 export function ExportDialog({
     disabled = false,
     errorMessage = null,
+    exportIssues = NO_EXPORT_ISSUES,
     forceZipArchive = false,
     focusedEvidenceTarget,
     open,
@@ -708,6 +730,7 @@ export function ExportDialog({
                 <ExportDialogStatus
                     displayedError={displayedError}
                     downloadState={downloadState}
+                    issues={exportIssues}
                     skippedThreadCount={skippedThreadCount}
                 />
                 <ExportDialogFooter

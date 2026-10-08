@@ -18,6 +18,15 @@ export type RawJsonExportOptions = Pick<ExportDialogOptions, 'zipArchive' | 'zip
 
 export type PersistedExportDialogOptions = Omit<ExportDialogOptions, 'outputFormat' | 'zipPassword'>;
 
+/** One thread a batch export did not include in full, with a reader-friendly reason. */
+export type ExportIssue = { label: string; reason: string };
+
+export type ExportIssues = {
+    // Exported, but missing something (for example the history before a fork whose parent was deleted).
+    partial: ExportIssue[];
+    skipped: ExportIssue[];
+};
+
 export type ExportLifecycleCallbacks = {
     onDownloadStateChange?: (state: DownloadLifecycleState) => void;
 };
