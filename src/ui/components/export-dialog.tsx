@@ -36,6 +36,7 @@ import {
     storeZipPassword,
 } from '#/lib/export-options';
 import { useSettings } from '#/lib/settings-store';
+import { exportNormalizedConversationsFn } from '#/lib/source-normalized-export-server';
 import { exportRawConversationsFn } from '#/lib/source-raw-export-server';
 import { EvidenceLensEditor } from './evidence-lens-editor';
 
@@ -59,12 +60,15 @@ type ExportDialogProps = {
 
 type ExportFormat = 'focused' | 'json' | 'md' | 'txt';
 
-type FormatAvailability = { focused: boolean; json: boolean };
+// `original` downloads the source's own bytes; `normalized` is Spiracha's JSON for sources with no native file.
+type JsonKind = 'normalized' | 'original';
+
+type FormatAvailability = { focused: boolean; json: JsonKind | null };
 
 // The default depends on what the current props support, so it is resolved on every render rather than stored.
 const resolveExportFormat = (chosen: ExportFormat | null, available: FormatAvailability): ExportFormat => {
     const candidate = chosen ?? (available.json ? 'json' : 'md');
-    if ((candidate === 'json' && !available.json) || (candidate === 'focused' && !available.focused)) {
+    if ((candidate === 'json' && available.json === null) || (candidate === 'focused' && !available.focused)) {
         return 'md';
     }
 
@@ -90,7 +94,11 @@ const OutputFormatSelect = ({ available, format, onChange }: OutputFormatSelectP
                 <SelectValue placeholder="Choose a format" />
             </SelectTrigger>
             <SelectContent className="border-[var(--border)] bg-[var(--panel)] text-[var(--foreground)] shadow-[var(--panel-shadow)]">
-                {available.json ? <SelectItem value="json">JSON (original transcript)</SelectItem> : null}
+                {available.json ? (
+                    <SelectItem value="json">
+                        {available.json === 'normalized' ? 'JSON (normalized)' : 'JSON (original transcript)'}
+                    </SelectItem>
+                ) : null}
                 <SelectItem value="md">Markdown (.md)</SelectItem>
                 <SelectItem value="txt">Plain text (.txt)</SelectItem>
                 {available.focused ? <SelectItem value="focused">Focused evidence (.md)</SelectItem> : null}
@@ -173,6 +181,7 @@ const ZipControls = ({ effectiveZipArchive, options, zipDescriptionId, zipRequir
 type TranscriptOptionsProps = {
     effectiveZipArchive: boolean;
     format: ExportFormat;
+    jsonKind: JsonKind | null;
     options: ExportDraftOptions;
     showCommentaryOption: boolean;
     showToolsOption: boolean;
@@ -185,6 +194,7 @@ type TranscriptOptionsProps = {
 const TranscriptOptions = ({
     effectiveZipArchive,
     format,
+    jsonKind,
     options,
     showCommentaryOption,
     showToolsOption,
@@ -198,8 +208,10 @@ const TranscriptOptions = ({
         <>
             {isJson ? (
                 <p className="rounded-xl border border-[var(--border)] bg-[var(--panel-secondary)] p-3 text-sm">
-                    Downloads the source transcript unchanged, without filtering or Markdown rendering. Metadata,
-                    commentary and tool calls are always included.
+                    {jsonKind === 'normalized'
+                        ? 'This source has no original transcript file, so the JSON contains the normalized conversation plus the complete stored rows with their timestamps.'
+                        : 'Downloads the source transcript unchanged, without filtering or Markdown rendering.'}{' '}
+                    Metadata, commentary and tool calls are always included.
                 </p>
             ) : null}
             <IncludeOption
@@ -285,6 +297,7 @@ type ExportContentProps = {
     effectiveZipArchive: boolean;
     focusedEvidenceTarget?: { id: string; source: ConversationSource };
     format: ExportFormat;
+    jsonKind: JsonKind | null;
     lens: EvidenceLens;
     options: ExportDraftOptions;
     preview: ConversationEvidenceExport | null;
@@ -302,6 +315,7 @@ const ExportContent = ({
     effectiveZipArchive,
     focusedEvidenceTarget,
     format,
+    jsonKind,
     lens,
     options,
     preview,
@@ -321,6 +335,7 @@ const ExportContent = ({
             <TranscriptOptions
                 effectiveZipArchive={effectiveZipArchive}
                 format={format}
+                jsonKind={jsonKind}
                 options={options}
                 showCommentaryOption={showCommentaryOption}
                 showToolsOption={showToolsOption}
@@ -332,6 +347,24 @@ const ExportContent = ({
         {preview && format === 'focused' ? <EvidencePreview preview={preview} /> : null}
     </>
 );
+
+type JsonExportTarget = { ids: readonly string[]; source: ConversationSource };
+
+const requestJsonExport = (
+    kind: JsonKind | null,
+    target: JsonExportTarget | undefined,
+    zip: { zipArchive: boolean; zipPassword: string },
+) => {
+    if (!target || target.ids.length === 0) {
+        throw new Error('JSON export is unavailable for this selection.');
+    }
+    if (kind === 'original' && !isSupportedOriginalRawSource(target.source)) {
+        throw new Error('Original raw export is unavailable for this selection.');
+    }
+
+    const data = { ids: [...target.ids], source: target.source, ...zip };
+    return kind === 'normalized' ? exportNormalizedConversationsFn({ data }) : exportRawConversationsFn({ data });
+};
 
 type ExportDialogStatusProps = {
     displayedError: string | null;
@@ -431,17 +464,22 @@ export function ExportDialog({
     const displayedError = exportError ?? errorMessage;
     const downloadCancellation = useDownloadCancellation();
     const zipDescriptionId = useId();
-    const hasRawJsonExport =
-        rawExport !== undefined && rawExport.ids.length > 0 && isSupportedOriginalRawSource(rawExport.source);
-    const available: FormatAvailability = {
-        focused: focusedEvidenceTarget !== undefined,
-        json:
-            showRawJsonOption ||
-            hasRawJsonExport ||
-            (focusedEvidenceTarget !== undefined && isSupportedOriginalRawSource(focusedEvidenceTarget.source)),
-    };
+    const jsonTarget = focusedEvidenceTarget
+        ? { ids: [focusedEvidenceTarget.id], source: focusedEvidenceTarget.source }
+        : rawExport !== undefined && rawExport.ids.length > 0
+          ? rawExport
+          : undefined;
+    // Sources without a native transcript file (for example OpenCode) export Spiracha's normalized JSON instead.
+    const jsonKind: JsonKind | null = showRawJsonOption
+        ? 'original'
+        : jsonTarget
+          ? isSupportedOriginalRawSource(jsonTarget.source)
+              ? 'original'
+              : 'normalized'
+          : null;
+    const available: FormatAvailability = { focused: focusedEvidenceTarget !== undefined, json: jsonKind };
     const format = resolveExportFormat(chosenFormat, available);
-    const jsonTargetCount = focusedEvidenceTarget ? 1 : (rawExport?.ids.length ?? 1);
+    const jsonTargetCount = jsonTarget?.ids.length ?? 1;
     const zipRequired = forceZipArchive || (format === 'json' && jsonTargetCount > 1);
     const effectiveZipArchive = zipRequired || options.zipArchive;
     const handleOpenChange = (nextOpen: boolean) => {
@@ -528,20 +566,10 @@ export function ExportDialog({
     };
 
     const submitBulkRawExport = async (token: number) => {
-        const target = focusedEvidenceTarget
-            ? { ids: [focusedEvidenceTarget.id], source: focusedEvidenceTarget.source }
-            : rawExport;
         try {
-            if (!target || target.ids.length === 0 || !isSupportedOriginalRawSource(target.source)) {
-                throw new Error('Original raw export is unavailable for this selection.');
-            }
-            const download = await exportRawConversationsFn({
-                data: {
-                    ids: [...target.ids],
-                    source: target.source,
-                    zipArchive: effectiveZipArchive,
-                    zipPassword: effectiveZipArchive ? options.zipPassword : '',
-                },
+            const download = await requestJsonExport(jsonKind, jsonTarget, {
+                zipArchive: effectiveZipArchive,
+                zipPassword: effectiveZipArchive ? options.zipPassword : '',
             });
             if (download.mode === 'download_base64') {
                 downloadRawBase64File(download.fileName, download.contentBase64, download.mimeType, {
@@ -565,7 +593,7 @@ export function ExportDialog({
     };
 
     const submitRawExport = async (token: number) => {
-        if (focusedEvidenceTarget || hasRawJsonExport) {
+        if (jsonTarget) {
             await submitBulkRawExport(token);
             return;
         }
@@ -632,6 +660,7 @@ export function ExportDialog({
                         effectiveZipArchive={effectiveZipArchive}
                         focusedEvidenceTarget={focusedEvidenceTarget}
                         format={format}
+                        jsonKind={jsonKind}
                         lens={lens}
                         options={options}
                         preview={preview}

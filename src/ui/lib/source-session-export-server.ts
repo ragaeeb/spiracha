@@ -59,6 +59,8 @@ type RawConversationExportOptions = {
     downloads: RawConversationExportEntry[];
     largeExportThresholdBytes?: number;
     source: ConversationSource;
+    // `normalized` labels the archive as Spiracha's normalized JSON rather than the source's original bytes.
+    variant?: 'normalized' | 'original';
     zipArchive?: boolean;
     zipPassword?: string;
 };
@@ -81,6 +83,7 @@ export const renderRawConversationDownloads = async ({
     downloads,
     largeExportThresholdBytes = resolveUiRuntimeConfig().largeExportThresholdBytes,
     source,
+    variant = 'original',
     zipArchive = false,
     zipPassword,
 }: RawConversationExportOptions) => {
@@ -120,7 +123,7 @@ export const renderRawConversationDownloads = async ({
     const isBatch = downloads.length > 1;
     return toDownloadUrl(
         await writeExportArchive({
-            baseName: `raw-threads-${downloads.length}`,
+            baseName: `${variant === 'normalized' ? 'normalized' : 'raw'}-threads-${downloads.length}`,
             destination: { mode: 'download_url' },
             ...(isBatch
                 ? {
@@ -134,7 +137,7 @@ export const renderRawConversationDownloads = async ({
                           })),
                           failedCount: 0,
                           failurePolicy: 'partial' as const,
-                          kind: 'batch_original_raw',
+                          kind: variant === 'normalized' ? 'batch_normalized_export' : 'batch_original_raw',
                           missingCount: 0,
                           options: {},
                           requestedCount: members.length,

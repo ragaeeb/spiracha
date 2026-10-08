@@ -23,6 +23,8 @@ Reference map for contributors and agents. `AGENTS.md` carries only the compact 
   - `all`, `last_assistant`, and `last_final_answer` message selection
 - `src/lib/conversation-data/*-adapter.ts`
   - source-specific mapping into normalized conversation shapes
+- `src/lib/conversation-data/normalized-json-export.ts`
+  - UI-only normalized JSON for sources with no original raw file; embeds the complete stored session rows (`readOpenCodeSessionTables`) with timestamps
 - `src/lib/conversation-data/evidence-*.ts`
   - source-independent lens validation, event pairing, bounded episode selection, projection, and Markdown evidence rendering
 

@@ -14,6 +14,7 @@ import {
     listOpenCodeSessionsForGroup,
     listOpenCodeWorkspaceGroups,
     openOpenCodeReadDb,
+    readOpenCodeSessionTables,
     readOpenCodeSessionTranscript,
     resolveOpenCodeDbConcurrency,
 } from './opencode-db';
@@ -182,6 +183,89 @@ const createFixtureDb = async () => {
     });
     return dbPath;
 };
+
+describe('readOpenCodeSessionTables', () => {
+    const addOptionalTables = (dbPath: string) => {
+        const db = new Database(dbPath);
+        try {
+            db.exec(`
+                CREATE TABLE todo (
+                    session_id TEXT NOT NULL, content TEXT NOT NULL, status TEXT NOT NULL,
+                    priority TEXT NOT NULL, position INTEGER NOT NULL, time_created INTEGER NOT NULL,
+                    time_updated INTEGER NOT NULL
+                );
+                CREATE TABLE session_share (
+                    session_id TEXT PRIMARY KEY, id TEXT NOT NULL, secret TEXT NOT NULL, url TEXT NOT NULL,
+                    time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL
+                );
+                INSERT INTO todo VALUES ('ses_main', 'Write tests', 'pending', 'high', 0, 1700000000500, 1700000000600);
+                INSERT INTO todo VALUES ('ses_child', 'Other session', 'pending', 'low', 0, 1, 2);
+                INSERT INTO session_share VALUES ('ses_main', 'shr_1', 'TOP-SECRET-TOKEN', 'https://share/x', 1, 2);
+            `);
+        } finally {
+            db.close();
+        }
+    };
+
+    it('should return every stored column of the session, project, messages and parts with timestamps', async () => {
+        const dbPath = await createFixtureDb();
+
+        const tables = await readOpenCodeSessionTables(dbPath, 'ses_main');
+
+        expect(tables?.session).toMatchObject({
+            id: 'ses_main',
+            time_created: 1_700_000_000_000,
+            time_updated: 1_700_000_100_000,
+            title: 'Comprehensive code review',
+        });
+        expect(Object.keys(tables?.session ?? {})).toEqual(
+            expect.arrayContaining(['workspace_id', 'parent_id', 'version', 'share_url', 'time_compacting']),
+        );
+        expect(tables?.session.model).toEqual({ id: 'gpt-5-codex', providerID: 'opencode', variant: 'high' });
+        expect(tables?.project).toMatchObject({ id: 'pro_demo', worktree: '/Users/test/workspace/demo' });
+        expect(tables?.message.map((row) => row.id)).toEqual(['msg_user', 'msg_assistant']);
+        expect(tables?.message[0]).toMatchObject({ session_id: 'ses_main', time_created: 1_700_000_000_100 });
+        expect(tables?.message[0]?.time_updated).toBeTypeOf('number');
+        expect(tables?.part.map((row) => row.id)).toEqual([
+            'prt_user_text',
+            'prt_reasoning',
+            'prt_step_start',
+            'prt_tool',
+            'prt_step_finish',
+            'prt_assistant_text',
+        ]);
+        expect(tables?.part[3]).toMatchObject({
+            data: { callID: 'call_read', tool: 'read', type: 'tool' },
+            message_id: 'msg_assistant',
+            time_created: 1_700_000_000_300,
+        });
+    });
+
+    it('should include session-scoped optional tables but never share secrets or other sessions', async () => {
+        const dbPath = await createFixtureDb();
+        addOptionalTables(dbPath);
+
+        const tables = await readOpenCodeSessionTables(dbPath, 'ses_main');
+
+        expect(tables?.todo).toEqual([
+            expect.objectContaining({
+                content: 'Write tests',
+                time_created: 1_700_000_000_500,
+                time_updated: 1_700_000_000_600,
+            }),
+        ]);
+        expect(tables).not.toHaveProperty('session_share');
+        expect(JSON.stringify(tables)).not.toContain('TOP-SECRET-TOKEN');
+        expect(JSON.stringify(tables)).not.toContain('Other session');
+    });
+
+    it('should return null for an unknown session or a missing database', async () => {
+        const dbPath = await createFixtureDb();
+
+        await expect(readOpenCodeSessionTables(dbPath, 'ses_missing')).resolves.toBeNull();
+        await expect(readOpenCodeSessionTables(`${dbPath}.absent`, 'ses_main')).resolves.toBeNull();
+    });
+});
 
 describe('opencode db helpers', () => {
     it('should keep database diagnostics quiet unless explicitly enabled', async () => {

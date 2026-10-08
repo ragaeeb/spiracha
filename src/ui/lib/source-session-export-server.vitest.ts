@@ -249,6 +249,30 @@ describe('source session export server helpers', () => {
         expect(new TextDecoder().decode(bunWriteMock.mock.calls[1]?.[1] as ArrayBuffer)).toBe(secondContent);
     });
 
+    it('should label normalized JSON archives as normalized exports rather than original raw', async () => {
+        const normalizedDownload = (id: string) => ({
+            download: {
+                blob: new Blob([`{"id":"${id}"}`]),
+                fileName: `opencode-${id}.json`,
+                mimeType: 'application/json' as const,
+            },
+            id,
+        });
+
+        const archive = await renderRawConversationDownloads({
+            downloads: [normalizedDownload('ses_1'), normalizedDownload('ses_2')],
+            source: 'opencode',
+            variant: 'normalized',
+        });
+
+        expect(archive.mode).toBe('download_url');
+        const manifestCall = bunWriteMock.mock.calls.find(
+            ([target]) => path.basename(String(target)) === 'spiracha-manifest.json',
+        );
+        const manifest = JSON.parse(String(manifestCall?.[1]));
+        expect(manifest.kind).toBe('batch_normalized_export');
+    });
+
     it('should archive a single small raw conversation when zip is requested without a password', async () => {
         const result = await renderRawConversationDownloads({
             downloads: [

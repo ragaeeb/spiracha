@@ -5,8 +5,13 @@ import { ZIP_PASSWORD_STORAGE_KEY } from '#/lib/export-options';
 import { SettingsProvider } from '#/lib/settings-store';
 import { ExportDialog } from './export-dialog';
 
-const { exportRawConversationsFnMock } = vi.hoisted(() => ({
+const { exportNormalizedConversationsFnMock, exportRawConversationsFnMock } = vi.hoisted(() => ({
+    exportNormalizedConversationsFnMock: vi.fn(),
     exportRawConversationsFnMock: vi.fn(),
+}));
+
+vi.mock('#/lib/source-normalized-export-server', () => ({
+    exportNormalizedConversationsFn: exportNormalizedConversationsFnMock,
 }));
 
 vi.mock('#/lib/source-raw-export-server', () => ({
@@ -70,22 +75,75 @@ describe('ExportDialog', () => {
         }
     });
 
-    it('should not offer JSON when a source has no standalone JSON transcript', async () => {
+    it('should offer normalized JSON when a source has no original transcript file', async () => {
+        const downloadRaw = vi.spyOn(download, 'downloadRawBase64File').mockImplementation(() => undefined);
+        const onOpenChange = vi.fn();
+        exportNormalizedConversationsFnMock.mockResolvedValue({
+            contentBase64: 'e30=',
+            fileName: 'opencode-session-1.json',
+            mimeType: 'application/json',
+            mode: 'download_base64',
+        });
+
+        try {
+            await withScrollIntoView(async () => {
+                render(
+                    <ExportDialog
+                        focusedEvidenceTarget={{ id: 'session-1', source: 'opencode' }}
+                        open
+                        onExport={vi.fn()}
+                        onOpenChange={onOpenChange}
+                    />,
+                );
+                const format = screen.getByRole('combobox', { name: 'Output format' });
+                expect(format.textContent).toContain('JSON (normalized)');
+                expect(screen.getByText(/complete stored rows with their timestamps/i)).toBeTruthy();
+                fireEvent.click(format);
+                expect(screen.queryByRole('option', { name: 'JSON (original transcript)' })).toBeNull();
+                expect(screen.getByRole('option', { name: 'Focused evidence (.md)' })).toBeTruthy();
+                fireEvent.click(screen.getByRole('option', { name: 'JSON (normalized)' }));
+                fireEvent.click(screen.getByRole('button', { name: 'Download export' }));
+
+                await waitFor(() =>
+                    expect(downloadRaw).toHaveBeenCalledWith('opencode-session-1.json', 'e30=', 'application/json', {
+                        onStateChange: expect.any(Function),
+                    }),
+                );
+                expect(exportNormalizedConversationsFnMock).toHaveBeenCalledWith({
+                    data: { ids: ['session-1'], source: 'opencode', zipArchive: false, zipPassword: '' },
+                });
+                expect(exportRawConversationsFnMock).not.toHaveBeenCalled();
+                await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+            });
+        } finally {
+            downloadRaw.mockRestore();
+        }
+    });
+
+    it('should zip several normalized JSON exports and allow zipping a single one', async () => {
         await withScrollIntoView(() => {
-            render(
+            const { rerender } = render(
                 <ExportDialog
-                    focusedEvidenceTarget={{ id: 'session-1', source: 'opencode' }}
                     open
                     onExport={vi.fn()}
                     onOpenChange={vi.fn()}
+                    rawExport={{ ids: ['a', 'b'], source: 'opencode' }}
                 />,
             );
-            const format = screen.getByRole('combobox', { name: 'Output format' });
-            expect(format.textContent).toContain('Markdown');
-            fireEvent.click(format);
+            const multiZip = screen.getByRole('checkbox', { name: /zip archive/i }) as HTMLButtonElement;
+            expect(multiZip.getAttribute('aria-checked')).toBe('true');
+            expect(multiZip.disabled).toBe(true);
 
-            expect(screen.queryByRole('option', { name: 'JSON (original transcript)' })).toBeNull();
-            expect(screen.getByRole('option', { name: 'Focused evidence (.md)' })).toBeTruthy();
+            rerender(
+                <ExportDialog
+                    open
+                    onExport={vi.fn()}
+                    onOpenChange={vi.fn()}
+                    rawExport={{ ids: ['a'], source: 'opencode' }}
+                />,
+            );
+            const singleZip = screen.getByRole('checkbox', { name: /zip archive/i }) as HTMLButtonElement;
+            expect(singleZip.disabled).toBe(false);
         });
     });
 
