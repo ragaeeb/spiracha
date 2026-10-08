@@ -377,7 +377,7 @@ describe('ThreadsTable', () => {
         expect(onDeleteThread).toHaveBeenCalledWith(threadEntry);
     });
 
-    it('should show up to 100 Codex project threads on one page', () => {
+    it('should show the first 100 Codex project threads and offer to load the rest', () => {
         const threads = Array.from({ length: 101 }, (_, index) => ({
             ...threadEntry,
             thread: {
@@ -399,6 +399,7 @@ describe('ThreadsTable', () => {
 
         expect(screen.getByRole('link', { name: /Thread 100/ })).toBeTruthy();
         expect(screen.queryByRole('link', { name: 'Thread 101' })).toBeNull();
-        expect(screen.getByText('Page 1 of 2')).toBeTruthy();
+        expect(screen.getByText('Showing 100 of 101')).toBeTruthy();
+        expect(screen.getByRole('button', { name: 'Load more' })).toBeTruthy();
     });
 });

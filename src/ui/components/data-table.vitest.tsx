@@ -104,7 +104,7 @@ describe('DataTable', () => {
             />,
         );
 
-        fireEvent.click(screen.getAllByRole('checkbox', { name: 'Select all visible rows on this page' })[0]!);
+        fireEvent.click(screen.getAllByRole('checkbox', { name: 'Select all loaded rows' })[0]!);
         expect(screen.getByText('3 selected')).toBeTruthy();
         fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
         expect(screen.getByText('0 selected')).toBeTruthy();
@@ -252,7 +252,7 @@ describe('DataTable', () => {
         expect(screen.getByText('none')).toBeTruthy();
     });
 
-    it('should select only the currently visible page and keep off-page ids when deselecting the page', () => {
+    it('should select only the rows loaded so far and include newly loaded rows after loading more', () => {
         const renderToolbar = ({ selectedIds }: { selectedIds: string[] }) => (
             <span>{[...selectedIds].sort().join(',') || 'none'}</span>
         );
@@ -268,17 +268,15 @@ describe('DataTable', () => {
             />,
         );
 
-        fireEvent.click(screen.getAllByRole('checkbox', { name: 'Select all visible rows on this page' })[0]!);
+        fireEvent.click(screen.getAllByRole('checkbox', { name: 'Select all loaded rows' })[0]!);
         expect(screen.getByText('row-1,row-2')).toBeTruthy();
-        expect(screen.queryByText('row-3')).toBeNull();
 
-        fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
         fireEvent.click(screen.getByRole('checkbox', { name: 'Select row row-3' }));
         expect(screen.getByText('row-1,row-2,row-3')).toBeTruthy();
 
-        fireEvent.click(screen.getByRole('button', { name: 'Previous page' }));
-        fireEvent.click(screen.getAllByRole('checkbox', { name: 'Select all visible rows on this page' })[0]!);
-        expect(screen.getByText('row-3')).toBeTruthy();
+        fireEvent.click(screen.getAllByRole('checkbox', { name: 'Select all loaded rows' })[0]!);
+        expect(screen.getByText('none')).toBeTruthy();
     });
 
     it('should include the row title in the checkbox accessible name when provided', () => {
@@ -296,7 +294,7 @@ describe('DataTable', () => {
         expect(screen.getByRole('checkbox', { name: 'Select gpt-5.5 row-1' })).toBeTruthy();
     });
 
-    it('should keep selected row ids after sorting and changing page', () => {
+    it('should keep selected row ids after sorting and loading more rows', () => {
         render(
             <DataTable
                 columns={columns}
@@ -319,13 +317,13 @@ describe('DataTable', () => {
         expect(screen.getByText('row-1,row-2')).toBeTruthy();
         expect(screen.getByRole('checkbox', { name: 'Select row row-2' }).getAttribute('aria-checked')).toBe('true');
 
-        fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
         expect(screen.getByText('row-1,row-2')).toBeTruthy();
         expect(screen.getByRole('checkbox', { name: 'Select row row-1' }).getAttribute('aria-checked')).toBe('true');
-        expect(screen.queryByRole('checkbox', { name: 'Select row row-2' })).toBeNull();
+        expect(screen.getByRole('checkbox', { name: 'Select row row-2' }).getAttribute('aria-checked')).toBe('true');
     });
 
-    it('should paginate large row sets', () => {
+    it('should load more rows in increments instead of paging', () => {
         const manyRows = Array.from({ length: 51 }, (_, index) => ({
             id: `row-${index + 1}`,
             model: `model-${index + 1}`,
@@ -334,13 +332,22 @@ describe('DataTable', () => {
 
         render(<DataTable columns={columns} data={manyRows} emptyMessage="No rows" />);
 
-        expect(screen.getByText('Page 1 of 2')).toBeTruthy();
+        expect(screen.getByText('Showing 50 of 51')).toBeTruthy();
         expect(screen.queryByText('model-51')).toBeNull();
-        const previousButton = screen.getByRole('button', { name: 'Previous page' });
-        const nextButton = screen.getByRole('button', { name: 'Next page' });
-        expect(previousButton.getAttribute('type')).toBe('button');
-        expect(nextButton.getAttribute('type')).toBe('button');
-        fireEvent.click(nextButton);
+        expect(screen.queryByRole('button', { name: 'Next page' })).toBeNull();
+        expect(screen.queryByRole('button', { name: 'Previous page' })).toBeNull();
+        const loadMore = screen.getByRole('button', { name: 'Load more' });
+        expect(loadMore.getAttribute('type')).toBe('button');
+        fireEvent.click(loadMore);
         expect(screen.getByText('model-51')).toBeTruthy();
+        expect(screen.getByText('model-1')).toBeTruthy();
+        expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull();
+    });
+
+    it('should not offer to load more when every row is already shown', () => {
+        render(<DataTable columns={columns} data={rows} emptyMessage="No rows" />);
+
+        expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull();
+        expect(screen.queryByText(/^Showing /)).toBeNull();
     });
 });
