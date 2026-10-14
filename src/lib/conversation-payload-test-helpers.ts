@@ -104,6 +104,19 @@ export const payloadSourceFixtures: Array<{ source: ConversationPayloadSource; p
         },
         source: 'fx',
     },
+    {
+        payload: [
+            {
+                cwd: '/example',
+                message: { content: [{ text: 'Consumer answer', type: 'text' }], role: 'assistant' },
+                sessionId: 'claude-code-consumer',
+                timestamp: '2026-01-01T00:00:00.000Z',
+                type: 'assistant',
+                uuid: 'claude-code-consumer-a1',
+            },
+        ],
+        source: 'claude-code',
+    },
     { payload: { messages: [{ content: 'Consumer answer', role: 'assistant' }], model: 'gpt-5' }, source: 'web' },
 ];
 

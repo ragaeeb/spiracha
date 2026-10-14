@@ -14,10 +14,17 @@ JSON text, or JSONL text. `fileName` is a provider hint, not a path to open.
 JSON text is attempted before JSONL. An initial BOM and blank JSONL lines are
 tolerated; malformed JSONL records are not silently skipped.
 
-Explicit native hints support Antigravity, Cline, Codex, Cursor, FX, Grok, Grok Bot,
-Kiro, MiniMax Code, OpenCode, and Qoder, plus the `web` parser. **Claude Code and
-Command Code are not payload sources.** Claude Web exports are separate and
-supported. A live database path, encrypted store, or index without its required
+Explicit native hints support Antigravity, Claude Code, Cline, Codex, Cursor, FX, Grok,
+Grok Bot, Kiro, MiniMax Code, OpenCode, and Qoder, plus the `web` parser. **Command Code
+is not a payload source.** Claude Web exports are separate and supported.
+
+Claude Code payloads are the raw session JSONL lines (or the parsed array). Each
+distinct `sessionId` becomes one conversation whose `id` is that session ID; lines
+without a session ID attach to the preceding session. The local adapter and the
+payload parser share `claude-code-events.ts`, so entry, phase, title, model and
+workspace rules match. Without a hint, a payload containing Claude Code session events
+is parsed as Claude Code before other inference, because those lines also fit Qoder's
+broader session-ID shape. A live database path, encrypted store, or index without its required
 message bodies is not a self-contained export.
 
 Without a source hint, native parsers run first: one match wins, multiple matches
@@ -68,7 +75,7 @@ Catch by class/code rather than matching human messages.
 | --- | --- |
 | `invalid_input` | Check option types, selector, JSON-representable values, and size. Reduce or correct the supplied value. |
 | `invalid_json` | Repair JSON/JSONL syntax; a broken line is not a partial import. |
-| `unsupported_source` | Choose a supported source or a different export workflow. A source hint cannot enable Claude Code or Command Code. |
+| `unsupported_source` | Choose a supported source or a different export workflow. A source hint cannot enable Command Code. |
 | `unsupported_format` | No supported payload shape was found. Supply a supported self-contained export. |
 | `ambiguous_source` | More than one native adapter matches. Supply the known native `source`. |
 | `malformed_payload` | A recognized shape lacks valid required contents. Re-export or include the missing message/tool data. |

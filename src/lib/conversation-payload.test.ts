@@ -57,7 +57,7 @@ describe('portable payload conversion', () => {
             },
         ]);
         await expect(portableConvert({ payload: 'invalid JSON' })).rejects.toMatchObject({ code: 'invalid_json' });
-        await expect(portableConvert({ payload: {}, source: 'claude-code' as never })).rejects.toMatchObject({
+        await expect(portableConvert({ payload: {}, source: 'command-code' as never })).rejects.toMatchObject({
             code: 'unsupported_source',
         });
         await expect(portableConvert({ payload: 'ع'.repeat(13 * 1024 * 1024) })).rejects.toMatchObject({

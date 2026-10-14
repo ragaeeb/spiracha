@@ -59,7 +59,7 @@ Full module list: `docs/architecture.md`.
 ## Hard Invariants
 
 - `CONVERSATION_SOURCES` is authoritative. A new source needs an exact `SOURCE_CATALOG` entry, a storage adapter registration, and a `SOURCE_ICONS` entry; use `satisfies ConversationAdapter<'source-id'>`. Route metadata and route files must agree.
-- Web imports are UI-only: not in `CONVERSATION_SOURCES`, the stable API, or the CLI. Payload conversion is exposed via `spiracha/payload` and the Bun client; Claude Code and Command Code payload conversion is unsupported until portable parsers and fixtures exist.
+- Web imports are UI-only: not in `CONVERSATION_SOURCES`, the stable API, or the CLI. Payload conversion is exposed via `spiracha/payload` and the Bun client; Claude Code payloads reuse the portable `claude-code-events.ts` parser shared with the local adapter; Command Code payload conversion is unsupported until a portable parser and fixtures exist.
 - Never import storage, React, or router modules into the portable catalog or payload normalizers.
 - Explicit source requests surface source failures; all-source collection tolerates missing optional integrations. Workspace sources require `cwd`; global sources (Grok Bot) omit it.
 - Reuse canonical message/tool/artifact semantics and common export; do not add another transcript renderer or normalization pipeline. Preserve exact artifact strings and original raw bytes; preview limits must not truncate exports.
