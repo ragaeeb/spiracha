@@ -36,6 +36,7 @@ describe('payload SDK', () => {
             cline: ['messages'],
             codex: [],
             cursor: ['bubbles'],
+            dot: [],
             fx: ['checkpoint', 'state', 'history'],
             grok: ['chat_history'],
             'grok-bot': ['value', 'entries'],

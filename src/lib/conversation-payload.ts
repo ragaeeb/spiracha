@@ -7,6 +7,7 @@ import { isClaudeCodeSessionEvent, parseClaudeCodePayload } from './conversation
 import { parseClinePayload } from './conversation-payload-cline';
 import { parseCodexPayload } from './conversation-payload-codex';
 import { parseCursorPayload } from './conversation-payload-cursor';
+import { isDotTranscriptRecord, parseDotPayload } from './conversation-payload-dot';
 import { parseFxPayload } from './conversation-payload-fx';
 import { parseGrokPayload } from './conversation-payload-grok';
 import { parseGrokBotPayload } from './conversation-payload-grok-bot';
@@ -57,6 +58,7 @@ const nativeParsers = {
     cline: parseClinePayload,
     codex: parseCodexPayload,
     cursor: parseCursorPayload,
+    dot: parseDotPayload,
     fx: parseFxPayload,
     grok: parseGrokPayload,
     'grok-bot': parseGrokBotPayload,
@@ -82,6 +84,9 @@ const parsePayloadDrafts = async (
     }
     if (options.source) {
         return nativeParsers[options.source](value, options.source);
+    }
+    if ((Array.isArray(value) ? value : [value]).some(isDotTranscriptRecord)) {
+        return parseDotPayload(value);
     }
     // Claude Code session lines also satisfy Qoder's broad session-ID shape; they were
     // claimed (and refused) before inference, so Claude Code keeps that precedence.
@@ -170,6 +175,7 @@ const validateOptions = (options: ConvertConversationPayloadOptions) => {
     if (
         options.source !== undefined &&
         options.source !== 'web' &&
+        options.source !== 'dot' &&
         !CONVERSATION_SOURCES.some((source) => source === options.source)
     ) {
         throw new ConversationPayloadError('unsupported_source', `Unknown payload source: ${options.source}.`);
