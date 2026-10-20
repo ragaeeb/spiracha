@@ -14,6 +14,7 @@ import {
 } from './codex-browser-export';
 import { CodexThreadNotFoundError } from './codex-database';
 import { createCodexBrowserFixture, createCodexFixture } from './codex-test-helpers';
+import { CodexTranscriptHistoryError } from './codex-thread-parser';
 import { UI_EXPORT_DIR_ENV } from './ui-export-files';
 
 const tempPaths: string[] = [];
@@ -86,7 +87,114 @@ const appendLargeAssistantRecord = async (sessionFile: string) => {
     );
 };
 
+const preparePaginatedFork = async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-export-paginated-fork-test-'));
+    tempPaths.push(tempRoot);
+    const fixture = await createCodexBrowserFixture(tempRoot);
+    const parent = fixture.threads[0]!;
+    const child = fixture.threads[1]!;
+    const parentOriginal = path.join(tempRoot, 'archived_sessions', path.basename(parent.sessionFile));
+    const parentCurrent = `${parent.sessionFile.slice(0, -6)}_resumed.jsonl`;
+    const childCurrent = `${child.sessionFile.slice(0, -6)}_resumed.jsonl`;
+    const message = (ordinal: number, text: string) => ({
+        ordinal,
+        payload: { message: text, phase: 'final_answer', type: 'agent_message' },
+        type: 'response_item',
+    });
+    const fork = { forked_from_id: parent.threadId, forked_from_ordinal_exclusive: 3 };
+    const base = (threadId: string, end: number) => ({ end_ordinal_exclusive: end, thread_id: threadId });
+    const writeRecords = (file: string, records: unknown[]) =>
+        Bun.write(file, `${records.map((record) => JSON.stringify(record)).join('\n')}\n`);
+    await writeRecords(parentOriginal, [
+        { ordinal: 0, payload: { id: parent.threadId }, type: 'session_meta' },
+        { ordinal: 1, payload: { model: 'gpt-parent' }, type: 'turn_context' },
+        message(2, 'Inherited parent answer'),
+        message(3, 'Parent answer after the fork'),
+        message(4, 'Replaced parent tail'),
+    ]);
+    await writeRecords(parentCurrent, [
+        {
+            ordinal: 4,
+            payload: { history_base: base(parent.threadId, 4), id: parent.threadId },
+            type: 'session_meta',
+        },
+        message(5, 'Resumed parent answer after the fork'),
+    ]);
+    await writeRecords(child.sessionFile, [
+        {
+            ordinal: 3,
+            payload: { id: child.threadId, ...fork, history_base: base(parent.threadId, 3) },
+            type: 'session_meta',
+        },
+        message(4, 'Child answer before resuming'),
+        message(5, 'Replaced child tail'),
+    ]);
+    await writeRecords(childCurrent, [
+        {
+            ordinal: 5,
+            payload: { id: child.threadId, ...fork, history_base: base(child.threadId, 5) },
+            type: 'session_meta',
+        },
+        message(6, 'Child answer after resuming'),
+    ]);
+    await rm(parent.sessionFile);
+    const db = new Database(fixture.dbPath);
+    try {
+        const update = db.query('UPDATE threads SET rollout_path = ? WHERE id = ?');
+        update.run(parentCurrent, parent.threadId);
+        update.run(childCurrent, child.threadId);
+    } finally {
+        db.close();
+    }
+
+    return { child, fixture, parentOriginal, tempRoot };
+};
+
 describe('renderCodexThreadDownload', () => {
+    it('should reconstruct paginated forks without including replaced rollout tails', async () => {
+        const { child, fixture } = await preparePaginatedFork();
+
+        const download = await renderCodexThreadDownload({
+            dbPath: fixture.dbPath,
+            includeCommentary: true,
+            includeMetadata: false,
+            includeTools: false,
+            outputFormat: 'md',
+            threadId: child.threadId,
+        });
+
+        expect(download.mode).toBe('download');
+        if (download.mode !== 'download') {
+            throw new Error('expected an inline download');
+        }
+        expect(download.content.match(/Inherited parent answer/gu)).toHaveLength(1);
+        expect(download.content).toContain('Child answer before resuming');
+        expect(download.content).toContain('Child answer after resuming');
+        expect(download.content).not.toContain('Parent answer after the fork');
+        expect(download.content).not.toContain('Resumed parent answer after the fork');
+        expect(download.content).not.toContain('Replaced');
+    });
+
+    it.each(['missing', 'ambiguous'] as const)('should reject %s pages of an existing fork parent', async (failure) => {
+        const { child, fixture, parentOriginal, tempRoot } = await preparePaginatedFork();
+        if (failure === 'missing') {
+            await rm(parentOriginal);
+        } else {
+            await Bun.write(path.join(tempRoot, 'sessions', path.basename(parentOriginal)), Bun.file(parentOriginal));
+        }
+
+        await expect(
+            renderCodexThreadDownload({
+                dbPath: fixture.dbPath,
+                includeCommentary: true,
+                includeMetadata: false,
+                includeTools: false,
+                outputFormat: 'md',
+                threadId: child.threadId,
+            }),
+        ).rejects.toBeInstanceOf(CodexTranscriptHistoryError);
+    });
+
     it('should treat wrapped archive file errors as archive-wide failures', () => {
         const cause = Object.assign(new Error('permission denied'), { code: 'EACCES' });
 
