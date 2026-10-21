@@ -47,7 +47,12 @@ import {
     getCachedCodexTranscriptStats,
     getThreadRolloutLoadState,
 } from './codex-thread-cache';
-import { type CodexForkedThreadResolver, CodexTranscriptHistoryError, readCodexForkInfo } from './codex-thread-parser';
+import {
+    type CodexForkedThreadResolver,
+    CodexRolloutHistoryMissingError,
+    CodexTranscriptHistoryError,
+    readCodexForkInfo,
+} from './codex-thread-parser';
 import type { ThreadRelations, ThreadRow } from './codex-thread-types';
 import { mapWithConcurrency } from './concurrency';
 import { normalizeConversationPath } from './conversation-data/path-match';
@@ -614,11 +619,19 @@ const readRolloutStart = async (sessionFile: string) => {
     return { id: null, ordinal: null };
 };
 
+const matchesRolloutId = (sessionFile: string, requestedId: string, metadataId: unknown) => {
+    const fileName = path.basename(sessionFile).replace(/\.zst$/u, '');
+    return (
+        metadataId === requestedId ||
+        (typeof metadataId === 'string' && fileName.endsWith(`-${metadataId}_${requestedId}.jsonl`))
+    );
+};
+
 const resolveEarlierCodexRollout = async (dbPath: string, threadId: string, ordinalExclusive: number) => {
     const candidates: { ordinal: number; sessionFile: string }[] = [];
     const codexDir = resolveCodexDirFromDbPath(dbPath);
     for (const directory of ['sessions', 'archived_sessions']) {
-        const files = new Bun.Glob('**/*.jsonl').scan({
+        const files = new Bun.Glob('**/*.jsonl{,.zst}').scan({
             absolute: true,
             cwd: path.join(codexDir, directory),
             onlyFiles: true,
@@ -629,7 +642,7 @@ const resolveEarlierCodexRollout = async (dbPath: string, threadId: string, ordi
             }
             const metadata = await readRolloutStart(sessionFile);
             if (
-                metadata.id === threadId &&
+                matchesRolloutId(sessionFile, threadId, metadata.id) &&
                 typeof metadata.ordinal === 'number' &&
                 Number.isSafeInteger(metadata.ordinal) &&
                 metadata.ordinal >= 0 &&
@@ -642,9 +655,7 @@ const resolveEarlierCodexRollout = async (dbPath: string, threadId: string, ordi
     candidates.sort((left, right) => right.ordinal - left.ordinal);
     const selected = candidates[0];
     if (!selected) {
-        throw new CodexTranscriptHistoryError(
-            `Unable to find Codex rollout for thread ${threadId} before ordinal ${ordinalExclusive}`,
-        );
+        return null;
     }
     if (selected.ordinal === candidates[1]?.ordinal) {
         throw new CodexTranscriptHistoryError(`Ambiguous Codex rollout history for thread ${threadId}`);
@@ -661,16 +672,33 @@ export const createCodexForkedThreadResolver = (dbPath: string): CodexForkedThre
             return cachedPath;
         }
 
-        const pathPromise = getThreadBrowseData(dbPath, threadId).then(async (data) => {
-            const sessionFile = data.thread.rollout_path;
-            if (ordinalExclusive === undefined) {
-                return sessionFile;
-            }
-            const metadata = await readRolloutStart(sessionFile);
-            return typeof metadata.ordinal === 'number' && metadata.ordinal >= ordinalExclusive
-                ? resolveEarlierCodexRollout(dbPath, threadId, ordinalExclusive)
-                : sessionFile;
-        });
+        const pathPromise = getThreadBrowseData(dbPath, threadId)
+            .then(async (data) => {
+                const sessionFile = data.thread.rollout_path;
+                if (ordinalExclusive === undefined) {
+                    return sessionFile;
+                }
+                const metadata = await readRolloutStart(sessionFile);
+                if (typeof metadata.ordinal !== 'number' || metadata.ordinal < ordinalExclusive) {
+                    return sessionFile;
+                }
+                const earlier = await resolveEarlierCodexRollout(dbPath, threadId, ordinalExclusive);
+                if (!earlier) {
+                    throw new CodexRolloutHistoryMissingError(
+                        `Unable to find Codex rollout for thread ${threadId} before ordinal ${ordinalExclusive}`,
+                    );
+                }
+                return earlier;
+            })
+            .catch(async (error: unknown) => {
+                if (error instanceof CodexThreadNotFoundError && ordinalExclusive !== undefined) {
+                    const sessionFile = await resolveEarlierCodexRollout(dbPath, threadId, ordinalExclusive);
+                    if (sessionFile) {
+                        return sessionFile;
+                    }
+                }
+                throw error;
+            });
         resolvedPaths.set(key, pathPromise);
         try {
             return await pathPromise;

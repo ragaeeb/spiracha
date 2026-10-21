@@ -1,4 +1,3 @@
-import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { ParsedCodexTranscript } from './codex-browser-types';
@@ -12,16 +11,16 @@ import {
 } from './codex-thread-parser';
 import type { ThreadTranscriptStats, TranscriptEventFilters } from './conversation-data/conversation-events';
 import { shouldShowTranscriptEvent } from './conversation-data/conversation-events';
-import { splitJsonlLines } from './shared';
+import { readJsonlLines } from './shared';
 import { runWithTranscriptLoadLimit } from './transcript-load-limiter';
 import { getFileFingerprint, hashCacheKeyPartsIterable, withCachedJson } from './ui-cache';
 
 // Keep initial thread payloads below sizes that make TanStack Start SSR responses unreliable.
 export const LARGE_THREAD_SIZE_BYTES = 8 * 1024 * 1024;
 export const LARGE_THREAD_PREVIEW_EVENT_LIMIT = 200;
-const CODEX_TRANSCRIPT_CACHE_VERSION = 'v4';
-const CODEX_TRANSCRIPT_STATS_CACHE_VERSION = 'v2';
-const CODEX_TRANSCRIPT_MODELS_CACHE_VERSION = 'v2';
+const CODEX_TRANSCRIPT_CACHE_VERSION = 'v5';
+const CODEX_TRANSCRIPT_STATS_CACHE_VERSION = 'v3';
+const CODEX_TRANSCRIPT_MODELS_CACHE_VERSION = 'v3';
 const FILE_STABILITY_ATTEMPTS = 3;
 const CODEX_MODEL_RECORD_PATTERN = /"type"\s*:\s*"(?:turn_context|thread_settings_applied)"/u;
 const CODEX_MODEL_NAME_PATTERN = /"model"\s*:\s*"([^"\\]+)"/u;
@@ -179,7 +178,7 @@ const readTopLevelOrdinal = (line: string): number | null => {
 const scanCodexTranscriptSegment = async (segment: CodexTranscriptSegment, visitLine: (line: string) => void) => {
     let expectedOrdinal: number | null = null;
     let lastOrdinal: number | null = null;
-    const lines = splitJsonlLines(createReadStream(segment.sessionFile, { encoding: 'utf8' }));
+    const lines = readJsonlLines(segment.sessionFile);
     try {
         for await (const line of lines) {
             if (!line.trim()) {

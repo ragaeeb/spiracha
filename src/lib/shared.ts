@@ -78,7 +78,9 @@ export const workspacePathMatchesQuery = (worktree: string, query: string): bool
 };
 
 /** Splits on `\n` (dropping a trailing `\r`) only; node:readline also splits on U+2028/U+2029, which JSON strings may contain unescaped. */
-export async function* splitJsonlLines(stream: AsyncIterable<string | Buffer>): AsyncGenerator<string> {
+export async function* splitJsonlLines(
+    stream: AsyncIterable<string | Buffer> | Iterable<string | Buffer>,
+): AsyncGenerator<string> {
     const decoder = new TextDecoder();
     // Only a record's unfinished tail is retained; each chunk is searched for newlines exactly once.
     let fragment = '';
@@ -101,6 +103,21 @@ export async function* splitJsonlLines(stream: AsyncIterable<string | Buffer>): 
     }
 }
 
+export async function* readJsonlLines(filePath: string): AsyncGenerator<string> {
+    if (filePath.endsWith('.zst')) {
+        // shortcut: buffer zstd files to reject truncated frames; stream when Bun's decoder validates EOF.
+        const bytes = await Bun.zstdDecompress(await Bun.file(filePath).bytes());
+        yield* splitJsonlLines([bytes]);
+        return;
+    }
+    const stream = createReadStream(filePath);
+    try {
+        yield* splitJsonlLines(stream);
+    } finally {
+        stream.destroy();
+    }
+}
+
 /**
  * Streams JSON object records, skipping blank lines, malformed JSON, and non-object
  * JSON values. Emits one aggregated warning with count/path/first bad line on close;
@@ -113,8 +130,7 @@ export const readJsonlObjects = (
     filePath: string,
     diagnosticSource = 'jsonl',
 ): AsyncIterableIterator<Record<string, JsonValue>> => {
-    const stream = createReadStream(filePath, { encoding: 'utf8' });
-    const lineIterator = splitJsonlLines(stream);
+    const lineIterator = readJsonlLines(filePath);
     let closed = false;
     let invalidRecordCount = 0;
     let firstInvalidLineNumber: number | null = null;
@@ -131,22 +147,21 @@ export const readJsonlObjects = (
         }
     };
 
-    const close = () => {
+    const close = async () => {
         if (closed) {
             return;
         }
 
         warnAboutInvalidRecords();
         closed = true;
-        void lineIterator.return(undefined);
-        stream.destroy();
+        await lineIterator.return(undefined);
     };
 
     const readNext = async (): Promise<IteratorResult<Record<string, JsonValue>>> => {
         while (true) {
             const nextLine = await lineIterator.next();
             if (nextLine.done) {
-                close();
+                await close();
                 return { done: true, value: undefined as never };
             }
 
@@ -180,11 +195,11 @@ export const readJsonlObjects = (
         [Symbol.asyncIterator]: () => iterator,
         next: async () => readNext(),
         return: async () => {
-            close();
+            await close();
             return { done: true, value: undefined as never };
         },
         throw: async (error?: unknown) => {
-            close();
+            await close();
             throw error;
         },
     };

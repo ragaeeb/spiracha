@@ -1,6 +1,6 @@
 import { Database } from 'bun:sqlite';
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { mkdtemp, rename, rm, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { BlobReader, ZipReader } from '@zip.js/zip.js';
@@ -147,7 +147,7 @@ const preparePaginatedFork = async () => {
         db.close();
     }
 
-    return { child, fixture, parentOriginal, tempRoot };
+    return { child, childCurrent, fixture, parentOriginal, tempRoot };
 };
 
 describe('renderCodexThreadDownload', () => {
@@ -173,6 +173,107 @@ describe('renderCodexThreadDownload', () => {
         expect(download.content).not.toContain('Parent answer after the fork');
         expect(download.content).not.toContain('Resumed parent answer after the fork');
         expect(download.content).not.toContain('Replaced');
+    });
+
+    it('should export compressed rollout pages and their compressed ancestors', async () => {
+        const { child, childCurrent, fixture, parentOriginal } = await preparePaginatedFork();
+        for (const file of [parentOriginal, childCurrent]) {
+            await Bun.write(`${file}.zst`, Bun.zstdCompressSync(await Bun.file(file).bytes()));
+            await rm(file);
+        }
+        const db = new Database(fixture.dbPath);
+        try {
+            db.query('UPDATE threads SET rollout_path = ? WHERE id = ?').run(`${childCurrent}.zst`, child.threadId);
+        } finally {
+            db.close();
+        }
+
+        const download = await renderCodexThreadDownload({
+            dbPath: fixture.dbPath,
+            includeCommentary: true,
+            includeMetadata: false,
+            includeTools: false,
+            outputFormat: 'md',
+            threadId: child.threadId,
+        });
+
+        expect(download.mode).toBe('download');
+        if (download.mode !== 'download') {
+            throw new Error('expected an inline download');
+        }
+        expect(download.content).toContain('Inherited parent answer');
+        expect(download.content).toContain('Child answer before resuming');
+        expect(download.content).toContain('Child answer after resuming');
+        expect(download.content).not.toContain('Replaced');
+    });
+
+    it('should resolve history bases by rollout session ID without a matching database thread', async () => {
+        const { child, childCurrent, fixture } = await preparePaginatedFork();
+        const sessionId = '01a152d7-09e5-75e3-9feb-54230f32f032';
+        await rename(child.sessionFile, `${child.sessionFile.slice(0, -6)}_${sessionId}.jsonl`);
+        const records = (await Bun.file(childCurrent).text())
+            .trim()
+            .split('\n')
+            .map((line) => JSON.parse(line));
+        records[0].payload.history_base.thread_id = sessionId;
+        await Bun.write(childCurrent, records.map((record) => JSON.stringify(record)).join('\n'));
+
+        const download = await renderCodexThreadDownload({
+            dbPath: fixture.dbPath,
+            includeCommentary: true,
+            includeMetadata: false,
+            includeTools: false,
+            outputFormat: 'md',
+            threadId: child.threadId,
+        });
+
+        expect(download.mode).toBe('download');
+        if (download.mode !== 'download') {
+            throw new Error('expected an inline download');
+        }
+        expect(download.content).toContain('Inherited parent answer');
+        expect(download.content).toContain('Child answer before resuming');
+        expect(download.content).toContain('Child answer after resuming');
+        expect(download.content).not.toContain('Export notice');
+    });
+
+    it('should include compressed continuations in batch exports when earlier rollout pages are gone', async () => {
+        const { child, childCurrent, fixture, tempRoot } = await preparePaginatedFork();
+        await rm(child.sessionFile);
+        await Bun.write(`${childCurrent}.zst`, Bun.zstdCompressSync(await Bun.file(childCurrent).bytes()));
+        await rm(childCurrent);
+        const db = new Database(fixture.dbPath);
+        try {
+            db.query('UPDATE threads SET rollout_path = ? WHERE id = ?').run(`${childCurrent}.zst`, child.threadId);
+        } finally {
+            db.close();
+        }
+
+        const download = await renderCodexThreadsDownload({
+            dbPath: fixture.dbPath,
+            includeCommentary: true,
+            includeMetadata: false,
+            includeTools: false,
+            outputFormat: 'md',
+            publicExportDir: tempRoot,
+            threadIds: [child.threadId],
+            zipArchive: true,
+        });
+
+        expect(download.mode).toBe('download_url');
+        if (download.mode !== 'download_url') {
+            throw new Error('expected an archive');
+        }
+        expect(download.skippedThreadCount).toBe(0);
+        expect(download.partialThreads).toEqual([
+            { note: expect.stringContaining('before ordinal 5'), threadId: child.threadId },
+        ]);
+        const zipPath = path.join(tempRoot, path.basename(download.downloadUrl));
+        const entries = await listZipEntries(zipPath);
+        const content = await readZipEntry(zipPath, entries.find((entry) => entry.endsWith('.md'))!);
+        expect(content).toContain('Child answer after resuming');
+        expect(content).toContain('earlier rollout');
+        expect(content).not.toContain('no longer exists');
     });
 
     it.each(['missing', 'ambiguous'] as const)('should reject %s pages of an existing fork parent', async (failure) => {

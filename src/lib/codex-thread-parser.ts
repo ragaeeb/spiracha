@@ -1,4 +1,3 @@
-import { createReadStream } from 'node:fs';
 import path from 'node:path';
 
 import type { CodexMissingForkParent, ParsedCodexTranscript } from './codex-browser-types';
@@ -9,7 +8,7 @@ import {
     finalizeTranscript,
     type ParseCodexTranscriptOptions,
 } from './codex-transcript-records';
-import { readJsonlObjects, splitJsonlLines } from './shared';
+import { readJsonlLines, readJsonlObjects } from './shared';
 import { asObject } from './shared-text';
 
 export type CodexForkedThreadResolver = (threadId: string, ordinalExclusive?: number) => Promise<string>;
@@ -20,6 +19,13 @@ export class CodexTranscriptHistoryError extends Error {
     constructor(message: string, options?: ErrorOptions) {
         super(message, options);
         this.name = 'CodexTranscriptHistoryError';
+    }
+}
+
+export class CodexRolloutHistoryMissingError extends CodexTranscriptHistoryError {
+    constructor(message: string) {
+        super(message);
+        this.name = 'CodexRolloutHistoryMissingError';
     }
 }
 
@@ -41,7 +47,7 @@ const readHistoryBaseMetadata = (line: string) => {
 };
 
 const readForkMetadata = async (sessionFile: string) => {
-    const lines = splitJsonlLines(createReadStream(sessionFile, { encoding: 'utf8' }));
+    const lines = readJsonlLines(sessionFile);
     for await (const line of lines) {
         if (!/"type"\s*:\s*"session_meta"/u.test(line)) {
             continue;
@@ -249,6 +255,14 @@ const resolveParentSessionFile = async (
     try {
         return await resolveForkedThread(fork.parentThreadId, fork.forkCutoff);
     } catch (error) {
+        if (error instanceof CodexRolloutHistoryMissingError && fork.isContinuation && tolerance?.allowMissing) {
+            tolerance.missing.push({
+                ordinalExclusive: fork.forkCutoff,
+                reason: 'missing_rollout',
+                threadId: fork.parentThreadId,
+            });
+            return null;
+        }
         if (error instanceof CodexTranscriptHistoryError) {
             throw error;
         }

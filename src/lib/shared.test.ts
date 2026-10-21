@@ -182,6 +182,16 @@ describe('shared helpers', () => {
         expect(warnings).toEqual([]);
     });
 
+    it('should reject truncated zstd files instead of silently reading an incomplete transcript', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'shared-zstd-test-'));
+        tempPaths.push(tempRoot);
+        const filePath = path.join(tempRoot, 'transcript.jsonl.zst');
+        const compressed = Bun.zstdCompressSync(new TextEncoder().encode('{"text":"Transcript answer"}\n'));
+        await Bun.write(filePath, compressed.subarray(0, compressed.length - 3));
+
+        await expect(Array.fromAsync(readJsonlObjects(filePath))).rejects.toThrow();
+    });
+
     it('should reassemble records that span chunks, including CRLF and multibyte characters split across chunks', async () => {
         const euro = Buffer.from('€');
         const chunks = [

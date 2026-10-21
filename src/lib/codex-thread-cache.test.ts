@@ -109,11 +109,11 @@ describe('getCachedThreadTranscriptPreview', () => {
         expect(transcript.events.length).toBeGreaterThan(2);
     });
 
-    it('should include fork history in cached previews, model history, stats, and size checks', async () => {
+    it.each(['.jsonl', '.jsonl.zst'])('should cache %s fork history', async (extension) => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-thread-cache-fork-test-'));
         tempPaths.push(tempRoot);
-        const parentFile = path.join(tempRoot, 'parent.jsonl');
-        const childFile = path.join(tempRoot, 'child.jsonl');
+        const parentFile = path.join(tempRoot, `parent${extension}`);
+        const childFile = path.join(tempRoot, `child${extension}`);
         const parentThreadId = 'parent-thread';
         const parentRecords = [
             {
@@ -155,13 +155,20 @@ describe('getCachedThreadTranscriptPreview', () => {
             Bun.write(parentFile, parentRecords.map((record) => JSON.stringify(record)).join('\n')),
             Bun.write(childFile, childRecords.map((record) => JSON.stringify(record)).join('\n')),
         ]);
+        if (extension.endsWith('.zst')) {
+            await Promise.all(
+                [parentFile, childFile].map(async (file) =>
+                    Bun.write(file, Bun.zstdCompressSync(await Bun.file(file).bytes())),
+                ),
+            );
+        }
         const resolveForkedThread = async (threadId: string) => {
             expect(threadId).toBe(parentThreadId);
             return parentFile;
         };
 
-        const [state, models, transcript, stats] = await Promise.all([
-            getThreadRolloutLoadState(childFile, Number.MAX_SAFE_INTEGER, { resolveForkedThread }),
+        const state = await getThreadRolloutLoadState(childFile, Number.MAX_SAFE_INTEGER, { resolveForkedThread });
+        const [models, transcript, stats] = await Promise.all([
             getCachedCodexTranscriptModelNames(childFile, { resolveForkedThread }),
             getCachedThreadTranscriptPreview(childFile, {
                 largeTranscriptThresholdBytes: Number.MAX_SAFE_INTEGER,

@@ -52,7 +52,10 @@ const forkNoticeEvent = (missing: CodexMissingForkParent, index: number): Messag
     raw: {},
     role: 'system',
     sequence: -(index + 1),
-    text: `This thread was forked from thread ${missing.threadId}, which no longer exists, so only the conversation after the fork is included.`,
+    text:
+        missing.reason === 'missing_rollout'
+            ? `The earlier rollout history for this thread before ordinal ${missing.ordinalExclusive} is unavailable, so only the available continuation is included.`
+            : `This thread was forked from thread ${missing.threadId}, which no longer exists, so only the conversation after the fork is included.`,
     timestamp: null,
     variant: 'agent_message',
 });

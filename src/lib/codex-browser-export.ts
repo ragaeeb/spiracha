@@ -264,8 +264,21 @@ const renderCodexExportContent = async ({
 };
 
 const describeMissingForkParents = (missing: CodexMissingForkParent[]) => {
-    const ids = [...new Set(missing.map((parent) => parent.threadId))];
-    return `History before the fork is unavailable: parent ${ids.length === 1 ? 'thread' : 'threads'} ${ids.join(', ')} no longer ${ids.length === 1 ? 'exists' : 'exist'}.`;
+    const ids = [
+        ...new Set(missing.filter((parent) => parent.reason !== 'missing_rollout').map((parent) => parent.threadId)),
+    ];
+    const notes = missing
+        .filter((parent) => parent.reason === 'missing_rollout')
+        .map(
+            (parent) =>
+                `Earlier rollout history for thread ${parent.threadId} before ordinal ${parent.ordinalExclusive} is unavailable.`,
+        );
+    if (ids.length > 0) {
+        notes.unshift(
+            `History before the fork is unavailable: parent ${ids.length === 1 ? 'thread' : 'threads'} ${ids.join(', ')} no longer ${ids.length === 1 ? 'exists' : 'exist'}.`,
+        );
+    }
+    return notes.join(' ');
 };
 
 const resolvePublicExportDir = async (publicExportDir?: string) => {
@@ -322,7 +335,7 @@ const withStableRolloutSnapshot = async <T>({
         const browseData =
             attempt === 1 && initialBrowseData ? initialBrowseData : await getThreadBrowseData(dbPath, threadId);
         const attemptWorkspace = await mkdtemp(path.join(os.tmpdir(), 'spiracha-codex-rollout-attempt-'));
-        const snapshotPath = path.join(attemptWorkspace, 'rollout.jsonl');
+        const snapshotPath = path.join(attemptWorkspace, `rollout${path.extname(browseData.thread.rollout_path)}`);
 
         try {
             const rollout = await copyStableCodexRollout({
