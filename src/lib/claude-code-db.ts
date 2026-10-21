@@ -39,6 +39,7 @@ const DISCOVERY_INDEX_MAX_ENTRIES = 256;
 const TRANSCRIPT_CACHE_MAX_BYTES = 32 * 1024 * 1024;
 const TRANSCRIPT_CACHE_MAX_ENTRIES = 256;
 const GENERATED_WORKTREE_DIRECTORY_MARKER = '--claude-worktrees-';
+const SIBLING_WORKTREES_SUFFIX = '-worktrees';
 const WORKSPACE_KEY_PREFIX = 'project:';
 
 type TranscriptFile = {
@@ -139,11 +140,31 @@ const getWorkspaceLabel = (worktree: string): string => {
 const getProjectRootFromWorktree = (worktree: string): string => {
     const generatedWorktreeMarker = `${path.sep}.claude${path.sep}worktrees${path.sep}`;
     const markerIndex = worktree.indexOf(generatedWorktreeMarker);
-    if (markerIndex < 0) {
-        return worktree;
+    if (markerIndex >= 0) {
+        return worktree.slice(0, markerIndex) || path.parse(worktree).root;
     }
 
-    return worktree.slice(0, markerIndex) || path.parse(worktree).root;
+    // Claude Desktop places worktrees in a sibling `<project>-worktrees/<name>` directory.
+    const parent = path.dirname(worktree);
+    const parentName = path.basename(parent);
+    if (parentName.endsWith(SIBLING_WORKTREES_SUFFIX) && parentName.length > SIBLING_WORKTREES_SUFFIX.length) {
+        return path.join(path.dirname(parent), parentName.slice(0, -SIBLING_WORKTREES_SUFFIX.length));
+    }
+
+    return worktree;
+};
+
+const encodeProjectDirectoryName = (projectRoot: string): string => projectRoot.replace(/[^a-zA-Z0-9]/g, '-');
+
+const getSessionDirectoryName = (directoryName: string, cwd: string | null): string => {
+    if (cwd !== null && encodeProjectDirectoryName(cwd) === directoryName) {
+        const projectRoot = getProjectRootFromWorktree(cwd);
+        if (projectRoot !== cwd) {
+            return encodeProjectDirectoryName(projectRoot);
+        }
+    }
+
+    return getProjectDirectoryName(directoryName);
 };
 
 const getWorkspaceUri = (worktree: string): string => {
@@ -180,7 +201,7 @@ const toSessionSummary = (
         title: getTitle(identity),
         totalTokens,
         version: identity.version,
-        workspaceKey: getWorkspaceKey(getProjectDirectoryName(file.directoryName)),
+        workspaceKey: getWorkspaceKey(getSessionDirectoryName(file.directoryName, identity.cwd)),
         workspaceLabel,
         worktree,
     };
@@ -366,7 +387,9 @@ const listTranscriptFilesForWorkspace = async (
     const projectDirectoryName = getProjectDirectoryName(directoryName);
     return getCachedTranscriptFiles(`${projectsDir}\0workspace:${projectDirectoryName}`, async () => {
         const directoryNames = (await listProjectDirectoryNames(projectsDir)).filter(
-            (candidate) => getProjectDirectoryName(candidate) === projectDirectoryName,
+            (candidate) =>
+                getProjectDirectoryName(candidate) === projectDirectoryName ||
+                candidate.startsWith(`${projectDirectoryName}${SIBLING_WORKTREES_SUFFIX}-`),
         );
         const groupedFiles = await mapWithConcurrency(directoryNames, READ_CONCURRENCY, (candidate) =>
             listTranscriptFilesForProject(projectsDir, candidate),
@@ -756,7 +779,7 @@ const toWorkspaceGroup = (directoryName: string, sessions: ClaudeCodeSessionSumm
         .filter((session) => session.cwd !== null)
         .map((session) => getProjectRootFromWorktree(session.worktree));
     const projectRoot =
-        projectRoots.find((projectRoot) => projectRoot.replace(/[^a-zA-Z0-9]/g, '-') === directoryName) ??
+        projectRoots.find((projectRoot) => encodeProjectDirectoryName(projectRoot) === directoryName) ??
         projectRoots.find((projectRoot) => projectRoot !== decodedWorktree) ??
         projectRoots[0] ??
         decodedWorktree;
@@ -867,7 +890,11 @@ export const listClaudeCodeSessionTranscriptsForGroup = async (
     const physicalTranscripts = await readTranscriptFiles(files);
     const transcripts = coalesceTranscriptLineages(physicalTranscripts);
     annotateTranscriptForks(transcripts);
-    return transcripts.filter(hasSessionContent).sort((left, right) => compareSessions(left.session, right.session));
+    // Sibling-worktree directories are candidates by name; keep only sessions whose cwd resolves to this project.
+    const groupKey = getWorkspaceKey(getProjectDirectoryName(directoryName));
+    return transcripts
+        .filter((transcript) => hasSessionContent(transcript) && transcript.session.workspaceKey === groupKey)
+        .sort((left, right) => compareSessions(left.session, right.session));
 };
 
 export const listClaudeCodeSessionsForGroup = async (
