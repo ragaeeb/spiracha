@@ -25,7 +25,7 @@ import {
     readProjectAggregateRows,
     readThreads,
     resolveCodexDirFromDbPath,
-    resolveCodexRolloutPath,
+    resolveCodexTranscriptPath,
     THREAD_ROW_COLUMNS,
     uniqueValues,
     withReadonlyDb,
@@ -531,7 +531,7 @@ const buildThreadBrowseData = (
     const indexedThread = applySessionIndexThreadNames(dbPath, [thread], filesystemData?.sessionIndexThreadNames)[0]!;
     const normalizedThread = normalizeThreadDisplayText({
         ...indexedThread,
-        rollout_path: resolveCodexRolloutPath(dbPath, indexedThread.rollout_path),
+        rollout_path: resolveCodexTranscriptPath(dbPath, indexedThread.rollout_path),
     });
     const dynamicTools =
         source === 'database'

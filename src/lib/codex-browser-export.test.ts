@@ -12,6 +12,7 @@ import {
     renderCodexThreadDownload,
     renderCodexThreadsDownload,
 } from './codex-browser-export';
+import { listProjectThreads } from './codex-browser-queries';
 import { CodexThreadNotFoundError } from './codex-database';
 import { createCodexBrowserFixture, createCodexFixture } from './codex-test-helpers';
 import { CodexTranscriptHistoryError } from './codex-thread-parser';
@@ -151,6 +152,63 @@ const preparePaginatedFork = async () => {
 };
 
 describe('renderCodexThreadDownload', () => {
+    it('should find compressed subagent transcripts when the database still points to JSONL', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-export-compressed-subagent-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexBrowserFixture(tempRoot);
+        const thread = fixture.threads[0]!;
+        const compressedPath = `${thread.sessionFile}.zst`;
+        const transcript = (message: string) =>
+            [
+                { ordinal: 0, payload: { id: thread.threadId, thread_source: 'subagent' }, type: 'session_meta' },
+                {
+                    ordinal: 1,
+                    payload: { message, phase: 'final_answer', type: 'agent_message' },
+                    type: 'response_item',
+                },
+            ]
+                .map((record) => JSON.stringify(record))
+                .join('\n');
+        await Bun.write(thread.sessionFile, transcript('Original subagent answer'));
+        await Bun.write(compressedPath, Bun.zstdCompressSync(Buffer.from(transcript('Compressed subagent answer'))));
+        const db = new Database(fixture.dbPath);
+        try {
+            db.query("UPDATE threads SET thread_source = 'subagent', agent_nickname = 'Dalton' WHERE id = ?").run(
+                thread.threadId,
+            );
+        } finally {
+            db.close();
+        }
+        const exportThread = () =>
+            renderCodexThreadDownload({
+                dbPath: fixture.dbPath,
+                includeCommentary: true,
+                includeMetadata: false,
+                includeTools: false,
+                outputFormat: 'md',
+                threadId: thread.threadId,
+            });
+        const original = await exportThread();
+        expect(original.mode).toBe('download');
+        if (original.mode !== 'download') {
+            throw new Error('expected an inline download');
+        }
+        expect(original.content).toContain('Original subagent answer');
+        await rm(thread.sessionFile);
+
+        const compressed = await exportThread();
+
+        expect(compressed.mode).toBe('download');
+        if (compressed.mode !== 'download') {
+            throw new Error('expected an inline download');
+        }
+        expect(compressed.content).toContain('Compressed subagent answer');
+        const entries = await listProjectThreads(fixture.dbPath, 'spiracha', { includeTranscriptStats: false });
+        expect(entries.find((entry) => entry.thread.id === thread.threadId)?.rolloutSizeBytes).toBe(
+            Bun.file(compressedPath).size,
+        );
+    });
+
     it('should reconstruct paginated forks without including replaced rollout tails', async () => {
         const { child, fixture } = await preparePaginatedFork();
 

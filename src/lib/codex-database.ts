@@ -546,6 +546,12 @@ export const hasRegularFile = (filePath: string) => {
 export const resolveCodexRolloutPath = (dbPath: string, rolloutPath: string) =>
     path.isAbsolute(rolloutPath) ? rolloutPath : path.join(resolveCodexDirFromDbPath(dbPath), rolloutPath);
 
+export const resolveCodexTranscriptPath = (dbPath: string, rolloutPath: string) => {
+    const resolvedPath = resolveCodexRolloutPath(dbPath, rolloutPath);
+    const compressedPath = `${resolvedPath}.zst`;
+    return !hasRegularFile(resolvedPath) && hasRegularFile(compressedPath) ? compressedPath : resolvedPath;
+};
+
 const canonicalizeMissingPath = async (filePath: string): Promise<string> => {
     try {
         return await realpath(filePath);
