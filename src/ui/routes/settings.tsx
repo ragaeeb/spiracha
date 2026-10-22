@@ -20,7 +20,7 @@ function SettingsPage() {
             />
 
             <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 shadow-[var(--panel-shadow)]">
-                <h3 className="flex items-center gap-2 font-semibold text-[var(--muted-foreground)] text-xs uppercase tracking-[0.18em]">
+                <h3 className="flex items-center gap-2 text-xs font-semibold tracking-[0.18em] text-[var(--muted-foreground)] uppercase">
                     <Settings2 className="size-3.5" />
                     Privacy
                 </h3>
@@ -34,12 +34,12 @@ function SettingsPage() {
                         />
                         <div className="min-w-0">
                             <label
-                                className="cursor-pointer font-medium text-sm leading-none"
+                                className="cursor-pointer text-sm leading-none font-medium"
                                 htmlFor="redact-username"
                             >
                                 Redact Username
                             </label>
-                            <p className="mt-1.5 text-[var(--muted-foreground)] text-xs leading-5">
+                            <p className="mt-1.5 text-xs leading-5 text-[var(--muted-foreground)]">
                                 Replaces{' '}
                                 <code className="rounded bg-[var(--code-background)] px-1 py-0.5 font-mono text-[var(--code-foreground)]">
                                     /Users/[username]/
@@ -61,12 +61,12 @@ function SettingsPage() {
                         />
                         <div className="min-w-0">
                             <label
-                                className="cursor-pointer font-medium text-sm leading-none"
+                                className="cursor-pointer text-sm leading-none font-medium"
                                 htmlFor="convert-project-root"
                             >
                                 Convert Absolute Paths to Project Root
                             </label>
-                            <p className="mt-1.5 text-[var(--muted-foreground)] text-xs leading-5">
+                            <p className="mt-1.5 text-xs leading-5 text-[var(--muted-foreground)]">
                                 Converts the current thread or project cwd from{' '}
                                 <code className="rounded bg-[var(--code-background)] px-1 py-0.5 font-mono text-[var(--code-foreground)]">
                                     /Users/[username]/workspace/[projectname]/

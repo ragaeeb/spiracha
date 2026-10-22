@@ -100,7 +100,7 @@ const DiffPanel = ({ detail }: { detail: CodexCloudTaskDetail }) => {
     return (
         <section className="space-y-3 rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 shadow-[var(--panel-shadow)]">
             <div>
-                <h3 className="font-semibold text-[var(--muted-foreground)] text-xs uppercase tracking-[0.18em]">
+                <h3 className="text-xs font-semibold tracking-[0.18em] text-[var(--muted-foreground)] uppercase">
                     Cloud diff
                 </h3>
                 <p className="mt-2 text-sm">
@@ -112,11 +112,11 @@ const DiffPanel = ({ detail }: { detail: CodexCloudTaskDetail }) => {
                 </p>
             </div>
             {detail.diff.patch ? (
-                <pre className="max-h-[70vh] overflow-auto rounded-xl border border-[var(--border)] bg-[var(--code-background)] p-3 text-[var(--code-foreground)] text-xs leading-5">
+                <pre className="max-h-[70vh] overflow-auto rounded-xl border border-[var(--border)] bg-[var(--code-background)] p-3 text-xs leading-5 text-[var(--code-foreground)]">
                     {detail.diff.patch}
                 </pre>
             ) : (
-                <p className="text-[var(--muted-foreground)] text-sm">
+                <p className="text-sm text-[var(--muted-foreground)]">
                     This task did not include a unified diff payload.
                 </p>
             )}

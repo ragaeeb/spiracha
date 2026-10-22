@@ -189,11 +189,11 @@ const TruncatedBody = ({
     const { previewText, truncated } = projectDisplayText(text, DISPLAY_BODY_LIMIT);
     return (
         <div className="space-y-2">
-            <p className="min-w-0 whitespace-pre-wrap break-words text-sm leading-6 [overflow-wrap:anywhere]">
+            <p className="min-w-0 text-sm leading-6 [overflow-wrap:anywhere] break-words whitespace-pre-wrap">
                 {transform(previewText || emptyFallback)}
             </p>
             {truncated ? (
-                <p className="text-[var(--muted-foreground)] text-xs">{`Showing first ${DISPLAY_BODY_LIMIT} characters`}</p>
+                <p className="text-xs text-[var(--muted-foreground)]">{`Showing first ${DISPLAY_BODY_LIMIT} characters`}</p>
             ) : null}
         </div>
     );
@@ -205,9 +205,9 @@ const renderMessageBody = (event: Extract<ThreadEvent, { kind: 'message' }>, t: 
 
 const renderToolCallBody = (event: Extract<ThreadEvent, { kind: 'tool_call' }>, t: Transform) => (
     <div className="space-y-2 text-sm">
-        <p className="min-w-0 break-words font-medium [overflow-wrap:anywhere]">{t(event.command ?? event.name)}</p>
+        <p className="min-w-0 font-medium [overflow-wrap:anywhere] break-words">{t(event.command ?? event.name)}</p>
         {event.workdir ? (
-            <p className="font-mono text-[var(--muted-foreground)] text-xs">
+            <p className="font-mono text-xs text-[var(--muted-foreground)]">
                 {`Working directory: ${t(event.workdir)}`}
             </p>
         ) : null}
@@ -217,20 +217,20 @@ const renderToolCallBody = (event: Extract<ThreadEvent, { kind: 'tool_call' }>, 
 const renderToolOutputBody = (event: Extract<ThreadEvent, { kind: 'tool_output' }>, t: Transform) => (
     <div className="space-y-2 text-sm">
         {event.exitCode === null ? null : (
-            <p className="font-mono text-[var(--muted-foreground)] text-xs">{`Exit code: ${event.exitCode}`}</p>
+            <p className="font-mono text-xs text-[var(--muted-foreground)]">{`Exit code: ${event.exitCode}`}</p>
         )}
         <TruncatedBody emptyFallback="" text={event.summary || event.outputText || ''} transform={t} />
     </div>
 );
 
 const renderTaskStartedBody = (event: Extract<ThreadEvent, { kind: 'task_started' }>) => (
-    <div className="text-[var(--muted-foreground)] text-sm">
+    <div className="text-sm text-[var(--muted-foreground)]">
         Context window: {event.modelContextWindow ?? 'n/a'} · Collaboration mode: {event.collaborationModeKind ?? 'n/a'}
     </div>
 );
 
 const renderTaskCompleteBody = (event: Extract<ThreadEvent, { kind: 'task_complete' }>) => (
-    <div className="text-[var(--muted-foreground)] text-sm">
+    <div className="text-sm text-[var(--muted-foreground)]">
         Duration: {event.durationMs ?? 'n/a'} ms · First token: {event.timeToFirstTokenMs ?? 'n/a'} ms
     </div>
 );
@@ -243,7 +243,7 @@ const renderReasoningBody = (event: Extract<ThreadEvent, { kind: 'reasoning' }>)
     <div className="space-y-2 text-sm">
         <p>{event.summary.join(' ') || 'Reasoning content is not directly available.'}</p>
         {event.hasEncryptedContent ? (
-            <p className="text-[var(--muted-foreground)] text-xs">Encrypted reasoning payload captured.</p>
+            <p className="text-xs text-[var(--muted-foreground)]">Encrypted reasoning payload captured.</p>
         ) : null}
     </div>
 );
@@ -371,7 +371,7 @@ function TranscriptEventCard({
                         className="size-5 cursor-pointer"
                         onCheckedChange={(checked) => onSelectionChange(event, checked === true)}
                     />
-                    <h3 className="min-w-0 break-words font-semibold text-sm [overflow-wrap:anywhere]">
+                    <h3 className="min-w-0 text-sm font-semibold [overflow-wrap:anywhere] break-words">
                         {getEventTitle(event, assistantModel)}
                     </h3>
                     {event.kind === 'message' && event.phase ? <Badge variant="outline">{event.phase}</Badge> : null}
@@ -380,7 +380,7 @@ function TranscriptEventCard({
                     ) : null}
                 </div>
                 {event.timestamp ? (
-                    <p className="shrink-0 text-[var(--muted-foreground)] text-xs" suppressHydrationWarning>
+                    <p className="shrink-0 text-xs text-[var(--muted-foreground)]" suppressHydrationWarning>
                         {formatDateTime(event.timestamp)}
                     </p>
                 ) : null}
@@ -398,7 +398,7 @@ function TranscriptEventCard({
                 </Button>
             </div>
             {showRawJson ? (
-                <pre className="mt-2 overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--code-background)] p-3 text-[var(--code-foreground)] text-xs leading-5">
+                <pre className="mt-2 overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--code-background)] p-3 text-xs leading-5 text-[var(--code-foreground)]">
                     {JSON.stringify(event.raw, null, 2)}
                 </pre>
             ) : null}
@@ -597,11 +597,11 @@ export function TranscriptView({
                             checked={allVisibleSelected}
                             onCheckedChange={(checked) => handleToggleAllVisible(checked === true)}
                         />
-                        <span className="text-[var(--muted-foreground)] text-sm">
+                        <span className="text-sm text-[var(--muted-foreground)]">
                             {visibleSelectedKeys.length} selected
                         </span>
                         {copyErrorMessage ? (
-                            <span className="text-[var(--destructive)] text-sm">{copyErrorMessage}</span>
+                            <span className="text-sm text-[var(--destructive)]">{copyErrorMessage}</span>
                         ) : null}
                     </div>
                     <div className="flex items-center gap-2">
@@ -657,11 +657,11 @@ export function TranscriptView({
                         checked={allVisibleSelected}
                         onCheckedChange={(checked) => handleToggleAllVisible(checked === true)}
                     />
-                    <span className="text-[var(--muted-foreground)] text-sm">
+                    <span className="text-sm text-[var(--muted-foreground)]">
                         {visibleSelectedKeys.length} selected
                     </span>
                     {copyErrorMessage ? (
-                        <span className="text-[var(--destructive)] text-sm">{copyErrorMessage}</span>
+                        <span className="text-sm text-[var(--destructive)]">{copyErrorMessage}</span>
                     ) : null}
                 </div>
                 <div className="flex items-center gap-2">

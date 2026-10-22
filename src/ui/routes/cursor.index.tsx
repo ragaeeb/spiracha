@@ -149,7 +149,7 @@ const CursorPage = () => {
             />
 
             {recoverWorkspaceMutation.isError ? (
-                <p className="text-[var(--destructive)] text-sm">
+                <p className="text-sm text-[var(--destructive)]">
                     {recoverWorkspaceMutation.error instanceof Error
                         ? recoverWorkspaceMutation.error.message
                         : 'Workspace recovery failed'}
@@ -157,7 +157,7 @@ const CursorPage = () => {
             ) : null}
 
             {deleteWorkspaceMutation.isError ? (
-                <p className="text-[var(--destructive)] text-sm">
+                <p className="text-sm text-[var(--destructive)]">
                     {deleteWorkspaceMutation.error instanceof Error
                         ? deleteWorkspaceMutation.error.message
                         : 'Workspace deletion failed'}

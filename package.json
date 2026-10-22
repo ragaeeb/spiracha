@@ -120,7 +120,7 @@
         "coverage": "bun run coverage:root && bun run coverage:ui",
         "coverage:root": "bun test --coverage --coverage-reporter=lcov --coverage-dir coverage && bun run ./src/coverage-check.ts root",
         "coverage:ui": "vitest run --coverage --config vitest.config.ts && bun run ./src/coverage-check.ts ui",
-        "format": "biome check . --write && biome lint . --write",
+        "format": "biome check . --write --unsafe",
         "lint": "biome check .",
         "prepublishOnly": "bun run build && bun run test:package",
         "serve": "bun ./bin/spiracha.ts serve",

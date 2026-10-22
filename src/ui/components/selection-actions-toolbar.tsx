@@ -76,7 +76,7 @@ export const ConversationSelectionActions = ({
                 : deleteAction.reason;
 
         return (
-            <p className="text-[var(--muted-foreground)] text-sm">
+            <p className="text-sm text-[var(--muted-foreground)]">
                 Select {pluralize(2, itemLabel)} to {actionText}.{exceptionReason ? ` ${exceptionReason}` : ''}
             </p>
         );

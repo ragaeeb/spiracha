@@ -104,7 +104,7 @@ const AntigravityWorkspaceErrors = ({ artifactError }: { artifactError: Error | 
         return null;
     }
 
-    return <p className="text-[var(--destructive)] text-sm">{artifactError.message}</p>;
+    return <p className="text-sm text-[var(--destructive)]">{artifactError.message}</p>;
 };
 
 export const Route = createFileRoute('/antigravity/$workspaceKey')({

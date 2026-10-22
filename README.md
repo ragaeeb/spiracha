@@ -316,7 +316,7 @@ bun run test:ui
 
 Run one root test file with `bun test src/lib/shared.test.ts`. Run one UI test file with `bun run test:ui --run src/ui/components/export-dialog.vitest.tsx`.
 
-`bun run test:package` launches the packaged `bin/spiracha.ts` entrypoint against an isolated fixture and checks the published UI boundary. `bun run format` applies the repository's Biome formatting and lint fixes when intentionally reformatting source.
+`bun run test:package` launches the packaged `bin/spiracha.ts` entrypoint against an isolated fixture and checks the published UI boundary. `bun run format` applies all configured Biome formatting and lint fixes, including fixes classified as unsafe, such as Tailwind class sorting. Review the resulting diff. `bun run lint` checks without changing files.
 
 `bun start` runs the UI development server. `bun run build` emits bundled client assets and a bundled server entrypoint; `spiracha serve` runs that built output. The published package ships the built client/server output, portable payload JavaScript/declarations, and the Bun SDK sources, not the UI source tree or Vite toolchain. Only `fflate` is a runtime dependency; the UI and build/test toolchain stays in `devDependencies`.
 

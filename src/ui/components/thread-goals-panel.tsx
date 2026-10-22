@@ -23,9 +23,9 @@ const formatGoalTokens = (goal: ThreadGoal) => {
 export function ThreadGoalsPanel({ goals }: { goals: ThreadGoal[] }) {
     return (
         <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 shadow-[var(--panel-shadow)]">
-            <h3 className="font-semibold text-[var(--muted-foreground)] text-xs uppercase tracking-[0.18em]">Goals</h3>
+            <h3 className="text-xs font-semibold tracking-[0.18em] text-[var(--muted-foreground)] uppercase">Goals</h3>
             {goals.length === 0 ? (
-                <p className="mt-3 text-[var(--muted-foreground)] text-sm">No goals were recorded for this thread.</p>
+                <p className="mt-3 text-sm text-[var(--muted-foreground)]">No goals were recorded for this thread.</p>
             ) : (
                 <div className="mt-3 space-y-3">
                     {goals.map((goal) => (
@@ -34,10 +34,10 @@ export function ThreadGoalsPanel({ goals }: { goals: ThreadGoal[] }) {
                             className="rounded-xl border border-[var(--border)] bg-[var(--panel-secondary)] p-3.5"
                         >
                             <div className="flex flex-wrap items-start justify-between gap-2">
-                                <p className="font-medium text-sm leading-6">{goal.objective}</p>
+                                <p className="text-sm leading-6 font-medium">{goal.objective}</p>
                                 <Badge variant="outline">{formatGoalStatus(goal.status)}</Badge>
                             </div>
-                            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[var(--muted-foreground)] text-xs">
+                            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--muted-foreground)]">
                                 <span>{formatGoalTokens(goal)}</span>
                                 <span>{formatElapsedTime(goal.timeUsedSeconds)}</span>
                             </div>

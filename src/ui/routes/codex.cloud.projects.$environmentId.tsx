@@ -142,7 +142,7 @@ function CodexCloudProjectPage() {
             <CodexCloudReadOnlyNotice />
 
             {project.partial ? (
-                <p className="rounded-xl border border-[var(--border)] bg-[var(--panel)] px-4 py-3 text-[var(--muted-foreground)] text-sm">
+                <p className="rounded-xl border border-[var(--border)] bg-[var(--panel)] px-4 py-3 text-sm text-[var(--muted-foreground)]">
                     This project is from a bounded Cloud inventory. Some older current tasks may be outside the loaded
                     window.
                 </p>

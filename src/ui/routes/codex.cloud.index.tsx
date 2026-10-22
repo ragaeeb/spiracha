@@ -43,12 +43,12 @@ const columns = [
     columnHelper.accessor('label', {
         cell: (info) => (
             <Link
-                className="block min-w-[14rem] rounded-md outline-none transition hover:opacity-80 focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                className="block min-w-[14rem] rounded-md transition outline-none hover:opacity-80 focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                 params={{ environmentId: info.row.original.id }}
                 to="/codex/cloud/projects/$environmentId"
             >
                 <p className="font-medium underline-offset-2 hover:underline">{info.getValue()}</p>
-                <p className="text-[var(--muted-foreground)] text-xs">Codex Cloud environment</p>
+                <p className="text-xs text-[var(--muted-foreground)]">Codex Cloud environment</p>
             </Link>
         ),
         header: 'Project',
@@ -63,7 +63,7 @@ const columns = [
     }),
     columnHelper.accessor('lastUpdatedAt', {
         cell: (info) => (
-            <span className="whitespace-nowrap text-sm" suppressHydrationWarning>
+            <span className="text-sm whitespace-nowrap" suppressHydrationWarning>
                 {formatDateTime(info.getValue())}
             </span>
         ),
@@ -125,7 +125,7 @@ function CodexCloudProjectsPage() {
             <CodexCloudReadOnlyNotice />
 
             {isPartial ? (
-                <p className="rounded-xl border border-[var(--border)] bg-[var(--panel)] px-4 py-3 text-[var(--muted-foreground)] text-sm">
+                <p className="rounded-xl border border-[var(--border)] bg-[var(--panel)] px-4 py-3 text-sm text-[var(--muted-foreground)]">
                     Showing a bounded inventory of Cloud tasks. Refresh after reviewing the visible projects to load the
                     next current-task window.
                 </p>

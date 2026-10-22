@@ -33,7 +33,7 @@ export const CODEX_CLOUD_READONLY_COPY =
     'Normalized export is available in Spiracha. Original files and deletion stay on the Codex Cloud account.';
 
 export const CodexCloudReadOnlyNotice = () => (
-    <p className="rounded-xl border border-[var(--border)] bg-[var(--panel)] px-4 py-3 text-[var(--muted-foreground)] text-sm">
+    <p className="rounded-xl border border-[var(--border)] bg-[var(--panel)] px-4 py-3 text-sm text-[var(--muted-foreground)]">
         {CODEX_CLOUD_READONLY_COPY}
     </p>
 );
@@ -74,7 +74,7 @@ const buildColumns = (onExportTask: (task: CodexCloudTask) => void) =>
         }),
         columnHelper.accessor('updatedAt', {
             cell: (info) => (
-                <span className="whitespace-nowrap text-sm" suppressHydrationWarning>
+                <span className="text-sm whitespace-nowrap" suppressHydrationWarning>
                     {formatDateTime(info.getValue())}
                 </span>
             ),
@@ -82,7 +82,7 @@ const buildColumns = (onExportTask: (task: CodexCloudTask) => void) =>
             sortFn: (left, right, columnId) => compareDateValues(left.getValue(columnId), right.getValue(columnId)),
         }),
         columnHelper.accessor('diffStats', {
-            cell: (info) => <span className="whitespace-nowrap font-mono text-sm">{diffLabel(info.getValue())}</span>,
+            cell: (info) => <span className="font-mono text-sm whitespace-nowrap">{diffLabel(info.getValue())}</span>,
             header: 'Diff',
             id: 'diff',
         }),
@@ -90,7 +90,7 @@ const buildColumns = (onExportTask: (task: CodexCloudTask) => void) =>
             cell: (info) => (
                 <a
                     aria-label={`Open ${info.row.original.title} in Codex Cloud`}
-                    className="inline-flex items-center gap-1 text-[var(--muted-foreground)] text-sm hover:text-[var(--foreground)]"
+                    className="inline-flex items-center gap-1 text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
                     href={info.row.original.taskUrl}
                     rel="noreferrer"
                     target="_blank"

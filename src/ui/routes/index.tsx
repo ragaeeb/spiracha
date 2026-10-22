@@ -51,12 +51,12 @@ function DashboardPage() {
                 <section className="min-w-0 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 shadow-[var(--panel-shadow)]">
                     <div className="flex items-center justify-between gap-3">
                         <div className="min-w-0">
-                            <p className="font-semibold text-sm">Recent threads</p>
-                            <p className="mt-0.5 text-[var(--muted-foreground)] text-xs">
+                            <p className="text-sm font-semibold">Recent threads</p>
+                            <p className="mt-0.5 text-xs text-[var(--muted-foreground)]">
                                 Most recently updated threads across the local Codex database.
                             </p>
                         </div>
-                        <Link className="shrink-0 font-medium text-[var(--accent)] text-sm" to="/codex">
+                        <Link className="shrink-0 text-sm font-medium text-[var(--accent)]" to="/codex">
                             View Codex
                         </Link>
                     </div>
@@ -65,7 +65,7 @@ function DashboardPage() {
 
                 <div className="grid min-w-0 gap-4">
                     <section className="min-w-0 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 shadow-[var(--panel-shadow)]">
-                        <p className="font-semibold text-sm">Top projects by thread count</p>
+                        <p className="text-sm font-semibold">Top projects by thread count</p>
                         <div className="mt-2.5 space-y-2">
                             {dashboard.topProjectsByThreadCount.map((project) => (
                                 <Link
@@ -84,7 +84,7 @@ function DashboardPage() {
                     </section>
 
                     <section className="min-w-0 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 shadow-[var(--panel-shadow)]">
-                        <p className="font-semibold text-sm">Top projects by tokens</p>
+                        <p className="text-sm font-semibold">Top projects by tokens</p>
                         <div className="mt-2.5 space-y-2">
                             {dashboard.topProjectsByTokens.map((project) => (
                                 <Link

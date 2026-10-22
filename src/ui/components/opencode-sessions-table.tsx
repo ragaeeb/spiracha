@@ -64,7 +64,7 @@ const columns = (
         }),
         columnHelper.accessor('lastUpdatedAtMs', {
             cell: (info) => (
-                <span className="whitespace-nowrap text-sm" suppressHydrationWarning>
+                <span className="text-sm whitespace-nowrap" suppressHydrationWarning>
                     {formatDateTime(info.getValue())}
                 </span>
             ),
@@ -85,7 +85,7 @@ const columns = (
         }),
         columnHelper.accessor('totalTokens', {
             cell: (info) => (
-                <span className="whitespace-nowrap font-mono text-sm">{formatTokens(info.getValue())}</span>
+                <span className="font-mono text-sm whitespace-nowrap">{formatTokens(info.getValue())}</span>
             ),
             header: 'Tokens',
         }),

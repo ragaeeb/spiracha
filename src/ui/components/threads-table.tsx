@@ -149,7 +149,7 @@ const columns = (
         }),
         columnHelper.accessor((row) => row.thread.updated_at_ms ?? row.thread.updated_at * 1000, {
             cell: (info) => (
-                <span className="whitespace-nowrap text-sm" suppressHydrationWarning>
+                <span className="text-sm whitespace-nowrap" suppressHydrationWarning>
                     {formatDateTime(info.getValue())}
                 </span>
             ),
@@ -158,7 +158,7 @@ const columns = (
         }),
         columnHelper.accessor((row) => row.thread.created_at_ms ?? row.thread.created_at * 1000, {
             cell: (info) => (
-                <span className="whitespace-nowrap text-sm" suppressHydrationWarning>
+                <span className="text-sm whitespace-nowrap" suppressHydrationWarning>
                     {formatDateTime(info.getValue())}
                 </span>
             ),
@@ -172,14 +172,14 @@ const columns = (
         }),
         columnHelper.accessor((row) => row.thread.tokens_used, {
             cell: (info) => (
-                <span className="whitespace-nowrap font-mono text-sm">{formatTokens(info.getValue())}</span>
+                <span className="font-mono text-sm whitespace-nowrap">{formatTokens(info.getValue())}</span>
             ),
             header: 'Tokens',
             id: 'tokens',
         }),
         columnHelper.accessor((row) => row.rolloutSizeBytes, {
             cell: (info) => (
-                <span className="whitespace-nowrap font-mono text-sm">{formatBytes(info.getValue() ?? 0)}</span>
+                <span className="font-mono text-sm whitespace-nowrap">{formatBytes(info.getValue() ?? 0)}</span>
             ),
             header: 'Size',
             id: 'size',

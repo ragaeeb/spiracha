@@ -38,14 +38,14 @@ const CursorThreadTitleCell = ({ depth, thread }: { depth: number; thread: Curso
             thread.snapshotCount > 1 ? (
                 thread.latestSnapshotComposerId && thread.latestSnapshotComposerId !== thread.composerId ? (
                     <Link
-                        className="block truncate text-[var(--accent)] text-xs hover:underline"
+                        className="block truncate text-xs text-[var(--accent)] hover:underline"
                         params={{ composerId: thread.latestSnapshotComposerId }}
                         to="/cursor-threads/$composerId"
                     >
                         Older moved snapshot · open latest
                     </Link>
                 ) : (
-                    <p className="truncate text-[var(--muted-foreground)] text-xs">
+                    <p className="truncate text-xs text-[var(--muted-foreground)]">
                         Latest moved snapshot · {formatNumber(thread.snapshotCount)} physical records
                     </p>
                 )
@@ -92,7 +92,7 @@ const columns = (
         }),
         columnHelper.accessor('lastUpdatedAtMs', {
             cell: (info) => (
-                <span className="whitespace-nowrap text-sm" suppressHydrationWarning>
+                <span className="text-sm whitespace-nowrap" suppressHydrationWarning>
                     {formatDateTime(info.getValue())}
                 </span>
             ),
@@ -101,7 +101,7 @@ const columns = (
         }),
         columnHelper.accessor('createdAtMs', {
             cell: (info) => (
-                <span className="whitespace-nowrap text-sm" suppressHydrationWarning>
+                <span className="text-sm whitespace-nowrap" suppressHydrationWarning>
                     {formatDateTime(info.getValue())}
                 </span>
             ),
@@ -117,7 +117,7 @@ const columns = (
                 <div className="space-y-1 text-sm">
                     <div>{info.getValue() ? formatModelLabel(info.getValue()) : 'unknown'}</div>
                     {info.row.original.reasoningEffort ? (
-                        <div className="text-[var(--muted-foreground)] text-xs">
+                        <div className="text-xs text-[var(--muted-foreground)]">
                             {info.row.original.reasoningEffort} reasoning
                         </div>
                     ) : null}

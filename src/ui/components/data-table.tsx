@@ -235,7 +235,7 @@ export function DataTable<TData extends RowData>({
             )}
         >
             {renderToolbar ? (
-                <div className="border-[var(--border)] border-b px-3 py-2">
+                <div className="border-b border-[var(--border)] px-3 py-2">
                     {renderToolbar({
                         clearSelection: () => setRowSelection({}),
                         hiddenSelectedCount,
@@ -251,7 +251,7 @@ export function DataTable<TData extends RowData>({
                             {headerGroup.headers.map((header) => (
                                 <TableHead
                                     key={header.id}
-                                    className="h-9 whitespace-nowrap px-3 font-semibold text-[11px] text-[var(--muted-foreground)] uppercase tracking-[0.18em]"
+                                    className="h-9 px-3 text-[11px] font-semibold tracking-[0.18em] whitespace-nowrap text-[var(--muted-foreground)] uppercase"
                                 >
                                     {header.isPlaceholder ? null : header.column.getCanSort() ? (
                                         <button
@@ -278,7 +278,7 @@ export function DataTable<TData extends RowData>({
                     {visibleRows.length === 0 ? (
                         <TableRow className="border-[var(--border)]">
                             <TableCell
-                                className="px-3 py-8 text-center text-[var(--muted-foreground)] text-sm"
+                                className="px-3 py-8 text-center text-sm text-[var(--muted-foreground)]"
                                 colSpan={tableColumns.length}
                             >
                                 {emptyMessage}
@@ -314,8 +314,8 @@ export function DataTable<TData extends RowData>({
                 </TableBody>
             </Table>
             {table.getCanNextPage() ? (
-                <div className="flex items-center justify-between border-[var(--border)] border-t px-3 py-2">
-                    <span className="text-[var(--muted-foreground)] text-sm">
+                <div className="flex items-center justify-between border-t border-[var(--border)] px-3 py-2">
+                    <span className="text-sm text-[var(--muted-foreground)]">
                         Showing {visibleRows.length} of {table.getRowCount()}
                     </span>
                     <Button

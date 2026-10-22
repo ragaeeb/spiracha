@@ -192,7 +192,7 @@ export const TranscriptSearchPanel = ({
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                    <span className="min-w-20 text-right text-[var(--muted-foreground)] text-sm">{statusLabel}</span>
+                    <span className="min-w-20 text-right text-sm text-[var(--muted-foreground)]">{statusLabel}</span>
                     <Button
                         aria-label="Previous search result"
                         className="rounded-full"
@@ -226,16 +226,16 @@ export const TranscriptSearchPanel = ({
                         <button
                             key={result.eventKey}
                             aria-current={index === activeResultIndex ? 'true' : undefined}
-                            className="block w-full border-[var(--border)] border-b px-3 py-2.5 text-left transition last:border-b-0 hover:bg-[var(--panel)] aria-current:bg-[var(--panel)]"
+                            className="block w-full border-b border-[var(--border)] px-3 py-2.5 text-left transition last:border-b-0 hover:bg-[var(--panel)] aria-current:bg-[var(--panel)]"
                             type="button"
                             onClick={() => onJumpToResult(index)}
                         >
                             <span className="flex flex-wrap items-center gap-2">
-                                <span className="font-medium text-sm">Message {result.messageNumber}</span>
+                                <span className="text-sm font-medium">Message {result.messageNumber}</span>
                                 <Badge variant="outline">{result.roleLabel}</Badge>
                                 {result.phase ? <Badge variant="outline">{result.phase}</Badge> : null}
                             </span>
-                            <span className="mt-1 block min-w-0 break-words text-[var(--muted-foreground)] text-sm leading-5 [overflow-wrap:anywhere]">
+                            <span className="mt-1 block min-w-0 text-sm leading-5 [overflow-wrap:anywhere] break-words text-[var(--muted-foreground)]">
                                 {result.snippet}
                             </span>
                         </button>

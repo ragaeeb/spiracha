@@ -102,14 +102,14 @@ export function AppShell({ children }: PropsWithChildren) {
     return (
         <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
             <div className="flex min-h-screen w-full flex-col lg:flex-row">
-                <aside className="border-[var(--border)] border-b bg-[var(--panel)]/90 px-4 py-4 backdrop-blur lg:sticky lg:top-0 lg:h-screen lg:w-[220px] lg:border-r lg:border-b-0 lg:px-4">
+                <aside className="border-b border-[var(--border)] bg-[var(--panel)]/90 px-4 py-4 backdrop-blur lg:sticky lg:top-0 lg:h-screen lg:w-[220px] lg:border-r lg:border-b-0 lg:px-4">
                     <div className="flex items-start justify-between gap-3 lg:flex-col lg:items-stretch">
                         <div className="space-y-1">
-                            <p className="font-semibold text-[10px] text-[var(--muted-foreground)] uppercase tracking-[0.18em]">
+                            <p className="text-[10px] font-semibold tracking-[0.18em] text-[var(--muted-foreground)] uppercase">
                                 Spiracha <span className="tracking-normal">v{packageMetadata.version}</span>
                             </p>
                             <div className="flex items-center gap-2">
-                                <h1 className="font-['IBM_Plex_Sans'] font-semibold text-base tracking-[-0.02em]">
+                                <h1 className="font-['IBM_Plex_Sans'] text-base font-semibold tracking-[-0.02em]">
                                     Spiracha Console
                                 </h1>
                                 {packageMetadata.homepage ? (
@@ -136,7 +136,7 @@ export function AppShell({ children }: PropsWithChildren) {
                             />
                             <input
                                 aria-label="Search projects"
-                                className="h-8 w-full rounded-lg border border-[var(--border)] bg-[var(--panel-secondary)] pr-3 pl-9 text-xs outline-none transition placeholder:text-[var(--muted-foreground)] focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)]/20"
+                                className="h-8 w-full rounded-lg border border-[var(--border)] bg-[var(--panel-secondary)] pr-3 pl-9 text-xs transition outline-none placeholder:text-[var(--muted-foreground)] focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)]/20"
                                 placeholder="Search projects"
                                 type="search"
                                 value={projectQuery}

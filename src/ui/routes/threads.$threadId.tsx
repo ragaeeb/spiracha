@@ -211,7 +211,7 @@ const buildRelationItems = (snapshot: ThreadSnapshot) => {
                 {snapshot.relations.childEdges.map((edge) => (
                     <Link
                         key={edge.child_thread_id}
-                        className="rounded-full border border-[var(--border)] px-3 py-1 text-[var(--accent)] text-xs"
+                        className="rounded-full border border-[var(--border)] px-3 py-1 text-xs text-[var(--accent)]"
                         params={{ threadId: edge.child_thread_id }}
                         to="/threads/$threadId"
                     >
@@ -395,14 +395,14 @@ function DeferredTranscriptNotice({
 }) {
     return (
         <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 shadow-[var(--panel-shadow)]">
-            <h3 className="font-semibold text-base">
+            <h3 className="text-base font-semibold">
                 {missing
                     ? 'Transcript file missing'
                     : unavailable
                       ? 'Transcript history unavailable'
                       : 'This is a very big thread'}
             </h3>
-            <p className="mt-1.5 text-[var(--muted-foreground)] text-sm leading-6">
+            <p className="mt-1.5 text-sm leading-6 text-[var(--muted-foreground)]">
                 {missing
                     ? 'The rollout JSONL referenced by this thread is no longer present on disk. Export may still work if the file is restored, but transcript browsing is unavailable right now.'
                     : unavailable
@@ -441,8 +441,8 @@ function LargeThreadPreviewNotice({
 
     return (
         <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 shadow-[var(--panel-shadow)]">
-            <h3 className="font-semibold text-base">Showing the latest matching messages</h3>
-            <p className="mt-1.5 text-[var(--muted-foreground)] text-sm leading-6">
+            <h3 className="text-base font-semibold">Showing the latest matching messages</h3>
+            <p className="mt-1.5 text-sm leading-6 text-[var(--muted-foreground)]">
                 This rollout is {formatBytes(fileSizeBytes)}, so Spiracha loaded a small window from the end of the
                 thread using the current transcript filters. Load the full thread when you need earlier messages.
             </p>
@@ -632,7 +632,7 @@ function ThreadTranscriptTab({
                 />
             )}
             {loadError ? (
-                <p className="text-[var(--destructive)] text-sm">
+                <p className="text-sm text-[var(--destructive)]">
                     Failed to load transcript preview:{' '}
                     {loadError instanceof Error ? loadError.message : 'Unknown error'}
                 </p>

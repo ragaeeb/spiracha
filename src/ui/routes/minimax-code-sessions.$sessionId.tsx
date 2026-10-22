@@ -223,7 +223,7 @@ const MiniMaxCodeSessionDetailPage = () => {
                         />
                     ) : (
                         <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 shadow-[var(--panel-shadow)]">
-                            <p className="text-[var(--muted-foreground)] text-sm">
+                            <p className="text-sm text-[var(--muted-foreground)]">
                                 No renderable MiniMax Code transcript content was found for this session.
                             </p>
                         </section>

@@ -29,7 +29,7 @@ export const WebChatDropzone = ({ disabled, onFiles }: WebChatDropzoneProps) => 
         <fieldset
             aria-label="Web chat file drop zone"
             className={cn(
-                'rounded-2xl border-2 border-[var(--border)] border-dashed bg-[var(--panel)] p-8 text-center transition-colors',
+                'rounded-2xl border-2 border-dashed border-[var(--border)] bg-[var(--panel)] p-8 text-center transition-colors',
                 dragging && 'border-[var(--accent)] bg-[var(--accent-muted)]/40',
             )}
             onDragEnter={(event) => {
@@ -49,10 +49,10 @@ export const WebChatDropzone = ({ disabled, onFiles }: WebChatDropzoneProps) => 
         >
             <Upload aria-hidden="true" className="mx-auto size-8 text-[var(--accent)]" />
             <p className="mt-3 font-semibold">{disabled ? 'Importing chats…' : 'Drop exported chats here'}</p>
-            <p className="mt-1 text-[var(--muted-foreground)] text-sm">
+            <p className="mt-1 text-sm text-[var(--muted-foreground)]">
                 ChatGPT, Claude, Gemini, Grok, Qwen, GLM, and compatible JSON exports.
             </p>
-            <label className="mt-4 inline-flex cursor-pointer rounded-full border border-[var(--border)] px-4 py-2 font-medium text-sm transition-colors hover:bg-[var(--panel-secondary)]">
+            <label className="mt-4 inline-flex cursor-pointer rounded-full border border-[var(--border)] px-4 py-2 text-sm font-medium transition-colors hover:bg-[var(--panel-secondary)]">
                 Choose JSON files
                 <input
                     aria-label="Import web chat JSON files"

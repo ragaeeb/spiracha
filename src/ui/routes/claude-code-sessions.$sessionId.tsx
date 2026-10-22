@@ -127,10 +127,10 @@ function ClaudeCodeRawPanels({ detail, events }: { detail: ClaudeCodeSessionTran
     if (detail.rawPayloadsOmitted) {
         return (
             <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 shadow-[var(--panel-shadow)]">
-                <h3 className="font-semibold text-[var(--muted-foreground)] text-sm uppercase tracking-[0.18em]">
+                <h3 className="text-sm font-semibold tracking-[0.18em] text-[var(--muted-foreground)] uppercase">
                     Raw payloads omitted
                 </h3>
-                <p className="mt-3 text-[var(--muted-foreground)] text-sm">
+                <p className="mt-3 text-sm text-[var(--muted-foreground)]">
                     This Claude Code session is large, so raw JSON payload copies were omitted from the browser detail
                     response. Export still reads the full source session from disk.
                 </p>
@@ -167,8 +167,8 @@ const ClaudeCodeTranscriptPreviewNotice = ({
 
     return (
         <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 shadow-[var(--panel-shadow)]">
-            <h3 className="font-semibold text-base">Showing a compact transcript preview</h3>
-            <p className="mt-1.5 text-[var(--muted-foreground)] text-sm leading-6">
+            <h3 className="text-base font-semibold">Showing a compact transcript preview</h3>
+            <p className="mt-1.5 text-sm leading-6 text-[var(--muted-foreground)]">
                 Spiracha omitted {formatNumber(omittedEntryCount)} internal transcript entries from the initial page
                 load. The preview keeps the beginning and latest activity.
             </p>
@@ -394,7 +394,7 @@ function ClaudeCodeSessionDetailPage() {
                         />
                     ) : null}
                     {fullTranscriptQuery.isError ? (
-                        <p className="text-[var(--destructive)] text-sm">
+                        <p className="text-sm text-[var(--destructive)]">
                             Failed to load the full transcript:{' '}
                             {fullTranscriptQuery.error instanceof Error
                                 ? fullTranscriptQuery.error.message
@@ -427,10 +427,10 @@ function ClaudeCodeSessionDetailPage() {
                         />
                     ) : (
                         <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 shadow-[var(--panel-shadow)]">
-                            <h3 className="font-semibold text-[var(--muted-foreground)] text-xs uppercase tracking-[0.18em]">
+                            <h3 className="text-xs font-semibold tracking-[0.18em] text-[var(--muted-foreground)] uppercase">
                                 Transcript
                             </h3>
-                            <p className="mt-3 text-[var(--muted-foreground)] text-sm">
+                            <p className="mt-3 text-sm text-[var(--muted-foreground)]">
                                 No renderable Claude Code transcript content was found for this session.
                             </p>
                         </section>
