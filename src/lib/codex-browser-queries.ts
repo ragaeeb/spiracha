@@ -19,6 +19,7 @@ import {
     decodeThreadSpawnEdgeRow,
     getThreadHierarchyById,
     getUserVisibleThreadFilter,
+    hasRegularFile,
     normalizeThreadDisplayText,
     parseDynamicToolRow,
     readDbThreadIds,
@@ -57,7 +58,7 @@ import type { ThreadRelations, ThreadRow } from './codex-thread-types';
 import { mapWithConcurrency } from './concurrency';
 import { normalizeConversationPath } from './conversation-data/path-match';
 import { getPortablePathBasename } from './portable-path';
-import { readJsonlObjects } from './shared';
+import { readDirectoryEntriesIfExists, readJsonlObjects } from './shared';
 import { asObject } from './shared-text';
 
 const SQLITE_DELETE_BATCH_SIZE = 400;
@@ -619,36 +620,45 @@ const readRolloutStart = async (sessionFile: string) => {
     return { id: null, ordinal: null };
 };
 
-const matchesRolloutId = (sessionFile: string, requestedId: string, metadataId: unknown) => {
+const readCodexRolloutCandidate = async (sessionFile: string, requestedId: string, ordinalExclusive: number) => {
+    const metadata = await readRolloutStart(sessionFile);
     const fileName = path.basename(sessionFile).replace(/\.zst$/u, '');
-    return (
-        metadataId === requestedId ||
-        (typeof metadataId === 'string' && fileName.endsWith(`-${metadataId}_${requestedId}.jsonl`))
-    );
+    if (
+        (metadata.id === requestedId ||
+            (typeof metadata.id === 'string' && fileName.endsWith(`-${metadata.id}_${requestedId}.jsonl`))) &&
+        typeof metadata.ordinal === 'number' &&
+        Number.isSafeInteger(metadata.ordinal) &&
+        metadata.ordinal >= 0 &&
+        metadata.ordinal < ordinalExclusive
+    ) {
+        return { ordinal: metadata.ordinal, sessionFile };
+    }
+    return null;
 };
 
 const resolveEarlierCodexRollout = async (dbPath: string, threadId: string, ordinalExclusive: number) => {
     const candidates: { ordinal: number; sessionFile: string }[] = [];
     const codexDir = resolveCodexDirFromDbPath(dbPath);
     for (const directory of ['sessions', 'archived_sessions']) {
+        const directoryPath = path.join(codexDir, directory);
+        if ((await readDirectoryEntriesIfExists(directoryPath)).length === 0) {
+            continue;
+        }
         const files = new Bun.Glob('**/*.jsonl{,.zst}').scan({
             absolute: true,
-            cwd: path.join(codexDir, directory),
+            cwd: directoryPath,
             onlyFiles: true,
         });
         for await (const sessionFile of files) {
-            if (!path.basename(sessionFile).includes(threadId)) {
+            if (
+                !path.basename(sessionFile).includes(threadId) ||
+                (sessionFile.endsWith('.zst') && hasRegularFile(sessionFile.slice(0, -4)))
+            ) {
                 continue;
             }
-            const metadata = await readRolloutStart(sessionFile);
-            if (
-                matchesRolloutId(sessionFile, threadId, metadata.id) &&
-                typeof metadata.ordinal === 'number' &&
-                Number.isSafeInteger(metadata.ordinal) &&
-                metadata.ordinal >= 0 &&
-                metadata.ordinal < ordinalExclusive
-            ) {
-                candidates.push({ ordinal: metadata.ordinal, sessionFile });
+            const candidate = await readCodexRolloutCandidate(sessionFile, threadId, ordinalExclusive);
+            if (candidate) {
+                candidates.push(candidate);
             }
         }
     }

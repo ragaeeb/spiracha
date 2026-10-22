@@ -71,9 +71,12 @@ export const parseClaudeCodePayload = (
     value: unknown,
     _sourceHint?: ConversationPayloadSource,
 ): PayloadConversationDraft[] | null => {
-    const records = (Array.isArray(value) ? value : [value]).filter(isRecord);
+    const records = Array.isArray(value) ? value : [value];
     if (!records.some(isClaudeCodeSessionEvent)) {
         return null;
+    }
+    if (!records.every(isRecord)) {
+        throw new Error('Claude Code session records must be objects.');
     }
     return [...groupBySession(records)].map(([sessionId, events]) => toDraft(sessionId, events));
 };

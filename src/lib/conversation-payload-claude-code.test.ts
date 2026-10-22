@@ -89,6 +89,21 @@ describe('parseClaudeCodePayload', () => {
         const drafts = parseClaudeCodePayload([...sessionEvents(), ...sessionEvents('second-session')])!;
         expect(drafts.map((draft) => draft.id)).toEqual([SESSION, 'second-session']);
     });
+
+    it.each([{ type: 'file-history-snapshot' }, { sessionId: '', type: 'summary' }])(
+        'should associate anonymous metadata %p with the preceding session',
+        (record) => {
+            const drafts = parseClaudeCodePayload([
+                ...sessionEvents(),
+                { ...record, timestamp: '2026-10-14T16:02:00.000Z' },
+                ...sessionEvents('second-session'),
+            ])!;
+
+            expect(drafts.map((draft) => draft.id)).toEqual([SESSION, 'second-session']);
+            expect(drafts[0]?.updatedAtMs).toBe(Date.parse('2026-10-14T16:02:00.000Z'));
+            expect(drafts[1]?.updatedAtMs).toBe(Date.parse('2026-10-14T16:01:00.000Z'));
+        },
+    );
 });
 
 describe('convertConversationPayload with Claude Code JSONL', () => {

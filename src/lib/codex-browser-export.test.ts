@@ -295,6 +295,64 @@ describe('renderCodexThreadDownload', () => {
         expect(download.content).not.toContain('Export notice');
     });
 
+    it('should prefer a plain history page over its compressed sibling', async () => {
+        const { child, fixture, parentOriginal } = await preparePaginatedFork();
+        const stale = (await Bun.file(parentOriginal).text()).replace(
+            'Inherited parent answer',
+            'Stale compressed answer',
+        );
+        await Bun.write(`${parentOriginal}.zst`, Bun.zstdCompressSync(Buffer.from(stale)));
+
+        const download = await renderCodexThreadDownload({
+            dbPath: fixture.dbPath,
+            includeCommentary: true,
+            includeMetadata: false,
+            includeTools: false,
+            outputFormat: 'md',
+            threadId: child.threadId,
+        });
+
+        expect(download.mode).toBe('download');
+        if (download.mode !== 'download') {
+            throw new Error('expected an inline download');
+        }
+        expect(download.content).toContain('Inherited parent answer');
+        expect(download.content).not.toContain('Stale compressed answer');
+    });
+
+    it.each(['sessions', 'archived_sessions'])(
+        'should tolerate missing rollout history when %s is absent',
+        async (directory) => {
+            const { child, childCurrent, fixture, tempRoot } = await preparePaginatedFork();
+            const current = path.join(tempRoot, 'current.jsonl');
+            await rename(childCurrent, current);
+            await rm(child.sessionFile);
+            await rm(path.join(tempRoot, directory), { force: true, recursive: true });
+            const db = new Database(fixture.dbPath);
+            try {
+                db.query('UPDATE threads SET rollout_path = ? WHERE id = ?').run(current, child.threadId);
+            } finally {
+                db.close();
+            }
+
+            const download = await renderCodexThreadDownload({
+                dbPath: fixture.dbPath,
+                includeCommentary: true,
+                includeMetadata: false,
+                includeTools: false,
+                outputFormat: 'md',
+                threadId: child.threadId,
+            });
+
+            expect(download.mode).toBe('download');
+            if (download.mode !== 'download') {
+                throw new Error('expected an inline download');
+            }
+            expect(download.content).toContain('Child answer after resuming');
+            expect(download.content).toContain('before ordinal 5 is unavailable');
+        },
+    );
+
     it('should include compressed continuations in batch exports when earlier rollout pages are gone', async () => {
         const { child, childCurrent, fixture, tempRoot } = await preparePaginatedFork();
         await rm(child.sessionFile);
@@ -603,11 +661,23 @@ describe('renderCodexThreadDownload', () => {
         await reader.close();
     });
 
-    it('should preserve raw JSON bytes with source and conversation filenames', async () => {
+    it.each([false, true])('should preserve raw JSON bytes (compressed: %s)', async (compressed) => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-browser-export-raw-test-'));
         tempPaths.push(tempRoot);
         const fixture = await createCodexBrowserFixture(tempRoot);
         const selectedThreads = fixture.threads.slice(0, 2);
+        const expected = await Promise.all(
+            selectedThreads.map(async (thread) => {
+                const text = `${(await Bun.file(thread.sessionFile).text()).replaceAll('\n', '\r\n')}\r\n`;
+                if (compressed) {
+                    await Bun.write(`${thread.sessionFile}.zst`, Bun.zstdCompressSync(Buffer.from(text)));
+                    await rm(thread.sessionFile);
+                } else {
+                    await Bun.write(thread.sessionFile, text);
+                }
+                return text;
+            }),
+        );
         const singleDownload = await renderCodexThreadDownload({
             dbPath: fixture.dbPath,
             includeCommentary: false,
@@ -625,7 +695,7 @@ describe('renderCodexThreadDownload', () => {
         if (singleDownload.mode !== 'download') {
             throw new Error('expected inline raw download');
         }
-        expect(singleDownload.content).toBe(await Bun.file(selectedThreads[0]!.sessionFile).text());
+        expect(singleDownload.content).toBe(expected[0]);
 
         const download = await renderCodexThreadsDownload({
             dbPath: fixture.dbPath,
@@ -647,9 +717,37 @@ describe('renderCodexThreadDownload', () => {
         expect(entries).toEqual(
             [...selectedThreads.map((thread) => `codex-${thread.threadId}.json`), 'spiracha-manifest.json'].sort(),
         );
-        await expect(readZipEntry(zipPath, `codex-${selectedThreads[0]!.threadId}.json`)).resolves.toBe(
-            await Bun.file(selectedThreads[0]!.sessionFile).text(),
-        );
+        await expect(readZipEntry(zipPath, `codex-${selectedThreads[0]!.threadId}.json`)).resolves.toBe(expected[0]);
+    });
+
+    it('should archive compressed raw exports based on their decoded size', async () => {
+        const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-export-decoded-size-test-'));
+        tempPaths.push(tempRoot);
+        const fixture = await createCodexFixture(tempRoot);
+        await appendLargeAssistantRecord(fixture.sessionFile);
+        const expected = await Bun.file(fixture.sessionFile).text();
+        const compressedPath = `${fixture.sessionFile}.zst`;
+        await Bun.write(compressedPath, Bun.zstdCompressSync(Buffer.from(expected)));
+        await rm(fixture.sessionFile);
+
+        const download = await renderCodexThreadDownload({
+            dbPath: fixture.dbPath,
+            includeCommentary: false,
+            includeMetadata: false,
+            includeTools: false,
+            largeExportThresholdBytes: Bun.file(compressedPath).size + 1,
+            outputFormat: 'json',
+            publicExportDir: tempRoot,
+            threadId: fixture.threadId,
+        });
+
+        expect(download.mode).toBe('download_url');
+        if (download.mode !== 'download_url') {
+            throw new Error('expected an archive based on decoded size');
+        }
+        const zipPath = path.join(tempRoot, path.basename(download.downloadUrl));
+        const entries = await listZipEntries(zipPath);
+        expect(await readZipEntry(zipPath, entries[0]!)).toBe(expected);
     });
 
     it('should apply project-root conversion and username redaction to exported content', async () => {
