@@ -246,7 +246,7 @@ const GrokBotChatPage = () => {
                             showUserMessages={transcriptDisplay.showUserMessages}
                         />
                     ) : (
-                        <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 text-[var(--muted-foreground)] text-sm">
+                        <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 text-sm text-[var(--muted-foreground)]">
                             No renderable text messages are available in this Grok Bot replica.
                         </section>
                     )}

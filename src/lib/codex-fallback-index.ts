@@ -7,7 +7,7 @@ import {
     compareThreadsByRecentActivity,
     getThreadUpdatedAtMs,
     resolveCodexDirFromDbPath,
-    resolveCodexRolloutPath,
+    resolveCodexTranscriptPath,
 } from './codex-database';
 import type { ThreadRow } from './codex-thread-types';
 import { mapWithConcurrency } from './concurrency';
@@ -779,7 +779,7 @@ export const applyRolloutActivityTimestamps = async <T extends ActivityTimestamp
     threads: T[],
 ): Promise<T[]> => {
     const activeThreads = await mapWithConcurrency(threads, THREAD_LIST_IO_CONCURRENCY, async (thread): Promise<T> => {
-        const rolloutPath = resolveCodexRolloutPath(dbPath, thread.rollout_path);
+        const rolloutPath = resolveCodexTranscriptPath(dbPath, thread.rollout_path);
         const normalizedThread =
             rolloutPath === thread.rollout_path ? thread : { ...thread, rollout_path: rolloutPath };
         let rolloutUpdatedAtMs = getThreadUpdatedAtMs(thread);

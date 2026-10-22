@@ -9,7 +9,7 @@ export function ProjectsLoadingState() {
     return (
         <div aria-busy="true" aria-live="polite" className="space-y-4">
             <PageHeader
-                actions={<Skeleton className="h-10 w-full min-w-[16rem] max-w-[20rem]" />}
+                actions={<Skeleton className="h-10 w-full max-w-[20rem] min-w-[16rem]" />}
                 eyebrow="Inventory"
                 subtitle="Reading the local Codex database and checking fallback session files."
                 title="Codex"
@@ -25,11 +25,11 @@ export function ProjectsLoadingState() {
             <div className="w-full overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--panel)]">
                 <table className="w-full min-w-[56rem]">
                     <thead className="bg-[var(--panel-secondary)]">
-                        <tr className="border-[var(--border)] border-b">
+                        <tr className="border-b border-[var(--border)]">
                             {loadingColumns.map((column) => (
                                 <th
                                     key={column}
-                                    className="h-9 whitespace-nowrap px-3 text-left font-semibold text-[11px] text-[var(--muted-foreground)] uppercase tracking-[0.18em]"
+                                    className="h-9 px-3 text-left text-[11px] font-semibold tracking-[0.18em] whitespace-nowrap text-[var(--muted-foreground)] uppercase"
                                 >
                                     {column}
                                 </th>
@@ -41,7 +41,7 @@ export function ProjectsLoadingState() {
                             <tr
                                 key={rowId}
                                 aria-label={`Loading project row ${rowIndex + 1}`}
-                                className="border-[var(--border)] border-b last:border-b-0"
+                                className="border-b border-[var(--border)] last:border-b-0"
                             >
                                 <td className="px-3 py-2">
                                     <div className="space-y-2">

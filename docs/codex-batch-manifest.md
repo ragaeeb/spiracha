@@ -7,28 +7,28 @@ uses that same producer.
 
 Every generated manifest includes:
 
-| Field | Meaning |
-| --- | --- |
-| `schemaVersion` | Always `1`. |
-| `kind` | Producer kind such as `batch_normalized_export` or `batch_original_raw`. |
-| `source` | Conversation source or UI platform id. |
-| `failurePolicy` | `atomic` or `partial`. |
-| `options` | Request options recorded by the producer (selector, format, and similar). |
-| `requestedCount` | Number of requested IDs / entries. |
-| `successCount` | Entries with `status: "exported"`. |
-| `failedCount` | Entries with `status: "failed"`. |
-| `missingCount` | Entries with `status: "missing"`. |
-| `entries` | One outcome per requested id, in request order. |
+| Field            | Meaning                                                                   |
+| ---------------- | ------------------------------------------------------------------------- |
+| `schemaVersion`  | Always `1`.                                                               |
+| `kind`           | Producer kind such as `batch_normalized_export` or `batch_original_raw`.  |
+| `source`         | Conversation source or UI platform id.                                    |
+| `failurePolicy`  | `atomic` or `partial`.                                                    |
+| `options`        | Request options recorded by the producer (selector, format, and similar). |
+| `requestedCount` | Number of requested IDs / entries.                                        |
+| `successCount`   | Entries with `status: "exported"`.                                        |
+| `failedCount`    | Entries with `status: "failed"`.                                          |
+| `missingCount`   | Entries with `status: "missing"`.                                         |
+| `entries`        | One outcome per requested id, in request order.                           |
 
 Each entry contains:
 
-| Field | Meaning |
-| --- | --- |
-| `requestedId` | The requested conversation or thread id. |
-| `status` | `exported`, `failed`, or `missing`. |
-| `memberNames` | Final archive member names for that id (empty when not exported). |
-| `error` | `{ code, message }` for failed/missing entries, otherwise `null`. |
-| `omissionSummary` | Optional human summary of omitted content, otherwise `null`. |
+| Field             | Meaning                                                           |
+| ----------------- | ----------------------------------------------------------------- |
+| `requestedId`     | The requested conversation or thread id.                          |
+| `status`          | `exported`, `failed`, or `missing`.                               |
+| `memberNames`     | Final archive member names for that id (empty when not exported). |
+| `error`           | `{ code, message }` for failed/missing entries, otherwise `null`. |
+| `omissionSummary` | Optional human summary of omitted content, otherwise `null`.      |
 
 Treat `memberNames` as the authoritative filenames. Sanitization, UTF-8 byte
 bounds, and collision suffixes can change a title-derived name; the generated

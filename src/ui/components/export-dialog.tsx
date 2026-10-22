@@ -88,7 +88,7 @@ type OutputFormatSelectProps = {
 
 const OutputFormatSelect = ({ available, format, onChange }: OutputFormatSelectProps) => (
     <div className="space-y-2">
-        <label className="font-medium text-sm" htmlFor="output-format">
+        <label className="text-sm font-medium" htmlFor="output-format">
             Output format
         </label>
         <Select value={format} onValueChange={(value) => onChange(value as ExportFormat)}>
@@ -129,8 +129,8 @@ const IncludeOption = ({ checked, description, disabled, label, onCheckedChange 
             onCheckedChange={(next) => onCheckedChange(next === true)}
         />
         <span className="space-y-1">
-            <span className="block font-medium text-sm">{label}</span>
-            <span className="block text-[var(--muted-foreground)] text-sm">{description}</span>
+            <span className="block text-sm font-medium">{label}</span>
+            <span className="block text-sm text-[var(--muted-foreground)]">{description}</span>
         </span>
     </div>
 );
@@ -154,8 +154,8 @@ const ZipControls = ({ effectiveZipArchive, options, zipDescriptionId, zipRequir
                 onCheckedChange={(checked) => onChange({ zipArchive: checked === true })}
             />
             <span className="space-y-1">
-                <span className="block font-medium text-sm">Zip archive</span>
-                <span className="block text-[var(--muted-foreground)] text-sm" id={zipDescriptionId}>
+                <span className="block text-sm font-medium">Zip archive</span>
+                <span className="block text-sm text-[var(--muted-foreground)]" id={zipDescriptionId}>
                     {zipRequired
                         ? 'Required when exporting multiple threads.'
                         : 'Downloads the exported transcript inside a .zip archive.'}
@@ -164,18 +164,18 @@ const ZipControls = ({ effectiveZipArchive, options, zipDescriptionId, zipRequir
         </div>
         {effectiveZipArchive ? (
             <div className="space-y-2 pl-7">
-                <label className="font-medium text-sm" htmlFor="zip-password">
+                <label className="text-sm font-medium" htmlFor="zip-password">
                     ZIP password (optional)
                 </label>
                 <input
                     autoComplete="new-password"
-                    className="flex h-9 w-full rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-[var(--foreground)] text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="focus-visible:ring-ring flex h-9 w-full rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm text-[var(--foreground)] outline-none focus-visible:ring-2"
                     id="zip-password"
                     onChange={(event) => onChange({ zipPassword: event.target.value })}
                     type="password"
                     value={options.zipPassword}
                 />
-                <p className="text-[var(--muted-foreground)] text-sm">
+                <p className="text-sm text-[var(--muted-foreground)]">
                     Uses AES-256 encryption. Leave blank for an unprotected archive.
                 </p>
             </div>
@@ -303,7 +303,7 @@ const getDownloadStateMessage = (state: DownloadLifecycleState) => {
 
 const DownloadStateMessage = ({ state }: { state: DownloadLifecycleState | null }) =>
     state ? (
-        <p aria-live="polite" className="text-[var(--muted-foreground)] text-sm" role="status">
+        <p aria-live="polite" className="text-sm text-[var(--muted-foreground)]" role="status">
             {getDownloadStateMessage(state)}
         </p>
     ) : null;
@@ -410,13 +410,13 @@ const ExportDialogStatus = ({ displayedError, downloadState, issues, skippedThre
     <>
         <DownloadStateMessage state={downloadState} />
         {skippedThreadCount > 0 ? (
-            <p aria-live="polite" className="text-[var(--muted-foreground)] text-sm" role="status">
+            <p aria-live="polite" className="text-sm text-[var(--muted-foreground)]" role="status">
                 Export completed with {skippedThreadCount} skipped {skippedThreadCount === 1 ? 'thread' : 'threads'}.
             </p>
         ) : null}
         <ExportIssueList issues={issues.skipped} label="Skipped threads" />
         <ExportIssueList issues={issues.partial} label="Exported without their earlier history" />
-        {displayedError ? <p className="text-[var(--destructive)] text-sm">{displayedError}</p> : null}
+        {displayedError ? <p className="text-sm text-[var(--destructive)]">{displayedError}</p> : null}
     </>
 );
 

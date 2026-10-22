@@ -414,8 +414,8 @@ const CursorWorkspaceRecoveryNotice = ({ workspace }: { workspace: CursorWorkspa
 
     return (
         <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] px-3 py-3">
-            <p className="font-medium text-sm">This workspace has threads in an older storage bucket.</p>
-            <p className="mt-1 text-[var(--muted-foreground)] text-xs">
+            <p className="text-sm font-medium">This workspace has threads in an older storage bucket.</p>
+            <p className="mt-1 text-xs text-[var(--muted-foreground)]">
                 Recover merges those threads into the active bucket Cursor reads now so they reappear in Chat History.
                 Quit Cursor before running it.
             </p>
@@ -441,7 +441,7 @@ const CursorWorkspaceErrors = ({
     return (
         <div className="space-y-1">
             {entries.map((message) => (
-                <p className="text-[var(--destructive)] text-sm" key={message}>
+                <p className="text-sm text-[var(--destructive)]" key={message}>
                     {message}
                 </p>
             ))}

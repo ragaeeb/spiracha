@@ -33,9 +33,11 @@ describe('payload SDK', () => {
     it('should reject malformed rows alongside valid rows for every source', async () => {
         const rowPaths: Record<string, string[]> = {
             antigravity: ['entries'],
+            'claude-code': [],
             cline: ['messages'],
             codex: [],
             cursor: ['bubbles'],
+            dot: [],
             fx: ['checkpoint', 'state', 'history'],
             grok: ['chat_history'],
             'grok-bot': ['value', 'entries'],
@@ -142,9 +144,11 @@ describe('payload SDK', () => {
         for (const payload of [null, 42, true, '', 'not json', '{"messages":', {}, [], { hello: 'world' }]) {
             await expect(convertConversationPayload({ payload })).rejects.toThrow();
         }
-        await expect(convertConversationPayload({ payload: {}, source: 'claude-code' as never })).rejects.toThrow(
-            'Claude Code',
-        );
+        await expect(
+            convertConversationPayload({ payload: {}, source: 'command-code' as never }),
+        ).rejects.toMatchObject({
+            code: 'unsupported_source',
+        });
         await expect(convertConversationPayload({ payload: {}, source: 'made-up' as never })).rejects.toThrow('source');
         await expect(convertConversationPayload({ messageSelector: 'made-up' as never, payload: {} })).rejects.toThrow(
             'selector',
@@ -165,7 +169,7 @@ describe('payload SDK', () => {
         ).rejects.toThrow();
     });
 
-    it('should reject native Claude Code JSONL while continuing to support Claude Web exports', async () => {
+    it('should convert native Claude Code JSONL while continuing to support Claude Web exports', async () => {
         const native = [
             {
                 message: { content: [{ text: 'Answer', type: 'text' }], role: 'assistant' },
@@ -174,7 +178,10 @@ describe('payload SDK', () => {
                 uuid: 'message',
             },
         ];
-        await expect(convertConversationPayload({ payload: native })).rejects.toThrow('Claude Code');
+        const converted = await convertConversationPayload({
+            payload: native.map((record) => JSON.stringify(record)).join('\n'),
+        });
+        expect(converted[0]).toMatchObject({ id: 'claude-session', source: 'claude-code' });
         const result = await convertConversationPayload({
             payload: {
                 chat_messages: [

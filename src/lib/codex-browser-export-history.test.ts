@@ -1,35 +1,15 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, type Mock, spyOn } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { renderCodexThreadDownload } from './codex-browser-export';
 import { createCodexBrowserFixture } from './codex-test-helpers';
-import {
-    type CodexForkedThreadResolver,
-    CodexTranscriptHistoryError,
-    resolveCodexTranscriptSegments,
-} from './codex-thread-parser';
+import { CodexTranscriptHistoryError } from './codex-thread-parser';
+import * as transcriptRenderer from './codex-transcript-renderer';
 
 let mutateParent: (() => Promise<void>) | null = null;
-
-mock.module('./codex-transcript-renderer', () => ({
-    renderCodexSessionFileWithNotes: async (input: {
-        resolveForkedThread: CodexForkedThreadResolver;
-        sessionFile: string;
-    }) => {
-        await resolveCodexTranscriptSegments(input.sessionFile, input.resolveForkedThread);
-        await mutateParent?.();
-        return { content: 'rendered transcript', missingForkParents: [] };
-    },
-}));
-
-const { renderCodexThreadDownload } = await import('./codex-browser-export');
-
+const renderSession = transcriptRenderer.renderCodexSessionFileWithNotes;
 const tempPaths: string[] = [];
-
-afterEach(async () => {
-    mutateParent = null;
-    await Promise.all(tempPaths.splice(0).map((tempPath) => rm(tempPath, { force: true, recursive: true })));
-});
 
 const prepareForkedFixture = async (tempRoot: string) => {
     const fixture = await createCodexBrowserFixture(tempRoot);
@@ -69,6 +49,25 @@ const exportForkedThread = (dbPath: string, threadId: string) =>
     });
 
 describe('Codex bounded ancestry export fingerprint', () => {
+    let renderSpy: Mock<typeof renderSession> | null = null;
+
+    beforeEach(() => {
+        renderSpy = spyOn(transcriptRenderer, 'renderCodexSessionFileWithNotes').mockImplementation(
+            async (target, options) => {
+                const rendered = await renderSession(target, options);
+                await mutateParent?.();
+                return rendered;
+            },
+        );
+    });
+
+    afterEach(async () => {
+        renderSpy?.mockRestore();
+        renderSpy = null;
+        mutateParent = null;
+        await Promise.all(tempPaths.splice(0).map((tempPath) => rm(tempPath, { force: true, recursive: true })));
+    });
+
     it('should ignore parent appends beyond the fork boundary', async () => {
         const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'codex-export-bounded-history-append-test-'));
         tempPaths.push(tempRoot);
@@ -87,7 +86,7 @@ describe('Codex bounded ancestry export fingerprint', () => {
         if (download.mode !== 'download') {
             throw new Error('expected an inline download');
         }
-        expect(download.content).toBe('rendered transcript');
+        expect(download.content).toContain('Stabilized the transcript parsing and export formatting.');
     });
 
     it('should still reject changes to parent content before the fork boundary', async () => {

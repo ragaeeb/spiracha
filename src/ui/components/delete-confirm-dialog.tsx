@@ -83,13 +83,13 @@ export function DeleteConfirmDialog({
                             <label className="block font-medium" htmlFor={checkboxId}>
                                 {deleteSessionFilesLabel}
                             </label>
-                            <span className="block text-[var(--muted-foreground)] text-xs" id={checkboxDescriptionId}>
+                            <span className="block text-xs text-[var(--muted-foreground)]" id={checkboxDescriptionId}>
                                 {deleteSessionFilesDescription}
                             </span>
                         </span>
                     </div>
                 ) : null}
-                {errorMessage ? <p className="text-[var(--destructive)] text-sm">{errorMessage}</p> : null}
+                {errorMessage ? <p className="text-sm text-[var(--destructive)]">{errorMessage}</p> : null}
                 <AlertDialogFooter>
                     <AlertDialogCancel className="border-[var(--border)]">Cancel</AlertDialogCancel>
                     <Button

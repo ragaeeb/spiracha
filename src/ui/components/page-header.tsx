@@ -12,21 +12,21 @@ export function PageHeader({ actions, breadcrumb, eyebrow, subtitle, title }: Pa
     const hasHeading = Boolean(title || subtitle);
 
     return (
-        <div className="flex flex-col gap-3 border-[var(--border)] border-b pb-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="flex flex-col gap-3 border-b border-[var(--border)] pb-3 sm:flex-row sm:items-end sm:justify-between">
             <div className="space-y-1.5">
                 {breadcrumb ? <div>{breadcrumb}</div> : null}
                 {eyebrow ? (
-                    <p className="font-semibold text-[11px] text-[var(--muted-foreground)] uppercase tracking-[0.18em]">
+                    <p className="text-[11px] font-semibold tracking-[0.18em] text-[var(--muted-foreground)] uppercase">
                         {eyebrow}
                     </p>
                 ) : null}
                 {hasHeading ? (
                     <div>
                         {title ? (
-                            <h2 className="font-semibold text-xl tracking-[-0.03em] sm:text-2xl">{title}</h2>
+                            <h2 className="text-xl font-semibold tracking-[-0.03em] sm:text-2xl">{title}</h2>
                         ) : null}
                         {subtitle ? (
-                            <p className="mt-1 max-w-[60rem] whitespace-pre-wrap break-words text-[var(--muted-foreground)] text-sm">
+                            <p className="mt-1 max-w-[60rem] text-sm break-words whitespace-pre-wrap text-[var(--muted-foreground)]">
                                 {subtitle}
                             </p>
                         ) : null}

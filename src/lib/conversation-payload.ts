@@ -3,9 +3,11 @@ import { renderConversationMarkdown } from './conversation-data/markdown';
 import { selectConversationMessages } from './conversation-data/message-selector';
 import { CONVERSATION_SOURCES } from './conversation-data/types';
 import { parseAntigravityPayload } from './conversation-payload-antigravity';
+import { isClaudeCodeSessionEvent, parseClaudeCodePayload } from './conversation-payload-claude-code';
 import { parseClinePayload } from './conversation-payload-cline';
 import { parseCodexPayload } from './conversation-payload-codex';
 import { parseCursorPayload } from './conversation-payload-cursor';
+import { isDotTranscriptRecord, parseDotPayload } from './conversation-payload-dot';
 import { parseFxPayload } from './conversation-payload-fx';
 import { parseGrokPayload } from './conversation-payload-grok';
 import { parseGrokBotPayload } from './conversation-payload-grok-bot';
@@ -52,9 +54,11 @@ const MAX_PAYLOAD_BYTES = 25 * 1024 * 1024;
 
 const nativeParsers = {
     antigravity: parseAntigravityPayload,
+    'claude-code': parseClaudeCodePayload,
     cline: parseClinePayload,
     codex: parseCodexPayload,
     cursor: parseCursorPayload,
+    dot: parseDotPayload,
     fx: parseFxPayload,
     grok: parseGrokPayload,
     'grok-bot': parseGrokBotPayload,
@@ -80,6 +84,14 @@ const parsePayloadDrafts = async (
     }
     if (options.source) {
         return nativeParsers[options.source](value, options.source);
+    }
+    if ((Array.isArray(value) ? value : [value]).some(isDotTranscriptRecord)) {
+        return parseDotPayload(value);
+    }
+    // Claude Code session lines also satisfy Qoder's broad session-ID shape; they were
+    // claimed (and refused) before inference, so Claude Code keeps that precedence.
+    if ((Array.isArray(value) ? value : [value]).some(isClaudeCodeSessionEvent)) {
+        return parseClaudeCodePayload(value);
     }
     const candidates: Array<{ drafts: PayloadConversationDraft[]; source: string }> = [];
     for (const [source, parse] of Object.entries(nativeParsers)) {
@@ -153,33 +165,9 @@ const serializePayload = (value: unknown): string => {
     return serialized;
 };
 
-const isClaudeCodePayload = (value: unknown): boolean => {
-    const records = Array.isArray(value) ? value : [value];
-    return records.some((record) => {
-        if (typeof record !== 'object' || record === null || Array.isArray(record)) {
-            return false;
-        }
-        const candidate = record as Record<string, unknown>;
-        const message = candidate.message;
-        return (
-            typeof candidate.sessionId === 'string' &&
-            typeof candidate.uuid === 'string' &&
-            (candidate.type === 'user' || candidate.type === 'assistant') &&
-            typeof message === 'object' &&
-            message !== null &&
-            !Array.isArray(message) &&
-            (typeof (message as Record<string, unknown>).content === 'string' ||
-                Array.isArray((message as Record<string, unknown>).content))
-        );
-    });
-};
-
 const validateOptions = (options: ConvertConversationPayloadOptions) => {
     if (!options || typeof options !== 'object') {
         throw new ConversationPayloadError('invalid_input', 'Conversion options are required.');
-    }
-    if ((options.source as string) === 'claude-code') {
-        throw new ConversationPayloadError('unsupported_source', 'Claude Code payload conversion is not supported.');
     }
     if ((options.source as string) === 'command-code') {
         throw new ConversationPayloadError('unsupported_source', 'Command Code payload conversion is not supported.');
@@ -187,6 +175,7 @@ const validateOptions = (options: ConvertConversationPayloadOptions) => {
     if (
         options.source !== undefined &&
         options.source !== 'web' &&
+        options.source !== 'dot' &&
         !CONVERSATION_SOURCES.some((source) => source === options.source)
     ) {
         throw new ConversationPayloadError('unsupported_source', `Unknown payload source: ${options.source}.`);
@@ -246,9 +235,6 @@ export const convertConversationPayload = async (
     validateOptions(options);
     const value = decodePayload(options.payload);
     const serialized = serializePayload(value);
-    if ((!options.source || options.source === 'web') && isClaudeCodePayload(value)) {
-        throw new ConversationPayloadError('unsupported_source', 'Claude Code payload conversion is not supported.');
-    }
     let drafts: PayloadConversationDraft[] | null;
     try {
         drafts = await parsePayloadDrafts(value, options);

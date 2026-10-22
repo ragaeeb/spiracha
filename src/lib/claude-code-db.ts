@@ -2,19 +2,25 @@ import { readdir, stat, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { createBoundedFileCache } from './bounded-file-cache';
 import {
+    cleanLabel,
+    collectClaudeCodeEvents,
+    parseTimestampMs,
+    parseTranscriptEntry,
+    type SessionIdentity,
+    type SessionStats,
+    type SessionTimeline,
+    stripEntryRawPayloads,
+    toIso,
+    toTimeline,
+} from './claude-code-events';
+import {
     type ClaudeCodeSessionSummary,
     type ClaudeCodeSessionTranscript,
-    type ClaudeCodeTranscriptEntry,
-    type ClaudeCodeTranscriptPart,
     type ClaudeCodeWorkspaceGroup,
     getDefaultClaudeCodeDataDir,
     resolveClaudeCodeProjectsDir,
 } from './claude-code-exporter-types';
-import {
-    getClaudeCodeAssistantMessagePhase,
-    isClaudeCodeRawFlagEnabled,
-    isClaudeCodeSyntheticTranscriptEntry,
-} from './claude-code-transcript-phase';
+import { isClaudeCodeSyntheticTranscriptEntry } from './claude-code-transcript-phase';
 import { mapWithConcurrency } from './concurrency';
 import { getPortablePathBasename } from './portable-path';
 import {
@@ -23,15 +29,7 @@ import {
     readJsonlObjects,
     workspacePathMatchesQuery,
 } from './shared';
-import {
-    asBoolean,
-    asNumber,
-    asObject,
-    asString,
-    cleanExtractedText,
-    cleanInlineTitle,
-    type JsonValue,
-} from './shared-text';
+import { asObject, asString, cleanInlineTitle, type JsonValue } from './shared-text';
 
 export { getDefaultClaudeCodeDataDir, resolveClaudeCodeProjectsDir };
 
@@ -41,6 +39,7 @@ const DISCOVERY_INDEX_MAX_ENTRIES = 256;
 const TRANSCRIPT_CACHE_MAX_BYTES = 32 * 1024 * 1024;
 const TRANSCRIPT_CACHE_MAX_ENTRIES = 256;
 const GENERATED_WORKTREE_DIRECTORY_MARKER = '--claude-worktrees-';
+const SIBLING_WORKTREES_SUFFIX = '-worktrees';
 const WORKSPACE_KEY_PREFIX = 'project:';
 
 type TranscriptFile = {
@@ -93,43 +92,6 @@ export type DeleteClaudeCodeSessionResult = {
     deletedSessionIds: string[];
 };
 
-type SessionStats = {
-    assistantMessageCount: number;
-    attachmentCount: number;
-    cacheCreationInputTokens: number;
-    cacheReadInputTokens: number;
-    inputTokens: number;
-    messageCount: number;
-    outputTokens: number;
-    renderablePartCount: number;
-    toolCallCount: number;
-    toolResultCount: number;
-    userMessageCount: number;
-};
-
-type SessionStatsTracker = {
-    assistantMessageIds: Set<string>;
-    usageMessageIds: Set<string>;
-};
-
-type SessionIdentity = {
-    cwd: string | null;
-    firstUserText: string | null;
-    gitBranch: string | null;
-    isSubagent: boolean;
-    model: string | null;
-    sessionId: string;
-    title: string | null;
-    version: string | null;
-};
-
-type SessionTimeline = {
-    createdAtIso: string | null;
-    createdAtMs: number | null;
-    lastActiveAtIso: string | null;
-    lastActiveAtMs: number | null;
-};
-
 const pathExists = async (target: string): Promise<boolean> => {
     return await stat(target)
         .then(() => true)
@@ -146,11 +108,6 @@ const unlinkIfPresent = async (target: string): Promise<boolean> => {
         }
         throw error;
     }
-};
-
-const cleanLabel = (value: string | null | undefined): string | null => {
-    const cleaned = value?.replace(/\s+/g, ' ').trim();
-    return cleaned ? cleaned : null;
 };
 
 const getWorkspaceKey = (directoryName: string): string => `${WORKSPACE_KEY_PREFIX}${directoryName}`;
@@ -183,385 +140,35 @@ const getWorkspaceLabel = (worktree: string): string => {
 const getProjectRootFromWorktree = (worktree: string): string => {
     const generatedWorktreeMarker = `${path.sep}.claude${path.sep}worktrees${path.sep}`;
     const markerIndex = worktree.indexOf(generatedWorktreeMarker);
-    if (markerIndex < 0) {
-        return worktree;
+    if (markerIndex >= 0) {
+        return worktree.slice(0, markerIndex) || path.parse(worktree).root;
     }
 
-    return worktree.slice(0, markerIndex) || path.parse(worktree).root;
+    // Claude Desktop places worktrees in a sibling `<project>-worktrees/<name>` directory.
+    const parent = path.dirname(worktree);
+    const parentName = path.basename(parent);
+    if (parentName.endsWith(SIBLING_WORKTREES_SUFFIX) && parentName.length > SIBLING_WORKTREES_SUFFIX.length) {
+        return path.join(path.dirname(parent), parentName.slice(0, -SIBLING_WORKTREES_SUFFIX.length));
+    }
+
+    return worktree;
+};
+
+const encodeProjectDirectoryName = (projectRoot: string): string => projectRoot.replace(/[^a-zA-Z0-9]/g, '-');
+
+const getSessionDirectoryName = (directoryName: string, cwd: string | null): string => {
+    if (cwd !== null && encodeProjectDirectoryName(cwd) === directoryName) {
+        const projectRoot = getProjectRootFromWorktree(cwd);
+        if (projectRoot !== cwd) {
+            return encodeProjectDirectoryName(projectRoot);
+        }
+    }
+
+    return getProjectDirectoryName(directoryName);
 };
 
 const getWorkspaceUri = (worktree: string): string => {
     return worktree.startsWith(path.sep) ? `file://${worktree}` : worktree;
-};
-
-const toIso = (value: number | null): string | null => {
-    return value === null ? null : new Date(value).toISOString();
-};
-
-const parseTimestampMs = (value: JsonValue | undefined): number | null => {
-    if (typeof value === 'number' && Number.isFinite(value)) {
-        return value;
-    }
-
-    if (typeof value !== 'string' || !value.trim()) {
-        return null;
-    }
-
-    const numeric = Number(value);
-    if (Number.isFinite(numeric)) {
-        return numeric;
-    }
-
-    const parsed = Date.parse(value);
-    return Number.isFinite(parsed) ? parsed : null;
-};
-
-const formatJsonLike = (value: JsonValue | undefined): string | null => {
-    if (value === undefined || value === null) {
-        return null;
-    }
-
-    if (typeof value === 'string') {
-        return value;
-    }
-
-    return JSON.stringify(value, null, 2);
-};
-
-const textFromContentValue = (value: JsonValue | undefined): string => {
-    if (typeof value === 'string') {
-        return value;
-    }
-
-    if (Array.isArray(value)) {
-        return value
-            .map((item) => {
-                if (typeof item === 'string') {
-                    return item;
-                }
-
-                const object = asObject(item);
-                return asString(object?.text ?? null) ?? '';
-            })
-            .filter(Boolean)
-            .join('\n\n');
-    }
-
-    const object = asObject(value ?? null);
-    return asString(object?.text ?? null) ?? '';
-};
-
-const parseTextContentPart = (item: Record<string, JsonValue>): ClaudeCodeTranscriptPart => ({
-    raw: item,
-    text: asString(item.text ?? null) ?? '',
-    type: 'text',
-});
-
-const parseThinkingContentPart = (item: Record<string, JsonValue>): ClaudeCodeTranscriptPart => ({
-    raw: item,
-    text: asString(item.thinking ?? null) ?? '',
-    type: 'thinking',
-});
-
-const parseToolUseContentPart = (item: Record<string, JsonValue>): ClaudeCodeTranscriptPart => ({
-    argumentsText: formatJsonLike(item.input),
-    raw: item,
-    toolName: asString(item.name ?? null) ?? 'unknown',
-    toolUseId: asString(item.id ?? null),
-    type: 'tool_use',
-});
-
-const parseToolResultContentPart = (item: Record<string, JsonValue>): ClaudeCodeTranscriptPart => ({
-    isError: asBoolean(item.is_error ?? null),
-    outputText: cleanExtractedText(textFromContentValue(item.content)).trim(),
-    raw: item,
-    toolUseId: asString(item.tool_use_id ?? null),
-    type: 'tool_result',
-});
-
-const parseFallbackContentPart = (item: Record<string, JsonValue>): ClaudeCodeTranscriptPart => {
-    const fallbackText = asString(item.text ?? null);
-    return {
-        raw: item,
-        text: fallbackText ?? undefined,
-        type: fallbackText ? 'text' : 'unknown',
-    };
-};
-
-const structuredContentParsers: Record<string, (item: Record<string, JsonValue>) => ClaudeCodeTranscriptPart> = {
-    input_text: parseTextContentPart,
-    output_text: parseTextContentPart,
-    text: parseTextContentPart,
-    thinking: parseThinkingContentPart,
-    tool_result: parseToolResultContentPart,
-    tool_use: parseToolUseContentPart,
-};
-
-const parseStructuredContentPart = (item: Record<string, JsonValue>): ClaudeCodeTranscriptPart => {
-    const type = asString(item.type ?? null);
-    return type
-        ? (structuredContentParsers[type]?.(item) ?? parseFallbackContentPart(item))
-        : parseFallbackContentPart(item);
-};
-
-const parseMessageContentPart = (item: JsonValue): ClaudeCodeTranscriptPart | null => {
-    if (typeof item === 'string') {
-        return {
-            raw: { text: item },
-            text: item,
-            type: 'text',
-        };
-    }
-
-    const object = asObject(item);
-    return object ? parseStructuredContentPart(object) : null;
-};
-
-const parseMessageParts = (message: Record<string, JsonValue>): ClaudeCodeTranscriptPart[] => {
-    const content = message.content;
-    const items = Array.isArray(content) ? content : [content];
-    return items
-        .map(parseMessageContentPart)
-        .filter((part): part is ClaudeCodeTranscriptPart => part !== null && part.type !== 'unknown');
-};
-
-const parseAttachmentParts = (raw: Record<string, JsonValue>): ClaudeCodeTranscriptPart[] => {
-    const attachment = asObject(raw.attachment ?? null);
-    if (!attachment) {
-        return [];
-    }
-
-    return [
-        {
-            attachmentType: asString(attachment.type ?? null),
-            raw: attachment,
-            text: textFromContentValue(attachment.content),
-            type: 'attachment',
-        },
-    ];
-};
-
-const getTranscriptEntryParts = (
-    type: string,
-    message: Record<string, JsonValue> | null,
-    raw: Record<string, JsonValue>,
-): ClaudeCodeTranscriptPart[] => {
-    if (message) {
-        return parseMessageParts(message);
-    }
-
-    if (type === 'attachment') {
-        return parseAttachmentParts(raw);
-    }
-
-    return [];
-};
-
-const getTranscriptEntryRole = (type: string, message: Record<string, JsonValue> | null): string => {
-    return asString(message?.role ?? null) ?? (type === 'attachment' ? 'attachment' : type);
-};
-
-const getTranscriptEntryId = (type: string, raw: Record<string, JsonValue>): string => {
-    return asString(raw.uuid ?? null) ?? `${type}:${asString(raw.sessionId ?? null) ?? 'unknown'}`;
-};
-
-// A prompt sent while the agent is mid-turn is stored only as a queued_command attachment.
-const getQueuedUserPromptMessage = (raw: Record<string, JsonValue>): Record<string, JsonValue> | null => {
-    const attachment = raw.type === 'attachment' ? asObject(raw.attachment ?? null) : null;
-    const prompt = asString(attachment?.prompt ?? null);
-    const isHumanPrompt =
-        attachment?.type === 'queued_command' &&
-        attachment.commandMode === 'prompt' &&
-        asObject(attachment.origin ?? null)?.kind === 'human';
-    return isHumanPrompt && prompt?.trim() ? { content: prompt, role: 'user' } : null;
-};
-
-const parseTranscriptEntry = (raw: Record<string, JsonValue>): ClaudeCodeTranscriptEntry | null => {
-    const queuedUserPrompt = getQueuedUserPromptMessage(raw);
-    const type = queuedUserPrompt ? 'user' : (asString(raw.type ?? null) ?? 'unknown');
-    const message = queuedUserPrompt ?? asObject(raw.message ?? null);
-    const parts = getTranscriptEntryParts(type, message, raw);
-    const role = getTranscriptEntryRole(type, message);
-
-    if (parts.length === 0) {
-        return null;
-    }
-
-    return {
-        assistantPhase: getClaudeCodeAssistantMessagePhase({ parts, raw, role }),
-        cwd: asString(raw.cwd ?? null),
-        entryId: getTranscriptEntryId(type, raw),
-        model: asString(message?.model ?? null),
-        parentEntryId: asString(raw.parentUuid ?? null),
-        parts,
-        raw,
-        role,
-        timestamp: asString(raw.timestamp ?? null),
-        type,
-    };
-};
-
-const createEmptyStats = (): SessionStats => ({
-    assistantMessageCount: 0,
-    attachmentCount: 0,
-    cacheCreationInputTokens: 0,
-    cacheReadInputTokens: 0,
-    inputTokens: 0,
-    messageCount: 0,
-    outputTokens: 0,
-    renderablePartCount: 0,
-    toolCallCount: 0,
-    toolResultCount: 0,
-    userMessageCount: 0,
-});
-
-const createStatsTracker = (): SessionStatsTracker => ({
-    assistantMessageIds: new Set(),
-    usageMessageIds: new Set(),
-});
-
-const getMessageIdentity = (entry: ClaudeCodeTranscriptEntry): string => {
-    const message = asObject(entry.raw.message ?? null);
-    return asString(message?.id ?? null) ?? entry.entryId;
-};
-
-const addUsageStats = (stats: SessionStats, tracker: SessionStatsTracker, entry: ClaudeCodeTranscriptEntry) => {
-    const message = asObject(entry.raw.message ?? null);
-    const usage = asObject(message?.usage ?? null);
-    if (!usage) {
-        return;
-    }
-
-    const messageId = getMessageIdentity(entry);
-    if (tracker.usageMessageIds.has(messageId)) {
-        return;
-    }
-    tracker.usageMessageIds.add(messageId);
-
-    stats.inputTokens += asNumber(usage.input_tokens ?? null) ?? 0;
-    stats.outputTokens += asNumber(usage.output_tokens ?? null) ?? 0;
-    stats.cacheCreationInputTokens += asNumber(usage.cache_creation_input_tokens ?? null) ?? 0;
-    stats.cacheReadInputTokens += asNumber(usage.cache_read_input_tokens ?? null) ?? 0;
-};
-
-const hasTextPart = (entry: ClaudeCodeTranscriptEntry): boolean => {
-    return entry.parts.some((part) => part.type === 'text' && part.text?.trim());
-};
-
-const extractUserPromptText = (text: string): string | null => {
-    const cleaned = cleanExtractedText(text).trim();
-    if (!cleaned.startsWith('<!-- attach -->')) {
-        return cleaned || null;
-    }
-
-    const lines = cleaned.split('\n').slice(1);
-    let sawQuotedAttachment = false;
-    for (const [index, line] of lines.entries()) {
-        const trimmed = line.trim();
-        if (trimmed.startsWith('>')) {
-            sawQuotedAttachment = true;
-            continue;
-        }
-        if (!trimmed) {
-            continue;
-        }
-        if (sawQuotedAttachment) {
-            return lines.slice(index).join('\n').trim() || null;
-        }
-    }
-
-    return null;
-};
-
-const updateMessageStats = (stats: SessionStats, tracker: SessionStatsTracker, entry: ClaudeCodeTranscriptEntry) => {
-    if (entry.role === 'user' && hasTextPart(entry) && !isClaudeCodeSyntheticTranscriptEntry(entry)) {
-        stats.messageCount += 1;
-        stats.userMessageCount += 1;
-        return;
-    }
-
-    if (entry.role !== 'assistant' || !hasTextPart(entry)) {
-        return;
-    }
-
-    const messageId = getMessageIdentity(entry);
-    if (tracker.assistantMessageIds.has(messageId)) {
-        return;
-    }
-    tracker.assistantMessageIds.add(messageId);
-    stats.messageCount += 1;
-    stats.assistantMessageCount += 1;
-};
-
-const updateStatsFromEntry = (stats: SessionStats, tracker: SessionStatsTracker, entry: ClaudeCodeTranscriptEntry) => {
-    updateMessageStats(stats, tracker, entry);
-
-    if (entry.type === 'attachment') {
-        stats.attachmentCount += 1;
-    }
-
-    stats.toolCallCount += entry.parts.filter((part) => part.type === 'tool_use').length;
-    stats.toolResultCount += entry.parts.filter((part) => part.type === 'tool_result').length;
-    stats.renderablePartCount += entry.parts.filter(isRenderablePart).length;
-    addUsageStats(stats, tracker, entry);
-};
-
-const updateTimeline = (
-    timeline: { firstMs: number | null; lastMs: number | null },
-    raw: Record<string, JsonValue>,
-) => {
-    const timestampMs = parseTimestampMs(raw.timestamp);
-    if (timestampMs === null) {
-        return;
-    }
-
-    timeline.firstMs = timeline.firstMs === null ? timestampMs : Math.min(timeline.firstMs, timestampMs);
-    timeline.lastMs = timeline.lastMs === null ? timestampMs : Math.max(timeline.lastMs, timestampMs);
-};
-
-const readTitleCandidate = (raw: Record<string, JsonValue>): string | null => {
-    const type = asString(raw.type ?? null);
-    if (type !== 'ai-title' && type !== 'custom-title') {
-        return null;
-    }
-
-    return cleanLabel(
-        asString(raw.customTitle ?? null) ?? asString(raw.title ?? null) ?? asString(raw.content ?? null),
-    );
-};
-
-const updateIdentityFromRaw = (identity: SessionIdentity, raw: Record<string, JsonValue>) => {
-    if (!identity.isSubagent) {
-        identity.sessionId = asString(raw.sessionId ?? null) ?? identity.sessionId;
-    }
-    identity.cwd = identity.cwd ?? asString(raw.cwd ?? null);
-    identity.version = asString(raw.version ?? null) ?? identity.version;
-    identity.gitBranch = asString(raw.gitBranch ?? null) ?? identity.gitBranch;
-
-    const message = asObject(raw.message ?? null);
-    identity.model = asString(message?.model ?? null) ?? identity.model;
-    identity.title = readTitleCandidate(raw) ?? identity.title;
-};
-
-const updateIdentityFromEntry = (identity: SessionIdentity, entry: ClaudeCodeTranscriptEntry) => {
-    if (entry.role === 'user' && !identity.firstUserText && !isClaudeCodeSyntheticTranscriptEntry(entry)) {
-        const textPart = entry.parts.find((part) => part.type === 'text' && part.text?.trim());
-        identity.firstUserText = extractUserPromptText(textPart?.text ?? '');
-    }
-};
-
-const toTimeline = (
-    timeline: { firstMs: number | null; lastMs: number | null },
-    fallbackMs: number | null,
-): SessionTimeline => {
-    const createdAtMs = timeline.firstMs ?? fallbackMs;
-    const lastActiveAtMs = timeline.lastMs ?? fallbackMs;
-    return {
-        createdAtIso: toIso(createdAtMs),
-        createdAtMs,
-        lastActiveAtIso: toIso(lastActiveAtMs),
-        lastActiveAtMs,
-    };
 };
 
 const getTitle = (identity: SessionIdentity): string => {
@@ -594,73 +201,10 @@ const toSessionSummary = (
         title: getTitle(identity),
         totalTokens,
         version: identity.version,
-        workspaceKey: getWorkspaceKey(getProjectDirectoryName(file.directoryName)),
+        workspaceKey: getWorkspaceKey(getSessionDirectoryName(file.directoryName, identity.cwd)),
         workspaceLabel,
         worktree,
     };
-};
-
-const isRenderablePart = (part: ClaudeCodeTranscriptPart): boolean => {
-    if (part.type === 'text' || part.type === 'thinking' || part.type === 'attachment') {
-        return Boolean(part.text?.trim());
-    }
-
-    if (part.type === 'tool_use') {
-        return Boolean(part.toolName || part.argumentsText?.trim());
-    }
-
-    if (part.type === 'tool_result') {
-        return Boolean(part.outputText?.trim());
-    }
-
-    return false;
-};
-
-const stripEntryRawPayloads = (entry: ClaudeCodeTranscriptEntry): ClaudeCodeTranscriptEntry => {
-    return {
-        ...entry,
-        parts: entry.parts.map((part) => ({ ...part, raw: {} })),
-        raw: {},
-    };
-};
-
-const markIncompleteAssistantParentAsCommentary = (
-    entries: ClaudeCodeTranscriptEntry[],
-    entry: ClaudeCodeTranscriptEntry,
-): void => {
-    const interruptedByUser =
-        entry.role === 'user' &&
-        entry.parts.some(
-            (part) => part.type === 'text' && part.text?.trim().startsWith('[Request interrupted by user]'),
-        );
-    if ((!interruptedByUser && !isClaudeCodeRawFlagEnabled(entry.raw.isApiErrorMessage)) || !entry.parentEntryId) {
-        return;
-    }
-
-    for (let index = entries.length - 1; index >= 0; index -= 1) {
-        const candidate = entries[index];
-        if (candidate?.entryId === entry.parentEntryId && candidate.role === 'assistant') {
-            candidate.assistantPhase = 'commentary';
-            return;
-        }
-    }
-};
-
-const markLatestAssistantAsCommentary = (entries: ClaudeCodeTranscriptEntry[]): void => {
-    const latestEntry = entries.at(-1);
-    if (latestEntry?.role === 'assistant') {
-        latestEntry.assistantPhase = 'commentary';
-    }
-};
-
-const isTaskNotification = (raw: Record<string, JsonValue>): boolean => {
-    const content =
-        raw.type === 'queue-operation'
-            ? asString(raw.content ?? null)
-            : raw.type === 'user'
-              ? textFromContentValue(asObject(raw.message ?? null)?.content)
-              : null;
-    return content?.trimStart().startsWith('<task-notification>') === true;
 };
 
 const buildTranscriptFromRawEvents = (
@@ -679,33 +223,7 @@ const buildTranscriptFromRawEvents = (
         title: file.title,
         version: null,
     };
-    const stats = createEmptyStats();
-    const statsTracker = createStatsTracker();
-    const timeline = { firstMs: null as number | null, lastMs: null as number | null };
-    const entries: ClaudeCodeTranscriptEntry[] = [];
-
-    for (const raw of sourceRawEvents) {
-        updateTimeline(timeline, raw);
-        updateIdentityFromRaw(identity, raw);
-
-        if (isTaskNotification(raw)) {
-            markLatestAssistantAsCommentary(entries);
-        }
-
-        const entry = parseTranscriptEntry(raw);
-        if (!entry) {
-            continue;
-        }
-
-        markIncompleteAssistantParentAsCommentary(entries, entry);
-        if (isClaudeCodeSyntheticTranscriptEntry(entry)) {
-            continue;
-        }
-
-        entries.push(includeRawPayloads ? entry : stripEntryRawPayloads(entry));
-        updateStatsFromEntry(stats, statsTracker, entry);
-        updateIdentityFromEntry(identity, entry);
-    }
+    const { entries, stats, timeline } = collectClaudeCodeEvents(sourceRawEvents, identity, includeRawPayloads);
 
     const session = toSessionSummary(file, identity, stats, toTimeline(timeline, fallbackMtimeMs));
     return {
@@ -869,7 +387,9 @@ const listTranscriptFilesForWorkspace = async (
     const projectDirectoryName = getProjectDirectoryName(directoryName);
     return getCachedTranscriptFiles(`${projectsDir}\0workspace:${projectDirectoryName}`, async () => {
         const directoryNames = (await listProjectDirectoryNames(projectsDir)).filter(
-            (candidate) => getProjectDirectoryName(candidate) === projectDirectoryName,
+            (candidate) =>
+                getProjectDirectoryName(candidate) === projectDirectoryName ||
+                candidate.startsWith(`${projectDirectoryName}${SIBLING_WORKTREES_SUFFIX}-`),
         );
         const groupedFiles = await mapWithConcurrency(directoryNames, READ_CONCURRENCY, (candidate) =>
             listTranscriptFilesForProject(projectsDir, candidate),
@@ -1259,7 +779,7 @@ const toWorkspaceGroup = (directoryName: string, sessions: ClaudeCodeSessionSumm
         .filter((session) => session.cwd !== null)
         .map((session) => getProjectRootFromWorktree(session.worktree));
     const projectRoot =
-        projectRoots.find((projectRoot) => projectRoot.replace(/[^a-zA-Z0-9]/g, '-') === directoryName) ??
+        projectRoots.find((projectRoot) => encodeProjectDirectoryName(projectRoot) === directoryName) ??
         projectRoots.find((projectRoot) => projectRoot !== decodedWorktree) ??
         projectRoots[0] ??
         decodedWorktree;
@@ -1370,7 +890,11 @@ export const listClaudeCodeSessionTranscriptsForGroup = async (
     const physicalTranscripts = await readTranscriptFiles(files);
     const transcripts = coalesceTranscriptLineages(physicalTranscripts);
     annotateTranscriptForks(transcripts);
-    return transcripts.filter(hasSessionContent).sort((left, right) => compareSessions(left.session, right.session));
+    // Sibling-worktree directories are candidates by name; keep only sessions whose cwd resolves to this project.
+    const groupKey = getWorkspaceKey(getProjectDirectoryName(directoryName));
+    return transcripts
+        .filter((transcript) => hasSessionContent(transcript) && transcript.session.workspaceKey === groupKey)
+        .sort((left, right) => compareSessions(left.session, right.session));
 };
 
 export const listClaudeCodeSessionsForGroup = async (

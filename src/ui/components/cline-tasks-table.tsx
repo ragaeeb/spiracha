@@ -59,7 +59,7 @@ const buildColumns = (onDelete: Props['onDeleteSession'], onExport: Props['onExp
         }),
         columnHelper.accessor('lastActiveAtMs', {
             cell: (info) => (
-                <span className="whitespace-nowrap text-sm" suppressHydrationWarning>
+                <span className="text-sm whitespace-nowrap" suppressHydrationWarning>
                     {formatDateTime(info.getValue())}
                 </span>
             ),

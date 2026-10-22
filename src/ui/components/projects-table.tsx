@@ -25,12 +25,12 @@ const columns = (onDeleteProject: (project: ProjectSummary) => void) =>
         columnHelper.accessor('name', {
             cell: (info) => (
                 <Link
-                    className="block w-[14rem] max-w-[18rem] space-y-1 rounded-md outline-none transition hover:opacity-80 focus-visible:ring-2 focus-visible:ring-[var(--accent)] lg:w-auto"
+                    className="block w-[14rem] max-w-[18rem] space-y-1 rounded-md transition outline-none hover:opacity-80 focus-visible:ring-2 focus-visible:ring-[var(--accent)] lg:w-auto"
                     params={{ project: info.row.original.name }}
                     to="/codex/$project"
                 >
                     <p className="font-medium underline-offset-2 hover:underline">{info.getValue()}</p>
-                    <p className="text-[var(--muted-foreground)] text-xs">
+                    <p className="text-xs text-[var(--muted-foreground)]">
                         {formatNumber(info.row.original.cwdPaths.length)} cwd path
                         {info.row.original.cwdPaths.length === 1 ? '' : 's'}
                     </p>
@@ -56,7 +56,7 @@ const columns = (onDeleteProject: (project: ProjectSummary) => void) =>
         }),
         columnHelper.display({
             cell: (info) => (
-                <span className="text-[var(--muted-foreground)] text-sm">
+                <span className="text-sm text-[var(--muted-foreground)]">
                     {formatList(info.row.original.modelNames)}
                 </span>
             ),

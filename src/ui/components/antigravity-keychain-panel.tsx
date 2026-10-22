@@ -44,16 +44,16 @@ export function AntigravityKeychainPanel() {
                     {isUnlocked ? <ShieldCheck className="size-4" /> : <LockKeyhole className="size-4" />}
                 </div>
                 <div className="min-w-0">
-                    <p className="font-medium text-sm">
+                    <p className="text-sm font-medium">
                         {isUnlocked ? 'Keychain access enabled' : 'Unlock Antigravity transcript export'}
                     </p>
-                    <p className="mt-1 text-[var(--muted-foreground)] text-xs">
+                    <p className="mt-1 text-xs text-[var(--muted-foreground)]">
                         {isUnlocked
                             ? 'Antigravity Keychain access is enabled for this server process. Transcript exports can use the cached access until the process restarts.'
                             : `Spiracha needs one-time access to ${decryptionState.keychainService} to decrypt Antigravity transcript data. macOS will ask for approval after you click unlock.`}
                     </p>
                     {error ? (
-                        <p className="mt-2 flex items-center gap-1 text-[var(--destructive)] text-xs">
+                        <p className="mt-2 flex items-center gap-1 text-xs text-[var(--destructive)]">
                             <TriangleAlert className="size-3" />
                             {error}
                         </p>

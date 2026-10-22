@@ -3,6 +3,36 @@ import type { ConversationPayloadSource } from './conversation-payload-types';
 export const payloadSourceFixtures: Array<{ source: ConversationPayloadSource; payload: unknown }> = [
     {
         payload: [
+            {
+                coverage: {
+                    complete: false,
+                    description: 'Synthetic visible snapshot',
+                    earliestMessageId: 'a',
+                    latestMessageId: 'a',
+                    messageCount: 1,
+                    scope: 'visible-room-messages',
+                },
+                exportedAt: '2026-10-14T20:00:00Z',
+                name: 'Example Dot',
+                schemaVersion: 'dot/transcript/v1',
+                sessionId: 'dot-consumer',
+                source: 'dot',
+                type: 'session',
+            },
+            {
+                id: 'a',
+                role: 'assistant',
+                schemaVersion: 'dot/transcript/v1',
+                sessionId: 'dot-consumer',
+                text: 'Consumer answer',
+                timestamp: '2026-10-14T19:00:00Z',
+                type: 'message',
+            },
+        ],
+        source: 'dot',
+    },
+    {
+        payload: [
             { payload: { cwd: '/example', id: 'codex-consumer' }, type: 'session_meta' },
             {
                 payload: {
@@ -103,6 +133,19 @@ export const payloadSourceFixtures: Array<{ source: ConversationPayloadSource; p
             session: { id: 'fx-consumer', workspace_root: '/example' },
         },
         source: 'fx',
+    },
+    {
+        payload: [
+            {
+                cwd: '/example',
+                message: { content: [{ text: 'Consumer answer', type: 'text' }], role: 'assistant' },
+                sessionId: 'claude-code-consumer',
+                timestamp: '2026-01-01T00:00:00.000Z',
+                type: 'assistant',
+                uuid: 'claude-code-consumer-a1',
+            },
+        ],
+        source: 'claude-code',
     },
     { payload: { messages: [{ content: 'Consumer answer', role: 'assistant' }], model: 'gpt-5' }, source: 'web' },
 ];

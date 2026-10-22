@@ -33,7 +33,7 @@ export const ConversationTitleCell = ({
 
     return (
         <div
-            className={cn('min-w-0', isNested ? 'border-[var(--border)] border-l-2' : '')}
+            className={cn('min-w-0', isNested ? 'border-l-2 border-[var(--border)]' : '')}
             data-row-depth={depth}
             style={isNested ? { paddingLeft: `${depth * 0.75}rem` } : undefined}
         >
@@ -47,7 +47,7 @@ export const ConversationTitleCell = ({
                             <p className="truncate font-medium underline-offset-2 hover:underline">{title}</p>
                             {badges}
                         </div>
-                        <p className="truncate text-[var(--muted-foreground)] text-xs">{id}</p>
+                        <p className="truncate text-xs text-[var(--muted-foreground)]">{id}</p>
                     </>,
                     CONVERSATION_LINK_CLASS,
                 )}

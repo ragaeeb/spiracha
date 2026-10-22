@@ -16,8 +16,8 @@ export function LoadingPanel({
                     <Loader2 className="size-5 animate-spin text-[var(--accent)]" />
                 </div>
             </div>
-            <p className="mt-3 font-medium text-sm">{title}</p>
-            <p className="mt-1.5 text-[var(--muted-foreground)] text-sm">{description}</p>
+            <p className="mt-3 text-sm font-medium">{title}</p>
+            <p className="mt-1.5 text-sm text-[var(--muted-foreground)]">{description}</p>
         </div>
     );
 }

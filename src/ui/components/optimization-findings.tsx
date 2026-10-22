@@ -15,15 +15,15 @@ export const OptimizationFindings = ({ optimization }: OptimizationFindingsProps
     return (
         <section className="space-y-4 rounded-xl border border-[var(--border)] bg-[var(--panel)] p-4 shadow-[var(--panel-shadow)]">
             <div>
-                <h2 className="font-semibold text-lg">Optimization opportunities</h2>
-                <p className="mt-1 text-[var(--muted-foreground)] text-sm">
+                <h2 className="text-lg font-semibold">Optimization opportunities</h2>
+                <p className="mt-1 text-sm text-[var(--muted-foreground)]">
                     Deterministic transcript signals, ranked by workflow risk. Byte counts describe retained context,
                     not provider billing.
                 </p>
             </div>
 
             {optimization.findings.length === 0 ? (
-                <p className="rounded-lg border border-[var(--border)] border-dashed p-4 text-[var(--muted-foreground)] text-sm">
+                <p className="rounded-lg border border-dashed border-[var(--border)] p-4 text-sm text-[var(--muted-foreground)]">
                     No deterministic optimization findings in this scope.
                 </p>
             ) : (
@@ -32,8 +32,8 @@ export const OptimizationFindings = ({ optimization }: OptimizationFindingsProps
                         <article className="rounded-lg border border-[var(--border)] p-3" key={finding.id}>
                             <div className="flex flex-wrap items-start justify-between gap-2">
                                 <div>
-                                    <p className="font-semibold text-sm">{finding.title}</p>
-                                    <p className="mt-1 text-[var(--muted-foreground)] text-xs">
+                                    <p className="text-sm font-semibold">{finding.title}</p>
+                                    <p className="mt-1 text-xs text-[var(--muted-foreground)]">
                                         {formatNumber(finding.observedCount)} occurrences across{' '}
                                         {formatNumber(finding.affectedThreads)} threads
                                         {finding.impactBytes === null
@@ -42,7 +42,7 @@ export const OptimizationFindings = ({ optimization }: OptimizationFindingsProps
                                     </p>
                                 </div>
                                 <span
-                                    className={`rounded-full border px-2 py-0.5 font-semibold text-[10px] uppercase tracking-wide ${severityClassNames[finding.severity]}`}
+                                    className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase ${severityClassNames[finding.severity]}`}
                                 >
                                     {finding.severity}
                                 </span>
@@ -53,15 +53,15 @@ export const OptimizationFindings = ({ optimization }: OptimizationFindingsProps
                 </div>
             )}
 
-            <div className="space-y-2 border-[var(--border)] border-t pt-4">
+            <div className="space-y-2 border-t border-[var(--border)] pt-4">
                 <div>
-                    <h3 className="font-semibold text-sm">Candidate persona themes</h3>
-                    <p className="mt-1 text-[var(--muted-foreground)] text-xs">
+                    <h3 className="text-sm font-semibold">Candidate persona themes</h3>
+                    <p className="mt-1 text-xs text-[var(--muted-foreground)]">
                         Repeated task labels from generic subagents are review prompts, not automatic persona decisions.
                     </p>
                 </div>
                 {optimization.personaCandidates.length === 0 ? (
-                    <p className="text-[var(--muted-foreground)] text-sm">No repeated generic delegation themes.</p>
+                    <p className="text-sm text-[var(--muted-foreground)]">No repeated generic delegation themes.</p>
                 ) : (
                     <ul className="grid gap-2 md:grid-cols-2">
                         {optimization.personaCandidates.slice(0, 12).map((candidate) => (
@@ -70,7 +70,7 @@ export const OptimizationFindings = ({ optimization }: OptimizationFindingsProps
                                 key={candidate.label}
                             >
                                 <span className="font-mono text-sm">{candidate.label}</span>
-                                <span className="shrink-0 text-[var(--muted-foreground)] text-xs">
+                                <span className="shrink-0 text-xs text-[var(--muted-foreground)]">
                                     {formatNumber(candidate.count)} generic delegations
                                 </span>
                             </li>

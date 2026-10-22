@@ -3,7 +3,7 @@ import type {
     ClaudeCodeTranscriptEntry,
     ClaudeCodeTranscriptPart,
 } from '../claude-code-exporter-types';
-import { getClaudeCodeAssistantMessagePhase } from '../claude-code-exporter-types';
+import { getClaudeCodeAssistantMessagePhase } from '../claude-code-transcript-phase';
 import {
     createTextMessage,
     finalizeMessages,
@@ -135,7 +135,9 @@ const partToMessages = (
     return [];
 };
 
-export const claudeCodeTranscriptToMessages = (transcript: ClaudeCodeSessionTranscript): ConversationMessage[] =>
+export const claudeCodeTranscriptToMessages = (
+    transcript: Pick<ClaudeCodeSessionTranscript, 'entries'>,
+): ConversationMessage[] =>
     finalizeMessages(
         transcript.entries.flatMap((entry) =>
             entry.parts.flatMap((part, partIndex) => partToMessages(entry, part, partIndex)),

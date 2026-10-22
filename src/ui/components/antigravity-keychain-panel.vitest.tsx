@@ -1,7 +1,6 @@
 import type { AntigravityDecryptionState } from '@spiracha/lib/antigravity-keychain';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const serverFns = vi.hoisted(() => ({
@@ -52,10 +51,14 @@ const renderPanel = (state?: AntigravityDecryptionState) => {
     if (state) {
         queryClient.setQueryData(['antigravity-decryption'], state);
     }
-    const Wrapper = ({ children }: { children: ReactNode }) => (
-        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-    );
-    return { ...render(<AntigravityKeychainPanel />, { wrapper: Wrapper }), queryClient };
+    return {
+        ...render(
+            <QueryClientProvider client={queryClient}>
+                <AntigravityKeychainPanel />
+            </QueryClientProvider>,
+        ),
+        queryClient,
+    };
 };
 
 afterEach(() => {

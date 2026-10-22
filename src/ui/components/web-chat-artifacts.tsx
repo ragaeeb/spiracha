@@ -32,7 +32,7 @@ export const WebChatArtifacts = ({ artifacts }: { artifacts: WebChatArtifact[] }
             );
         })}
         {artifacts.length === 0 ? (
-            <p className="text-[var(--muted-foreground)] text-sm">No artifacts in this import.</p>
+            <p className="text-sm text-[var(--muted-foreground)]">No artifacts in this import.</p>
         ) : null}
     </div>
 );

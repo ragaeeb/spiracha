@@ -25,7 +25,7 @@ export type ParseCodexTranscriptOptions = {
     includeRaw?: boolean;
     maxEvents?: number;
     maxTurnContexts?: number;
-    resolveForkedThread?: (threadId: string) => Promise<string>;
+    resolveForkedThread?: (threadId: string, ordinalExclusive?: number) => Promise<string>;
     sourceFileSizeBytes?: number | null;
     tailEventLimit?: number;
 };

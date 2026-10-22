@@ -968,7 +968,7 @@ describe('claude code workspace discovery', () => {
     });
 
     it.each(['kalu', 'my-project'])(
-        'should keep %s project identity when sibling sessions use other cwds',
+        'should group %s sibling-worktree sessions under the root project',
         async (name) => {
             const projectsDir = await makeTempRoot();
             const projectRoot = path.join(homeDir, 'workspace', name);
@@ -990,16 +990,21 @@ describe('claude code workspace discovery', () => {
             );
 
             const groups = await listClaudeCodeWorkspaceGroups(projectsDir);
-            expect(groups).toHaveLength(2);
-            expect(groups.find((group) => group.directoryName === directoryName)).toMatchObject({
+            expect(groups).toHaveLength(1);
+            expect(groups[0]).toMatchObject({
+                directoryName,
                 label: name,
-                sessionCount: 3,
+                sessionCount: 4,
                 uri: `file://${projectRoot}`,
                 worktree: projectRoot,
             });
-            expect(groups.find((group) => group.directoryName === worktreeDirectoryName)?.worktree).toBe(worktree);
             const sessions = await listClaudeCodeSessionsForGroup(`project:${directoryName}`, projectsDir);
             expect(sessions.find((session) => session.sessionId === 'a-worktree')?.cwd).toBe(worktree);
+            expect(sessions.find((session) => session.sessionId === 'separate-worktree')).toMatchObject({
+                workspaceKey: `project:${directoryName}`,
+                workspaceLabel: name,
+                worktree,
+            });
             expect(findClaudeCodeWorkspaceGroups(groups, projectRoot)).toHaveLength(1);
         },
     );

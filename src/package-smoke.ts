@@ -248,8 +248,8 @@ if (codex.source !== 'codex' || !codex.markdown.includes('Native payload works.'
     throw new Error('Installed SDK did not convert native JSONL.');
 }
 try {
-    await convertConversationPayload({ payload: {}, source: 'claude-code' });
-    throw new Error('Installed SDK accepted unsupported Claude Code.');
+    await convertConversationPayload({ payload: {}, source: 'command-code' });
+    throw new Error('Installed SDK accepted unsupported Command Code.');
 } catch (error) {
     if (!(error instanceof ConversationPayloadError) || error.code !== 'unsupported_source') throw error;
 }`,

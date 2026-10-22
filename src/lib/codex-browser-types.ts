@@ -55,9 +55,10 @@ export type TurnContextRecord = {
     timestamp: string | null;
 };
 
-/** A forked thread's parent that could not be found, so the history before the fork is unavailable. */
+/** An unavailable fork parent or earlier rollout page, reported alongside the available transcript. */
 export type CodexMissingForkParent = {
     ordinalExclusive: number;
+    reason?: 'missing_rollout';
     threadId: string;
 };
 

@@ -264,8 +264,21 @@ const renderCodexExportContent = async ({
 };
 
 const describeMissingForkParents = (missing: CodexMissingForkParent[]) => {
-    const ids = [...new Set(missing.map((parent) => parent.threadId))];
-    return `History before the fork is unavailable: parent ${ids.length === 1 ? 'thread' : 'threads'} ${ids.join(', ')} no longer ${ids.length === 1 ? 'exists' : 'exist'}.`;
+    const ids = [
+        ...new Set(missing.filter((parent) => parent.reason !== 'missing_rollout').map((parent) => parent.threadId)),
+    ];
+    const notes = missing
+        .filter((parent) => parent.reason === 'missing_rollout')
+        .map(
+            (parent) =>
+                `Earlier rollout history for thread ${parent.threadId} before ordinal ${parent.ordinalExclusive} is unavailable.`,
+        );
+    if (ids.length > 0) {
+        notes.unshift(
+            `History before the fork is unavailable: parent ${ids.length === 1 ? 'thread' : 'threads'} ${ids.join(', ')} no longer ${ids.length === 1 ? 'exists' : 'exist'}.`,
+        );
+    }
+    return notes.join(' ');
 };
 
 const resolvePublicExportDir = async (publicExportDir?: string) => {
@@ -303,6 +316,15 @@ type StableRolloutContext = {
     snapshotPath: string;
 };
 
+const decodeCodexRolloutSnapshot = async (snapshotPath: string) => {
+    if (!snapshotPath.endsWith('.zst')) {
+        return snapshotPath;
+    }
+    const decodedPath = path.join(path.dirname(snapshotPath), 'rollout.jsonl');
+    await Bun.write(decodedPath, await Bun.zstdDecompress(await Bun.file(snapshotPath).bytes()));
+    return decodedPath;
+};
+
 const withStableRolloutSnapshot = async <T>({
     dbPath,
     includeForkHistory,
@@ -322,18 +344,19 @@ const withStableRolloutSnapshot = async <T>({
         const browseData =
             attempt === 1 && initialBrowseData ? initialBrowseData : await getThreadBrowseData(dbPath, threadId);
         const attemptWorkspace = await mkdtemp(path.join(os.tmpdir(), 'spiracha-codex-rollout-attempt-'));
-        const snapshotPath = path.join(attemptWorkspace, 'rollout.jsonl');
+        const capturedPath = path.join(attemptWorkspace, `rollout${path.extname(browseData.thread.rollout_path)}`);
 
         try {
             const rollout = await copyStableCodexRollout({
                 attempt,
-                snapshotPath,
+                snapshotPath: capturedPath,
                 sourcePath: browseData.thread.rollout_path,
                 threadId,
             });
+            const snapshotPath = await decodeCodexRolloutSnapshot(capturedPath);
             const effectiveSizeBytes = includeForkHistory
                 ? (await inspectCodexTranscriptHistory(snapshotPath, resolveForkedThread)).sizeBytes
-                : rollout.before.sizeBytes;
+                : (await stat(snapshotPath)).size;
 
             return await render({ browseData, effectiveSizeBytes, rollout, snapshotPath });
         } catch (error) {

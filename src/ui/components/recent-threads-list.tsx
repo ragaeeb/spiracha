@@ -16,18 +16,18 @@ export function RecentThreadsList({ threads }: RecentThreadsListProps) {
                 >
                     <div className="min-w-0">
                         <Link
-                            className="block min-w-0 rounded-md outline-none transition hover:opacity-80 focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                            className="block min-w-0 rounded-md transition outline-none hover:opacity-80 focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                             params={{ threadId: thread.id }}
                             to="/threads/$threadId"
                         >
-                            <p className="truncate font-medium text-sm underline-offset-2 hover:underline">
+                            <p className="truncate text-sm font-medium underline-offset-2 hover:underline">
                                 {thread.title}
                             </p>
-                            <p className="mt-0.5 line-clamp-1 text-[var(--muted-foreground)] text-xs">
+                            <p className="mt-0.5 line-clamp-1 text-xs text-[var(--muted-foreground)]">
                                 {thread.preview}
                             </p>
                         </Link>
-                        <div className="mt-2 flex min-w-0 flex-wrap gap-3 text-[var(--muted-foreground)] text-xs">
+                        <div className="mt-2 flex min-w-0 flex-wrap gap-3 text-xs text-[var(--muted-foreground)]">
                             <Link
                                 className="max-w-[14rem] truncate font-medium text-[var(--accent)] underline-offset-2 hover:underline"
                                 params={{ project }}
@@ -40,7 +40,7 @@ export function RecentThreadsList({ threads }: RecentThreadsListProps) {
                         </div>
                     </div>
                     <p
-                        className="justify-self-end whitespace-nowrap text-right font-mono text-[var(--muted-foreground)] text-xs"
+                        className="justify-self-end text-right font-mono text-xs whitespace-nowrap text-[var(--muted-foreground)]"
                         suppressHydrationWarning
                     >
                         {formatDateTime(thread.updated_at_ms ?? thread.updated_at * 1000)}

@@ -1,4 +1,5 @@
 import type { Database } from 'bun:sqlite';
+import path from 'node:path';
 import type {
     CodexThreadBrowseBatchResult,
     DynamicToolRow,
@@ -18,12 +19,14 @@ import {
     decodeThreadSpawnEdgeRow,
     getThreadHierarchyById,
     getUserVisibleThreadFilter,
+    hasRegularFile,
     normalizeThreadDisplayText,
     parseDynamicToolRow,
     readDbThreadIds,
     readProjectAggregateRows,
     readThreads,
-    resolveCodexRolloutPath,
+    resolveCodexDirFromDbPath,
+    resolveCodexTranscriptPath,
     THREAD_ROW_COLUMNS,
     uniqueValues,
     withReadonlyDb,
@@ -45,11 +48,18 @@ import {
     getCachedCodexTranscriptStats,
     getThreadRolloutLoadState,
 } from './codex-thread-cache';
-import { type CodexForkedThreadResolver, CodexTranscriptHistoryError, readCodexForkInfo } from './codex-thread-parser';
+import {
+    type CodexForkedThreadResolver,
+    CodexRolloutHistoryMissingError,
+    CodexTranscriptHistoryError,
+    readCodexForkInfo,
+} from './codex-thread-parser';
 import type { ThreadRelations, ThreadRow } from './codex-thread-types';
 import { mapWithConcurrency } from './concurrency';
 import { normalizeConversationPath } from './conversation-data/path-match';
 import { getPortablePathBasename } from './portable-path';
+import { readDirectoryEntriesIfExists, readJsonlObjects } from './shared';
+import { asObject } from './shared-text';
 
 const SQLITE_DELETE_BATCH_SIZE = 400;
 const THREAD_LIST_IO_CONCURRENCY = 8;
@@ -522,7 +532,7 @@ const buildThreadBrowseData = (
     const indexedThread = applySessionIndexThreadNames(dbPath, [thread], filesystemData?.sessionIndexThreadNames)[0]!;
     const normalizedThread = normalizeThreadDisplayText({
         ...indexedThread,
-        rollout_path: resolveCodexRolloutPath(dbPath, indexedThread.rollout_path),
+        rollout_path: resolveCodexTranscriptPath(dbPath, indexedThread.rollout_path),
     });
     const dynamicTools =
         source === 'database'
@@ -601,21 +611,110 @@ export const getThreadBrowseData = async (dbPath: string, threadId: string): Pro
     return result.data;
 };
 
+const readRolloutStart = async (sessionFile: string) => {
+    for await (const record of readJsonlObjects(sessionFile)) {
+        if (record.type === 'session_meta') {
+            return { id: asObject(record.payload)?.id, ordinal: record.ordinal };
+        }
+    }
+    return { id: null, ordinal: null };
+};
+
+const readCodexRolloutCandidate = async (sessionFile: string, requestedId: string, ordinalExclusive: number) => {
+    const metadata = await readRolloutStart(sessionFile);
+    const fileName = path.basename(sessionFile).replace(/\.zst$/u, '');
+    if (
+        (metadata.id === requestedId ||
+            (typeof metadata.id === 'string' && fileName.endsWith(`-${metadata.id}_${requestedId}.jsonl`))) &&
+        typeof metadata.ordinal === 'number' &&
+        Number.isSafeInteger(metadata.ordinal) &&
+        metadata.ordinal >= 0 &&
+        metadata.ordinal < ordinalExclusive
+    ) {
+        return { ordinal: metadata.ordinal, sessionFile };
+    }
+    return null;
+};
+
+const resolveEarlierCodexRollout = async (dbPath: string, threadId: string, ordinalExclusive: number) => {
+    const candidates: { ordinal: number; sessionFile: string }[] = [];
+    const codexDir = resolveCodexDirFromDbPath(dbPath);
+    for (const directory of ['sessions', 'archived_sessions']) {
+        const directoryPath = path.join(codexDir, directory);
+        if ((await readDirectoryEntriesIfExists(directoryPath)).length === 0) {
+            continue;
+        }
+        const files = new Bun.Glob('**/*.jsonl{,.zst}').scan({
+            absolute: true,
+            cwd: directoryPath,
+            onlyFiles: true,
+        });
+        for await (const sessionFile of files) {
+            if (
+                !path.basename(sessionFile).includes(threadId) ||
+                (sessionFile.endsWith('.zst') && hasRegularFile(sessionFile.slice(0, -4)))
+            ) {
+                continue;
+            }
+            const candidate = await readCodexRolloutCandidate(sessionFile, threadId, ordinalExclusive);
+            if (candidate) {
+                candidates.push(candidate);
+            }
+        }
+    }
+    candidates.sort((left, right) => right.ordinal - left.ordinal);
+    const selected = candidates[0];
+    if (!selected) {
+        return null;
+    }
+    if (selected.ordinal === candidates[1]?.ordinal) {
+        throw new CodexTranscriptHistoryError(`Ambiguous Codex rollout history for thread ${threadId}`);
+    }
+    return selected.sessionFile;
+};
+
 export const createCodexForkedThreadResolver = (dbPath: string): CodexForkedThreadResolver => {
     const resolvedPaths = new Map<string, Promise<string>>();
-    return async (threadId) => {
-        const cachedPath = resolvedPaths.get(threadId);
+    return async (threadId, ordinalExclusive) => {
+        const key = `${threadId}:${ordinalExclusive ?? 'latest'}`;
+        const cachedPath = resolvedPaths.get(key);
         if (cachedPath) {
             return cachedPath;
         }
 
-        const pathPromise = getThreadBrowseData(dbPath, threadId).then((data) => data.thread.rollout_path);
-        resolvedPaths.set(threadId, pathPromise);
+        const pathPromise = getThreadBrowseData(dbPath, threadId)
+            .then(async (data) => {
+                const sessionFile = data.thread.rollout_path;
+                if (ordinalExclusive === undefined) {
+                    return sessionFile;
+                }
+                const metadata = await readRolloutStart(sessionFile);
+                if (typeof metadata.ordinal !== 'number' || metadata.ordinal < ordinalExclusive) {
+                    return sessionFile;
+                }
+                const earlier = await resolveEarlierCodexRollout(dbPath, threadId, ordinalExclusive);
+                if (!earlier) {
+                    throw new CodexRolloutHistoryMissingError(
+                        `Unable to find Codex rollout for thread ${threadId} before ordinal ${ordinalExclusive}`,
+                    );
+                }
+                return earlier;
+            })
+            .catch(async (error: unknown) => {
+                if (error instanceof CodexThreadNotFoundError && ordinalExclusive !== undefined) {
+                    const sessionFile = await resolveEarlierCodexRollout(dbPath, threadId, ordinalExclusive);
+                    if (sessionFile) {
+                        return sessionFile;
+                    }
+                }
+                throw error;
+            });
+        resolvedPaths.set(key, pathPromise);
         try {
             return await pathPromise;
         } catch (error) {
-            if (resolvedPaths.get(threadId) === pathPromise) {
-                resolvedPaths.delete(threadId);
+            if (resolvedPaths.get(key) === pathPromise) {
+                resolvedPaths.delete(key);
             }
             throw error;
         }

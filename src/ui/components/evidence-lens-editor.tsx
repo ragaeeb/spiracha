@@ -140,7 +140,7 @@ export const EvidenceLensEditor = ({ lens, onChange }: EvidenceLensEditorProps) 
             </label>
 
             <div className="space-y-2">
-                <span className="font-medium text-sm">Anchors (OR)</span>
+                <span className="text-sm font-medium">Anchors (OR)</span>
                 <div className="space-y-1">
                     {lens.anchors.map((anchor, index) => (
                         <div
@@ -306,7 +306,7 @@ export const EvidenceLensEditor = ({ lens, onChange }: EvidenceLensEditorProps) 
             ))}
 
             <div className="space-y-2">
-                <label className="font-medium text-sm" htmlFor="evidence-lens-json">
+                <label className="text-sm font-medium" htmlFor="evidence-lens-json">
                     Lens JSON
                 </label>
                 <textarea
@@ -339,7 +339,7 @@ export const EvidenceLensEditor = ({ lens, onChange }: EvidenceLensEditorProps) 
                         Reset
                     </Button>
                 </div>
-                {jsonError ? <p className="text-[var(--destructive)] text-sm">{jsonError}</p> : null}
+                {jsonError ? <p className="text-sm text-[var(--destructive)]">{jsonError}</p> : null}
             </div>
         </div>
     );

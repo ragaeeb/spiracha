@@ -28,12 +28,12 @@ const columns = (onDeleteWorkspace: (workspace: OpenCodeWorkspaceGroup) => void)
         columnHelper.accessor('label', {
             cell: (info) => (
                 <Link
-                    className="block w-[16rem] max-w-[22rem] space-y-1 rounded-md outline-none transition hover:opacity-80 focus-visible:ring-2 focus-visible:ring-[var(--accent)] lg:w-auto"
+                    className="block w-[16rem] max-w-[22rem] space-y-1 rounded-md transition outline-none hover:opacity-80 focus-visible:ring-2 focus-visible:ring-[var(--accent)] lg:w-auto"
                     params={{ workspaceKey: info.row.original.key }}
                     to="/opencode/$workspaceKey"
                 >
                     <p className="truncate font-medium underline-offset-2 hover:underline">{info.getValue()}</p>
-                    <p className="truncate text-[var(--muted-foreground)] text-xs">{info.row.original.worktree}</p>
+                    <p className="truncate text-xs text-[var(--muted-foreground)]">{info.row.original.worktree}</p>
                 </Link>
             ),
             header: 'Workspace',
@@ -52,7 +52,7 @@ const columns = (onDeleteWorkspace: (workspace: OpenCodeWorkspaceGroup) => void)
         }),
         columnHelper.accessor('lastActiveMs', {
             cell: (info) => (
-                <span className="whitespace-nowrap text-sm" suppressHydrationWarning>
+                <span className="text-sm whitespace-nowrap" suppressHydrationWarning>
                     {formatDateTime(info.getValue())}
                 </span>
             ),

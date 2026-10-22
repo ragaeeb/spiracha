@@ -77,6 +77,55 @@ const convertedPayload = [
 const createRequest = (path: string, init?: RequestInit) => new Request(`http://localhost:3000${path}`, init);
 
 describe('conversation API handler', () => {
+    it('should convert supplied dot JSONL without exposing it as a local storage source', async () => {
+        const records = [
+            {
+                coverage: {
+                    complete: false,
+                    description: 'Synthetic visible snapshot',
+                    earliestMessageId: 'm1',
+                    latestMessageId: 'm1',
+                    messageCount: 1,
+                    scope: 'visible-room-messages',
+                },
+                exportedAt: '2026-10-14T20:00:00Z',
+                model: 'configured-model',
+                modelSource: 'user-configured',
+                name: 'Example Dot',
+                schemaVersion: 'dot/transcript/v1',
+                sessionId: 'room-api',
+                source: 'dot',
+                type: 'session',
+            },
+            {
+                id: 'm1',
+                role: 'assistant',
+                schemaVersion: 'dot/transcript/v1',
+                sessionId: 'room-api',
+                text: 'Visible answer',
+                timestamp: '2026-10-14T19:00:00Z',
+                type: 'message',
+            },
+        ];
+        const response = await handleConversationApiRequest(
+            createRequest('/api/v1/conversation-payload', {
+                body: JSON.stringify({
+                    payload: records.map((record) => JSON.stringify(record)).join('\n'),
+                    source: 'dot',
+                }),
+                method: 'POST',
+            }),
+        );
+        expect(response.status).toBe(200);
+        const body = (await response.json()) as { data: ConvertedConversation[] };
+        expect(body.data[0]).toMatchObject({
+            id: 'room-api',
+            metadata: { configuredModel: 'configured-model' },
+            source: 'dot',
+        });
+        expect(body.data[0]!.messages[0]!.model).toBeUndefined();
+    });
+
     it('should convert supplied payloads through the stable API and preserve artifacts', async () => {
         let receivedOptions: unknown;
         const response = await handleConversationApiRequest(

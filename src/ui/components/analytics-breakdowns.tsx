@@ -60,8 +60,8 @@ export const AnalyticsBreakdowns = ({
         <div className="grid gap-4 xl:grid-cols-2">
             <section className="space-y-3">
                 <div>
-                    <h3 className="font-semibold text-sm">Most frequent tool calls</h3>
-                    <p className="mt-1 text-[var(--muted-foreground)] text-sm">
+                    <h3 className="text-sm font-semibold">Most frequent tool calls</h3>
+                    <p className="mt-1 text-sm text-[var(--muted-foreground)]">
                         Useful for future prompt and tool optimization work.
                     </p>
                 </div>
@@ -70,8 +70,8 @@ export const AnalyticsBreakdowns = ({
 
             <section className="space-y-3">
                 <div>
-                    <h3 className="font-semibold text-sm">Model token breakdown</h3>
-                    <p className="mt-1 text-[var(--muted-foreground)] text-sm">
+                    <h3 className="text-sm font-semibold">Model token breakdown</h3>
+                    <p className="mt-1 text-sm text-[var(--muted-foreground)]">
                         Compare model usage and token concentration within the current project scope.
                     </p>
                 </div>
@@ -80,8 +80,8 @@ export const AnalyticsBreakdowns = ({
 
             <section className="space-y-3">
                 <div>
-                    <h3 className="font-semibold text-sm">Client source breakdown</h3>
-                    <p className="mt-1 text-[var(--muted-foreground)] text-sm">
+                    <h3 className="text-sm font-semibold">Client source breakdown</h3>
+                    <p className="mt-1 text-sm text-[var(--muted-foreground)]">
                         See which Codex clients created threads in the current scope.
                     </p>
                 </div>
@@ -90,8 +90,8 @@ export const AnalyticsBreakdowns = ({
 
             <section className="space-y-3">
                 <div>
-                    <h3 className="font-semibold text-sm">Reasoning effort breakdown</h3>
-                    <p className="mt-1 text-[var(--muted-foreground)] text-sm">
+                    <h3 className="text-sm font-semibold">Reasoning effort breakdown</h3>
+                    <p className="mt-1 text-sm text-[var(--muted-foreground)]">
                         Compare configured reasoning effort across threads.
                     </p>
                 </div>

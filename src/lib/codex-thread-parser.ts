@@ -1,4 +1,3 @@
-import { createReadStream } from 'node:fs';
 import path from 'node:path';
 
 import type { CodexMissingForkParent, ParsedCodexTranscript } from './codex-browser-types';
@@ -9,9 +8,10 @@ import {
     finalizeTranscript,
     type ParseCodexTranscriptOptions,
 } from './codex-transcript-records';
-import { readJsonlObjects, splitJsonlLines } from './shared';
+import { readJsonlLines, readJsonlObjects } from './shared';
+import { asObject } from './shared-text';
 
-export type CodexForkedThreadResolver = (threadId: string) => Promise<string>;
+export type CodexForkedThreadResolver = (threadId: string, ordinalExclusive?: number) => Promise<string>;
 
 export class CodexTranscriptHistoryError extends Error {
     readonly code = 'CODEX_TRANSCRIPT_HISTORY_INVALID';
@@ -22,14 +22,32 @@ export class CodexTranscriptHistoryError extends Error {
     }
 }
 
+export class CodexRolloutHistoryMissingError extends CodexTranscriptHistoryError {
+    constructor(message: string) {
+        super(message);
+        this.name = 'CodexRolloutHistoryMissingError';
+    }
+}
+
 export type CodexTranscriptSegment = {
     minOrdinalInclusive: number;
     maxOrdinalExclusive: number | null;
     sessionFile: string;
 };
 
+const readHistoryBaseMetadata = (line: string) => {
+    // Ordinary list decoration stays lightweight; paginated rollouts need their structured base reference.
+    const record = /"history_base"\s*:/u.test(line) ? asObject(JSON.parse(line)) : null;
+    const payload = record ? asObject(record.payload) : null;
+    return {
+        historyBase: payload?.history_base ?? null,
+        id: payload?.id ?? null,
+        ordinal: typeof record?.ordinal === 'number' ? record.ordinal : null,
+    };
+};
+
 const readForkMetadata = async (sessionFile: string) => {
-    const lines = splitJsonlLines(createReadStream(sessionFile, { encoding: 'utf8' }));
+    const lines = readJsonlLines(sessionFile);
     for await (const line of lines) {
         if (!/"type"\s*:\s*"session_meta"/u.test(line)) {
             continue;
@@ -48,6 +66,7 @@ const readForkMetadata = async (sessionFile: string) => {
             hasForkedFromOrdinalExclusive: cutoffPropertyPresent,
             hasMalformedForkedFromId: parentPropertyPresent && (!parentMatch || parentMatch[1] === ''),
             hasMalformedForkedFromOrdinalExclusive: cutoffPropertyPresent && !cutoffMatch,
+            ...readHistoryBaseMetadata(line),
         };
     }
 
@@ -57,6 +76,9 @@ const readForkMetadata = async (sessionFile: string) => {
         hasForkedFromOrdinalExclusive: false,
         hasMalformedForkedFromId: false,
         hasMalformedForkedFromOrdinalExclusive: false,
+        historyBase: null,
+        id: null,
+        ordinal: null,
     };
 };
 
@@ -98,6 +120,34 @@ const readForkBoundary = (
         throw new CodexTranscriptHistoryError(`Codex transcript ${sessionFile} has invalid fork history metadata`);
     }
     return { forkedFromId: parentThreadId, ordinalExclusive: cutoff };
+};
+
+const readHistoryBaseBoundary = (
+    sessionFile: string,
+    metadata: Awaited<ReturnType<typeof readForkMetadata>>,
+): { forkedFromId: string; ordinalExclusive: number } | null => {
+    if (metadata.historyBase === null) {
+        return null;
+    }
+    const base = asObject(metadata.historyBase);
+    const threadId = base?.thread_id;
+    const cutoff = base?.end_ordinal_exclusive;
+    if (
+        typeof threadId !== 'string' ||
+        !threadId ||
+        typeof cutoff !== 'number' ||
+        !Number.isSafeInteger(cutoff) ||
+        cutoff < 0 ||
+        metadata.ordinal !== cutoff
+    ) {
+        throw new CodexTranscriptHistoryError(`Codex transcript ${sessionFile} has invalid history base metadata`);
+    }
+    return { forkedFromId: threadId, ordinalExclusive: cutoff };
+};
+
+const readTranscriptBoundary = (sessionFile: string, metadata: Awaited<ReturnType<typeof readForkMetadata>>) => {
+    const boundary = readHistoryBaseBoundary(sessionFile, metadata) ?? readForkBoundary(sessionFile, metadata);
+    return boundary?.ordinalExclusive === 0 ? null : boundary;
 };
 
 /**
@@ -198,14 +248,25 @@ export type CodexForkParentTolerance = {
 
 // Finds a fork's parent rollout. When the parent is gone and tolerance was requested, records the gap and returns null.
 const resolveParentSessionFile = async (
-    fork: { forkCutoff: number; parentThreadId: string; sessionFile: string },
+    fork: { forkCutoff: number; isContinuation: boolean; parentThreadId: string; sessionFile: string },
     resolveForkedThread: CodexForkedThreadResolver,
     tolerance: CodexForkParentTolerance | undefined,
 ): Promise<string | null> => {
     try {
-        return await resolveForkedThread(fork.parentThreadId);
+        return await resolveForkedThread(fork.parentThreadId, fork.forkCutoff);
     } catch (error) {
-        if (!tolerance?.allowMissing) {
+        if (error instanceof CodexRolloutHistoryMissingError && fork.isContinuation && tolerance?.allowMissing) {
+            tolerance.missing.push({
+                ordinalExclusive: fork.forkCutoff,
+                reason: 'missing_rollout',
+                threadId: fork.parentThreadId,
+            });
+            return null;
+        }
+        if (error instanceof CodexTranscriptHistoryError) {
+            throw error;
+        }
+        if (fork.isContinuation || !tolerance?.allowMissing) {
             throw new CodexTranscriptHistoryError(
                 `Unable to resolve Codex fork parent ${fork.parentThreadId} for ${fork.sessionFile}`,
                 { cause: error },
@@ -230,7 +291,8 @@ export const resolveCodexTranscriptSegments = async (
     }
 
     const nextSeenFiles = new Set(seenFiles).add(normalizedSessionFile);
-    const forkBoundary = readForkBoundary(sessionFile, await readForkMetadata(sessionFile));
+    const metadata = await readForkMetadata(sessionFile);
+    const forkBoundary = readTranscriptBoundary(sessionFile, metadata);
     if (!forkBoundary) {
         return [{ maxOrdinalExclusive, minOrdinalInclusive: 0, sessionFile }];
     }
@@ -243,7 +305,7 @@ export const resolveCodexTranscriptSegments = async (
     }
 
     const parentSessionFile = await resolveParentSessionFile(
-        { forkCutoff, parentThreadId, sessionFile },
+        { forkCutoff, isContinuation: parentThreadId === metadata.id, parentThreadId, sessionFile },
         resolveForkedThread,
         tolerance,
     );

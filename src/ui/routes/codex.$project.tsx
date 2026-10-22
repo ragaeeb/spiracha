@@ -325,13 +325,13 @@ function ProjectDetailPage() {
             />
 
             {threadsQuery.isFetching && !threadsQuery.isLoading ? (
-                <p role="status" className="text-[var(--muted-foreground)] text-sm">
+                <p role="status" className="text-sm text-[var(--muted-foreground)]">
                     Refreshing project threads...
                 </p>
             ) : null}
 
             {recoverProjectMutation.isError ? (
-                <p className="text-[var(--destructive)] text-sm">
+                <p className="text-sm text-[var(--destructive)]">
                     {recoverProjectMutation.error instanceof Error
                         ? recoverProjectMutation.error.message
                         : 'Project recovery failed'}
@@ -339,7 +339,7 @@ function ProjectDetailPage() {
             ) : null}
 
             {recoverProjectMutation.isSuccess ? (
-                <p className="text-[var(--success)] text-sm">Project thread metadata recovery completed.</p>
+                <p className="text-sm text-[var(--success)]">Project thread metadata recovery completed.</p>
             ) : null}
 
             <ThreadsTable

@@ -53,11 +53,11 @@ const ToolDefinitions = ({ tools }: { tools: DynamicToolDefinition[] }) => {
 
     return (
         <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 shadow-[var(--panel-shadow)]">
-            <h3 className="font-semibold text-[var(--muted-foreground)] text-xs uppercase tracking-[0.18em]">
+            <h3 className="text-xs font-semibold tracking-[0.18em] text-[var(--muted-foreground)] uppercase">
                 Available tools
             </h3>
             {uniqueTools.length === 0 ? (
-                <p className="mt-3 text-[var(--muted-foreground)] text-sm">
+                <p className="mt-3 text-sm text-[var(--muted-foreground)]">
                     No dynamic tool definitions were recorded for this thread.
                 </p>
             ) : (
@@ -68,11 +68,11 @@ const ToolDefinitions = ({ tools }: { tools: DynamicToolDefinition[] }) => {
                             className="rounded-xl border border-[var(--border)] bg-[var(--panel-secondary)] p-3.5"
                         >
                             <div className="flex flex-wrap items-center gap-2">
-                                <p className="font-medium font-mono text-sm">{tool.name}</p>
+                                <p className="font-mono text-sm font-medium">{tool.name}</p>
                                 {tool.namespace ? <Badge variant="outline">{tool.namespace}</Badge> : null}
                                 {tool.deferLoading ? <Badge variant="outline">deferred</Badge> : null}
                             </div>
-                            <p className="mt-1.5 text-[var(--muted-foreground)] text-sm">
+                            <p className="mt-1.5 text-sm text-[var(--muted-foreground)]">
                                 {tool.description || 'No description.'}
                             </p>
                             {tool.inputSchema ? (
@@ -80,7 +80,7 @@ const ToolDefinitions = ({ tools }: { tools: DynamicToolDefinition[] }) => {
                                     <summary className="cursor-pointer text-[var(--muted-foreground)]">
                                         Input schema
                                     </summary>
-                                    <pre className="mt-2 overflow-x-auto rounded-lg bg-[var(--code-background)] p-3 text-[var(--code-foreground)] leading-5">
+                                    <pre className="mt-2 overflow-x-auto rounded-lg bg-[var(--code-background)] p-3 leading-5 text-[var(--code-foreground)]">
                                         {JSON.stringify(tool.inputSchema, null, 2)}
                                     </pre>
                                 </details>
@@ -115,7 +115,7 @@ export function ThreadToolsPanel({
             <ToolDefinitions tools={availableTools} />
             <section className="space-y-3 rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-4 shadow-[var(--panel-shadow)]">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                    <h3 className="font-semibold text-[var(--muted-foreground)] text-xs uppercase tracking-[0.18em]">
+                    <h3 className="text-xs font-semibold tracking-[0.18em] text-[var(--muted-foreground)] uppercase">
                         Tool activity
                     </h3>
                     {canLoadMore && onLoadTranscript ? (
@@ -125,9 +125,9 @@ export function ThreadToolsPanel({
                     ) : null}
                 </div>
                 {transcriptUnavailableMessage ? (
-                    <p className="text-[var(--muted-foreground)] text-sm">{transcriptUnavailableMessage}</p>
+                    <p className="text-sm text-[var(--muted-foreground)]">{transcriptUnavailableMessage}</p>
                 ) : toolEvents.length === 0 ? (
-                    <p className="text-[var(--muted-foreground)] text-sm">
+                    <p className="text-sm text-[var(--muted-foreground)]">
                         {canLoadMore
                             ? 'The current transcript preview has no tool activity. Load the full thread to inspect every call.'
                             : 'No tool calls, outputs, or web searches were recorded for this thread.'}

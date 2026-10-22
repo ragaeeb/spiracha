@@ -205,7 +205,7 @@ const columns = (
         }),
         columnHelper.accessor('lastUpdatedAtMs', {
             cell: (info) => (
-                <span className="whitespace-nowrap text-sm" suppressHydrationWarning>
+                <span className="text-sm whitespace-nowrap" suppressHydrationWarning>
                     {formatDateTime(info.getValue())}
                 </span>
             ),
