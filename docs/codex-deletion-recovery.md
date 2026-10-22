@@ -16,7 +16,6 @@ contention waits asynchronously with a bounded retry budget. Dry-run reads do no
 create or lock the journal.
 
 Every single, batch, and project deletion uses this protocol:
-
 1. Reconcile earlier pending intents before accepting a new deletion.
 2. Validate rollout paths and persist the new intent.
 3. Delete state rows and attached history rows in the existing SQLite transaction.

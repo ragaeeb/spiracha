@@ -76,7 +76,7 @@
                 }
             },
             "nursery": {
-                "useSortedClasses": "on"
+                "useTailwindSortedClasses": "on"
             },
             "preset": "recommended",
             "style": {

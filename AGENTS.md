@@ -46,7 +46,6 @@ CLI: `spiracha` (prints help with no args), `serve`, `list [--cwd <path>]`, `get
 ## Architecture Map
 
 Full module list: `docs/architecture.md`.
-
 - `src/client.ts`: public `spiracha/client` (local or HTTP mode).
 - `src/lib/conversation-api.ts`: HTTP handler shared by `src/ui/routes/api.v1.*.ts` and tests (envelopes, validation, dispatch, default selectors).
 - `src/lib/conversation-data/`: source registry (`index.ts`), shared types, `*-adapter.ts` per source, selectors, path matching, `evidence-*.ts`, normalized Markdown (`markdown.ts`).

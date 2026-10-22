@@ -8,31 +8,31 @@ The feature uses one source-independent engine for Codex, Claude Code, Command C
 
 ```ts
 type EvidenceLens = {
-  name: string; // 1-120 characters
-  anchors: EvidenceAnchor[]; // 1-32 anchors; OR across anchors
-  context: {
-    commentaryBefore: number; // integer 0-20
-    commentaryAfter: number; // integer 0-20
-    includeReasoningSummaries: boolean;
-    followRetries: boolean;
-    followWorkarounds: boolean;
-    maxOrderGap: number; // integer 1-100
-  };
-  budget: {
-    totalCharacters: number; // integer 2,000-1,000,000
-    successfulOutputCharacters: number; // integer 0-1,000,000
-    failedOutputCharacters: number; // integer 0-1,000,000
-    commentaryCharactersPerEpisode: number; // integer 0-1,000,000
-  };
+    name: string; // 1-120 characters
+    anchors: EvidenceAnchor[]; // 1-32 anchors; OR across anchors
+    context: {
+        commentaryBefore: number; // integer 0-20
+        commentaryAfter: number; // integer 0-20
+        includeReasoningSummaries: boolean;
+        followRetries: boolean;
+        followWorkarounds: boolean;
+        maxOrderGap: number; // integer 1-100
+    };
+    budget: {
+        totalCharacters: number; // integer 2,000-1,000,000
+        successfulOutputCharacters: number; // integer 0-1,000,000
+        failedOutputCharacters: number; // integer 0-1,000,000
+        commentaryCharactersPerEpisode: number; // integer 0-1,000,000
+    };
 };
 
 type EvidenceAnchor =
-  | { kind: "tool"; names?: string[]; namespaces?: string[] }
-  | { kind: "shell-command"; executables: string[]; subcommands?: string[] }
-  | { kind: "artifact"; globs: string[] }
-  | { kind: "schema"; prefixes: string[] }
-  | { kind: "cwd"; globs: string[] }
-  | { kind: "text"; literals: string[] };
+    | { kind: 'tool'; names?: string[]; namespaces?: string[] }
+    | { kind: 'shell-command'; executables: string[]; subcommands?: string[] }
+    | { kind: 'artifact'; globs: string[] }
+    | { kind: 'schema'; prefixes: string[] }
+    | { kind: 'cwd'; globs: string[] }
+    | { kind: 'text'; literals: string[] };
 ```
 
 An anchor has AND semantics across its populated fields. For example, a tool anchor with both `names` and `namespaces` must match both. Each string array contains 1-32 values; each value is at most 256 characters. Globs may contain at most eight `*` characters. Unknown fields, unknown anchor kinds, empty arrays, NUL bytes, out-of-range windows, and out-of-range budgets are rejected with the failing JSON path.
@@ -45,26 +45,26 @@ Save a project lens as `config/spiracha-evidence-lens.json` and review changes t
 
 ```json
 {
-  "name": "CLI and artifact evidence",
-  "anchors": [
-    { "kind": "shell-command", "executables": ["bun"], "subcommands": ["test"] },
-    { "kind": "tool", "namespaces": ["workspace"] },
-    { "kind": "artifact", "globs": ["reports/**/*.json"] }
-  ],
-  "context": {
-    "commentaryBefore": 2,
-    "commentaryAfter": 2,
-    "includeReasoningSummaries": true,
-    "followRetries": true,
-    "followWorkarounds": true,
-    "maxOrderGap": 20
-  },
-  "budget": {
-    "totalCharacters": 40000,
-    "successfulOutputCharacters": 1500,
-    "failedOutputCharacters": 6000,
-    "commentaryCharactersPerEpisode": 1500
-  }
+    "name": "CLI and artifact evidence",
+    "anchors": [
+        { "kind": "shell-command", "executables": ["bun"], "subcommands": ["test"] },
+        { "kind": "tool", "namespaces": ["workspace"] },
+        { "kind": "artifact", "globs": ["reports/**/*.json"] }
+    ],
+    "context": {
+        "commentaryBefore": 2,
+        "commentaryAfter": 2,
+        "includeReasoningSummaries": true,
+        "followRetries": true,
+        "followWorkarounds": true,
+        "maxOrderGap": 20
+    },
+    "budget": {
+        "totalCharacters": 40000,
+        "successfulOutputCharacters": 1500,
+        "failedOutputCharacters": 6000,
+        "commentaryCharactersPerEpisode": 1500
+    }
 }
 ```
 
@@ -79,24 +79,24 @@ The CLI delegates to the same normalized client and evidence renderer as the UI 
 Local Bun client:
 
 ```ts
-import { createConversationClient } from "spiracha/client";
+import { createConversationClient } from 'spiracha/client';
 
-const lens = await Bun.file("config/spiracha-evidence-lens.json").json();
-const client = createConversationClient({ mode: "local" });
+const lens = await Bun.file('config/spiracha-evidence-lens.json').json();
+const client = createConversationClient({ mode: 'local' });
 const result = await client.exportConversationEvidenceMarkdown({
-  source: "codex",
-  id: process.env.CONVERSATION_ID!,
-  lens,
+    source: 'codex',
+    id: process.env.CONVERSATION_ID!,
+    lens,
 });
 
-if (result) await Bun.write("focused-evidence.md", result.markdown);
+if (result) await Bun.write('focused-evidence.md', result.markdown);
 ```
 
 HTTP client:
 
 ```ts
-const client = createConversationClient({ mode: "http", baseUrl: "http://localhost:3000" });
-const result = await client.exportConversationEvidenceMarkdown({ source: "opencode", id, lens });
+const client = createConversationClient({ mode: 'http', baseUrl: 'http://localhost:3000' });
+const result = await client.exportConversationEvidenceMarkdown({ source: 'opencode', id, lens });
 ```
 
 Direct HTTP request:
@@ -140,9 +140,9 @@ Content-Type: application/json
 
 ```ts
 const result = await client.exportConversationEvidenceMarkdown({
-  source: "kiro",
-  id: parentSessionId,
-  lens,
+    source: 'kiro',
+    id: parentSessionId,
+    lens,
 });
 ```
 
@@ -191,7 +191,7 @@ message-order range. Narrow that range, or select an exact `messageId`, before
 retrieving more:
 
 ```json
-{"revision":"<revision from export>","messageId":"<message ID>","maxCharacters":12000}
+{ "revision": "<revision from export>", "messageId": "<message ID>", "maxCharacters": 12000 }
 ```
 
 Save this as `request.json`, then run:

@@ -134,43 +134,43 @@ Abbreviated response envelope (required nullable fields and message identity/ord
 
 ```json
 {
-  "data": [
-    {
-      "source": "codex",
-      "id": "019ecbfc-8a84-7421-ab3b-35653feb7896",
-      "title": "Review thread",
-      "workspacePath": "/Users/me/workspace/fgh",
-      "messages": [
+    "data": [
         {
-          "role": "assistant",
-          "phase": "final_answer",
-          "text": "Final review result..."
+            "source": "codex",
+            "id": "019ecbfc-8a84-7421-ab3b-35653feb7896",
+            "title": "Review thread",
+            "workspacePath": "/Users/me/workspace/fgh",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "phase": "final_answer",
+                    "text": "Final review result..."
+                }
+            ],
+            "deepLinks": {
+                "ui": "/threads/019ecbfc-8a84-7421-ab3b-35653feb7896",
+                "native": "codex://threads/019ecbfc-8a84-7421-ab3b-35653feb7896",
+                "spiracha": "spiracha://conversation/codex/019ecbfc-8a84-7421-ab3b-35653feb7896"
+            }
         }
-      ],
-      "deepLinks": {
-        "ui": "/threads/019ecbfc-8a84-7421-ab3b-35653feb7896",
-        "native": "codex://threads/019ecbfc-8a84-7421-ab3b-35653feb7896",
-        "spiracha": "spiracha://conversation/codex/019ecbfc-8a84-7421-ab3b-35653feb7896"
-      }
+    ],
+    "meta": {
+        "has_next": false,
+        "next_cursor": null
     }
-  ],
-  "meta": {
-    "has_next": false,
-    "next_cursor": null
-  }
 }
 ```
 
 For direct access from Bun scripts and CLIs, use the public `spiracha/client` Bun SDK rather than shelling out. Local mode reads the source data without starting the UI server:
 
 ```ts
-import { createConversationClient } from "spiracha/client";
+import { createConversationClient } from 'spiracha/client';
 
-const client = createConversationClient({ mode: "local" });
+const client = createConversationClient({ mode: 'local' });
 const page = await client.listConversations({
-  cwd: process.cwd(),
-  includeMessages: true,
-  messageSelector: "last_final_answer",
+    cwd: process.cwd(),
+    includeMessages: true,
+    messageSelector: 'last_final_answer',
 });
 ```
 
@@ -218,36 +218,36 @@ The `/analytics` view can scope results to one project or all projects. It repor
 
 ## Source Locations
 
-| Source | Default location | Primary override |
-| --- | --- | --- |
-| Codex | shared Codex DB probe list | `SPIRACHA_CODEX_DB` |
-| Claude Code | `~/.claude/projects` | `SPIRACHA_CLAUDE_CODE_DATA_DIR`, `SPIRACHA_CLAUDE_CODE_PROJECTS_DIR` |
-| Cline | `~/.cline/data` (sessions below this directory) | `SPIRACHA_CLINE_DATA_DIR` |
-| Grok | `~/.grok/sessions` | `SPIRACHA_GROK_HOME`, `SPIRACHA_GROK_SESSIONS_DIR` |
-| Grok Bot | `~/Library/Application Support/Grok Bot/sand-client-persistence` | `SPIRACHA_GROK_BOT_PERSISTENCE_DIR` |
-| Kiro | `~/Library/Application Support/Kiro/User/globalStorage/kiro.kiroagent/workspace-sessions` | `SPIRACHA_KIRO_DATA_DIR`, `SPIRACHA_KIRO_WORKSPACE_SESSIONS_DIR` |
-| Qoder | `~/Library/Application Support/Qoder/User/globalStorage/state.vscdb`, `~/Library/Application Support/Qoder/User/workspaceStorage`, and `~/Library/Application Support/Qoder/SharedClientCache/cli/projects` | `SPIRACHA_QODER_USER_DIR`, `SPIRACHA_QODER_GLOBAL_STATE_DB`, `SPIRACHA_QODER_WORKSPACE_STORAGE_DIR`, `SPIRACHA_QODER_CLI_PROJECTS_DIR` |
-| Cursor | `~/Library/Application Support/Cursor/User` on macOS | `SPIRACHA_CURSOR_USER_DIR`, `SPIRACHA_CURSOR_PROJECTS_DIR` |
-| Antigravity | `~/.gemini/antigravity-ide`, `~/.gemini/antigravity-cli`, and `~/.gemini/antigravity` | `SPIRACHA_ANTIGRAVITY_DIRS`, `SPIRACHA_ANTIGRAVITY_DIR` |
-| FX | `~/.fx` | `SPIRACHA_FX_DATA_DIR` |
-| MiniMax Code | `~/.minimax/v2/sessions` and `~/.minimax/v2/sqlite/runtime-state.sqlite` | `SPIRACHA_MINIMAX_CODE_DATA_DIR`, `SPIRACHA_MINIMAX_CODE_SESSIONS_DIR`, `SPIRACHA_MINIMAX_CODE_RUNTIME_DB_PATH` |
-| Command Code | `~/.commandcode/projects` | `SPIRACHA_COMMAND_CODE_DIR`, `SPIRACHA_COMMAND_CODE_PROJECTS_DIR` |
-| OpenCode | `${XDG_DATA_HOME:-~/.local/share}/opencode/opencode.db` | `SPIRACHA_OPENCODE_DATA_DIR`, `SPIRACHA_OPENCODE_DB` |
-| UI cache | `~/.cache/spiracha/ui-cache` | `SPIRACHA_UI_CACHE_DIR` |
-| UI exports | `~/.cache/spiracha/ui-exports` | `SPIRACHA_UI_EXPORT_DIR` |
+| Source       | Default location                                                                                                                                                                                            | Primary override                                                                                                                       |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Codex        | shared Codex DB probe list                                                                                                                                                                                  | `SPIRACHA_CODEX_DB`                                                                                                                    |
+| Claude Code  | `~/.claude/projects`                                                                                                                                                                                        | `SPIRACHA_CLAUDE_CODE_DATA_DIR`, `SPIRACHA_CLAUDE_CODE_PROJECTS_DIR`                                                                   |
+| Cline        | `~/.cline/data` (sessions below this directory)                                                                                                                                                             | `SPIRACHA_CLINE_DATA_DIR`                                                                                                              |
+| Grok         | `~/.grok/sessions`                                                                                                                                                                                          | `SPIRACHA_GROK_HOME`, `SPIRACHA_GROK_SESSIONS_DIR`                                                                                     |
+| Grok Bot     | `~/Library/Application Support/Grok Bot/sand-client-persistence`                                                                                                                                            | `SPIRACHA_GROK_BOT_PERSISTENCE_DIR`                                                                                                    |
+| Kiro         | `~/Library/Application Support/Kiro/User/globalStorage/kiro.kiroagent/workspace-sessions`                                                                                                                   | `SPIRACHA_KIRO_DATA_DIR`, `SPIRACHA_KIRO_WORKSPACE_SESSIONS_DIR`                                                                       |
+| Qoder        | `~/Library/Application Support/Qoder/User/globalStorage/state.vscdb`, `~/Library/Application Support/Qoder/User/workspaceStorage`, and `~/Library/Application Support/Qoder/SharedClientCache/cli/projects` | `SPIRACHA_QODER_USER_DIR`, `SPIRACHA_QODER_GLOBAL_STATE_DB`, `SPIRACHA_QODER_WORKSPACE_STORAGE_DIR`, `SPIRACHA_QODER_CLI_PROJECTS_DIR` |
+| Cursor       | `~/Library/Application Support/Cursor/User` on macOS                                                                                                                                                        | `SPIRACHA_CURSOR_USER_DIR`, `SPIRACHA_CURSOR_PROJECTS_DIR`                                                                             |
+| Antigravity  | `~/.gemini/antigravity-ide`, `~/.gemini/antigravity-cli`, and `~/.gemini/antigravity`                                                                                                                       | `SPIRACHA_ANTIGRAVITY_DIRS`, `SPIRACHA_ANTIGRAVITY_DIR`                                                                                |
+| FX           | `~/.fx`                                                                                                                                                                                                     | `SPIRACHA_FX_DATA_DIR`                                                                                                                 |
+| MiniMax Code | `~/.minimax/v2/sessions` and `~/.minimax/v2/sqlite/runtime-state.sqlite`                                                                                                                                    | `SPIRACHA_MINIMAX_CODE_DATA_DIR`, `SPIRACHA_MINIMAX_CODE_SESSIONS_DIR`, `SPIRACHA_MINIMAX_CODE_RUNTIME_DB_PATH`                        |
+| Command Code | `~/.commandcode/projects`                                                                                                                                                                                   | `SPIRACHA_COMMAND_CODE_DIR`, `SPIRACHA_COMMAND_CODE_PROJECTS_DIR`                                                                      |
+| OpenCode     | `${XDG_DATA_HOME:-~/.local/share}/opencode/opencode.db`                                                                                                                                                     | `SPIRACHA_OPENCODE_DATA_DIR`, `SPIRACHA_OPENCODE_DB`                                                                                   |
+| UI cache     | `~/.cache/spiracha/ui-cache`                                                                                                                                                                                | `SPIRACHA_UI_CACHE_DIR`                                                                                                                |
+| UI exports   | `~/.cache/spiracha/ui-exports`                                                                                                                                                                              | `SPIRACHA_UI_EXPORT_DIR`                                                                                                               |
 
 ### Cache and export lifecycle
 
 Spiracha bounds temporary disk use by age and total retained bytes. Values are non-negative integer byte or millisecond counts; invalid values fail startup/request handling instead of silently falling back.
 
-| Variable | Default | Purpose |
-| --- | ---: | --- |
-| `SPIRACHA_UI_CACHE_BYPASS` | `0` | Set to `1` to bypass UI JSON cache reads and writes during development. |
-| `SPIRACHA_UI_CACHE_MAX_AGE_MS` | `86400000` | Maximum age of UI JSON cache entries. |
-| `SPIRACHA_UI_CACHE_MAX_BYTES` | `268435456` | Total UI JSON cache ceiling; oldest entries are pruned first. |
-| `SPIRACHA_UI_EXPORT_MAX_AGE_MS` | `86400000` | Maximum age of temporary downloadable exports. |
-| `SPIRACHA_UI_EXPORT_MAX_BYTES` | `1073741824` | Total temporary export ceiling; oldest exports are pruned first. |
-| `SPIRACHA_UI_LARGE_EXPORT_THRESHOLD_BYTES` | `134217728` | Size above which a single transcript export switches to a temporary zipped download. |
+| Variable                                   |      Default | Purpose                                                                              |
+| ------------------------------------------ | -----------: | ------------------------------------------------------------------------------------ |
+| `SPIRACHA_UI_CACHE_BYPASS`                 |          `0` | Set to `1` to bypass UI JSON cache reads and writes during development.              |
+| `SPIRACHA_UI_CACHE_MAX_AGE_MS`             |   `86400000` | Maximum age of UI JSON cache entries.                                                |
+| `SPIRACHA_UI_CACHE_MAX_BYTES`              |  `268435456` | Total UI JSON cache ceiling; oldest entries are pruned first.                        |
+| `SPIRACHA_UI_EXPORT_MAX_AGE_MS`            |   `86400000` | Maximum age of temporary downloadable exports.                                       |
+| `SPIRACHA_UI_EXPORT_MAX_BYTES`             | `1073741824` | Total temporary export ceiling; oldest exports are pruned first.                     |
+| `SPIRACHA_UI_LARGE_EXPORT_THRESHOLD_BYTES` |  `134217728` | Size above which a single transcript export switches to a temporary zipped download. |
 
 Codex fallback session indexes and rollout rows use bounded LRU caches. Claude Code, Kiro, and Cursor discovery use short-lived, bounded indexes with in-flight request coalescing and mutation invalidation. Kiro builds one validated session-ID index across execution storage, including nested layouts, instead of rescanning per session. Cursor indexes direct composer-id lookups instead of rescanning every workspace group. File identity metadata invalidates changed transcripts, source mutations invalidate affected entries immediately, and no raw source payload is persisted by these caches.
 

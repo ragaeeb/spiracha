@@ -41,18 +41,18 @@ no remote authentication.
 
 ## Operations
 
-| Method | Successful result | Missing or unsupported result |
-| --- | --- | --- |
-| `listSources()` | `ConversationSourceInfo[]` | Static registry, not an installation check |
-| `listConversations(options)` | `{ data, meta: { hasNext, nextCursor } }` | Empty page; source failures may throw or be suppressed in all-source mode |
-| `getConversation(options)` | `ConversationDetail` | null for recognized missing conversation |
-| `exportConversationMarkdown(options)` | Markdown string | null for recognized missing conversation |
-| `exportConversationRaw(options)` | `{ blob, fileName, mimeType }` using the native name and original MIME (`application/json`, `application/x-ndjson`, `application/octet-stream`, or `application/zip`) | null if no standalone original exists; HTTP `original_representation_unavailable` is mapped to null |
-| `exportConversationEvidenceMarkdown(options)` | `{ markdown, meta }` | null for recognized missing conversation |
-| `exportConversationsZip(options)` | `{ blob, fileName, mimeType: 'application/zip' }` | null if any requested conversation is missing |
-| `deleteConversation(options)` | Delete result with IDs/files and optional cleanup failures | See mode distinction below |
-| `deleteConversations(options)` | Aggregate and per-ID delete results | See mode distinction below |
-| `resolveConversationRef(ref)` | `{ source, id }` | null for an unrecognized reference |
+| Method                                        | Successful result                                                                                                                                                     | Missing or unsupported result                                                                       |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `listSources()`                               | `ConversationSourceInfo[]`                                                                                                                                            | Static registry, not an installation check                                                          |
+| `listConversations(options)`                  | `{ data, meta: { hasNext, nextCursor } }`                                                                                                                             | Empty page; source failures may throw or be suppressed in all-source mode                           |
+| `getConversation(options)`                    | `ConversationDetail`                                                                                                                                                  | null for recognized missing conversation                                                            |
+| `exportConversationMarkdown(options)`         | Markdown string                                                                                                                                                       | null for recognized missing conversation                                                            |
+| `exportConversationRaw(options)`              | `{ blob, fileName, mimeType }` using the native name and original MIME (`application/json`, `application/x-ndjson`, `application/octet-stream`, or `application/zip`) | null if no standalone original exists; HTTP `original_representation_unavailable` is mapped to null |
+| `exportConversationEvidenceMarkdown(options)` | `{ markdown, meta }`                                                                                                                                                  | null for recognized missing conversation                                                            |
+| `exportConversationsZip(options)`             | `{ blob, fileName, mimeType: 'application/zip' }`                                                                                                                     | null if any requested conversation is missing                                                       |
+| `deleteConversation(options)`                 | Delete result with IDs/files and optional cleanup failures                                                                                                            | See mode distinction below                                                                          |
+| `deleteConversations(options)`                | Aggregate and per-ID delete results                                                                                                                                   | See mode distinction below                                                                          |
+| `resolveConversationRef(ref)`                 | `{ source, id }`                                                                                                                                                      | null for an unrecognized reference                                                                  |
 
 There are ten methods on `ConversationClient`; `convertConversationPayload` is a
 separate named export, not a client method. `listSources()` returns the supported

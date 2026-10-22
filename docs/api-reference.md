@@ -7,20 +7,20 @@ authentication. JSON responses use `Cache-Control: no-store` and
 
 ## Endpoints and bodies
 
-| Method and path | Input | Success |
-| --- | --- | --- |
-| `GET /sources` | None | `{ data: ConversationSourceInfo[] }`; registry, not availability |
-| `GET /conversations` | List query parameters below | `{ data: ConversationDetail[], meta }` |
-| `POST /conversation-query` | JSON list options below | Same list envelope |
-| `GET /conversations/:source/:id` | Optional `message_selector` | `{ data: ConversationDetail }` |
-| `GET /conversations/:source/:id/export` | Optional `message_selector` | Markdown download |
-| `GET` or `HEAD /conversations/:source/:id/raw` | No message selector | Original file bytes; HEAD omits the body |
-| `POST /conversations/:source/:id/evidence` | `{ lens, generated_at? }` | `{ data: { markdown, meta } }` |
-| `POST /conversation-payload` | `{ payload, source?, file_name?, message_selector? }` | `{ data: ConvertedConversation[] }` |
-| `DELETE /conversations/:source/:id` | Optional `delete_session_files` | `{ data: DeleteConversationResult }` |
-| `POST /conversations/delete` | `{ source, ids, delete_session_files? }` | `{ data: DeleteConversationsResult }` |
-| `POST /conversations/export` | `{ source, ids, message_selector?, output_format? }` | ZIP download containing Markdown |
-| `GET /resolve` | `ref` URL/deep link | `{ data: { source, id } }` |
+| Method and path                                | Input                                                 | Success                                                          |
+| ---------------------------------------------- | ----------------------------------------------------- | ---------------------------------------------------------------- |
+| `GET /sources`                                 | None                                                  | `{ data: ConversationSourceInfo[] }`; registry, not availability |
+| `GET /conversations`                           | List query parameters below                           | `{ data: ConversationDetail[], meta }`                           |
+| `POST /conversation-query`                     | JSON list options below                               | Same list envelope                                               |
+| `GET /conversations/:source/:id`               | Optional `message_selector`                           | `{ data: ConversationDetail }`                                   |
+| `GET /conversations/:source/:id/export`        | Optional `message_selector`                           | Markdown download                                                |
+| `GET` or `HEAD /conversations/:source/:id/raw` | No message selector                                   | Original file bytes; HEAD omits the body                         |
+| `POST /conversations/:source/:id/evidence`     | `{ lens, generated_at? }`                             | `{ data: { markdown, meta } }`                                   |
+| `POST /conversation-payload`                   | `{ payload, source?, file_name?, message_selector? }` | `{ data: ConvertedConversation[] }`                              |
+| `DELETE /conversations/:source/:id`            | Optional `delete_session_files`                       | `{ data: DeleteConversationResult }`                             |
+| `POST /conversations/delete`                   | `{ source, ids, delete_session_files? }`              | `{ data: DeleteConversationsResult }`                            |
+| `POST /conversations/export`                   | `{ source, ids, message_selector?, output_format? }`  | ZIP download containing Markdown                                 |
+| `GET /resolve`                                 | `ref` URL/deep link                                   | `{ data: { source, id } }`                                       |
 
 The Codex UI event stream has a separate handler; it is not one of the
 `ConversationClient` methods. The full DTO definitions are in
@@ -30,16 +30,16 @@ null; optional extensions may be omitted. HTTP page metadata is
 
 ## List and query options
 
-| HTTP GET field | POST field / alias | Meaning |
-| --- | --- | --- |
-| `cwd` | `cwd` | Nonempty absolute path, at most 4096 characters; workspace scope |
-| `source` | `sources` / `source` | GET comma-separated source names; JSON also accepts an array or the string `all` |
-| `include_messages` | `includeMessages` / `include_messages` | GET true only for `true` or `1`; JSON requires a boolean |
-| `message_selector` | `messageSelector` / `message_selector` | `all`, `last_assistant`, or `last_final_answer` |
-| `limit` | `limit` | Positive integer; default 100; values above 200 are clamped |
-| `cursor` | `cursor` | Opaque cursor from the preceding page |
-| `updated_after_ms` | `updatedAfterMs` / `updated_after_ms` | Inclusive lower epoch-millisecond bound |
-| `updated_before_ms` | `updatedBeforeMs` / `updated_before_ms` | Inclusive upper epoch-millisecond bound |
+| HTTP GET field      | POST field / alias                      | Meaning                                                                          |
+| ------------------- | --------------------------------------- | -------------------------------------------------------------------------------- |
+| `cwd`               | `cwd`                                   | Nonempty absolute path, at most 4096 characters; workspace scope                 |
+| `source`            | `sources` / `source`                    | GET comma-separated source names; JSON also accepts an array or the string `all` |
+| `include_messages`  | `includeMessages` / `include_messages`  | GET true only for `true` or `1`; JSON requires a boolean                         |
+| `message_selector`  | `messageSelector` / `message_selector`  | `all`, `last_assistant`, or `last_final_answer`                                  |
+| `limit`             | `limit`                                 | Positive integer; default 100; values above 200 are clamped                      |
+| `cursor`            | `cursor`                                | Opaque cursor from the preceding page                                            |
+| `updated_after_ms`  | `updatedAfterMs` / `updated_after_ms`   | Inclusive lower epoch-millisecond bound                                          |
+| `updated_before_ms` | `updatedBeforeMs` / `updated_before_ms` | Inclusive upper epoch-millisecond bound                                          |
 
 JSON numbers must be actual finite numbers, not numeric strings. Timestamps must
 be safe integers from 0 through 9,999,999,999,999. When both a camelCase field and
@@ -78,7 +78,10 @@ const client = createConversationClient({ mode: 'http', baseUrl: 'http://127.0.0
 let cursor: string | null = null;
 do {
     const page = await client.listConversations({
-        cwd: '/absolute/project', sources: ['codex'], limit: 100, cursor,
+        cwd: '/absolute/project',
+        sources: ['codex'],
+        limit: 100,
+        cursor,
     });
     for (const conversation of page.data) console.log(conversation.id);
     cursor = page.meta.nextCursor;
@@ -156,22 +159,22 @@ unknown-field behavior to these endpoints.
 ## Error envelope
 
 ```json
-{"error":{"code":"validation_error","message":"Request body must be JSON."}}
+{ "error": { "code": "validation_error", "message": "Request body must be JSON." } }
 ```
 
 `details` is optional and depends on the failure. Do not parse human message text
 as a stable machine protocol.
 
-| Status | Code | Meaning |
-| --- | --- | --- |
-| 400 | `validation_error` | Invalid options, body, selector, source, ID, lens, or payload |
-| 413 | `validation_error` | HTTP payload/request envelope exceeded its streamed byte cap |
-| 403 | `origin_not_allowed` | Stable handler rejected browser Origin/loopback URL |
-| 404 | `conversation_not_found` | Missing conversation, unresolvable reference, unavailable raw file, or missing batch IDs |
-| 404 | `not_found` | Unrecognized stable route shape |
-| 405 | `method_not_allowed` | Known route with wrong method; `Allow` identifies handlers |
-| 405 | `unsupported_operation` | Source has no stable delete operation |
-| 500 | `internal_error` | Handler exception; client message is generic and server logs contain diagnostic context |
+| Status | Code                     | Meaning                                                                                  |
+| ------ | ------------------------ | ---------------------------------------------------------------------------------------- |
+| 400    | `validation_error`       | Invalid options, body, selector, source, ID, lens, or payload                            |
+| 413    | `validation_error`       | HTTP payload/request envelope exceeded its streamed byte cap                             |
+| 403    | `origin_not_allowed`     | Stable handler rejected browser Origin/loopback URL                                      |
+| 404    | `conversation_not_found` | Missing conversation, unresolvable reference, unavailable raw file, or missing batch IDs |
+| 404    | `not_found`              | Unrecognized stable route shape                                                          |
+| 405    | `method_not_allowed`     | Known route with wrong method; `Allow` identifies handlers                               |
+| 405    | `unsupported_operation`  | Source has no stable delete operation                                                    |
+| 500    | `internal_error`         | Handler exception; client message is generic and server logs contain diagnostic context  |
 
 The production wrapper can reject an Origin with a plain-text 403 before the
 stable handler runs, and non-API assets/download routes have their own responses.

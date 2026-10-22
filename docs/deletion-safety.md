@@ -31,21 +31,21 @@ Every row supports normalized list/detail and Markdown/evidence export when its
 source records are readable. Raw support means an adapter can return a standalone
 file; individual records may still have no raw file.
 
-| Source | Stable delete | Standalone raw export | `deleteSessionFiles` behavior |
-| --- | --- | --- | --- |
-| Antigravity | Yes | Conditional generated transcript | Not consulted by adapter |
-| Claude Code | Yes; parent includes recognized lineage | Physical transcript file | Not consulted by adapter |
-| Cline | Yes | Session JSON | Not consulted by adapter |
-| Codex | Yes | Rollout JSONL | Adapter always requests rollout deletion |
-| Command Code | Yes; durable sidecar/replica receipt | Session JSONL | Not consulted by adapter |
-| Cursor | Yes; app must be stopped | No stable raw operation | Omitted/true removes transcript directories; false preserves them |
-| FX | Yes | No stable raw operation | Not consulted by adapter |
-| Grok | Yes | Standalone source JSON | Not consulted by adapter |
-| Grok Bot | Yes; authenticated remote bot/group deletion | Exact account replica `.blob` | Not consulted by adapter |
-| Kiro | Yes; parent includes recognized lineage | Physical session JSON | Not consulted by adapter |
-| MiniMax Code | Yes | Standalone session data where available | Not consulted by adapter |
-| OpenCode | Yes | No stable raw operation | Not consulted by adapter |
-| Qoder | Yes; app must be stopped; durable cleanup receipt | Conditional CLI transcript | Not consulted by adapter |
+| Source       | Stable delete                                     | Standalone raw export                   | `deleteSessionFiles` behavior                                     |
+| ------------ | ------------------------------------------------- | --------------------------------------- | ----------------------------------------------------------------- |
+| Antigravity  | Yes                                               | Conditional generated transcript        | Not consulted by adapter                                          |
+| Claude Code  | Yes; parent includes recognized lineage           | Physical transcript file                | Not consulted by adapter                                          |
+| Cline        | Yes                                               | Session JSON                            | Not consulted by adapter                                          |
+| Codex        | Yes                                               | Rollout JSONL                           | Adapter always requests rollout deletion                          |
+| Command Code | Yes; durable sidecar/replica receipt              | Session JSONL                           | Not consulted by adapter                                          |
+| Cursor       | Yes; app must be stopped                          | No stable raw operation                 | Omitted/true removes transcript directories; false preserves them |
+| FX           | Yes                                               | No stable raw operation                 | Not consulted by adapter                                          |
+| Grok         | Yes                                               | Standalone source JSON                  | Not consulted by adapter                                          |
+| Grok Bot     | Yes; authenticated remote bot/group deletion      | Exact account replica `.blob`           | Not consulted by adapter                                          |
+| Kiro         | Yes; parent includes recognized lineage           | Physical session JSON                   | Not consulted by adapter                                          |
+| MiniMax Code | Yes                                               | Standalone session data where available | Not consulted by adapter                                          |
+| OpenCode     | Yes                                               | No stable raw operation                 | Not consulted by adapter                                          |
+| Qoder        | Yes; app must be stopped; durable cleanup receipt | Conditional CLI transcript              | Not consulted by adapter                                          |
 
 HTTP uses `delete_session_files`; the client uses `deleteSessionFiles`. In this
 version only the Cursor stable adapter honors the preservation choice. In
